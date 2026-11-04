@@ -740,8 +740,9 @@ fn add_project_restores_a_recently_removed_project_with_a_terminal(cx: &mut Test
     boot.settings.appearance.sidebar_expanded = true;
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
     cx.run_until_parked();
-    let add_project = cx.debug_bounds("sidebar-add-project").expect("add project");
+    let add_project = cx.debug_bounds("add-project").expect("add project");
     cx.simulate_click(add_project.center(), Modifiers::none());
     cx.run_until_parked();
     assert!(cx.debug_bounds("menu-label-Local").is_some());
@@ -751,6 +752,7 @@ fn add_project_restores_a_recently_removed_project_with_a_terminal(cx: &mut Test
 
     view.update(cx, |model, cx| model.remove_project_confirmed(first, cx));
     cx.run_until_parked();
+    let add_project = cx.debug_bounds("add-project").expect("add project");
     cx.simulate_click(add_project.center(), Modifiers::none());
     cx.run_until_parked();
     let removed = cx
@@ -771,7 +773,9 @@ fn add_project_restores_a_recently_removed_project_with_a_terminal(cx: &mut Test
         assert_eq!(model.state.removed_projects().len(), 1);
         assert!(model.overlay.is_none());
     });
-    let add_project = cx.debug_bounds("sidebar-add-project").expect("add project");
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let add_project = cx.debug_bounds("add-project").expect("add project");
     cx.simulate_click(add_project.center(), Modifiers::none());
     cx.run_until_parked();
     view.update(cx, |model, cx| {
@@ -799,6 +803,7 @@ fn restoration_acknowledgements_dismiss_stale_recovery_menus(cx: &mut TestAppCon
     let (mut boot, _requests) = stub_boot(state);
     boot.settings.appearance.sidebar_expanded = true;
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
     view.update(cx, |model, cx| {
         acknowledge_catalog(model, cx);
         model.restore_removed_project(0, cx);
@@ -806,7 +811,9 @@ fn restoration_acknowledgements_dismiss_stale_recovery_menus(cx: &mut TestAppCon
     });
     cx.run_until_parked();
     let open_removed = |cx: &mut VisualTestContext| {
-        let add_project = cx.debug_bounds("sidebar-add-project").expect("add project");
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let add_project = cx.debug_bounds("add-project").expect("add project");
         cx.simulate_click(add_project.center(), Modifiers::none());
         cx.run_until_parked();
         let removed = cx

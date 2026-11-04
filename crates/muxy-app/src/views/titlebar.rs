@@ -58,7 +58,9 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
             && Some(tab.id) == model.active_tab()
             && (tab.zoomed.is_some() || tab.panes.len() > 1)
     });
-    let controls = 2
+    let settings = !model.sidebar_footer_shown();
+    let controls = 1
+        + u8::from(settings)
         + u8::from(existing_count > 0)
         + u8::from(browser)
         + u8::from(zoom_tab.is_some())
@@ -108,7 +110,9 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         })
         .child(model.extension_toolbar(cx))
         .child(super::agent_sessions::button(model, cx))
-        .child(super::tab_strip::settings_button(model, cx));
+        .when(settings, |bar| {
+            bar.child(super::tab_strip::settings_button(model, cx))
+        });
     #[cfg(target_os = "linux")]
     if let Some(controls) = linux::controls(
         window,

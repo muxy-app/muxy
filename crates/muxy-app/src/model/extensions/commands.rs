@@ -224,12 +224,7 @@ impl AppModel {
             }
         }
         let manage: Handler = std::rc::Rc::new(|model, window, cx| {
-            model.show_settings(window, cx);
-            if let Some(settings) = &model.settings_tab {
-                settings
-                    .view
-                    .update(cx, crate::views::settings::SettingsView::show_extensions);
-            }
+            model.show_extensions_settings(window, cx);
         });
         registry.register(
             Command::new("extensions.manage", tr!("Manage Extensions"), manage)

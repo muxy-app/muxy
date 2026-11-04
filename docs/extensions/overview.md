@@ -54,9 +54,11 @@ Extensions start disabled after installing or loading. The one exception is
 **Install & Enable** in the [welcome tour](../product/app-model.md#welcome-tour),
 which offers Files and Git with their permissions listed.
 
-Muxy checks installed marketplace extensions for updates at startup and when
-you open **Settings → Extensions**. Available versions appear in the installed
-list; use **Update all** or an extension's update controls to install them.
+Muxy checks installed marketplace extensions for updates at startup, every six
+hours while it stays open, and when you open **Settings → Extensions**. A dot on
+**Extensions** at the bottom of the sidebar marks available updates. They appear
+in the installed list; use **Update all** or an extension's update controls to
+install them.
 Unpacked development extensions are excluded from these checks.
 
 ## Security

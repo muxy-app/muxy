@@ -1,5 +1,4 @@
 mod resize;
-pub(super) mod tips;
 mod vibrancy;
 pub(super) mod worktrees;
 
@@ -173,26 +172,30 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
                 .child(div().h(m.title_bar_height()).flex_none())
                 .child(header)
                 .child(contents)
-                .children(tips::footer(model, cx))
                 .children(super::agents_panel::collapsed_button(model, cx)),
         )
         .children(super::agents_panel::docked(model, window, cx))
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .pb(m.spacing3())
-                .when(model.appearance.sidebar_expanded, |footer| {
-                    footer.justify_between().gap(m.spacing3()).px(m.spacing3())
-                })
-                .when(!model.appearance.sidebar_expanded, |footer| {
-                    footer.flex_col().gap(m.spacing3())
-                })
-                .bg(model.sidebar_background())
-                .child(super::remote_servers::section(model, cx))
-                .child(add_project_button(model, cx)),
-        )
+        .child(footer(model, cx))
+        .into_any_element()
+}
+
+fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    let m = model.metrics;
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .pb(m.spacing3())
+        .when(model.appearance.sidebar_expanded, |footer| {
+            footer.gap(m.spacing1()).px(m.spacing3())
+        })
+        .when(!model.appearance.sidebar_expanded, |footer| {
+            footer.flex_col().gap(m.spacing3())
+        })
+        .bg(model.sidebar_background())
+        .child(extensions_button(model, cx))
+        .child(super::remote_servers::section(model, cx))
+        .child(settings_button(model, cx))
         .into_any_element()
 }
 
@@ -209,35 +212,111 @@ pub(super) fn collapsed_item_size(model: &AppModel) -> Pixels {
     model.metrics.scaled(34.0)
 }
 
-fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let m = model.metrics;
+/// A footer control: square until a caller gives it a label to fill the row.
+pub(super) fn footer_button(
+    id: &'static str,
+    label: impl Into<SharedString>,
+    model: &AppModel,
+) -> Stateful<Div> {
+    let label = label.into();
+    let theme = &model.theme;
     div()
-        .id("sidebar-add-project")
+        .id(id)
         .role(Role::Button)
-        .accessibility_id("sidebar-add-project")
-        .aria_label(tr!("Add Project"))
-        .debug_selector(|| "sidebar-add-project".into())
-        .group("sidebar-add-project")
+        .accessibility_id(id)
+        .aria_label(label.clone())
+        .debug_selector(move || id.into())
+        .group(id)
+        .relative()
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
         .size(footer_button_size(model))
-        .rounded(m.radius_xl())
+        .rounded(model.metrics.radius_md())
         .cursor_pointer()
-        .hover(|style| style.bg(model.theme.hover))
-        .focus(|style| style.bg(model.theme.hover))
-        .tooltip(muxy_ui::components::tooltip(
-            tr!("Add Project").to_string(),
-            &model.theme,
-        ))
-        .button_interaction(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
-            model.choose_project_source(event.position(), window, cx);
+        .hover(|style| style.bg(theme.hover))
+        .focus(|style| style.bg(theme.hover))
+        .tooltip(muxy_ui::components::tooltip(label.to_string(), theme))
+}
+
+/// A footer icon, with a dot on its corner for something worth a look.
+pub(super) fn footer_icon(
+    group: &'static str,
+    icon: Icon,
+    color: Hsla,
+    dot: Option<(&'static str, Hsla)>,
+    model: &AppModel,
+) -> Div {
+    let m = model.metrics;
+    div()
+        .relative()
+        .flex_none()
+        .child(IconGlyph::new(icon, m.icon_md(), color).hover_in_group(group, model.theme.fg))
+        .children(dot.map(|(selector, color)| {
+            super::remote_servers::dot(color, model)
+                .debug_selector(move || selector.into())
+                .absolute()
+                .top(-m.spacing1())
+                .right(-m.spacing1())
         }))
-        .child(
-            IconGlyph::new(Icon::FolderOpen, m.font_body(), model.theme.fg_muted)
-                .hover_in_group("sidebar-add-project", model.theme.fg),
-        )
+}
+
+fn extensions_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    const ID: &str = "sidebar-extensions";
+    let m = model.metrics;
+    let theme = &model.theme;
+    let name = tr!("Extensions");
+    let label = match model.extension_update_count() {
+        0 => name.to_string(),
+        1 => format!("{name} · {}", tr!("1 update available")),
+        count => format!("{name} · {}", tr!("%lld updates available", count)),
+    };
+    let dot =
+        (model.extension_update_count() > 0).then_some(("sidebar-extensions-dot", theme.accent));
+    let wide = model.appearance.sidebar_expanded;
+    footer_button(ID, label, model)
+        .when(wide, |button| {
+            button
+                .flex_1()
+                .min_w(px(0.0))
+                .w_auto()
+                .justify_start()
+                .gap(m.spacing3())
+                .px(m.spacing4())
+        })
+        .button_interaction(cx.listener(|model, _, window, cx| {
+            model.show_extensions_settings(window, cx);
+        }))
+        .child(footer_icon(ID, Icon::Puzzle, theme.fg_muted, dot, model))
+        .when(wide, |button| {
+            button.child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .truncate()
+                    .text_size(m.font_body())
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.fg_muted)
+                    .group_hover(ID, |style| style.text_color(theme.fg))
+                    .child(name),
+            )
+        })
+        .into_any_element()
+}
+
+fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    const ID: &str = "settings-button";
+    footer_button(ID, super::tab_strip::settings_tooltip(model), model)
+        .aria_label(tr!("Settings"))
+        .button_interaction(cx.listener(|model, _, window, cx| model.open_settings(window, cx)))
+        .child(footer_icon(
+            ID,
+            Icon::Settings,
+            model.theme.fg_muted,
+            None,
+            model,
+        ))
         .into_any_element()
 }
 
@@ -336,12 +415,23 @@ pub(super) fn describe(
 }
 
 impl AppModel {
+    /// Whether the sidebar's bottom row is on screen. A hidden sidebar and an
+    /// extension's sidebar don't draw it.
+    pub(crate) fn sidebar_footer_shown(&self) -> bool {
+        self.sidebar_width() > 0.0 && !self.extension_sidebar_active()
+    }
+
     pub(crate) fn choose_project_source(
         &mut self,
         position: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let items = self.project_source_items();
+        self.open_menu(items, position, window, cx);
+    }
+
+    fn project_source_items(&self) -> Vec<Item> {
         let server = |entry: &muxy_app_core::settings::ServerEntry| {
             Item::action(entry.name.clone(), Command::AddRemoteProject(entry.id))
         };
@@ -366,7 +456,7 @@ impl AppModel {
         if !removed.is_empty() {
             items.push(Item::submenu(tr!("Recently Removed"), removed).separated());
         }
-        self.open_menu(items, position, window, cx);
+        items
     }
 
     fn restorable_projects(&self) -> Vec<Item> {
@@ -708,6 +798,9 @@ fn filter_items(model: &AppModel) -> Vec<Item> {
         .checked_if(focused)
         .separated(),
     );
+    if focused {
+        items.push(Item::submenu(tr!("Add Project"), model.project_source_items()).separated());
+    }
     items.push(Item::action(tr!("New Workspace…"), Command::NewWorkspace(None)).separated());
     if let Some(id) = active {
         items.push(Item::action(
@@ -873,7 +966,7 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                     let shortcut = shortcuts.iter().take(9).position(|id| *id == project.id);
                     worktrees::group(project, index, shortcut, model, cx)
                 }))
-                .when(!model.appearance.sidebar_focus, |list| {
+                .when(!model.appearance.sidebar_focus || !wide, |list| {
                     list.child(add_project_row(model, cx))
                 })
                 .on_children_prepainted(move |bounds, _, _| {

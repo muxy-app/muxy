@@ -373,7 +373,7 @@ impl AppModel {
             .checks
             .retain_installed(&self.extensions.registry);
         if first_load {
-            self.check_extension_updates(cx);
+            self.start_extension_update_checks(cx);
         }
         self.probe_extension_runtimes(cx);
         self.extensions.grants = snapshot.grants;

@@ -10,8 +10,6 @@ use crate::model::AppModel;
 pub(crate) enum Overlay {
     Updates,
     Server,
-    /// The tip popover beside the collapsed sidebar's tip button.
-    Tip,
     Webview,
     /// The open extension popover (`AppModel::webviews.popover`).
     Popover,
@@ -126,7 +124,6 @@ impl Overlay {
         match self {
             Self::Updates => &super::updates::UpdatesPopover,
             Self::Server => &super::server_status::ServerPopover,
-            Self::Tip => &super::sidebar::tips::TipPopover,
             Self::Webview => &super::webview::modal::WebviewModal,
             Self::Popover => &super::webview::popover::ExtensionPopover,
             Self::Native(modal) => modal,

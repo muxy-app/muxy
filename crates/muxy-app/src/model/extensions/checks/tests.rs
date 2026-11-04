@@ -87,6 +87,73 @@ fn startup_checks_disabled_packages_after_loading_and_excludes_developer_folders
 }
 
 #[gpui::test]
+fn updates_are_checked_again_while_the_app_stays_open(cx: &mut TestAppContext) {
+    let (_root, model, cx) = open_model(None, cx);
+    pump_until(cx, |cx| {
+        model.read_with(cx, |model, _| model.extensions.checks.task.is_none())
+    });
+    assert_eq!(
+        model.read_with(cx, |model, _| model.extension_update_count()),
+        0
+    );
+    model.update(cx, |model, _| {
+        model.extensions.checks.resolve = Some(|names| Ok(newer(names)));
+    });
+    cx.executor().advance_clock(UPDATE_CHECK_INTERVAL);
+    pump_until(cx, |cx| {
+        model.read_with(cx, |model, _| model.extension_update_count() == 1)
+    });
+}
+
+#[gpui::test]
+fn the_footer_marks_available_updates_with_a_dot(cx: &mut TestAppContext) {
+    let (_root, model, cx) = open_model(None, cx);
+    cx.simulate_resize(gpui::size(gpui::px(1200.0), gpui::px(800.0)));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("sidebar-extensions-dot").is_none());
+    model.update(cx, |model, cx| {
+        model.extensions.checks.resolve = Some(|names| Ok(newer(names)));
+        model.check_extension_updates(cx);
+    });
+    pump_until(cx, |cx| {
+        model.read_with(cx, |model, _| model.extension_update_count() == 1)
+    });
+    cx.run_until_parked();
+    let dot = cx.debug_bounds("sidebar-extensions-dot").expect("dot");
+    let button = cx.debug_bounds("sidebar-extensions").expect("button");
+    assert!(button.contains(&dot.center()));
+
+    model.update(cx, |model, _| {
+        model.extensions.checks.resolve =
+            Some(|_| Ok(BTreeMap::from([("reader".into(), "3.0.0".into())])));
+    });
+    cx.simulate_click(button.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("settings-view").is_some());
+    pump_until(cx, |cx| {
+        model.read_with(cx, |model, _| {
+            model.extension_update_version("reader") == Some("3.0.0")
+        })
+    });
+}
+
+#[gpui::test]
+fn an_extension_sidebar_leaves_settings_in_the_top_bar(cx: &mut TestAppContext) {
+    let (_root, model, cx) = open_model(None, cx);
+    model.update(cx, |model, cx| {
+        model.extensions.local_revision = 0;
+        model.appearance.sidebar_expanded = true;
+        model.appearance.extension_sidebar = "reader".into();
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(!model.read_with(cx, |model, _| model.sidebar_footer_shown()));
+    let button = cx.debug_bounds("settings-button").expect("settings");
+    let actions = cx.debug_bounds("titlebar-actions").expect("actions");
+    assert!(actions.contains(&button.center()));
+}
+
+#[gpui::test]
 fn opening_extensions_settings_refreshes_available_updates(cx: &mut TestAppContext) {
     let (_root, model, cx) = open_model(None, cx);
     cx.update(|window, cx| {

@@ -53,6 +53,7 @@ impl AppModel {
         let mut registry = Registry::default();
         super::workspace::commands::register_listed(&mut registry, self);
         super::sidebar::register_commands(&mut registry, self, cx);
+        super::tips::register_commands(&mut registry, self);
         super::settings::register_commands(&mut registry, self);
         registry.register(super::theme_picker::command(
             self,
