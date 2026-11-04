@@ -37,7 +37,7 @@ pub(super) fn render(
             },
             if enabled { theme.fg } else { theme.fg_dim },
         )
-        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+        .tooltip(theme)
     };
     let loading = view.page.loading;
     let editing = view.address.focus_handle(cx).is_focused(window);
@@ -142,6 +142,7 @@ fn element_picker_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> A
         },
         cx,
     )
+    .into_any_element()
 }
 
 fn external_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyElement {
@@ -160,6 +161,7 @@ fn external_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyElem
         |_, position, cx| cx.emit(BrowserViewEvent::Menu(Menu::External, position)),
         cx,
     )
+    .into_any_element()
 }
 
 /// The profile the page browses with, which a click lets you change.
@@ -192,6 +194,8 @@ fn profile_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyEleme
         |_, position, cx| cx.emit(BrowserViewEvent::Menu(Menu::Profile, position)),
         cx,
     )
+    .aria_label(tr!("Browser Profile: %@", view.profile.name()))
+    .into_any_element()
 }
 
 /// The address field, with the page's icon and history suggestions.
@@ -259,11 +263,10 @@ fn toolbar_button(
     selected: bool,
     action: impl Fn(&mut BrowserView, Point<Pixels>, &mut Context<BrowserView>) + 'static,
     cx: &mut Context<BrowserView>,
-) -> AnyElement {
+) -> gpui::Stateful<gpui::Div> {
     let theme = &view.theme;
     let metrics = view.metrics;
-    let (background, foreground, border, theme_background) =
-        (theme.raised(), theme.fg, theme.border, theme.bg);
+    let content_tooltip = Tooltip::themed(tooltip.clone(), theme);
     let native = view.native.clone();
     let action = Rc::new(action);
     let press = action.clone();
@@ -272,7 +275,7 @@ fn toolbar_button(
         .id(id)
         .role(Role::Button)
         .accessibility_id(id)
-        .aria_label(tooltip.clone())
+        .aria_label(tooltip)
         .aria_selected(selected)
         .aria_disabled(!enabled)
         .flex()
@@ -285,15 +288,7 @@ fn toolbar_button(
         .hover(|style| style.bg(theme.hover))
         .when(selected, |button| button.bg(theme.accent_soft))
         .tooltip(move |_, cx| {
-            let content = cx.new(|_| {
-                Tooltip::new(
-                    tooltip.clone(),
-                    background,
-                    foreground,
-                    border,
-                    theme_background,
-                )
-            });
+            let content = cx.new(|_| content_tooltip.clone());
             cx.new(|_| BrowserTooltip {
                 content,
                 native: native.clone(),
@@ -314,7 +309,6 @@ fn toolbar_button(
             let _ = owner.update(cx, |view, cx| press(view, position, cx));
         })
         .child(content)
-        .into_any_element()
 }
 
 struct BrowserTooltip {
@@ -445,7 +439,7 @@ pub(super) fn find_bar(view: &BrowserView, cx: &mut Context<BrowserView>) -> Opt
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+        .tooltip(theme)
     };
     let missing = find.found == Some(false);
     Some(

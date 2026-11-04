@@ -227,9 +227,9 @@ fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
         .cursor_pointer()
         .hover(|style| style.bg(model.theme.hover))
         .focus(|style| style.bg(model.theme.hover))
-        .tooltip(super::status_bar::tooltip(
+        .tooltip(muxy_ui::components::tooltip(
             tr!("Add Project").to_string(),
-            model,
+            &model.theme,
         ))
         .button_interaction(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
             model.choose_project_source(event.position(), window, cx);
@@ -267,9 +267,9 @@ fn add_project_row(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .when(!wide, |row| {
             row.justify_center()
                 .size(collapsed_item_size(model))
-                .tooltip(super::status_bar::tooltip(
+                .tooltip(muxy_ui::components::tooltip(
                     tr!("Add Project").to_string(),
-                    model,
+                    &model.theme,
                 ))
         })
         .button_interaction(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
@@ -317,10 +317,14 @@ pub(super) fn client_button(
     id: impl Into<SharedString>,
     name: impl Into<SharedString>,
     cx: &Context<AppModel>,
-    action: impl Fn(&mut AppModel, &mut Window, &mut Context<AppModel>) + 'static,
+    action: impl Fn(&mut AppModel, Point<Pixels>, &mut Window, &mut Context<AppModel>) + 'static,
 ) -> Stateful<Div> {
-    let press = cx.listener(move |model, (): &(), window, cx| action(model, window, cx));
-    hidden_button(id, name, move |window, cx| press(&(), window, cx))
+    let press = cx.listener(move |model, position: &Point<Pixels>, window, cx| {
+        action(model, *position, window, cx);
+    });
+    hidden_button(id, name, move |position, window, cx| {
+        press(&position, window, cx);
+    })
 }
 
 /// What applies to a row, read after its name.
@@ -1074,14 +1078,9 @@ pub(super) fn project_actions(
         format!("project-actions-{}", project.name),
         tr!("Actions for %@", title),
         cx,
-        move |model, window, cx| {
+        move |model, position, window, cx| {
             if let Some(project) = model.state.project(id) {
-                model.open_menu(
-                    model.project_menu(project),
-                    window.mouse_position(),
-                    window,
-                    cx,
-                );
+                model.open_menu(model.project_menu(project), position, window, cx);
             }
         },
     )
@@ -1127,7 +1126,6 @@ pub(super) fn remote_marker(project: &Project, model: &AppModel) -> Option<AnyEl
     let tooltip = remote_description(project, model)?;
     let id = project.id;
     let m = model.metrics;
-    let theme = model.theme.clone();
     Some(
         div()
             .id(SharedString::from(format!("project-remote-{id}")))
@@ -1137,18 +1135,7 @@ pub(super) fn remote_marker(project: &Project, model: &AppModel) -> Option<AnyEl
             .items_center()
             .justify_center()
             .size(m.scaled(18.0))
-            .tooltip(move |_, cx| {
-                cx.new(|_| {
-                    muxy_ui::components::Tooltip::new(
-                        tooltip.clone(),
-                        theme.raised(),
-                        theme.fg,
-                        theme.border,
-                        theme.bg,
-                    )
-                })
-                .into()
-            })
+            .tooltip(muxy_ui::components::tooltip(tooltip, &model.theme))
             .child(IconGlyph::new(
                 Icon::Network,
                 m.font_caption(),

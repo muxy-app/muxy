@@ -9,7 +9,6 @@ use muxy_app_core::{
     settings::AppLayout,
 };
 use muxy_protocol::{AgentProvider, ProgressState, SessionId, TerminalProgress};
-use muxy_ui::components::Tooltip;
 use muxy_ui::l10n::{tr_key, translate};
 #[cfg(target_os = "macos")]
 use muxy_ui::spinner::NativeSpinner;
@@ -19,7 +18,6 @@ use std::rc::{Rc, Weak};
 
 use crate::model::AppModel;
 use crate::model::agents_panel::RunningAgent;
-use gpui::AppContext;
 use gpui::InteractiveElement;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -552,10 +550,6 @@ pub(super) fn status_glyph_in(
     } else {
         format!("{id}-{kind}")
     };
-    let background = theme.raised();
-    let theme_background = theme.bg;
-    let foreground = theme.fg;
-    let border = theme.border;
     div()
         .id(SharedString::from(id))
         .debug_selector(move || selector.clone())
@@ -565,18 +559,7 @@ pub(super) fn status_glyph_in(
         .justify_center()
         .min_w(size)
         .h(size)
-        .tooltip(move |_, cx| {
-            cx.new(|_| {
-                Tooltip::new(
-                    tooltip.clone(),
-                    background,
-                    foreground,
-                    border,
-                    theme_background,
-                )
-            })
-            .into()
-        })
+        .tooltip(muxy_ui::components::tooltip(tooltip, theme))
         .child(glyph)
         .into_any_element()
 }

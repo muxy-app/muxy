@@ -784,6 +784,7 @@ impl SettingsView {
                 cx.emit(SettingsEvent::Change(change.clone()));
             }),
         )
+        .into_any_element()
     }
 }
 

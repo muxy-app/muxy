@@ -177,7 +177,7 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
         .when(open, |button| button.bg(theme.hover))
         .cursor_pointer()
         .hover(|style| style.bg(theme.hover))
-        .tooltip(super::status_bar::tooltip(tooltip, model))
+        .tooltip(muxy_ui::components::tooltip(tooltip, &model.theme))
         .button_interaction(cx.listener(|model, _, window, cx| {
             model.toggle_remote_popover(window, cx);
         }))
@@ -268,8 +268,7 @@ fn server_row(server: &RemoteServer, model: &AppModel, cx: &mut Context<AppModel
                 .child(accessibility::hidden_button(
                     format!("remote-server-actions-{id}"),
                     tr!("Actions for %@", &name),
-                    move |window, cx| {
-                        let position = window.mouse_position();
+                    move |position, window, cx| {
                         let _ = owner.update(cx, |model, cx| {
                             model.open_server_menu(id, false, position, window, cx);
                         });
@@ -335,7 +334,7 @@ fn edit_button(
                 theme.fg,
             )
             .named(tr!("Edit %@", name))
-            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+            .tooltip(theme)
             .on_click(cx.listener(move |model, _, _, cx| {
                 cx.stop_propagation();
                 model.open_server_form(Some(id), cx);
@@ -370,8 +369,7 @@ fn group_heading(group: Option<&str>, model: &AppModel, cx: &mut Context<AppMode
         .child(accessibility::hidden_button(
             format!("remote-group-actions-{key}"),
             tr!("Actions for %@", &title),
-            move |window, cx| {
-                let position = window.mouse_position();
+            move |position, window, cx| {
                 let _ = owner.update(cx, |model, cx| {
                     model.open_group_menu(hidden_name.as_deref(), position, window, cx);
                 });

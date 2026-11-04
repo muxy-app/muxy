@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, AppContext, Context, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels,
+    AnyElement, Context, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels,
     StatefulInteractiveElement, Styled, Window, canvas, div,
 };
 use muxy_app_core::extensions::{Action, Extension, Icon, Side};
-use muxy_ui::components::{ButtonInteraction, SymbolGlyph, TemplateGlyph, Tooltip};
+use muxy_ui::components::{ButtonInteraction, SymbolGlyph, TemplateGlyph};
 
 use super::AppModel;
 use crate::views::titlebar;
@@ -301,7 +301,6 @@ impl AppModel {
             let key = format!("status:{}:{}", item.owner, item.id);
             let anchor = self.extensions.items.anchor(&key);
             let tooltip = item.tooltip.clone();
-            let theme = self.theme.clone();
             let icon = self.extension_icon(
                 &item.root,
                 &item.icon,
@@ -325,18 +324,7 @@ impl AppModel {
                     .text_color(self.theme.fg_muted)
                     .cursor_pointer()
                     .hover(|style| style.text_color(self.theme.fg))
-                    .tooltip(move |_, cx| {
-                        cx.new(|_| {
-                            Tooltip::new(
-                                tooltip.clone(),
-                                theme.raised(),
-                                theme.fg,
-                                theme.border,
-                                theme.bg,
-                            )
-                        })
-                        .into()
-                    })
+                    .tooltip(muxy_ui::components::tooltip(tooltip, &self.theme))
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .button_interaction(cx.listener(move |model, _, window, cx| {
                         model.click_extension_item(&item, &key, true, window, cx);

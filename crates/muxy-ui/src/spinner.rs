@@ -14,7 +14,6 @@ use objc2_quartz_core::{
     CABasicAnimation, CAMediaTiming, CAMediaTimingFunction, CAShapeLayer, CATransaction,
     kCALineCapRound, kCAMediaTimingFunctionLinear,
 };
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 const LINE_FRACTION: f64 = 1.0 / 8.0;
 const ARC_FRACTION: f64 = 0.28;
@@ -42,14 +41,7 @@ impl std::fmt::Debug for NativeSpinner {
 impl NativeSpinner {
     pub fn new(window: &Window) -> Result<Self, String> {
         let mtm = MainThreadMarker::new().ok_or("spinner must be created on the main thread")?;
-        let RawWindowHandle::AppKit(handle) = HasWindowHandle::window_handle(window)
-            .map_err(|error| error.to_string())?
-            .as_raw()
-        else {
-            return Err("expected AppKit window".into());
-        };
-        let parent = unsafe { Retained::retain(handle.ns_view.as_ptr().cast::<NSView>()) }
-            .ok_or("missing native view")?;
+        let parent = crate::appkit::gpui_view(window)?;
         let view = NSView::initWithFrame(NSView::alloc(mtm), NSRect::ZERO);
         view.setWantsLayer(true);
         view.setHidden(true);
@@ -78,7 +70,7 @@ impl NativeSpinner {
     pub fn show(&self, bounds: Bounds<Pixels>, color: Rgba, visible: bool, scale_factor: f32) {
         CATransaction::begin();
         CATransaction::setDisableActions(true);
-        let frame = self.frame_in_parent(bounds);
+        let frame = crate::appkit::frame_in(&self.parent, bounds);
         if self.frame.get() != Some(frame) {
             self.view.setFrame(frame);
             if self
@@ -117,20 +109,6 @@ impl NativeSpinner {
                 self.arc.removeAllAnimations();
             }
         }
-    }
-
-    fn frame_in_parent(&self, bounds: Bounds<Pixels>) -> NSRect {
-        let top = f64::from(f32::from(bounds.top()));
-        let height = f64::from(f32::from(bounds.size.height));
-        let y = if self.parent.isFlipped() {
-            top
-        } else {
-            self.parent.bounds().size.height - top - height
-        };
-        NSRect::new(
-            NSPoint::new(f64::from(f32::from(bounds.left())), y),
-            NSSize::new(f64::from(f32::from(bounds.size.width)), height),
-        )
     }
 
     fn layout(&self, size: NSSize) {

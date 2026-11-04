@@ -5,8 +5,6 @@ pub mod assets;
 #[cfg(target_os = "macos")]
 pub(crate) mod host;
 mod rules;
-#[cfg(target_os = "macos")]
-pub(crate) use macos::parent_view;
 
 use std::path::Path;
 use std::rc::Rc;

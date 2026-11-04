@@ -323,17 +323,7 @@ impl Host {
     pub(crate) fn sync(&self, bounds: Bounds<Pixels>, clip: Bounds<Pixels>, radius: f64) {
         self.bounds.set(bounds);
         self.clip.set(clip);
-        let top = f64::from(f32::from(bounds.top()));
-        let height = f64::from(f32::from(bounds.size.height));
-        let y = if self.parent.isFlipped() {
-            top
-        } else {
-            self.parent.bounds().size.height - top - height
-        };
-        let frame = NSRect::new(
-            NSPoint::new(f64::from(f32::from(bounds.left())), y),
-            NSSize::new(f64::from(f32::from(bounds.size.width)), height),
-        );
+        let frame = crate::appkit::frame_in(&self.parent, bounds);
         let mut applied = self.applied.borrow_mut();
         if applied.frame != Some(frame) {
             self.container.setFrame(frame);

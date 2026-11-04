@@ -1,10 +1,9 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, ClickEvent, Decorations, Div, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Role, SharedString, Stateful, StatefulInteractiveElement, Styled,
-    Window, div, svg,
+    AnyElement, App, ClickEvent, Decorations, Div, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Role, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div,
+    svg,
 };
-use muxy_ui::components::Tooltip;
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
 
@@ -97,8 +96,7 @@ fn button(
     metrics: Metrics,
     action: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    let (background, foreground, border, theme_background) =
-        (theme.raised(), theme.fg, theme.border, theme.bg);
+    let foreground = theme.fg;
     div()
         .id(id)
         .role(Role::Button)
@@ -120,18 +118,7 @@ fn button(
             cx.stop_propagation();
             action(event, window, cx);
         })
-        .tooltip(move |_, cx| {
-            cx.new(|_| {
-                Tooltip::new(
-                    label.clone(),
-                    background,
-                    foreground,
-                    border,
-                    theme_background,
-                )
-            })
-            .into()
-        })
+        .tooltip(muxy_ui::components::tooltip(label, theme))
         .child(
             svg()
                 .path(icon)

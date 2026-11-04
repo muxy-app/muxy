@@ -168,11 +168,18 @@ impl Render for Dialog {
             body = body.child(controls::text_field(style, "dialog-input", input, None));
         }
         if let Some(picker) = &self.request.choices.picker {
-            body = body.child(div().child(picker.label.clone()));
+            let mut choices = div()
+                .id("dialog-choices")
+                .role(Role::RadioGroup)
+                .aria_label(picker.label.clone())
+                .flex()
+                .flex_col()
+                .gap(metrics.spacing5())
+                .child(div().child(picker.label.clone()));
             for (index, label) in picker.items.iter().enumerate() {
                 let selected = picker.selected == index;
                 let weak = cx.entity().downgrade();
-                body = body.child(
+                choices = choices.child(
                     controls::button(
                         style,
                         &format!("dialog-choice-{index}"),
@@ -198,6 +205,7 @@ impl Render for Dialog {
                     }),
                 );
             }
+            body = body.child(choices);
         }
         for (index, checkbox) in self.request.choices.checkboxes.iter().enumerate() {
             let weak = cx.entity().downgrade();
@@ -209,24 +217,27 @@ impl Render for Dialog {
                     .items_center()
                     .gap(metrics.spacing4())
                     .when(!enabled, |row| row.opacity(0.5))
-                    .child(controls::toggle(
-                        style,
-                        &format!("dialog-checkbox-{index}"),
-                        &checkbox.label,
-                        checked,
-                        move |_, _, cx| {
-                            if enabled {
-                                let _ = weak.update(cx, |view, cx| {
-                                    if let Some(checkbox) =
-                                        view.request.choices.checkboxes.get_mut(index)
-                                    {
-                                        checkbox.checked = !checkbox.checked;
-                                    }
-                                    cx.notify();
-                                });
-                            }
-                        },
-                    ))
+                    .child(
+                        controls::toggle(
+                            style,
+                            &format!("dialog-checkbox-{index}"),
+                            &checkbox.label,
+                            checked,
+                            move |_, _, cx| {
+                                if enabled {
+                                    let _ = weak.update(cx, |view, cx| {
+                                        if let Some(checkbox) =
+                                            view.request.choices.checkboxes.get_mut(index)
+                                        {
+                                            checkbox.checked = !checkbox.checked;
+                                        }
+                                        cx.notify();
+                                    });
+                                }
+                            },
+                        )
+                        .aria_disabled(!enabled),
+                    )
                     .child(checkbox.label.clone()),
             );
         }

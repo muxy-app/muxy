@@ -477,16 +477,14 @@ impl TerminalPane {
         if self.native_scroll.is_none() {
             let weak = cx.entity().downgrade();
             let app = cx.to_async();
-            self.native_scroll = muxy_ui::native_scroll::NativeScrollView::new(
-                &window.window_title(),
-                move |position| {
+            self.native_scroll =
+                muxy_ui::native_scroll::NativeScrollView::new(window, move |position| {
                     let weak = weak.clone();
                     app.spawn(async move |cx| {
                         let _ = weak.update(cx, |pane, cx| pane.native_position(position, cx));
                     })
                     .detach();
-                },
-            );
+                });
         }
         self.sync_native_scroll();
     }

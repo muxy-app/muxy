@@ -8,7 +8,7 @@ pub fn register_shortcuts(registry: &mut crate::shortcuts::Registry<'_>) {
 
 use crate::accessibility::OnPress;
 use crate::icon::Icon;
-use crate::theme::Metrics;
+use crate::theme::{Metrics, Theme};
 use gpui::{
     App, AppContext, ClickEvent, Context, ElementId, FocusHandle, Hsla, InteractiveElement,
     IntoElement, MouseButton, ParentElement, Pixels, Render, RenderOnce, Role, SharedString,
@@ -148,7 +148,7 @@ pub struct IconButton {
     box_size: Pixels,
     color: Hsla,
     hover_color: Hsla,
-    tooltip: Option<(Hsla, Hsla, Hsla, Hsla)>,
+    tooltip: Option<Tooltip>,
     focus_handle: Option<FocusHandle>,
     selected: Option<(bool, Hsla, Pixels)>,
     on_click: Option<ClickHandler>,
@@ -187,14 +187,8 @@ impl IconButton {
     }
 
     /// Shows the name in a tooltip.
-    pub fn tooltip(
-        mut self,
-        background: Hsla,
-        foreground: Hsla,
-        border: Hsla,
-        theme_background: Hsla,
-    ) -> Self {
-        self.tooltip = Some((background, foreground, border, theme_background));
+    pub fn tooltip(mut self, theme: &Theme) -> Self {
+        self.tooltip = Some(Tooltip::themed(self.name.clone(), theme));
         self
     }
 
@@ -299,25 +293,14 @@ impl RenderOnce for IconButton {
                         cx.stop_propagation();
                     });
         }
-        if let Some((background, foreground, border, theme_background)) = self.tooltip {
-            button = button.tooltip(move |_, cx| {
-                cx.new(|_| {
-                    Tooltip::new(
-                        name.clone(),
-                        background,
-                        foreground,
-                        border,
-                        theme_background,
-                    )
-                })
-                .into()
-            });
+        if let Some(tooltip) = self.tooltip {
+            button = button.tooltip(move |_, cx| cx.new(|_| tooltip.clone()).into());
         }
         button
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Tooltip {
     text: SharedString,
     background: Hsla,
@@ -327,6 +310,10 @@ pub struct Tooltip {
 }
 
 impl Tooltip {
+    pub fn themed(text: impl Into<SharedString>, theme: &Theme) -> Self {
+        Self::new(text, theme.raised(), theme.fg, theme.border, theme.bg)
+    }
+
     pub fn new(
         text: impl Into<SharedString>,
         background: Hsla,
@@ -364,6 +351,14 @@ impl Render for Tooltip {
     fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         self.surface(Metrics::of_window(window))
     }
+}
+
+pub fn tooltip(
+    text: impl Into<SharedString>,
+    theme: &Theme,
+) -> impl Fn(&mut Window, &mut App) -> gpui::AnyView + 'static {
+    let tooltip = Tooltip::themed(text, theme);
+    move |_, cx| cx.new(|_| tooltip.clone()).into()
 }
 
 #[derive(IntoElement, Debug)]
@@ -585,5 +580,36 @@ impl std::fmt::Debug for IconButton {
             .field("glyph_size", &self.glyph_size)
             .field("box_size", &self.box_size)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::theme::ColorScheme;
+
+    #[test]
+    fn themed_tooltips_keep_the_name_and_share_the_raised_colors() {
+        let theme = Theme::from_scheme(&ColorScheme::default());
+        let button = IconButton::new(
+            "find-previous",
+            "Previous match",
+            Icon::ChevronUp,
+            px(12.0),
+            px(20.0),
+            theme.fg_muted,
+            theme.fg,
+        )
+        .named("Previous match in terminal")
+        .tooltip(&theme);
+        let tooltip = button.tooltip.as_ref().unwrap();
+        assert_eq!(tooltip.text.as_ref(), "Previous match");
+        assert_eq!(tooltip.background, theme.raised());
+        assert_eq!(tooltip.foreground, theme.fg);
+        assert_eq!(tooltip.border, theme.border);
+        assert_eq!(tooltip.theme_background, theme.bg);
+        assert_eq!(button.glyph_size, px(12.0));
+        assert_eq!(button.box_size, px(20.0));
     }
 }

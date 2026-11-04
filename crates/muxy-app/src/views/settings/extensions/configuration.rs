@@ -134,6 +134,7 @@ impl ExtensionsView {
                         view.store_setting(&owner, &key, Some(Value::Bool(!on)), cx);
                     }),
                 )
+                .into_any_element()
             } else if let Some(input) = self
                 .setting_inputs
                 .get(&(extension.name.clone(), setting.key.clone()))

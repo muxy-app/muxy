@@ -485,14 +485,14 @@ fn tab_cell(
             format!("tab-actions-{id}"),
             tr!("Actions for %@", &title),
             cx,
-            move |model, window, cx| model.open_tab_menu(id, window.mouse_position(), window, cx),
+            move |model, position, window, cx| model.open_tab_menu(id, position, window, cx),
         ))
         .when(!tab.pinned, |cell| {
             cell.child(client_button(
                 format!("close-tab-{id}"),
                 tr!("Close %@", &title),
                 cx,
-                move |model, window, cx| {
+                move |model, _, window, cx| {
                     model.close_tab(id, cx);
                     model.focus_active(window, cx);
                 },

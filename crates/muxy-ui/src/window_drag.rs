@@ -45,12 +45,9 @@ pub struct WindowDrag {
 }
 
 impl WindowDrag {
-    pub fn new(window_title: &str) -> Option<Self> {
+    pub fn new(window: &gpui::Window) -> Option<Self> {
         let mtm = MainThreadMarker::new()?;
-        let windows = NSApplication::sharedApplication(mtm).windows();
-        let window = (0..windows.count())
-            .map(|index| windows.objectAtIndex(index))
-            .find(|window| window.title().to_string() == window_title)?;
+        let window = crate::appkit::ns_window(window).ok()?;
         window.setMovable(false);
         window.setMovableByWindowBackground(false);
         let state = Rc::new(DragState {

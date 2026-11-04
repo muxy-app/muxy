@@ -1,10 +1,10 @@
-use crate::components::{IconGlyph, SymbolGlyph, Tooltip};
+use crate::components::{IconGlyph, SymbolGlyph};
 use crate::icon::Icon;
 use crate::theme::{Metrics, Theme};
 use crate::tr;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, CursorStyle, DispatchPhase, ElementId, FocusHandle, FontWeight,
+    AnyElement, App, CursorStyle, DispatchPhase, ElementId, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     ParentElement, Point, RenderOnce, Role, SharedString, StatefulInteractiveElement, Styled,
     Window, canvas, div, px,
@@ -626,10 +626,6 @@ fn panel_action(
     let key_handler = handler;
     let focus_for_mouse = focus_handle.clone();
     let focused = focus_handle.is_focused(window);
-    let tooltip_background = theme.raised();
-    let theme_background = theme.bg;
-    let tooltip_foreground = theme.fg;
-    let tooltip_border = theme.border;
     div()
         .id(id)
         .role(Role::Button)
@@ -662,18 +658,7 @@ fn panel_action(
             key_handler(window, cx);
             cx.stop_propagation();
         })
-        .tooltip(move |_, cx| {
-            cx.new(|_| {
-                Tooltip::new(
-                    label.clone(),
-                    tooltip_background,
-                    tooltip_foreground,
-                    tooltip_border,
-                    theme_background,
-                )
-            })
-            .into()
-        })
+        .tooltip(crate::components::tooltip(label, theme))
         .child(glyph)
         .into_any_element()
 }

@@ -1,10 +1,10 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, Context, Div, ElementId, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Pixels, Point, Role, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Window, div, point, px,
+    AnyElement, App, Context, Div, ElementId, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Pixels, Point, Role, SharedString, Stateful, StatefulInteractiveElement, Styled,
+    Window, div, point, px,
 };
-use muxy_ui::components::{IconGlyph, Tooltip};
+use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::Metrics;
 use muxy_ui::tr;
@@ -218,20 +218,7 @@ pub(super) fn with_tooltip(
     tooltip: impl Into<SharedString>,
     model: &AppModel,
 ) -> Stateful<Div> {
-    let theme = model.theme.clone();
-    let tooltip = tooltip.into();
-    element.tooltip(move |_, cx| {
-        cx.new(|_| {
-            Tooltip::new(
-                tooltip.clone(),
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
-        })
-        .into()
-    })
+    element.tooltip(muxy_ui::components::tooltip(tooltip, &model.theme))
 }
 
 pub(super) fn icon_button(
@@ -327,7 +314,7 @@ fn sidebar_toggle(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
                 theme.fg,
             )
             .expanded(model.appearance.sidebar_expanded)
-            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+            .tooltip(theme)
             .on_click(cx.listener(|model, _, window, cx| {
                 cx.stop_propagation();
                 model.toggle_sidebar(window, cx);

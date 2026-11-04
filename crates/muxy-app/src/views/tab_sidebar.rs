@@ -498,7 +498,7 @@ fn new_tab_button(project: &Project, model: &AppModel, cx: &mut Context<AppModel
                 model,
             )
             .accessibility_id(format!("project-new-tab-{}", project.name))
-            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+            .tooltip(theme)
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
                 model.select_project(id, cx);
@@ -537,7 +537,7 @@ fn project_disclosure(
             )
             .accessibility_id(format!("tab-project-toggle-{}", project.name))
             .expanded(expanded)
-            .tooltip(theme.raised(), theme.fg, theme.border, theme.bg)
+            .tooltip(theme)
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
                 model.toggle_project_tabs(id, cx);
@@ -689,14 +689,14 @@ fn tab_row(
             format!("sidebar-tab-actions-{id}"),
             tr!("Actions for %@", title),
             cx,
-            move |model, window, cx| model.open_tab_menu(id, window.mouse_position(), window, cx),
+            move |model, position, window, cx| model.open_tab_menu(id, position, window, cx),
         ))
         .when(!tab.pinned, |row| {
             row.child(client_button(
                 format!("sidebar-tab-close-{id}"),
                 tr!("Close %@", title),
                 cx,
-                move |model, window, cx| {
+                move |model, _, window, cx| {
                     model.close_tab(id, cx);
                     model.focus_active(window, cx);
                 },
