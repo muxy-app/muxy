@@ -42,7 +42,7 @@ impl Category {
                 tr_key!("Sessions"),
                 tr_key!("Server control"),
             ],
-            Self::Extensions | Self::Commands | Self::About => &[],
+            Self::Devices | Self::Extensions | Self::Commands | Self::About => &[],
             Self::Backup => &[
                 tr_key!("Backup & Restore"),
                 tr_key!("Migration"),
@@ -383,6 +383,18 @@ impl SettingsView {
                     content.pt(self.layout_metrics.scaled(32.0))
                 })
                 .child(extensions.clone())
+                .into_any_element();
+        }
+        if self.category == Category::Devices
+            && self.query.is_empty()
+            && let Some(devices) = &self.devices
+        {
+            return div()
+                .w_full()
+                .min_w_0()
+                .min_h_0()
+                .h_full()
+                .child(devices.clone())
                 .into_any_element();
         }
         let view = cx.entity();

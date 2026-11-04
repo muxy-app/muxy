@@ -364,6 +364,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
+        id: "extension-sidebar",
+        label: tr_key!("Active sidebar"),
+        description: tr_key!("Show an enabled extension's sidebar in place of the built-in one."),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "sidebar-vibrancy",
         label: tr_key!("Sidebar vibrancy"),
         description: tr_key!("Use a translucent macOS background while the sidebar is expanded."),
@@ -415,13 +422,6 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!(
             "List the current worktree first, then the most recently used. Off, the project comes first, then its worktrees."
         ),
-        category: Category::Appearance,
-        section: tr_key!("Interface"),
-    },
-    Setting {
-        id: "extension-sidebar",
-        label: tr_key!("Active sidebar"),
-        description: tr_key!("Show an enabled extension's sidebar in place of the built-in one."),
         category: Category::Appearance,
         section: tr_key!("Interface"),
     },
@@ -923,6 +923,7 @@ pub(super) fn setting(id: &str) -> Option<&'static Setting> {
 pub(super) fn search_aliases(id: &str) -> &'static str {
     match id {
         "interface-size" => "zoom density",
+        "extension-sidebar" => "custom replace",
         _ => "",
     }
 }

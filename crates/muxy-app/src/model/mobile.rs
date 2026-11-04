@@ -11,7 +11,7 @@ use super::{AppModel, Quitting};
 use crate::boot::Work;
 use crate::views::devices::Pairing;
 
-/// Device access as the Devices tab shows it; the server owns the real state.
+/// Device access as the Devices page shows it; the server owns the real state.
 #[derive(Default)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -21,8 +21,10 @@ pub(crate) struct MobileAccess {
     pub(crate) state: Option<RemoteAccessState>,
     /// The current pairing code, until it is used, cancelled, or expires.
     pub(crate) pairing: Option<Pairing>,
+    /// Settings is on the Devices page.
+    page_open: bool,
     /// The code's link was copied, so it stays valid away from the Devices
-    /// tab until it is used or expires.
+    /// page until it is used or expires.
     copied: bool,
     pub(crate) busy: bool,
     /// The running request creates a pairing code.
@@ -37,6 +39,16 @@ pub(crate) struct MobileAccess {
     expiry: Option<Task<()>>,
 }
 
+impl MobileAccess {
+    pub(super) fn show_page(&mut self) {
+        self.page_open = true;
+    }
+
+    pub(super) fn hide_page(&mut self) {
+        self.page_open = false;
+    }
+}
+
 impl AppModel {
     pub(crate) fn device_access(&self) -> &MobileAccess {
         &self.mobile
@@ -46,15 +58,23 @@ impl AppModel {
         self.quitting == Quitting::Idle && self.ready(ServerId::local())
     }
 
-    fn devices_tab_open(&self) -> bool {
-        self.state.servers_tab().is_some()
+    fn devices_page_open(&self) -> bool {
+        self.mobile.page_open && self.state.settings_tab().is_some()
     }
 
-    /// Reads device access when the Devices tab opens or this computer's
+    /// Settings moved to the Devices page or away from it.
+    pub(crate) fn set_devices_page_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if self.mobile.page_open != open {
+            self.mobile.page_open = open;
+            self.sync_devices_page(open, cx);
+        }
+    }
+
+    /// Reads device access when the Devices page opens or this computer's
     /// server connects with it open, and withdraws a pairing code that was
-    /// never copied once the tab closes.
-    pub(super) fn sync_devices_tab(&mut self, opened: bool, cx: &mut Context<Self>) {
-        if !self.devices_tab_open() {
+    /// never copied once the page closes.
+    pub(crate) fn sync_devices_page(&mut self, opened: bool, cx: &mut Context<Self>) {
+        if !self.devices_page_open() {
             self.withdraw_pairing(cx);
         } else if opened {
             self.read_remote_access(cx);
@@ -73,14 +93,14 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Paired devices connected, disconnected, or changed; refresh only while the Devices tab is open.
+    /// Paired devices connected, disconnected, or changed; refresh only while the Devices page is open.
     pub(super) fn remote_access_changed(&mut self, cx: &mut Context<Self>) {
-        if self.devices_tab_open() {
+        if self.devices_page_open() {
             self.read_remote_access(cx);
         }
     }
 
-    /// Turns access for other devices on or off. A refusal shows in the tab.
+    /// Turns access for other devices on or off. A refusal shows on the page.
     pub(crate) fn set_device_access(&mut self, enabled: bool, cx: &mut Context<Self>) {
         let result = self.write_remote_access(
             |settings| RemoteAccessSettings {
@@ -160,7 +180,7 @@ impl AppModel {
             return;
         }
         self.mobile.copy_link = true;
-        let code_may_be_stale = !self.devices_tab_open();
+        let code_may_be_stale = !self.devices_page_open();
         if code_may_be_stale && !self.mobile.busy {
             self.read_remote_access(cx);
         }
@@ -191,7 +211,7 @@ impl AppModel {
         let reason = if state.settings.enabled {
             tr!("This computer isn't listening for devices yet. Try again in a moment.")
         } else {
-            tr!("Turn on Allow other devices in the Devices tab to copy a pairing link.")
+            tr!("Turn on Allow other devices in Settings → Devices to copy a pairing link.")
         };
         self.fail(reason.to_string(), cx);
     }
@@ -210,7 +230,7 @@ impl AppModel {
     }
 
     /// A code that was only shown must not stay valid on the server after the
-    /// Devices tab closes.
+    /// Devices page closes.
     fn withdraw_pairing(&mut self, cx: &mut Context<Self>) {
         let shown = self.mobile.pairing.is_some() && !self.mobile.copied;
         let starting = self.mobile.starting && !self.mobile.copy_link;
@@ -290,7 +310,7 @@ impl AppModel {
         self.mobile.busy = false;
         self.mobile.starting = false;
         match result {
-            Ok(_) if self.mobile.cancel || !(self.devices_tab_open() || self.mobile.copy_link) => {
+            Ok(_) if self.mobile.cancel || !(self.devices_page_open() || self.mobile.copy_link) => {
                 self.mobile.cancel = true;
             }
             Ok(offer) => {

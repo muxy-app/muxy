@@ -1,5 +1,5 @@
-//! The menus of remote servers, in the Devices popover and the Devices tab:
-//! one server, the servers selected in the tab, or a group.
+//! The menus of remote servers, in the Devices popover and on the Devices page:
+//! one server, the servers selected on the page, or a group.
 
 use gpui::{Context, Pixels, Point, SharedString, Window};
 use muxy_app_core::ServerId;
@@ -13,7 +13,7 @@ use crate::model::{AppModel, RemoteServer, ServerStatus};
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Servers {
     One(ServerId),
-    /// The servers selected in the Devices tab.
+    /// The servers selected on the Devices page.
     Selected,
     /// The group at an index of `Settings::server_groups`, or the ungrouped.
     Group(Option<usize>),
@@ -168,7 +168,7 @@ fn single_server_items(server: &RemoteServer, groups: &[&str], controls: bool) -
 }
 
 impl AppModel {
-    /// Every remote server, in the order the popover and the tab list them.
+    /// Every remote server, in the order the popover and the page list them.
     pub(crate) fn listed_servers(&self) -> Vec<ServerId> {
         crate::model::by_group(&self.settings.servers, |entry| entry)
             .into_iter()
@@ -229,8 +229,8 @@ impl AppModel {
         }
     }
 
-    /// A server's menu. With `selection`, a server among several selected in
-    /// the tab opens the selection's menu. The selection never changes.
+    /// A server's menu. With `selection`, a server among several selected on
+    /// the page opens the selection's menu. The selection never changes.
     pub(crate) fn open_server_menu(
         &mut self,
         id: ServerId,

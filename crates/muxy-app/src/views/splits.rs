@@ -594,9 +594,6 @@ fn pane_content(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
             .child(settings.root.clone())
             .into_any_element();
     }
-    if !model.grids.contains_key(&id) && model.state.is_servers_pane(id) {
-        return super::servers_tab::render(id, model, cx);
-    }
     if let Some(surface) = model.webviews.panes.get(&id) {
         return surface.view.clone().into_any_element();
     }
@@ -671,10 +668,6 @@ mod tests {
         assert_eq!(pane_name(&terminal, "Terminal").as_ref(), "Terminal");
         assert_eq!(pane_name(&terminal, "").as_ref(), "Terminal");
         assert_eq!(pane_name(&terminal, "vim").as_ref(), "Terminal: vim");
-        assert_eq!(
-            pane_name(&PaneContent::Servers, "Devices").as_ref(),
-            "Devices"
-        );
     }
 
     #[test]

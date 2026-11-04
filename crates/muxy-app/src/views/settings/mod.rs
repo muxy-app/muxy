@@ -62,13 +62,14 @@ pub(crate) enum Category {
     Commands,
     Browser,
     Server,
+    Devices,
     Extensions,
     Backup,
     About,
 }
 
 impl Category {
-    pub(crate) const ALL: [Self; 13] = [
+    pub(crate) const ALL: [Self; 14] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
@@ -78,6 +79,7 @@ impl Category {
         Self::Terminal,
         Self::Browser,
         Self::Server,
+        Self::Devices,
         Self::Extensions,
         Self::Ai,
         Self::Backup,
@@ -97,6 +99,7 @@ impl Category {
             Self::Commands => tr_key!("Commands"),
             Self::Browser => tr_key!("Browser"),
             Self::Server => tr_key!("Server"),
+            Self::Devices => tr_key!("Devices"),
             Self::Extensions => tr_key!("Extensions"),
             Self::Backup => tr_key!("Backup & Restore"),
             Self::About => tr_key!("About"),
@@ -151,6 +154,7 @@ pub(crate) struct SettingsView {
     backup_import: Option<crate::backup::PreparedImport>,
     backup_status: String,
     pub(crate) extensions: Option<Entity<extensions::ExtensionsView>>,
+    pub(crate) devices: Option<Entity<super::cached::CachedView<crate::model::AppModel>>>,
     navigation_view: Entity<super::cached::CachedView<Self>>,
     content_view: Entity<super::cached::CachedView<Self>>,
     quick_recording: Option<(muxy_ui::quick_terminal::ShortcutRecording, gpui::Task<()>)>,
@@ -252,6 +256,7 @@ impl SettingsView {
             backup_import: None,
             backup_status: String::new(),
             extensions: None,
+            devices: None,
             navigation_view: super::cached::CachedView::new(
                 |view, window, cx| view.navigation(window, cx),
                 cx,
@@ -562,6 +567,20 @@ impl SettingsView {
         self.search.update(cx, |input, cx| input.set_text("", cx));
         cx.emit(SettingsEvent::CheckExtensionUpdates);
         cx.notify();
+    }
+
+    pub(crate) fn show_devices(&mut self, cx: &mut Context<Self>) {
+        self.category = Category::Devices;
+        self.section = None;
+        self.query.clear();
+        self.results.reset();
+        self.search.update(cx, |input, cx| input.set_text("", cx));
+        cx.notify();
+    }
+
+    /// Whether the Devices page is on screen; search results replace it.
+    pub(crate) fn devices_shown(&self) -> bool {
+        self.category == Category::Devices && self.query.is_empty()
     }
 
     fn matches(&self, category: Category, label: &str) -> bool {

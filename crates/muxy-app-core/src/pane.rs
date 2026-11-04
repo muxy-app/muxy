@@ -35,7 +35,7 @@ pub enum PaneContent {
     Settings,
     Webview(crate::webview::WebviewDescriptor),
     Browser(crate::browser::BrowserPane),
-    /// The Devices tab: the servers this computer connects to, and the devices
-    /// paired with it.
+    /// A Devices tab saved by an older version. It reads back so those states
+    /// still load, and is removed as they do; Devices is a Settings page now.
     Servers,
 }

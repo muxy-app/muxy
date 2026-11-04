@@ -3,7 +3,8 @@ use std::error::Error;
 use std::path::Path;
 
 use muxy_app_core::{
-    AppError, AppState, Direction, LocalCatalog, ProjectId, ProjectStatus, ServerId, restore, store,
+    AppError, AppState, Direction, LocalCatalog, PaneContent, ProjectId, ProjectStatus, ServerId,
+    restore, store,
 };
 use muxy_protocol::{
     CatalogPage, ProjectDescriptor, ServerIdentity, ServerPath, SessionId, SessionInfo,
@@ -703,56 +704,33 @@ fn backups_leave_remote_projects_out_and_restoring_keeps_them() -> TestResult {
 }
 
 #[test]
-fn the_remote_servers_tab_opens_once_and_survives_a_restart() -> TestResult {
+fn a_devices_tab_saved_by_an_older_version_is_removed_on_load() -> TestResult {
     let mut state = AppState::bootstrap()?;
     let home = state.home().id;
-    let tab = state.show_servers_tab(home, "Remote Servers")?;
-    state.open_terminal_tab(home)?;
-    assert_eq!(
-        state.show_servers_tab(home, "Remote Servers")?,
-        tab,
-        "opening it again shows the one already open"
-    );
-    assert_eq!(state.window().selected_tab.get(&home), Some(&tab));
-    let pane = state.window().active_pane.ok_or("pane")?;
-    assert!(state.is_servers_pane(pane));
+    let terminal = state.open_terminal_tab(home)?;
+    let settings = state.show_settings_tab(home, "Devices")?;
 
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("desktop-state.json");
     store::save(&path, &state)?;
+    let saved = std::fs::read_to_string(&path)?;
+    let older = saved.replace("\"type\": \"settings\"", "\"type\": \"servers\"");
+    assert_ne!(older, saved, "the saved state has the old tab's pane");
+    std::fs::write(&path, older)?;
+
     let loaded = store::load(&path)?;
-    assert_eq!(loaded, state);
-    assert_eq!(loaded.servers_tab(), Some((home, tab)));
-    Ok(())
-}
-
-#[test]
-fn the_remote_servers_tab_moves_to_home_when_its_folder_is_gone() -> TestResult {
-    let directory = tempfile::tempdir()?;
-    let folder = directory.path().join("app");
-    std::fs::create_dir(&folder)?;
-    let mut state = AppState::bootstrap()?;
-    let home = state.home().id;
-    let project = state.add_project(LOCAL, folder.clone())?;
-    let first = state.show_servers_tab(project, "Remote Servers")?;
-    assert_eq!(state.servers_tab(), Some((project, first)));
-
-    std::fs::rename(&folder, directory.path().join("moved"))?;
-    state.refresh_project_statuses();
-    let second = state.show_servers_tab(project, "Remote Servers")?;
-    assert_ne!(second, first);
-    assert_eq!(state.servers_tab(), Some((home, second)));
-    assert_eq!(state.current_project().id, home);
-
-    std::fs::rename(directory.path().join("moved"), &folder)?;
-    state.refresh_project_statuses();
-    assert_eq!(
-        state.servers_tab(),
-        Some((home, second)),
-        "the tab in the folder that came back was closed"
+    let home = loaded.project(home).ok_or("home")?;
+    assert!(home.tabs.iter().all(|tab| tab.id != settings));
+    assert!(home.tabs.iter().any(|tab| tab.id == terminal));
+    assert_eq!(loaded.settings_tab(), None);
+    assert!(
+        loaded
+            .projects()
+            .iter()
+            .flat_map(|project| &project.tabs)
+            .flat_map(|tab| &tab.panes)
+            .all(|pane| pane.content != PaneContent::Servers)
     );
-    let project = state.project(project).ok_or("project")?;
-    assert!(project.tabs.iter().all(|tab| tab.id != first));
     Ok(())
 }
 

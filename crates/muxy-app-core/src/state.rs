@@ -159,6 +159,7 @@ impl TryFrom<StoredState> for AppState {
             .retain(|pane| panes.contains(pane));
         state.validate()?;
         state.retain_one_settings_pane()?;
+        state.remove_saved_devices_panes()?;
         state.validate()?;
         Ok(state)
     }

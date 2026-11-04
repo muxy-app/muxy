@@ -3,7 +3,7 @@ use super::*;
 
 pub(super) fn open_tab(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
     cx.update(|window, cx| {
-        view.update(cx, |model, cx| model.open_servers_tab(window, cx));
+        view.update(cx, |model, cx| model.show_devices_settings(window, cx));
     });
     cx.run_until_parked();
 }
@@ -22,15 +22,22 @@ pub(super) fn tab_window(
 }
 
 #[gpui::test]
-fn manage_servers_opens_one_remote_servers_tab(cx: &mut TestAppContext) {
+fn manage_devices_in_the_popover_opens_settings_at_devices(cx: &mut TestAppContext) {
     let devbox = ServerId::new();
     let (view, cx, _, _) = tab_window(vec![grouped(devbox, "devbox", None)], cx);
     press(cx, "remote-servers-section".into());
+    view.read_with(cx, |model, _| {
+        assert!(matches!(model.overlay, Some(Overlay::RemoteServers)));
+        assert!(
+            model.state.settings_tab().is_none(),
+            "the popover comes first"
+        );
+    });
     press(cx, "remote-manage-servers".into());
     open_tab(&view, cx);
-    view.read_with(cx, |model, _| {
+    view.read_with(cx, |model, cx| {
         let pane = model.active_pane().expect("pane");
-        assert!(model.state.is_servers_pane(pane));
+        assert!(model.state.is_settings_pane(pane));
         let tabs: usize = model
             .state
             .projects()
@@ -39,12 +46,32 @@ fn manage_servers_opens_one_remote_servers_tab(cx: &mut TestAppContext) {
             .filter(|tab| {
                 tab.panes
                     .iter()
-                    .any(|pane| model.state.is_servers_pane(pane.id))
+                    .any(|pane| model.state.is_settings_pane(pane.id))
             })
             .count();
         assert_eq!(tabs, 1, "opening it again shows the same tab");
         assert!(model.overlay.is_none());
+        let settings = model.settings_tab.as_ref().expect("settings tab");
+        assert!(settings.view.read(cx).devices_shown());
     });
+    assert!(cx.debug_bounds("servers-tab").is_some());
+    assert!(cx.debug_bounds("settings-category-Devices").is_some());
+    assert!(
+        cx.debug_bounds(format!("servers-row-{devbox}").leak())
+            .is_some()
+    );
+}
+
+#[gpui::test]
+fn searching_settings_finds_the_devices_page(cx: &mut TestAppContext) {
+    let (view, cx, _, _) = tab_window(Vec::new(), cx);
+    cx.update(|window, cx| view.update(cx, |model, cx| model.open_settings(window, cx)));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("servers-tab").is_none());
+    press(cx, "settings-search".into());
+    cx.simulate_input("pairing");
+    cx.run_until_parked();
+    press(cx, "settings-manage-devices".into());
     assert!(cx.debug_bounds("servers-tab").is_some());
 }
 
@@ -189,7 +216,7 @@ fn the_search_takes_typing_and_drops_hidden_servers_from_the_selection(cx: &mut 
     cx.simulate_input("api");
     cx.run_until_parked();
     view.read_with(cx, |model, cx| {
-        let search = model.servers_tab.search_input().expect("search");
+        let search = model.devices_page.search_input().expect("search");
         assert_eq!(search.read(cx).text(), "api");
         assert!(
             model.remote_selection.is_empty(),
@@ -217,7 +244,7 @@ fn disconnecting_a_connecting_server_tells_its_worker(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn opened_from_another_computers_project_the_tab_goes_to_home(cx: &mut TestAppContext) {
+fn opened_from_another_computers_project_settings_goes_to_home(cx: &mut TestAppContext) {
     let remote = ServerId::new();
     let (view, cx, _, _) = tab_window(vec![grouped(remote, "box", None)], cx);
     let project = ProjectId::new();
@@ -227,7 +254,7 @@ fn opened_from_another_computers_project_the_tab_goes_to_home(cx: &mut TestAppCo
     });
     open_tab(&view, cx);
     view.read_with(cx, |model, _| {
-        let (owner, _) = model.state.servers_tab().expect("tab");
+        let (owner, _) = model.state.settings_tab().expect("tab");
         assert_eq!(owner, model.state.home().id);
     });
 }

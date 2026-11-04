@@ -36,10 +36,10 @@ Every payload value is a string.
 | `modal.opened`, `modal.closed` | `extensionID`, `modalID` | |
 
 **Tab context:** `tabID`, `projectID`, `worktreeID`, `areaID`, `title`,
-`projectPath`, and `kind` (`terminal`, `extensionWebView`, `browser`, or
-`remoteServers`). Terminal tabs add `paneID` and `cwd`. Extension tabs add
+`projectPath`, and `kind` (`terminal`, `extensionWebView`, or `browser`).
+Terminal tabs add `paneID` and `cwd`. Extension tabs add
 `extensionID`, `tabTypeID`, `tabInstanceID`, and `data` as a JSON string.
-Browser tabs add `paneID` and `url`. The Devices tab adds `paneID`.
+Browser tabs add `paneID` and `url`.
 
 - `projectID` is the top-level project. `worktreeID` is the project or
   worktree the tab belongs to.

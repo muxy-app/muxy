@@ -119,6 +119,9 @@ pub(super) fn rows(
     {
         rows.push(collapsed_sidebar_style(pane, cx));
     }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Active sidebar")) {
+        rows.push(active_sidebar(pane, cx));
+    }
     if category == Category::Appearance && pane.matches(category, tr_key!("Sidebar vibrancy")) {
         rows.push(pane.row(
             "sidebar-vibrancy",
@@ -191,22 +194,6 @@ pub(super) fn rows(
             ));
         }
     }
-    let sidebars = &pane.snapshot.sidebars;
-    if category == Category::Appearance
-        && !sidebars.is_empty()
-        && pane.matches(category, tr_key!("Active sidebar"))
-    {
-        let built_in = tr!("Built-in");
-        let selected = sidebars
-            .iter()
-            .find(|(id, _)| *id == appearance.extension_sidebar)
-            .map_or(built_in.as_str(), |(_, label)| label.as_str());
-        rows.push(pane.row(
-            "extension-sidebar",
-            tr_key!("Active sidebar"),
-            pane.picker(PickerKind::ExtensionSidebar, selected, cx),
-        ));
-    }
     if category == Category::Appearance && pane.matches(category, tr_key!("Show agents panel")) {
         rows.push(pane.row(
             "agents-panel",
@@ -275,6 +262,52 @@ pub(super) const FILE_OPENERS: [(&str, &str); 3] = [
     ("system.finder", crate::opener::FILE_MANAGER),
     ("system.application", tr_key!("Default application")),
 ];
+
+/// Which sidebar shows. The row is there before any extension provides one,
+/// and says where to get one; a chosen one that is no longer enabled stays
+/// chosen, and the row says the built-in sidebar shows meanwhile.
+fn active_sidebar(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+    let selected = &pane.snapshot.settings.appearance.extension_sidebar;
+    let unavailable =
+        !selected.is_empty() && !pane.snapshot.sidebars.iter().any(|(id, _)| id == selected);
+    let note = if unavailable {
+        Some(tr!(
+            "The selected sidebar's extension is unavailable, so Muxy is showing the built-in sidebar."
+        ))
+    } else if pane.snapshot.sidebars.is_empty() {
+        Some(tr!(
+            "No enabled extension provides a sidebar. Install or enable one in Extensions."
+        ))
+    } else {
+        None
+    };
+    pane.row_with_description(
+        "extension-sidebar",
+        tr_key!("Active sidebar"),
+        note.as_ref().map(AsRef::as_ref),
+        pane.picker(
+            PickerKind::ExtensionSidebar,
+            &sidebar_label(&pane.snapshot, selected),
+            cx,
+        ),
+        pane.compact,
+    )
+}
+
+/// The label of a sidebar selection: built in, a provider, or an unavailable one.
+pub(super) fn sidebar_label(snapshot: &Snapshot, selected: &str) -> String {
+    if selected.is_empty() {
+        return tr!("Built-in").to_string();
+    }
+    snapshot
+        .sidebars
+        .iter()
+        .find(|(id, _)| id == selected)
+        .map_or_else(
+            || tr!("%@ (unavailable)", selected).to_string(),
+            |(_, label)| label.clone(),
+        )
+}
 
 /// The chosen file opener's label. A chosen extension opener that is no
 /// longer enabled stays chosen, marked unavailable.
