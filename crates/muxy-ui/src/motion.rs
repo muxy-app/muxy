@@ -1,18 +1,6 @@
 use gpui::{Animation, AnimationExt as _, ElementId, Hsla, IntoElement, Pixels, Styled, div};
 use std::time::Duration;
 
-/// Whether the system asks apps to keep animation to a minimum.
-#[cfg(target_os = "macos")]
-pub fn reduce_motion() -> bool {
-    objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
-}
-
-/// Whether the system asks apps to keep animation to a minimum.
-#[cfg(not(target_os = "macos"))]
-pub fn reduce_motion() -> bool {
-    false
-}
-
 pub struct VisibilityMotion {
     clock: gpui::BackgroundExecutor,
     started: std::time::Instant,

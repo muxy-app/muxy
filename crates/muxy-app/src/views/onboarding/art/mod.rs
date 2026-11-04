@@ -46,7 +46,6 @@ pub(crate) struct ArtView {
     step: Step,
     /// The scene fading out: when it appeared, and how visible it had become.
     outgoing: Option<(Step, Instant, f32)>,
-    still: bool,
 }
 
 impl ArtView {
@@ -59,14 +58,13 @@ impl ArtView {
             shown,
             step: Step::Welcome,
             outgoing: None,
-            still: muxy_ui::motion::reduce_motion(),
         }
     }
 
     pub(crate) fn show(&mut self, step: Step, cx: &mut Context<Self>) {
         let now = self.clock.now();
         let reached = entrance(now.duration_since(self.shown).as_secs_f32());
-        self.outgoing = (!self.still).then_some((self.step, self.shown, reached));
+        self.outgoing = Some((self.step, self.shown, reached));
         self.step = step;
         self.shown = now;
         cx.notify();
@@ -79,15 +77,16 @@ impl Render for ArtView {
             return div().into_any_element();
         };
         let now = self.clock.now();
-        if !self.still && window.is_window_active() {
-            window.request_animation_frame();
-        }
         let since = |moment: Instant| now.duration_since(moment).as_secs_f32();
         let incoming = since(self.shown);
         if incoming > OUTGOING_FADE {
             self.outgoing = None;
         }
         let model = model.read(cx);
+        let still = model.quick.reduce_motion();
+        if !still && window.is_window_active() {
+            window.request_animation_frame();
+        }
         let m = model.metrics;
         let layout = Layout::of(window.viewport_size(), m);
         let art = layout.art.unwrap_or(layout.card);
@@ -97,7 +96,7 @@ impl Render for ArtView {
         );
         let stage = |step: Step, time: f32, opacity: f32| {
             let frame = Frame {
-                t: if self.still { still_time(step) } else { time },
+                t: if still { still_time(step) } else { time },
                 m,
                 model,
             };
@@ -110,7 +109,7 @@ impl Render for ArtView {
                 .opacity(opacity)
                 .child(scene(step, &frame))
         };
-        let entering = if self.still { 1.0 } else { entrance(incoming) };
+        let entering = if still { 1.0 } else { entrance(incoming) };
         div()
             .id("onboarding-art")
             .debug_selector(|| "onboarding-art".into())
@@ -121,10 +120,14 @@ impl Render for ArtView {
             .overflow_hidden()
             .rounded(m.scaled(ART_RADIUS))
             .bg(solid(BACKDROP))
-            .children(self.outgoing.map(|(step, shown, reached)| {
-                let leaving = 1.0 - progress(incoming, 0.0, OUTGOING_FADE);
-                stage(step, since(shown), leaving * reached)
-            }))
+            .children(
+                self.outgoing
+                    .filter(|_| !still)
+                    .map(|(step, shown, reached)| {
+                        let leaving = 1.0 - progress(incoming, 0.0, OUTGOING_FADE);
+                        stage(step, since(shown), leaving * reached)
+                    }),
+            )
             .child(stage(self.step, incoming, entering))
             .into_any_element()
     }

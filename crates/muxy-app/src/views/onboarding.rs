@@ -154,7 +154,7 @@ fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyE
         )
     })
     .child(column(step, layout.art.is_some(), model, cx));
-    let card = if muxy_ui::motion::reduce_motion() {
+    let card = if model.quick.reduce_motion() {
         card.into_any_element()
     } else {
         card.with_animation(
@@ -198,7 +198,7 @@ fn window_mover(id: &'static str, cx: &mut Context<AppModel>) -> gpui::Stateful<
 fn column(step: Step, art_shown: bool, model: &AppModel, cx: &mut Context<AppModel>) -> Div {
     let m = model.metrics;
     let body = steps::body(step, art_shown, model, cx);
-    let body = if muxy_ui::motion::reduce_motion() {
+    let body = if model.quick.reduce_motion() {
         body.into_any_element()
     } else {
         body.with_animation(
