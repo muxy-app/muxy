@@ -5,6 +5,10 @@ use muxy_protocol::{
     Size,
 };
 
+pub fn is_word_char(character: char) -> bool {
+    !character.is_whitespace() && !"()[]{}<>'\"`,;│".contains(character)
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunGrid {
     pub graphics: muxy_protocol::Graphics,
@@ -280,6 +284,22 @@ mod tests {
     use muxy_protocol::{ChannelId, ServerPath, Style};
 
     use super::*;
+
+    #[test]
+    fn word_characters_include_paths_and_identifiers_but_not_separators() {
+        for (text, expected) in [
+            ("foo_bar", true),
+            ("src/main.rs:12", true),
+            ("foo-bar", true),
+            ("界e\u{301}👩‍💻", true),
+            ("()[]{}<>'\"`,;│", false),
+            (" \t\n\r\u{a0}", false),
+        ] {
+            for character in text.chars() {
+                assert_eq!(is_word_char(character), expected, "{character:?}");
+            }
+        }
+    }
 
     fn run(text: &str) -> Run {
         Run {

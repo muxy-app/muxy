@@ -35,7 +35,7 @@ pub use error::{ClientError, RemoteReason};
 pub use error_tail::ErrorTail;
 pub use events::{ClientEvent, ClipboardWrite, take_attached};
 pub use git::AddedWorktree;
-pub use grid::{RunGrid, ScreenLinks, ScreenPrompts};
+pub use grid::{RunGrid, ScreenLinks, ScreenPrompts, is_word_char};
 pub use ssh::{Askpass, ProxyCommand, SshTarget};
 
 mod catalog;

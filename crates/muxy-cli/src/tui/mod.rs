@@ -7,6 +7,7 @@ mod mouse;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 use muxy_app_core::PaneId;
 use muxy_client::{SshTarget, Start};
@@ -56,27 +57,43 @@ pub(crate) fn run(remote: Option<SshTarget>, folder: Option<&Path>) -> Result {
     let size = host.terminal.size().map_err(|error| error.to_string())?;
     let ui = Ui::default();
     let body = Chrome::new(Rect::new(0, 0, size.width, size.height), ui.sidebar()).body;
-    let worker = Worker::start(target, first, body, open)?;
-    let result = events(&mut host, &worker, ui);
+    let input = terminal::Events::start().map_err(|error| error.to_string())?;
+    let worker = Worker::start(target, first, body, open, input.redraw.clone())?;
+    let result = events(&mut host, &worker, ui, &input);
     drop(host);
     drop(worker);
     result
 }
 
-fn events(host: &mut Host, worker: &Worker, mut ui: Ui) -> Result {
-    let events = terminal::Events::start().map_err(|error| error.to_string())?;
+const FRAME_TIME: Duration = Duration::from_millis(16);
+
+fn event_timeout(dirty: bool, drawn: Instant, selecting: bool) -> Duration {
+    if dirty {
+        FRAME_TIME.saturating_sub(drawn.elapsed())
+    } else if selecting {
+        FRAME_TIME
+    } else {
+        Duration::from_millis(100)
+    }
+}
+
+fn events(host: &mut Host, worker: &Worker, mut ui: Ui, events: &terminal::Events) -> Result {
+    let mut dirty = true;
+    let mut drawn = Instant::now();
     let mut pointer = mouse::Pointer::default();
     let mut capturing = true;
     let mut shape = None;
     loop {
+        dirty |= events.redraw.take();
         if host.stop.load(Ordering::Acquire) || terminal::require_interactive().is_err() {
             return Ok(());
         }
         if host
-            .resume_if_needed(&events)
+            .resume_if_needed(events)
             .map_err(|error| error.to_string())?
         {
             capturing = true;
+            dirty = true;
         }
         if capturing != ui.mouse {
             capturing = ui.mouse;
@@ -97,6 +114,7 @@ fn events(host: &mut Host, worker: &Worker, mut ui: Ui) -> Result {
             if let Some(id) = shared.confirm.take() {
                 ui.overlay = Overlay::Confirm(id);
                 ui.mode = Mode::Normal;
+                dirty = true;
             }
             if let Some(result) = &shared.exit {
                 return result.clone();
@@ -121,13 +139,19 @@ fn events(host: &mut Host, worker: &Worker, mut ui: Ui) -> Result {
             };
             execute!(io::stdout(), style).map_err(|error| error.to_string())?;
         }
-        pointer.tick(worker, &mut ui);
-        host.terminal
-            .draw(|frame| ui::draw(frame, &lock(&worker.shared), &mut ui))
-            .map_err(|error| error.to_string())?;
-        let Some(event) = events.next().map_err(|error| error.to_string())? else {
+        dirty |= pointer.tick(worker, &mut ui);
+        if dirty && drawn.elapsed() >= FRAME_TIME || drawn.elapsed() >= Duration::from_secs(1) {
+            host.terminal
+                .draw(|frame| ui::draw(frame, &lock(&worker.shared), &mut ui))
+                .map_err(|error| error.to_string())?;
+            drawn = Instant::now();
+            dirty = false;
+        }
+        let timeout = event_timeout(dirty, drawn, pointer.selecting());
+        let Some(event) = events.next(timeout).map_err(|error| error.to_string())? else {
             continue;
         };
+        dirty = true;
         let result = match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => keys::key(key, worker, &mut ui),
             Event::Paste(text) => {

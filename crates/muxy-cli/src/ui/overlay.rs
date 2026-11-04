@@ -21,7 +21,7 @@ pub(crate) const HELP: &[(&str, &[(&str, &str)])] = &[
         &[
             ("c", "new tab"),
             ("n / p", "next / previous tab"),
-            ("1 … 9", "go to tab"),
+            ("1 … 9, 0", "go to tab"),
         ],
     ),
     (
@@ -30,7 +30,8 @@ pub(crate) const HELP: &[(&str, &[(&str, &str)])] = &[
             ("% or v", "split side by side"),
             ("\" or -", "split top and bottom"),
             ("arrows, h j k l", "move focus"),
-            ("o", "next pane"),
+            ("o or Tab", "next pane"),
+            ("Shift-Tab", "previous pane"),
             ("Ctrl/Alt + arrows", "resize"),
             ("r", "resize mode"),
             ("z", "zoom"),
@@ -40,7 +41,7 @@ pub(crate) const HELP: &[(&str, &[(&str, &str)])] = &[
     (
         "Projects",
         &[
-            ("s", "find a project"),
+            ("s or g", "find a project"),
             ("( / )", "previous / next project"),
             ("w", "existing terminals"),
             ("b", "show or hide the sidebar"),

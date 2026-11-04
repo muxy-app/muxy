@@ -1,0 +1,215 @@
+diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
+--- a/src/terminal/Terminal.zig
++++ b/src/terminal/Terminal.zig
+@@ -4109,6 +4109,7 @@
+ pub const Resize = struct {
+     cols: size.CellCountInt,
+     rows: size.CellCountInt,
++    reflow_cursor: bool = true,
+     cell_size_px: ?struct {
+         width: u32,
+         height: u32,
+@@ -4213,6 +4214,7 @@
+         .cols = opts.cols,
+         .rows = opts.rows,
+         .reflow = self.modes.get(.wraparound),
++        .reflow_cursor = opts.reflow_cursor or self.screens.active_key != .primary,
+         .prompt_redraw = self.flags.shell_redraws_prompt,
+         .pull_scrollback = self.flags.resize_pull_scrollback,
+     });
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -1835,6 +1835,7 @@
+     wrapper.stream.handler.resize(.{
+         .cols = cols,
+         .rows = rows,
++        .reflow_cursor = false,
+         .cell_size_px = .{
+             .width = cell_width_px,
+             .height = cell_height_px,
+diff --git a/src/terminal/Screen.zig b/src/terminal/Screen.zig
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -2129,6 +2129,7 @@
+     /// smaller and the maximum scrollback size is exceeded, data will be
+     /// lost from the top of the scrollback.
+     reflow: bool = true,
++    reflow_cursor: bool = true,
+
+     /// Set this to enable prompt redraw on resize. This signals
+     /// that the running program can redraw the prompt if the cursor is
+@@ -2230,10 +2231,12 @@
+         .rows = opts.rows,
+         .cols = opts.cols,
+         .reflow = opts.reflow,
++        .reflow_cursor = opts.reflow_cursor,
+         .cursor = .{
+             .x = self.cursor.x,
+             .y = self.cursor.y,
+             .pin = self.cursor.page_pin,
++            .prompt = self.cursor.semantic_content != .output,
+         },
+         .pull_scrollback = opts.pull_scrollback,
+     });
+diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -1229,6 +1229,7 @@
+     /// Whether to reflow the text. If this is false then the text will
+     /// be truncated if the new size is smaller than the old size.
+     reflow: bool = true,
++    reflow_cursor: bool = true,
+
+     /// Set this to the current cursor position in the active area. Some
+     /// resize/reflow behavior depends on the cursor position.
+@@ -1253,6 +1254,7 @@
+         /// When set, this pin preserves right-side blank cells up to the cursor
+         /// during reflow.
+         pin: ?*Pin = null,
++        prompt: bool = false,
+     };
+ };
+
+@@ -1413,6 +1415,23 @@
+         if (c.untrack) self.untrackPin(c.tracked_pin);
+     };
+
++    const cursor_line_start: ?Pin = start: {
++        if (opts.reflow_cursor) break :start null;
++        const c = preserved_cursor orelse break :start null;
++        if (opts.cursor.?.prompt) {
++            var prompts = c.tracked_pin.promptIterator(.left_up, null);
++            if (prompts.next()) |prompt| break :start prompt;
++        }
++        var rows = c.tracked_pin.rowIterator(.left_up, null);
++        var first = c.tracked_pin.*;
++        while (rows.next()) |row| {
++            first = row;
++            if (!row.rowAndCell().row.wrap_continuation) break;
++        }
++        first.x = 0;
++        break :start first;
++    };
++
+     // Update our cols. We have to do this early because grow() that we
+     // may call below relies on this to calculate the proper page size, but
+     // after preserved_cursor so that the cursor pin can resolve coordinates in
+@@ -1478,12 +1497,29 @@
+     // Reflow all our rows.
+     {
+         var reflow_cursor: ReflowCursor = .init(first_rewritten_node);
++        var preserve_line = false;
++        var reached_cursor = false;
++        var cursor_line = cursor_line_start;
+         while (it.next()) |row| {
++            if (cursor_line) |start| {
++                if (start.node == row.node and start.y == row.y) {
++                    preserve_line = true;
++                    cursor_line = null;
++                }
++            }
++            if (preserved_cursor) |c| {
++                if (c.tracked_pin.node == row.node and c.tracked_pin.y == row.y) {
++                    reached_cursor = true;
++                }
++            }
++            const wraps = row.rowAndCell().row.wrap;
+             try reflow_cursor.reflowRow(
+                 self,
+                 row,
+                 if (preserved_cursor) |c| c.tracked_pin else null,
++                !preserve_line,
+             );
++            if (reached_cursor and !wraps) preserve_line = false;
+
+             // Once we're done reflowing a page, we're done with it, so
+             // make it available for reuse (or destroy it). Making it
+@@ -1656,6 +1692,7 @@
+         list: *PageList,
+         row: Pin,
+         cursor_pin: ?*Pin,
++        reflow: bool,
+     ) Allocator.Error!void {
+         const src_page: *Page = row.node.page();
+         const src_row = row.rowAndCell().row;
+@@ -1664,8 +1701,11 @@
+
+         // Calculate the columns in this row. First up we trim non-semantic
+         // rightmost blanks.
+-        var cols_len = src_page.size.cols;
+-        if (!src_row.wrap) {
++        var cols_len = if (reflow)
++            src_page.size.cols
++        else
++            @min(src_page.size.cols, self.page.size.cols);
++        if (!src_row.wrap or !reflow) {
+             while (cols_len > 0) {
+                 if (!cells[cols_len - 1].isEmpty()) break;
+                 cols_len -= 1;
+@@ -1695,7 +1735,8 @@
+                 // This row has pins
+                 row_has_pins = true;
+
+-                if (cursor_pin != null and p == cursor_pin.?) continue;
++                if (!reflow) p.x = @min(p.x, self.page.size.cols - 1);
++                if (reflow and cursor_pin != null and p == cursor_pin.?) continue;
+
+                 // If this pin is in the blanks on the right and past the end
+                 // of the dst col width then we move it to the end of the dst
+@@ -1714,11 +1755,11 @@
+
+         // If the cursor is after blanks on the right, those cells are still
+         // before the next write and must reflow with it.
+-        if (cursor_pin) |p| {
++        if (reflow) if (cursor_pin) |p| {
+             if (p.node == row.node and p.y == src_y) {
+                 cols_len = @max(cols_len, p.x + 1);
+             }
+-        }
++        };
+
+         // Defer processing of blank rows so that blank rows
+         // at the end of the page list are never written.
+@@ -1726,7 +1767,7 @@
+             // If this blank row was a wrap continuation somehow
+             // then we won't need to write it since it should be
+             // a part of the previously written row.
+-            if (!src_row.wrap_continuation) self.new_rows += 1;
++            if (!src_row.wrap_continuation or !reflow) self.new_rows += 1;
+             return;
+         }
+
+@@ -1795,9 +1836,16 @@
+                 }
+             }
+
++            const blank: pagepkg.Cell = .{};
++            const cell = if (!reflow and
++                (cells[x].wide == .spacer_head or
++                    (cells[x].wide == .wide and x == cols_len - 1)))
++                &blank
++            else
++                &cells[x];
+             if (self.writeCell(
+                 list,
+-                &cells[x],
++                cell,
+                 src_page,
+             )) |result| switch (result) {
+                 // Wrote the cell, move to the next.
+@@ -1848,8 +1896,13 @@
+             }
+         }
+
++        if (!reflow) {
++            self.page_row.wrap = src_row.wrap;
++            self.page_row.wrap_continuation = src_row.wrap_continuation;
++        }
++
+         // If the source row isn't wrapped then we should scroll afterwards.
+-        if (!src_row.wrap) {
++        if (!src_row.wrap or !reflow) {
+             self.new_rows += 1;
+         }
+     }

@@ -84,16 +84,20 @@ impl Pointer {
         }
     }
 
+    pub(super) fn selecting(&self) -> bool {
+        matches!(self.drag, Some(Drag::Select { .. }))
+    }
+
     /// Keeps scrolling while a selection is held past a pane's top or bottom.
-    pub(super) fn tick(&mut self, worker: &Worker, ui: &mut Ui) {
+    pub(super) fn tick(&mut self, worker: &Worker, ui: &mut Ui) -> bool {
         let Some(Drag::Select { pane, column, row }) = self.drag else {
-            return;
+            return false;
         };
         let Some(inner) = ui
             .area(Target::Content(pane))
             .filter(|_| ui.overlay == Overlay::None)
         else {
-            return;
+            return false;
         };
         // A pane can reach the screen's bottom edge, so its last row scrolls down too.
         let rows = if row < inner.y {
@@ -101,17 +105,18 @@ impl Pointer {
         } else if row.saturating_add(1) >= inner.bottom() {
             -1
         } else {
-            return;
+            return false;
         };
         if self
             .scrolled
             .is_some_and(|scrolled| scrolled.elapsed() < AUTOSCROLL)
         {
-            return;
+            return false;
         }
         self.scrolled = Some(Instant::now());
         scroll(worker, pane, Some(rows));
         extend(worker, ui, pane, column, row);
+        true
     }
 
     fn press(

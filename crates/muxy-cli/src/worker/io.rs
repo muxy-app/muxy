@@ -13,6 +13,7 @@ use muxy_protocol::{
 
 use crate::scroll::{HistoryRequest, Scroll};
 use crate::state::{Result, State};
+use crate::terminal::Redraw;
 
 #[derive(Clone, Debug)]
 pub(crate) struct View {
@@ -91,6 +92,7 @@ impl Closing {
 #[derive(Default)]
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Shared {
+    pub redraw: Redraw,
     /// The server, as named to the user.
     pub server: String,
     pub client: Option<Client>,
@@ -124,9 +126,11 @@ impl Shared {
     pub(crate) fn say(&mut self, text: impl Into<String>) {
         self.message = text.into();
         self.message_id = self.message_id.wrapping_add(1);
+        self.redraw.request();
     }
 
     pub(crate) fn session_ended(&mut self, session: SessionId) {
+        self.redraw.request();
         self.ended.insert(session);
         if let Some(state) = &mut self.state {
             state.close_sessions(&self.ended);
@@ -175,6 +179,7 @@ impl Shared {
         session: SessionId,
         attachment: Attachment,
     ) -> Option<ChannelId> {
+        self.redraw.request();
         let channel = attachment.terminal.channel();
         self.last_channel = self.last_channel.max(channel.0);
         match self.attaching.remove(&tag) {
@@ -194,6 +199,7 @@ impl Shared {
     }
 
     pub(crate) fn disconnected(&mut self) {
+        self.redraw.request();
         self.client = None;
         self.sessions.clear();
         self.sessions_project = None;
@@ -260,7 +266,7 @@ pub(super) fn reader(client: Client, shared: Arc<Mutex<Shared>>) -> Result<JoinH
                     | ClientEvent::ClipboardWrite { .. }
                     | ClientEvent::GitChanged { .. }
                     | ClientEvent::RemoteAccessChanged { .. }
-                    | ClientEvent::Progress { .. } => (),
+                    | ClientEvent::Progress { .. } => continue,
                     ClientEvent::CatalogChanged { .. } => state.refresh = true,
                     ClientEvent::SessionsChanged { .. } => state.sessions_dirty = true,
                     ClientEvent::SessionEnded { session, .. } => {
@@ -272,6 +278,7 @@ pub(super) fn reader(client: Client, shared: Arc<Mutex<Shared>>) -> Result<JoinH
                         break;
                     }
                 }
+                state.redraw.request();
                 drop(state);
                 if let Some(channel) = stray {
                     client.detach_async(channel).on_complete(drop);
@@ -453,6 +460,7 @@ impl Fetcher {
                             .scroll
                             .receive(fetch.request, result, height)
                             .map(|request| Fetch { request, ..fetch });
+                        state.redraw.request();
                     }
                 }
             })
@@ -486,6 +494,7 @@ impl Fetcher {
             let height = usize::from(view.viewport.rows);
             view.scroll
                 .receive(request, Err(ClientError::Disconnected), height);
+            shared.redraw.request();
         }
     }
 }

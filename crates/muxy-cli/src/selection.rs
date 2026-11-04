@@ -2,7 +2,7 @@
 //! so history paged in above a selection never moves it.
 
 use muxy_app_core::PaneId;
-use muxy_client::RunGrid;
+use muxy_client::{RunGrid, is_word_char};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::text::Span;
@@ -126,7 +126,7 @@ fn word_edge(grid: &RunGrid, point: Point, forward: bool) -> u16 {
     let word = |col: u16| {
         cells
             .get(usize::from(col))
-            .is_some_and(|cell| !cell.is_empty() && cell.chars().all(is_word))
+            .is_some_and(|cell| !cell.is_empty() && cell.chars().all(is_word_char))
     };
     let mut col = point.col.min(
         u16::try_from(cells.len())
@@ -146,8 +146,4 @@ fn word_edge(grid: &RunGrid, point: Point, forward: bool) -> u16 {
         }
     }
     col
-}
-
-fn is_word(character: char) -> bool {
-    !character.is_whitespace() && !"()[]{}<>'\"`,;│".contains(character)
 }

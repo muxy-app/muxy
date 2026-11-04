@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use muxy_app_core::{Branch, Direction, Layout, PaneId};
 use muxy_protocol::{CatalogPage, OperationId, ProjectId, ServerIdentity, ServerPath, SessionId};
@@ -561,11 +562,30 @@ fn split_between(
     found
 }
 
+#[derive(Eq, PartialEq)]
+struct FileStamp {
+    inode: u64,
+    modified: SystemTime,
+    length: u64,
+}
+
+impl FileStamp {
+    fn read(path: &Path) -> io::Result<Self> {
+        let metadata = fs::metadata(path)?;
+        Ok(Self {
+            inode: metadata.ino(),
+            modified: metadata.modified()?,
+            length: metadata.len(),
+        })
+    }
+}
+
 pub(crate) struct Store {
     path: PathBuf,
     pub state: State,
     blocked: bool,
     saved: bool,
+    stamp: Option<FileStamp>,
 }
 
 impl Store {
@@ -586,16 +606,44 @@ impl Store {
             .map_err(|error| format!("Cannot create {}: {error}", directory.display()))?;
         let path = directory.join("tui-state.json");
         let _guard = state_lock(&path)?;
+        let stamp = FileStamp::read(&path).ok();
         let saved = read_state(&path)?;
         Ok(Self {
             path,
             saved: saved.is_some(),
             state: saved.unwrap_or_else(|| State::new(catalog)),
             blocked: false,
+            stamp,
         })
     }
 
+    fn adopt(&mut self, latest: State) -> bool {
+        let selection = self.state.selection();
+        let previous = std::mem::replace(&mut self.state, latest);
+        let _ = self.state.select(selection);
+        self.saved = true;
+        self.state != previous
+    }
+
+    pub(crate) fn refresh(&mut self) -> bool {
+        let Ok(stamp) = FileStamp::read(&self.path) else {
+            return false;
+        };
+        if self.stamp.as_ref() == Some(&stamp) {
+            return false;
+        }
+        let Ok(Some(latest)) = read_state(&self.path) else {
+            return false;
+        };
+        if latest.server != self.state.server {
+            return false;
+        }
+        self.stamp = Some(stamp);
+        self.adopt(latest)
+    }
+
     fn read_latest(&mut self) -> Result {
+        let stamp = FileStamp::read(&self.path).ok();
         let latest = match read_state(&self.path) {
             Ok(Some(state)) => state,
             Ok(None) if !self.saved => return Ok(()),
@@ -614,8 +662,8 @@ impl Store {
             self.blocked = true;
             return Err("The shared TUI state belongs to another server".into());
         }
-        self.state = latest;
-        self.saved = true;
+        self.adopt(latest);
+        self.stamp = stamp;
         Ok(())
     }
 
@@ -647,6 +695,7 @@ impl Store {
             }
             self.state = next;
             self.saved = true;
+            self.stamp = FileStamp::read(&self.path).ok();
         }
         Ok(result)
     }
@@ -817,6 +866,102 @@ mod tests {
             fs::read(&path).map_err(|error| error.to_string())?,
             b"not json"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn refresh_shares_layout_without_writing_or_changing_selection() -> Result {
+        let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
+        let catalog = catalog();
+        let mut first = Store::load(directory.path(), &catalog)?;
+        first.change(|state| state.reconcile(&catalog))?;
+        let mut second = Store::load(directory.path(), &catalog)?;
+        let original = second.state.selection();
+        let pane = original.1.ok_or("pane")?;
+        first.change(|state| {
+            state.rename_tab(pane, Some("renamed".into()))?;
+            state.new_pane(None, ServerPath(b"/tmp".to_vec()), None)
+        })?;
+        let bytes = fs::read(&first.path).map_err(|error| error.to_string())?;
+
+        assert!(second.refresh());
+        assert_eq!(second.state.selection(), original);
+        assert_eq!(
+            second.state.tab().ok_or("tab")?.title.as_deref(),
+            Some("renamed")
+        );
+        assert_eq!(second.state.projects[&catalog.home].tabs.len(), 2);
+        assert!(!second.refresh());
+        assert_eq!(
+            fs::read(&first.path).map_err(|error| error.to_string())?,
+            bytes
+        );
+        second.state.validate()
+    }
+
+    #[test]
+    fn reconcile_keeps_the_windows_own_project_and_pane() -> Result {
+        let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
+        let mut catalog = catalog();
+        let mut project = catalog.projects[0].clone();
+        project.id = ProjectId::new();
+        project.home = false;
+        catalog.projects.push(project.clone());
+        let mut first = Store::load(directory.path(), &catalog)?;
+        first.change(|state| state.reconcile(&catalog))?;
+        let mut second = Store::load(directory.path(), &catalog)?;
+        let original = second.state.selection();
+        first.change(|state| state.open(project.id, &catalog))?;
+        second.change(|state| state.reconcile(&catalog))?;
+        assert_eq!(second.state.selection(), original);
+        assert!(second.state.projects.contains_key(&project.id));
+        second.state.validate()
+    }
+
+    #[test]
+    fn refresh_uses_saved_selection_when_the_focused_pane_is_gone() -> Result {
+        let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
+        let catalog = catalog();
+        let mut first = Store::load(directory.path(), &catalog)?;
+        first.change(|state| state.reconcile(&catalog))?;
+        let mut second = Store::load(directory.path(), &catalog)?;
+        let original = second.state.selection();
+        first.change(|state| {
+            state.new_pane(None, ServerPath(b"/tmp".to_vec()), None)?;
+            state.close_tab(original.1.ok_or("pane")?)
+        })?;
+        assert!(second.refresh());
+        assert_ne!(second.state.selection(), original);
+        assert_eq!(second.state.selection(), first.state.selection());
+        second.state.validate()
+    }
+
+    #[test]
+    fn failed_refresh_keeps_state_and_leaves_errors_for_change() -> Result {
+        for failure in ["corrupt", "missing", "server"] {
+            let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
+            let catalog = catalog();
+            let mut store = Store::load(directory.path(), &catalog)?;
+            store.change(|state| state.reconcile(&catalog))?;
+            let original = store.state.clone();
+            match failure {
+                "corrupt" => fs::write(&store.path, b"not json"),
+                "missing" => fs::remove_file(&store.path),
+                _ => {
+                    let mut other = original.clone();
+                    other.server = ServerIdentity::new();
+                    persist(&store.path, &other)
+                }
+            }
+            .map_err(|error| error.to_string())?;
+            let bytes = fs::read(&store.path).ok();
+            assert!(!store.refresh(), "{failure}");
+            assert_eq!(store.state, original, "{failure}");
+            store.ready()?;
+            assert_eq!(fs::read(&store.path).ok(), bytes, "{failure}");
+            assert!(store.change(|_| Ok(())).is_err(), "{failure}");
+            assert_eq!(fs::read(&store.path).ok(), bytes, "{failure}");
+        }
         Ok(())
     }
 

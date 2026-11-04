@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use muxy_client::RunGrid;
+use muxy_client::{RunGrid, is_word_char};
 use muxy_protocol::Run;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -169,7 +169,7 @@ pub(super) fn cells(runs: &[Run]) -> Vec<(Range<u16>, &str)> {
 fn word_class(text: &str) -> u8 {
     match text.chars().next() {
         Some(character) if character.is_whitespace() => 0,
-        Some(character) if character.is_alphanumeric() => 1,
+        Some(_) if text.chars().all(is_word_char) => 1,
         _ => 2,
     }
 }

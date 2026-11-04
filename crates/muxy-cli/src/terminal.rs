@@ -27,8 +27,35 @@ pub(crate) fn over_ssh() -> bool {
 
 pub(crate) type Terminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>;
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Redraw {
+    pending: Arc<AtomicBool>,
+    sender: Option<mpsc::SyncSender<HostEvent>>,
+}
+
+impl Redraw {
+    pub(crate) fn request(&self) {
+        if !self.pending.swap(true, Ordering::AcqRel)
+            && let Some(sender) = &self.sender
+        {
+            let _ = sender.try_send(HostEvent::Wake);
+        }
+    }
+
+    pub(crate) fn take(&self) -> bool {
+        self.pending.swap(false, Ordering::AcqRel)
+    }
+}
+
+#[derive(Debug)]
+enum HostEvent {
+    Input(io::Result<event::Event>),
+    Wake,
+}
+
 pub(crate) struct Events {
-    receiver: Receiver<io::Result<event::Event>>,
+    pub redraw: Redraw,
+    receiver: Receiver<HostEvent>,
     stop: Arc<AtomicBool>,
     pause: Arc<AtomicBool>,
     paused: Receiver<()>,
@@ -38,6 +65,10 @@ pub(crate) struct Events {
 impl Events {
     pub(crate) fn start() -> io::Result<Self> {
         let (sender, receiver) = mpsc::sync_channel(128);
+        let redraw = Redraw {
+            sender: Some(sender.clone()),
+            ..Redraw::default()
+        };
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = Arc::clone(&stop);
         let pause = Arc::new(AtomicBool::new(false));
@@ -48,7 +79,7 @@ impl Events {
             .name("muxy-tui-host-input".into())
             .spawn(move || {
                 while !stopped.load(Ordering::Acquire) {
-                    let event = match event::poll(Duration::from_millis(16)) {
+                    let event = match event::poll(Duration::from_millis(100)) {
                         Ok(false) => {
                             if pausing.load(Ordering::Acquire)
                                 && (ready.send(()).is_err() || resuming.recv().is_err())
@@ -64,12 +95,13 @@ impl Events {
                     if pausing.load(Ordering::Acquire) && !failed {
                         continue;
                     }
-                    if sender.send(event).is_err() || failed {
+                    if sender.send(HostEvent::Input(event)).is_err() || failed {
                         break;
                     }
                 }
             })?;
         Ok(Self {
+            redraw,
             receiver,
             stop,
             pause,
@@ -78,10 +110,10 @@ impl Events {
         })
     }
 
-    pub(crate) fn next(&self) -> io::Result<Option<event::Event>> {
-        match self.receiver.recv_timeout(Duration::from_millis(16)) {
-            Ok(event) => event.map(Some),
-            Err(mpsc::RecvTimeoutError::Timeout) => Ok(None),
+    pub(crate) fn next(&self, timeout: Duration) -> io::Result<Option<event::Event>> {
+        match self.receiver.recv_timeout(timeout) {
+            Ok(HostEvent::Input(event)) => event.map(Some),
+            Ok(HostEvent::Wake) | Err(mpsc::RecvTimeoutError::Timeout) => Ok(None),
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 Err(io::Error::other("Terminal input closed"))
             }
@@ -229,4 +261,82 @@ fn discard_pending_input() {
         thread::sleep(Duration::from_millis(1));
     }
     let _ = rustix::termios::tcflush(input, rustix::termios::QueueSelector::IFlush);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn events() -> (Events, mpsc::SyncSender<HostEvent>, mpsc::SyncSender<()>) {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (ready, paused) = mpsc::sync_channel(1);
+        let (resume, _) = mpsc::sync_channel(1);
+        let events = Events {
+            redraw: Redraw {
+                sender: Some(sender.clone()),
+                ..Redraw::default()
+            },
+            receiver,
+            stop: Arc::default(),
+            pause: Arc::default(),
+            paused,
+            resume,
+        };
+        (events, sender, ready)
+    }
+
+    #[test]
+    fn redraw_requests_coalesce_and_wake_again_after_take() -> io::Result<()> {
+        let (events, _, _) = events();
+        events.redraw.request();
+        events.redraw.request();
+        assert!(events.next(Duration::ZERO)?.is_none());
+        assert!(events.receiver.try_recv().is_err());
+        assert!(events.redraw.take());
+        assert!(!events.redraw.take());
+        events.redraw.request();
+        assert!(matches!(events.receiver.try_recv(), Ok(HostEvent::Wake)));
+        assert!(events.redraw.take());
+        Ok(())
+    }
+
+    #[test]
+    fn redraw_survives_a_full_event_channel() -> io::Result<()> {
+        let (events, sender, _) = events();
+        sender
+            .try_send(HostEvent::Input(Ok(event::Event::FocusGained)))
+            .map_err(io::Error::other)?;
+        events.redraw.request();
+        assert_eq!(
+            events.next(Duration::ZERO)?,
+            Some(event::Event::FocusGained)
+        );
+        assert!(events.redraw.take());
+        assert!(!events.redraw.take());
+        Ok(())
+    }
+
+    #[test]
+    fn redraw_survives_pausing_and_draining_host_events() -> io::Result<()> {
+        let (events, _, ready) = events();
+        events.redraw.request();
+        ready.send(()).map_err(io::Error::other)?;
+        events.pause()?;
+        assert!(events.receiver.try_recv().is_err());
+        assert!(events.redraw.take());
+        assert!(!events.redraw.take());
+        events.resume();
+        events.redraw.request();
+        assert!(matches!(events.receiver.try_recv(), Ok(HostEvent::Wake)));
+        Ok(())
+    }
+
+    #[test]
+    fn default_redraw_retains_requests_without_a_receiver() {
+        let redraw = Redraw::default();
+        let other = redraw.clone();
+        other.request();
+        assert!(redraw.take());
+        assert!(!other.take());
+    }
 }

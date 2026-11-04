@@ -568,7 +568,16 @@ impl<'a> Options<'a> {
             if values.contains(&option) {
                 let value = words
                     .next()
-                    .filter(|s| !s.is_empty() && !s.as_encoded_bytes().starts_with(b"--"))
+                    .filter(|s| {
+                        if s.is_empty() {
+                            return false;
+                        }
+                        if option != "--text" {
+                            return !s.as_encoded_bytes().starts_with(b"--");
+                        }
+                        let value = s.to_str().unwrap_or("");
+                        !values.contains(&value) && !flags.contains(&value) && value != "--json"
+                    })
                     .ok_or_else(|| invalid(&format!("missing value for {option}")))?;
                 if result.values.insert(option, value).is_some() {
                     return Err(invalid("duplicate option"));
@@ -777,6 +786,49 @@ mod tests {
                 timeout_ms: 500,
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn wait_accepts_dashed_text_but_not_its_own_options() -> io::Result<()> {
+        for text in [
+            "--- PASS",
+            "--- FAIL: TestX",
+            "--unknown",
+            "--exit later",
+            "--",
+        ] {
+            assert_eq!(
+                words(&["session", "wait", "5", "--text", text, "--json"])?,
+                Invocation {
+                    json: true,
+                    action: Action::Session(Session::Wait {
+                        session: SessionId::new(5),
+                        until: Until::Text {
+                            text: text.into(),
+                            ignore_case: false
+                        },
+                        timeout_ms: 30_000,
+                    }),
+                }
+            );
+        }
+        for value in [
+            "",
+            "--exit",
+            "--json",
+            "--text",
+            "--timeout-ms",
+            "--ignore-case",
+        ] {
+            let error = words(&["session", "wait", "--text", value])
+                .err()
+                .ok_or_else(|| invalid("expected missing value"))?;
+            assert_eq!(error.to_string(), "missing value for --text", "{value:?}");
+        }
+        assert!(words(&["session", "wait", "--text"]).is_err());
+        assert!(words(&["project", "add", ".", "--name", "--x"]).is_err());
+        assert!(words(&["session", "wait", "--text", "ready", "--unknown"]).is_err());
         Ok(())
     }
 

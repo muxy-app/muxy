@@ -104,15 +104,15 @@ fn wide_cells_and_combining_clusters_are_selected_atomically() {
 }
 
 #[test]
-fn words_stop_at_whitespace_and_punctuation_and_rows_trim_padding() {
+fn words_stop_at_whitespace_and_separators_and_rows_trim_padding() {
     let grid = grid();
     for (column, expected) in [
         (0, "one"),
         (3, ","),
         (4, ""),
-        (6, "two"),
-        (8, "."),
-        (10, "three"),
+        (6, "two.three"),
+        (8, "two.three"),
+        (10, "two.three"),
     ] {
         assert_eq!(
             Selection::word(Point { row: 0, column }, &grid).text(&grid),
@@ -121,7 +121,7 @@ fn words_stop_at_whitespace_and_punctuation_and_rows_trim_padding() {
     }
     assert_eq!(
         Selection::word(Point { row: 1, column: 2 }, &grid).text(&grid),
-        "A界e\u{301}"
+        "A界e\u{301}👩‍💻"
     );
     assert_eq!(
         Selection::row(Point { row: 1, column: 5 }, &grid).text(&grid),
@@ -151,4 +151,25 @@ fn older_pages_do_not_move_selection_and_selected_rows_detect_changes() {
     assert_eq!(selected.rows(&grid), before);
     grid.rows[0] = vec![run("changed", 7)];
     assert_ne!(selected.rows(&grid), before);
+}
+
+#[test]
+fn words_include_identifiers_and_paths_and_select_separators_alone() {
+    let mut grid = grid();
+    for (text, column, columns, selected) in [
+        ("foo_bar", 3, 0..7, "foo_bar"),
+        ("src/main.rs:12", 4, 0..14, "src/main.rs:12"),
+        ("(foo)", 0, 0..1, "("),
+        ("(foo)", 2, 1..4, "foo"),
+        ("(foo)", 4, 4..5, ")"),
+        ("a,b", 0, 0..1, "a"),
+        ("a,b", 1, 1..2, ","),
+        ("a,b", 2, 2..3, "b"),
+        ("a   b", 2, 1..4, ""),
+    ] {
+        grid.rows[0] = vec![run(text, u16::try_from(text.len()).unwrap_or(u16::MAX))];
+        let word = Selection::word(Point { row: 0, column }, &grid);
+        assert_eq!(word.columns(0, &grid), columns, "{text:?} at {column}");
+        assert_eq!(word.text(&grid), selected, "{text:?} at {column}");
+    }
 }

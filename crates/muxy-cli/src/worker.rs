@@ -19,6 +19,7 @@ use ratatui::layout::Rect;
 use crate::input::Input;
 use crate::state::{Discard, Result, State, Store};
 use crate::target::{Target, hosting_session};
+use crate::terminal::Redraw;
 
 /// How long the worker waits for a request before checking whether to quit.
 const POLL: Duration = Duration::from_millis(100);
@@ -83,8 +84,10 @@ impl Worker {
         first: Option<Client>,
         viewport: Rect,
         open: Option<ProjectId>,
+        redraw: Redraw,
     ) -> Result<Self> {
         let mut initial = Shared::default();
+        initial.redraw = redraw;
         target.describe().clone_into(&mut initial.server);
         let shared = Arc::new(Mutex::new(initial));
         let input = Arc::new(InputWriter::new(Arc::clone(&shared))?);
@@ -113,7 +116,9 @@ impl Worker {
             .name("muxy-tui-requests".into())
             .spawn(move || {
                 core.run(first, &receiver);
-                lock(&core.shared).exit.get_or_insert(Ok(()));
+                let mut shared = lock(&core.shared);
+                shared.exit.get_or_insert(Ok(()));
+                shared.redraw.request();
             })
             .map_err(|error| error.to_string())?;
         Ok(Self {
@@ -279,6 +284,7 @@ impl Core {
         let mut shared = lock(&self.shared);
         shared.message.clone_from(&error);
         shared.exit = Some(Err(error));
+        shared.redraw.request();
     }
 
     /// Connects on another thread, so Detach and quitting never wait for a
@@ -391,6 +397,9 @@ impl Core {
                     Err(error) => self.message(&error.to_string()),
                 }
             }
+            if self.store_mut()?.refresh() {
+                lock(&self.shared).sessions_dirty = true;
+            }
             if let Err(error) = self.synchronize(client, &catalog) {
                 if self.store_mut()?.ready().is_err() {
                     return Err(error);
@@ -498,7 +507,9 @@ impl Core {
             let activity = client.activity().unwrap_or_default();
             self.acknowledged
                 .retain(|id| activity.events.iter().any(|event| event.id == *id));
-            lock(&self.shared).activity = activity;
+            let mut shared = lock(&self.shared);
+            shared.activity = activity;
+            shared.redraw.request();
         }
         let unseen: Vec<u64> = {
             let shared = lock(&self.shared);
@@ -536,7 +547,9 @@ impl Core {
             return Err("Cannot close the terminal hosting this TUI".into());
         }
         if self.ends_running_program(client, &[id])? {
-            lock(&self.shared).confirm = Some(Closing::Pane(id));
+            let mut shared = lock(&self.shared);
+            shared.confirm = Some(Closing::Pane(id));
+            shared.redraw.request();
             return Ok(());
         }
         self.action(Action::Close(id), client, catalog)
@@ -556,7 +569,9 @@ impl Core {
         }
         let panes: Vec<_> = tab.panes.keys().copied().collect();
         if self.ends_running_program(client, &panes)? {
-            lock(&self.shared).confirm = Some(Closing::Tab(focus));
+            let mut shared = lock(&self.shared);
+            shared.confirm = Some(Closing::Tab(focus));
+            shared.redraw.request();
             return Ok(());
         }
         self.action(Action::CloseTab(focus), client, catalog)
@@ -627,8 +642,7 @@ impl Core {
         self.create_pending(client, viewport)?;
         self.close_ended_sessions(catalog)?;
         self.sync_references(client)?;
-        let state = self.store_mut()?.state.clone();
-        let regions = crate::ui::layout::panes(&state, viewport);
+        let regions = crate::ui::layout::panes(&self.store_mut()?.state, viewport);
         let desired: BTreeMap<_, _> = regions
             .iter()
             .filter_map(|area| Some((area.id, crate::ui::layout::terminal_size(area.inner)?)))
@@ -660,7 +674,9 @@ impl Core {
                     Err(error) => return Err(error.to_string()),
                 }
             }
-            lock(&self.shared).views.remove(&id);
+            let mut shared = lock(&self.shared);
+            shared.views.remove(&id);
+            shared.redraw.request();
         }
         for (id, size) in desired {
             if self.stop.load(Ordering::Acquire) {
@@ -690,25 +706,33 @@ impl Core {
     }
 
     fn create_pending(&mut self, client: &Client, viewport: Rect) -> Result {
-        let state = self.store_mut()?.state.clone();
-        let regions = crate::ui::layout::panes(&state, viewport);
-        for (project, layout) in state.projects {
-            for tab in layout.tabs {
-                for (id, mut pane) in tab.panes {
-                    if self.stop.load(Ordering::Acquire) {
-                        return Ok(());
-                    }
-                    if pane.creation.is_none() || pane.error.is_some() {
-                        continue;
-                    }
-                    let size = regions
+        let state = &self.store_mut()?.state;
+        let pending: Vec<_> = state
+            .projects
+            .iter()
+            .flat_map(|(project, layout)| {
+                layout.tabs.iter().flat_map(move |tab| {
+                    tab.panes
                         .iter()
-                        .find(|area| area.id == id)
-                        .and_then(|area| crate::ui::layout::terminal_size(area.inner))
-                        .unwrap_or(Size { cols: 80, rows: 24 });
-                    self.create_pane(client, project, id, size, &mut pane)?;
-                }
+                        .filter(|(_, pane)| pane.creation.is_some() && pane.error.is_none())
+                        .map(move |(id, pane)| (*project, *id, pane.clone()))
+                })
+            })
+            .collect();
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let regions = crate::ui::layout::panes(state, viewport);
+        for (project, id, mut pane) in pending {
+            if self.stop.load(Ordering::Acquire) {
+                return Ok(());
             }
+            let size = regions
+                .iter()
+                .find(|area| area.id == id)
+                .and_then(|area| crate::ui::layout::terminal_size(area.inner))
+                .unwrap_or(Size { cols: 80, rows: 24 });
+            self.create_pane(client, project, id, size, &mut pane)?;
         }
         Ok(())
     }
@@ -742,10 +766,14 @@ impl Core {
             }
             if let Some(channel) = channel {
                 if viewport != size {
-                    if let Some(view) = lock(&self.shared).views.get_mut(&id) {
-                        view.viewport = size;
-                        view.terminal.grid.resize(size);
-                        view.scroll.bottom();
+                    {
+                        let mut shared = lock(&self.shared);
+                        if let Some(view) = shared.views.get_mut(&id) {
+                            view.viewport = size;
+                            view.terminal.grid.resize(size);
+                            view.scroll.bottom();
+                            shared.redraw.request();
+                        }
                     }
                     client
                         .resize(channel, size)
@@ -840,6 +868,7 @@ impl Core {
         let mut shared = lock(&self.shared);
         shared.sessions = page.sessions;
         shared.sessions_project = Some(project);
+        shared.redraw.request();
         Ok(())
     }
 
@@ -868,7 +897,11 @@ impl Core {
     }
     fn publish(&self, catalog: &CatalogPage) {
         let mut shared = lock(&self.shared);
-        shared.state = self.store.as_ref().map(|store| store.state.clone());
+        let state = self.store.as_ref().map(|store| &store.state);
+        if shared.state.as_ref() == state && shared.catalog.as_ref() == Some(catalog) {
+            return;
+        }
+        shared.state = state.cloned();
         let ended = shared.ended.clone();
         if let Some(state) = &mut shared.state {
             state.close_sessions(&ended);
@@ -889,6 +922,7 @@ impl Core {
             shared.sessions.clear();
         }
         shared.catalog = Some(catalog.clone());
+        shared.redraw.request();
     }
 }
 
