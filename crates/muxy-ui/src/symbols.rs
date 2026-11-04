@@ -785,7 +785,10 @@ pub fn matching(query: &str) -> Vec<&'static Symbol> {
         .iter()
         .filter(|symbol| {
             query.is_empty()
-                || muxy_core::l10n::searchable(symbol.name).contains(&query)
+                || symbol.name.to_lowercase().contains(&query)
+                || muxy_core::l10n::translate(symbol.name)
+                    .to_lowercase()
+                    .contains(&query)
                 || symbol.symbol.to_lowercase().contains(&query)
         })
         .collect()
@@ -829,6 +832,8 @@ mod tests {
         assert_eq!(matches("Folder Fill"), ["folder.fill"]);
         assert_eq!(matches("folder.fill"), ["folder.fill"]);
         assert_eq!(matches("Star Fill"), ["star.fill"]);
+        assert!(matches("folder d").is_empty());
+        assert!(matches("fill dossier").is_empty());
 
         set_language(None);
         assert!(matches("dossier").is_empty());
