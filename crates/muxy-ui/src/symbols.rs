@@ -785,8 +785,52 @@ pub fn matching(query: &str) -> Vec<&'static Symbol> {
         .iter()
         .filter(|symbol| {
             query.is_empty()
-                || symbol.name.to_lowercase().contains(&query)
+                || muxy_core::l10n::searchable(symbol.name).contains(&query)
                 || symbol.symbol.to_lowercase().contains(&query)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use muxy_core::l10n::{Language, PluralCategory, set_language};
+
+    fn matches(query: &str) -> Vec<&'static str> {
+        super::matching(query)
+            .iter()
+            .map(|symbol| symbol.symbol)
+            .collect()
+    }
+
+    #[test]
+    fn searches_names_and_symbol_identifiers() {
+        assert_eq!(super::matching("  ").len(), super::SYMBOLS.len());
+        assert_eq!(matches(" FOLDER "), ["folder", "folder.fill"]);
+        assert_eq!(matches(" Folder Fill "), ["folder.fill"]);
+        assert_eq!(matches(" FOLDER.FILL "), ["folder.fill"]);
+        assert!(matches("no such symbol").is_empty());
+    }
+
+    #[test]
+    fn searches_translated_names_without_losing_english_names_or_identifiers() {
+        set_language(Some(Arc::new(Language::new(
+            HashMap::from([
+                ("Folder".into(), "Dossier".into()),
+                ("Folder Fill".into(), "Dossier rempli".into()),
+            ]),
+            HashMap::new(),
+            |_| PluralCategory::Other,
+        ))));
+
+        assert_eq!(matches(" DOSSIER "), ["folder", "folder.fill"]);
+        assert_eq!(matches("dossier rempli"), ["folder.fill"]);
+        assert_eq!(matches("Folder Fill"), ["folder.fill"]);
+        assert_eq!(matches("folder.fill"), ["folder.fill"]);
+        assert_eq!(matches("Star Fill"), ["star.fill"]);
+
+        set_language(None);
+        assert!(matches("dossier").is_empty());
+    }
 }
