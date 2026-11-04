@@ -190,7 +190,14 @@ fn project_row(
     .rounded(frame.px(5.0))
     .when(selected, |row| row.bg(tint(0xff_ff_ff, 0.08)))
     .child(icon)
-    .child(text(frame, 10.5, tint(TEXT, 0.9), name.to_owned()))
+    .child(
+        div()
+            .min_w(gpui::px(0.0))
+            .truncate()
+            .text_size(frame.px(10.5))
+            .text_color(tint(TEXT, 0.9))
+            .child(name.to_owned()),
+    )
 }
 
 fn worktrees(frame: &Frame, y: f32, expanded: f32, on_worktree: f32) -> Vec<Div> {

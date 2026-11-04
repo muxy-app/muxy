@@ -547,6 +547,7 @@
 "Could not choose logo: %@" = "Could not choose logo: %@";
 "Could not clear terminal panes: %@" = "Could not clear terminal panes: %@";
 "Could not create folder: %@" = "Could not create folder: %@";
+"Could not enable" = "Could not enable";
 "Could not end all sessions: %@" = "Could not end all sessions: %@";
 "Could not install the app update: %@" = "Could not install the app update: %@";
 "Could not install the update: %@" = "Could not install the update: %@";
@@ -951,6 +952,7 @@
 "Installed" = "Installed";
 "Installed %@." = "Installed %@.";
 "Installed %@.\n\n%@" = "Installed %@.\n\n%@";
+"Installed, not enabled" = "Installed, not enabled";
 "Installing %@…" = "Installing %@…";
 "Installing muxy-server, then testing connection…" = "Installing muxy-server, then testing connection…";
 "Installing the app update and restarting Muxy." = "Installing the app update and restarting Muxy.";
@@ -1771,6 +1773,7 @@
 "The installed app includes a server update. Restarting the server ends all terminal sessions." = "The installed app includes a server update. Restarting the server ends all terminal sessions.";
 "The installed extension could not be loaded. Reload extensions to try again." = "The installed extension could not be loaded. Reload extensions to try again.";
 "The installed or staged update changed. Check for updates again." = "The installed or staged update changed. Check for updates again.";
+"The marketplace answered with a different extension." = "The marketplace answered with a different extension.";
 "The marketplace did not list this extension's permissions." = "The marketplace did not list this extension's permissions.";
 "The other computer accepted the pairing, but it couldn't be saved: %@. Fix that and pair again with the same link." = "The other computer accepted the pairing, but it couldn't be saved: %@. Fix that and pair again with the same link.";
 "The page new browser tabs open to. Leave it empty for the start page." = "The page new browser tabs open to. Leave it empty for the start page.";

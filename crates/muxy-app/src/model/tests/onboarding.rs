@@ -932,7 +932,86 @@ fn turning_access_back_off_waits_for_a_lost_server_to_return(cx: &mut TestAppCon
         model.receive_remote_access(Ok(access(true, Vec::new())), cx);
     });
     assert!(wrote_access(&requests, false));
+    view.read_with(cx, |model, _| assert!(model.mobile.restore_off));
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(access(false, Vec::new())), cx);
+    });
     view.read_with(cx, |model, _| assert!(!model.mobile.restore_off));
+}
+
+#[gpui::test]
+fn a_refused_turn_off_is_kept_and_retried_on_the_next_good_answer(cx: &mut TestAppContext) {
+    let (view, cx, requests) = at_mobile(cx, access(false, Vec::new()));
+    view.update(cx, AppModel::pair_phone_in_onboarding);
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(access(true, Vec::new())), cx);
+        model.receive_pairing(Ok(offer()), cx);
+    });
+    work(&requests);
+    view.update(cx, |model, cx| model.step_onboarding(true, cx));
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(access(true, Vec::new())), cx);
+    });
+    assert!(wrote_access(&requests, false));
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(
+            Err(muxy_client::ClientError::Protocol("could not save".into())),
+            cx,
+        );
+    });
+    assert!(!wrote_access(&requests, false));
+    view.read_with(cx, |model, _| assert!(model.mobile.restore_off));
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(access(true, Vec::new())), cx);
+    });
+    assert!(wrote_access(&requests, false));
+}
+
+#[gpui::test]
+fn quitting_while_turning_access_on_still_turns_it_back_off(cx: &mut TestAppContext) {
+    let (view, cx, requests) = at_mobile(cx, access(false, Vec::new()));
+    view.update(cx, AppModel::pair_phone_in_onboarding);
+    assert!(wrote_access(&requests, true));
+    view.update(cx, AppModel::quit);
+    assert!(wrote_access(&requests, false));
+}
+
+fn details_of_another_extension(name: &str) -> Result<ExtensionDetails, String> {
+    details(&format!("not-{name}"))
+}
+
+#[gpui::test]
+fn an_answer_about_another_extension_is_not_installed(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx);
+    view.update(cx, |model, cx| {
+        model.onboarding.fetch = details_of_another_extension;
+        model.onboarding.download = stage;
+        model.show_onboarding_step(Step::Extensions, cx);
+    });
+    pump_until(cx, |cx| {
+        view.read_with(cx, |model, _| {
+            model
+                .onboarding
+                .offers
+                .iter()
+                .all(|offer| matches!(offer.state, OfferState::Unavailable(_)))
+        })
+    });
+    view.read_with(cx, |model, _| assert_eq!(model.offers_to_install(), 0));
+}
+
+#[gpui::test]
+fn an_offer_done_earlier_can_be_set_up_again_after_being_disabled(cx: &mut TestAppContext) {
+    let (view, cx) = at_extensions(cx, stage, &[]);
+    view.update(cx, AppModel::install_offers);
+    pump_until(cx, |cx| settled(&view, cx));
+    view.update(cx, |model, cx| {
+        model.set_extension_enabled("files", false, cx).detach();
+    });
+    pump_until(cx, |cx| !enabled(&view, "files", cx));
+    view.read_with(cx, |model, _| assert_eq!(model.offers_to_install(), 1));
+    view.update(cx, AppModel::install_offers);
+    pump_until(cx, |cx| enabled(&view, "files", cx));
 }
 
 #[gpui::test]

@@ -305,6 +305,11 @@ fn extensions(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
         .offers
         .iter()
         .any(|offer| matches!(offer.state, OfferState::Unavailable(_)));
+    let all_enabled = model
+        .onboarding
+        .offers
+        .iter()
+        .all(|offer| model.extensions.registry.enabled(offer.name).is_some());
     let to_install = model.offers_to_install();
     let installing = model.onboarding.installing();
     let label = if installing {
@@ -329,7 +334,7 @@ fn extensions(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
             div()
                 .text_size(m.font_caption())
                 .line_height(m.scaled(14.0))
-                .text_color(model.theme.fg_dim)
+                .text_color(model.theme.fg_muted)
                 .child(tr!(
                     "Commands and file or Git changes ask for permission when used."
                 )),
@@ -339,12 +344,14 @@ fn extensions(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
                 .flex()
                 .items_center()
                 .gap(m.spacing4())
-                .child(action(
-                    "onboarding-install",
-                    button,
-                    model,
-                    cx.listener(|model, _, _, cx| model.install_offers(cx)),
-                ))
+                .when(!all_enabled, |row| {
+                    row.child(action(
+                        "onboarding-install",
+                        button,
+                        model,
+                        cx.listener(|model, _, _, cx| model.install_offers(cx)),
+                    ))
+                })
                 .when(unavailable, |row| {
                     row.child(action(
                         "onboarding-retry",
@@ -437,7 +444,7 @@ fn offer_card(index: usize, model: &AppModel, cx: &mut Context<AppModel>) -> Any
             div()
                 .text_size(m.font_caption())
                 .line_height(m.scaled(14.0))
-                .text_color(theme.fg_dim)
+                .text_color(theme.fg_muted)
                 .child(permissions)
         }))
         .children(error.map(|error| problem(error.into(), model)))
@@ -454,7 +461,7 @@ fn offer_control(
 ) -> AnyElement {
     let m = model.metrics;
     let name = offer.name;
-    if enabled || offer.state == OfferState::Done {
+    if enabled {
         return confirmation(tr!("Enabled"), model).into_any_element();
     }
     let label = match offer.state {
@@ -638,12 +645,12 @@ fn pairing_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
                         "Scan the code with the Muxy app. It works once and expires in 5 minutes."
                     )),
             )
-            .child(action(
+            .child(div().flex().child(action(
                 "onboarding-cancel-pairing",
                 controls::Button::secondary(&tr!("Cancel")),
                 model,
                 cx.listener(|model, _, _, cx| model.cancel_onboarding_pairing(cx)),
-            ));
+            )));
     }
     let paired = tour.and_then(|tour| tour.pair.paired.clone());
     let wanted = tour.is_some_and(|tour| tour.pair.wanted);
@@ -671,7 +678,7 @@ fn pairing_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
             div()
                 .text_size(m.font_caption())
                 .line_height(m.scaled(14.0))
-                .text_color(theme.fg_dim)
+                .text_color(theme.fg_muted)
                 .child(if model.mobile_available() {
                     tr!(
                         "This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in the Devices tab."

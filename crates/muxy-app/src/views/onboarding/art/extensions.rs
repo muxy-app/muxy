@@ -257,12 +257,21 @@ fn status(frame: &Frame, name: &str) -> Status {
         .offers
         .iter()
         .find(|offer| offer.name == name);
+    let installed = frame
+        .model
+        .extensions
+        .registry
+        .extensions
+        .contains_key(name);
     match offer.map(|offer| &offer.state) {
-        Some(OfferState::Done) => plain(tr!("Enabled"), solid(GREEN), false, true),
         Some(OfferState::Queued) => plain(tr!("Waiting…"), muted(), true, false),
         Some(OfferState::Installing) => plain(tr!("Installing…"), solid(CYAN), true, false),
         Some(OfferState::Enabling) => plain(tr!("Enabling…"), solid(CYAN), true, false),
+        Some(OfferState::Failed(_)) if installed => {
+            plain(tr!("Could not enable"), solid(AMBER), false, false)
+        }
         Some(OfferState::Failed(_)) => plain(tr!("Not installed"), solid(AMBER), false, false),
+        _ if installed => plain(tr!("Installed, not enabled"), muted(), false, false),
         _ => plain(tr!("Not installed yet"), muted(), false, false),
     }
 }

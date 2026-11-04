@@ -8,7 +8,7 @@ use super::kit::{
 use super::logo;
 use super::timeline::{cycle, lerp, progress, rise, typed};
 
-pub(super) const STILL: f32 = 3.0;
+pub(super) const STILL: f32 = 7.5;
 
 const PERIOD: f32 = 8.5;
 

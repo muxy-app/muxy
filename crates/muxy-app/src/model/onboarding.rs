@@ -79,6 +79,14 @@ pub(crate) enum OfferState {
     Failed(String),
 }
 
+impl OfferState {
+    /// Whether a click can set this offer up. One done earlier counts, as it
+    /// may have been disabled since.
+    fn can_start(&self) -> bool {
+        matches!(self, Self::Ready | Self::Done | Self::Failed(_))
+    }
+}
+
 pub(crate) struct Offer {
     pub(crate) name: &'static str,
     pub(crate) selected: bool,
@@ -378,9 +386,14 @@ impl AppModel {
             return;
         };
         match result {
-            Ok(details) => {
+            Ok(details) if details.name == name => {
                 offer.details = Some(details);
                 offer.state = OfferState::Ready;
+            }
+            Ok(_) => {
+                offer.state = OfferState::Unavailable(
+                    tr!("The marketplace answered with a different extension.").to_string(),
+                );
             }
             Err(error) => offer.state = OfferState::Unavailable(error),
         }
@@ -415,7 +428,7 @@ impl AppModel {
             .iter()
             .filter(|offer| {
                 offer.selected
-                    && matches!(offer.state, OfferState::Ready | OfferState::Failed(_))
+                    && offer.state.can_start()
                     && self.extensions.registry.enabled(offer.name).is_none()
             })
             .count()
@@ -428,10 +441,7 @@ impl AppModel {
         }
         let registry = &self.extensions.registry;
         for offer in &mut self.onboarding.offers {
-            if offer.selected
-                && matches!(offer.state, OfferState::Ready | OfferState::Failed(_))
-                && registry.enabled(offer.name).is_none()
-            {
+            if offer.selected && offer.state.can_start() && registry.enabled(offer.name).is_none() {
                 offer.state = OfferState::Queued;
             }
         }
@@ -605,7 +615,8 @@ impl AppModel {
     }
 
     /// Quitting ends the tour without leaving its mobile step, so access it
-    /// turned on goes back off now. The request runs ahead of the quit's own.
+    /// turned on goes back off now. Requests run in order, so this also follows
+    /// a request to turn it on that hasn't been answered yet.
     pub(super) fn restore_device_access_before_quit(&mut self, cx: &mut Context<Self>) {
         let turned_on = self
             .onboarding
@@ -615,16 +626,9 @@ impl AppModel {
         if !(turned_on || self.mobile.restore_off) || !self.mobile_available() {
             return;
         }
-        let Some(settings) = self
-            .mobile
-            .state
-            .as_ref()
-            .map(|state| state.settings)
-            .filter(|settings| settings.enabled)
-        else {
+        let Some(settings) = self.mobile.state.as_ref().map(|state| state.settings) else {
             return;
         };
-        self.mobile.restore_off = false;
         self.send(
             ServerId::local(),
             Work::WriteRemoteAccess(RemoteAccessSettings {

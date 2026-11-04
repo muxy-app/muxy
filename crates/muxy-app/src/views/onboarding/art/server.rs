@@ -7,10 +7,10 @@ use muxy_ui::icon::Icon;
 use muxy_ui::tr;
 
 use super::kit::{
-    AMBER, CYAN, Curve, Frame, GREEN, Mark, ORCHID, PINK, TEXT, VIOLET, caption, card, dim, line,
-    mono, muted, packet, paint_marks, solid, text, tint, units,
+    AMBER, CYAN, Curve, Frame, GREEN, INK, Mark, ORCHID, PINK, TEXT, VIOLET, caption, card, dim,
+    line, mono, muted, packet, paint_marks, place, solid, text, tint, units,
 };
-use super::timeline::{cycle, lerp, span, wave};
+use super::timeline::{cycle, lerp, progress, span, wave};
 
 pub(super) const STILL: f32 = 5.5;
 
@@ -127,6 +127,7 @@ pub(super) fn scene(frame: &Frame) -> Div {
                     client_card(frame, client, label, quiet)
                 }),
         )
+        .child(closed_badge(frame, &clients[0], closed))
         .child(hub(frame))
         .child(caption(
             frame,
@@ -176,30 +177,24 @@ fn client_card(frame: &Frame, client: &Client, label: gpui::SharedString, quiet:
             solid(client.hex),
         ))
         .child(text(frame, 10.0, tint(TEXT, 0.88), label))
-        .when_quiet(frame, quiet)
 }
 
-trait WhenQuiet {
-    fn when_quiet(self, frame: &Frame, quiet: f32) -> Self;
-}
-
-impl WhenQuiet for Div {
-    /// Marks the card closed once it has mostly gone quiet.
-    fn when_quiet(self, frame: &Frame, quiet: f32) -> Self {
-        if quiet < 0.5 {
-            return self;
-        }
-        self.child(
-            div()
-                .absolute()
-                .top(frame.px(-8.0))
-                .right(frame.px(-6.0))
-                .px(frame.px(6.0))
-                .rounded_full()
-                .bg(solid(AMBER))
-                .child(text(frame, 9.0, solid(super::kit::INK), tr!("Closed"))),
-        )
-    }
+/// Says the app closed, at full strength beside its faded card.
+fn closed_badge(frame: &Frame, client: &Client, closed: f32) -> Div {
+    place(
+        frame,
+        client.x + CLIENT_WIDTH - 44.0,
+        client.y - 9.0,
+        52.0,
+        18.0,
+    )
+    .flex()
+    .items_center()
+    .justify_center()
+    .rounded_full()
+    .bg(solid(AMBER))
+    .opacity(progress(closed, 0.4, 0.4))
+    .child(text(frame, 9.5, solid(INK), tr!("Closed")))
 }
 
 /// The server, with its terminals busy whatever the clients are doing.

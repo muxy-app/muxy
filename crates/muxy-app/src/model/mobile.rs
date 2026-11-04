@@ -359,18 +359,28 @@ impl AppModel {
     }
 
     /// Turns access back off once the server can take it, as the welcome tour
-    /// asked. Without the server, the promise waits for it to return.
+    /// asked. The promise is kept until the server reports access off. Without
+    /// the server it waits for it to return, and after a refusal, for the next
+    /// good answer.
     pub(super) fn settle_restored_access(&mut self, cx: &mut Context<Self>) {
         if !self.mobile.restore_off || self.mobile.busy || !self.mobile_available() {
             return;
         }
-        if self.mobile.state.is_none() {
+        let Some(enabled) = self
+            .mobile
+            .state
+            .as_ref()
+            .map(|state| state.settings.enabled)
+        else {
             if self.mobile.error.is_none() {
                 self.read_remote_access(cx);
             }
             return;
+        };
+        if !enabled {
+            self.mobile.restore_off = false;
+        } else if self.mobile.error.is_none() {
+            self.set_device_access(false, cx);
         }
-        self.mobile.restore_off = false;
-        self.set_device_access(false, cx);
     }
 }

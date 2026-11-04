@@ -235,6 +235,9 @@ fn keys(frame: &Frame, beat: &Beat, label: SharedString, local: f32) -> Div {
     let shown = span(local, beat.start, beat.end, 0.25);
     let pressed = span(local, beat.press - 0.02, beat.press + 0.46, 0.08);
     let caps = key_caps(beat.shortcut, frame.model);
+    if caps.is_empty() {
+        return div();
+    }
     let result = progress(local, beat.press + 0.1, 0.25);
     let y = WINDOW_Y + WINDOW_HEIGHT + 26.0 + lerp(10.0, 0.0, shown);
     place(frame, 0.0, y, W, H - y)
