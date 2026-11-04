@@ -8,7 +8,7 @@ use muxy_protocol::AgentProvider;
 
 pub use files::{Catalog, Listing, Roots};
 
-pub const PROVIDERS: [AgentProvider; 12] = [
+pub const PROVIDERS: [AgentProvider; 13] = [
     AgentProvider::Claude,
     AgentProvider::Codex,
     AgentProvider::Copilot,
@@ -21,6 +21,7 @@ pub const PROVIDERS: [AgentProvider; 12] = [
     AgentProvider::Grok,
     AgentProvider::Kiro,
     AgentProvider::Antigravity,
+    AgentProvider::Hermes,
 ];
 
 pub fn supported(provider: AgentProvider) -> bool {

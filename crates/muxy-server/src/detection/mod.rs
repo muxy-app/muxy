@@ -135,6 +135,7 @@ const MANIFESTS: &[(AgentProvider, &str)] = &[
         include_str!("manifests/antigravity.toml"),
     ),
     (AgentProvider::OhMyPi, include_str!("manifests/omp.toml")),
+    (AgentProvider::Hermes, include_str!("manifests/hermes.toml")),
 ];
 
 fn compile(source: &str) -> Result<Vec<CompiledRule>, String> {
@@ -318,6 +319,11 @@ pub(crate) fn identify(name: &str, argv: &[String]) -> Option<AgentProvider> {
     {
         return None;
     }
+    if let Some(program) = python_program(runtime, argv) {
+        return program
+            .contains("hermes_cli.main")
+            .then_some(AgentProvider::Hermes);
+    }
     // Only inspect the executable/script position, never arbitrary prompt arguments.
     let script = argv.get(1)?;
     if script.starts_with('-') {
@@ -342,6 +348,27 @@ pub(crate) fn identify(name: &str, argv: &[String]) -> Option<AgentProvider> {
     })
 }
 
+/// The program text a Python interpreter runs with `-c`, found by reading only
+/// the interpreter's own options, so arguments passed to the program are never
+/// read. Installers such as Hermes's launch their agent this way.
+fn python_program<'a>(runtime: &str, argv: &'a [String]) -> Option<&'a str> {
+    if !runtime.starts_with("python") {
+        return None;
+    }
+    let mut options = argv.iter().skip(1);
+    while let Some(option) = options.next() {
+        match option.as_str() {
+            "-c" => return options.next().map(String::as_str),
+            "-X" | "-W" => {
+                options.next();
+            }
+            option if option.starts_with('-') && option != "-" && option != "--" => {}
+            _ => return None,
+        }
+    }
+    None
+}
+
 fn basename(value: &str) -> &str {
     value.rsplit('/').next().unwrap_or(value)
 }
@@ -360,6 +387,7 @@ fn alias(value: &str) -> Option<AgentProvider> {
         "xal" | "xal-dev" => AgentProvider::Xal,
         "agy" | "antigravity" | "antigravity-cli" => AgentProvider::Antigravity,
         "omp" | "oh-my-pi" => AgentProvider::OhMyPi,
+        "hermes" | "hermes-agent" => AgentProvider::Hermes,
         _ => return None,
     })
 }
