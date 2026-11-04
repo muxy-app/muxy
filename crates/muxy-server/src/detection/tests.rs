@@ -151,6 +151,60 @@ fn bundled_manifests_compile_and_classify_provider_screens() {
             "",
             AgentState::Idle,
         ),
+        (
+            AgentProvider::Hermes,
+            "╭─ ⚠️  Dangerous Command ─────────╮\n│ rm -rf build                   │\n│ ❯ 1. Allow once                │\n│   2. Allow for this session    │\n│   3. Deny                      │\n╰────────────────────────────────╯",
+            "",
+            AgentState::Blocked,
+        ),
+        (
+            AgentProvider::Hermes,
+            "⚠ approval required\n❯ Allow once\n  Allow this session\n  Always allow\n  Deny",
+            "",
+            AgentState::Blocked,
+        ),
+        (
+            AgentProvider::Hermes,
+            "Hermes needs your input\n1 question",
+            "",
+            AgentState::Blocked,
+        ),
+        (
+            AgentProvider::Hermes,
+            "── ⠹ Running tests · 14s ──────────── calc helpers ─\n❯ \n gpt-5 · 12% · ~/project        enter interrupt · ctrl+c stop",
+            "",
+            AgentState::Working,
+        ),
+        (
+            AgentProvider::Hermes,
+            "⠋ thinking\nCtrl+C to interrupt…",
+            "",
+            AgentState::Working,
+        ),
+        (
+            AgentProvider::Hermes,
+            "──────────────────────────────── calc helpers ─\n❯ \n gpt-5 · 12% · ~/project        / commands · @ files · ! shell",
+            "",
+            AgentState::Idle,
+        ),
+        (
+            AgentProvider::Hermes,
+            "",
+            "⏳ calc helpers · gemma4:e4b · ~/project",
+            AgentState::Working,
+        ),
+        (
+            AgentProvider::Hermes,
+            "",
+            "⚠ calc helpers",
+            AgentState::Blocked,
+        ),
+        (
+            AgentProvider::Hermes,
+            "⠋ thinking\nCtrl+C to interrupt…",
+            "✓ calc helpers · gemma4:e4b",
+            AgentState::Idle,
+        ),
     ];
     for (provider, screen, title, expected) in fixtures {
         assert_eq!(
@@ -277,6 +331,55 @@ fn process_identity_uses_executable_positions_not_prompt_text() {
     );
     assert_eq!(identify("tmux", &["tmux".into(), "codex".into()]), None);
     assert_eq!(identify("tmux", &["tmux".into(), "omp".into()]), None);
+}
+
+#[test]
+fn hermes_is_identified_from_its_launcher_program_not_its_arguments() {
+    let launcher = "import os, sys\nfrom hermes_cli.main import main\nsys.exit(main())";
+    assert_eq!(
+        identify(
+            "python3.14",
+            &[
+                "/opt/hermes/bin/python3".into(),
+                "-I".into(),
+                "-c".into(),
+                launcher.into(),
+                "chat".into(),
+            ]
+        ),
+        Some(AgentProvider::Hermes)
+    );
+    assert_eq!(
+        identify(
+            "python3",
+            &["python3".into(), "/home/me/.venv/bin/hermes".into()]
+        ),
+        Some(AgentProvider::Hermes)
+    );
+    assert_eq!(
+        identify("hermes", &["hermes".into()]),
+        Some(AgentProvider::Hermes)
+    );
+    assert_eq!(
+        identify(
+            "python3",
+            &[
+                "python3".into(),
+                "-I".into(),
+                "app.py".into(),
+                "-c".into(),
+                launcher.into(),
+            ]
+        ),
+        None
+    );
+    assert_eq!(
+        identify(
+            "python3",
+            &["python3".into(), "-c".into(), "print('hermes')".into()]
+        ),
+        None
+    );
 }
 
 #[test]

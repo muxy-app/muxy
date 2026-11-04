@@ -1,0 +1,57 @@
+# Based on Hermes Agent's modern CLI layout (hermes_cli/cli_modern_layout.py,
+# cli_tui_mixin.py), with English labels, and its Ink TUI (ui-tui), whose window
+# title starts with ⚠, ⏳ or ✓ in every language. Terminal evidence only.
+id = "hermes"
+version = "2026.11.04.1"
+
+[[rules]]
+id = "osc_title_blocked"
+state = "blocked"
+priority = 400
+region = "osc_title"
+regex = ['^⚠\x{FE0F}?(?: |$)']
+
+[[rules]]
+id = "osc_title_working"
+state = "working"
+priority = 350
+region = "osc_title"
+regex = ['^⏳\x{FE0F}?(?: |$)']
+
+[[rules]]
+id = "osc_title_idle"
+state = "idle"
+priority = 350
+region = "osc_title"
+visible_idle = true
+regex = ['^✓(?: |$)']
+
+[[rules]]
+id = "attention"
+state = "blocked"
+priority = 300
+region = "bottom_non_empty_lines(40)"
+visible_blocker = true
+any = [
+  { contains = ["Dangerous Command", "Allow once", "Deny"] },
+  { contains = ["approval required", "Allow once", "Deny"] },
+  { contains = ["needs your input"] },
+  { contains = ["Sudo Password Required"] },
+  { contains = ["Skill Setup Required"] },
+]
+
+[[rules]]
+id = "working_rule"
+state = "working"
+priority = 200
+region = "bottom_non_empty_lines(12)"
+visible_working = true
+line_regex = ['^── [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] ']
+
+[[rules]]
+id = "working_interrupt_hint"
+state = "working"
+priority = 190
+region = "bottom_non_empty_lines(12)"
+visible_working = true
+contains = ["Ctrl+C to interrupt"]

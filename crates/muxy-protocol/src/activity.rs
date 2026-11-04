@@ -20,6 +20,7 @@ open_enum! {
         Xal = 9,
         Antigravity = 10,
         OhMyPi = 11,
+        Hermes = 12,
     }
 }
 
@@ -38,6 +39,7 @@ impl AgentProvider {
             Self::Xal => "Xal",
             Self::Antigravity => "Antigravity",
             Self::OhMyPi => "Oh My Pi",
+            Self::Hermes => "Hermes",
             Self::Unrecognized(_) => "Agent",
         }
     }
