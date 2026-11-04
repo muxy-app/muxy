@@ -299,8 +299,6 @@ fn footer(step: Step, model: &AppModel, cx: &mut Context<AppModel>) -> Div {
         .gap(m.spacing4())
         .px(m.spacing9())
         .py(m.spacing7())
-        .border_t_1()
-        .border_color(model.theme.border)
         .child(dots(step, model, cx))
         .child(
             div()
