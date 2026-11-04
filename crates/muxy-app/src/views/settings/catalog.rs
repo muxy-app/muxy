@@ -382,7 +382,9 @@ pub(super) const SETTINGS: &[Setting] = &[
     Setting {
         id: "tips",
         label: tr_key!("Show tips"),
-        description: tr_key!("Show Muxy tips at the bottom of the built-in sidebar."),
+        description: tr_key!(
+            "Show a Muxy tip from time to time in the bottom-right corner of the window."
+        ),
         category: Category::Appearance,
         section: tr_key!("Interface"),
     },

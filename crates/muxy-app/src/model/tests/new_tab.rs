@@ -780,36 +780,36 @@ fn sidebar_add_project_menu_and_remote_button_remain_separate_in_each_layout(
         });
         cx.run_until_parked();
         let sidebar = cx.debug_bounds("workspace-sidebar").expect("sidebar");
+        let extensions = cx.debug_bounds("sidebar-extensions").expect("extensions");
         let remote = cx.debug_bounds("remote-servers-section").expect("remote");
-        let add_project = cx.debug_bounds("sidebar-add-project").expect("add_project");
-        for button in [remote, add_project] {
+        let settings = cx.debug_bounds("settings-button").expect("settings");
+        assert!(cx.debug_bounds("sidebar-add-project").is_none());
+        assert!(cx.debug_bounds("remote-servers-dot").is_some());
+        for button in [extensions, remote, settings] {
             assert!(button.left() >= sidebar.left());
             assert!(button.right() <= sidebar.right());
             assert!(button.top() >= sidebar.top());
             assert!(button.bottom() <= sidebar.bottom());
         }
-        assert_eq!(remote.size, add_project.size);
+        assert_eq!(remote.size, settings.size);
         if expanded {
-            assert!(remote.left() - sidebar.left() < remote.size.width);
-            assert!(sidebar.right() - add_project.right() < add_project.size.width);
-            assert_eq!(remote.top(), add_project.top());
+            assert!(extensions.left() - sidebar.left() < remote.size.width);
+            assert!(extensions.right() <= remote.left());
+            assert!(remote.right() <= settings.left());
+            assert!(sidebar.right() - settings.right() < settings.size.width);
+            assert_eq!(extensions.top(), settings.top());
+            assert_eq!(remote.top(), settings.top());
+            assert!(extensions.size.width > remote.size.width);
+            let metrics = view.read_with(cx, |model, _| model.metrics);
+            assert_eq!(settings.size.height, metrics.control_large());
+            assert_eq!(sidebar.bottom() - settings.bottom(), metrics.spacing3());
         } else {
-            assert!(remote.bottom() < add_project.top());
-            assert_eq!(remote.left(), add_project.left());
+            assert_eq!(extensions.size, settings.size);
+            assert!(extensions.bottom() < remote.top());
+            assert!(remote.bottom() < settings.top());
+            assert_eq!(extensions.left(), settings.left());
+            assert_eq!(remote.left(), settings.left());
         }
-        cx.simulate_click(add_project.center(), Modifiers::none());
-        cx.run_until_parked();
-        assert!(cx.debug_bounds("menu-label-Remote").is_some());
-        assert!(cx.debug_bounds("menu-shortcut-Local").is_some());
-        let local = cx.debug_bounds("menu-label-Local").expect("Local");
-        cx.simulate_click(local.center(), Modifiers::none());
-        cx.run_until_parked();
-        view.read_with(cx, |model, _| {
-            assert!(matches!(model.overlay, Some(Overlay::Projects(_))));
-            assert!(model.state.home().tabs.is_empty());
-        });
-        open_add_project(cx);
-        assert!(view.read_with(cx, |model, _| model.overlay.is_none()));
 
         cx.simulate_click(remote.center(), Modifiers::none());
         cx.run_until_parked();
@@ -822,7 +822,7 @@ fn sidebar_add_project_menu_and_remote_button_remain_separate_in_each_layout(
         assert!(view.read_with(cx, |model, _| model.overlay.is_none()));
     }
 
-    let add_project = cx.debug_bounds("sidebar-add-project").expect("add_project");
+    let add_project = cx.debug_bounds("add-project").expect("add_project");
     cx.simulate_click(add_project.center(), Modifiers::none());
     cx.run_until_parked();
     let local = cx.debug_bounds("menu-label-Local").expect("Local");
@@ -890,7 +890,7 @@ fn the_add_project_row_follows_the_project_list_and_opens_the_source_menu(cx: &m
 }
 
 #[gpui::test]
-fn a_focused_sidebar_hides_the_add_project_row_but_keeps_the_footer_button(
+fn a_focused_sidebar_offers_add_project_in_its_filter_menu_instead_of_a_row(
     cx: &mut TestAppContext,
 ) {
     use muxy_app_core::settings::AppLayout;
@@ -912,8 +912,35 @@ fn a_focused_sidebar_hides_the_add_project_row_but_keeps_the_footer_button(
         window.run_until_parked();
         assert!(window.debug_bounds("add-project").is_none());
         assert!(window.debug_bounds("tab-add-project").is_none());
-        assert!(window.debug_bounds("sidebar-add-project").is_some());
+        let filter = window
+            .debug_bounds("sidebar-project-filter")
+            .expect("filter");
+        window.simulate_click(filter.center(), Modifiers::none());
+        window.run_until_parked();
+        let add = window
+            .debug_bounds("menu-label-Add Project")
+            .expect("Add Project");
+        window.simulate_click(add.center(), Modifiers::none());
+        window.run_until_parked();
+        assert!(window.debug_bounds("menu-label-Local").is_some());
     }
+}
+
+#[gpui::test]
+fn a_focused_collapsed_sidebar_keeps_its_add_project_row(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (_view, window) = cx.add_window_view(|window, cx| {
+        let mut model = AppModel::new(boot, window, cx);
+        model.appearance.sidebar_expanded = false;
+        model.appearance.sidebar_focus = true;
+        model
+    });
+    window.simulate_resize(size(px(1200.0), px(800.0)));
+    window.run_until_parked();
+    let row = window.debug_bounds("add-project").expect("add project row");
+    window.simulate_click(row.center(), Modifiers::none());
+    window.run_until_parked();
+    assert!(window.debug_bounds("menu-label-Local").is_some());
 }
 
 #[gpui::test]
@@ -1171,7 +1198,7 @@ fn the_add_project_dropdown_is_available_without_saved_servers(cx: &mut TestAppC
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1200.0), px(800.0)));
-    let add_project = cx.debug_bounds("sidebar-add-project").expect("Add Project");
+    let add_project = cx.debug_bounds("add-project").expect("Add Project");
     cx.simulate_click(add_project.center(), Modifiers::none());
     cx.run_until_parked();
     assert!(cx.debug_bounds("menu-label-Local").is_some());

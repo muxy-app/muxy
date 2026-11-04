@@ -257,22 +257,30 @@ pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> An
         .into_any_element()
 }
 
-pub(super) fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+pub(super) fn settings_tooltip(model: &AppModel) -> String {
     let name = tr!("Settings");
-    let tooltip = model
+    model
         .settings
         .keymap
         .chord(ShortcutId::OpenSettings)
-        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"));
-    titlebar::icon_button("open-settings", Icon::Settings, tooltip, model)
-        .aria_label(name)
-        .accessibility_id("settings-button")
-        .debug_selector(|| "settings-button".into())
-        .on_click(cx.listener(|model, _, window, cx| {
-            cx.stop_propagation();
-            model.open_settings(window, cx);
-        }))
-        .into_any_element()
+        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"))
+}
+
+pub(super) fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+    titlebar::icon_button(
+        "open-settings",
+        Icon::Settings,
+        settings_tooltip(model),
+        model,
+    )
+    .aria_label(tr!("Settings"))
+    .accessibility_id("settings-button")
+    .debug_selector(|| "settings-button".into())
+    .on_click(cx.listener(|model, _, window, cx| {
+        cx.stop_propagation();
+        model.open_settings(window, cx);
+    }))
+    .into_any_element()
 }
 
 pub(super) fn zoom_control(

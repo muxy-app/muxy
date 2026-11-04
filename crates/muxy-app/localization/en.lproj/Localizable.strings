@@ -61,6 +61,7 @@
 "%@; this app needs a version that speaks protocol V%lld, like %@. %@" = "%@; this app needs a version that speaks protocol V%lld, like %@. %@";
 "%lld Changes" = "%lld Changes";
 "%lld Existing Terminals" = "%lld Existing Terminals";
+"%lld connecting" = "%lld connecting";
 "%lld failing" = "%lld failing";
 "%lld more projects" = "%lld more projects";
 "%lld need input" = "%lld need input";
@@ -71,6 +72,7 @@
 "%lld running" = "%lld running";
 "%lld selected" = "%lld selected";
 "%lld unread notifications" = "%lld unread notifications";
+"%lld updates available" = "%lld updates available";
 "%lld working" = "%lld working";
 "%lld%%" = "%lld%%";
 "%lld/%lld passing" = "%lld/%lld passing";
@@ -82,6 +84,7 @@
 "1 Existing Terminal" = "1 Existing Terminal";
 "1 more project" = "1 more project";
 "1 unread notification" = "1 unread notification";
+"1 update available" = "1 update available";
 "A Git action is already pending" = "A Git action is already pending";
 "A Unicode range, such as U+E000-U+F8FF." = "A Unicode range, such as U+E000-U+F8FF.";
 "A color, cell-foreground, or cell-background. Leave empty to use the theme." = "A color, cell-foreground, or cell-background. Leave empty to use the theme.";
@@ -670,6 +673,7 @@
 "Document Text" = "Document Text";
 "Document Text Fill" = "Document Text Fill";
 "Document on Clipboard" = "Document on Clipboard";
+"Don't Show Tips" = "Don't Show Tips";
 "Don't ask again" = "Don't ask again";
 "Downloading and verifying the latest release. You can keep working." = "Downloading and verifying the latest release. You can keep working.";
 "Downloading app update…" = "Downloading app update…";
@@ -813,6 +817,7 @@
 "Globe Americas" = "Globe Americas";
 "Go Backward" = "Go Backward";
 "Go Forward" = "Go Forward";
+"Got It" = "Got It";
 "Green" = "Green";
 "Group" = "Group";
 "Group Actions" = "Group Actions";
@@ -828,8 +833,6 @@
 "Hide" = "Hide";
 "Hide %@" = "Hide %@";
 "Hide Others" = "Hide Others";
-"Hide Tips" = "Hide Tips";
-"Hide Tips?" = "Hide Tips?";
 "Hide agents panel" = "Hide agents panel";
 "Hide projects without tabs" = "Hide projects without tabs";
 "Hides the panel" = "Hides the panel";
@@ -1097,7 +1100,6 @@
 "Next Project" = "Next Project";
 "Next Prompt" = "Next Prompt";
 "Next Tab" = "Next Tab";
-"Next Tip" = "Next Tip";
 "Next match" = "Next match";
 "No Group" = "No Group";
 "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead." = "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead.";
@@ -1256,7 +1258,6 @@
 "Previous Project" = "Previous Project";
 "Previous Prompt" = "Previous Prompt";
 "Previous Tab" = "Previous Tab";
-"Previous Tip" = "Previous Tip";
 "Previous match" = "Previous match";
 "Profile name" = "Profile name";
 "Profiles" = "Profiles";
@@ -1532,9 +1533,9 @@
 "Show All" = "Show All";
 "Show All Projects" = "Show All Projects";
 "Show Muxy Tip" = "Show Muxy Tip";
-"Show Muxy tips at the bottom of the built-in sidebar." = "Show Muxy tips at the bottom of the built-in sidebar.";
 "Show Pairing Code" = "Show Pairing Code";
 "Show Worktrees" = "Show Worktrees";
+"Show a Muxy tip from time to time in the bottom-right corner of the window." = "Show a Muxy tip from time to time in the bottom-right corner of the window.";
 "Show a one-time code to scan with the Muxy phone app, or a link to paste on another computer." = "Show a one-time code to scan with the Muxy phone app, or a link to paste on another computer.";
 "Show a persistent home-directory shell with a shortcut." = "Show a persistent home-directory shell with a shortcut.";
 "Show agents panel" = "Show agents panel";
@@ -1729,6 +1730,7 @@
 "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones." = "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones.";
 "This update requires a server restart" = "This update requires a server restart";
 "Timer" = "Timer";
+"Tips turned off" = "Tips turned off";
 "To pair a phone or another computer, open the Devices tab, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair." = "To pair a phone or another computer, open the Devices tab, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair.";
 "Toggle Agent Sessions" = "Toggle Agent Sessions";
 "Toggle Agents Panel" = "Toggle Agents Panel";

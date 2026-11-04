@@ -129,8 +129,7 @@ fn anchor(anchor: &muxy_ui::popover::PopoverAnchor) {
 
 /// Every overlay a test can open. `Webview`, `Popover`, `Native`,
 /// `ProjectLogo` and `Projects` need a native web view, an extension, a
-/// decoded image or a folder search; `Tip` and `PullRequest` need a placed tip
-/// button or a loaded pull request.
+/// decoded image or a folder search; `PullRequest` needs a loaded pull request.
 pub(super) fn openers(project: ProjectId) -> [(&'static str, Open); 21] {
     let at = gpui::point(px(200.0), px(200.0));
     [

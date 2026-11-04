@@ -687,6 +687,7 @@ impl AppModel {
         }
         Self::start_diagnostics(cx);
         model.start_update_checks(cx);
+        model.start_tips(window, cx);
         model.sync_ssh_proxy(cx);
         model.start_servers(cx);
         if stopped_in_background {
@@ -2877,6 +2878,7 @@ pub(crate) mod tests {
     mod tab_groups;
     mod tab_menu;
     mod tab_sidebar;
+    mod tips;
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     mod updates;
     mod window_title;

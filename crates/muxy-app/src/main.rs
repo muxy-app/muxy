@@ -59,6 +59,7 @@ mod views {
     pub(crate) mod tab_sidebar;
     pub(crate) mod tab_strip;
     pub(crate) mod theme_picker;
+    pub(crate) mod tips;
     pub(crate) mod titlebar;
     pub(crate) mod updates;
     pub(crate) mod terminal {

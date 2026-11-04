@@ -444,6 +444,7 @@ impl Render for AppModel {
             .child(super::splits::drag::track_pointer(cx))
             .child(super::splits::drag::overlay(self))
             .child(self.floating_composer(window, cx))
+            .children(super::tips::toast(self, window, cx))
             .children(super::banners::render(self, window, cx))
             .children(super::agents_panel::floating(self, window, cx))
             .when(

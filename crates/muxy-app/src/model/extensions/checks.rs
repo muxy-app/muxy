@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use gpui::{Context, Task};
 use muxy_app_core::extensions::Registry;
@@ -9,10 +10,13 @@ use crate::extensions::{io, marketplace};
 #[cfg(test)]
 type Resolve = fn(&[String]) -> Result<BTreeMap<String, String>, String>;
 
+pub(crate) const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+
 #[derive(Default)]
 pub(super) struct Checks {
     available: BTreeMap<String, String>,
     task: Option<Task<()>>,
+    schedule: Option<Task<()>>,
     #[cfg(test)]
     resolve: Option<Resolve>,
 }
@@ -36,6 +40,23 @@ impl AppModel {
             .available
             .get(name)
             .map(String::as_str)
+    }
+
+    pub(crate) fn extension_update_count(&self) -> usize {
+        self.extensions.checks.available.len()
+    }
+
+    /// Checks now, then keeps the count fresh while the app stays open.
+    pub(super) fn start_extension_update_checks(&mut self, cx: &mut Context<Self>) {
+        self.check_extension_updates(cx);
+        self.extensions.checks.schedule = Some(cx.spawn(async move |model, cx| {
+            loop {
+                cx.background_executor().timer(UPDATE_CHECK_INTERVAL).await;
+                if model.update(cx, Self::check_extension_updates).is_err() {
+                    break;
+                }
+            }
+        }));
     }
 
     pub(crate) fn check_extension_updates(&mut self, cx: &mut Context<Self>) {

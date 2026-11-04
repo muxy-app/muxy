@@ -308,8 +308,9 @@ fn collapsed_project_tiles_fill_their_squares(cx: &mut TestAppContext) {
     let square = metrics.scaled(34.0);
     for selector in [
         "project-row-0",
+        "sidebar-extensions",
         "remote-servers-section",
-        "sidebar-add-project",
+        "settings-button",
     ] {
         let bounds = cx.debug_bounds(selector).expect(selector);
         assert_eq!(bounds.size, size(square, square), "{selector}");

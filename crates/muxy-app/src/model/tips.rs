@@ -1,14 +1,21 @@
 use std::hash::{BuildHasher, RandomState};
-use std::rc::Rc;
+use std::time::Duration;
 
-use gpui::{Context, Window};
+use gpui::{Context, Task, Window};
 use muxy_ui::l10n::{tr_key, translate};
-use muxy_ui::popover::PopoverAnchor;
+use muxy_ui::motion::VisibilityMotion;
+use muxy_ui::tr;
 
 use super::AppModel;
-use crate::views::overlays::Overlay;
+use super::banners::TOAST_TRANSITION;
 
-/// Built-in sidebar tips, in the order the previous and next buttons follow.
+pub(crate) const FIRST_TIP_DELAY: Duration = Duration::from_secs(10 * 60);
+pub(crate) const TIP_INTERVAL: Duration = Duration::from_secs(2 * 60 * 60);
+/// How soon to offer a tip again after a dialog, menu or other window held it back.
+pub(crate) const TIP_RETRY: Duration = Duration::from_secs(60);
+pub(crate) const TIP_DURATION: Duration = Duration::from_secs(30);
+
+/// Built-in tips, in the order the toast shows them.
 /// Each one must describe current behavior and call customizable shortcuts defaults.
 pub(crate) const TIPS: &[&str] = &[
     tr_key!(
@@ -61,12 +68,18 @@ pub(crate) const TIPS: &[&str] = &[
     ),
 ];
 
-/// The tip on show. It starts at a random tip once per launch and never rotates by itself.
-#[derive(Debug)]
+pub(crate) struct TipToast {
+    pub(crate) motion: VisibilityMotion,
+    leaving: bool,
+}
+
+/// The tip toast. Tips follow [`TIPS`] from a random place chosen once per launch.
 pub(crate) struct Tips {
     index: usize,
-    /// The collapsed sidebar's tip button, which the tip popover opens from.
-    pub(crate) anchor: PopoverAnchor,
+    pub(crate) toast: Option<TipToast>,
+    schedule: Option<Task<()>>,
+    /// Hides the toast. Replacing it cancels a pending hide.
+    hide: Option<Task<()>>,
 }
 
 impl Default for Tips {
@@ -79,85 +92,107 @@ impl Tips {
     fn starting_at(seed: u64) -> Self {
         Self {
             index: usize::try_from(seed % TIPS.len() as u64).unwrap_or_default(),
-            anchor: Rc::default(),
+            toast: None,
+            schedule: None,
+            hide: None,
         }
     }
 
     pub(crate) fn current(&self) -> gpui::SharedString {
         translate(TIPS[self.index])
     }
-
-    /// The current tip's one-based position in [`TIPS`].
-    pub(crate) fn position(&self) -> usize {
-        self.index + 1
-    }
-
-    pub(crate) fn step(&mut self, forward: bool) {
-        self.index = if forward {
-            (self.index + 1) % TIPS.len()
-        } else {
-            (self.index + TIPS.len() - 1) % TIPS.len()
-        };
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TipPlacement {
-    /// A card at the bottom of the expanded sidebar.
-    Card,
-    /// A button at the bottom of the icon-only sidebar that opens the tip in a popover.
-    Button,
 }
 
 impl AppModel {
-    /// Where the built-in sidebar shows tips, or `None` when it shows none.
-    pub(crate) fn tip_placement(&self) -> Option<TipPlacement> {
-        if !self.appearance.tips_visible || self.extension_sidebar_active() {
-            None
-        } else if self.appearance.sidebar_expanded {
-            Some(TipPlacement::Card)
-        } else if self.sidebar_width() > 0.0 {
-            Some(TipPlacement::Button)
+    pub(super) fn start_tips(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.tips.schedule = Some(cx.spawn_in(window, async move |model, cx| {
+            let mut wait = FIRST_TIP_DELAY;
+            loop {
+                cx.background_executor().timer(wait).await;
+                let Ok(next) = model.update_in(cx, |model, window, cx| model.offer_tip(window, cx))
+                else {
+                    break;
+                };
+                wait = next;
+            }
+        }));
+    }
+
+    /// Shows the next tip unless something needs the user's attention, and
+    /// returns how long to wait before offering another.
+    fn offer_tip(&mut self, window: &Window, cx: &mut Context<Self>) -> Duration {
+        if !self.appearance.tips_visible {
+            return TIP_INTERVAL;
+        }
+        if !window.is_window_active()
+            || self.dialogs.is_open()
+            || self.overlay.is_some()
+            || self.problem_toast.is_some()
+            || self.tips.toast.is_some()
+        {
+            return TIP_RETRY;
+        }
+        self.show_tip(cx);
+        TIP_INTERVAL
+    }
+
+    pub(crate) fn show_tip(&mut self, cx: &mut Context<Self>) {
+        self.tips.index = (self.tips.index + 1) % TIPS.len();
+        self.tips.toast = Some(TipToast {
+            motion: VisibilityMotion::showing(TOAST_TRANSITION, cx.background_executor().clone()),
+            leaving: false,
+        });
+        self.start_tip_timer(cx);
+        cx.notify();
+    }
+
+    fn start_tip_timer(&mut self, cx: &mut Context<Self>) {
+        self.tips.hide = Some(cx.spawn(async move |model, cx| {
+            cx.background_executor().timer(TIP_DURATION).await;
+            let _ = model.update(cx, Self::hide_tip);
+        }));
+    }
+
+    /// The pointer on the toast holds it; leaving gives it its full time again.
+    pub(crate) fn hover_tip(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if self.tips.toast.as_ref().is_none_or(|toast| toast.leaving) {
+            return;
+        }
+        if hovered {
+            self.tips.hide = None;
         } else {
-            None
+            self.start_tip_timer(cx);
         }
     }
 
-    pub(crate) fn step_tip(&mut self, forward: bool, cx: &mut Context<Self>) {
-        self.tips.step(forward);
+    pub(crate) fn hide_tip(&mut self, cx: &mut Context<Self>) {
+        let Some(toast) = &mut self.tips.toast else {
+            return;
+        };
+        toast.motion.hide();
+        toast.leaving = true;
+        self.tips.hide = Some(cx.spawn(async move |model, cx| {
+            cx.background_executor().timer(TOAST_TRANSITION).await;
+            let _ = model.update(cx, |model, cx| {
+                model.tips.toast = None;
+                cx.notify();
+            });
+        }));
         cx.notify();
     }
 
-    pub(crate) fn toggle_tip_popover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.dialogs.is_open() {
-            return;
-        }
-        if matches!(self.overlay, Some(Overlay::Tip)) {
-            self.dismiss_overlay(cx);
-            return;
-        }
-        self.dismiss_overlay(cx);
-        self.open_overlay(Overlay::Tip, cx);
-        self.overlay_focus.focus(window);
-        cx.notify();
-    }
-
-    pub(crate) fn confirm_hide_tips(&mut self, cx: &mut Context<Self>) {
-        self.confirm(
-            HIDE_TITLE,
-            translate(HIDE_MESSAGE).to_string(),
-            HIDE_ACTION,
+    pub(crate) fn turn_off_tips(&mut self, cx: &mut Context<Self>) {
+        self.appearance.tips_visible = false;
+        self.save_appearance(cx);
+        self.hide_tip(cx);
+        self.show_toast(
+            tr!("Tips turned off").to_string(),
+            Some(translate(TIPS_OFF_MESSAGE).to_string()),
             cx,
-            |model, cx| {
-                model.appearance.tips_visible = false;
-                model.save_appearance(cx);
-            },
         );
     }
 }
 
-const HIDE_TITLE: &str = tr_key!("Hide Tips?");
-const HIDE_MESSAGE: &str = tr_key!(
+const TIPS_OFF_MESSAGE: &str = tr_key!(
     "You can show tips again in Settings → Appearance → Interface by turning on Show tips."
 );
-pub(crate) const HIDE_ACTION: &str = tr_key!("Hide Tips");
