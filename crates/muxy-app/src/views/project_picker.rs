@@ -1129,9 +1129,7 @@ impl AppModel {
             while let Ok(urls) = folders.recv().await {
                 if this
                     .update(cx, |model, cx| {
-                        if urls.is_empty() {
-                            model.raise_window(cx);
-                        }
+                        model.raise_window(cx);
                         model
                             .pending_folders
                             .extend(urls.iter().filter_map(|url| folder_from_url(url)));
@@ -1169,8 +1167,8 @@ impl AppModel {
             })
             .map(|project| project.id);
         match existing {
-            Some(id) => self.show_project(id, cx),
-            None => self.open_project_path(folder, false, cx),
+            Some(id) => self.open_tab_in_project(id, cx),
+            None => self.open_project_path(folder, true, cx),
         }
     }
 

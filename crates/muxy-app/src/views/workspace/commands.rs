@@ -15,9 +15,10 @@ use super::{
     FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize,
     NavigateBack, NavigateForward, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree,
     NextProject, NextPrompt, NextTab, OpenAbout, OpenConfiguration, OpenSettings, PreviousProject,
-    PreviousPrompt, PreviousTab, Quit, ScrollToBottom, SelectCommandOutput, ShowAll, SplitDown,
-    SplitRight, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel, ToggleCommandPalette,
-    ToggleComposer, ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleZoomPane, Zoom,
+    PreviousPrompt, PreviousTab, Quit, ScrollToBottom, SelectCommandOutput, ShowAll,
+    ShowWelcomeTour, SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel,
+    ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar, ToggleThemePicker,
+    ToggleZoomPane, Zoom,
 };
 use crate::model::AppModel;
 use crate::model::browsers::BrowserAction;
@@ -463,6 +464,12 @@ static COMMANDS: &[CommandDef] = &[
         .keywords("Settings Open Settings")
         .placed()
         .run(AppModel::open_settings),
+    unbound::<ShowWelcomeTour>(
+        "show_welcome_tour",
+        Label::Key(tr_key!("Show Welcome Tour")),
+    )
+    .keywords("Onboarding Welcome Tour Getting Started Intro Guide")
+    .run(|model, _, cx| model.open_onboarding(cx)),
     unbound::<OpenAbout>("open_about", Label::WithAppName(tr_key!("About %@")))
         .hidden()
         .run(|model, window, cx| {

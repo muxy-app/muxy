@@ -212,6 +212,10 @@ with separate settings and session data.
 
 ## First steps
 
+The first launch opens a short welcome tour that sets up the essentials. Skip it
+anytime, and replay it with **Welcome Tour** at the top of Settings. These are the
+basics either way:
+
 1. **Add a project.** Choose **Add Project** in the sidebar, or press `Cmd+O`,
    and pick a folder.
 2. **Open a terminal.** `Cmd+T` opens a tab in the project. `Cmd+N` opens one

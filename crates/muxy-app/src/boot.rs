@@ -30,6 +30,8 @@ pub(crate) struct Boot {
     /// macOS stopped the terminals after the app last quit, because Muxy may
     /// not run in the background.
     pub(crate) stopped_in_background: bool,
+    /// The welcome tour opens at launch, until it is finished or skipped.
+    pub(crate) show_onboarding: bool,
     pub(crate) composer: muxy_app_core::composer::ComposerStore,
     pub(crate) state: AppState,
     pub(crate) state_path: PathBuf,
@@ -82,6 +84,7 @@ impl Boot {
         Ok(Self {
             import_message,
             stopped_in_background,
+            show_onboarding: !settings.appearance.onboarding_completed,
             composer: muxy_app_core::composer::ComposerStore::load_from(
                 state_path
                     .parent()

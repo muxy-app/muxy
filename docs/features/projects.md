@@ -6,11 +6,13 @@ workspaces, and project order are kept by each app.
 
 ## Projects
 
-- Add one with **Add Project** below the project list or at the bottom of the
-  sidebar, **File → Open Project…**, or `Cmd+O`. Type to search folders, type a
+- Add one with **Add Project** below the project list or in the sidebar's filter
+  menu when focused on one project, **File → Open Project…**, or `Cmd+O`. Type to search folders, type a
   path, or choose **Finder…** (**Browse…** on Linux) to pick a folder in the
   system dialog. With remote servers set up, choose **Local** or a server.
-- `muxy <folder>` in a shell opens a folder in the desktop app.
+- `muxy <folder>` in a shell opens a terminal in that folder's project in the
+  desktop app, adding the project if needed. On macOS, so does dropping a folder
+  on the Dock icon or using **Open With**.
 - Right-click a project to rename it, or change its icon, logo, or color.
 - **Remove Project…** removes it from every app and ends its terminals. Files
   stay on disk.

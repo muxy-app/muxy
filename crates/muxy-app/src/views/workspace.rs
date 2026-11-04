@@ -22,6 +22,7 @@ actions!(
     [
         OpenSettings,
         OpenAbout,
+        ShowWelcomeTour,
         CheckForUpdates,
         InstallCommandLineTool,
         NewTab,
@@ -327,8 +328,11 @@ impl AppModel {
             }
             None => {}
         }
+        self.hold_onboarding_focus(window, cx);
         let modal = self.coverage().modal();
-        if modal {
+        if modal && self.window_can_move() {
+            self.cancel_tab_and_layout_drags(cx);
+        } else if modal {
             self.cancel_titlebar_drag(cx);
         }
         if !self.appearance.sidebar_expanded || modal {
@@ -435,6 +439,7 @@ impl Render for AppModel {
             .child(super::splits::drag::track_pointer(cx))
             .child(super::splits::drag::overlay(self))
             .child(self.floating_composer(window, cx))
+            .children(super::tips::toast(self, window, cx))
             .children(super::banners::render(self, window, cx))
             .children(super::agents_panel::floating(self, window, cx))
             .when(
@@ -454,6 +459,8 @@ impl Render for AppModel {
             workspace,
             theme,
             (sidebar_width > 0.0).then_some((px(sidebar_width), self.sidebar_background())),
+            matches!(self.overlay, Some(overlays::Overlay::Onboarding))
+                .then_some(super::onboarding::BACKDROP_ALPHA),
             window,
         );
         crate::profiler::workspace(workspace)

@@ -122,6 +122,7 @@ pub(crate) enum SettingsEvent {
     Connect,
     OpenConfiguration(&'static str),
     DismissProblem,
+    ShowWelcomeTour,
 }
 
 #[derive(Clone)]

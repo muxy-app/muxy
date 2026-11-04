@@ -36,6 +36,7 @@ mod views {
     pub(crate) mod git;
     pub(crate) mod menu;
     pub(crate) mod native_modal;
+    pub(crate) mod onboarding;
     pub(crate) mod overlays;
     pub(crate) mod pair_form;
     pub(crate) mod project_apps;
@@ -59,6 +60,7 @@ mod views {
     pub(crate) mod tab_sidebar;
     pub(crate) mod tab_strip;
     pub(crate) mod theme_picker;
+    pub(crate) mod tips;
     pub(crate) mod titlebar;
     pub(crate) mod updates;
     pub(crate) mod terminal {

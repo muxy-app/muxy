@@ -43,6 +43,18 @@ impl AppModel {
         details: ExtensionDetails,
         cx: &mut Context<Self>,
     ) -> bool {
+        self.install_marketplace_extension_with(details, marketplace::download, cx)
+    }
+
+    /// Returns whether the job started.
+    pub(crate) fn install_marketplace_extension_with(
+        &mut self,
+        details: ExtensionDetails,
+        download: impl FnOnce(&ExtensionDetails, &Path) -> Result<tempfile::TempDir, String>
+        + Send
+        + 'static,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let name = details.name.clone();
         let registry = &self.extensions.registry;
         if self.extensions.installs.active.is_some() || registry.is_unpacked(&name) {
@@ -60,7 +72,8 @@ impl AppModel {
         };
         self.begin_install(job, status.into(), cx);
         self.extensions.installs.task = Some(cx.spawn(async move |model, cx| {
-            let result = download_and_apply(&model, details, installed, directory, cx).await;
+            let result =
+                download_and_apply(&model, details, installed, directory, download, cx).await;
             let _ = model.update(cx, |model, cx| {
                 model.finish_single_install(&name, enabled, result, cx);
             });
@@ -239,6 +252,7 @@ impl AppModel {
         installs.status = None;
         installs.task = None;
         installs.finished = Some(FinishedInstall { job, status, error });
+        self.onboarding_install_finished(cx);
         cx.notify();
     }
 }
@@ -248,11 +262,14 @@ async fn download_and_apply(
     details: ExtensionDetails,
     installed: Option<Extension>,
     directory: PathBuf,
+    download: impl FnOnce(&ExtensionDetails, &Path) -> Result<tempfile::TempDir, String>
+    + Send
+    + 'static,
     cx: &mut AsyncApp,
 ) -> Result<(), String> {
     let name = details.name.clone();
     let staging = directory.clone();
-    let stage = io::network(move || marketplace::download(&details, &staging)).await?;
+    let stage = io::network(move || download(&details, &staging)).await?;
     let task = if let Some(installed) = installed {
         model.update(cx, |model, cx| model.update_extension(installed, stage, cx))
     } else {

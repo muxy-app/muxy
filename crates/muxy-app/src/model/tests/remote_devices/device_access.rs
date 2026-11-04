@@ -240,6 +240,28 @@ fn searching_hides_the_page_and_withdraws_a_shown_code(cx: &mut TestAppContext) 
     view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_none()));
 }
 
+#[gpui::test]
+fn the_page_reads_access_again_when_its_server_returns(cx: &mut TestAppContext) {
+    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    view.update(cx, |model, cx| {
+        model.receive(
+            (
+                ServerId::local(),
+                1,
+                Update::Event(ClientEvent::Disconnected),
+            ),
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    work(&requests);
+    view.update(cx, connect_local);
+    assert!(
+        reads_access(&sent(&requests)),
+        "the page is still on screen"
+    );
+}
+
 /// A window connected to this computer's server, with no Devices page.
 fn window_without_tab(
     cx: &mut TestAppContext,

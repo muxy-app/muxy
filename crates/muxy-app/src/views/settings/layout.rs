@@ -261,12 +261,22 @@ impl SettingsView {
     }
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
+        let tour = self.header_button(
+            "settings-welcome-tour",
+            tr!("Welcome Tour"),
+            cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::ShowWelcomeTour)),
+        );
         if !self.results.editable {
             return div()
                 .h(self.layout_metrics.scaled(56.0))
                 .flex_none()
+                .flex()
+                .items_center()
+                .justify_end()
+                .child(tour)
                 .into_any_element();
         }
+        let file = self.configuration_file();
         self.header_background("settings-content-titlebar")
             .h(self.layout_metrics.scaled(56.0))
             .flex_none()
@@ -288,31 +298,49 @@ impl SettingsView {
                         tr!("User")
                     }),
             )
-            .child({
-                let file = self.configuration_file();
+            .child(
                 div()
-                    .id("settings-open-configuration")
-                    .role(Role::Button)
-                    .accessibility_id("settings-open-configuration")
-                    .aria_label(tr!("Edit in %@", file))
-                    .debug_selector(|| "settings-open-configuration".into())
-                    .px(self.layout_metrics.scaled(9.0))
-                    .py(self.layout_metrics.scaled(4.0))
-                    .rounded(self.layout_metrics.scaled(4.0))
-                    .border_1()
-                    .border_color(self.theme.border)
-                    .text_size(self.layout_metrics.scaled(13.0))
-                    .text_color(self.theme.fg_muted)
-                    .cursor_pointer()
-                    .hover(|button| button.bg(self.theme.hover).text_color(self.theme.fg))
-                    .focus(|button| button.border_color(self.theme.accent))
-                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .button_interaction(cx.listener(move |_, _, _, cx| {
-                        cx.emit(SettingsEvent::OpenConfiguration(file));
-                    }))
-                    .child(tr!("Edit in %@", file))
-            })
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(self.layout_metrics.scaled(8.0))
+                    .child(tour)
+                    .child(self.header_button(
+                        "settings-open-configuration",
+                        tr!("Edit in %@", file),
+                        cx.listener(move |_, _, _, cx| {
+                            cx.emit(SettingsEvent::OpenConfiguration(file));
+                        }),
+                    )),
+            )
             .into_any_element()
+    }
+
+    fn header_button(
+        &self,
+        id: &'static str,
+        label: SharedString,
+        on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+    ) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(id)
+            .role(Role::Button)
+            .accessibility_id(id)
+            .aria_label(label.clone())
+            .debug_selector(move || id.into())
+            .px(self.layout_metrics.scaled(9.0))
+            .py(self.layout_metrics.scaled(4.0))
+            .rounded(self.layout_metrics.scaled(4.0))
+            .border_1()
+            .border_color(self.theme.border)
+            .text_size(self.layout_metrics.scaled(13.0))
+            .text_color(self.theme.fg_muted)
+            .cursor_pointer()
+            .hover(|button| button.bg(self.theme.hover).text_color(self.theme.fg))
+            .focus(|button| button.border_color(self.theme.accent))
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .button_interaction(on_click)
+            .child(label)
     }
 
     fn dismissible_error(

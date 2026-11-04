@@ -35,6 +35,9 @@ pub(crate) struct MobileAccess {
     cancel: bool,
     /// The pairing link goes to the clipboard once there is a fresh code.
     copy_link: bool,
+    /// The welcome tour turned access on and nothing paired, so it goes back
+    /// off once no request is running.
+    pub(super) restore_off: bool,
     pub(crate) error: Option<String>,
     expiry: Option<Task<()>>,
 }
@@ -46,6 +49,16 @@ impl MobileAccess {
 
     pub(super) fn hide_page(&mut self) {
         self.page_open = false;
+    }
+
+    /// What survives losing the server: the Devices page staying on screen,
+    /// and the promise to turn access back off, which is kept once it returns.
+    pub(super) fn after_disconnect(&self) -> Self {
+        Self {
+            page_open: self.page_open,
+            restore_off: self.restore_off,
+            ..Self::default()
+        }
     }
 }
 
@@ -70,11 +83,16 @@ impl AppModel {
         }
     }
 
+    /// Device access is on screen, on the Devices page or in the welcome tour.
+    fn device_access_shown(&self) -> bool {
+        self.devices_page_open() || self.onboarding_pairing_shown()
+    }
+
     /// Reads device access when the Devices page opens or this computer's
     /// server connects with it open, and withdraws a pairing code that was
-    /// never copied once the page closes.
+    /// never copied once it leaves the screen.
     pub(crate) fn sync_devices_page(&mut self, opened: bool, cx: &mut Context<Self>) {
-        if !self.devices_page_open() {
+        if !self.device_access_shown() {
             self.withdraw_pairing(cx);
         } else if opened {
             self.read_remote_access(cx);
@@ -93,9 +111,9 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Paired devices connected, disconnected, or changed; refresh only while the Devices page is open.
+    /// Paired devices connected, disconnected, or changed; refresh only while device access is on screen.
     pub(super) fn remote_access_changed(&mut self, cx: &mut Context<Self>) {
-        if self.devices_page_open() {
+        if self.device_access_shown() {
             self.read_remote_access(cx);
         }
     }
@@ -229,9 +247,9 @@ impl AppModel {
         cx.notify();
     }
 
-    /// A code that was only shown must not stay valid on the server after the
-    /// Devices page closes.
-    fn withdraw_pairing(&mut self, cx: &mut Context<Self>) {
+    /// A code that was only shown must not stay valid on the server once it
+    /// leaves the screen.
+    pub(super) fn withdraw_pairing(&mut self, cx: &mut Context<Self>) {
         let shown = self.mobile.pairing.is_some() && !self.mobile.copied;
         let starting = self.mobile.starting && !self.mobile.copy_link;
         if shown || starting {
@@ -310,7 +328,9 @@ impl AppModel {
         self.mobile.busy = false;
         self.mobile.starting = false;
         match result {
-            Ok(_) if self.mobile.cancel || !(self.devices_page_open() || self.mobile.copy_link) => {
+            Ok(_)
+                if self.mobile.cancel || !(self.device_access_shown() || self.mobile.copy_link) =>
+            {
                 self.mobile.cancel = true;
             }
             Ok(offer) => {
@@ -352,6 +372,34 @@ impl AppModel {
             self.fail(error, cx);
         }
         self.continue_link_copy(cx);
+        self.settle_restored_access(cx);
+        self.continue_onboarding_pairing(cx);
         cx.notify();
+    }
+
+    /// Turns access back off once the server can take it, as the welcome tour
+    /// asked. The promise is kept until the server reports access off. Without
+    /// the server it waits for it to return, and after a refusal, for the next
+    /// good answer.
+    pub(super) fn settle_restored_access(&mut self, cx: &mut Context<Self>) {
+        if !self.mobile.restore_off || self.mobile.busy || !self.mobile_available() {
+            return;
+        }
+        let Some(enabled) = self
+            .mobile
+            .state
+            .as_ref()
+            .map(|state| state.settings.enabled)
+        else {
+            if self.mobile.error.is_none() {
+                self.read_remote_access(cx);
+            }
+            return;
+        };
+        if !enabled {
+            self.mobile.restore_off = false;
+        } else if self.mobile.error.is_none() {
+            self.set_device_access(false, cx);
+        }
     }
 }

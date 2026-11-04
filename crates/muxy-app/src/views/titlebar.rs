@@ -58,7 +58,9 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
             && Some(tab.id) == model.active_tab()
             && (tab.zoomed.is_some() || tab.panes.len() > 1)
     });
-    let controls = 2
+    let settings = !model.sidebar_footer_shown();
+    let controls = 1
+        + u8::from(settings)
         + u8::from(existing_count > 0)
         + u8::from(browser)
         + u8::from(zoom_tab.is_some())
@@ -108,7 +110,9 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         })
         .child(model.extension_toolbar(cx))
         .child(super::agent_sessions::button(model, cx))
-        .child(super::tab_strip::settings_button(model, cx));
+        .when(settings, |bar| {
+            bar.child(super::tab_strip::settings_button(model, cx))
+        });
     #[cfg(target_os = "linux")]
     if let Some(controls) = linux::controls(
         window,
@@ -136,8 +140,12 @@ pub(crate) fn begin_window_move(
 ) {
     #[cfg(target_os = "macos")]
     let _ = &window;
-    if model.coverage().modal() {
+    if !model.window_can_move() {
         return;
+    }
+    #[cfg(test)]
+    {
+        model.window_moves_begun += 1;
     }
     #[cfg(target_os = "macos")]
     if let Some(drag) = &model.window_drag {
@@ -157,13 +165,24 @@ fn start_window_move(window: &Window) {
 }
 
 pub(crate) fn background(id: &'static str) -> Stateful<Div> {
+    background_with(id, |_, window, cx| {
+        window.dispatch_action(Box::new(BeginWindowMove), cx);
+    })
+}
+
+/// Empty space that behaves like the titlebar's, with `begin_move` called for
+/// a single press.
+pub(crate) fn background_with(
+    id: &'static str,
+    begin_move: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
     let background = div()
         .id(id)
         .debug_selector(move || id.into())
-        .on_mouse_down(MouseButton::Left, |event, window, cx| {
+        .on_mouse_down(MouseButton::Left, move |event, window, cx| {
             cx.stop_propagation();
             if event.click_count == 1 {
-                window.dispatch_action(Box::new(BeginWindowMove), cx);
+                begin_move(event, window, cx);
             }
         })
         .on_click(background_click);

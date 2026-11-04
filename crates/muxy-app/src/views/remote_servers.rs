@@ -130,54 +130,57 @@ pub(crate) fn dot(color: Hsla, model: &AppModel) -> gpui::Div {
         .bg(color)
 }
 
-/// How many servers are offline, and whether one failed: the footer speaks
-/// up only when something needs a look.
-fn offline(servers: &[RemoteServer]) -> (usize, bool) {
-    let offline: Vec<_> = servers
+/// How much a server not connected asks for attention: a failure most, then
+/// one on its way, then one simply offline.
+fn attention(server: &RemoteServer) -> usize {
+    match server.status {
+        ServerStatus::Connected => 0,
+        ServerStatus::Disconnected if server.error.is_none() => 1,
+        ServerStatus::Connecting | ServerStatus::Restarting | ServerStatus::Stopping => 2,
+        ServerStatus::Disconnected => 3,
+    }
+}
+
+/// The Devices button's name, with what isn't connected.
+fn section_label(servers: &[RemoteServer]) -> String {
+    let offline = servers
         .iter()
         .filter(|server| server.status == ServerStatus::Disconnected)
-        .collect();
-    let failed = offline.iter().any(|server| server.error.is_some());
-    (offline.len(), failed)
+        .count();
+    let connecting = servers
+        .iter()
+        .filter(|server| {
+            matches!(
+                server.status,
+                ServerStatus::Connecting | ServerStatus::Restarting
+            )
+        })
+        .count();
+    let mut label = tr!("Devices").to_string();
+    if offline > 0 {
+        label = format!("{label} · {}", tr!("%lld offline", offline));
+    }
+    if connecting > 0 {
+        label = format!("{label} · {}", tr!("%lld connecting", connecting));
+    }
+    label
 }
 
 /// The bottom of the sidebar, level with the status bar: the remote servers,
 /// which open their popover above it.
 pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let m = model.metrics;
     let theme = &model.theme;
     let anchor = model.remote_anchor.clone();
     let open = matches!(model.overlay, Some(Overlay::RemoteServers));
-    let (offline, failed) = offline(&model.remote_servers());
-    let color = match (offline, failed) {
-        (0, _) => theme.fg_muted,
-        (_, true) => theme.danger,
-        (_, false) => theme.fg_dim,
-    };
-    let tooltip = if offline > 0 {
-        format!("{} · {}", tr!("Devices"), tr!("%lld offline", offline))
-    } else {
-        tr!("Devices").to_string()
-    };
-    div()
-        .id("remote-servers-section")
-        .role(Role::Button)
-        .accessibility_id("remote-servers-section")
-        .aria_label(tooltip.clone())
+    let servers = model.remote_servers();
+    let dot = servers
+        .iter()
+        .filter(|server| attention(server) > 0)
+        .max_by_key(|server| attention(server))
+        .map(|server| ("remote-servers-dot", status_color(server, model)));
+    super::sidebar::footer_button("remote-servers-section", section_label(&servers), model)
         .aria_expanded(open)
-        .debug_selector(|| "remote-servers-section".into())
-        .group("remote-servers-section")
-        .relative()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(super::sidebar::footer_button_size(model))
-        .rounded(m.radius_xl())
         .when(open, |button| button.bg(theme.hover))
-        .cursor_pointer()
-        .hover(|style| style.bg(theme.hover))
-        .tooltip(muxy_ui::components::tooltip(tooltip, &model.theme))
         .button_interaction(cx.listener(|model, _, window, cx| {
             model.toggle_remote_popover(window, cx);
         }))
@@ -191,16 +194,13 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
             .left_0()
             .size_full(),
         )
-        .child(
-            IconGlyph::new(
-                Icon::Network,
-                m.font_body(),
-                if open { theme.fg } else { color },
-            )
-            .when(offline == 0, |icon| {
-                icon.hover_in_group("remote-servers-section", theme.fg)
-            }),
-        )
+        .child(super::sidebar::footer_icon(
+            "remote-servers-section",
+            Icon::Network,
+            if open { theme.fg } else { theme.fg_muted },
+            dot,
+            model,
+        ))
         .into_any_element()
 }
 

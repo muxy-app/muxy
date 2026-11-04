@@ -151,6 +151,15 @@ impl AppModel {
         self.show_settings(window, cx);
     }
 
+    pub(crate) fn show_extensions_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.show_settings(window, cx) {
+            return;
+        }
+        if let Some(settings) = &self.settings_tab {
+            settings.view.update(cx, SettingsView::show_extensions);
+        }
+    }
+
     pub(crate) fn show_about_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.show_settings(window, cx) {
             return;
@@ -573,6 +582,9 @@ impl AppModel {
             Change::Tips(value) => {
                 settings.appearance.tips_visible = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+                if !value {
+                    self.hide_tip(cx);
+                }
             }
             Change::RememberProjectsWithoutTabs(value) => {
                 settings.appearance.remember_projects_without_tabs = value;
