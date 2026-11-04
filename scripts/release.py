@@ -152,6 +152,12 @@ def bundle_info(version, build):
         "NSMicrophoneUsageDescription": "Programs you run in Muxy terminals can use your microphone.",
         "NSLocalNetworkUsageDescription": "Commands you run in Muxy terminals can connect to devices on your local network.",
         "NSAppTransportSecurity": {"NSAllowsArbitraryLoadsInWebContent": True},
+        "CFBundleDocumentTypes": [{
+            "CFBundleTypeName": "Folder",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": ["public.folder"],
+        }],
         **sparkle,
     }
 

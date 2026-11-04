@@ -511,7 +511,7 @@ fn command_o_opens_the_picker_and_existing_paths_select_the_project(cx: &mut Tes
 }
 
 #[gpui::test]
-fn folders_from_the_command_line_select_their_project_or_add_it(cx: &mut TestAppContext) {
+fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppContext) {
     let root = std::env::temp_dir().join(format!("muxy-cli-folder-{}", ProjectId::new()));
     std::fs::create_dir_all(root.join("Alpha")).expect("mkdir");
     std::fs::create_dir_all(root.join("Beta Gamma")).expect("mkdir");
@@ -533,6 +533,7 @@ fn folders_from_the_command_line_select_their_project_or_add_it(cx: &mut TestApp
         acknowledge_catalog(model, cx);
         assert_eq!(model.state.current_project().id, alpha);
         assert_eq!(model.state.projects().len(), 2);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
     });
     folders
         .try_send(vec![
@@ -549,6 +550,7 @@ fn folders_from_the_command_line_select_their_project_or_add_it(cx: &mut TestApp
             root.join("Beta Gamma")
         );
         assert_eq!(model.state.projects().len(), 3);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
         assert!(model.error.is_none());
     });
     std::os::unix::fs::symlink(root.join("Alpha"), root.join("Alias")).expect("symlink");
@@ -561,6 +563,7 @@ fn folders_from_the_command_line_select_their_project_or_add_it(cx: &mut TestApp
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.current_project().id, alpha);
         assert_eq!(model.state.projects().len(), 3);
+        assert_eq!(model.state.current_project().tabs.len(), 3);
     });
     std::fs::remove_dir_all(root).expect("cleanup");
 }
@@ -653,21 +656,38 @@ fn folders_arriving_after_connection_failure_open_with_saved_projects(cx: &mut T
         assert!(!model.servers.local.catalog.identified);
     });
     requests.try_iter().for_each(drop);
-    for folder in [&existing, &new] {
-        let url = reqwest::Url::from_directory_path(folder).expect("file URL");
-        folders.try_send(vec![url.into()]).expect("send");
-        cx.run_until_parked();
-        view.read_with(cx, |model, _| {
-            assert_eq!(&model.state.current_project().directory, folder);
-            assert!(model.pending_folders.is_empty());
-        });
-    }
-    view.read_with(cx, |model, _| assert_eq!(model.state.projects().len(), 3));
+    let url = |folder: &PathBuf| -> String {
+        reqwest::Url::from_directory_path(folder)
+            .expect("file URL")
+            .into()
+    };
+    folders.try_send(vec![url(&existing)]).expect("send");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.current_project().directory, existing);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
+        assert!(model.pending_folders.is_empty());
+    });
     assert!(
-        !requests
+        requests
             .try_iter()
             .any(|(_, work)| matches!(work, Work::Connect))
     );
+    folders.try_send(vec![url(&new)]).expect("send");
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        assert_eq!(model.state.current_project().directory, existing);
+        assert_eq!(model.pending_folders, std::slice::from_ref(&new));
+        let generation = model.servers.local.generation;
+        model.receive(
+            local(generation, Update::ConnectFailed("offline".into(), None)),
+            cx,
+        );
+        assert_eq!(model.state.current_project().directory, new);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
+        assert!(model.pending_folders.is_empty());
+        assert_eq!(model.state.projects().len(), 3);
+    });
 }
 
 #[gpui::test]

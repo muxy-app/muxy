@@ -44,7 +44,7 @@ muxy --help          # all commands; muxy <command> --help for details
 | Command | What it does |
 | --- | --- |
 | `muxy` | Opens the [terminal UI](terminal-ui.md). |
-| `muxy <folder>` | Opens the folder as a project in the desktop app. On Linux, over SSH, or without the desktop app, opens it in the terminal UI. |
+| `muxy <folder>` | Opens a new terminal in the folder's project in the desktop app, adding the project if needed. Over SSH, or without the desktop app, opens it in the terminal UI. |
 | `muxy server start\|status\|stop` | Starts, inspects, or stops the server. `stop` refuses while terminals run; add `--force` to end them. |
 | `muxy project list\|add\|rename\|set-color\|set-icon\|delete` | Manages projects. Deleting ends its terminals but keeps files on disk. |
 | `muxy session list\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard\|show` | Creates terminals, sends input, reads output, waits for text or exit, and shows a terminal in the desktop app. |
