@@ -6,6 +6,7 @@
 //! visibly step. Things here move quickly into place and then hold still.
 
 mod agents;
+mod composer;
 mod extensions;
 pub(crate) mod kit;
 mod mobile;
@@ -145,6 +146,7 @@ fn scene(step: Step, frame: &Frame) -> Div {
         Step::Projects => projects::scene(frame),
         Step::Extensions => extensions::scene(frame),
         Step::Agents => agents::scene(frame),
+        Step::Composer => composer::scene(frame),
         Step::Remote => remote::scene(frame),
         Step::Mobile => mobile::scene(frame),
         Step::Shortcuts => shortcuts::scene(frame),
@@ -159,6 +161,7 @@ fn still_time(step: Step) -> f32 {
         Step::Projects => projects::STILL,
         Step::Extensions => extensions::STILL,
         Step::Agents => agents::STILL,
+        Step::Composer => composer::STILL,
         Step::Remote => remote::STILL,
         Step::Mobile => mobile::STILL,
         Step::Shortcuts => shortcuts::STILL,
@@ -176,6 +179,7 @@ fn description(step: Step) -> gpui::SharedString {
         Step::Projects => tr!("A sidebar of projects with their worktrees."),
         Step::Extensions => tr!("File and Git panels sliding in beside a terminal."),
         Step::Agents => tr!("AI agents working, waiting for you, and done."),
+        Step::Composer => tr!("The composer open over two terminals, with a prompt being written."),
         Step::Remote => tr!("This computer connected to remote servers over SSH."),
         Step::Mobile => tr!("A phone beside the code that pairs it."),
         Step::Shortcuts => tr!("Keys being pressed as a window splits and the palette opens."),

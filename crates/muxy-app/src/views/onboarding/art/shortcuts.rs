@@ -24,11 +24,12 @@ const WINDOW_HEIGHT: f32 = 300.0;
 const SIDEBAR: f32 = 96.0;
 const BAR: f32 = 26.0;
 
-struct Beat {
-    start: f32,
-    end: f32,
-    press: f32,
-    shortcut: ShortcutId,
+/// Some keys and the stretch of a scene they show for.
+pub(super) struct Beat {
+    pub(super) start: f32,
+    pub(super) end: f32,
+    pub(super) press: f32,
+    pub(super) shortcut: ShortcutId,
 }
 
 const BEATS: [Beat; 4] = [
@@ -82,10 +83,9 @@ pub(super) fn scene(frame: &Frame) -> Div {
                 .child(palette_card(frame, palette)),
         )
         .children(
-            BEATS
-                .iter()
-                .zip(labels)
-                .map(|(beat, label)| keys(frame, beat, label, local)),
+            BEATS.iter().zip(labels).map(|(beat, label)| {
+                keys(frame, beat, label, local, WINDOW_Y + WINDOW_HEIGHT + 26.0)
+            }),
         )
 }
 
@@ -231,7 +231,7 @@ fn palette_card(frame: &Frame, shown: f32) -> Div {
 }
 
 /// One beat's keys, pressing as its moment comes, with what they do beneath.
-fn keys(frame: &Frame, beat: &Beat, label: SharedString, local: f32) -> Div {
+pub(super) fn keys(frame: &Frame, beat: &Beat, label: SharedString, local: f32, top: f32) -> Div {
     let shown = span(local, beat.start, beat.end, 0.25);
     let pressed = span(local, beat.press - 0.02, beat.press + 0.46, 0.08);
     let caps = key_caps(beat.shortcut, frame.model);
@@ -239,7 +239,7 @@ fn keys(frame: &Frame, beat: &Beat, label: SharedString, local: f32) -> Div {
         return div();
     }
     let result = progress(local, beat.press + 0.1, 0.25);
-    let y = WINDOW_Y + WINDOW_HEIGHT + 26.0 + lerp(10.0, 0.0, shown);
+    let y = top + lerp(10.0, 0.0, shown);
     place(frame, 0.0, y, W, H - y)
         .opacity(shown)
         .flex()

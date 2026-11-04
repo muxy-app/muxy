@@ -230,6 +230,7 @@
 "Asks for: %@" = "Asks for: %@";
 "Attach" = "Attach";
 "Attach File" = "Attach File";
+"Attach, drop, or paste them. Files go in as paths, and AI tools can read your images." = "Attach, drop, or paste them. Files go in as paths, and AI tools can read your images.";
 "Attached file is missing: %@" = "Attached file is missing: %@";
 "Attachment paths must be absolute UTF-8 paths" = "Attachment paths must be absolute UTF-8 paths";
 "Auto" = "Auto";
@@ -718,6 +719,7 @@
 "Drag to reposition, scroll to zoom" = "Drag to reposition, scroll to zoom";
 "Draw terminal text with a heavier stroke." = "Draw terminal text with a heavier stroke.";
 "Each profile keeps its own cookies, cache, history, and logins. Pick a profile per tab from the browser toolbar." = "Each profile keeps its own cookies, cache, history, and logins. Pick a profile per tab from the browser toolbar.";
+"Each project keeps its own draft, even across restarts." = "Each project keeps its own draft, even across restarts.";
 "Edit" = "Edit";
 "Edit %@" = "Edit %@";
 "Edit Paired Server" = "Edit Paired Server";
@@ -795,6 +797,7 @@
 "File and Git panels sliding in beside a terminal." = "File and Git panels sliding in beside a terminal.";
 "File manager" = "File manager";
 "Files" = "Files";
+"Files and images" = "Files and images";
 "Fill padding with the background color, or extend the color of the nearest cells." = "Fill padding with the background color, or extend the color of the nearest cells.";
 "Film" = "Film";
 "Film Fill" = "Film Fill";
@@ -1243,6 +1246,7 @@
 "Open in External Browser" = "Open in External Browser";
 "Open on GitHub" = "Open on GitHub";
 "Open terminal links in the browser" = "Open terminal links in the browser";
+"Open the composer" = "Open the composer";
 "Open the same terminal from several apps at once." = "Open the same terminal from several apps at once.";
 "Open web pages in browser tabs and let muxy browser commands drive them." = "Open web pages in browser tabs and let muxy browser commands drive them.";
 "OpenType features separated by commas, such as ss01 or zero. Put a minus before one to turn it off, such as -calt." = "OpenType features separated by commas, such as ss01 or zero. Put a minus before one to turn it off, such as -calt.";
@@ -1330,6 +1334,7 @@
 "Port" = "Port";
 "Press %@ for the agents panel, with every running agent in one list." = "Press %@ for the agents panel, with every running agent in one list.";
 "Press %@ to give a branch its own tabs and terminals." = "Press %@ to give a branch its own tabs and terminals.";
+"Press %@ to open the composer, a text box for long prompts and commands. It's made for talking to AI agents." = "Press %@ to open the composer, a text box for long prompts and commands. It's made for talking to AI agents.";
 "Press a key…" = "Press a key…";
 "Press a shortcut…" = "Press a shortcut…";
 "Previous 7 days" = "Previous 7 days";
@@ -1514,6 +1519,7 @@
 "Right-click a project to make it yours." = "Right-click a project to make it yours.";
 "Right-click a terminal and choose Apply Proxy to use it there. The terminal restarts in the same folder." = "Right-click a terminal and choose Apply Proxy to use it there. The terminal restarts in the same folder.";
 "Right-click a terminal and choose Detach Terminal to put it away without ending it. By default, ⌘⌥T opens Existing Terminals to bring it back." = "Right-click a terminal and choose Detach Terminal to put it away without ending it. By default, ⌘⌥T opens Existing Terminals to bring it back.";
+"Room to write" = "Room to write";
 "Ruler" = "Ruler";
 "Run Claude Code, Codex, Cursor, OpenCode, and more in any terminal. Muxy sees what each one is doing, with no setup." = "Run Claude Code, Codex, Cursor, OpenCode, and more in any terminal. Muxy sees what each one is doing, with no setup.";
 "Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette." = "Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette.";
@@ -1581,10 +1587,14 @@
 "Send CSI sequence" = "Send CSI sequence";
 "Send Escape sequence" = "Send Escape sequence";
 "Send Without Enter" = "Send Without Enter";
+"Send it" = "Send it";
+"Send it where it's needed" = "Send it where it's needed";
 "Send mouse events to terminal programs that request them. Hold Shift to select text instead." = "Send mouse events to terminal programs that request them. Hold Shift to select text instead.";
 "Send text" = "Send text";
 "Send to Active Pane" = "Send to Active Pane";
 "Send to All Split Panes" = "Send to All Split Panes";
+"Send to all splits" = "Send to all splits";
+"Send to the active terminal, or to every terminal you can see in the project." = "Send to the active terminal, or to every terminal you can see in the project.";
 "Server" = "Server";
 "Server %@" = "Server %@";
 "Server %@ · Update %@ pending. It will restart when all terminal sessions end. Restart Server applies it now and ends running sessions." = "Server %@ · Update %@ pending. It will restart when all terminal sessions end. Restart Server applies it now and ends running sessions.";
@@ -1749,6 +1759,7 @@
 "The built-in browser is off. Browser tabs and browser commands are disabled, and terminal links open in your system browser." = "The built-in browser is off. Browser tabs and browser commands are disabled, and terminal links open in your system browser.";
 "The bundled client and server do not match the release" = "The bundled client and server do not match the release";
 "The command path changed during installation; try again." = "The command path changed during installation; try again.";
+"The composer open over two terminals, with a prompt being written." = "The composer open over two terminals, with a prompt being written.";
 "The computer at this link isn't the one that made it. Copy the link again from its Devices tab." = "The computer at this link isn't the one that made it. Copy the link again from its Devices tab.";
 "The connection closed before the server confirmed it stopped, so it may still be running." = "The connection closed before the server confirmed it stopped, so it may still be running.";
 "The default profile can't be deleted" = "The default profile can't be deleted";
@@ -1998,6 +2009,7 @@
 "Yellow" = "Yellow";
 "You can show tips again in Settings → Appearance → Interface by turning on Show tips." = "You can show tips again in Settings → Appearance → Interface by turning on Show tips.";
 "Your code appears here" = "Your code appears here";
+"Your draft stays" = "Your draft stays";
 "Your extensions are ready." = "Your extensions are ready.";
 "Your previous projects are kept in %@" = "Your previous projects are kept in %@";
 "Your terminals live on a server" = "Your terminals live on a server";

@@ -89,9 +89,9 @@ flowchart LR
 ## Welcome tour
 
 On launch, a short tour opens until it has been finished or skipped, on new and
-existing installs alike. Its eight steps cover how the server and apps fit
-together, projects, extensions, AI agents, remote servers, the phone app, and
-shortcuts.
+existing installs alike. Its nine steps cover how the server and apps fit
+together, projects, extensions, AI agents, the composer, remote servers, the
+phone app, and shortcuts.
 
 - **Skip Tour** or Escape ends it on any step. Clicking outside does not, and
   quitting partway shows it again from the start on the next launch.

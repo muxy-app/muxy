@@ -35,18 +35,20 @@ pub(crate) enum Step {
     Projects,
     Extensions,
     Agents,
+    Composer,
     Remote,
     Mobile,
     Shortcuts,
 }
 
 impl Step {
-    pub(crate) const ALL: [Self; 8] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::Welcome,
         Self::Server,
         Self::Projects,
         Self::Extensions,
         Self::Agents,
+        Self::Composer,
         Self::Remote,
         Self::Mobile,
         Self::Shortcuts,

@@ -1070,3 +1070,24 @@ fn another_jobs_result_is_told_before_the_next_offer_starts(cx: &mut TestAppCont
         assert_eq!(model.error.as_deref(), Some("offline"));
     });
 }
+
+#[gpui::test]
+fn the_composer_step_shows_the_shortcuts_of_this_keymap(cx: &mut TestAppContext) {
+    let (view, cx) = open(cx);
+    view.update(cx, |model, cx| {
+        model.show_onboarding_step(Step::Composer, cx);
+    });
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("onboarding-art").is_some());
+    view.read_with(cx, |model, _| {
+        for id in [
+            muxy_core::shortcuts::ShortcutId::ToggleComposer,
+            muxy_core::shortcuts::ShortcutId::ComposerSubmit,
+        ] {
+            assert!(
+                !crate::views::onboarding::art::key_caps(id, model).is_empty(),
+                "{id:?}"
+            );
+        }
+    });
+}

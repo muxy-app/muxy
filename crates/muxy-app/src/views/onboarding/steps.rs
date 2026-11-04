@@ -32,6 +32,7 @@ pub(super) fn body(
         Step::Projects => projects(model, cx),
         Step::Extensions => extensions(model, cx),
         Step::Agents => agents(model),
+        Step::Composer => composer(model),
         Step::Remote => remote(model, cx),
         Step::Mobile => mobile(art_shown, model, cx),
         Step::Shortcuts => shortcuts(model),
@@ -528,6 +529,41 @@ fn agents(model: &AppModel) -> Div {
         ))
 }
 
+fn composer(model: &AppModel) -> Div {
+    column(model)
+        .child(intro(
+            tr!("Room to write"),
+            tr!(
+                "Press %@ to open the composer, a text box for long prompts and commands. It's made for talking to AI agents.",
+                chord_text(ShortcutId::ToggleComposer, model).as_str()
+            ),
+            model,
+        ))
+        .child(points(
+            [
+                point(
+                    Icon::File,
+                    tr!("Files and images"),
+                    tr!("Attach, drop, or paste them. Files go in as paths, and AI tools can read your images."),
+                    model,
+                ),
+                point(
+                    Icon::Columns,
+                    tr!("Send it where it's needed"),
+                    tr!("Send to the active terminal, or to every terminal you can see in the project."),
+                    model,
+                ),
+                point(
+                    Icon::Pencil,
+                    tr!("Your draft stays"),
+                    tr!("Each project keeps its own draft, even across restarts."),
+                    model,
+                ),
+            ],
+            model,
+        ))
+}
+
 fn remote(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
     let added = model
         .onboarding
@@ -772,6 +808,7 @@ fn shortcuts(model: &AppModel) -> Div {
         (ShortcutId::SplitDown, tr!("Split down")),
         (ShortcutId::ToggleSidebar, tr!("Show or hide the sidebar")),
         (ShortcutId::ToggleAgentsPanel, tr!("Agents panel")),
+        (ShortcutId::ToggleComposer, tr!("Composer")),
         (ShortcutId::OpenSettings, tr!("Settings")),
     ];
     column(model)
