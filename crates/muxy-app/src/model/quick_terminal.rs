@@ -51,6 +51,12 @@ pub(crate) enum QuickClose {
 }
 
 impl QuickTerminalRuntime {
+    /// Whether the system asks for as little animation as possible, kept up to
+    /// date as the setting changes.
+    pub(crate) fn reduce_motion(&self) -> bool {
+        self.accessibility.reduce_motion
+    }
+
     fn accessibility() -> AccessibilityPreferences {
         #[cfg(not(test))]
         {

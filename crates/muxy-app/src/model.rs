@@ -18,6 +18,7 @@ pub(crate) mod git;
 mod language;
 mod links;
 mod mobile;
+pub(crate) mod onboarding;
 mod pairing;
 pub(crate) use pairing::PairingForm;
 mod pane_runtime;
@@ -170,6 +171,7 @@ pub(crate) struct AppModel {
     pub(crate) pending_folders: Vec<PathBuf>,
     pub(crate) remote_links: remote_files::RemoteLinks,
     pub(crate) tips: tips::Tips,
+    pub(crate) onboarding: onboarding::Onboarding,
     pub(crate) settings_tab: Option<preferences::SettingsTabState>,
     pane_runtime: HashMap<PaneId, pane_runtime::PaneRuntime>,
     terminal_preview: Option<preferences::TerminalPreview>,
@@ -199,6 +201,10 @@ pub(crate) struct AppModel {
     pub(crate) shortcut_hints: crate::views::shortcut_hints::ShortcutHints,
     #[cfg(target_os = "macos")]
     pub(crate) window_drag: Option<muxy_ui::window_drag::WindowDrag>,
+    #[cfg(test)]
+    pub(crate) window_moves_begun: usize,
+    #[cfg(test)]
+    pub(crate) window_move_cancels: usize,
     #[cfg(target_os = "macos")]
     pub(crate) sidebar_vibrancy: Option<muxy_ui::vibrancy::SidebarVibrancy>,
     pub(crate) overlay_subscription: Option<Subscription>,
@@ -482,6 +488,7 @@ impl AppModel {
     )]
     pub(crate) fn new(boot: Boot, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let stopped_in_background = boot.stopped_in_background;
+        let show_onboarding = boot.show_onboarding;
         let events = cx.spawn(async move |this, cx| {
             while let Ok(update) = boot.updates.recv().await {
                 if this
@@ -505,6 +512,7 @@ impl AppModel {
             model.sync_pane_focus(cx);
             model.update_worktree_switcher(cx);
             model.schedule_extension_events(window, cx);
+            model.sync_onboarding(cx);
         });
         let quit = cx.on_app_quit(|model: &mut Self, cx| {
             #[cfg(not(test))]
@@ -602,6 +610,7 @@ impl AppModel {
             pending_folders: Vec::new(),
             remote_links: remote_files::RemoteLinks::default(),
             tips: tips::Tips::default(),
+            onboarding: onboarding::Onboarding::default(),
             settings_tab: None,
             pane_runtime: HashMap::new(),
             terminal_preview: None,
@@ -627,6 +636,10 @@ impl AppModel {
             layout_drag: crate::views::splits::drag::LayoutDragState::default(),
             #[cfg(target_os = "macos")]
             window_drag: muxy_ui::window_drag::WindowDrag::new(window),
+            #[cfg(test)]
+            window_moves_begun: 0,
+            #[cfg(test)]
+            window_move_cancels: 0,
             #[cfg(target_os = "macos")]
             sidebar_vibrancy: None,
             overlay_subscription: None,
@@ -691,6 +704,9 @@ impl AppModel {
         model.start_servers(cx);
         if stopped_in_background {
             model.explain_background_stop(cx);
+        }
+        if show_onboarding {
+            model.open_onboarding(cx);
         }
         model
     }
@@ -1537,6 +1553,7 @@ impl AppModel {
         if self.quitting != Quitting::Idle || !self.preferences_before_quit(cx) {
             return;
         }
+        self.restore_device_access_before_quit(cx);
         self.quitting = Quitting::Preserve;
         if !self.flush_servers(cx) {
             self.quitting = Quitting::Idle;
@@ -1555,6 +1572,7 @@ impl AppModel {
             );
             return;
         }
+        self.restore_device_access_before_quit(cx);
         let mut sessions = self.state.session_references(local);
         sessions.extend(self.state.pending_discards(local));
         self.quitting = Quitting::EndAll;
@@ -2199,6 +2217,7 @@ impl AppModel {
         }
         if server.is_local() {
             self.sync_devices_tab(true, cx);
+            self.settle_restored_access(cx);
         }
         cx.notify();
     }
@@ -2861,6 +2880,7 @@ pub(crate) mod tests {
     mod layout_drag;
     mod links;
     mod new_tab;
+    mod onboarding;
     mod preferences;
     mod project_apps;
     mod project_layouts;
@@ -2990,6 +3010,7 @@ pub(crate) mod tests {
             Boot {
                 import_message: None,
                 stopped_in_background: false,
+                show_onboarding: false,
                 composer: muxy_app_core::composer::ComposerStore::load_from(&directory),
                 state,
                 state_path: directory.join("state.json"),

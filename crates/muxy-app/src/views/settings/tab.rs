@@ -605,6 +605,9 @@ impl SettingsTab {
             SettingsEvent::DismissProblem => {
                 let _ = self.model.update(cx, AppModel::dismiss_problem);
             }
+            SettingsEvent::ShowWelcomeTour => {
+                let _ = self.model.update(cx, AppModel::open_onboarding);
+            }
         }
     }
 

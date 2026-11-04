@@ -917,3 +917,27 @@ fn interface_sizes_keep_the_multipliers_of_muxy_1() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn the_welcome_tour_is_still_due_for_settings_saved_before_it_existed() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "[appearance]\ntips_visible = false\n")?;
+    assert!(!Appearance::load(&path)?.onboarding_completed);
+    Ok(())
+}
+
+#[test]
+fn finishing_the_welcome_tour_is_saved_beside_other_appearance_settings() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "[appearance]\ntips_visible = false\n")?;
+    let previous = Appearance::load(&path)?;
+    let finished = Appearance {
+        onboarding_completed: true,
+        ..previous.clone()
+    };
+    finished.save_changes(&previous, &path)?;
+    let saved = Appearance::load(&path)?;
+    assert!(saved.onboarding_completed);
+    assert!(!saved.tips_visible);
+    Ok(())
+}
