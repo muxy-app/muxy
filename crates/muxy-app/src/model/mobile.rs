@@ -21,8 +21,10 @@ pub(crate) struct MobileAccess {
     pub(crate) state: Option<RemoteAccessState>,
     /// The current pairing code, until it is used, cancelled, or expires.
     pub(crate) pairing: Option<Pairing>,
-    /// Settings is on the Devices page.
+    /// Settings is on the Devices page, whether or not its tab is displayed.
     page_open: bool,
+    /// The Devices page was on screen when last checked.
+    page_shown: bool,
     /// The code's link was copied, so it stays valid away from the Devices
     /// page until it is used or expires.
     copied: bool,
@@ -71,8 +73,14 @@ impl AppModel {
         self.quitting == Quitting::Idle && self.ready(ServerId::local())
     }
 
+    /// The Devices page is on screen, which focus elsewhere doesn't change.
     fn devices_page_open(&self) -> bool {
-        self.mobile.page_open && self.state.settings_tab().is_some()
+        self.mobile.page_open
+            && self.state.settings_tab().is_some()
+            && self
+                .visible_panes()
+                .into_iter()
+                .any(|pane| self.state.is_settings_pane(pane))
     }
 
     /// Settings moved to the Devices page or away from it.
@@ -88,13 +96,16 @@ impl AppModel {
         self.devices_page_open() || self.onboarding_pairing_shown()
     }
 
-    /// Reads device access when the Devices page opens or this computer's
-    /// server connects with it open, and withdraws a pairing code that was
-    /// never copied once it leaves the screen.
+    /// Reads device access when the Devices page comes on screen or this
+    /// computer's server connects with it open, and withdraws a pairing code
+    /// that was never copied once it leaves the screen.
     pub(crate) fn sync_devices_page(&mut self, opened: bool, cx: &mut Context<Self>) {
+        let page = self.devices_page_open();
+        let returned = page && !self.mobile.page_shown;
+        self.mobile.page_shown = page;
         if !self.device_access_shown() {
             self.withdraw_pairing(cx);
-        } else if opened {
+        } else if opened || returned {
             self.read_remote_access(cx);
         }
     }

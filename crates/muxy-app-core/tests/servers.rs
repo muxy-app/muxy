@@ -734,6 +734,95 @@ fn a_devices_tab_saved_by_an_older_version_is_removed_on_load() -> TestResult {
     Ok(())
 }
 
+/// Makes the pane `id` in a saved state the Devices pane older versions saved.
+fn save_as_devices_pane(value: &mut serde_json::Value, id: &str) -> bool {
+    match value {
+        serde_json::Value::Object(object) => {
+            if object.get("id").and_then(serde_json::Value::as_str) == Some(id)
+                && object.contains_key("content")
+            {
+                object.insert("content".into(), json!({ "type": "servers" }));
+                return true;
+            }
+            object
+                .values_mut()
+                .any(|value| save_as_devices_pane(value, id))
+        }
+        serde_json::Value::Array(values) => values
+            .iter_mut()
+            .any(|value| save_as_devices_pane(value, id)),
+        _ => false,
+    }
+}
+
+#[test]
+fn a_saved_devices_pane_beside_a_terminal_goes_and_the_terminal_stays() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let tab = state.open_terminal_tab(home)?;
+    let terminal = state.window().active_pane.ok_or("pane")?;
+    let attached = session(1)?;
+    state.set_pane_session(terminal, Some(attached))?;
+    let devices = state.split_pane(terminal, Direction::Right)?;
+
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    store::save(&path, &state)?;
+    let mut saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+    assert!(save_as_devices_pane(&mut saved, &devices.to_string()));
+    std::fs::write(&path, saved.to_string())?;
+
+    let loaded = store::load(&path)?;
+    let tab = loaded
+        .project(home)
+        .ok_or("home")?
+        .tabs
+        .iter()
+        .find(|listed| listed.id == tab)
+        .ok_or("the terminal's tab stays")?;
+    assert_eq!(tab.panes.len(), 1);
+    assert_eq!(tab.panes[0].id, terminal);
+    assert_eq!(tab.panes[0].session(), Some(attached));
+    Ok(())
+}
+
+#[test]
+fn a_devices_tab_in_a_set_aside_view_stays_gone_when_the_view_returns() -> TestResult {
+    let TwoServers { mut state, .. } = two_servers()?;
+    let project = state
+        .projects()
+        .iter()
+        .find(|project| project.server_id == LOCAL && !project.home)
+        .map(|project| project.id)
+        .ok_or("local project")?;
+    let terminal = state.open_terminal_tab(project)?;
+    let devices = state.show_settings_tab(project, "Devices")?;
+    let kept = local_catalog(&mut state)?;
+    let fresh = remote_catalog(3, ProjectId::new(), &[]);
+    assert_eq!(
+        state.apply_local_catalog(&fresh, true)?,
+        LocalCatalog::Fresh
+    );
+
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    store::save(&path, &state)?;
+    let saved = std::fs::read_to_string(&path)?;
+    let older = saved.replace("\"type\": \"settings\"", "\"type\": \"servers\"");
+    assert_ne!(older, saved, "the set-aside view has the old tab's pane");
+    std::fs::write(&path, older)?;
+
+    let mut state = store::load(&path)?;
+    assert_eq!(
+        state.apply_local_catalog(&kept, false)?,
+        LocalCatalog::Restored
+    );
+    let project = state.project(project).ok_or("project")?;
+    assert!(project.tabs.iter().any(|tab| tab.id == terminal));
+    assert!(project.tabs.iter().all(|tab| tab.id != devices));
+    Ok(())
+}
+
 #[test]
 fn ended_sessions_close_without_discarding_but_closed_ones_discard() -> TestResult {
     let mut state = AppState::bootstrap()?;

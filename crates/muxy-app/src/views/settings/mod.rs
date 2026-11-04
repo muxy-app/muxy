@@ -137,6 +137,8 @@ pub(crate) struct Snapshot {
     pub(crate) server_update: Option<String>,
     pub(crate) pending_server_fields: HashSet<String>,
     pub(crate) ai_installed: Vec<&'static str>,
+    /// The installed extensions have been read from disk.
+    pub(crate) extensions_loaded: bool,
     /// Enabled extensions that provide a sidebar, as `(extension, label)`.
     pub(crate) sidebars: Vec<(String, String)>,
     /// Enabled extensions' file openers, as `(setting value, label)`.

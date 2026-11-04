@@ -34,6 +34,13 @@ fn manage_devices_in_the_popover_opens_settings_at_devices(cx: &mut TestAppConte
         );
     });
     press(cx, "remote-manage-servers".into());
+    view.read_with(cx, |model, cx| {
+        let pane = model.active_pane().expect("pane");
+        assert!(model.state.is_settings_pane(pane));
+        assert!(model.overlay.is_none());
+        let settings = model.settings_tab.as_ref().expect("settings tab");
+        assert!(settings.view.read(cx).devices_shown());
+    });
     open_tab(&view, cx);
     view.read_with(cx, |model, cx| {
         let pane = model.active_pane().expect("pane");

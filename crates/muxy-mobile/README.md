@@ -965,8 +965,9 @@ try {
   its token at once.
 - Over SSH, the app acts as the SSH user, so the limits above for paired
   phones don't apply. Never weaken your SSH layer's host-key checks.
-- The desktop withdraws its pairing code when its Devices page closes, and the CLI
-  withdraws its code when `muxy mobile pair` exits.
+- The desktop withdraws a pairing code that was shown but not copied once its
+  Devices page leaves the screen. A copied link stays valid until it is used or
+  expires. The CLI withdraws its code when `muxy mobile pair` exits.
 
 ## Testing against a server
 

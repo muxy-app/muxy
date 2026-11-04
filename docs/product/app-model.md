@@ -29,9 +29,10 @@ its projects in this app.
 connections lives:
 
 - **This Computer** lets phones and other computers pair: it turns access on,
-  shows a pairing code and link, and lists paired devices to revoke. The code
-  is withdrawn when you leave the page or close Settings. `muxy mobile` does the same without the
-  desktop app.
+  shows a pairing code and link, and lists paired devices to revoke. A code
+  that wasn't copied is withdrawn once the page leaves the screen; a copied link
+  stays valid until it is used or expires. `muxy mobile` does the same without
+  the desktop app.
 - **Connects To** lists every server by group, and connects, disconnects,
   regroups, or removes several at once. Disconnecting leaves a server's
   terminals running there.

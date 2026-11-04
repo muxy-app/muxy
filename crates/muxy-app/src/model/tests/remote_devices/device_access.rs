@@ -262,6 +262,56 @@ fn the_page_reads_access_again_when_its_server_returns(cx: &mut TestAppContext) 
     );
 }
 
+#[gpui::test]
+fn switching_tabs_withdraws_a_shown_code_and_coming_back_reads_access(cx: &mut TestAppContext) {
+    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (settings, terminal) = view.update(cx, |model, cx| {
+        let (_, settings) = model.state.settings_tab().expect("settings tab");
+        let home = model.state.home().id;
+        let terminal = model.state.open_terminal_tab(home).expect("terminal");
+        model.select_tab(settings, cx);
+        model.receive_pairing(Ok(offer(now() + 300)), cx);
+        (settings, terminal)
+    });
+    cx.run_until_parked();
+    work(&requests);
+    view.update(cx, |model, cx| model.select_tab(terminal, cx));
+    cx.run_until_parked();
+    assert!(cancels_code(&sent(&requests)), "the code is off screen");
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(access(true, None, Vec::new())), cx);
+    });
+    work(&requests);
+    view.update(cx, |model, cx| model.select_tab(settings, cx));
+    cx.run_until_parked();
+    assert!(reads_access(&sent(&requests)), "the list may have changed");
+}
+
+#[gpui::test]
+fn focusing_a_split_beside_settings_keeps_a_shown_code(cx: &mut TestAppContext) {
+    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    view.update(cx, |model, cx| {
+        model.receive_pairing(Ok(offer(now() + 300)), cx);
+        let pane = model.active_pane().expect("settings pane");
+        model
+            .state
+            .split_pane(pane, Direction::Right)
+            .expect("split");
+        assert!(
+            !model
+                .active_pane()
+                .is_some_and(|pane| model.state.is_settings_pane(pane))
+        );
+        model.sync_devices_page(false, cx);
+    });
+    cx.run_until_parked();
+    assert!(
+        !cancels_code(&sent(&requests)),
+        "the code is still on screen"
+    );
+    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_some()));
+}
+
 /// A window connected to this computer's server, with no Devices page.
 fn window_without_tab(
     cx: &mut TestAppContext,

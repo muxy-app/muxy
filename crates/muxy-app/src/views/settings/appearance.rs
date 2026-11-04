@@ -270,7 +270,9 @@ fn active_sidebar(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEle
     let selected = &pane.snapshot.settings.appearance.extension_sidebar;
     let unavailable =
         !selected.is_empty() && !pane.snapshot.sidebars.iter().any(|(id, _)| id == selected);
-    let note = if unavailable {
+    let note = if !pane.snapshot.extensions_loaded {
+        None
+    } else if unavailable {
         Some(tr!(
             "The selected sidebar's extension is unavailable, so Muxy is showing the built-in sidebar."
         ))
@@ -304,7 +306,13 @@ pub(super) fn sidebar_label(snapshot: &Snapshot, selected: &str) -> String {
         .iter()
         .find(|(id, _)| id == selected)
         .map_or_else(
-            || tr!("%@ (unavailable)", selected).to_string(),
+            || {
+                if snapshot.extensions_loaded {
+                    tr!("%@ (unavailable)", selected).to_string()
+                } else {
+                    selected.to_owned()
+                }
+            },
             |(_, label)| label.clone(),
         )
 }

@@ -992,15 +992,16 @@ fn an_extension_sidebar_is_listed_chosen_and_falls_back_when_disabled(cx: &mut T
         }
         std::thread::sleep(Duration::from_millis(5));
     }
-    model.update(cx, |model, cx| {
+    model.read_with(cx, |model, _| {
         assert_eq!(
             model.extension_sidebars(),
             [("workspace-nav".to_owned(), "Workspace".to_owned())]
         );
         assert!(!model.extension_sidebar_active());
-        model.change_preference(Change::ExtensionSidebar("workspace-nav".into()), cx);
     });
-    cx.run_until_parked();
+    click_preference(cx, "settings-category-Appearance");
+    click_preference(cx, "settings-picker-extension-sidebar");
+    click_preference(cx, "picker-row-workspace-nav");
     model.update(cx, |model, _| {
         assert_eq!(model.appearance.extension_sidebar, "workspace-nav");
         assert!(model.extension_sidebar_active());

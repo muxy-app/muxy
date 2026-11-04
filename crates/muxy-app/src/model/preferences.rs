@@ -320,6 +320,7 @@ impl AppModel {
                 .iter()
                 .map(|provider| provider.id)
                 .collect(),
+            extensions_loaded: self.extensions_loaded(),
             sidebars: self.extension_sidebars(),
             file_openers: self.extension_file_openers(),
             languages: self.app_languages(),
