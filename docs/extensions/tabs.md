@@ -43,6 +43,24 @@ await muxy.tabs.open({ kind: "browser", url: "localhost:3000" });
 - A terminal's `directory` must be a folder inside the current project, and
   works for local projects only.
 
+## Tab groups
+
+Tab groups show several of a project's tabs side by side. `tabs.split` does
+what dragging a tab to an edge does: it moves the tab into a new group beside
+the group showing another tab, and focuses it. Both tabs must belong to the
+current project.
+
+```js
+const left = await muxy.tabs.open({ kind: "terminal" });
+const right = await muxy.tabs.open({ kind: "terminal", directory: "server" });
+await muxy.tabs.split(right, left, "right");
+// opened next: joins the focused group, on the right
+await muxy.tabs.open({ kind: "terminal", directory: "web" });
+```
+
+`edge` is `left`, `right` (default), `up`, or `down`. A group's only tab can't
+split off beside its own group.
+
 ## Page data
 
 Each tab has its own `data`, saved with the tab.

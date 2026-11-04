@@ -5,7 +5,7 @@ use std::path::{Component, PathBuf};
 
 use gpui::Context;
 use muxy_app_core::{
-    PaneContent, PaneId, Project, ProjectId, TabId, Workspace, WorkspaceId,
+    Direction, PaneContent, PaneId, Project, ProjectId, TabId, Workspace, WorkspaceId,
     webview::WebviewDescriptor,
 };
 use serde_json::{Value, json};
@@ -507,11 +507,45 @@ impl AppModel {
                 Ok(Value::Null)
             }
             "tabs.open" => self.extension_open_tab(&call.args, cx),
+            "tabs.split" => self.extension_split_tab(&call.args, cx),
             _ => Err(format!("unsupported extension API: {}", call.verb)),
         }
     }
 
     /// Validation main performs before asking for consent to open a tab.
+    pub(super) fn extension_split_tab(
+        &mut self,
+        args: &Value,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        let tab = self.current_project_tab(&args["tabId"])?;
+        let beside = self.current_project_tab(&args["besideId"])?;
+        let edge = match args["edge"].as_str() {
+            None | Some("right") => Direction::Right,
+            Some("left") => Direction::Left,
+            Some("up") => Direction::Up,
+            Some("down") => Direction::Down,
+            Some(edge) => return Err(format!("invalid edge '{edge}'")),
+        };
+        self.transact(|state| state.split_tab(tab, beside, edge), cx)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| muxy_ui::tr!("Could not save tabs").to_string())?;
+        self.changed(cx);
+        self.focus_owner.request_active_pane();
+        Ok(Value::Null)
+    }
+
+    fn current_project_tab(&self, identifier: &Value) -> Result<TabId, String> {
+        let identifier = identifier.as_str().unwrap_or("");
+        self.state
+            .current_project()
+            .tabs
+            .iter()
+            .find(|tab| tab.id.to_string() == identifier)
+            .map(|tab| tab.id)
+            .ok_or_else(|| format!("tab not found {identifier}"))
+    }
+
     pub(super) fn check_tab_request(&self, args: &Value) -> Result<(), String> {
         match args["kind"].as_str() {
             Some("terminal") => self.tab_directory(args).map(|_| ()),

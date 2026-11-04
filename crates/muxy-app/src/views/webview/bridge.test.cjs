@@ -175,7 +175,7 @@ test('pages expose main\'s API surface', () => {
   const { muxy } = page();
   for (const path of [
     'popover.close', 'popover.resize', 'http.fetch', 'events.emit', 'events.subscribe',
-    'tabs.new', 'tabs.next', 'tabs.previous', 'tabs.open', 'tabs.setTitle', 'panes.list',
+    'tabs.new', 'tabs.next', 'tabs.previous', 'tabs.open', 'tabs.split', 'tabs.setTitle', 'panes.list',
     'panes.readScreen', 'projects.list', 'projects.reorder', 'worktrees.list', 'agents.list',
     'gh.user', 'shortcuts.register', 'shortcuts.list', 'statusbar.set', 'topbar.hide',
     'browser.list', 'workspaces.list', 'dialog.pickFolder', 'modal.open', 'storage.keys',
@@ -183,6 +183,16 @@ test('pages expose main\'s API surface', () => {
     const value = path.split('.').reduce((object, key) => object && object[key], muxy);
     assert.equal(typeof value, 'function', path);
   }
+});
+
+test('tabs.split forwards tab IDs and an optional edge', async () => {
+  const { muxy, messages } = page();
+  await muxy.tabs.split(7, 'beside', 'down');
+  await muxy.tabs.split('tab', 'beside');
+  assert.deepEqual(messages.map(message => [message.verb, message.args]), [
+    ['tabs.split', { tabId: '7', besideId: 'beside', edge: 'down' }],
+    ['tabs.split', { tabId: 'tab', besideId: 'beside', edge: null }],
+  ]);
 });
 
 test('http, popover, and item calls forward main\'s payloads', async () => {
