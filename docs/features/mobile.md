@@ -21,6 +21,9 @@ From the desktop app:
 2. Under **Pair a device**, choose **Show Pairing Code**.
 3. Scan the code with the Muxy app.
 
+The desktop app's [welcome tour](../product/app-model.md#welcome-tour) can also
+pair a phone, with **Pair a Phone** on its mobile step.
+
 From a shell, on any computer with `muxy`:
 
 ```bash

@@ -36,6 +36,7 @@ pub(crate) enum Overlay {
     Password(Box<super::remote_servers::PasswordPrompt>),
     /// The status bar's proxy popover.
     Proxy(Box<super::proxy::ProxyForm>),
+    Onboarding,
 }
 
 /// One kind of overlay: what it draws, where, and what dismissing it
@@ -58,6 +59,12 @@ pub(crate) trait OverlayView {
     /// Whether native views elsewhere stay visible while the overlay is
     /// open. Modal dialogs dim the whole window, so they don't.
     fn marks_bounds(&self, _model: &AppModel) -> bool {
+        false
+    }
+
+    /// Whether a press on the overlay's empty space moves the window, as one
+    /// on the titlebar does.
+    fn moves_window(&self) -> bool {
         false
     }
 
@@ -140,6 +147,7 @@ impl Overlay {
             Self::PairForm(form) => form.as_ref(),
             Self::Password(prompt) => prompt.as_ref(),
             Self::Proxy(form) => form.as_ref(),
+            Self::Onboarding => &super::onboarding::OnboardingModal,
         }
     }
 
@@ -207,6 +215,18 @@ impl AppModel {
             }
             Dismissal::Stay => self.overlay = Some(overlay),
         }
+    }
+
+    /// Whether a press on empty space may move the window.
+    pub(crate) fn window_can_move(&self) -> bool {
+        if !self.coverage().modal() {
+            return true;
+        }
+        !self.dialogs.is_open()
+            && self
+                .overlay
+                .as_ref()
+                .is_some_and(|overlay| overlay.view().moves_window())
     }
 
     /// Closes the overlay once its work is done, keeping what it started.

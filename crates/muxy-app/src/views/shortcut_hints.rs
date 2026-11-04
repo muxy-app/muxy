@@ -31,24 +31,29 @@ impl ShortcutHints {
         if self.modifiers == Modifiers::default() || key.modifiers != self.modifiers {
             return None;
         }
-        Some(match key.key.as_str() {
-            "enter" => "↩".into(),
-            "escape" => "⎋".into(),
-            "tab" => "⇥".into(),
-            "space" => "␣".into(),
-            "backspace" => "⌫".into(),
-            "delete" => "⌦".into(),
-            "insert" => "Ins".into(),
-            "home" => "↖".into(),
-            "end" => "↘".into(),
-            "pageup" => "⇞".into(),
-            "pagedown" => "⇟".into(),
-            "up" => "↑".into(),
-            "down" => "↓".into(),
-            "left" => "←".into(),
-            "right" => "→".into(),
-            key => key.to_uppercase(),
-        })
+        Some(key_glyph(&key.key))
+    }
+}
+
+/// How one key reads on screen: its symbol, or its name in capitals.
+pub(crate) fn key_glyph(key: &str) -> String {
+    match key {
+        "enter" => "↩".into(),
+        "escape" => "⎋".into(),
+        "tab" => "⇥".into(),
+        "space" => "␣".into(),
+        "backspace" => "⌫".into(),
+        "delete" => "⌦".into(),
+        "insert" => "Ins".into(),
+        "home" => "↖".into(),
+        "end" => "↘".into(),
+        "pageup" => "⇞".into(),
+        "pagedown" => "⇟".into(),
+        "up" => "↑".into(),
+        "down" => "↓".into(),
+        "left" => "←".into(),
+        "right" => "→".into(),
+        key => key.to_uppercase(),
     }
 }
 

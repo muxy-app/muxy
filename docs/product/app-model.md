@@ -77,13 +77,39 @@ flowchart LR
 ## Opening and restoring
 
 - The desktop app restores all projects, tabs, and window state on launch. It
-  never opens a tab by itself.
+  never opens a tab by itself. Until the [welcome tour](#welcome-tour) is finished
+  or skipped, it opens over them.
 - The terminal UI opens one shell in Home the first time, then restores its
   layout.
-- `muxy <folder>` opens the folder in the desktop app, selecting its project or
-  adding one. Without the desktop app, or over SSH, it opens in the terminal UI.
+- `muxy <folder>`, or on macOS dropping a folder on the Dock icon or using
+  **Open With**, opens the folder in the desktop app. It selects the folder's
+  project or adds one, then opens a new terminal tab there. Without the desktop
+  app, or over SSH, `muxy <folder>` opens in the terminal UI.
 - **Existing Terminals** lists a project's terminals that this app isn't
   showing, and which app owns each one. Opening one adds it to your layout.
+
+## Welcome tour
+
+On launch, a short tour opens until it has been finished or skipped, on new and
+existing installs alike. Its nine steps cover how the server and apps fit
+together, projects, extensions, AI agents, the composer, remote servers, the
+phone app, and shortcuts.
+
+- **Skip Tour** or Escape ends it on any step. Clicking outside does not, and
+  quitting partway shows it again from the start on the next launch.
+- It sets things up only when asked. **Add a Project…** and **Add a Server…**
+  open the usual dialogs, and the tour returns when they close. **Install &
+  Enable** installs and enables the ticked extensions, Files and Git by default,
+  after listing what each one asks for. They finish even if the tour closes first.
+- **Pair a Phone** turns on **Allow other devices** if it is off and shows a
+  pairing code in the tour. Leaving the step withdraws the code, and turns access
+  back off if the tour turned it on and nothing paired.
+- Dragging the dimmed area, the art, or the tour's top bar moves the window.
+- **Welcome Tour** at the top of Settings, or **Show Welcome Tour** in the command
+  palette, replays it.
+
+Each profile remembers this as `onboarding_completed` under `[appearance]` in
+`settings.toml`.
 
 ## Worktrees
 

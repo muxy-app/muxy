@@ -107,6 +107,8 @@ pub struct Appearance {
     pub sidebar_collapsed_style: SidebarCollapsedStyle,
     pub status_bar_visible: bool,
     pub tips_visible: bool,
+    /// The welcome tour was finished or skipped.
+    pub onboarding_completed: bool,
     pub auto_expand_worktrees: bool,
     pub worktree_show_unread: bool,
     pub worktree_recent_order: bool,
@@ -157,6 +159,7 @@ impl Default for Appearance {
             sidebar_collapsed_style: SidebarCollapsedStyle::default(),
             status_bar_visible: true,
             tips_visible: true,
+            onboarding_completed: false,
             auto_expand_worktrees: false,
             worktree_show_unread: true,
             worktree_recent_order: true,

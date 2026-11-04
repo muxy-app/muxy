@@ -81,6 +81,7 @@ pub(crate) fn render(
     element: impl IntoElement,
     theme: &Theme,
     sidebar: Option<(Pixels, Hsla)>,
+    dim: Option<f32>,
     window: &mut Window,
 ) -> AnyElement {
     let Some(tiling) = tiling(window) else {
@@ -93,7 +94,9 @@ pub(crate) fn render(
         .relative()
         .size_full()
         .bg(theme.bg)
-        .border_color(theme.border)
+        .border_color(dim.map_or(theme.border, |alpha| {
+            theme.border.blend(gpui::hsla(0.0, 0.0, 0.0, alpha))
+        }))
         .when(!tiling.top, |surface| surface.border_t(px(BORDER)))
         .when(!tiling.bottom, |surface| surface.border_b(px(BORDER)))
         .when(!tiling.left, |surface| surface.border_l(px(BORDER)))
@@ -125,7 +128,10 @@ pub(crate) fn render(
         .when_some(sidebar, |surface, (width, color)| {
             surface.child(sidebar_background(width, color, tiling))
         })
-        .child(div().size_full().overflow_hidden().child(element));
+        .child(div().size_full().overflow_hidden().child(element))
+        .when_some(dim, |surface, alpha| {
+            surface.child(dimmed_rim(alpha, tiling))
+        });
     div()
         .relative()
         .size_full()
@@ -162,6 +168,28 @@ pub(crate) fn render(
                 }),
         )
         .into_any_element()
+}
+
+/// A dialog dimming the window stops at the content, which clips it. This
+/// darkens the padding around the content to match.
+fn dimmed_rim(alpha: f32, tiling: Tiling) -> Div {
+    let padding = px(CONTENT_PADDING);
+    let radius = px(CORNER_RADIUS - BORDER);
+    div()
+        .absolute()
+        .inset_0()
+        .border_color(gpui::hsla(0.0, 0.0, 0.0, alpha))
+        .when(!tiling.bottom, |rim| rim.border_b(padding))
+        .when(!tiling.left, |rim| rim.border_l(padding))
+        .when(!tiling.right, |rim| rim.border_r(padding))
+        .when(!(tiling.top || tiling.left), |rim| rim.rounded_tl(radius))
+        .when(!(tiling.top || tiling.right), |rim| rim.rounded_tr(radius))
+        .when(!(tiling.bottom || tiling.left), |rim| {
+            rim.rounded_bl(radius)
+        })
+        .when(!(tiling.bottom || tiling.right), |rim| {
+            rim.rounded_br(radius)
+        })
 }
 
 fn sidebar_background(width: Pixels, color: Hsla, tiling: Tiling) -> Div {

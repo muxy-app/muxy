@@ -18,8 +18,8 @@ const LIMIT: u64 = 256 * 1024;
 const ANSWER: Duration = Duration::from_secs(2);
 const DONE: u8 = 1;
 
-/// The folders an app opens, as file URLs. An empty list brings its window
-/// forward.
+/// The folders an app opens, as file URLs. Any list brings its window forward;
+/// an empty one does only that.
 pub(crate) type Folders = async_channel::Sender<Vec<String>>;
 
 /// Holds the profile for as long as this app runs.
