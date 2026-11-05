@@ -114,12 +114,7 @@ pub fn prepare(root: &Path) -> io::Result<()> {
     fs::create_dir_all(root.join("extensions"))?;
     for skills in AGENT_SKILLS {
         let folder = root.join(skills).join(SKILL_NAME);
-        if fs::symlink_metadata(&folder).is_ok_and(|metadata| metadata.is_symlink()) {
-            return Err(io::Error::other(format!(
-                "{} is a link; Muxy keeps its skill in a real folder there",
-                folder.display()
-            )));
-        }
+        refuse_links_on_the_way(root, &format!("{skills}/{SKILL_NAME}/SKILL.md"))?;
         for (relative, contents) in FILES {
             refuse_links_on_the_way(&folder, relative)?;
             write_if_changed(&folder.join(relative), contents)?;
@@ -138,7 +133,9 @@ pub fn refresh(root: &Path) -> io::Result<()> {
     if root.is_dir() { prepare(root) } else { Ok(()) }
 }
 
-/// A folder inside the skill that is a link would put Muxy's files somewhere else.
+/// A folder on the way to a skill file that is a link would put Muxy's files, and
+/// its cleanup, somewhere else. Above the workspace links are fine: `~/.config` is
+/// often one.
 fn refuse_links_on_the_way(folder: &Path, relative: &str) -> io::Result<()> {
     let mut path = folder.to_owned();
     for part in Path::new(relative)
@@ -259,6 +256,42 @@ mod tests {
         assert!(prepare(&root).is_err());
         assert_eq!(fs::read_to_string(elsewhere.join("mine.txt"))?, "kept");
         assert!(!elsewhere.join("SKILL.md").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn a_linked_folder_above_the_skill_is_refused() -> io::Result<()> {
+        for link in [".claude", ".claude/skills", ".agents/skills"] {
+            let folder = tempfile::tempdir()?;
+            let elsewhere = folder.path().join("elsewhere");
+            let theirs = elsewhere.join(SKILL_NAME);
+            fs::create_dir_all(&theirs)?;
+            fs::write(theirs.join("mine.txt"), "kept")?;
+            let root = folder.path().join("workspace");
+            let link = root.join(link);
+            fs::create_dir_all(link.parent().unwrap_or(&root))?;
+            std::os::unix::fs::symlink(&elsewhere, &link)?;
+            assert!(prepare(&root).is_err(), "{}", link.display());
+            assert_eq!(fs::read_to_string(theirs.join("mine.txt"))?, "kept");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_linked_workspace_or_folder_above_it_still_works() -> io::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let real = folder.path().join("dotfiles");
+        fs::create_dir_all(&real)?;
+        let config = folder.path().join("config");
+        std::os::unix::fs::symlink(&real, &config)?;
+        let root = config.join("workspace");
+        prepare(&root)?;
+        assert!(
+            real.join("workspace")
+                .join(AGENT_SKILLS[0])
+                .join(SKILL_NAME)
+                .is_dir()
+        );
         Ok(())
     }
 
