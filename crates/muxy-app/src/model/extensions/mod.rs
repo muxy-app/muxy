@@ -1,3 +1,4 @@
+mod authoring;
 mod background;
 mod calls;
 mod checks;

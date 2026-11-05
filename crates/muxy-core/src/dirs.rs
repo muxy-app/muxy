@@ -23,6 +23,40 @@ pub fn muxy_dir() -> io::Result<PathBuf> {
     Ok(directory)
 }
 
+/// The folder where agents build extensions. It sits outside the profile, so
+/// removing an extension from Muxy never deletes the work, and beside rather
+/// than in the `extensions` folder that Muxy 1.x left under `~/.config/muxy`.
+pub fn extension_workspace() -> io::Result<PathBuf> {
+    resolve_extension_workspace(
+        env::var_os("MUXY_DIR"),
+        env::var_os("HOME"),
+        env::var_os("XDG_CONFIG_HOME"),
+        directory_name(env!("CARGO_PKG_VERSION"), cfg!(debug_assertions), true),
+    )
+}
+
+fn resolve_extension_workspace(
+    override_path: Option<OsString>,
+    home: Option<OsString>,
+    config_home: Option<OsString>,
+    name: &str,
+) -> io::Result<PathBuf> {
+    const FOLDER: &str = "extension-workspace";
+    if let Some(path) = override_path.filter(|path| !path.is_empty()) {
+        return Ok(PathBuf::from(path).join(FOLDER));
+    }
+    if let Some(config) = config_home
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+    {
+        return Ok(config.join(name).join(FOLDER));
+    }
+    let home = home
+        .filter(|home| !home.is_empty())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is not set"))?;
+    Ok(PathBuf::from(home).join(".config").join(name).join(FOLDER))
+}
+
 /// Releases of each channel and local builds never share data. Stable is
 /// `Muxy 2` on macOS because 1.x keeps its data in `Muxy`.
 fn directory_name(version: &str, debug: bool, linux: bool) -> &'static str {
@@ -80,6 +114,36 @@ fn resolve_directory(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_extension_workspace_sits_under_the_config_folder() {
+        let workspace = |override_path: Option<&str>, config: Option<&str>| {
+            resolve_extension_workspace(
+                override_path.map(Into::into),
+                Some("/home/me".into()),
+                config.map(Into::into),
+                "muxy-beta",
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            workspace(None, None),
+            PathBuf::from("/home/me/.config/muxy-beta/extension-workspace")
+        );
+        assert_eq!(
+            workspace(None, Some("/xdg")),
+            PathBuf::from("/xdg/muxy-beta/extension-workspace")
+        );
+        assert_eq!(
+            workspace(None, Some("relative")),
+            PathBuf::from("/home/me/.config/muxy-beta/extension-workspace")
+        );
+        assert_eq!(
+            workspace(Some("/profile"), Some("/xdg")),
+            PathBuf::from("/profile/extension-workspace")
+        );
+        assert!(resolve_extension_workspace(None, None, None, "muxy").is_err());
+    }
+
     use super::*;
 
     #[test]

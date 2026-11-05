@@ -98,6 +98,8 @@ pub(crate) enum Command {
     /// Opens the current project in the app at an index of
     /// `AppModel::project_apps`.
     OpenProjectIn(usize),
+    CreateExtension,
+    ManageExtensions,
 }
 
 #[derive(Clone, Debug)]
@@ -229,6 +231,9 @@ pub(crate) struct Menu {
     /// The control the menu drops down from. It opens above the control when
     /// there is no room below.
     pub(crate) drops_from: Option<Bounds<Pixels>>,
+    /// The control the menu opens above, for one at the bottom of the window,
+    /// where opening below would cover what sits under it.
+    pub(crate) rises_from: Option<Bounds<Pixels>>,
     /// What takes the keyboard back when the menu closes, instead of the
     /// active pane.
     pub(crate) returns_focus_to: Option<gpui::WeakFocusHandle>,
@@ -265,6 +270,7 @@ impl Menu {
             items,
             position,
             drops_from: None,
+            rises_from: None,
             returns_focus_to: None,
             over_remote_servers: false,
             levels: vec![Level::default()],
@@ -750,6 +756,11 @@ impl AppModel {
                 }
             }
             Command::ManageBrowserProfiles => self.show_browser_settings(window, cx),
+            Command::CreateExtension => {
+                self.open_extension_agent(crate::extensions::authoring::AgentTask::Create, cx);
+                return;
+            }
+            Command::ManageExtensions => self.show_extensions_settings(window, cx),
             Command::OpenProjectIn(index) => self.open_project_in(index, cx),
             Command::BrowserInspect(pane) => {
                 if let Some(view) = self.browser_view(pane)

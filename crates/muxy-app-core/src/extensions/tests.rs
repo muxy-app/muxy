@@ -31,6 +31,162 @@ fn unpacked_packages_require_explicit_enable_and_unload_keeps_sources() {
 }
 
 #[test]
+fn reloading_replaces_old_load_errors_instead_of_piling_them_up() {
+    let profile = tempfile::tempdir().unwrap();
+    let broken = Registry::load(profile.path()).directory().join("broken");
+    fs::create_dir_all(&broken).unwrap();
+    fs::write(broken.join("package.json"), "not json").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert_eq!(registry.errors.len(), 1);
+    registry.reload();
+    registry.reload();
+    assert_eq!(registry.errors.len(), 1);
+    fs::remove_dir_all(&broken).unwrap();
+    registry.reload();
+    assert!(registry.errors.is_empty());
+}
+
+#[test]
+fn a_saved_preference_error_outlives_a_reload() {
+    let profile = tempfile::tempdir().unwrap();
+    fs::write(profile.path().join("extension-enabled.json"), "{}").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert_eq!(registry.errors.len(), 1);
+    registry.reload();
+    assert_eq!(registry.errors.len(), 1);
+}
+
+#[test]
+fn reloading_one_extension_reads_only_it_and_keeps_it_when_broken() {
+    let profile = tempfile::tempdir().unwrap();
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    package(first.path(), "first");
+    package(second.path(), "second");
+    let mut registry = Registry::load(profile.path());
+    registry.load_unpacked(first.path()).unwrap();
+    registry.load_unpacked(second.path()).unwrap();
+    assert_eq!(
+        registry.source_folder("first"),
+        Some(first.path().canonicalize().unwrap().as_path())
+    );
+
+    let bump = |root: &Path, name: &str, version: &str| {
+        fs::write(
+            root.join("package.json"),
+            json!({"name": name, "version": version, "muxy": {}}).to_string(),
+        )
+        .unwrap();
+    };
+    bump(first.path(), "first", "2.0.0");
+    bump(second.path(), "second", "2.0.0");
+    registry.reload_one("first").unwrap();
+    assert_eq!(registry.extensions["first"].version, "2.0.0");
+    assert_eq!(registry.extensions["second"].version, "1.0.0");
+
+    fs::write(first.path().join("package.json"), "not json").unwrap();
+    assert!(registry.reload_one("first").is_err());
+    assert_eq!(registry.extensions["first"].version, "2.0.0");
+
+    bump(first.path(), "renamed", "3.0.0");
+    assert!(
+        registry
+            .reload_one("first")
+            .unwrap_err()
+            .contains("renamed")
+    );
+    assert_eq!(registry.extensions["first"].version, "2.0.0");
+    assert!(registry.reload_one("missing").is_err());
+}
+
+#[test]
+fn reloading_a_folder_that_failed_at_startup_loads_it_and_clears_its_error() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    Registry::load(profile.path())
+        .load_unpacked(source.path())
+        .unwrap();
+    let good = fs::read(source.path().join("package.json")).unwrap();
+    fs::write(source.path().join("package.json"), "not json").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert!(registry.extensions.is_empty());
+    assert_eq!(registry.errors.len(), 1);
+    fs::write(source.path().join("package.json"), good).unwrap();
+    registry.reload_one("hello").unwrap();
+    assert!(registry.extensions.contains_key("hello"));
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+}
+
+#[test]
+fn a_folder_that_no_longer_loads_can_still_be_unloaded() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "gone");
+    let mut registry = Registry::load(profile.path());
+    registry.load_unpacked(source.path()).unwrap();
+    registry.set_enabled("gone", true).unwrap();
+    fs::remove_file(source.path().join("package.json")).unwrap();
+
+    let mut restarted = Registry::load(profile.path());
+    assert!(restarted.extensions.is_empty());
+    assert_eq!(restarted.errors.len(), 1);
+    assert!(restarted.set_enabled("gone", true).is_err());
+    restarted.remove("gone").unwrap();
+    assert!(restarted.errors.is_empty(), "{:?}", restarted.errors);
+
+    let later = Registry::load(profile.path());
+    assert!(later.errors.is_empty(), "{:?}", later.errors);
+    assert!(!later.is_unpacked("gone"));
+}
+
+#[test]
+fn a_folder_cant_be_loaded_twice_under_two_names() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    let mut registry = Registry::load(profile.path());
+    registry.load_unpacked(source.path()).unwrap();
+    package(source.path(), "renamed");
+    let error = registry.load_unpacked(source.path()).unwrap_err();
+    assert!(error.contains("'hello'"), "{error}");
+    assert!(!registry.extensions.contains_key("renamed"));
+}
+
+#[test]
+fn a_repaired_folder_can_be_loaded_again_after_failing_at_startup() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    Registry::load(profile.path())
+        .load_unpacked(source.path())
+        .unwrap();
+    let good = fs::read(source.path().join("package.json")).unwrap();
+    fs::write(source.path().join("package.json"), "not json").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert!(registry.extensions.is_empty());
+    fs::write(source.path().join("package.json"), good).unwrap();
+    assert_eq!(registry.load_unpacked(source.path()).unwrap(), "hello");
+}
+
+#[test]
+fn rewriting_a_preferences_file_clears_the_error_it_was_read_with() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    Registry::load(profile.path())
+        .load_unpacked(source.path())
+        .unwrap();
+    fs::write(profile.path().join("extension-enabled.json"), "{}").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert_eq!(registry.errors.len(), 1);
+    registry.set_enabled("hello", true).unwrap();
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+    registry.reload();
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+}
+
+#[test]
 fn manifests_reject_escaping_resources_and_invalid_commands() {
     let root = tempfile::tempdir().unwrap();
     package(root.path(), "files");

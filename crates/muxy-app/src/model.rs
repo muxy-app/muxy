@@ -162,6 +162,7 @@ pub(crate) struct AppModel {
     pub(crate) pairing: pairing::Pairing,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
+    pub(crate) extensions_anchor: muxy_ui::popover::PopoverAnchor,
     /// Servers selected on the Devices page, and where a ⇧-click range
     /// starts.
     pub(crate) remote_selection: Vec<ServerId>,
@@ -318,6 +319,11 @@ impl AppModel {
             });
         }
         self.sync_preferences(cx);
+        if let Some(Overlay::ExtensionAgent(open)) = &self.overlay {
+            let (theme, metrics) = (self.theme.clone(), self.metrics);
+            open.picker
+                .update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
+        }
         if let Some(Overlay::Commands(crate::views::command_palette::Palette { palette, dark })) =
             &self.overlay
         {
@@ -610,6 +616,7 @@ impl AppModel {
             pairing: pairing::Pairing::default(),
             server_anchor: Rc::default(),
             remote_anchor: Rc::default(),
+            extensions_anchor: Rc::default(),
             remote_selection: Vec::new(),
             remote_selection_anchor: None,
             devices_page: crate::views::devices_page::DevicesPage::new(metrics),
@@ -690,6 +697,8 @@ impl AppModel {
         model.ensure_servers_search(cx);
         model.bind_extension_keys(cx);
         model.refresh_installed_extensions(cx);
+        #[cfg(not(test))]
+        model.refresh_extension_workspace(cx);
         model.start_webview_demo(cx);
         #[cfg(not(test))]
         Self::discover_ai_providers(cx);
@@ -2882,6 +2891,7 @@ pub(crate) mod tests {
     mod coverage;
     mod detach;
     mod dialogs;
+    mod extension_authoring;
     mod find;
     mod focus;
     mod git;

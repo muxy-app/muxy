@@ -325,7 +325,8 @@ impl AppModel {
             while let Ok(incoming) = requests.recv().await {
                 let verb = incoming.request.verb.clone();
                 let shows_session = verb == "session.show";
-                if !shows_session && !verb.starts_with("browser.") {
+                let manages_extension = verb.starts_with("extension.");
+                if !shows_session && !manages_extension && !verb.starts_with("browser.") {
                     incoming.reply(Err(format!("unknown command {verb}")));
                     continue;
                 }
@@ -333,6 +334,8 @@ impl AppModel {
                 let Ok(reply) = model.update_in(cx, |model, window, cx| {
                     if shows_session {
                         Task::ready(model.show_session(&args, cx))
+                    } else if manages_extension {
+                        model.extension_cli_call(&verb, &args, cx)
                     } else {
                         model.browser_call(&verb, &args, window, cx)
                     }

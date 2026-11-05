@@ -144,17 +144,22 @@ impl AppModel {
     }
 }
 
+/// The provider's logo among the bundled icons.
+pub(crate) fn provider_icon_path(provider: Provider) -> SharedString {
+    let name = if provider.id == "droid" {
+        "factory"
+    } else {
+        provider.id
+    };
+    SharedString::from(format!("icons/provider-{name}.svg"))
+}
+
 fn provider_icon(provider: Option<Provider>, model: &AppModel) -> AnyElement {
     let size = model.metrics.icon_md();
     match provider {
         None => SymbolGlyph::new("sparkles", size, model.theme.fg).into_any_element(),
         Some(provider) => {
-            let name = if provider.id == "droid" {
-                "factory"
-            } else {
-                provider.id
-            };
-            let path = SharedString::from(format!("icons/provider-{name}.svg"));
+            let path = provider_icon_path(provider);
             if provider.id == "claude" {
                 gpui::img(path).size(size).into_any_element()
             } else {

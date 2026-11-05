@@ -232,7 +232,8 @@ pub fn contained_dropdown(
     .into_any_element()
 }
 
-fn above_origin(
+/// Where a panel opens above `anchor`, for a control at the bottom of the window.
+pub fn above_origin(
     anchor: Bounds<Pixels>,
     panel: Size<Pixels>,
     viewport: Size<Pixels>,

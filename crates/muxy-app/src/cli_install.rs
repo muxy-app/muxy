@@ -62,7 +62,7 @@ fn installation_message(result: io::Result<PathBuf>) -> (SharedString, String) {
     }
 }
 
-fn install() -> io::Result<PathBuf> {
+pub(crate) fn install() -> io::Result<PathBuf> {
     let executable = muxy_core::executable::current_path()?;
     let target = installed_tool(&executable)?;
     for executable in [&target, &target.with_file_name("muxy-server")] {
@@ -88,7 +88,7 @@ fn install() -> io::Result<PathBuf> {
 /// tool and the server sit in one directory. An app run from a temporary
 /// folder is not installed, and a link into it would not last.
 #[cfg(not(target_os = "macos"))]
-fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
+pub(crate) fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
     #[cfg(target_os = "linux")]
     if let Some(root) = muxy_core::bundle::linux_root(executable) {
         if root.join("current/muxy-app").canonicalize()? != executable {
@@ -120,7 +120,7 @@ fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
 
 /// The `muxy` inside the app bundle at `executable`.
 #[cfg(target_os = "macos")]
-fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
+pub(crate) fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
     let app_name = muxy_core::release::Channel::current().app_name();
     let bundle = executable
         .parent()

@@ -17,7 +17,11 @@ use muxy_ui::{
 };
 
 use crate::{
-    extensions::marketplace::{self, ExtensionDetails, MarketplaceItem},
+    extensions::{
+        authoring::AgentTask,
+        marketplace::{self, ExtensionDetails, MarketplaceItem},
+        publish::PublishFailure,
+    },
     model::{
         AppModel,
         extensions::{ActiveInstall, FinishedInstall},
@@ -47,6 +51,7 @@ enum Mutation {
     Remove,
     LoadUnpacked,
     Reload,
+    Publish,
     ResetPermissions,
     RemoveRule,
 }
@@ -71,6 +76,7 @@ impl Mutation {
             Self::Remove => "extension-remove",
             Self::LoadUnpacked => "extension-load",
             Self::Reload => "extension-reload",
+            Self::Publish => "extension-publish",
             Self::ResetPermissions => "extension-reset-permissions",
             Self::RemoveRule => "extension-rule-remove",
         }
@@ -87,6 +93,7 @@ impl Mutation {
             Self::Remove => tr_key!("Uninstalling…"),
             Self::LoadUnpacked => tr_key!("Loading…"),
             Self::Reload => tr_key!("Reloading…"),
+            Self::Publish => tr_key!("Publishing…"),
             Self::ResetPermissions => tr_key!("Clearing…"),
             Self::RemoveRule => tr_key!("Removing…"),
         }
@@ -119,6 +126,8 @@ pub(crate) struct ExtensionsView {
     error: Option<String>,
     /// The last marketplace job's result, until the next action clears it.
     install_status: Option<String>,
+    /// The extension of the last publish, and its pull request.
+    published: Option<(String, String)>,
     /// Whether this view started the running job, and so opens what it installs.
     started_install: bool,
     selected: Option<ExtensionDetails>,
@@ -179,6 +188,7 @@ impl ExtensionsView {
             completed: None,
             error: None,
             install_status: None,
+            published: None,
             started_install: false,
             selected: None,
             folder: None,
@@ -600,6 +610,54 @@ impl ExtensionsView {
                 view.mutation = None;
                 view.completed = result.is_ok().then_some(Mutation::Reload);
                 view.error = result.err();
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn agent_task(&self, task: AgentTask, cx: &mut Context<Self>) {
+        let _ = self
+            .model
+            .update(cx, |model, cx| model.open_extension_agent(task, cx));
+    }
+
+    fn publish(&mut self, name: &str, cx: &mut Context<Self>) {
+        if self.mutating(cx) {
+            return;
+        }
+        let name = name.to_owned();
+        let task = self
+            .model
+            .update(cx, |model, cx| model.publish_extension(&name, cx));
+        self.mutation = Some(Mutation::Publish);
+        self.published = None;
+        self.error = None;
+        cx.spawn(async move |view, cx| {
+            let result = match task {
+                Ok(task) => task.await,
+                Err(error) => Err(PublishFailure::Failed(error.to_string())),
+            };
+            let _ = view.update(cx, |view, cx| {
+                view.mutation = None;
+                match result {
+                    Ok(request) => {
+                        view.install_status = Some(if request.updated {
+                            tr!("Updated the open pull request on %@.", request.branch).to_string()
+                        } else {
+                            tr!("Opened a pull request from %@.", request.branch).to_string()
+                        });
+                        view.published = Some((name.clone(), request.url));
+                    }
+                    Err(PublishFailure::Declined) => {}
+                    Err(PublishFailure::Failed(error)) => view.error = Some(error),
+                    Err(failure) => {
+                        let _ = view.model.update(cx, |model, cx| {
+                            model.offer_publish_help(&name, &failure, cx);
+                        });
+                    }
+                }
                 cx.notify();
             });
         })
@@ -1202,27 +1260,105 @@ impl ExtensionsView {
                 .children(self.settings_section(extension, &stored, cx))
                 .child(self.logs_section(extension, &lines, background, cx));
         }
-        if let Some((_, _, unpacked)) = local {
+        if let Some((extension, _, unpacked)) = local {
+            let agent = self.agent_button("extension-agent", extension, *unpacked, cx);
+            let owner = name.clone();
+            let published = self
+                .published
+                .as_ref()
+                .filter(|(extension, _)| *extension == name)
+                .map(|(_, url)| url.clone());
             body = body.child(
                 self.section(
                     &tr!("Manage extension"),
-                    div().flex().flex_wrap().gap(self.metrics.spacing4()).child(
-                        self.button(
-                            "extension-remove",
-                            if *unpacked {
-                                tr_key!("Unload folder")
-                            } else {
-                                tr_key!("Uninstall")
-                            },
-                            move |view, _, cx| view.remove(&name, cx),
-                            cx,
-                        )
-                        .text_color(self.theme.danger),
-                    ),
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(self.metrics.spacing4())
+                        .children(agent)
+                        .when(*unpacked, |actions| {
+                            actions.child(self.button(
+                                "extension-publish",
+                                tr_key!("Publish…"),
+                                move |view, _, cx| view.publish(&owner, cx),
+                                cx,
+                            ))
+                        })
+                        .when_some(published, |actions, url| {
+                            actions.child(self.button(
+                                "extension-open-pull-request",
+                                tr_key!("Open Pull Request"),
+                                move |view, _, _| {
+                                    if let Err(error) = crate::opener::open_url(&url, None) {
+                                        view.error = Some(error.to_string());
+                                    }
+                                },
+                                cx,
+                            ))
+                        })
+                        .child(
+                            self.button(
+                                "extension-remove",
+                                if *unpacked {
+                                    tr_key!("Unload folder")
+                                } else {
+                                    tr_key!("Uninstall")
+                                },
+                                move |view, _, cx| view.remove(&name, cx),
+                                cx,
+                            )
+                            .text_color(self.theme.danger),
+                        ),
                 ),
             );
         }
         body
+    }
+
+    /// Edits an unpacked extension, or clones one from the marketplace to edit
+    /// the copy.
+    fn agent_action(
+        &self,
+        extension: &Extension,
+        unpacked: bool,
+        cx: &Context<Self>,
+    ) -> Option<(&'static str, AgentTask)> {
+        let name = extension.name.clone();
+        if unpacked {
+            let folder = self
+                .model
+                .upgrade()?
+                .read(cx)
+                .extension_source(&name)
+                .ok()?;
+            return Some((
+                tr_key!("Edit with Agent…"),
+                AgentTask::Edit { name, folder },
+            ));
+        }
+        Some((
+            tr_key!("Clone and Modify…"),
+            AgentTask::Clone {
+                name,
+                installed: extension.directory.clone(),
+            },
+        ))
+    }
+
+    fn agent_button(
+        &self,
+        id: &str,
+        extension: &Extension,
+        unpacked: bool,
+        cx: &Context<Self>,
+    ) -> Option<gpui::Stateful<gpui::Div>> {
+        let (label, task) = self.agent_action(extension, unpacked, cx)?;
+        Some(self.button(
+            format!("{id}-{}", extension.name),
+            label,
+            move |view, _, cx| view.agent_task(task.clone(), cx),
+            cx,
+        ))
     }
 
     fn detail_heading(&self, name: &str, details: &ExtensionDetails) -> gpui::Div {
@@ -1463,12 +1599,24 @@ impl ExtensionsView {
                     &tr!("No extensions installed"),
                     &tr!("Browse extensions to add tools to Muxy, or load an unpacked extension folder."),
                 )
-                .child(self.button(
-                    "extension-browse",
-                    tr_key!("Browse extensions"),
-                    |view, _, cx| view.switch_tab(Tab::Marketplace, cx),
-                    cx,
-                ))
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(self.metrics.spacing4())
+                        .child(self.button(
+                            "extension-browse",
+                            tr_key!("Browse extensions"),
+                            |view, _, cx| view.switch_tab(Tab::Marketplace, cx),
+                            cx,
+                        ))
+                        .child(self.button(
+                            "extension-create-empty",
+                            tr_key!("Create Extension…"),
+                            |view, _, cx| view.agent_task(AgentTask::Create, cx),
+                            cx,
+                        )),
+                )
             } else {
                 self.empty_state(
                     &tr!("No matching extensions"),
@@ -1483,6 +1631,7 @@ impl ExtensionsView {
         rows
     }
 
+    #[allow(clippy::too_many_lines, reason = "One row's declarative layout")]
     fn installed_row(
         &self,
         extension: &Extension,
@@ -1584,6 +1733,16 @@ impl ExtensionsView {
                             .line_clamp(2)
                             .child(extension.manifest.description.clone()),
                     ),
+            )
+            .children(
+                self.agent_button("extension-row-agent", extension, unpacked, cx)
+                    .map(|button| {
+                        button
+                            .flex_none()
+                            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                                cx.stop_propagation();
+                            })
+                    }),
             )
             .child(SymbolGlyph::new(
                 "chevron.right",

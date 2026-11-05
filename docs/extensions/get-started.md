@@ -1,7 +1,8 @@
 # Get started
 
 This page builds a working extension in a few minutes: a panel you toggle from
-the top bar or a shortcut.
+the top bar or a shortcut. To have a coding agent do this for you, see
+[Build with an agent](agents.md).
 
 ## 1. Create the files
 
@@ -93,6 +94,7 @@ the build. Only `dist/` is published.
 - Add [tabs](tabs.md), [panels](panels.md), [bar items](bar-items.md), and
   [commands](commands.md).
 - Work with [files](files.md), [Git](git.md), and [events](events.md).
+- [Build with an agent](agents.md).
 - [Publish it](contributing.md).
 
 ## Coming from 1.x
@@ -101,8 +103,8 @@ Most 1.x extensions work unchanged. The differences:
 
 - **Install folder.** Extensions live in Muxy 2's profile folder, not
   `~/.config/muxy/extensions`. Importing the installed 1.x copies them over.
-- **No scaffold.** There is no **Create** button or starter kit. Use
-  **Load Unpacked…**.
+- **No scaffold.** There is no starter kit. Use **Load Unpacked…**, or
+  **Create Extension…** to [build with an agent](agents.md).
 - **Lowercase names.** Pages only load for names made of `a-z`, `0-9`, `.`,
   and `-`.
 - **Background scripts run in-process,** in JavaScriptCore on their own thread.

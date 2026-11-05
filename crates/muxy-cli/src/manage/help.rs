@@ -16,6 +16,7 @@ Usage: muxy [--host DESTINATION] [COMMAND]
   exec          Execute a program in a server project
   mobile        Enable access, pair phones and revoke devices
   browser       Drive browser tabs in the desktop app on this computer
+  extension     Load, reload and publish extensions in the desktop app
   status        Tell the terminal what a script is doing (OSC 7501)
   install-skills
                 Install the muxy-cli skill for AI coding agents
@@ -30,7 +31,7 @@ uses the server on another computer over SSH (user@host, an ssh_config alias or
 ssh://user@host:port); Muxy must be installed there, and directories are
 absolute paths on that computer.
 MUXY_DIR selects the local profile, which also keeps the terminal UI layouts
-for other computers. No desktop app is required, except by browser commands.
+for other computers. No desktop app is required, except by browser and extension commands.
 Tabs, panes and workspaces belong to UI clients.
 Project selectors accept an exact ID, unique name or directory path.
 Inside a Muxy terminal, session commands default to that terminal.
@@ -91,6 +92,26 @@ JSON. Waits give up after --timeout-ms or ms (default 5000, 10000 for
 wait-for-navigation; maximum 60000).
 MUXY_CLI_TIMEOUT sets how many seconds the app has to answer (default 10).
 Text list columns: tab-id, title, url, profile, active (tab-separated).";
+pub(crate) const EXTENSION: &str = "Usage: muxy extension <command>
+  list [--json]                     Extensions, their state and folders
+  status <name> [--json]            One extension, its load errors and recent log
+  logs <name> [--lines N]           Recent log lines (default 100)
+  load <folder>                     Load an unpacked folder; it starts disabled
+  enable <name>                     Turn an extension on
+  disable <name>                    Turn an extension off
+  reload <name>                     Restart one extension from its folder
+  unload <name>                     Forget an unpacked folder and keep its files
+  validate <name|folder> [--json]   Check what publishing needs
+  publish <name> [--json]           Open a pull request to the extension store
+
+Extension commands talk to the Muxy desktop app on this computer, not to the
+server, so they don't take --host. They start the app if it isn't running.
+Publish asks for approval in the app and needs the GitHub CLI, signed in.
+Use -- before a name or folder that starts with a dash.
+MUXY_CLI_TIMEOUT sets how many seconds the app has to answer (default 10).
+Load, reload, enable, disable, unload and validate get 30 more, and publish 15
+minutes more.
+Text list columns: name, version, state, source, folder (tab-separated).";
 pub(crate) const INSTALL_SKILLS: &str = "Usage: muxy install-skills [--dir DIR]...
 Installs the muxy-cli skill, which teaches AI coding agents to use this command,
 into each agent folder that exists: ~/.claude/skills, ~/.codex/skills and
@@ -212,6 +233,7 @@ pub(crate) fn topic(group: &str) -> Option<&'static str> {
         "mobile" => MOBILE,
         "install-skills" => INSTALL_SKILLS,
         "browser" => BROWSER,
+        "extension" => EXTENSION,
         "status" => STATUS,
         _ => return None,
     })

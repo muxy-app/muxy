@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
 mod version;
-pub(crate) use version::is_update;
+pub(crate) use version::{is_update, is_valid as is_valid_version};
 
 const BASE: &str = "https://muxy.app";
 const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;

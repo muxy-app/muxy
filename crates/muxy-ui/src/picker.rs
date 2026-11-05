@@ -830,6 +830,12 @@ impl Picker {
             .update(cx, |input, _| input.set_placeholder(placeholder.into()));
     }
 
+    /// Gives the keyboard back to the search field, after a footer action took it.
+    pub fn focus_query(&mut self, cx: &mut Context<Self>) {
+        self.focused = false;
+        cx.notify();
+    }
+
     pub fn set_can_navigate_back(&mut self, enabled: bool, cx: &mut Context<Self>) {
         self.can_navigate_back = enabled;
         cx.notify();
@@ -2117,6 +2123,19 @@ mod gpui_regression_tests {
         cx.update(|window, cx| window.focus(&popover.read(cx).input.focus_handle(cx)));
         cx.run_until_parked();
         (host, cx)
+    }
+
+    #[gpui::test]
+    fn the_search_field_can_take_the_keyboard_back(cx: &mut TestAppContext) {
+        let (host, cx) = open(cx, PickerPresentation::Modal, true);
+        let popover = host.read_with(cx, |host, _| host.popover.clone());
+        cx.update(|window, _| window.blur());
+        cx.run_until_parked();
+        popover.update(cx, Picker::focus_query);
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            assert!(popover.read(cx).input.focus_handle(cx).is_focused(window));
+        });
     }
 
     #[gpui::test]
