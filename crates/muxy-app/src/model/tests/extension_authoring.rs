@@ -511,7 +511,7 @@ fn a_folder_with_control_characters_is_refused_before_anything_is_typed(cx: &mut
         let error = model
             .start_agent_for_test(provider("claude").expect("claude"), &task, cx)
             .unwrap_err();
-        assert!(error.contains("control characters"), "{error}");
+        assert!(error.contains("can't be typed"), "{error}");
         assert_eq!(model.state.current_project().tabs.len(), tabs);
     });
 }

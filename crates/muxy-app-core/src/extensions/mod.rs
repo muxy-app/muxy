@@ -67,6 +67,15 @@ impl Registry {
         }
     }
 
+    /// A preferences file that was just written no longer has the error it was
+    /// read with.
+    fn forget_preference_error(&mut self, name: &str) {
+        let prefix = format!("{name}:");
+        self.preference_errors
+            .retain(|error| !error.starts_with(&prefix));
+        self.errors.retain(|error| !error.starts_with(&prefix));
+    }
+
     pub fn directory(&self) -> PathBuf {
         self.profile.join("extensions")
     }
@@ -146,7 +155,11 @@ impl Registry {
             return Err("an extension with this name is already loaded".into());
         }
         let folder = path.canonicalize().map_err(|e| e.to_string())?;
-        if let Some((loaded, _)) = self.unpacked.iter().find(|(_, known)| **known == folder) {
+        if let Some((loaded, _)) = self
+            .unpacked
+            .iter()
+            .find(|(name, known)| **known == folder && **name != extension.name)
+        {
             return Err(format!(
                 "this folder is already loaded as '{loaded}'; unload it first"
             ));
@@ -158,6 +171,7 @@ impl Registry {
             &serde_json::json!(folders),
         )?;
         self.unpacked = folders;
+        self.forget_preference_error("extension-folders.json");
         let name = extension.name.clone();
         self.extensions.insert(name.clone(), extension);
         Ok(name)
@@ -201,6 +215,7 @@ impl Registry {
             &serde_json::json!(active),
         )?;
         self.enabled = active;
+        self.forget_preference_error("extension-enabled.json");
         Ok(())
     }
 
@@ -215,6 +230,7 @@ impl Registry {
                 &serde_json::json!(folders),
             )?;
             self.unpacked = folders;
+            self.forget_preference_error("extension-folders.json");
             let prefix = format!("{}:", folder.display());
             let duplicate = format!("{id}:");
             self.errors

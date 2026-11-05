@@ -338,6 +338,7 @@ fn regular_file(path: &Path) -> bool {
 
 fn publishable_name(name: &str) -> bool {
     name.len() <= 100
+        && !name.contains("..")
         && name
             .bytes()
             .next()
@@ -420,6 +421,22 @@ fn has_extension(file: &str, extension: &str) -> bool {
         .is_some_and(|found| found.eq_ignore_ascii_case(extension))
 }
 
+/// The store's own test: the file opens with a tag, and has an `svg` one near the start.
+fn looks_like_svg(path: &Path) -> bool {
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).to_lowercase();
+    let head = head.trim_start_matches('\u{feff}').trim_start();
+    head.starts_with('<')
+        && head.match_indices("<svg").any(|(start, _)| {
+            head[start + 4..]
+                .chars()
+                .next()
+                .is_none_or(|next| next.is_whitespace() || next == '/' || next == '>')
+        })
+}
+
 fn check_icon(source: &Path, icon: &str, problems: &mut Vec<String>) {
     let Some(path) = listing_asset(source, icon) else {
         problems.push(tr!("The marketplace icon %@ wasn't found.", icon).to_string());
@@ -428,6 +445,8 @@ fn check_icon(source: &Path, icon: &str, problems: &mut Vec<String>) {
     if has_extension(icon, "svg") {
         if size_of(&path) > ICON_MAX_SVG_BYTES {
             problems.push(tr!("The SVG icon must be at most 512 KB.").to_string());
+        } else if !looks_like_svg(&path) {
+            problems.push(tr!("The marketplace icon %@ isn't an SVG file.", icon).to_string());
         }
         return;
     }
@@ -643,11 +662,14 @@ fn pull_request_body(readiness: &Readiness, update: bool) -> String {
     )
 }
 
-/// The open pull request from `owner`'s `branch`, if there is one.
+/// The open pull request from `owner`'s `branch` for this `title`, if there is
+/// one. A branch can also be another version's fallback, as `hello-1.2.0-2` is
+/// for both 1.2.0 and the prerelease 1.2.0-2, and that one mustn't be replaced.
 fn open_pull_request(
     tools: &dyn Tools,
     owner: &str,
     branch: &str,
+    title: &str,
 ) -> Result<Option<String>, String> {
     let listed = tools.run(
         "gh",
@@ -661,14 +683,17 @@ fn open_pull_request(
             "--state",
             "open",
             "--json",
-            "url,headRepositoryOwner",
+            "url,title,headRepositoryOwner",
         ],
         None,
     )?;
     let requests: Vec<Value> = serde_json::from_str(&listed).map_err(|error| error.to_string())?;
     Ok(requests
         .iter()
-        .find(|request| request["headRepositoryOwner"]["login"] == json!(owner))
+        .find(|request| {
+            request["headRepositoryOwner"]["login"] == json!(owner)
+                && request["title"] == json!(title)
+        })
         .and_then(|request| request["url"].as_str())
         .map(str::to_owned))
 }
@@ -680,6 +705,7 @@ fn choose_branch(
     owner: &str,
     fork_url: &str,
     base: &str,
+    title: &str,
 ) -> Result<(String, Option<String>), String> {
     for attempt in 1..=BRANCH_ATTEMPTS {
         let branch = if attempt == 1 {
@@ -687,7 +713,7 @@ fn choose_branch(
         } else {
             format!("{base}-{attempt}")
         };
-        if let Some(url) = open_pull_request(tools, owner, &branch)? {
+        if let Some(url) = open_pull_request(tools, owner, &branch, title)? {
             return Ok((branch, Some(url)));
         }
         let taken = tools
@@ -707,6 +733,40 @@ fn choose_branch(
         }
     }
     Err(tr!("Your fork already has too many branches named %@.", base).to_string())
+}
+
+/// An ignore rule, in the package or the user's Git setup, can keep a file out of
+/// the commit, and the store rejects a package without these.
+fn check_required_staged(tools: &dyn Tools, repository: &Path, folder: &str) -> Result<(), String> {
+    for file in ["package.json", "README.md", "package-lock.json"] {
+        let path = format!("{folder}/{file}");
+        let staged = tools.run("git", &["ls-files", "--", &path], Some(repository))?;
+        if staged.is_empty() {
+            return Err(tr!(
+                "Git ignores %@, so the store wouldn't get it. Remove the ignore rule and publish again.",
+                file
+            )
+            .to_string());
+        }
+    }
+    Ok(())
+}
+
+/// Commits what is staged, filling in only the identity Git has none of.
+fn commit(tools: &dyn Tools, repository: &Path, title: &str, login: &str) -> Result<(), String> {
+    let name_option = format!("user.name={login}");
+    let email_option = format!("user.email={login}@users.noreply.github.com");
+    let mut arguments = vec!["-c", "commit.gpgsign=false"];
+    for (key, option) in [("user.name", &name_option), ("user.email", &email_option)] {
+        if tools
+            .run("git", &["config", key], Some(repository))
+            .is_err()
+        {
+            arguments.extend(["-c", option.as_str()]);
+        }
+    }
+    arguments.extend(["commit", "--allow-empty", "-m", title]);
+    tools.run("git", &arguments, Some(repository)).map(|_| ())
 }
 
 /// A fork GitHub only just created can take a moment to accept a push.
@@ -767,12 +827,14 @@ pub(crate) fn publish(
         None,
     )?;
     let owner = fork.split('/').next().unwrap_or(login);
+    let title = pull_request_title(&readiness.name, &readiness.version);
     let fork_url = format!("https://github.com/{fork}.git");
     let (branch, open) = choose_branch(
         tools,
         owner,
         &fork_url,
         &branch_name(&readiness.name, &readiness.version),
+        &title,
     )?;
 
     let scratch = tempfile::tempdir().map_err(|error| error.to_string())?;
@@ -802,24 +864,14 @@ pub(crate) fn publish(
     }
     copy_tree(staged, &destination).map_err(|error| error.to_string())?;
     tools.run("git", &["add", "--all", "--", &folder], Some(&repository))?;
+    check_required_staged(tools, &repository, &folder)?;
     let changed = tools.run("git", &["status", "--porcelain"], Some(&repository))?;
     if changed.is_empty() && open.is_none() {
         return Err(
             tr!("This version is already what the store has. Nothing to publish.").to_string(),
         );
     }
-    let title = pull_request_title(&readiness.name, &readiness.version);
-    let name_option = format!("user.name={login}");
-    let email_option = format!("user.email={login}@users.noreply.github.com");
-    let mut commit = vec!["-c", "commit.gpgsign=false"];
-    if tools
-        .run("git", &["config", "user.email"], Some(&repository))
-        .is_err()
-    {
-        commit.extend(["-c", &name_option, "-c", &email_option]);
-    }
-    commit.extend(["commit", "--allow-empty", "-m", &title]);
-    tools.run("git", &commit, Some(&repository))?;
+    commit(tools, &repository, &title, login)?;
     push(tools, &repository, &fork_url, &branch, open.is_some())?;
 
     if let Some(url) = open {

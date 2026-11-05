@@ -60,7 +60,9 @@ can't be downloaded, Muxy copies the installed build output instead.
 ## The `muxy extension` commands
 
 Agents use these, and so can you. They need the desktop app on this computer, and
-start it if it isn't running. See [Muxy CLI](../features/muxy-cli.md).
+start it if it isn't running. A relative folder is read from where you run the
+command, so these examples run from the workspace. See
+[Muxy CLI](../features/muxy-cli.md).
 
 ```bash
 muxy extension load extensions/my-extension

@@ -88,7 +88,7 @@ fn everything_the_store_requires_is_reported_at_once() {
 #[test]
 fn names_and_versions_follow_the_stores_rules() {
     assert!(publishable_name("hello-world.2"));
-    for name in ["", "-hello", ".hello", "Hello", "a_b", "a/b"] {
+    for name in ["", "-hello", ".hello", "Hello", "a_b", "a/b", "a..b"] {
         assert!(!publishable_name(name), "{name:?}");
     }
     let folder = tempfile::tempdir().unwrap();
@@ -220,6 +220,8 @@ struct FakeTools {
     published: Option<&'static str>,
     offline: bool,
     added: RefCell<Vec<String>>,
+    ignored: Option<&'static str>,
+    email_only: bool,
 }
 
 impl Tools for FakeTools {
@@ -248,9 +250,9 @@ impl Tools for FakeTools {
                 let head = arguments[5];
                 Ok(match self.open_pull_request {
                     Some(url) if head == "hello-1.2.0" => format!(
-                        r#"[{{"url":"{url}","headRepositoryOwner":{{"login":"octocat"}}}},{{"url":"other","headRepositoryOwner":{{"login":"someone"}}}}]"#
+                        r#"[{{"url":"{url}","title":"hello 1.2.0","headRepositoryOwner":{{"login":"octocat"}}}},{{"url":"other","title":"hello 1.2.0","headRepositoryOwner":{{"login":"someone"}}}}]"#
                     ),
-                    _ => r#"[{"url":"other","headRepositoryOwner":{"login":"someone"}}]"#.into(),
+                    _ => r#"[{"url":"other","title":"hello 1.2.0","headRepositoryOwner":{"login":"someone"}}]"#.into(),
                 })
             }
             ["pr", "create", ..] => Ok("Creating…\nhttps://github.com/pr/1".into()),
@@ -278,6 +280,14 @@ impl Tools for FakeTools {
             ["status", ..] if self.nothing_changed => Ok(String::new()),
             ["status", ..] => Ok("A  extensions/hello/package.json".into()),
             ["config", ..] if self.has_identity => Ok("me@example.com".into()),
+            ["config", "user.email"] if self.email_only => Ok("me@example.com".into()),
+            ["ls-files", "--", path] => {
+                Ok(if self.ignored.is_some_and(|file| path.ends_with(file)) {
+                    String::new()
+                } else {
+                    (*path).to_owned()
+                })
+            }
             ["config", ..] => Err("git failed: unset".into()),
             [.., "push", _, _] | [.., "push", "--force", _, _] => {
                 let mut failing = self.pushes_failing.borrow_mut();
@@ -503,6 +513,75 @@ fn publishing_the_same_version_again_updates_its_open_pull_request() {
         !calls.iter().any(|call| call.contains("pr create")),
         "{calls:#?}"
     );
+}
+
+#[test]
+fn another_versions_pull_request_on_the_same_branch_is_left_alone() {
+    let tools = FakeTools {
+        open_pull_request: Some("https://github.com/pr/9"),
+        ..FakeTools::default()
+    };
+    let source = tempfile::tempdir().unwrap();
+    ready_package(source.path());
+    let approved = Readiness {
+        name: "hello".into(),
+        version: "1.2.0".into(),
+        files: check(source.path()).files,
+        ..readiness()
+    };
+    let staged = stage(source.path(), &approved.files).unwrap();
+    assert!(
+        publish(&tools, staged.path(), &approved, "octocat", false)
+            .unwrap()
+            .updated
+    );
+    let listed = open_pull_request(&tools, "octocat", "hello-1.2.0", "hello 1.2.0-2").unwrap();
+    assert_eq!(listed, None, "its title is for another version");
+}
+
+#[test]
+fn a_required_file_that_git_ignores_stops_before_anything_is_pushed() {
+    let tools = FakeTools {
+        ignored: Some("package-lock.json"),
+        ..FakeTools::default()
+    };
+    let error = publish_with(&tools).unwrap_err();
+    assert!(error.contains("package-lock.json"), "{error}");
+    assert!(
+        !tools
+            .calls
+            .borrow()
+            .iter()
+            .any(|call| call.contains(" push "))
+    );
+}
+
+#[test]
+fn only_the_identity_git_lacks_is_filled_in() {
+    let tools = FakeTools {
+        email_only: true,
+        ..FakeTools::default()
+    };
+    publish_with(&tools).unwrap();
+    let calls = tools.calls.borrow();
+    let commit = calls.iter().find(|call| call.contains(" commit ")).unwrap();
+    assert!(commit.contains("user.name=octocat"), "{commit}");
+    assert!(!commit.contains("user.email="), "{commit}");
+}
+
+#[test]
+fn an_icon_named_svg_must_look_like_one() {
+    let folder = tempfile::tempdir().unwrap();
+    ready_package(folder.path());
+    let icon = folder.path().join("public/assets/icon.svg");
+    assert!(check(folder.path()).problems.is_empty());
+    for bad in ["", "not an image", "<html><svgish/></html>"] {
+        fs::write(&icon, bad).unwrap();
+        let problems = check(folder.path()).problems.join(" ");
+        assert!(problems.contains("isn't an SVG"), "{bad:?}: {problems}");
+    }
+    fs::write(&icon, "<?xml version=\"1.0\"?>\n<SVG xmlns=\"x\"></SVG>").unwrap();
+    assert!(check(folder.path()).problems.is_empty());
 }
 
 #[test]

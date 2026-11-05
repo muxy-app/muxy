@@ -154,7 +154,7 @@ pub(crate) fn shell_quote(text: &str) -> String {
     for character in text.chars() {
         match character {
             '\'' => quoted.push_str(r"'\''"),
-            '\\' => quoted.push_str(r"'\\''"),
+            '\\' => quoted.push_str(r"'\\'"),
             character => quoted.push(character),
         }
     }
@@ -163,11 +163,12 @@ pub(crate) fn shell_quote(text: &str) -> String {
 }
 
 /// A line is typed into the shell, so a control character in it, such as from a
-/// folder's name, would act on the line instead of being part of it.
+/// folder's name, would act on the line instead of being part of it. A
+/// replacement character means a path wasn't text, so it would name another file.
 pub(crate) fn typed_safely(line: &str) -> Result<(), String> {
-    if line.contains(char::is_control) {
+    if line.contains(|character: char| character.is_control() || character == '\u{fffd}') {
         return Err(tr!(
-            "This folder's name has control characters, which can't be typed into a terminal safely. Rename it and try again."
+            "This folder's path has characters that can't be typed into a terminal safely. Rename it and try again."
         )
         .to_string());
     }
@@ -274,8 +275,15 @@ pub(crate) fn clone_extension(
 ) -> Result<ClonedFrom, String> {
     let copy = clone_name(name);
     let target = workspace::extension_folder(root, &copy);
-    if target.exists() {
+    if target.join("package.json").is_file() {
         return Ok(ClonedFrom::EarlierClone);
+    }
+    if fs::symlink_metadata(&target).is_ok() {
+        return Err(tr!(
+            "%@ already exists and isn't an extension. Move it and try again.",
+            target.display().to_string()
+        )
+        .to_string());
     }
     let scratch = tempfile::tempdir_in(root).map_err(|error| error.to_string())?;
     let staged = scratch.path().join("copy");
@@ -325,7 +333,9 @@ fn clone_source(
     let shared = repository.join("shared");
     let kept = root.join("shared");
     if shared.is_dir() && !kept.exists() {
-        copy_tree(&shared, &kept).map_err(|error| error.to_string())?;
+        let staged = scratch.join("shared");
+        copy_tree(&shared, &staged).map_err(|error| error.to_string())?;
+        fs::rename(&staged, &kept).map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -495,15 +505,56 @@ mod tests {
     }
 
     #[test]
-    fn a_backslash_never_reaches_fish_inside_quotes() {
-        assert_eq!(shell_quote(r"x\';touch p;#"), r"'x'\\'''\'';touch p;#'");
-        assert_eq!(shell_quote(r"a\"), r"'a'\\'''");
+    fn a_backslash_stays_outside_the_quotes_and_they_reopen_after_it() {
+        assert_eq!(shell_quote(r"a\b"), r"'a'\\'b'");
+        assert_eq!(shell_quote(r"a\"), r"'a'\\''");
+    }
+
+    /// A quoted word has to come back from a real shell as the same text, with
+    /// nothing in it run.
+    #[test]
+    fn quoted_text_reaches_real_shells_unchanged_and_runs_nothing() -> io::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let marker = folder.path().join("ran");
+        let marker = marker.display();
+        let texts = [
+            format!(r"a\b;touch {marker};#"),
+            format!(r"x\';touch {marker};#"),
+            format!("it's; touch {marker} $(touch {marker}) `touch {marker}`"),
+            format!(r"\\'\';touch {marker}"),
+            r"trailing\".to_owned(),
+            "plain".to_owned(),
+            String::new(),
+        ];
+        for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
+            if !Path::new(shell).exists() {
+                continue;
+            }
+            for text in &texts {
+                let output = std::process::Command::new(shell)
+                    .arg("-c")
+                    .arg(format!("printf %s {}", shell_quote(text)))
+                    .output()?;
+                assert_eq!(String::from_utf8_lossy(&output.stdout), *text, "{shell}");
+                assert!(
+                    !folder.path().join("ran").exists(),
+                    "{shell} ran part of {text:?}"
+                );
+            }
+        }
+        Ok(())
     }
 
     #[test]
     fn control_characters_are_never_typed() {
         assert!(typed_safely("/bin/agent 'plain words'").is_ok());
-        for line in ["x\u{3}touch p", "x\rtouch p", "x\ntouch p", "x\u{1b}[A"] {
+        for line in [
+            "x\u{3}touch p",
+            "x\rtouch p",
+            "x\ntouch p",
+            "x\u{1b}[A",
+            "/bin/ag\u{fffd}nt",
+        ] {
             assert!(typed_safely(line).is_err(), "{line:?}");
         }
     }
@@ -643,6 +694,20 @@ mod tests {
             fs::read_to_string(&copy).map_err(|error| error.to_string())?,
             "the user's changes"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_clone_target_that_isnt_an_extension_is_left_alone() -> Result<(), String> {
+        let folder = tempfile::tempdir().map_err(|error| error.to_string())?;
+        let root = folder.path();
+        workspace::prepare(root).map_err(|error| error.to_string())?;
+        let target = workspace::extension_folder(root, "hello-custom");
+        fs::create_dir_all(&target).map_err(|error| error.to_string())?;
+        fs::write(target.join("notes.txt"), "mine").map_err(|error| error.to_string())?;
+        let error = clone_extension(&NoTools, root, "hello", Path::new("/unused")).unwrap_err();
+        assert!(error.contains("isn't an extension"), "{error}");
+        assert!(target.join("notes.txt").is_file());
         Ok(())
     }
 

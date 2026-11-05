@@ -154,6 +154,39 @@ fn a_folder_cant_be_loaded_twice_under_two_names() {
 }
 
 #[test]
+fn a_repaired_folder_can_be_loaded_again_after_failing_at_startup() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    Registry::load(profile.path())
+        .load_unpacked(source.path())
+        .unwrap();
+    let good = fs::read(source.path().join("package.json")).unwrap();
+    fs::write(source.path().join("package.json"), "not json").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert!(registry.extensions.is_empty());
+    fs::write(source.path().join("package.json"), good).unwrap();
+    assert_eq!(registry.load_unpacked(source.path()).unwrap(), "hello");
+}
+
+#[test]
+fn rewriting_a_preferences_file_clears_the_error_it_was_read_with() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    Registry::load(profile.path())
+        .load_unpacked(source.path())
+        .unwrap();
+    fs::write(profile.path().join("extension-enabled.json"), "{}").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert_eq!(registry.errors.len(), 1);
+    registry.set_enabled("hello", true).unwrap();
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+    registry.reload();
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+}
+
+#[test]
 fn manifests_reject_escaping_resources_and_invalid_commands() {
     let root = tempfile::tempdir().unwrap();
     package(root.path(), "files");

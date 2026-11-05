@@ -20,6 +20,14 @@ const POINTERS: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 const FILES: &[(&str, &str)] = &[
     ("SKILL.md", SKILL),
     (
+        "features/ai-agents.md",
+        include_str!("../../../../docs/features/ai-agents.md"),
+    ),
+    (
+        "features/muxy-cli.md",
+        include_str!("../../../../docs/features/muxy-cli.md"),
+    ),
+    (
         "references/agents.md",
         include_str!("../../../../docs/extensions/agents.md"),
     ),
@@ -113,6 +121,7 @@ pub fn prepare(root: &Path) -> io::Result<()> {
             )));
         }
         for (relative, contents) in FILES {
+            refuse_links_on_the_way(&folder, relative)?;
             write_if_changed(&folder.join(relative), contents)?;
         }
         remove_others(&folder, &folder)?;
@@ -127,6 +136,25 @@ pub fn prepare(root: &Path) -> io::Result<()> {
 /// never created stays uncreated until the first extension needs it.
 pub fn refresh(root: &Path) -> io::Result<()> {
     if root.is_dir() { prepare(root) } else { Ok(()) }
+}
+
+/// A folder inside the skill that is a link would put Muxy's files somewhere else.
+fn refuse_links_on_the_way(folder: &Path, relative: &str) -> io::Result<()> {
+    let mut path = folder.to_owned();
+    for part in Path::new(relative)
+        .parent()
+        .into_iter()
+        .flat_map(Path::components)
+    {
+        path.push(part);
+        if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_symlink()) {
+            return Err(io::Error::other(format!(
+                "{} is a link; Muxy keeps its skill in real folders",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> io::Result<()> {
@@ -231,6 +259,23 @@ mod tests {
         assert!(prepare(&root).is_err());
         assert_eq!(fs::read_to_string(elsewhere.join("mine.txt"))?, "kept");
         assert!(!elsewhere.join("SKILL.md").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn a_linked_folder_inside_the_skill_is_refused() -> io::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let elsewhere = folder.path().join("elsewhere");
+        fs::create_dir_all(&elsewhere)?;
+        let root = folder.path().join("workspace");
+        let skill = root.join(AGENT_SKILLS[0]).join(SKILL_NAME);
+        fs::create_dir_all(&skill)?;
+        std::os::unix::fs::symlink(&elsewhere, skill.join("references"))?;
+        assert!(prepare(&root).is_err());
+        assert!(
+            fs::read_dir(&elsewhere)?.next().is_none(),
+            "nothing written"
+        );
         Ok(())
     }
 

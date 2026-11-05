@@ -13,6 +13,7 @@
 "%@ Isn't Ready to Publish" = "%@ Isn't Ready to Publish";
 "%@ Updates" = "%@ Updates";
 "%@ added" = "%@ added";
+"%@ already exists and isn't an extension. Move it and try again." = "%@ already exists and isn't an extension. Move it and try again.";
 "%@ already exists; move it before installing Muxy." = "%@ already exists; move it before installing Muxy.";
 "%@ and %@, but %@" = "%@ and %@, but %@";
 "%@ did not respond within five minutes" = "%@ did not respond within five minutes";
@@ -893,6 +894,7 @@
 "Getting the workspace ready…" = "Getting the workspace ready…";
 "Git" = "Git";
 "Git Changes: %@" = "Git Changes: %@";
+"Git ignores %@, so the store wouldn't get it. Remove the ignore rule and publish again." = "Git ignores %@, so the store wouldn't get it. Remove the ignore rule and publish again.";
 "Give a branch its own worktree." = "Give a branch its own worktree.";
 "Global X11 shortcuts cannot cover a Wayland desktop." = "Global X11 shortcuts cannot cover a Wayland desktop.";
 "Global folder: %@" = "Global folder: %@";
@@ -1842,6 +1844,7 @@
 "The installed or staged update changed. Check for updates again." = "The installed or staged update changed. Check for updates again.";
 "The marketplace answered with a different extension." = "The marketplace answered with a different extension.";
 "The marketplace did not list this extension's permissions." = "The marketplace did not list this extension's permissions.";
+"The marketplace icon %@ isn't an SVG file." = "The marketplace icon %@ isn't an SVG file.";
 "The marketplace icon %@ wasn't found." = "The marketplace icon %@ wasn't found.";
 "The marketplace icon must be an SVG, or a square PNG of at least 256×256." = "The marketplace icon must be an SVG, or a square PNG of at least 256×256.";
 "The other computer accepted the pairing, but it couldn't be saved: %@. Fix that and pair again with the same link." = "The other computer accepted the pairing, but it couldn't be saved: %@. Fix that and pair again with the same link.";
@@ -1904,7 +1907,7 @@
 "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it." = "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it.";
 "This desktop has no file chooser service. Install xdg-desktop-portal and its backend for your desktop." = "This desktop has no file chooser service. Install xdg-desktop-portal and its backend for your desktop.";
 "This extension is up to date." = "This extension is up to date.";
-"This folder's name has control characters, which can't be typed into a terminal safely. Rename it and try again." = "This folder's name has control characters, which can't be typed into a terminal safely. Rename it and try again.";
+"This folder's path has characters that can't be typed into a terminal safely. Rename it and try again." = "This folder's path has characters that can't be typed into a terminal safely. Rename it and try again.";
 "This is not a released version" = "This is not a released version";
 "This link has expired or was already used. Copy a new one from the other computer." = "This link has expired or was already used. Copy a new one from the other computer.";
 "This link is for %@, which is already listed. Pair it again from its own Edit… form." = "This link is for %@, which is already listed. Pair it again from its own Edit… form.";
