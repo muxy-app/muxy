@@ -16,16 +16,34 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   LIBGHOSTTY_VT_SYS_OPTIMIZE: ReleaseFast
+  LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR: ${{ github.workspace }}/.zig-cache
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
+  scope:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: scope
+        run: python3 scripts/ci_scope.py >> "$GITHUB_OUTPUT"
+
   macos:
+    needs: scope
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
         part: [lint, test]
     runs-on: macos-15
     timeout-minutes: 60
+    env:
+      SCOPE: ${{ needs.scope.outputs.scope || 'full' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,16 +59,36 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+          use-cache: false
+      - id: zig-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .zig-cache
+          key: zig-macos-15-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: python3 scripts/check-desktop-macos.py --part "${{ matrix.part }}"
-      - if: matrix.part == 'test'
+      - run: python3 scripts/check-desktop-macos.py --part "${{ matrix.part }}" --scope "$SCOPE"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
+      - if: matrix.part == 'test' && env.SCOPE != 'desktop'
         run: python3 scripts/protocol_fixtures.py last-release
+      - if: matrix.part == 'test' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-timings-macos
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: ignore
+          retention-days: 7
 
   linux:
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.scope != 'desktop' }}
     strategy:
       fail-fast: false
       matrix:
@@ -72,13 +110,26 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+          use-cache: false
+      - id: zig-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .zig-cache
+          key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: python3 scripts/check-headless.py --target "${{ matrix.target }}"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
 
   linux-desktop:
+    needs: scope
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -91,6 +142,8 @@ jobs:
             target: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    env:
+      SCOPE: ${{ needs.scope.outputs.scope || 'full' }}
     steps:
       - uses: actions/checkout@v4
       - run: >-
@@ -106,9 +159,27 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+          use-cache: false
+      - id: zig-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .zig-cache
+          key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: python3 scripts/check-desktop-linux.py --target "${{ matrix.target }}" --part "${{ matrix.part }}"
+      - run: python3 scripts/check-desktop-linux.py --target "${{ matrix.target }}" --part "${{ matrix.part }}" --scope "$SCOPE"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
+      - if: matrix.part == 'test' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-timings-${{ matrix.target }}
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: ignore
+          retention-days: 7

@@ -15,10 +15,11 @@ SPEC.loader.exec_module(GUARD)
 
 
 class DesktopMacosTests(unittest.TestCase):
-    def environment(self, system="Darwin", host="aarch64-apple-darwin", target=None, part=None):
+    def environment(self, system="Darwin", host="aarch64-apple-darwin", target=None, part=None, scope=None):
         stack = contextlib.ExitStack()
         self.addCleanup(stack.close)
         arguments = ["--part", part] if part else []
+        arguments += ["--scope", scope] if scope else []
         stack.enter_context(patch.object(sys, "argv", ["check-desktop-macos.py", *arguments]))
         stack.enter_context(patch.object(GUARD.platform, "system", return_value=system))
         stack.enter_context(patch.object(GUARD.subprocess, "check_output", return_value=f"host: {host}\n"))
@@ -64,7 +65,7 @@ class DesktopMacosTests(unittest.TestCase):
             ["cargo", "fmt", "--all", "--check"],
             ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
             ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
-            ["cargo", "test", "--locked", "--workspace", "--all-features"],
+            ["cargo", "test", "--locked", "--workspace", "--all-features", "--timings"],
         ])
         for call in run.call_args_list:
             self.assertEqual(call.kwargs["cwd"], ROOT)
@@ -78,6 +79,25 @@ class DesktopMacosTests(unittest.TestCase):
                 GUARD.main()
                 self.assertEqual([call.args[0] for call in run.call_args_list], GUARD.PARTS[part])
                 self.doCleanups()
+
+    def test_desktop_scope_narrows_only_the_tests(self):
+        run, _ = self.environment(part="test", scope="desktop")
+        GUARD.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], [GUARD.ci_scope.DESKTOP_TEST])
+        self.doCleanups()
+        run, _ = self.environment(part="lint", scope="desktop")
+        GUARD.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], GUARD.PARTS["lint"])
+        self.doCleanups()
+        run, _ = self.environment(part="test", scope="full")
+        GUARD.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], GUARD.PARTS["test"])
+
+    def test_an_unknown_scope_is_rejected(self):
+        run, _ = self.environment(part="test", scope="nothing")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            GUARD.main()
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

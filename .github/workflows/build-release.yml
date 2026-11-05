@@ -24,6 +24,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
   LIBGHOSTTY_VT_SYS_OPTIMIZE: ReleaseFast
   MACOSX_DEPLOYMENT_TARGET: '14.0'
 
@@ -81,10 +82,6 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          key: beta-${{ matrix.target }}-baseline
       - name: Stamp the build version without committing a bump
         run: |
           rm -rf target/packages
@@ -189,9 +186,6 @@ jobs:
             ${{ env.PACKAGE_DIR }}/*-audit.txt
           if-no-files-found: error
           retention-days: 30
-      - name: Keep packaged output out of the build cache
-        if: always()
-        run: rm -rf target/packages
       - name: Remove signing keychain
         if: always() && runner.os == 'macOS'
         run: |
@@ -235,10 +229,6 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: desktop-release-${{ matrix.target }}
-          cache-on-failure: true
       - name: Stamp and build the desktop with matching helpers
         run: |
           rm -rf target/packages
@@ -267,8 +257,6 @@ jobs:
             ${{ env.PACKAGE_DIR }}/*-audit.txt
           if-no-files-found: error
           retention-days: 30
-      - if: always()
-        run: rm -rf target/packages
 
   mobile-sdk:
     name: Build (mobile SDK)
@@ -287,10 +275,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          key: beta-mobile-sdk-baseline
       - name: Install cargo-ndk for the runner's Android NDK
         run: cargo install cargo-ndk --locked --version 4.1.2
       - name: Stamp the build version without committing a bump
@@ -308,6 +292,3 @@ jobs:
           path: ${{ env.PACKAGE_DIR }}/muxy-mobile-${{ env.VERSION }}*
           if-no-files-found: error
           retention-days: 7
-      - name: Keep packaged output out of the build cache
-        if: always()
-        run: rm -rf target/packages target/mobile-sdk
