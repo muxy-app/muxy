@@ -140,6 +140,8 @@ pub struct Appearance {
     pub agent_sessions_visible: bool,
     pub agent_sessions_position: AgentSessionsPosition,
     pub agent_sessions_pinned: bool,
+    pub agent_sessions_detached: bool,
+    pub agent_sessions_frame: Option<[f32; 4]>,
     pub agent_sessions_width: Option<f32>,
     pub agent_sessions_height: Option<f32>,
     pub agent_sessions_providers: Vec<muxy_protocol::AgentProvider>,
@@ -186,6 +188,8 @@ impl Default for Appearance {
             agent_sessions_visible: false,
             agent_sessions_position: AgentSessionsPosition::default(),
             agent_sessions_pinned: true,
+            agent_sessions_detached: false,
+            agent_sessions_frame: None,
             agent_sessions_width: None,
             agent_sessions_height: None,
             agent_sessions_providers: crate::agent_sessions::PROVIDERS

@@ -275,11 +275,48 @@
         "icon": { "$ref": "#/$defs/icon" },
         "entry": { "type": "string", "minLength": 1 },
         "position": { "enum": ["right", "bottom"] },
-        "mode": { "enum": ["pinned", "floating"] },
+        "mode": {
+          "enum": ["pinned", "floating", "detached"],
+          "description": "pinned sits beside the workspace, floating slides over its edge, and detached floats anywhere over the window beside other panels."
+        },
         "hiddenControls": {
           "type": "array",
-          "items": { "enum": ["icon", "title", "close", "pin", "position"] },
+          "items": { "enum": ["icon", "title", "close", "pin", "mode", "position", "detach"] },
           "uniqueItems": true
+        },
+        "frame": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Where a detached panel first opens, from the window's top left corner, in the page's CSS pixels.",
+          "properties": {
+            "x": { "type": "number", "minimum": -16384, "maximum": 16384 },
+            "y": { "type": "number", "minimum": -16384, "maximum": 16384 },
+            "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 16384 },
+            "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 16384 }
+          }
+        },
+        "minSize": { "$ref": "#/$defs/panelSize" },
+        "maxSize": { "$ref": "#/$defs/panelSize" },
+        "chrome": {
+          "enum": ["standard", "none"],
+          "default": "standard",
+          "description": "standard draws a card with a header; none leaves the whole frame to the page."
+        },
+        "transparent": {
+          "type": "boolean",
+          "description": "Draw nothing behind the page, so what is under it shows where the page is transparent. Defaults to true with chrome none, false otherwise."
+        },
+        "clickThrough": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let clicks pass through to what is under the panel, except over its hit regions."
+        },
+        "movable": { "type": "boolean", "default": true },
+        "resizable": { "type": "boolean", "default": true },
+        "scope": {
+          "enum": ["global", "project"],
+          "default": "global",
+          "description": "global shows a detached panel in every project; project only in the one it was opened in."
         },
         "headerButtons": {
           "type": "array",
@@ -291,6 +328,15 @@
           "description": "Hide the entire panel header (icon, title, controls, and header buttons). The webview fills the whole panel."
         },
         "defaultData": {}
+      }
+    },
+    "panelSize": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "number", "minimum": 0, "maximum": 16384 },
+        "height": { "type": "number", "minimum": 0, "maximum": 16384 }
       }
     },
     "panelHeaderButton": {

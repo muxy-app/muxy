@@ -6,12 +6,13 @@ pub(crate) use rows::age_label;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, Div, Focusable, Hsla, InteractiveElement, IntoElement, MouseDownEvent,
-    ParentElement, Role, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
-    canvas, div, px,
+    AnyElement, Context, Div, Focusable, Hsla, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, ParentElement, Role, SharedString, Stateful, StatefulInteractiveElement,
+    Styled, Window, canvas, div, px,
 };
 use muxy_ui::accessibility;
 use muxy_ui::components::{IconButton, IconGlyph};
+use muxy_ui::floating::FloatingCard;
 use muxy_ui::icon::Icon;
 use muxy_ui::panel::{
     PanelAction, PanelChrome, PanelControl, PanelFrame, PanelId, PanelMode, PanelPlacement,
@@ -197,7 +198,8 @@ fn icon_button(
 fn chrome(model: &AppModel, cx: &mut Context<AppModel>) -> PanelChrome {
     let m = model.metrics;
     let placement = model.agent_sessions_placement();
-    let [header, refresh, position, mode, close] = model.agent_sessions.controls.clone();
+    let [header, refresh, position, mode, close, detach] = model.agent_sessions.controls.clone();
+    let detached = model.appearance.agent_sessions_detached;
     let refresh = if model.agent_sessions.task.is_some() {
         PanelAction::element(
             "refresh-agent-sessions",
@@ -231,10 +233,13 @@ fn chrome(model: &AppModel, cx: &mut Context<AppModel>) -> PanelChrome {
                 PanelControl::Close => model.toggle_agent_sessions(window, cx),
                 PanelControl::Move(_) => model.move_agent_sessions(false, cx),
                 PanelControl::Mode(_) => model.move_agent_sessions(true, cx),
+                PanelControl::Detach(detached) => {
+                    model.set_agent_sessions_detached(!detached, window, cx);
+                }
             });
         })
     };
-    PanelChrome::new(
+    let chrome = PanelChrome::new(
         tr!("Agent Sessions"),
         Some(
             IconGlyph::new(Icon::History, m.font_footnote(), model.theme.fg_muted)
@@ -255,6 +260,76 @@ fn chrome(model: &AppModel, cx: &mut Context<AppModel>) -> PanelChrome {
         PanelStyle::new(model.theme.clone(), m),
     )
     .with_trailing_action(refresh)
+    .with_detach_action(control(
+        "agent-sessions-detach",
+        PanelControl::Detach(detached),
+        detach,
+    ));
+    if detached {
+        chrome.without_move_action().without_mode_action()
+    } else {
+        chrome
+    }
+}
+
+/// The detached agent sessions panel's card, for the floating layer.
+pub(crate) fn floating(
+    model: &AppModel,
+    window: &Window,
+    cx: &mut Context<AppModel>,
+) -> Option<AnyElement> {
+    if !model.agent_sessions_detached_shown() {
+        return None;
+    }
+    let id = PanelId::new(PANEL);
+    let owner = cx.weak_entity();
+    let drag_owner = owner.clone();
+    let drag_id = id.clone();
+    let header = div()
+        .flex_none()
+        .on_mouse_down(
+            MouseButton::Left,
+            move |event: &MouseDownEvent, window, cx| {
+                let _ = drag_owner.update(cx, |model, cx| {
+                    model.begin_floating_drag(&drag_id, None, event.position, window, cx);
+                });
+                window.prevent_default();
+                cx.stop_propagation();
+            },
+        )
+        .child(chrome(model, cx));
+    let raise_owner = owner.clone();
+    let raise_id = id.clone();
+    Some(
+        FloatingCard::new(
+            "floating-agent-sessions",
+            model.agent_sessions_frame(window),
+            model.theme.clone(),
+            model.metrics,
+        )
+        .on_resize(move |edges, pointer, window, cx| {
+            let _ = owner.update(cx, |model, cx| {
+                model.begin_floating_drag(&id, edges, pointer, window, cx);
+            });
+        })
+        .child(
+            div()
+                .debug_selector(|| "agent-sessions-panel".into())
+                .flex()
+                .flex_col()
+                .size_full()
+                .min_h_0()
+                .rounded(model.metrics.radius_xl())
+                .overflow_hidden()
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    let _ = raise_owner.update(cx, |model, cx| model.raise_floating(&raise_id, cx));
+                })
+                .child(header)
+                .child(body(model, cx)),
+        )
+        .child(model.webview_occlusion())
+        .into_any_element(),
+    )
 }
 
 fn search(model: &AppModel, cx: &mut Context<AppModel>) -> Div {

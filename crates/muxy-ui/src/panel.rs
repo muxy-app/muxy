@@ -346,6 +346,9 @@ enum PanelActionContent {
 pub enum PanelControl {
     Move(PanelPosition),
     Mode(PanelMode),
+    /// Pops a docked panel out to float freely, or docks a detached one;
+    /// `true` while it is detached.
+    Detach(bool),
     Close,
 }
 
@@ -360,6 +363,8 @@ impl PanelControl {
             }
             Self::Mode(PanelMode::Pinned) => (tr!("Float Panel"), "pin.slash"),
             Self::Mode(PanelMode::Floating) => (tr!("Dock Panel"), "pin"),
+            Self::Detach(false) => (tr!("Pop Out Panel"), "arrow.up.left.and.arrow.down.right"),
+            Self::Detach(true) => (tr!("Dock Panel"), "rectangle.righthalf.inset.filled"),
             Self::Close => (tr!("Close"), "xmark"),
         }
     }
@@ -476,8 +481,10 @@ pub struct PanelChrome {
     focus_handle: FocusHandle,
     move_action: Option<PanelAction>,
     mode_action: Option<PanelAction>,
+    detach_action: Option<PanelAction>,
     close_action: Option<PanelAction>,
     trailing_actions: Vec<PanelAction>,
+    tooltip_cover: Option<crate::components::TooltipCover>,
     theme: Theme,
     metrics: Metrics,
 }
@@ -502,8 +509,10 @@ impl PanelChrome {
             focus_handle,
             move_action: Some(move_action),
             mode_action: Some(mode_action),
+            detach_action: None,
             close_action: Some(close_action),
             trailing_actions: Vec::new(),
+            tooltip_cover: None,
             theme: style.theme,
             metrics: style.metrics,
         }
@@ -511,6 +520,19 @@ impl PanelChrome {
 
     pub fn with_trailing_action(mut self, action: PanelAction) -> Self {
         self.trailing_actions.push(action);
+        self
+    }
+
+    /// Keeps the header's tooltips visible above native pages, such as the
+    /// panel's own page under the header.
+    pub fn cover_tooltips(mut self, cover: impl Fn(gpui::Bounds<gpui::Pixels>) + 'static) -> Self {
+        self.tooltip_cover = Some(Rc::new(cover));
+        self
+    }
+
+    /// Adds the control that pops the panel out to float, or docks it.
+    pub fn with_detach_action(mut self, action: PanelAction) -> Self {
+        self.detach_action = Some(action);
         self
     }
 
@@ -532,6 +554,7 @@ impl PanelChrome {
 
 impl RenderOnce for PanelChrome {
     fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let cover = self.tooltip_cover.clone();
         let mut title = div()
             .flex()
             .flex_row()
@@ -564,23 +587,21 @@ impl RenderOnce for PanelChrome {
             .border_color(self.theme.border)
             .track_focus(&self.focus_handle)
             .child(title)
-            .children(
-                self.trailing_actions
-                    .into_iter()
-                    .map(|action| panel_action(action, &self.theme, self.metrics, window)),
-            )
-            .children(
-                self.move_action
-                    .map(|action| panel_action(action, &self.theme, self.metrics, window)),
-            )
-            .children(
-                self.mode_action
-                    .map(|action| panel_action(action, &self.theme, self.metrics, window)),
-            )
-            .children(
-                self.close_action
-                    .map(|action| panel_action(action, &self.theme, self.metrics, window)),
-            )
+            .children(self.trailing_actions.into_iter().map(|action| {
+                panel_action(action, &self.theme, self.metrics, cover.as_ref(), window)
+            }))
+            .children(self.move_action.map(|action| {
+                panel_action(action, &self.theme, self.metrics, cover.as_ref(), window)
+            }))
+            .children(self.mode_action.map(|action| {
+                panel_action(action, &self.theme, self.metrics, cover.as_ref(), window)
+            }))
+            .children(self.detach_action.map(|action| {
+                panel_action(action, &self.theme, self.metrics, cover.as_ref(), window)
+            }))
+            .children(self.close_action.map(|action| {
+                panel_action(action, &self.theme, self.metrics, cover.as_ref(), window)
+            }))
     }
 }
 
@@ -588,6 +609,7 @@ fn panel_action(
     action: PanelAction,
     theme: &Theme,
     metrics: Metrics,
+    cover: Option<&crate::components::TooltipCover>,
     window: &Window,
 ) -> AnyElement {
     let PanelAction {
@@ -658,7 +680,14 @@ fn panel_action(
             key_handler(window, cx);
             cx.stop_propagation();
         })
-        .tooltip(crate::components::tooltip(label, theme))
+        .map(|button| match cover {
+            Some(cover) => button.tooltip(crate::components::covering_tooltip(
+                label,
+                theme,
+                cover.clone(),
+            )),
+            None => button.tooltip(crate::components::tooltip(label, theme)),
+        })
         .child(glyph)
         .into_any_element()
 }
@@ -904,5 +933,29 @@ impl std::fmt::Debug for PanelFrame {
             .field("placement", &self.placement)
             .field("sizing", &self.sizing)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PanelControl, PanelMode, PanelPosition};
+
+    #[test]
+    fn every_header_control_has_an_icon_on_every_platform() {
+        for control in [
+            PanelControl::Move(PanelPosition::Right),
+            PanelControl::Move(PanelPosition::Bottom),
+            PanelControl::Mode(PanelMode::Pinned),
+            PanelControl::Mode(PanelMode::Floating),
+            PanelControl::Detach(false),
+            PanelControl::Detach(true),
+            PanelControl::Close,
+        ] {
+            let (_, symbol) = control.appearance();
+            assert!(
+                crate::icon::Icon::from_symbol(symbol).is_some(),
+                "{control:?} uses '{symbol}', which only macOS draws"
+            );
+        }
     }
 }

@@ -14,6 +14,7 @@ pub struct Settings {
     pub composer: super::ComposerSettings,
     pub commands: Vec<super::CustomCommand>,
     pub panel_pins: BTreeMap<String, BTreeMap<String, bool>>,
+    pub panel_layouts: BTreeMap<String, BTreeMap<String, PanelLayout>>,
     pub quick_terminal: crate::settings::QuickTerminalSettings,
     pub appearance: Appearance,
     pub window: WindowSettings,
@@ -26,6 +27,17 @@ pub struct Settings {
     pub browser: super::BrowserSettings,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub servers: Vec<super::ServerEntry>,
+}
+
+/// What the user chose for one extension panel: whether it floats detached,
+/// and where it last was while it did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PanelLayout {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detached: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame: Option<[f32; 4]>,
 }
 
 /// Per-action AI choices. Hand edits are expected here, so unknown keys and
@@ -165,6 +177,40 @@ impl Settings {
         crate::settings::appearance::save_entries(path, "ai", table, entries)
             .and_then(|saved| saved.try_into().map_err(Into::into))
             .map_err(|error| Error::new("ai", error))
+    }
+
+    pub fn panel_layout(&self, owner: &str, panel: &str) -> PanelLayout {
+        self.panel_layouts
+            .get(owner)
+            .and_then(|panels| panels.get(panel))
+            .copied()
+            .filter(|layout| {
+                layout
+                    .frame
+                    .is_none_or(|frame| frame.iter().all(|value| value.is_finite()))
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn set_panel_layout(
+        &mut self,
+        owner: &str,
+        panel: &str,
+        layout: PanelLayout,
+        path: &Path,
+    ) -> Result<()> {
+        if self.panel_layout(owner, panel) == layout {
+            return Ok(());
+        }
+        let mut layouts = self.panel_layouts.clone();
+        layouts
+            .entry(owner.into())
+            .or_default()
+            .insert(panel.into(), layout);
+        crate::settings::appearance::save_section(path, "panel_layouts", &layouts)
+            .map_err(|error| Error::new("panel_layouts", error))?;
+        self.panel_layouts = layouts;
+        Ok(())
     }
 
     pub fn panel_pinned(&self, owner: &str, panel: &str, default: bool) -> bool {

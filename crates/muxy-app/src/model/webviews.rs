@@ -77,6 +77,8 @@ pub(crate) struct Webviews {
     registered_panels: HashMap<(String, String), panels::Definition>,
     pub(in crate::model) panel_sessions: panel_sessions::PanelSessions,
     pub panel_size: panels::PanelSize,
+    /// The window's size in floating panel points, as last laid out.
+    pub area: gpui::Size<f32>,
     pub popover: Option<popover::Popover>,
     pub sidebar: Option<sidebar::SidebarSurface>,
     /// The sidebar page that failed to load, so it is not retried every frame.
@@ -101,14 +103,14 @@ impl AppModel {
                 .take()
                 .and_then(|view| view.upgrade())
         {
-            let live = self
-                .webviews
-                .panes
-                .iter()
-                .any(|(id, surface)| visible.contains(id) && surface.view == view)
-                || self.webviews.panels.iter().any(|(id, panel)| {
-                    self.panels.placement(id).is_some() && panel.surface.view == view
-                });
+            let live =
+                self.webviews
+                    .panes
+                    .iter()
+                    .any(|(id, surface)| visible.contains(id) && surface.view == view)
+                    || self.webviews.panels.iter().any(|(id, panel)| {
+                        self.webview_panel_shown(id) && panel.surface.view == view
+                    });
             if live {
                 self.focus_owner.place(&view.read(cx).focus, window);
             }
@@ -173,6 +175,7 @@ impl AppModel {
             || self.agents_panel.resize.is_active()
             || self.split_resize.active()
             || self.layout_drag_pending()
+            || self.floating.drag.is_some()
             || self
                 .webviews
                 .panels
@@ -363,19 +366,28 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Surface, String> {
-        self.capabilities.check(Feature::ExtensionWebviews)?;
-        let view = Webview::create(
+        self.create_page_surface(
             Page {
                 source,
                 instance: id,
                 data,
                 kind,
+                panel_instance: None,
+                transparent: false,
             },
-            &self.theme,
-            self.metrics,
             window,
             cx,
-        )?;
+        )
+    }
+
+    fn create_page_surface(
+        &mut self,
+        page: Page,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<Surface, String> {
+        self.capabilities.check(Feature::ExtensionWebviews)?;
+        let view = Webview::create(page, &self.theme, self.metrics, window, cx)?;
         let subscription =
             cx.subscribe_in(
                 &view,
@@ -494,9 +506,13 @@ impl AppModel {
             "tabs.open" if view.read(cx).source.owner == "foundation" => {
                 self.open_page_tab(view, args, cx)
             }
-            "panels.open" | "panels.toggle" | "panels.close" => {
+            "panels.open" | "panels.toggle" | "panels.close" | "panels.update" | "panels.list" => {
                 self.panel_request(view, request, window, cx)
             }
+            "panel.update" | "panel.get" | "panel.raise" => match &panel {
+                Some(panel) => self.own_panel_request(panel, request, window, cx),
+                None => Err("only a panel can change its own frame and options".into()),
+            },
             "modal.openWebview" => self
                 .open_webview_modal(view, args, window, cx)
                 .map(|id| json!({"requestID":id})),
@@ -609,11 +625,22 @@ impl AppModel {
             || self.dialogs.is_open()
             || pane.is_some_and(|pane| !self.visible_panes().contains(&pane))
             || (view.read(cx).kind == SurfaceKind::Panel
-                && !self.webviews.panels.iter().any(|(id, panel)| {
-                    panel.surface.view == *view && self.panels.placement(id).is_some()
-                }))
+                && !self
+                    .webviews
+                    .panels
+                    .iter()
+                    .any(|(id, panel)| panel.surface.view == *view && self.webview_panel_shown(id)))
         {
             return;
+        }
+        if let Some(id) = self
+            .webviews
+            .panels
+            .iter()
+            .find(|(_, panel)| panel.surface.view == *view && panel.detached)
+            .map(|(id, _)| id.clone())
+        {
+            self.raise_floating(&id, cx);
         }
         if let Some(pane) = pane {
             self.focus_pane(pane, cx);
@@ -910,6 +937,47 @@ impl AppModel {
         .into_any_element()
     }
 
+    /// Marks where a see-through page sits among the app's layers without
+    /// hiding the pages under it: only what is drawn after it covers it.
+    pub(crate) fn webview_layer(&self, owner: gpui::EntityId) -> gpui::AnyElement {
+        use gpui::{IntoElement, Styled};
+        let occlusions = self.webviews.occlusions.clone();
+        gpui::canvas(
+            move |_, _, _| {
+                occlusions
+                    .borrow_mut()
+                    .push((Some(owner), gpui::Bounds::default()));
+            },
+            |_, (), _, _| (),
+        )
+        .absolute()
+        .size_0()
+        .into_any_element()
+    }
+
+    /// Makes [`Self::webview_grip`]s without borrowing the model, for an
+    /// element that builds its grips itself.
+    pub(crate) fn webview_grips(
+        &self,
+        owner: Option<gpui::EntityId>,
+    ) -> impl Fn(gpui::CursorStyle) -> gpui::AnyElement + 'static {
+        use gpui::{IntoElement, Styled};
+        let grips = self.webviews.grips.clone();
+        move |cursor| {
+            let grips = grips.clone();
+            gpui::canvas(
+                move |bounds, window, _| {
+                    let visible = bounds.intersect(&window.content_mask().bounds);
+                    grips.borrow_mut().push((owner, visible, cursor));
+                },
+                |_, (), _, _| (),
+            )
+            .absolute()
+            .size_full()
+            .into_any_element()
+        }
+    }
+
     /// Lets the web views under this element pass clicks through to it and
     /// show `cursor` over it.
     pub(crate) fn webview_grip(
@@ -1164,6 +1232,7 @@ fn occlusions_for(id: gpui::EntityId, occlusions: &[Occlusion]) -> Vec<gpui::Bou
     occlusions[start..]
         .iter()
         .map(|(_, bounds)| *bounds)
+        .filter(|bounds| !bounds.is_empty())
         .collect()
 }
 

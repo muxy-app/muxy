@@ -353,6 +353,41 @@ impl Render for Tooltip {
     }
 }
 
+/// Hides native pages under a tooltip, which the app draws after their
+/// occlusions were applied.
+pub type TooltipCover = std::rc::Rc<dyn Fn(gpui::Bounds<Pixels>)>;
+
+struct CoveringTooltip {
+    content: gpui::Entity<Tooltip>,
+    cover: TooltipCover,
+}
+
+impl Render for CoveringTooltip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let cover = self.cover.clone();
+        div().relative().child(self.content.clone()).child(
+            gpui::canvas(move |bounds, _, _| cover(bounds), |_, (), _, _| ())
+                .absolute()
+                .inset_0()
+                .size_full(),
+        )
+    }
+}
+
+/// A tooltip that `cover` keeps visible above native pages.
+pub fn covering_tooltip(
+    text: impl Into<SharedString>,
+    theme: &Theme,
+    cover: TooltipCover,
+) -> impl Fn(&mut Window, &mut App) -> gpui::AnyView + 'static {
+    let tooltip = Tooltip::themed(text, theme);
+    move |_, cx| {
+        let content = cx.new(|_| tooltip.clone());
+        let cover = cover.clone();
+        cx.new(|_| CoveringTooltip { content, cover }).into()
+    }
+}
+
 pub fn tooltip(
     text: impl Into<SharedString>,
     theme: &Theme,

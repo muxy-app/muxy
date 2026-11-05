@@ -27,7 +27,7 @@ pub(crate) struct Scope {
 
 pub(crate) struct AgentSessions {
     pub(crate) input: Option<Entity<TextInput>>,
-    pub(crate) controls: [FocusHandle; 5],
+    pub(crate) controls: [FocusHandle; 6],
     pub(crate) listing: Listing,
     pub(crate) filtered: Vec<usize>,
     pub(crate) scope: Option<Scope>,
@@ -88,6 +88,9 @@ impl AppModel {
         self.appearance.agent_sessions_visible = !self.appearance.agent_sessions_visible;
         self.save_appearance(cx);
         self.sync_agent_sessions(cx);
+        if self.agent_sessions_detached_shown() {
+            self.raise_floating(&PanelId::new(PANEL), cx);
+        }
         if self.appearance.agent_sessions_visible {
             if let Some(input) = &self.agent_sessions.input {
                 self.focus_owner.place(&input.focus_handle(cx), window);
@@ -102,7 +105,10 @@ impl AppModel {
         let id = PanelId::new(PANEL);
         if self.appearance.agent_sessions_visible {
             let placement = self.agent_sessions_placement();
-            if self.panels.placement(&id) != Some(&placement) {
+            if self.appearance.agent_sessions_detached {
+                self.panels.remove(&id);
+                self.agent_sessions.resize.end();
+            } else if self.panels.placement(&id) != Some(&placement) {
                 self.place_panel(placement, cx);
             }
             if self.agent_sessions.input.is_none() {

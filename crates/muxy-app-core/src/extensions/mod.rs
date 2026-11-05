@@ -1,5 +1,6 @@
 mod audit;
 mod manifest;
+pub mod panels;
 mod permissions;
 mod storage;
 

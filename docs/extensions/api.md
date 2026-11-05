@@ -17,11 +17,11 @@ a message.
 
 | Namespace | Pages | Scripts | Background |
 | --- | :-: | :-: | :-: |
-| `notifications`, `dialog`, `storage`, `shortcuts`, `topbar`, `statusbar`, `agents`, `gh`, `git`, `exec`, `modal` | ✓ | ✓ | ✓ |
+| `notifications`, `dialog`, `storage`, `shortcuts`, `topbar`, `statusbar`, `agents`, `gh`, `git`, `exec`, `modal`, `panels` | ✓ | ✓ | ✓ |
 | `tabs.open` | ✓ | ✓ | ✓ |
 | other `tabs`, `panes`, `projects`, `workspaces`, `worktrees`, `files`, `toast`, `execAsync` | ✓ | ✓ | |
 | `events` | ✓ | | ✓ |
-| `tabs.setTitle`, `tabs.setIcon`, `panels`, `popover`, `http`, `lifecycle`, `data`, `theme` | ✓ | | |
+| `tabs.setTitle`, `tabs.setIcon`, `panel`, `popover`, `http`, `lifecycle`, `data`, `theme` | ✓ | | |
 
 Scripts and background scripts also have `setTimeout`, `setInterval`, and
 their `clear` functions.
@@ -111,6 +111,8 @@ computer, even for remote projects. It is cached for five minutes.
 | --- | --- |
 | `extensionID` | The extension's name (everywhere) |
 | `tabInstanceID`, `panelID` | This view's ID |
+| `panelInstanceID` | A panel's [instance](panels.md#instances) name, or `null` |
+| `panel` | The calling panel's frame and options. See [Panels](panels.md#from-the-panel-itself) |
 | `data`, `onDataChange(fn)` | The view's data. See [Tabs](tabs.md#page-data) |
 | `theme`, `onThemeChange(fn)` | Theme colors. See [Tabs](tabs.md#theme) |
 | `focused`, `onFocus(fn)` | Whether the view has focus |

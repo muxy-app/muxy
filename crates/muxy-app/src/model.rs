@@ -13,6 +13,7 @@ mod coverage;
 mod diagnostics;
 pub(crate) mod dialogs;
 pub(crate) mod extensions;
+pub(crate) mod floating;
 pub(crate) mod focus;
 pub(crate) mod git;
 mod language;
@@ -132,6 +133,7 @@ pub(crate) struct AppModel {
     pub(crate) webviews: webviews::Webviews,
     pub(crate) browsers: browsers::Browsers,
     pub(crate) panels: muxy_ui::panel::PanelHost,
+    pub(crate) floating: floating::Floating,
     pub(crate) composer: composer::ComposerRuntime,
     pub(crate) git: git::GitState,
     pub(crate) ai: ai::Runtime,
@@ -576,6 +578,7 @@ impl AppModel {
             webviews: webviews::Webviews::default(),
             browsers: browsers::Browsers::default(),
             panels: muxy_ui::panel::PanelHost::default(),
+            floating: floating::Floating::default(),
             composer: composer::ComposerRuntime::new(boot.composer),
             git: git::GitState::default(),
             ai: ai::Runtime::default(),
@@ -2893,6 +2896,7 @@ pub(crate) mod tests {
     mod dialogs;
     mod extension_authoring;
     mod find;
+    mod floating;
     mod focus;
     mod git;
     mod layout_drag;
