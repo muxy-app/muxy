@@ -62,6 +62,7 @@ impl Boot {
             )
         });
         let import_message = crate::backup::apply_pending(profile)?.or(migration);
+        reset_close_shortcuts_once(profile);
         let state = store::load(&state_path)?;
         let settings =
             muxy_app_core::settings::Settings::load(&state_path.with_file_name("settings.toml"))?;
@@ -98,6 +99,23 @@ impl Boot {
             workers,
             updates,
         })
+    }
+}
+
+/// Marks a profile whose close tab and close pane shortcuts were checked.
+const CLOSE_SHORTCUTS_CHECKED: &str = "close-shortcuts-checked";
+
+/// Profiles imported from Muxy 1.x kept ⌘W on close tab. Puts close tab and
+/// close pane back on their defaults once, so a later choice of the same keys
+/// stays. A failure leaves the profile unmarked to try again next launch.
+fn reset_close_shortcuts_once(profile: &std::path::Path) {
+    let checked = profile.join(CLOSE_SHORTCUTS_CHECKED);
+    if checked.exists() {
+        return;
+    }
+    let settings = profile.join("settings.toml");
+    if muxy_app_core::settings::Keymap::reset_swapped_close_shortcuts(&settings).is_ok() {
+        let _ = std::fs::write(checked, b"");
     }
 }
 

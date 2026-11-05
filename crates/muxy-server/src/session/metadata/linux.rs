@@ -69,7 +69,7 @@ pub(super) fn agent_provider(group: u32) -> Option<muxy_protocol::AgentProvider>
                 .take(64)
                 .map(|b| String::from_utf8_lossy(b).into_owned())
                 .collect::<Vec<_>>();
-            crate::detection::identify(&name, &args)
+            crate::detection::identify_member(&name, &args, pid == group)
         })
 }
 

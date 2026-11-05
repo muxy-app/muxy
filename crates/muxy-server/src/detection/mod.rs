@@ -369,6 +369,19 @@ fn python_program<'a>(runtime: &str, argv: &'a [String]) -> Option<&'a str> {
     None
 }
 
+/// The agent a member of a foreground process group runs. A one-shot
+/// `claude -p` under another program is that program's helper, not a session
+/// in this terminal; one the terminal runs directly still counts.
+pub(crate) fn identify_member(name: &str, argv: &[String], leader: bool) -> Option<AgentProvider> {
+    let provider = identify(name, argv)?;
+    let one_shot = provider == AgentProvider::Claude
+        && argv
+            .iter()
+            .skip(1)
+            .any(|arg| arg == "-p" || arg == "--print");
+    (leader || !one_shot).then_some(provider)
+}
+
 fn basename(value: &str) -> &str {
     value.rsplit('/').next().unwrap_or(value)
 }

@@ -972,3 +972,44 @@ fn a_panel_layout_round_trips_and_a_broken_frame_keeps_the_pop_out_choice() -> R
     );
     Ok(())
 }
+
+#[test]
+fn close_tab_and_close_pane_swapped_by_a_one_x_import_return_to_their_defaults() -> Result {
+    let fixture = Fixture::new()?;
+    let pane = ShortcutId::ClosePane.definition().keys[0];
+    let tab = ShortcutId::CloseTab.definition().keys[0];
+    let path = fixture.write(
+        "settings.toml",
+        &format!("[keymap]\nclose_tab = '{pane}'\nclose_pane = '{tab}'\nnew_tab = 'cmd-alt-n'\n"),
+    )?;
+    assert!(Keymap::reset_swapped_close_shortcuts(&path)?);
+    let keymap = Settings::load(&path)?.keymap;
+    let defaults = Keymap::default();
+    assert_eq!(
+        keymap.chord(ShortcutId::ClosePane),
+        defaults.chord(ShortcutId::ClosePane)
+    );
+    assert_eq!(
+        keymap.chord(ShortcutId::CloseTab),
+        defaults.chord(ShortcutId::CloseTab)
+    );
+    assert_eq!(
+        keymap.binding("new_tab").map(KeyChord::as_str),
+        Some("cmd-alt-n")
+    );
+    assert!(!Keymap::reset_swapped_close_shortcuts(&path)?);
+    Ok(())
+}
+
+#[test]
+fn chosen_close_shortcuts_and_missing_files_are_left_alone() -> Result {
+    let fixture = Fixture::new()?;
+    let source = "[keymap]\nclose_tab = 'cmd-alt-w'\n";
+    let path = fixture.write("settings.toml", source)?;
+    assert!(!Keymap::reset_swapped_close_shortcuts(&path)?);
+    assert_eq!(fs::read_to_string(&path)?, source);
+    let missing = fixture.0.join("missing.toml");
+    assert!(!Keymap::reset_swapped_close_shortcuts(&missing)?);
+    assert!(!missing.exists());
+    Ok(())
+}
