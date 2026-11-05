@@ -951,3 +951,41 @@ fn reports_belong_to_the_agent_they_name_or_to_the_running_one() {
     );
     assert_eq!(reporting_agent(codex, claude, None), (codex, None));
 }
+
+#[test]
+fn group_members_count_as_agents_unless_they_are_a_programs_one_shot_helper() {
+    let args = |args: &[&str]| args.iter().map(ToString::to_string).collect::<Vec<_>>();
+    let claude = Some(AgentProvider::Claude);
+    let print = args(&["/home/me/.local/bin/claude", "-p", "prompt"]);
+    assert_eq!(identify_member("claude", &print, false), None);
+    assert_eq!(identify_member("claude", &print, true), claude);
+    assert_eq!(
+        identify_member("claude", &args(&["claude", "--print", "prompt"]), false),
+        None
+    );
+    assert_eq!(
+        identify_member(
+            "node",
+            &args(&[
+                "node",
+                "/lib/@anthropic-ai/claude-code/cli.js",
+                "-p",
+                "prompt"
+            ]),
+            false
+        ),
+        None
+    );
+    assert_eq!(
+        identify_member(
+            "node",
+            &args(&["node", "/lib/@anthropic-ai/claude-code/cli.js"]),
+            false
+        ),
+        claude
+    );
+    assert_eq!(
+        identify_member("codex", &args(&["codex", "-p", "work"]), false),
+        Some(AgentProvider::Codex)
+    );
+}
