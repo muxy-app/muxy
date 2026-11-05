@@ -27,6 +27,7 @@ pub(crate) enum Change {
     AgentsPanel(bool),
     AgentsPanelGrouping(muxy_app_core::settings::AgentsPanelGrouping),
     AgentsPanelIcon(muxy_app_core::settings::AgentsPanelIcon),
+    AgentsPanelDensity(muxy_app_core::settings::AgentsPanelDensity),
     AgentsPanelOption(AgentsPanelToggle, bool),
     StatusBar(bool),
     Tips(bool),
@@ -541,6 +542,10 @@ impl AppModel {
             }
             Change::AgentsPanelIcon(icon) => {
                 settings.appearance.agents_panel_icon = icon;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::AgentsPanelDensity(density) => {
+                settings.appearance.agents_panel_density = density;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
             Change::AgentsPanelOption(toggle, value) => {
@@ -1132,6 +1137,7 @@ fn change_id(change: &Change) -> &str {
         Change::AgentsPanel(_) => "agents-panel",
         Change::AgentsPanelGrouping(_) => "agents-panel-grouping",
         Change::AgentsPanelIcon(_) => "agents-panel-icon",
+        Change::AgentsPanelDensity(_) => "agents-panel-density",
         Change::StatusBar(_) => "status-bar",
         Change::Tips(_) => "tips",
         Change::RememberProjectsWithoutTabs(_) => "remember-projects-without-tabs",

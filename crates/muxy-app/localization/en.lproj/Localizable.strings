@@ -167,6 +167,7 @@
 "Agents Focused" = "Agents Focused";
 "Agents Panel" = "Agents Panel";
 "Agents panel" = "Agents panel";
+"Agents panel density" = "Agents panel density";
 "Agents panel icon" = "Agents panel icon";
 "Agents panel rows" = "Agents panel rows";
 "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy." = "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy.";
@@ -509,6 +510,7 @@
 "Committed and pushed" = "Committed and pushed";
 "Committed locally" = "Committed locally";
 "Committing" = "Committing";
+"Compact" = "Compact";
 "Completed" = "Completed";
 "Composer" = "Composer";
 "Composer font" = "Composer font";
@@ -1253,6 +1255,7 @@
 "No symbols found" = "No symbols found";
 "No tabs in %@" = "No tabs in %@";
 "No update for this platform" = "No update for this platform";
+"Normal" = "Normal";
 "Not Now" = "Not Now";
 "Not assigned" = "Not assigned";
 "Not available in Muxy 2 (%lld): %@" = "Not available in Muxy 2 (%lld): %@";
@@ -1696,6 +1699,7 @@
 "Show all" = "Show all";
 "Show an enabled extension's sidebar in place of the built-in one." = "Show an enabled extension's sidebar in place of the built-in one.";
 "Show connection and terminal information at the bottom of the workspace." = "Show connection and terminal information at the bottom of the workspace.";
+"Show each agent on two lines with its project, agent and status, or fit more on one line each." = "Show each agent on two lines with its project, agent and status, or fit more on one line each.";
 "Show each agent's icon, or the icon of the project it runs in." = "Show each agent's icon, or the icon of the project it runs in.";
 "Show how long ago each completed or idle agent finished working." = "Show how long ago each completed or idle agent finished working.";
 "Show idle time" = "Show idle time";

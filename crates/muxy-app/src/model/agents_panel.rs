@@ -22,6 +22,16 @@ pub(crate) enum AgentStatus {
 
 impl AgentStatus {
     pub(crate) const ALL: [Self; 4] = [Self::Blocked, Self::Working, Self::Completed, Self::Idle];
+
+    /// How early a row sorts. Completed and idle agents rank together, so
+    /// opening a finished agent, which reads its finish, doesn't move it.
+    pub(crate) fn urgency(self) -> u8 {
+        match self {
+            Self::Blocked => 0,
+            Self::Working => 1,
+            Self::Completed | Self::Idle => 2,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,16 +77,6 @@ impl Entry {
             Self::Worktree { project, .. } => EntryKey::Worktree(*project),
         }
     }
-}
-
-/// Whether the agent at `index` is the first listed for its project, so a
-/// project heading goes above it. Project rows have no headings.
-pub(crate) fn starts_project_group(entries: &[Entry], index: usize) -> bool {
-    let Entry::Agent(agent) = &entries[index] else {
-        return false;
-    };
-    index == 0
-        || !matches!(&entries[index - 1], Entry::Agent(previous) if previous.project == agent.project)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -214,7 +214,7 @@ impl AppModel {
                 }
             }
         }
-        agents.sort_by_key(|agent| agent.status);
+        agents.sort_by_key(|agent| agent.status.urgency());
         agents
     }
 
@@ -228,7 +228,7 @@ impl AppModel {
         let order = self.agents_project_order();
         let rank = |project: &ProjectId| order.get(project).copied().unwrap_or(usize::MAX);
         if self.appearance.agents_panel_grouping == AgentsPanelGrouping::Agents {
-            agents.sort_by_key(|agent| (rank(&agent.project), agent.status));
+            agents.sort_by_key(|agent| (rank(&agent.project), agent.status.urgency()));
             return agents.into_iter().map(Entry::Agent).collect();
         }
         let mut entries: Vec<(ProjectId, [usize; 4])> = Vec::new();
@@ -394,10 +394,7 @@ impl AppModel {
             .unwrap_or(0);
         let next = current.saturating_add_signed(delta).min(entries.len() - 1);
         self.agents_panel.selected = Some(entries[next].key());
-        let headings = (0..=next)
-            .filter(|index| starts_project_group(&entries, *index))
-            .count();
-        self.agents_panel.scroll.scroll_to_item(next + headings);
+        self.agents_panel.scroll.scroll_to_item(next);
         cx.notify();
     }
 

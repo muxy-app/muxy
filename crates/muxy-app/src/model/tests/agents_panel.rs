@@ -1,10 +1,8 @@
 use super::worktrees::{Sent, connected, pruning_fixture};
 use super::*;
-use crate::model::agents_panel::{
-    AgentStatus, Entry, EntryKey, Placement, RunningAgent, starts_project_group,
-};
+use crate::model::agents_panel::{AgentStatus, Entry, EntryKey, Placement, RunningAgent};
 use gpui::Modifiers;
-use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping};
+use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping};
 use muxy_core::shortcuts::ShortcutId;
 use muxy_protocol::{
     ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity, AgentProvider, AgentState,
@@ -128,10 +126,6 @@ fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppCo
             [home_pane, root_pane, worktree_pane],
             "agents follow sidebar order, with a worktree after its project"
         );
-        assert!(
-            (0..entries.len()).all(|index| starts_project_group(&entries, index)),
-            "each project gets its own heading"
-        );
 
         let resting = |pane, project, session, status| RunningAgent {
             server: ServerId::local(),
@@ -164,12 +158,6 @@ fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppCo
             ],
             "the most urgent agent leads its project"
         );
-        assert_eq!(
-            (0..entries.len())
-                .map(|index| starts_project_group(&entries, index))
-                .collect::<Vec<_>>(),
-            [true, true, false]
-        );
 
         model.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
         let entries = model.agents_panel_entries();
@@ -181,10 +169,6 @@ fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppCo
                 Entry::Worktree { project: third, counts: [1, 0, 0, 0] },
             ] if *first == home && *second == fixture.root && *third == fixture.worktree
         ));
-        assert!(
-            !starts_project_group(&entries, 0),
-            "project rows have no headings"
-        );
     });
 }
 
@@ -660,8 +644,8 @@ fn the_floating_panel_moves_by_its_header_and_resizes_by_its_corner(cx: &mut Tes
 }
 
 #[gpui::test]
-fn rows_sit_under_their_project_heading_with_status_on_the_right(cx: &mut TestAppContext) {
-    let (view, cx, fixture) = agents(cx);
+fn normal_rows_add_a_details_line_and_compact_rows_fit_on_one(cx: &mut TestAppContext) {
+    let (view, cx, _fixture) = agents(cx);
     cx.simulate_resize(size(px(1200.0), px(800.0)));
     view.update(cx, |model, cx| {
         model.appearance.sidebar_expanded = true;
@@ -670,37 +654,51 @@ fn rows_sit_under_their_project_heading_with_status_on_the_right(cx: &mut TestAp
     });
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();
-    assert!(cx.debug_bounds("agents-panel").is_some(), "panel");
     let key = EntryKey::Agent(ServerId::local(), SessionId::new(1).expect("session"));
-    let bounds = |cx: &mut VisualTestContext, selector: String| cx.debug_bounds(selector.leak());
-    let heading = bounds(cx, format!("agents-panel-heading-{}", fixture.root)).expect("heading");
-    let title = bounds(cx, format!("agents-panel-title-{key}")).expect("title");
-    let status = bounds(cx, format!("agents-panel-status-{key}")).expect("status");
-    assert!(heading.bottom() <= title.top());
+    let bounds = |cx: &mut VisualTestContext, selector: String| {
+        cx.debug_bounds(selector.leak()).expect("bounds")
+    };
+    let row = bounds(cx, format!("agents-panel-row-{key}"));
+    let title = bounds(cx, format!("agents-panel-title-{key}"));
+    let details = bounds(cx, format!("agents-panel-details-{key}"));
+    let status = bounds(cx, format!("agents-panel-status-{key}"));
     assert!(
-        status.left() >= title.right(),
-        "status sits right of the title"
+        title.bottom() <= details.top(),
+        "details sit under the title"
     );
-    let name = cx.debug_bounds("agents-panel-name").expect("panel name");
-    let hide = cx.debug_bounds("agents-panel-hide").expect("hide button");
-    assert_eq!(
-        heading.left(),
-        name.left(),
-        "headings line up with the panel name"
-    );
-    assert_eq!(
-        status.right(),
-        hide.right(),
-        "status lines up with the hide button"
-    );
+    assert!(status.left() >= title.right() && status.right() <= row.right());
     assert!(
-        bounds(cx, format!("agents-panel-{key}-progress")).is_some(),
+        cx.debug_bounds(format!("agents-panel-{key}-progress").leak())
+            .is_some(),
         "a working agent shows the tab's progress glyph"
+    );
+    let normal = row.size.height;
+
+    view.update(cx, |model, cx| {
+        model.appearance.agents_panel_density = AgentsPanelDensity::Compact;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let row = bounds(cx, format!("agents-panel-row-{key}"));
+    let project = bounds(cx, format!("agents-panel-project-label-{key}"));
+    let title = bounds(cx, format!("agents-panel-title-{key}"));
+    assert!(
+        row.size.height <= px(24.0) && row.size.height < normal,
+        "compact rows are one short line: {row:?}"
+    );
+    assert!(
+        project.right() <= title.left(),
+        "the project leads the title"
+    );
+    assert!(
+        title.size.width > row.size.width * 0.4,
+        "the title gets the row's room: {title:?} in {row:?}"
     );
 }
 
 #[gpui::test]
-fn the_docked_panel_matches_the_agents_focused_sidebar(cx: &mut TestAppContext) {
+fn the_docked_panel_lines_up_with_the_agents_focused_sidebar(cx: &mut TestAppContext) {
     let (view, cx, fixture) = agents(cx);
     cx.simulate_resize(size(px(1200.0), px(800.0)));
     let tab = view.update(cx, |model, cx| {
@@ -725,13 +723,111 @@ fn the_docked_panel_matches_the_agents_focused_sidebar(cx: &mut TestAppContext) 
     let panel_row = bounds(cx, format!("agents-panel-row-{key}"));
     assert_eq!(panel_row.left(), sidebar_row.left());
     assert_eq!(panel_row.right(), sidebar_row.right());
-    assert_eq!(panel_row.size.height, sidebar_row.size.height);
+}
+
+#[gpui::test]
+fn pressing_a_row_highlights_it_instead_of_the_agent_being_left(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    let [root_pane, _, _, home_pane] = fixture.panes;
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model.focus_pane(root_pane, cx);
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let home = EntryKey::Agent(ServerId::local(), SessionId::new(3).expect("session"));
+    let row = cx
+        .debug_bounds(format!("agents-panel-row-{home}").leak())
+        .expect("row")
+        .center();
+    cx.simulate_mouse_down(row, gpui::MouseButton::Left, Modifiers::none());
+    view.read_with(cx, |model, _| {
+        let entries = model.agents_panel_entries();
+        assert_eq!(
+            model.selected_agents_entry(&entries),
+            Some(home),
+            "the pressed row lights up, not the active agent"
+        );
+    });
+    cx.simulate_mouse_up(row, gpui::MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.active_pane(), Some(home_pane));
+        assert_eq!(
+            model.active_agents_entry(&model.agents_panel_entries()),
+            Some(home)
+        );
+    });
+}
+
+#[gpui::test]
+fn reading_a_finish_keeps_the_row_in_place(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    let local = ServerId::local();
+    let session = |id| SessionId::new(id).expect("session");
+    view.update(cx, |model, cx| {
+        let tab = model.state.open_terminal_tab(fixture.root).expect("tab");
+        let pane = model
+            .state
+            .project(fixture.root)
+            .and_then(|project| project.tabs.iter().find(|entry| entry.id == tab))
+            .expect("tab")
+            .panes[0]
+            .id;
+        model.receive_attached(local, pane, session(5), attachment(), false, cx);
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
+        snapshot.revision += 1;
+        snapshot.agents = vec![
+            AgentActivity {
+                session: session(1),
+                project: fixture.root,
+                provider: AgentProvider::Claude,
+                state: AgentState::Idle,
+            },
+            AgentActivity {
+                session: session(5),
+                project: fixture.root,
+                provider: AgentProvider::Claude,
+                state: AgentState::Idle,
+            },
+        ];
+        snapshot.events = vec![ActivityEvent {
+            id: 9,
+            session: session(5),
+            project: fixture.root,
+            provider: AgentProvider::Claude,
+            timestamp: 0,
+            kind: ActivityKind::Completed,
+            read: false,
+        }];
+        model.receive_activity(local, Ok(snapshot), cx);
+    });
+    let order = |view: &Entity<AppModel>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |model, _| {
+            model
+                .agents_panel_entries()
+                .iter()
+                .map(Entry::key)
+                .collect::<Vec<_>>()
+        })
+    };
+    let before = order(&view, cx);
     assert_eq!(
-        bounds(cx, format!("agents-panel-heading-{}", fixture.root)).left(),
-        bounds(cx, format!("tab-project-title-{}", fixture.root)).left()
+        before,
+        [
+            EntryKey::Agent(local, session(1)),
+            EntryKey::Agent(local, session(5))
+        ],
+        "a finished agent doesn't jump ahead of a resting one"
     );
-    assert_eq!(
-        bounds(cx, format!("agents-panel-status-{key}")).right(),
-        bounds(cx, format!("sidebar-tab-accessory-{tab}")).right()
-    );
+    view.update(cx, |model, cx| {
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
+        snapshot.revision += 1;
+        snapshot.events[0].read = true;
+        model.receive_activity(local, Ok(snapshot), cx);
+    });
+    assert_eq!(order(&view, cx), before, "reading the finish moves nothing");
 }
