@@ -414,3 +414,19 @@ fn the_interface_size_migrates_from_muxy_1() {
         assert!(report.skipped.is_empty());
     }
 }
+
+#[test]
+fn one_x_close_tab_and_close_pane_defaults_take_the_two_x_defaults() {
+    let source = json!({
+        "shortcuts.app": {
+            "closeTab": {"key":"w", "modifiers":1_048_576},
+            "closePane": {"key":"w", "modifiers":1_179_648}
+        }
+    });
+    let (settings, report) =
+        backup::import_settings(&serde_json::to_vec(&source).unwrap(), &Settings::default())
+            .unwrap();
+    assert_eq!(settings.keymap, Settings::default().keymap);
+    assert_eq!(report.imported, 2);
+    assert!(report.attention.is_empty());
+}

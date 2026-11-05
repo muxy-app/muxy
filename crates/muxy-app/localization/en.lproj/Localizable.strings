@@ -474,6 +474,8 @@
 "Closed" = "Closed";
 "Closed PR #%lld" = "Closed PR #%lld";
 "Closed pane cleanup is pending: %@" = "Closed pane cleanup is pending: %@";
+"Closes only the focused split pane. Closing a tab's last pane closes the tab." = "Closes only the focused split pane. Closing a tab's last pane closes the tab.";
+"Closes the whole tab, including every split pane inside it." = "Closes the whole tab, including every split pane inside it.";
 "Closing PR #%lld" = "Closing PR #%lld";
 "Closing terminals" = "Closing terminals";
 "Cloud" = "Cloud";

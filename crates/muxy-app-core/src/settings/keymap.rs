@@ -169,6 +169,26 @@ impl Keymap {
         &self.1
     }
 
+    /// Muxy 1.x closed a tab with ⌘W and a pane with ⇧⌘W, and importing it
+    /// kept those keys. Puts both actions back on their defaults in a settings
+    /// file that binds either one to the other's default key. Returns whether
+    /// the file changed; one that would no longer load is left alone.
+    pub fn reset_swapped_close_shortcuts(path: &std::path::Path) -> Result<bool> {
+        let error = |error| Error::new("keymap", error);
+        let document = crate::settings::appearance::read_document(path).map_err(error)?;
+        if close_shortcuts_reset(&document).is_none() {
+            return Ok(false);
+        }
+        crate::settings::appearance::edit_document(path, |document| {
+            let Some(keymap) = close_shortcuts_reset(document) else {
+                return Ok(false);
+            };
+            document.insert("keymap".into(), toml::Value::Table(keymap));
+            Ok(true)
+        })
+        .map_err(error)
+    }
+
     fn from_overrides(mut overrides: BTreeMap<String, String>) -> Result<Self> {
         overrides.retain(|name, _| !RETIRED.contains(&name.as_str()));
         let mut keymap = Self(Self::default().0, overrides.clone());
@@ -282,6 +302,35 @@ const FORMER_LINUX_DEFAULTS: [(&str, &str); 2] = [
     ("new_worktree", "cmd-alt-n"),
     ("switch_worktree", "cmd-alt-w"),
 ];
+
+/// The `[keymap]` table without the close tab and close pane overrides, when
+/// either holds the other's default key and the result still loads.
+fn close_shortcuts_reset(document: &toml::Table) -> Option<toml::Table> {
+    let keymap = document.get("keymap")?.as_table()?;
+    let defaults = Keymap::default();
+    let pairs = [
+        (ShortcutId::CloseTab, ShortcutId::ClosePane),
+        (ShortcutId::ClosePane, ShortcutId::CloseTab),
+    ];
+    let swapped = pairs.iter().any(|(action, other)| {
+        keymap
+            .get(action.name())
+            .and_then(toml::Value::as_str)
+            .and_then(|value| value.parse::<KeyChord>().ok())
+            .is_some_and(|chord| defaults.chord(*other) == Some(&chord))
+    });
+    if !swapped {
+        return None;
+    }
+    let mut reset = keymap.clone();
+    for (action, _) in pairs {
+        reset.remove(action.name());
+    }
+    toml::Value::Table(reset.clone())
+        .try_into::<Keymap>()
+        .is_ok()
+        .then_some(reset)
+}
 
 fn former_linux_default(name: &str, value: &str) -> bool {
     !cfg!(target_os = "macos") && FORMER_LINUX_DEFAULTS.contains(&(name, value))
