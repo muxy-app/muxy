@@ -75,7 +75,8 @@ impl Session {
     }
 }
 
-fn valid_id(id: &str) -> bool {
+/// Whether `id` is safe to pass to an agent's command line as a session ID.
+pub fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 200
         && id.as_bytes()[0].is_ascii_alphanumeric()

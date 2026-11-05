@@ -451,6 +451,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Agents Panel"),
     },
     Setting {
+        id: "agents-panel-density",
+        label: tr_key!("Agents panel density"),
+        description: tr_key!(
+            "Group agents under project headings, or fit more in short rows that name their project."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
         id: "agents-panel-project-colors",
         label: tr_key!("Show project colors"),
         description: tr_key!("Mark each agent with the color of the project it runs in."),

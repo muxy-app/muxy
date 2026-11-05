@@ -73,6 +73,17 @@ pub enum AgentsPanelIcon {
     Project,
 }
 
+/// How much room each row of the agents panel takes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentsPanelDensity {
+    /// Project headings above rows as tall as sidebar tabs.
+    #[default]
+    Normal,
+    /// Short rows that name their project, without headings.
+    Compact,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentsPanelDock {
@@ -135,6 +146,7 @@ pub struct Appearance {
     pub agents_panel_docked_height: Option<f32>,
     pub agents_panel_grouping: AgentsPanelGrouping,
     pub agents_panel_icon: AgentsPanelIcon,
+    pub agents_panel_density: AgentsPanelDensity,
     pub agents_panel_project_colors: bool,
     pub agents_panel_idle_time: bool,
     pub agent_sessions_visible: bool,
@@ -181,6 +193,7 @@ impl Default for Appearance {
             agents_panel_docked_height: None,
             agents_panel_grouping: AgentsPanelGrouping::default(),
             agents_panel_icon: AgentsPanelIcon::default(),
+            agents_panel_density: AgentsPanelDensity::default(),
             agents_panel_project_colors: false,
             agents_panel_idle_time: false,
             agent_sessions_visible: false,

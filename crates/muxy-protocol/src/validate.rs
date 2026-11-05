@@ -302,6 +302,8 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         ReplyBody::Activity(snapshot) => {
             if snapshot.events.len() <= crate::ACTIVITY_HISTORY_LIMIT
                 && snapshot.agents.len() <= 16_384
+                && snapshot.tabs.len() <= 16_384
+                && snapshot.tabs.iter().all(|tab| tab.hosts.len() <= 1024)
             {
                 Ok(())
             } else {

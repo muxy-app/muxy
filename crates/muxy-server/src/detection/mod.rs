@@ -188,16 +188,33 @@ pub(crate) struct Detector {
     pub(crate) state: AgentState,
     pending: Option<Instant>,
     last_input: Option<(String, String, String)>,
+    background: bool,
     cycle: bool,
 }
 
 impl Detector {
+    #[cfg(test)]
     pub(crate) fn update(
         &mut self,
         provider: Option<AgentProvider>,
         screen: String,
         title: &str,
         progress: &str,
+        now: Instant,
+    ) -> bool {
+        self.update_with_background(provider, screen, title, progress, false, now)
+    }
+
+    /// Like `update`, where `background` says the agent reported work running
+    /// that its screen may not show, such as subagents. That work keeps an
+    /// idle screen working; anything the screen shows still takes priority.
+    pub(crate) fn update_with_background(
+        &mut self,
+        provider: Option<AgentProvider>,
+        screen: String,
+        title: &str,
+        progress: &str,
+        background: bool,
         now: Instant,
     ) -> bool {
         if self.provider != provider {
@@ -210,7 +227,7 @@ impl Detector {
             return false;
         };
         let input = (screen, title.to_owned(), progress.to_owned());
-        let unchanged = self.last_input.as_ref() == Some(&input);
+        let unchanged = self.last_input.as_ref() == Some(&input) && self.background == background;
         if unchanged && self.pending.is_none() {
             return false;
         }
@@ -223,10 +240,14 @@ impl Detector {
             },
         );
         self.last_input = Some(input);
-        let Some((next, explicit_idle)) = result else {
+        self.background = background;
+        let Some((mut next, explicit_idle)) = result else {
             self.pending = None;
             return false;
         };
+        if background && next == AgentState::Idle {
+            next = AgentState::Working;
+        }
         if next == AgentState::Idle
             && matches!(self.state, AgentState::Working | AgentState::Blocked)
         {

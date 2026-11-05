@@ -83,10 +83,24 @@ focus. Use the arrow keys and Return to open a row.
   edges or corner to resize it; Muxy remembers where. **Reattach to Sidebar** or
   **Reattach to Right Panel** docks it on its last side. The other side's move
   button is also available while floating.
-- **Settings → Appearance → Agents panel rows** lists each agent under its
+- **Settings → Appearance → Agents panel rows** lists each agent grouped by
   project, most urgent first, with its status on the right like its tab, where
   Return opens its pane; or each project and worktree running agents, with
   counts, where Return opens the worktree.
+- **Settings → Appearance → Agents panel density** puts project headings above
+  rows as tall as sidebar tabs (**Normal**), or fits more agents in short rows
+  that name their project before their title (**Compact**).
+- A row's title is the name you gave its tab, else the session title the agent
+  reports, else its terminal title.
+- OpenCode tabs that no terminal shows get their own dimmed rows under a
+  terminal whose OpenCode has them open, with their own working status. Return
+  switches that terminal to the tab with OpenCode's `ctrl+x` then `1`…`0`
+  shortcut, even from another project, so this needs its default leader key;
+  tabs past the tenth open in a new terminal tab with `opencode -s`. Closing
+  one of two terminals that share tabs moves its tab under the other at once.
+  An OpenCode session counts as working while its subagents or background
+  shells run, even with its prompt idle. This reads the OpenCode service and
+  the tabs it saves on the server's computer.
 - **Settings → Appearance → Agents panel icon** shows each row's agent icon,
   or the icon of its project. Worktrees show their project's icon.
 - **Settings → Appearance → Show project colors** marks each row with its

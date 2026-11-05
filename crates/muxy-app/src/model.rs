@@ -2474,6 +2474,16 @@ impl AppModel {
             let _ = self.state.set_startup_command(pane, &command);
             self.save(cx);
         }
+        if let Some((target, keys)) = self.agents_panel.pending_switch
+            && target == pane
+        {
+            self.agents_panel.pending_switch = None;
+            self.send(
+                server,
+                Work::Input(attachment.terminal.channel(), keys.to_vec()),
+                cx,
+            );
+        }
         if let Some(view) = self.terminal(&pane).map(|pane| pane.view.clone()) {
             let channel = attachment.terminal.channel();
             let size = view.update(cx, |pane, cx| pane.attach(server, attachment, cx));

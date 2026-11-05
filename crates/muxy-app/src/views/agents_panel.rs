@@ -4,7 +4,7 @@ use gpui::{
     MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Role, SharedString,
     StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
-use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelIcon};
+use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelDock, AgentsPanelIcon};
 use muxy_ui::accessibility::{self, OnPress};
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
@@ -15,8 +15,7 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 use crate::model::agents_panel::{
-    AgentStatus, Drag, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, Placement, RunningAgent,
-    starts_project_group,
+    AgentStatus, Drag, Entry, MIN_HEIGHT, MIN_WIDTH, Placement, RunningAgent, starts_project_group,
 };
 use crate::views::overlays::{Mark, OverlayView};
 
@@ -35,25 +34,46 @@ fn status_color(status: AgentStatus, model: &AppModel) -> Hsla {
     }
 }
 
-/// The agent's status as its terminal tab shows it.
+/// The agent's status as its terminal tab shows it. A hidden tab shows only
+/// whether its own work runs, since its terminal shows another tab.
 fn status_glyph(agent: &RunningAgent, owner: gpui::EntityId, model: &AppModel) -> AnyElement {
     let m = model.metrics;
-    let key = EntryKey::Agent(agent.server, agent.session);
+    let key = agent.key();
+    let status = if agent.hidden.is_some() {
+        hidden_status(agent.status)
+    } else {
+        super::tab_activity::agent_status(agent, model)
+    };
     div()
         .debug_selector(move || format!("agents-panel-status-{key}"))
         .flex_none()
-        .size(m.control_small())
+        .size(if compact(model) {
+            m.icon_sm() + m.spacing2()
+        } else {
+            m.control_small()
+        })
         .flex()
         .items_center()
         .justify_center()
         .child(super::tab_activity::status_glyph_in(
             format!("agents-panel-{key}"),
-            super::tab_activity::agent_status(agent, model),
+            status,
             m.icon_sm(),
             Some(owner),
             model,
         ))
         .into_any_element()
+}
+
+fn hidden_status(status: AgentStatus) -> super::tab_activity::Status {
+    if status == AgentStatus::Working {
+        super::tab_activity::Status::Progress(muxy_protocol::TerminalProgress {
+            state: muxy_protocol::ProgressState::Indeterminate,
+            percent: None,
+        })
+    } else {
+        super::tab_activity::Status::None
+    }
 }
 
 impl AppModel {
@@ -67,6 +87,16 @@ impl AppModel {
         {
             Some(parent) => format!("{} › {}", parent.name, project.name),
             None => self.project_title(project),
+        }
+    }
+
+    /// The project's short name in a row: a worktree's own name, since its
+    /// project's color and icon already lead the row.
+    fn agents_project_label(&self, project: muxy_app_core::ProjectId) -> String {
+        match self.state.project(project) {
+            Some(project) if project.parent_id.is_some() => project.name.clone(),
+            Some(project) => self.project_title(project),
+            None => String::new(),
         }
     }
 }
@@ -94,6 +124,12 @@ fn counts_description(counts: &[usize; 4]) -> String {
 /// What a row's icons and colors say, for clients that can't see them.
 fn entry_description(entry: &Entry, model: &AppModel) -> String {
     match entry {
+        Entry::Agent(agent) if agent.hidden.is_some() => format!(
+            "{}, {}, {}",
+            model.agents_location(agent.project),
+            tr!("In a background tab"),
+            status_name(agent.status)
+        ),
         Entry::Agent(agent) => format!(
             "{}, {}",
             model.agents_location(agent.project),
@@ -112,7 +148,7 @@ fn idle_time(agent: &RunningAgent, model: &AppModel) -> Option<AnyElement> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let key = EntryKey::Agent(agent.server, agent.session);
+    let key = agent.key();
     Some(
         div()
             .debug_selector(move || format!("agents-panel-idle-{key}"))
@@ -241,6 +277,10 @@ fn leading(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     )
 }
 
+fn compact(model: &AppModel) -> bool {
+    model.appearance.agents_panel_density == AgentsPanelDensity::Compact
+}
+
 fn entry_row(
     entry: &Entry,
     active: bool,
@@ -251,16 +291,16 @@ fn entry_row(
     let m = model.metrics;
     let theme = &model.theme;
     let key = entry.key();
-    let title = match entry {
-        Entry::Agent(agent) => model
-            .state
-            .project(agent.project)
-            .and_then(|project| project.tabs.iter().find(|tab| tab.id == agent.tab))
-            .map(|tab| tab.title(Some(agent.pane)).trim().to_owned())
-            .filter(|title| !title.is_empty())
-            .unwrap_or_else(|| agent.provider.name().to_owned()),
-        Entry::Worktree { project, .. } => model.agents_location(*project),
+    let compact = compact(model);
+    let (title, project) = match entry {
+        Entry::Agent(agent) => (
+            model.agent_title(agent),
+            Some(model.agents_project_label(agent.project))
+                .filter(|label| compact && !label.is_empty()),
+        ),
+        Entry::Worktree { project, .. } => (model.agents_location(*project), None),
     };
+    let hidden = matches!(entry, Entry::Agent(agent) if agent.hidden.is_some());
     let trailing = trailing(entry, model.agents_panel.owner.entity_id(), model);
     let leading = leading(entry, model);
     div()
@@ -272,32 +312,70 @@ fn entry_row(
         .debug_selector(move || format!("agents-panel-row-{key}"))
         .flex()
         .flex_none()
+        .w_full()
+        .min_w(px(0.0))
         .items_center()
-        .gap(m.spacing3())
-        .my(m.spacing1())
-        .pl(m.spacing4())
-        .when(matches!(entry, Entry::Worktree { .. }), |row| {
-            row.pr(m.spacing3())
+        .map(|row| {
+            if compact {
+                row.gap(m.spacing2())
+                    .pl(m.spacing3())
+                    .pr(m.spacing2())
+                    .h(m.scaled(22.0))
+                    .rounded(m.radius_sm())
+            } else {
+                row.gap(m.spacing3())
+                    .my(m.spacing1())
+                    .pl(m.spacing4())
+                    .when(matches!(entry, Entry::Worktree { .. }), |row| {
+                        row.pr(m.spacing3())
+                    })
+                    .h(super::tab_sidebar::row_height(model))
+                    .rounded(m.radius_md())
+            }
         })
-        .h(super::tab_sidebar::row_height(model))
-        .rounded(m.radius_md())
         .cursor_pointer()
         .when(active, |row| row.bg(theme.surface))
         .when(selected, |row| row.bg(theme.hover))
         .hover(|style| style.bg(theme.hover))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |model, _, _, cx| {
+                model.agents_panel.selected = Some(key);
+                cx.notify();
+            }),
+        )
         .on_press(cx.listener(move |model, _, window, cx| {
             model.open_agents_entry(key, window, cx);
         }))
         .children(leading)
         .child(
             div()
-                .debug_selector(move || format!("agents-panel-title-{key}"))
+                .flex()
                 .flex_1()
                 .min_w(px(0.0))
-                .truncate()
-                .text_size(m.font_body())
-                .text_color(theme.fg)
-                .child(title),
+                .items_baseline()
+                .gap(m.spacing2())
+                .overflow_hidden()
+                .children(project.map(|project| {
+                    div()
+                        .debug_selector(move || format!("agents-panel-project-label-{key}"))
+                        .flex_none()
+                        .max_w(gpui::relative(0.4))
+                        .truncate()
+                        .text_size(m.font_footnote())
+                        .text_color(theme.fg_dim)
+                        .child(project)
+                }))
+                .child(
+                    div()
+                        .debug_selector(move || format!("agents-panel-title-{key}"))
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .truncate()
+                        .text_size(m.font_body())
+                        .text_color(if hidden { theme.fg_muted } else { theme.fg })
+                        .child(title),
+                ),
         )
         .child(trailing)
         .into_any_element()
@@ -346,8 +424,10 @@ fn rows(
             )
             .into_any_element();
     }
+    let headings = !compact(model);
     for (index, entry) in entries.iter().enumerate() {
         if let Entry::Agent(agent) = entry
+            && headings
             && starts_project_group(entries, index)
         {
             let project = agent.project;
@@ -510,9 +590,18 @@ fn header(
         .flex_none()
         .items_center()
         .gap(m.spacing2())
-        .pl(inset(placement, model) + m.spacing4())
+        .pl(inset(placement, model)
+            + if compact(model) {
+                m.spacing3()
+            } else {
+                m.spacing4()
+            })
         .pr(inset(placement, model))
-        .h(m.control_large())
+        .h(if compact(model) {
+            m.control_medium()
+        } else {
+            m.control_large()
+        })
         .when(detached, |header| {
             header.cursor(gpui::CursorStyle::OpenHand).on_mouse_down(
                 MouseButton::Left,
@@ -573,7 +662,7 @@ fn body(
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(|model, _, window, cx| {
-                model.focus_agents_panel(window);
+                model.focus_owner.place(&model.agents_panel.focus, window);
                 cx.notify();
             }),
         )

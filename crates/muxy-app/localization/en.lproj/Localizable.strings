@@ -167,6 +167,7 @@
 "Agents Focused" = "Agents Focused";
 "Agents Panel" = "Agents Panel";
 "Agents panel" = "Agents panel";
+"Agents panel density" = "Agents panel density";
 "Agents panel icon" = "Agents panel icon";
 "Agents panel rows" = "Agents panel rows";
 "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy." = "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy.";
@@ -509,6 +510,7 @@
 "Committed and pushed" = "Committed and pushed";
 "Committed locally" = "Committed locally";
 "Committing" = "Committing";
+"Compact" = "Compact";
 "Completed" = "Completed";
 "Composer" = "Composer";
 "Composer font" = "Composer font";
@@ -910,6 +912,7 @@
 "Group" = "Group";
 "Group Actions" = "Group Actions";
 "Group Actions for %@" = "Group Actions for %@";
+"Group agents under project headings, or fit more in short rows that name their project." = "Group agents under project headings, or fit more in short rows that name their project.";
 "Hammer" = "Hammer";
 "Hammer Fill" = "Hammer Fill";
 "Has an update" = "Has an update";
@@ -966,6 +969,7 @@
 "Imports go into the default profile. Cookies bring your sign-ins; macOS may ask to allow access to the browser's key." = "Imports go into the default profile. Cookies bring your sign-ins; macOS may ask to allow access to the browser's key.";
 "In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits." = "In a Git project, click Commit in the status bar. Choose the AI CLI, whether to include unstaged changes, and whether to push. The CLI writes the message and Muxy commits.";
 "In a Git project, right-click the project and choose Worktrees → Show Worktrees, then New Worktree…, to work on a branch in its own folder with its own tabs." = "In a Git project, right-click the project and choose Worktrees → Show Worktrees, then New Worktree…, to work on a branch in its own folder with its own tabs.";
+"In a background tab" = "In a background tab";
 "Inactive" = "Inactive";
 "Include providers" = "Include providers";
 "Include unstaged changes" = "Include unstaged changes";
@@ -1253,6 +1257,7 @@
 "No symbols found" = "No symbols found";
 "No tabs in %@" = "No tabs in %@";
 "No update for this platform" = "No update for this platform";
+"Normal" = "Normal";
 "Not Now" = "Not Now";
 "Not assigned" = "Not assigned";
 "Not available in Muxy 2 (%lld): %@" = "Not available in Muxy 2 (%lld): %@";

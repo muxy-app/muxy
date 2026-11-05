@@ -755,6 +755,18 @@ impl Owner {
         if now >= self.next_detection {
             self.next_detection = now + METADATA_POLL;
             self.seen_reports = self.terminal.program_reports();
+            if agent == Some(muxy_protocol::AgentProvider::OpenCode) {
+                self.activity.observe_harness(
+                    self.info.id,
+                    crate::harness::Pane {
+                        project: self.info.project,
+                        directory: String::from_utf8_lossy(&self.metadata.directory.0).into_owned(),
+                        title: self.metadata.title.clone(),
+                    },
+                );
+            } else {
+                self.activity.leave_harness(self.info.id);
+            }
             if let Some(agent) = agent {
                 let completed = if let Some(status) = status {
                     self.detector.report(agent, status.state)
@@ -768,6 +780,7 @@ impl Owner {
                             project: self.info.project,
                             provider,
                             state: self.detector.state,
+                            title: None,
                         },
                         completed,
                     );
@@ -809,11 +822,12 @@ impl Owner {
             }
             self.detection_dirty = false;
         }
-        self.detector.update(
+        self.detector.update_with_background(
             Some(agent),
             self.detection_screen.clone(),
             &self.metadata.title,
             &self.detection_progress,
+            self.activity.harness_busy(self.info.id),
             now,
         )
     }

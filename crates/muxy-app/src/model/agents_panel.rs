@@ -1,5 +1,5 @@
 use gpui::{AppContext, Context, FocusHandle, Pixels, Point, Window, px};
-use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping};
+use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping};
 use muxy_app_core::{PaneContent, PaneId, ProjectId, ServerId, TabId};
 use muxy_protocol::{ActivityKind, AgentProvider, AgentState, SessionId};
 use muxy_ui::panel::{PanelId, PanelMode, PanelPlacement, PanelPosition, PanelResizeState};
@@ -11,6 +11,9 @@ pub(crate) const PANEL: &str = "builtin:agents";
 pub(crate) const MIN_WIDTH: f32 = 220.0;
 pub(crate) const MIN_HEIGHT: f32 = 140.0;
 const DEFAULT_FRAME: [f32; 4] = [80.0, 80.0, 320.0, 360.0];
+/// How long a background tab stays the active row while its host terminal
+/// switches to it, in case the switch never shows.
+const SWITCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum AgentStatus {
@@ -22,6 +25,16 @@ pub(crate) enum AgentStatus {
 
 impl AgentStatus {
     pub(crate) const ALL: [Self; 4] = [Self::Blocked, Self::Working, Self::Completed, Self::Idle];
+
+    /// How early a row sorts. Completed and idle agents rank together, so
+    /// opening a finished agent, which reads its finish, doesn't move it.
+    pub(crate) fn urgency(self) -> u8 {
+        match self {
+            Self::Blocked => 0,
+            Self::Working => 1,
+            Self::Completed | Self::Idle => 2,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,6 +47,91 @@ pub(crate) struct RunningAgent {
     pub(crate) provider: AgentProvider,
     pub(crate) status: AgentStatus,
     pub(crate) finished_at: Option<u64>,
+    /// Set for a tab the agent in `session` keeps open but doesn't show.
+    pub(crate) hidden: Option<HiddenTab>,
+    /// Where the row goes among rows of the same project and status: its
+    /// terminal's place, then its tab's place in the agent's tab bar, so
+    /// switching tabs doesn't reorder them.
+    pub(crate) order: (usize, u16),
+}
+
+/// A tab inside an agent's own tab bar, behind the one its terminal shows.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct HiddenTab {
+    /// A hash of the agent's ID for the session, which the snapshot keeps.
+    pub(crate) key: u64,
+    /// Its 0-based position in the agent's tab bar.
+    pub(crate) index: Option<u16>,
+}
+
+pub(crate) fn hidden_key(id: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Places each pane's row at the tab it shows, then adds rows for the tabs
+/// no pane here shows.
+fn add_agent_tabs(
+    agents: &mut Vec<RunningAgent>,
+    servers: &[(ServerId, &[muxy_protocol::AgentTab])],
+) {
+    for (server, tabs) in servers {
+        for tab in *tabs {
+            if let (Some(session), Some(position)) = (tab.shown_by, tab.index)
+                && let Some(agent) = agents
+                    .iter_mut()
+                    .find(|agent| agent.server == *server && agent.session == session)
+            {
+                agent.order.1 = position;
+            }
+        }
+    }
+    let shown = agents.clone();
+    for (server, tabs) in servers {
+        agents.extend(
+            tabs.iter()
+                .filter_map(|tab| hidden_tab(tab, *server, &shown)),
+        );
+    }
+}
+
+/// A row for `tab` under the first of its hosts this window shows, unless
+/// a pane here already shows it. A tab shown only by a terminal no pane here
+/// shows, such as one in a closed tab, moves under another host at once.
+fn hidden_tab(
+    tab: &muxy_protocol::AgentTab,
+    server: ServerId,
+    shown: &[RunningAgent],
+) -> Option<RunningAgent> {
+    let on_screen = |session: SessionId| {
+        shown
+            .iter()
+            .find(|agent| agent.server == server && agent.session == session)
+    };
+    if tab
+        .shown_by
+        .is_some_and(|session| on_screen(session).is_some())
+    {
+        return None;
+    }
+    let host = tab.hosts.iter().find_map(|session| on_screen(*session))?;
+    Some(RunningAgent {
+        provider: tab.provider,
+        status: if tab.state == AgentState::Working {
+            AgentStatus::Working
+        } else {
+            AgentStatus::Idle
+        },
+        finished_at: None,
+        hidden: Some(HiddenTab {
+            key: hidden_key(&tab.id),
+            index: tab.index,
+        }),
+        order: (host.order.0, tab.index.unwrap_or(u16::MAX)),
+        ..*host
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,6 +146,7 @@ pub(crate) enum Entry {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum EntryKey {
     Agent(ServerId, SessionId),
+    Hidden(ServerId, u64),
     Worktree(ProjectId),
 }
 
@@ -55,7 +154,17 @@ impl std::fmt::Display for EntryKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Agent(server, session) => write!(f, "agent-{server}-{}", session.get()),
+            Self::Hidden(server, key) => write!(f, "tab-{server}-{key:x}"),
             Self::Worktree(project) => write!(f, "worktree-{project}"),
+        }
+    }
+}
+
+impl RunningAgent {
+    pub(crate) fn key(&self) -> EntryKey {
+        match self.hidden {
+            Some(hidden) => EntryKey::Hidden(self.server, hidden.key),
+            None => EntryKey::Agent(self.server, self.session),
         }
     }
 }
@@ -63,14 +172,15 @@ impl std::fmt::Display for EntryKey {
 impl Entry {
     pub(crate) fn key(&self) -> EntryKey {
         match self {
-            Self::Agent(agent) => EntryKey::Agent(agent.server, agent.session),
+            Self::Agent(agent) => agent.key(),
             Self::Worktree { project, .. } => EntryKey::Worktree(*project),
         }
     }
 }
 
 /// Whether the agent at `index` is the first listed for its project, so a
-/// project heading goes above it. Project rows have no headings.
+/// normal-density panel puts a project heading above it. Project rows have
+/// no headings.
 pub(crate) fn starts_project_group(entries: &[Entry], index: usize) -> bool {
     let Entry::Agent(agent) = &entries[index] else {
         return false;
@@ -118,6 +228,12 @@ pub(crate) struct AgentsPanel {
     pub(crate) docked_height: std::rc::Rc<std::cell::Cell<Pixels>>,
     pub(crate) owner: gpui::Entity<()>,
     pub(crate) clock: Option<gpui::Task<()>>,
+    /// Keys that switch a host terminal to a background tab once it attaches,
+    /// after opening the tab from another project.
+    pub(crate) pending_switch: Option<(PaneId, [u8; 2])>,
+    /// The background tab a host terminal is switching to, which stays the
+    /// active row until the terminal shows it, rather than the tab it leaves.
+    pub(crate) switching: Option<(EntryKey, std::time::Instant)>,
 }
 
 impl AgentsPanel {
@@ -131,6 +247,8 @@ impl AgentsPanel {
             docked_height: std::rc::Rc::default(),
             owner: cx.new(|_| ()),
             clock: None,
+            pending_switch: None,
+            switching: None,
         }
     }
 }
@@ -141,6 +259,7 @@ impl AppModel {
             std::collections::HashMap<SessionId, &'a muxy_protocol::AgentActivity>,
             std::collections::HashSet<SessionId>,
             &'a std::collections::HashMap<SessionId, u64>,
+            &'a [muxy_protocol::AgentTab],
         );
         let mut servers: Vec<(ServerId, Option<Index<'_>>)> = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
@@ -169,12 +288,17 @@ impl AppModel {
                                 })
                                 .map(|event| event.session)
                                 .collect();
-                            (agents, finished, &activity.finished)
+                            (
+                                agents,
+                                finished,
+                                &activity.finished,
+                                snapshot.tabs.as_slice(),
+                            )
                         });
                     servers.push((project.server_id, index));
                     servers.len() - 1
                 });
-            let Some((by_session, finished, finished_at)) = &servers[position].1 else {
+            let Some((by_session, finished, finished_at, _)) = &servers[position].1 else {
                 continue;
             };
             for tab in &project.tabs {
@@ -210,16 +334,64 @@ impl AppModel {
                         provider: agent.provider,
                         status,
                         finished_at,
+                        hidden: None,
+                        order: (agents.len(), 0),
                     });
                 }
             }
         }
-        agents.sort_by_key(|agent| agent.status);
+        let tabs: Vec<_> = servers
+            .iter()
+            .filter_map(|(server, index)| index.as_ref().map(|(_, _, _, tabs)| (*server, *tabs)))
+            .collect();
+        add_agent_tabs(&mut agents, &tabs);
+        agents.sort_by_key(|agent| (agent.status.urgency(), agent.order));
         agents
     }
 
     pub(crate) fn agents_panel_entries(&self) -> Vec<Entry> {
         self.agents_panel_entries_from(self.running_agents())
+    }
+
+    /// What a row calls an agent's work: the name the user gave its tab,
+    /// else the session title the agent reports, else its terminal title
+    /// without the `OC | ` prefix `OpenCode` adds, else the agent's name.
+    pub(crate) fn agent_title(&self, agent: &RunningAgent) -> String {
+        let snapshot = self
+            .activity(agent.server)
+            .map(|activity| &activity.snapshot);
+        let usable = |title: &str| Some(title.trim().to_owned()).filter(|title| !title.is_empty());
+        if let Some(hidden) = agent.hidden {
+            return snapshot
+                .and_then(|snapshot| {
+                    snapshot
+                        .tabs
+                        .iter()
+                        .find(|tab| hidden_key(&tab.id) == hidden.key)
+                })
+                .and_then(|tab| usable(&tab.title))
+                .unwrap_or_else(|| agent.provider.name().to_owned());
+        }
+        let tab = self
+            .state
+            .project(agent.project)
+            .and_then(|project| project.tabs.iter().find(|tab| tab.id == agent.tab));
+        tab.and_then(|tab| tab.custom_title.as_deref().and_then(usable))
+            .or_else(|| {
+                snapshot
+                    .and_then(|snapshot| {
+                        snapshot
+                            .agents
+                            .iter()
+                            .find(|entry| entry.session == agent.session)
+                    })
+                    .and_then(|entry| entry.title.as_deref().and_then(usable))
+            })
+            .or_else(|| {
+                let title = tab?.title(Some(agent.pane)).trim();
+                usable(title.strip_prefix("OC | ").unwrap_or(title))
+            })
+            .unwrap_or_else(|| agent.provider.name().to_owned())
     }
 
     /// Agents grouped by project in sidebar order, most urgent first within a
@@ -228,7 +400,7 @@ impl AppModel {
         let order = self.agents_project_order();
         let rank = |project: &ProjectId| order.get(project).copied().unwrap_or(usize::MAX);
         if self.appearance.agents_panel_grouping == AgentsPanelGrouping::Agents {
-            agents.sort_by_key(|agent| (rank(&agent.project), agent.status));
+            agents.sort_by_key(|agent| (rank(&agent.project), agent.status.urgency(), agent.order));
             return agents.into_iter().map(Entry::Agent).collect();
         }
         let mut entries: Vec<(ProjectId, [usize; 4])> = Vec::new();
@@ -346,6 +518,15 @@ impl AppModel {
     }
 
     pub(crate) fn active_agents_entry(&self, entries: &[Entry]) -> Option<EntryKey> {
+        if let Some((key, since)) = self.agents_panel.switching
+            && since.elapsed() < SWITCH_TIMEOUT
+            && entries.iter().any(|entry| {
+                matches!(entry, Entry::Agent(agent)
+                    if agent.key() == key && self.active_pane() == Some(agent.pane))
+            })
+        {
+            return Some(key);
+        }
         let project = self.state.current_project();
         let tab = self.active_tab();
         let session = self
@@ -355,7 +536,7 @@ impl AppModel {
             .iter()
             .find(|entry| match entry {
                 Entry::Agent(agent) => {
-                    session == Some((agent.server, agent.session))
+                    agent.hidden.is_none() && session == Some((agent.server, agent.session))
                 }
                 Entry::Worktree { project: id, .. } => *id == project.id,
             })
@@ -363,7 +544,8 @@ impl AppModel {
                 let tab = project.tabs.iter().find(|entry| Some(entry.id) == tab)?;
                 entries.iter().find(|entry| match entry {
                     Entry::Agent(agent) => {
-                        agent.server == project.server_id
+                        agent.hidden.is_none()
+                            && agent.server == project.server_id
                             && tab.panes.iter().any(|pane| {
                                 matches!(pane.content, PaneContent::Terminal { session: Some(session) } if session == agent.session)
                             })
@@ -394,9 +576,13 @@ impl AppModel {
             .unwrap_or(0);
         let next = current.saturating_add_signed(delta).min(entries.len() - 1);
         self.agents_panel.selected = Some(entries[next].key());
-        let headings = (0..=next)
-            .filter(|index| starts_project_group(&entries, *index))
-            .count();
+        let headings = if self.appearance.agents_panel_density == AgentsPanelDensity::Normal {
+            (0..=next)
+                .filter(|index| starts_project_group(&entries, *index))
+                .count()
+        } else {
+            0
+        };
         self.agents_panel.scroll.scroll_to_item(next + headings);
         cx.notify();
     }
@@ -422,15 +608,91 @@ impl AppModel {
             return;
         };
         self.agents_panel.selected = None;
+        self.agents_panel.switching = None;
         if matches!(self.overlay, Some(Overlay::Agents)) {
             self.dismiss_overlay(cx);
         }
         match entry {
-            Entry::Agent(agent) => self.focus_agent(agent.project, agent.tab, agent.pane, cx),
+            Entry::Agent(agent) => match agent.hidden {
+                Some(hidden) => self.open_hidden_agent_tab(agent, hidden, cx),
+                None => self.focus_agent(agent.project, agent.tab, agent.pane, cx),
+            },
             Entry::Worktree { project, .. } => self.select_project(project, cx),
         }
         self.focus_active(window, cx);
         cx.notify();
+    }
+
+    /// Shows a tab the agent keeps behind the one on screen. Its host
+    /// terminal switches to it with the agent's own shortcut when one reaches
+    /// it, `<leader>1`…`<leader>0` with the default `ctrl+x` leader of `OpenCode`;
+    /// otherwise a new terminal tab resumes it.
+    fn open_hidden_agent_tab(
+        &mut self,
+        agent: RunningAgent,
+        hidden: HiddenTab,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((id, title)) = self
+            .activity(agent.server)
+            .and_then(|activity| {
+                activity
+                    .snapshot
+                    .tabs
+                    .iter()
+                    .find(|tab| hidden_key(&tab.id) == hidden.key)
+            })
+            .map(|tab| (tab.id.clone(), tab.title.clone()))
+        else {
+            return;
+        };
+        let shortcut = hidden
+            .index
+            .filter(|index| *index < 10)
+            .map(|index| [0x18, b'0' + u8::try_from((index + 1) % 10).unwrap_or(0)]);
+        let channel = self
+            .terminal(&agent.pane)
+            .and_then(|pane| pane.view.read(cx).channel());
+        if let Some(keys) = shortcut
+            && agent.provider == AgentProvider::OpenCode
+        {
+            self.focus_agent(agent.project, agent.tab, agent.pane, cx);
+            self.agents_panel.switching = Some((agent.key(), std::time::Instant::now()));
+            cx.spawn(async move |model, cx| {
+                cx.background_executor().timer(SWITCH_TIMEOUT).await;
+                let _ = model.update(cx, |_, cx| cx.notify());
+            })
+            .detach();
+            match channel {
+                Some(channel) => {
+                    self.send(
+                        agent.server,
+                        crate::boot::Work::Input(channel, keys.to_vec()),
+                        cx,
+                    );
+                }
+                None => self.agents_panel.pending_switch = Some((agent.pane, keys)),
+            }
+            return;
+        }
+        if agent.provider != AgentProvider::OpenCode
+            || !muxy_app_core::agent_sessions::valid_id(&id)
+        {
+            return;
+        }
+        let command = format!("opencode -s {id}");
+        let opened = self.open_terminal(
+            super::tabs::OpenTerminal {
+                project: agent.project,
+                title: Some(&title),
+                command: Some(&command),
+                directory: None,
+            },
+            cx,
+        );
+        if let Err(error) = opened {
+            self.fail(error, cx);
+        }
     }
 
     pub(crate) fn focus_agent(

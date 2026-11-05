@@ -35,6 +35,7 @@ mod watch;
 
 mod activity;
 mod detection;
+mod harness;
 
 mod remote;
 pub use remote::{Admission, RemoteAccess};

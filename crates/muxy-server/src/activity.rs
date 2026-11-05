@@ -19,6 +19,11 @@ struct State {
     agents: BTreeMap<SessionId, AgentActivity>,
     events: Vec<ActivityEvent>,
     claimed: HashSet<u64>,
+    harness_panes: BTreeMap<SessionId, crate::harness::Pane>,
+    harness_report: crate::harness::Report,
+    harness: crate::harness::Reconciled,
+    /// The terminals changed since the poller last read them.
+    harness_stale: bool,
 }
 
 impl State {
@@ -37,10 +42,25 @@ impl State {
 }
 
 /// Live agent state and at most one unread indicator event per session, held only in memory.
-#[derive(Debug, Default)]
 pub(crate) struct Activity {
     state: Mutex<State>,
     notifier: Arc<Notifier>,
+    poller: std::sync::Once,
+    wake: std::sync::Condvar,
+}
+
+impl std::fmt::Debug for Activity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Activity")
+            .field("state", &self.state)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for Activity {
+    fn default() -> Self {
+        Self::new(Arc::default())
+    }
 }
 
 impl Activity {
@@ -48,6 +68,8 @@ impl Activity {
         Self {
             state: Mutex::default(),
             notifier,
+            poller: std::sync::Once::new(),
+            wake: std::sync::Condvar::new(),
         }
     }
 
@@ -72,6 +94,8 @@ impl Activity {
                 ..State::default()
             }),
             notifier,
+            poller: std::sync::Once::new(),
+            wake: std::sync::Condvar::new(),
         })
     }
 
@@ -92,8 +116,95 @@ impl Activity {
         let state = lock(&self.state);
         ActivitySnapshot {
             revision: state.revision,
-            agents: state.agents.values().cloned().collect(),
+            agents: state
+                .agents
+                .values()
+                .map(|agent| AgentActivity {
+                    title: state.harness.titles.get(&agent.session).cloned(),
+                    ..agent.clone()
+                })
+                .collect(),
             events: state.events.clone(),
+            tabs: state.harness.tabs.clone(),
+        }
+    }
+
+    /// Records what a terminal running an agent with its own tabs shows, and
+    /// starts polling that agent's service the first time. A change is
+    /// matched against the last report at once and asks for a fresh one.
+    pub(crate) fn observe_harness(
+        self: &Arc<Self>,
+        session: SessionId,
+        pane: crate::harness::Pane,
+    ) {
+        let mut state = lock(&self.state);
+        if state.harness_panes.get(&session) == Some(&pane) {
+            drop(state);
+        } else {
+            state.harness_panes.insert(session, pane);
+            state.harness_stale = true;
+            self.wake.notify_all();
+            self.reconcile_harness(state);
+        }
+        if cfg!(test) {
+            return;
+        }
+        self.poller.call_once(|| {
+            let activity = Arc::downgrade(self);
+            if let Err(error) = std::thread::Builder::new()
+                .name("muxy-harness".into())
+                .spawn(move || crate::harness::poll(&activity))
+            {
+                log::warn!("agent tab polling did not start: {error}");
+            }
+        });
+    }
+
+    /// The terminals to report on, once `interval` passes or one changes.
+    pub(crate) fn wait_for_harness(
+        &self,
+        interval: std::time::Duration,
+    ) -> BTreeMap<SessionId, crate::harness::Pane> {
+        let state = lock(&self.state);
+        let (mut state, _) = self
+            .wake
+            .wait_timeout_while(state, interval, |state| !state.harness_stale)
+            .unwrap_or_else(PoisonError::into_inner);
+        state.harness_stale = false;
+        state.harness_panes.clone()
+    }
+
+    /// Forgets what `session` showed when it stops running such an agent.
+    pub(crate) fn leave_harness(&self, session: SessionId) {
+        let mut state = lock(&self.state);
+        if state.harness_panes.remove(&session).is_some() {
+            self.reconcile_harness(state);
+        }
+    }
+
+    /// Whether the agent in `session` reports work running in the background.
+    pub(crate) fn harness_busy(&self, session: SessionId) -> bool {
+        lock(&self.state).harness.busy.contains(&session)
+    }
+
+    pub(crate) fn set_harness_report(&self, report: crate::harness::Report) {
+        let mut state = lock(&self.state);
+        state.harness_report = report;
+        self.reconcile_harness(state);
+    }
+
+    /// Matches the terminals to the last report, telling watchers when what
+    /// the panel shows changed.
+    fn reconcile_harness(&self, mut state: MutexGuard<'_, State>) {
+        let reconciled = crate::harness::reconcile(&state.harness_panes, &state.harness_report);
+        if state.harness == reconciled {
+            return;
+        }
+        let shown =
+            state.harness.titles != reconciled.titles || state.harness.tabs != reconciled.tabs;
+        state.harness = reconciled;
+        if shown {
+            self.changed(state);
         }
     }
 
@@ -144,16 +255,25 @@ impl Activity {
 
     pub(crate) fn clear_agent(&self, session: SessionId) {
         let mut state = lock(&self.state);
-        if state.agents.remove(&session).is_some() {
+        let harness = state.harness_panes.remove(&session).is_some();
+        let agent_removed = state.agents.remove(&session).is_some();
+        if harness {
+            state.harness = crate::harness::reconcile(&state.harness_panes, &state.harness_report);
+        }
+        if agent_removed || harness {
             self.changed(state);
         }
     }
 
     pub(crate) fn remove(&self, session: SessionId) {
         let mut state = lock(&self.state);
+        let harness = state.harness_panes.remove(&session).is_some();
+        if harness {
+            state.harness = crate::harness::reconcile(&state.harness_panes, &state.harness_report);
+        }
         let agent_removed = state.agents.remove(&session).is_some();
         let event_removed = state.retain_events(|event| event.session != session);
-        if agent_removed || event_removed {
+        if agent_removed || event_removed || harness {
             self.changed(state);
         }
     }
@@ -195,6 +315,7 @@ mod tests {
             project: ProjectId::from_u128(1),
             provider: AgentProvider::Xal,
             state,
+            title: None,
         }
     }
 

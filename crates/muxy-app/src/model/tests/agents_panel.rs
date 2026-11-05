@@ -1,10 +1,8 @@
 use super::worktrees::{Sent, connected, pruning_fixture};
 use super::*;
-use crate::model::agents_panel::{
-    AgentStatus, Entry, EntryKey, Placement, RunningAgent, starts_project_group,
-};
+use crate::model::agents_panel::{AgentStatus, Entry, EntryKey, Placement, RunningAgent};
 use gpui::Modifiers;
-use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping};
+use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping};
 use muxy_core::shortcuts::ShortcutId;
 use muxy_protocol::{
     ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity, AgentProvider, AgentState,
@@ -14,7 +12,7 @@ struct Fixture {
     root: ProjectId,
     worktree: ProjectId,
     panes: [PaneId; 4],
-    _sent: Sent,
+    sent: Sent,
 }
 
 fn agents(cx: &mut TestAppContext) -> (Entity<AppModel>, &mut VisualTestContext, Fixture) {
@@ -44,6 +42,7 @@ fn agents(cx: &mut TestAppContext) -> (Entity<AppModel>, &mut VisualTestContext,
         project: root,
         provider: AgentProvider::Claude,
         state,
+        title: None,
     };
     let finished = |id, session, read| ActivityEvent {
         id,
@@ -87,7 +86,7 @@ fn agents(cx: &mut TestAppContext) -> (Entity<AppModel>, &mut VisualTestContext,
             root,
             worktree,
             panes: [root_pane, mirror, worktree_pane, home_pane],
-            _sent: sent,
+            sent,
         },
     )
 }
@@ -128,10 +127,6 @@ fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppCo
             [home_pane, root_pane, worktree_pane],
             "agents follow sidebar order, with a worktree after its project"
         );
-        assert!(
-            (0..entries.len()).all(|index| starts_project_group(&entries, index)),
-            "each project gets its own heading"
-        );
 
         let resting = |pane, project, session, status| RunningAgent {
             server: ServerId::local(),
@@ -142,6 +137,8 @@ fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppCo
             provider: AgentProvider::Codex,
             status,
             finished_at: None,
+            hidden: None,
+            order: (0, 0),
         };
         let entries = model.agents_panel_entries_from(vec![
             resting(root_pane, fixture.root, 1, AgentStatus::Idle),
@@ -164,12 +161,6 @@ fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppCo
             ],
             "the most urgent agent leads its project"
         );
-        assert_eq!(
-            (0..entries.len())
-                .map(|index| starts_project_group(&entries, index))
-                .collect::<Vec<_>>(),
-            [true, true, false]
-        );
 
         model.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
         let entries = model.agents_panel_entries();
@@ -181,10 +172,6 @@ fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppCo
                 Entry::Worktree { project: third, counts: [1, 0, 0, 0] },
             ] if *first == home && *second == fixture.root && *third == fixture.worktree
         ));
-        assert!(
-            !starts_project_group(&entries, 0),
-            "project rows have no headings"
-        );
     });
 }
 
@@ -221,6 +208,7 @@ fn idle_time_comes_from_the_last_finish_of_resting_agents(cx: &mut TestAppContex
                 project: fixture.root,
                 provider: AgentProvider::Claude,
                 state,
+                title: None,
             };
             model.receive_activity(
                 ServerId::local(),
@@ -232,6 +220,7 @@ fn idle_time_comes_from_the_last_finish_of_resting_agents(cx: &mut TestAppContex
                         agent(3, home),
                     ],
                     events,
+                    tabs: Vec::new(),
                 }),
                 cx,
             );
@@ -660,47 +649,83 @@ fn the_floating_panel_moves_by_its_header_and_resizes_by_its_corner(cx: &mut Tes
 }
 
 #[gpui::test]
-fn rows_sit_under_their_project_heading_with_status_on_the_right(cx: &mut TestAppContext) {
+fn compact_rows_name_their_project_and_normal_rows_sit_under_headings(cx: &mut TestAppContext) {
     let (view, cx, fixture) = agents(cx);
     cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let long = "Investigate why the upload retry test is flaky on Linux runners";
     view.update(cx, |model, cx| {
         model.appearance.sidebar_expanded = true;
         model.appearance.agents_panel_visible = true;
+        model.appearance.agents_panel_density = AgentsPanelDensity::Compact;
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
+        snapshot.revision += 1;
+        snapshot.agents[0].title = Some(long.into());
+        model.receive_activity(ServerId::local(), Ok(snapshot), cx);
         cx.notify();
     });
     cx.update(|window, _| window.refresh());
     cx.run_until_parked();
-    assert!(cx.debug_bounds("agents-panel").is_some(), "panel");
     let key = EntryKey::Agent(ServerId::local(), SessionId::new(1).expect("session"));
-    let bounds = |cx: &mut VisualTestContext, selector: String| cx.debug_bounds(selector.leak());
-    let heading = bounds(cx, format!("agents-panel-heading-{}", fixture.root)).expect("heading");
-    let title = bounds(cx, format!("agents-panel-title-{key}")).expect("title");
-    let status = bounds(cx, format!("agents-panel-status-{key}")).expect("status");
-    assert!(heading.bottom() <= title.top());
+    let bounds = |cx: &mut VisualTestContext, selector: String| {
+        cx.debug_bounds(selector.leak()).expect("bounds")
+    };
+    let row = bounds(cx, format!("agents-panel-row-{key}"));
+    let project = bounds(cx, format!("agents-panel-project-label-{key}"));
+    let title = bounds(cx, format!("agents-panel-title-{key}"));
+    let status = bounds(cx, format!("agents-panel-status-{key}"));
+    assert!(row.size.height <= px(24.0), "rows are dense: {row:?}");
     assert!(
-        status.left() >= title.right(),
-        "status sits right of the title"
-    );
-    let name = cx.debug_bounds("agents-panel-name").expect("panel name");
-    let hide = cx.debug_bounds("agents-panel-hide").expect("hide button");
-    assert_eq!(
-        heading.left(),
-        name.left(),
-        "headings line up with the panel name"
-    );
-    assert_eq!(
-        status.right(),
-        hide.right(),
-        "status lines up with the hide button"
+        project.right() <= title.left(),
+        "the project leads the title"
     );
     assert!(
-        bounds(cx, format!("agents-panel-{key}-progress")).is_some(),
+        title.size.width > (row.size.width * 0.4),
+        "a long title gets the row's room instead of a few letters: {title:?} in {row:?}"
+    );
+    assert!(status.left() >= title.right() && status.right() <= row.right());
+    let heading = format!("agents-panel-heading-{}", fixture.root);
+    assert!(
+        cx.debug_bounds(heading.clone().leak()).is_none(),
+        "projects are named on the rows, without heading lines"
+    );
+    view.read_with(cx, |model, _| {
+        let agent = model
+            .running_agents()
+            .into_iter()
+            .find(|agent| agent.session.get() == 1)
+            .expect("agent");
+        assert_eq!(model.agent_title(&agent), long);
+    });
+    assert!(
+        cx.debug_bounds(format!("agents-panel-{key}-progress").leak())
+            .is_some(),
         "a working agent shows the tab's progress glyph"
+    );
+
+    view.update(cx, |model, cx| {
+        model.appearance.agents_panel_density = AgentsPanelDensity::Normal;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let heading = bounds(cx, heading);
+    let row = bounds(cx, format!("agents-panel-row-{key}"));
+    assert!(
+        heading.bottom() <= row.top(),
+        "normal rows sit under project headings"
+    );
+    assert!(
+        row.size.height > px(24.0),
+        "normal rows are as tall as sidebar tabs"
+    );
+    assert!(
+        bounds(cx, format!("agents-panel-title-{key}")).left() < title.left(),
+        "the heading names the project instead of each row"
     );
 }
 
 #[gpui::test]
-fn the_docked_panel_matches_the_agents_focused_sidebar(cx: &mut TestAppContext) {
+fn the_docked_panel_lines_up_with_the_agents_focused_sidebar(cx: &mut TestAppContext) {
     let (view, cx, fixture) = agents(cx);
     cx.simulate_resize(size(px(1200.0), px(800.0)));
     let tab = view.update(cx, |model, cx| {
@@ -725,13 +750,331 @@ fn the_docked_panel_matches_the_agents_focused_sidebar(cx: &mut TestAppContext) 
     let panel_row = bounds(cx, format!("agents-panel-row-{key}"));
     assert_eq!(panel_row.left(), sidebar_row.left());
     assert_eq!(panel_row.right(), sidebar_row.right());
-    assert_eq!(panel_row.size.height, sidebar_row.size.height);
-    assert_eq!(
-        bounds(cx, format!("agents-panel-heading-{}", fixture.root)).left(),
-        bounds(cx, format!("tab-project-title-{}", fixture.root)).left()
+}
+
+/// Gives the root pane's agent `OpenCode` tabs: the one it shows, one its
+/// shortcut reaches, one only resumable, one with an unsafe ID, one shown by
+/// a terminal this window lost, and one whose only host no pane shows.
+fn with_background_tabs(view: &Entity<AppModel>, cx: &mut VisualTestContext, root: ProjectId) {
+    use muxy_protocol::AgentTab;
+    let host = SessionId::new(1).expect("session");
+    let gone = SessionId::new(99).expect("session");
+    let tab = |id: &str, index, state| AgentTab {
+        id: id.into(),
+        project: root,
+        provider: AgentProvider::OpenCode,
+        title: format!("Tab {id}"),
+        state,
+        shown_by: None,
+        index: Some(index),
+        hosts: vec![host],
+    };
+    view.update(cx, |model, cx| {
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
+        snapshot.revision += 1;
+        snapshot.agents[0].provider = AgentProvider::OpenCode;
+        snapshot.agents[0].title = Some("Tab ses_shown".into());
+        snapshot.tabs = vec![
+            AgentTab {
+                shown_by: Some(host),
+                ..tab("ses_shown", 0, AgentState::Working)
+            },
+            tab("ses_near", 1, AgentState::Working),
+            tab("ses_far", 12, AgentState::Idle),
+            tab("bad id; rm -rf ~", 13, AgentState::Idle),
+            AgentTab {
+                shown_by: Some(gone),
+                hosts: vec![gone, host],
+                ..tab("ses_handed", 3, AgentState::Idle)
+            },
+            AgentTab {
+                hosts: vec![gone],
+                ..tab("ses_unhosted", 2, AgentState::Working)
+            },
+        ];
+        model.receive_activity(ServerId::local(), Ok(snapshot), cx);
+    });
+}
+
+#[gpui::test]
+fn background_agent_tabs_join_their_host_without_taking_its_place(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    let [root_pane, ..] = fixture.panes;
+    with_background_tabs(&view, cx, fixture.root);
+    view.update(cx, |model, cx| {
+        let mut rows: Vec<_> = model
+            .running_agents()
+            .into_iter()
+            .filter(|agent| agent.project == fixture.root && agent.pane == root_pane)
+            .map(|agent| {
+                (
+                    model.agent_title(&agent),
+                    agent.hidden.is_some(),
+                    agent.status,
+                )
+            })
+            .collect();
+        rows.sort();
+        assert_eq!(
+            rows,
+            [
+                ("Tab bad id; rm -rf ~".to_owned(), true, AgentStatus::Idle),
+                ("Tab ses_far".to_owned(), true, AgentStatus::Idle),
+                ("Tab ses_handed".to_owned(), true, AgentStatus::Idle),
+                ("Tab ses_near".to_owned(), true, AgentStatus::Working),
+                ("Tab ses_shown".to_owned(), false, AgentStatus::Working),
+            ],
+            "the shown tab is the pane's own row, a lost terminal's tab moves under the host, \
+             and a tab no pane here can reach is left out"
+        );
+        model.focus_pane(root_pane, cx);
+        assert_eq!(
+            model.active_agents_entry(&model.agents_panel_entries()),
+            Some(EntryKey::Agent(
+                ServerId::local(),
+                SessionId::new(1).expect("session")
+            )),
+            "the focused pane marks the tab it shows, not its background tabs"
+        );
+    });
+}
+
+#[gpui::test]
+fn background_agent_tabs_open_through_their_host_or_a_new_tab(cx: &mut TestAppContext) {
+    use crate::boot::Work;
+    use crate::model::agents_panel::hidden_key;
+
+    let (view, cx, mut fixture) = agents(cx);
+    let [root_pane, ..] = fixture.panes;
+    with_background_tabs(&view, cx, fixture.root);
+    fixture.sent.take();
+    let tabs = |view: &Entity<AppModel>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |model, _| {
+            model.state.project(fixture.root).expect("root").tabs.len()
+        })
+    };
+    let before = tabs(&view, cx);
+    let open = |view: &Entity<AppModel>, cx: &mut VisualTestContext, id: &str| {
+        view.update_in(cx, |model, window, cx| {
+            let key = EntryKey::Hidden(ServerId::local(), hidden_key(id));
+            model.open_agents_entry(key, window, cx);
+        });
+    };
+
+    open(&view, cx, "ses_near");
+    assert!(
+        fixture
+            .sent
+            .take()
+            .iter()
+            .any(|work| matches!(work, Work::Input(_, keys) if keys == &[0x18, b'2'])),
+        "the host switches to its second tab with OpenCode's leader shortcut"
     );
     assert_eq!(
-        bounds(cx, format!("agents-panel-status-{key}")).right(),
-        bounds(cx, format!("sidebar-tab-accessory-{tab}")).right()
+        view.read_with(cx, |model, _| model.active_pane()),
+        Some(root_pane)
+    );
+    assert_eq!(tabs(&view, cx), before);
+
+    open(&view, cx, "ses_far");
+    view.read_with(cx, |model, _| {
+        let project = model.state.project(fixture.root).expect("root");
+        assert_eq!(project.tabs.len(), before + 1, "no shortcut reaches tab 13");
+        let pane = project.tabs.last().expect("new tab").panes[0].id;
+        assert_eq!(
+            model.state.startup_command(pane),
+            Some("opencode -s ses_far")
+        );
+    });
+
+    open(&view, cx, "bad id; rm -rf ~");
+    assert_eq!(
+        tabs(&view, cx),
+        before + 1,
+        "an ID that isn't safe on a command line opens nothing"
+    );
+}
+
+#[gpui::test]
+fn a_background_tab_in_another_project_switches_once_its_host_attaches(cx: &mut TestAppContext) {
+    use crate::boot::Work;
+    use crate::model::agents_panel::hidden_key;
+
+    let (view, cx, mut fixture) = agents(cx);
+    let [root_pane, ..] = fixture.panes;
+    with_background_tabs(&view, cx, fixture.root);
+    let before = view.read_with(cx, |model, _| {
+        model.state.project(fixture.root).expect("root").tabs.len()
+    });
+    view.update_in(cx, |model, window, cx| {
+        model.grids.remove(&root_pane);
+        let home = model.state.home().id;
+        model.select_project(home, cx);
+        let key = EntryKey::Hidden(ServerId::local(), hidden_key("ses_near"));
+        model.open_agents_entry(key, window, cx);
+        assert_eq!(model.state.current_project().id, fixture.root);
+        assert_eq!(model.active_pane(), Some(root_pane));
+        assert_eq!(
+            model.state.project(fixture.root).expect("root").tabs.len(),
+            before,
+            "the host switches instead of a new tab opening"
+        );
+    });
+    fixture.sent.take();
+    view.update(cx, |model, cx| {
+        let session = SessionId::new(1).expect("session");
+        model.receive_attached(
+            ServerId::local(),
+            root_pane,
+            session,
+            attachment(),
+            true,
+            cx,
+        );
+    });
+    assert!(
+        fixture
+            .sent
+            .take()
+            .iter()
+            .any(|work| matches!(work, Work::Input(_, keys) if keys == &[0x18, b'2'])),
+        "the switch waits for the host to attach"
+    );
+}
+
+#[gpui::test]
+fn switching_agent_tabs_or_reading_a_finish_keeps_rows_in_place(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    with_background_tabs(&view, cx, fixture.root);
+    let titles = |view: &Entity<AppModel>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |model, _| {
+            model
+                .agents_panel_entries()
+                .iter()
+                .filter_map(|entry| match entry {
+                    Entry::Agent(agent) => Some(model.agent_title(agent)),
+                    Entry::Worktree { .. } => None,
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    let before = titles(&view, cx);
+    view.update(cx, |model, cx| {
+        let host = SessionId::new(1).expect("session");
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
+        snapshot.revision += 1;
+        snapshot.agents[0].title = Some("Tab ses_near".into());
+        for tab in &mut snapshot.tabs {
+            match tab.id.as_str() {
+                "ses_shown" => tab.shown_by = None,
+                "ses_near" => tab.shown_by = Some(host),
+                _ => {}
+            }
+        }
+        for event in &mut snapshot.events {
+            event.read = true;
+        }
+        model.receive_activity(ServerId::local(), Ok(snapshot), cx);
+    });
+    assert_eq!(
+        titles(&view, cx),
+        before,
+        "the host showing another tab, or a finish being read, moves no row"
+    );
+}
+
+#[gpui::test]
+fn pressing_a_row_highlights_it_instead_of_the_agent_being_left(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    let [root_pane, _, _, home_pane] = fixture.panes;
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model.focus_pane(root_pane, cx);
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let local = ServerId::local();
+    let home = EntryKey::Agent(local, SessionId::new(3).expect("session"));
+    let row = cx
+        .debug_bounds(format!("agents-panel-row-{home}").leak())
+        .expect("row")
+        .center();
+    cx.simulate_mouse_down(row, gpui::MouseButton::Left, Modifiers::none());
+    view.read_with(cx, |model, _| {
+        let entries = model.agents_panel_entries();
+        assert_eq!(
+            model.selected_agents_entry(&entries),
+            Some(home),
+            "the pressed row lights up, not the active agent"
+        );
+    });
+    cx.simulate_mouse_up(row, gpui::MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.active_pane(), Some(home_pane));
+        assert_eq!(
+            model.active_agents_entry(&model.agents_panel_entries()),
+            Some(home)
+        );
+    });
+}
+
+#[gpui::test]
+fn a_switching_tab_stays_active_instead_of_the_tab_it_replaces(cx: &mut TestAppContext) {
+    use crate::model::agents_panel::hidden_key;
+
+    let (view, cx, fixture) = agents(cx);
+    let [_, _, _, home_pane] = fixture.panes;
+    with_background_tabs(&view, cx, fixture.root);
+    let local = ServerId::local();
+    let host = SessionId::new(1).expect("session");
+    let near = EntryKey::Hidden(local, hidden_key("ses_near"));
+    let active = |view: &Entity<AppModel>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |model, _| {
+            model.active_agents_entry(&model.agents_panel_entries())
+        })
+    };
+    view.update_in(cx, |model, window, cx| {
+        model.open_agents_entry(near, window, cx);
+    });
+    assert_eq!(
+        active(&view, cx),
+        Some(near),
+        "the clicked tab is active while its host still shows the old one"
+    );
+
+    view.update(cx, |model, cx| {
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
+        snapshot.revision += 1;
+        snapshot.agents[0].title = Some("Tab ses_near".into());
+        for tab in &mut snapshot.tabs {
+            match tab.id.as_str() {
+                "ses_shown" => tab.shown_by = None,
+                "ses_near" => tab.shown_by = Some(host),
+                _ => {}
+            }
+        }
+        model.receive_activity(local, Ok(snapshot), cx);
+    });
+    assert_eq!(
+        active(&view, cx),
+        Some(EntryKey::Agent(local, host)),
+        "once shown, the tab is its terminal's own row"
+    );
+
+    view.update_in(cx, |model, window, cx| {
+        let shown = EntryKey::Hidden(local, hidden_key("ses_shown"));
+        model.open_agents_entry(shown, window, cx);
+        let home = model.state.home().id;
+        model.select_project(home, cx);
+        model.focus_pane(home_pane, cx);
+    });
+    assert_eq!(
+        active(&view, cx),
+        Some(EntryKey::Agent(local, SessionId::new(3).expect("session"))),
+        "focusing another terminal mid-switch moves the highlight there"
     );
 }
