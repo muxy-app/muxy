@@ -97,9 +97,10 @@ pub(super) fn extension_row(
 pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsView>) -> AnyElement {
     let shortcut = &muxy_core::shortcuts::ALL[index];
     let id = shortcut.id;
-    let unavailable = shortcut
+    let description = shortcut
         .feature()
-        .and_then(|feature| pane.snapshot.capabilities.reason(feature));
+        .and_then(|feature| pane.snapshot.capabilities.reason(feature))
+        .or_else(|| shortcut.description().map(muxy_core::l10n::translate));
     let recording = pane.recording.as_deref() == Some(id);
     let chord = pane.snapshot.settings.keymap.binding(id);
     let label = if recording {
@@ -142,7 +143,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
     pane.row_with_description(
         id,
         &pane.shortcut_names[index],
-        unavailable.as_deref(),
+        description.as_deref(),
         control.into_any_element(),
         pane.compact,
     )
