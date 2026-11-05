@@ -551,12 +551,14 @@ impl Drop for NativeWebview {
     }
 }
 
+/// The color the engine draws past the page's edges: clear for a page that lets
+/// what is behind it show through, and otherwise the opaque theme color.
 fn background_color(background: Rgba) -> Retained<NSColor> {
     NSColor::colorWithSRGBRed_green_blue_alpha(
         f64::from(background.r),
         f64::from(background.g),
         f64::from(background.b),
-        1.0,
+        if background.a <= 0.0 { 0.0 } else { 1.0 },
     )
 }
 

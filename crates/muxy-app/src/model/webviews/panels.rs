@@ -341,10 +341,11 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<Value, String> {
         let args = &request.body["args"];
+        self.measure_panel_area(window);
         match request.body["verb"].as_str().unwrap_or("") {
             "panel.update" => {
                 let options = PanelOptions::parse(&args["options"])?;
-                self.update_webview_panel(id, &options, window, cx)?;
+                self.update_and_announce_panel(id, &options, window, cx)?;
                 Ok(self.panel_state(id).unwrap_or(Value::Null))
             }
             "panel.raise" => {
@@ -367,14 +368,12 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<Value, String> {
         self.open_restored_panel(window, cx);
+        self.measure_panel_area(window);
         let owner = owner.to_owned();
         if verb == "panels.list" {
             return Ok(Value::Array(
-                self.webviews
-                    .panels
-                    .iter()
-                    .filter(|(_, panel)| panel.owner == owner)
-                    .filter_map(|(id, _)| self.panel_state(id))
+                self.open_panels(&owner)
+                    .filter_map(|id| self.panel_state(id))
                     .collect(),
             ));
         }
@@ -399,7 +398,7 @@ impl AppModel {
             if !self.webviews.panels.contains_key(&id) {
                 return Err(format!("panel '{kind}' is not open"));
             }
-            self.update_webview_panel(&id, &options, window, cx)?;
+            self.update_and_announce_panel(&id, &options, window, cx)?;
             return Ok(self.panel_state(&id).unwrap_or(Value::Null));
         }
         let definition = self
@@ -581,11 +580,54 @@ impl AppModel {
     }
 
     fn panel_count(&self, owner: &str) -> usize {
+        self.open_panels(owner).count()
+    }
+
+    /// An extension's open panels: docked, or detached even while another
+    /// project hides them. A docked panel another one replaced is closed.
+    fn open_panels<'a>(&'a self, owner: &'a str) -> impl Iterator<Item = &'a PanelId> + 'a {
         self.webviews
             .panels
-            .values()
-            .filter(|panel| panel.owner == owner)
-            .count()
+            .iter()
+            .filter(move |(id, panel)| {
+                panel.owner == owner && (panel.detached || self.panels.placement(id).is_some())
+            })
+            .map(|(id, _)| id)
+    }
+
+    fn measure_panel_area(&mut self, window: &Window) {
+        let viewport = window.viewport_size();
+        self.webviews.area = gpui::Size {
+            width: f32::from(viewport.width),
+            height: f32::from(viewport.height),
+        };
+    }
+
+    /// [`Self::update_webview_panel`] for a request from an extension, which
+    /// hears `panel.opened` when the change shows a panel that was closed,
+    /// such as one a docked panel had replaced.
+    fn update_and_announce_panel(
+        &mut self,
+        id: &PanelId,
+        options: &PanelOptions,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let shown = self.webview_panel_shown(id);
+        self.update_webview_panel(id, options, window, cx)?;
+        if !shown
+            && self.webview_panel_shown(id)
+            && let Some(panel) = self.webviews.panels.get(id)
+        {
+            self.panel_event(
+                "panel.opened",
+                &panel.owner,
+                &panel.kind,
+                panel.instance.as_deref(),
+                cx,
+            );
+        }
+        Ok(())
     }
 
     /// Where a detached panel opens before anything moved it: the manifest's
@@ -1077,6 +1119,10 @@ impl AppModel {
                     panel.instance.as_deref(),
                     cx,
                 );
+                let named = panel.instance.is_some();
+                if named {
+                    self.remove_webview_panel(&id, cx);
+                }
             }
         }
         cx.notify();
@@ -1183,11 +1229,7 @@ impl AppModel {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let viewport = window.viewport_size();
-        self.webviews.area = gpui::Size {
-            width: f32::from(viewport.width),
-            height: f32::from(viewport.height),
-        };
+        self.measure_panel_area(window);
         let state = &self.state;
         let orphaned: Vec<_> = self
             .webviews
@@ -1277,9 +1319,32 @@ impl AppModel {
     }
 }
 
+/// Extension names and instance names never hold `:`, so a named copy's
+/// key can't match another panel's, whatever its panel ID holds.
 pub(super) fn panel_id(owner: &str, kind: &str, instance: Option<&str>) -> PanelId {
     match instance {
-        Some(instance) => PanelId::new(format!("webview:{owner}:{kind}#{instance}")),
+        Some(instance) => PanelId::new(format!("webview-instance:{owner}:{instance}:{kind}")),
         None => PanelId::new(format!("webview:{owner}:{kind}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::panel_id;
+
+    #[test]
+    fn a_named_copy_never_shares_a_key_with_another_panel() {
+        assert_ne!(
+            panel_id("notes", "note#one", None),
+            panel_id("notes", "note", Some("one"))
+        );
+        assert_ne!(
+            panel_id("notes", "a:b", Some("c")),
+            panel_id("notes", "b", Some("a:c"))
+        );
+        assert_ne!(
+            panel_id("notes", "note", Some("one")),
+            panel_id("notes", "note", Some("two"))
+        );
     }
 }

@@ -125,7 +125,8 @@ pub(super) struct NativeWebview {
     modal: Cell<bool>,
     passthrough: Cell<bool>,
     hit_regions: RefCell<Option<Vec<Bounds<Pixels>>>>,
-    pressed_inside: Cell<bool>,
+    /// The buttons pressed on the page and not yet released, one bit each.
+    pressed_inside: Cell<u8>,
     placed: Cell<Option<(u32, u32, f32)>>,
     shown: Cell<Option<bool>>,
 }
@@ -178,7 +179,7 @@ impl NativeWebview {
                 modal: Cell::new(false),
                 passthrough: Cell::new(false),
                 hit_regions: RefCell::new(None),
-                pressed_inside: Cell::new(false),
+                pressed_inside: Cell::new(0),
                 placed: Cell::new(None),
                 shown: Cell::new(None),
             },
@@ -233,23 +234,34 @@ impl NativeWebview {
     pub(super) fn order_front(_views: &[&Self]) {}
 
     /// The pointer event the page gets, or `None` where it lets the pointer
-    /// through to what is under it.
+    /// through to what is under it. A button pressed on the page keeps the
+    /// pointer until that same button is released, whatever the regions do
+    /// meanwhile.
     fn admit(&self, event: Pointer) -> Option<Pointer> {
         let regions = self.hit_regions.borrow();
-        let Some(regions) = regions.as_ref() else {
-            return Some(event);
+        let inside = |position: gpui::Point<Pixels>| {
+            regions
+                .as_ref()
+                .is_none_or(|regions| regions.iter().any(|region| region.contains(&position)))
         };
-        let inside =
-            |position: gpui::Point<Pixels>| regions.iter().any(|region| region.contains(&position));
+        let held = self.pressed_inside.get();
         match event {
-            Pointer::Pressed { position, .. } => {
-                let inside = inside(position);
-                self.pressed_inside.set(inside);
-                inside.then_some(event)
+            Pointer::Pressed {
+                position, button, ..
+            } => {
+                if !inside(position) {
+                    return None;
+                }
+                self.pressed_inside.set(held | button_bit(button));
+                Some(event)
             }
-            Pointer::Released { .. } => self.pressed_inside.replace(false).then_some(event),
+            Pointer::Released { button, .. } => {
+                let bit = button_bit(button);
+                self.pressed_inside.set(held & !bit);
+                (held & bit != 0 || regions.is_none()).then_some(event)
+            }
             Pointer::Moved { position, .. } => {
-                if self.pressed_inside.get() || inside(position) {
+                if held != 0 || inside(position) {
                     Some(event)
                 } else {
                     Some(Pointer::Left)
@@ -424,5 +436,14 @@ impl Events {
         if let Self::Browser(_, navigation) = self {
             navigation.store(id, Ordering::Release);
         }
+    }
+}
+
+fn button_bit(button: gpui::MouseButton) -> u8 {
+    match button {
+        gpui::MouseButton::Left => 1,
+        gpui::MouseButton::Right => 2,
+        gpui::MouseButton::Middle => 4,
+        gpui::MouseButton::Navigate(_) => 8,
     }
 }

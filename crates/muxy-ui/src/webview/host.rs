@@ -361,32 +361,32 @@ impl Host {
         let Some(front) = hosts.last() else {
             return;
         };
-        let subviews = front.parent.subviews();
-        let views: Vec<*const NSView> = (0..subviews.count())
-            .map(|index| Retained::as_ptr(&subviews.objectAtIndex(index)))
-            .collect();
         let ours: Vec<*const NSView> = hosts
             .iter()
             .flat_map(|host| [host.container_ptr(), host.grips_ptr()])
             .collect();
-        let at = |view: *const NSView| views.iter().position(|entry| ptr::eq(*entry, view));
-        let front_at = at(front.container_ptr());
-        let covered = front_at.is_none_or(|index| {
+        let views = front.subview_order();
+        let at = |views: &[*const NSView], view: *const NSView| {
+            views.iter().position(|entry| ptr::eq(*entry, view))
+        };
+        let covered = at(&views, front.container_ptr()).is_none_or(|index| {
             views[index + 1..]
                 .iter()
                 .any(|view| !ours.iter().any(|entry| ptr::eq(*entry, *view)))
-                || at(front.grips_ptr()) != Some(index + 1)
+                || at(&views, front.grips_ptr()) != Some(index + 1)
         });
         if covered {
             front.place(NSWindowOrderingMode::Above, None);
         }
         for pair in hosts.windows(2).rev() {
             let (below, above) = (pair[0], pair[1]);
-            let in_place = match (at(below.container_ptr()), at(above.container_ptr())) {
+            let views = front.subview_order();
+            let in_place = match (
+                at(&views, below.container_ptr()),
+                at(&views, above.container_ptr()),
+            ) {
                 (Some(container), Some(anchor)) => {
-                    !covered
-                        && container + 2 == anchor
-                        && at(below.grips_ptr()) == Some(container + 1)
+                    container + 2 == anchor && at(&views, below.grips_ptr()) == Some(container + 1)
                 }
                 _ => false,
             };
@@ -394,6 +394,14 @@ impl Host {
                 below.place(NSWindowOrderingMode::Below, Some(&above.container));
             }
         }
+    }
+
+    /// The parent's subviews, back to front, as they are now.
+    fn subview_order(&self) -> Vec<*const NSView> {
+        let subviews = self.parent.subviews();
+        (0..subviews.count())
+            .map(|index| Retained::as_ptr(&subviews.objectAtIndex(index)))
+            .collect()
     }
 
     fn container_ptr(&self) -> *const NSView {

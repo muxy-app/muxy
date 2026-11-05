@@ -116,7 +116,7 @@ computer, even for remote projects. It is cached for five minutes.
 | `data`, `onDataChange(fn)` | The view's data. See [Tabs](tabs.md#page-data) |
 | `theme`, `onThemeChange(fn)` | Theme colors. See [Tabs](tabs.md#theme) |
 | `focused`, `onFocus(fn)` | Whether the view has focus |
-| `lifecycle.onBeforeClose(fn)` | Called before the view closes. Return `true`, or a Promise of it, to keep it open. A page that doesn't respond is closed after 5 s |
+| `lifecycle.onBeforeClose(fn)` | Called before the view closes, with `{ surface, instanceID, panelInstanceID }`. Return `true`, or a Promise of it, to keep it open. A page that doesn't respond is closed after 5 s |
 | `lifecycle.close()` | Closes this view |
 
 More: [Events](events.md), [Tabs](tabs.md), [Panels](panels.md),

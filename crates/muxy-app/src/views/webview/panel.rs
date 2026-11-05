@@ -177,7 +177,7 @@ impl AppModel {
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .when(framed, Styled::overflow_hidden)
+            .overflow_hidden()
             .children(blockers)
             .child(panel.surface.view.clone())
             .children(drags);
@@ -192,10 +192,19 @@ impl AppModel {
         .framed(framed)
         .resizable(panel.resizable)
         .interactive(regions.is_none())
-        .on_resize(move |edges, pointer, window, cx| {
-            let _ = model.update(cx, |model, cx| {
-                model.begin_floating_drag(&resize_id, edges, pointer, window, cx);
-            });
+        .on_resize({
+            let model = model.clone();
+            move |edges, pointer, window, cx| {
+                let _ = model.update(cx, |model, cx| {
+                    model.begin_floating_drag(&resize_id, edges, pointer, window, cx);
+                });
+            }
+        })
+        .on_press({
+            let id = id.clone();
+            move |_, cx| {
+                let _ = model.update(cx, |model, cx| model.raise_floating(&id, cx));
+            }
         })
         .grip(self.webview_grips(Some(entity)))
         .children(header)
@@ -206,6 +215,44 @@ impl AppModel {
             self.webview_layer(entity)
         });
         Some(card.into_any_element())
+    }
+
+    /// Hides every native page, and every browser, under app content drawn
+    /// after their occlusions were applied, such as a tooltip.
+    fn native_cover(&self, cx: &gpui::App) -> impl Fn(gpui::Bounds<gpui::Pixels>) + 'static {
+        let pages: Vec<_> = self
+            .webviews
+            .panes
+            .values()
+            .map(|surface| &surface.view)
+            .chain(
+                self.webviews
+                    .panels
+                    .values()
+                    .map(|panel| &panel.surface.view),
+            )
+            .chain(
+                self.webviews
+                    .sidebar
+                    .iter()
+                    .map(|sidebar| &sidebar.surface.view),
+            )
+            .map(|view| view.read(cx).native.clone())
+            .collect();
+        let browsers: Vec<_> = self
+            .browsers
+            .views
+            .values()
+            .map(|surface| surface.view.read(cx).native.clone())
+            .collect();
+        move |bounds| {
+            for page in &pages {
+                page.occlude_also(bounds);
+            }
+            for browser in &browsers {
+                browser.occlude_also(bounds);
+            }
+        }
     }
 
     /// A framed detached panel's header, which moves the panel when dragged.
@@ -332,8 +379,7 @@ impl AppModel {
             self.webview_panel_action(id, PanelControl::Close, 3, cx),
             PanelStyle::new(self.theme.clone(), self.metrics),
         );
-        let native = panel.surface.view.read(cx).native.clone();
-        chrome = chrome.cover_tooltips(move |bounds| native.occlude_also(bounds));
+        chrome = chrome.cover_tooltips(self.native_cover(cx));
         if hides(Hidden::Position) || panel.detached {
             chrome = chrome.without_move_action();
         }

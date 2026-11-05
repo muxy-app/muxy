@@ -317,6 +317,7 @@ impl<K: PartialEq + Clone> FloatingStack<K> {
 }
 
 type DragHandler = Rc<dyn Fn(Option<Edges>, Point<Pixels>, &mut Window, &mut App)>;
+type PressHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 type GripFactory = Rc<dyn Fn(CursorStyle) -> AnyElement>;
 
 const RESIZE_EDGE: f32 = 6.0;
@@ -335,6 +336,7 @@ pub struct FloatingCard {
     interactive: bool,
     children: Vec<AnyElement>,
     on_drag: Option<DragHandler>,
+    on_press: Option<PressHandler>,
     grip: Option<GripFactory>,
     theme: Theme,
     metrics: Metrics,
@@ -356,6 +358,7 @@ impl FloatingCard {
             interactive: true,
             children: Vec::new(),
             on_drag: None,
+            on_press: None,
             grip: None,
             theme,
             metrics,
@@ -393,6 +396,13 @@ impl FloatingCard {
         handler: impl Fn(Option<Edges>, Point<Pixels>, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_drag = Some(Rc::new(handler));
+        self
+    }
+
+    /// Called when any button is pressed anywhere on an interactive card,
+    /// before its contents see the press, such as to bring it to the front.
+    pub fn on_press(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_press = Some(Rc::new(handler));
         self
     }
 
@@ -451,6 +461,12 @@ impl RenderOnce for FloatingCard {
                 card.occlude()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             })
+            .when_some(
+                self.on_press.filter(|_| self.interactive),
+                |card, handler| {
+                    card.capture_any_mouse_down(move |_, window, cx| handler(window, cx))
+                },
+            )
             .children(self.children)
             .children(handles)
     }

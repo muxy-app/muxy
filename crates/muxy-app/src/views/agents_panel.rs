@@ -1072,13 +1072,10 @@ pub(crate) fn floating(
         .bg(theme.raised())
         .shadow_lg()
         .occlude()
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|model, _, _, cx| {
-                model.raise_floating(&muxy_ui::panel::PanelId::new(PANEL), cx);
-                cx.stop_propagation();
-            }),
-        )
+        .capture_any_mouse_down(cx.listener(|model, _, _, cx| {
+            model.raise_floating(&muxy_ui::panel::PanelId::new(PANEL), cx);
+        }))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(body(Placement::Floating, model, window, cx).flex_1())
         .child(resize_handle(
             "agents-panel-resize-right",

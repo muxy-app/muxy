@@ -941,3 +941,34 @@ fn finishing_the_welcome_tour_is_saved_beside_other_appearance_settings() -> Res
     assert!(!saved.tips_visible);
     Ok(())
 }
+
+#[test]
+fn a_panel_layout_round_trips_and_a_broken_frame_keeps_the_pop_out_choice() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "")?;
+    let mut settings = Settings::load(&path)?;
+    let layout = muxy_app_core::settings::PanelLayout {
+        detached: Some(true),
+        frame: Some([10.0, 20.0, 300.0, 200.0]),
+    };
+    settings.set_panel_layout("notes-ext", "note", layout, &path)?;
+    let saved = Settings::load(&path)?;
+    assert_eq!(saved.panel_layout("notes-ext", "note"), layout);
+    assert_eq!(
+        saved.panel_layout("notes-ext", "other"),
+        muxy_app_core::settings::PanelLayout::default()
+    );
+    let broken = fixture.write(
+        "broken.toml",
+        "[panel_layouts.notes-ext.note]\ndetached = true\nframe = [nan, 1.0, 2.0, 3.0]\n",
+    )?;
+    let broken = Settings::load(&broken)?;
+    assert_eq!(
+        broken.panel_layout("notes-ext", "note"),
+        muxy_app_core::settings::PanelLayout {
+            detached: Some(true),
+            frame: None,
+        }
+    );
+    Ok(())
+}

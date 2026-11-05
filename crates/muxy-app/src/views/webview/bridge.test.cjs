@@ -227,6 +227,31 @@ test('tracked hit elements send their padded rectangles only when they change', 
   ]);
 });
 
+test('tracked hit elements retry an update that failed', async () => {
+  let fail = true;
+  const { muxy, messages } = page(message => {
+    if (message.verb === 'panel.update' && fail) { fail = false; throw new Error('busy'); }
+    return null;
+  }, { surface: 'panel' });
+  const pet = { getBoundingClientRect: () => ({ left: 1, top: 2, width: 3, height: 4 }) };
+  const stop = muxy.panel.trackHitElements(pet, { interval: 16 });
+  await new Promise(resolve => setTimeout(resolve, 80));
+  stop();
+  await settled();
+  const sent = messages.map(({args}) => JSON.stringify(args.options.hitRegions));
+  assert.equal(sent.filter(regions => regions === '[{"x":1,"y":2,"width":3,"height":4}]').length, 2);
+  assert.equal(sent.at(-1), 'null');
+});
+
+test('close handlers of a named panel hear its instance', async () => {
+  const { context, muxy } = page(undefined, { surface: 'panel', instance: 'note-7' });
+  let heard = null;
+  muxy.lifecycle.onBeforeClose(info => { heard = info; });
+  context.__muxyBeforeClose(1, 'panel', 'note', 'note-7');
+  await settled();
+  assert.deepEqual({ ...heard }, { surface: 'panel', instanceID: 'note', panelInstanceID: 'note-7' });
+});
+
 test('panel close handlers receive their surface identity and can veto', async () => {
   const { context, muxy, messages } = page(undefined, { surface: 'panel' });
   muxy.lifecycle.onBeforeClose(({surface, instanceID}) => {

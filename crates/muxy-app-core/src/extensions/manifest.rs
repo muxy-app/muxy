@@ -219,6 +219,11 @@ impl Panel {
                 ));
             }
         }
+        if let (Some(min), Some(max)) = (self.min_size, self.max_size)
+            && (min.width > max.width || min.height > max.height)
+        {
+            return Err(format!("panel '{id}' minSize is larger than its maxSize"));
+        }
         Ok(())
     }
 }

@@ -10,7 +10,11 @@ use crate::model::AppModel;
 
 pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let members = model.floating_members();
-    let dragging = model.floating.drag.is_some() || model.agents_panel.drag.is_some();
+    let dragging = model.floating.drag.is_some()
+        || matches!(
+            model.agents_panel.drag,
+            Some(crate::model::agents_panel::Drag::Floating(_))
+        );
     let cursor = model.floating.drag.as_ref().map(|(_, drag)| {
         if drag.is_resize() {
             gpui::CursorStyle::Arrow

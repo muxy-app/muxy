@@ -184,10 +184,11 @@ impl Settings {
             .get(owner)
             .and_then(|panels| panels.get(panel))
             .copied()
-            .filter(|layout| {
-                layout
+            .map(|layout| PanelLayout {
+                frame: layout
                     .frame
-                    .is_none_or(|frame| frame.iter().all(|value| value.is_finite()))
+                    .filter(|frame| frame.iter().all(|value| value.is_finite())),
+                ..layout
             })
             .unwrap_or_default()
     }

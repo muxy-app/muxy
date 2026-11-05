@@ -79,7 +79,7 @@ impl NativeBrowser {
                     modal: Cell::new(false),
                     passthrough: Cell::new(false),
                     hit_regions: RefCell::new(None),
-                    pressed_inside: Cell::new(false),
+                    pressed_inside: Cell::new(0),
                     placed: Cell::new(None),
                     shown: Cell::new(None),
                 },

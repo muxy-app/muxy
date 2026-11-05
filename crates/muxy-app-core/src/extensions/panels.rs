@@ -118,13 +118,20 @@ impl PanelOptions {
             Value::Object(fields) => fields,
             _ => return Err("panel options must be an object".into()),
         };
+        let min_size = size(fields, "minSize")?;
+        let max_size = size(fields, "maxSize")?;
+        if let (Some(min), Some(max)) = (min_size, max_size)
+            && (min.width > max.width || min.height > max.height)
+        {
+            return Err("minSize is larger than maxSize".into());
+        }
         Ok(Self {
             instance: instance(fields)?,
             mode: field(fields, "mode")?,
             position: field(fields, "position")?,
             frame: frame(fields)?,
-            min_size: size(fields, "minSize")?,
-            max_size: size(fields, "maxSize")?,
+            min_size,
+            max_size,
             chrome: field(fields, "chrome")?,
             transparent: flag(fields, "transparent")?,
             click_through: flag(fields, "clickThrough")?,
@@ -359,6 +366,7 @@ mod tests {
             json!({ "hitRegions": [{ "x": 0, "y": 0, "width": 1 }] }),
             json!({ "hitRegions": [{ "x": 0, "y": 0, "width": -1, "height": 1 }] }),
             json!({ "minSize": { "width": -2, "height": 1 } }),
+            json!({ "minSize": { "width": 50, "height": 1 }, "maxSize": { "width": 10, "height": 9 } }),
         ] {
             assert!(PanelOptions::parse(&bad).is_err(), "{bad}");
         }

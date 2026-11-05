@@ -49,7 +49,7 @@
       if (target && typeof target[Symbol.iterator] === 'function') return Array.from(target);
       return target ? [target] : [];
     };
-    let last = null, stopped = false, timer = null;
+    let last = null, stopped = false, timer = null, sending = false;
     const measure = () => elements()
       .map(element => element.getBoundingClientRect())
       .filter(rect => rect.width > 0 && rect.height > 0)
@@ -62,9 +62,12 @@
       if (stopped) return;
       const regions = measure();
       const key = JSON.stringify(regions);
-      if (key !== last) {
-        last = key;
-        updatePanel({ hitRegions: regions }).catch(() => {});
+      if (key !== last && !sending) {
+        sending = true;
+        updatePanel({ hitRegions: regions }).then(
+          () => { if (!stopped) last = key; },
+          () => {},
+        ).finally(() => { sending = false; });
       }
       timer = setTimeout(tick, interval);
     };
@@ -90,12 +93,12 @@
     onChange: callback => subscribe(listeners.panel, callback),
   }) : null;
   let beforeClose = null;
-  window.__muxyBeforeClose = (callID, surface, instanceID) => {
+  window.__muxyBeforeClose = (callID, surface, instanceID, panelInstanceID = null) => {
     const resolve = prevent => send('lifecycle.resolveBeforeClose', { callID: String(callID), prevent }).catch(() => {});
     if (!beforeClose) { resolve(false); return; }
     send('lifecycle.ackBeforeClose', { callID: String(callID) }).catch(() => {});
     try {
-      Promise.resolve(beforeClose({ surface, instanceID })).then(
+      Promise.resolve(beforeClose({ surface, instanceID, panelInstanceID })).then(
         value => resolve(value === true || value?.prevent === true), () => resolve(false));
     } catch (_) { resolve(false); }
   };

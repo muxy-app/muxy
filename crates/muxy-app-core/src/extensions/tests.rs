@@ -550,6 +550,7 @@ fn detached_panel_frames_must_be_sane() {
         json!({"frame": {"height": -10}}),
         json!({"frame": {"x": 1e30}}),
         json!({"minSize": {"width": -1, "height": 4}}),
+        json!({"minSize": {"width": 90, "height": 4}, "maxSize": {"width": 40, "height": 40}}),
     ] {
         let root = tempfile::tempdir().unwrap();
         let mut panel = json!({"id": "p", "entry": "index.html", "mode": "detached"});

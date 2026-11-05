@@ -457,9 +457,10 @@ impl Webview {
         self.close_results.insert(id, sender);
         let kind = self.kind.name();
         self.native.evaluate(&format!(
-            "window.__muxyBeforeClose?.({id},{},{});",
+            "window.__muxyBeforeClose?.({id},{},{},{});",
             json!(kind),
-            json!(self.instance)
+            json!(self.instance),
+            json!(self.panel_instance)
         ));
         cx.spawn(async move |view, cx| {
             cx.background_executor()

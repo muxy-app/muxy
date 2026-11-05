@@ -107,8 +107,11 @@ const open = await muxy.panels.list();
 ```
 
 An instance name is 1 to 64 letters, digits, `.`, `_`, or `-`. A page reads its
-own as `muxy.panel.instanceID`. `panel.opened` and `panel.closed`
-[events](events.md) carry it as `instance`.
+own as `muxy.panel.instanceID`, and `lifecycle.onBeforeClose` handlers get it as
+`panelInstanceID`. `panel.opened` and `panel.closed` [events](events.md) carry it
+as `instance`. `list()` returns the extension's open panels: docked ones, and
+detached ones even while another project hides them. A named copy that another
+docked panel replaces is closed.
 
 ### Options
 
@@ -126,7 +129,7 @@ Fields left out keep their current value.
 | `transparent` | Only when the instance opens. |
 | `title` | The header title; `null` clears it. |
 | `hiddenControls` | Replaces the manifest's list. |
-| `hitRegions` | Rectangles where the page takes clicks; `null` takes them everywhere again. |
+| `hitRegions` | Rectangles where the page takes clicks. `null` removes them: the page then takes clicks everywhere, or nowhere while `clickThrough` is on. |
 | `dragRegions` | Rectangles that move the panel when dragged. |
 
 ### From the panel itself

@@ -298,8 +298,8 @@ pub(crate) fn floating(
             },
         )
         .child(chrome(model, cx));
-    let raise_owner = owner.clone();
-    let raise_id = id.clone();
+    let press_owner = owner.clone();
+    let press_id = id.clone();
     Some(
         FloatingCard::new(
             "floating-agent-sessions",
@@ -312,6 +312,9 @@ pub(crate) fn floating(
                 model.begin_floating_drag(&id, edges, pointer, window, cx);
             });
         })
+        .on_press(move |_, cx| {
+            let _ = press_owner.update(cx, |model, cx| model.raise_floating(&press_id, cx));
+        })
         .child(
             div()
                 .debug_selector(|| "agent-sessions-panel".into())
@@ -321,9 +324,6 @@ pub(crate) fn floating(
                 .min_h_0()
                 .rounded(model.metrics.radius_xl())
                 .overflow_hidden()
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    let _ = raise_owner.update(cx, |model, cx| model.raise_floating(&raise_id, cx));
-                })
                 .child(header)
                 .child(body(model, cx)),
         )
