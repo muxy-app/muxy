@@ -40,13 +40,22 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
     {
         return Ok(Command::Usage(help::EXTENSION));
     }
-    let words: Vec<&str> = arguments
+    let mut words: Vec<&str> = arguments
         .iter()
         .map(|word| {
             word.to_str()
                 .ok_or_else(|| invalid("arguments must be UTF-8"))
         })
         .collect::<io::Result<_>>()?;
+    if words.get(1) == Some(&"--") {
+        words.remove(1);
+    } else if words.first() != Some(&"list")
+        && words.get(1).is_some_and(|word| word.starts_with('-'))
+    {
+        return Err(invalid(
+            "expected a name or folder; use -- before one that starts with a dash",
+        ));
+    }
     let invocation = match words.as_slice() {
         ["list"] => request("extension.list", Map::new(), false),
         ["list", "--json"] => request("extension.list", Map::new(), true),
@@ -102,7 +111,7 @@ fn request(verb: &'static str, args: Map<String, Value>, json: bool) -> Invocati
 }
 
 fn name_argument(name: &str) -> io::Result<Map<String, Value>> {
-    if name.is_empty() || name.starts_with('-') {
+    if name.is_empty() {
         return Err(invalid("expected an extension name"));
     }
     Ok(Map::from_iter([("name".to_owned(), json!(name))]))
@@ -134,7 +143,7 @@ fn line_count(lines: &str) -> io::Result<u64> {
 }
 
 fn folder_argument(folder: &str) -> io::Result<String> {
-    if folder.is_empty() || folder.starts_with('-') {
+    if folder.is_empty() {
         return Err(invalid("expected a folder"));
     }
     std::path::absolute(Path::new(folder))?
@@ -255,8 +264,12 @@ fn text(verb: &str, reply: &Value) -> String {
                 output.push_str(problem);
                 output.push('\n');
             }
-            if !any {
-                output.push_str("ready to publish\n");
+            match github_gap(reply) {
+                Some(gap) => {
+                    let _ = writeln!(output, "{gap}");
+                }
+                None if !any => output.push_str("ready to publish\n"),
+                None => {}
             }
         }
         "extension.publish" => {
@@ -268,9 +281,21 @@ fn text(verb: &str, reply: &Value) -> String {
     output
 }
 
+/// What stops a package that is otherwise ready from being published.
+fn github_gap(reply: &Value) -> Option<&'static str> {
+    match string(reply, "github") {
+        "missing" => {
+            Some("publishing needs the GitHub CLI (gh): install it from https://cli.github.com")
+        }
+        "signed-out" => Some("the GitHub CLI (gh) isn't signed in: run gh auth login"),
+        "unreachable" => Some("GitHub couldn't be reached, so the store wasn't checked"),
+        _ => None,
+    }
+}
+
 fn problem_count(verb: &str, reply: &Value) -> usize {
     if verb == "extension.validate" {
-        strings(reply, "problems").count()
+        strings(reply, "problems").count() + usize::from(github_gap(reply).is_some())
     } else {
         0
     }
@@ -337,6 +362,20 @@ mod tests {
     }
 
     #[test]
+    fn a_double_dash_allows_a_name_or_folder_that_starts_with_a_dash() -> io::Result<()> {
+        assert_eq!(invocation(&["reload", "--", "-odd"])?.args["name"], "-odd");
+        let load = invocation(&["load", "--", "-odd"])?;
+        assert!(
+            load.args["path"]
+                .as_str()
+                .unwrap_or_default()
+                .ends_with("-odd")
+        );
+        assert!(parsed(&["reload", "-odd"]).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn bad_commands_are_refused() {
         for words in [
             vec!["install", "hello"],
@@ -385,9 +424,18 @@ mod tests {
         assert_eq!(text("extension.reload", &json!(null)), "ok\n");
         assert_eq!(text("extension.load", &json!({"name": "hello"})), "hello\n");
         assert_eq!(
-            text("extension.validate", &json!({"problems": []})),
+            text(
+                "extension.validate",
+                &json!({"problems": [], "github": "octocat"})
+            ),
             "ready to publish\n"
         );
+        let no_gh = json!({"problems": [], "github": "missing"});
+        assert!(text("extension.validate", &no_gh).contains("GitHub CLI"));
+        assert!(!text("extension.validate", &no_gh).contains("ready to publish"));
+        assert_eq!(problem_count("extension.validate", &no_gh), 1);
+        let signed_in = json!({"problems": [], "github": "octocat"});
+        assert_eq!(problem_count("extension.validate", &signed_in), 0);
         assert_eq!(
             problem_count("extension.validate", &json!({"problems": ["a", "b"]})),
             2

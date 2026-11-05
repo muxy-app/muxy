@@ -75,7 +75,7 @@ them too.
 | `muxy extension enable <name>`, `disable <name>` | Turns an extension on or off. |
 | `muxy extension reload <name>` | Restarts one extension from its folder. If the folder no longer loads, or its package name changed, it prints why and the running copy stays. |
 | `muxy extension unload <name>` | Forgets an unpacked folder and keeps its files. It doesn't work on marketplace extensions. |
-| `muxy extension validate <name\|folder> [--json]` | Checks what publishing needs, and exits nonzero if something is missing. |
+| `muxy extension validate <name\|folder> [--json]` | Checks what publishing needs, including the GitHub CLI, and exits nonzero if something is missing. |
 | `muxy extension publish <name> [--json]` | Opens a [pull request to the store](../extensions/contributing.md#publish-from-muxy), after you approve it in the app. |
 
 ## Sessions from a script

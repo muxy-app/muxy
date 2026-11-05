@@ -1317,6 +1317,34 @@ impl ExtensionsView {
 
     /// Edits an unpacked extension, or clones one from the marketplace to edit
     /// the copy.
+    fn agent_action(
+        &self,
+        extension: &Extension,
+        unpacked: bool,
+        cx: &Context<Self>,
+    ) -> Option<(&'static str, AgentTask)> {
+        let name = extension.name.clone();
+        if unpacked {
+            let folder = self
+                .model
+                .upgrade()?
+                .read(cx)
+                .extension_source(&name)
+                .ok()?;
+            return Some((
+                tr_key!("Edit with Agent…"),
+                AgentTask::Edit { name, folder },
+            ));
+        }
+        Some((
+            tr_key!("Clone and Modify…"),
+            AgentTask::Clone {
+                name,
+                installed: extension.directory.clone(),
+            },
+        ))
+    }
+
     fn agent_button(
         &self,
         id: &str,
@@ -1324,27 +1352,7 @@ impl ExtensionsView {
         unpacked: bool,
         cx: &Context<Self>,
     ) -> Option<gpui::Stateful<gpui::Div>> {
-        let name = extension.name.clone();
-        let (label, task) = if unpacked {
-            let folder = self
-                .model
-                .upgrade()?
-                .read(cx)
-                .extension_source(&name)
-                .ok()?;
-            (
-                tr_key!("Edit with Agent…"),
-                AgentTask::Edit { name, folder },
-            )
-        } else {
-            (
-                tr_key!("Clone and Modify…"),
-                AgentTask::Clone {
-                    name,
-                    installed: extension.directory.clone(),
-                },
-            )
-        };
+        let (label, task) = self.agent_action(extension, unpacked, cx)?;
         Some(self.button(
             format!("{id}-{}", extension.name),
             label,

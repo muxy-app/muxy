@@ -319,6 +319,11 @@ impl AppModel {
             });
         }
         self.sync_preferences(cx);
+        if let Some(Overlay::ExtensionAgent(open)) = &self.overlay {
+            let (theme, metrics) = (self.theme.clone(), self.metrics);
+            open.picker
+                .update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
+        }
         if let Some(Overlay::Commands(crate::views::command_palette::Palette { palette, dark })) =
             &self.overlay
         {

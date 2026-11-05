@@ -311,20 +311,25 @@ fn publish_with(tools: &FakeTools) -> Result<PullRequest, String> {
         files: check(source.path()).files,
         ..readiness()
     };
-    publish(tools, source.path(), &approved, "octocat", false)
+    let staged = stage(source.path(), &approved.files).unwrap();
+    publish(tools, staged.path(), &approved, "octocat", false)
 }
 
 #[test]
-fn only_what_was_approved_is_sent() {
+fn what_gets_sent_is_what_was_there_when_the_user_was_asked() {
     let source = tempfile::tempdir().unwrap();
     ready_package(source.path());
     let approved = Readiness {
         files: check(source.path()).files,
         ..readiness()
     };
+    let staged = stage(source.path(), &approved.files).unwrap();
     fs::write(source.path().join("notes-with-token.txt"), "secret").unwrap();
+    fs::write(source.path().join("README.md"), "changed while asking").unwrap();
+
     let tools = FakeTools::default();
-    publish(&tools, source.path(), &approved, "octocat", false).unwrap();
+    publish(&tools, staged.path(), &approved, "octocat", false).unwrap();
+
     let added = tools.added.borrow();
     assert!(added.iter().any(|file| file == "README.md"), "{added:?}");
     assert!(
@@ -335,34 +340,88 @@ fn only_what_was_approved_is_sent() {
         !added.iter().any(|file| file.contains("stale")),
         "the store's old copy is replaced: {added:?}"
     );
+    assert_eq!(
+        fs::read_to_string(staged.path().join("README.md")).unwrap(),
+        "# Hello"
+    );
 }
 
 #[test]
-fn a_file_that_changed_after_approval_stops_before_anything_is_pushed() {
-    for change in ["removed", "link"] {
+fn staging_refuses_what_changed_since_it_was_listed() {
+    let linked_files = |change: &str| {
         let source = tempfile::tempdir().unwrap();
         ready_package(source.path());
-        let approved = Readiness {
-            files: check(source.path()).files,
-            ..readiness()
-        };
+        let files = check(source.path()).files;
         let readme = source.path().join("README.md");
         fs::remove_file(&readme).unwrap();
         if change == "link" {
             std::os::unix::fs::symlink("/etc/hosts", &readme).unwrap();
         }
-        let tools = FakeTools::default();
-        let error = publish(&tools, source.path(), &approved, "octocat", false).unwrap_err();
+        stage(source.path(), &files).unwrap_err()
+    };
+    assert!(linked_files("removed").contains("changed while checking"));
+    assert!(linked_files("link").contains("changed while checking"));
+
+    let folder = tempfile::tempdir().unwrap();
+    ready_package(&folder.path().join("real"));
+    let files = check(&folder.path().join("real")).files;
+    let link = folder.path().join("link");
+    std::os::unix::fs::symlink(folder.path().join("real"), &link).unwrap();
+    assert!(stage(&link, &files).is_err(), "a linked folder is refused");
+}
+
+#[test]
+fn a_link_doesnt_count_as_a_required_file_and_pipes_are_never_sent() {
+    let folder = tempfile::tempdir().unwrap();
+    ready_package(folder.path());
+    fs::remove_file(folder.path().join("README.md")).unwrap();
+    std::os::unix::fs::symlink("/etc/hosts", folder.path().join("README.md")).unwrap();
+    let pipe = folder.path().join("pipe");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&pipe)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let readiness = check(folder.path());
+    assert!(readiness.problems.join(" ").contains("README.md"));
+    assert!(!readiness.files.iter().any(|file| file == Path::new("pipe")));
+}
+
+#[test]
+fn a_screenshot_entry_must_be_a_path() {
+    let folder = tempfile::tempdir().unwrap();
+    ready_package(folder.path());
+    package(
+        folder.path(),
+        &json!({
+            "name": "hello",
+            "version": "1.0.0",
+            "scripts": { "build": "x" },
+            "muxy": { "marketplace": { "icon": "assets/icon.svg", "screenshots": [null, 123] } }
+        }),
+    );
+    let problems = check(folder.path()).problems;
+    let about_entries = problems
+        .iter()
+        .filter(|problem| problem.contains("must be a file path"))
+        .count();
+    assert_eq!(about_entries, 2, "{problems:?}");
+}
+
+#[test]
+fn every_github_request_goes_to_github_com() {
+    let tools = FakeTools::default();
+    publish_with(&tools).unwrap();
+    github_account(&tools);
+    let _ = published_version(&tools, "hello");
+    let calls = tools.calls.borrow();
+    for call in calls.iter().filter(|call| call.starts_with("gh api")) {
+        assert!(call.contains("--hostname github.com"), "{call}");
+    }
+    for call in calls.iter().filter(|call| call.starts_with("gh pr")) {
         assert!(
-            error.contains("changed after you approved"),
-            "{change}: {error}"
-        );
-        assert!(
-            !tools
-                .calls
-                .borrow()
-                .iter()
-                .any(|call| call.contains(" push "))
+            call.contains("--repo github.com/muxy-app/extensions"),
+            "{call}"
         );
     }
 }
@@ -395,7 +454,7 @@ fn publishing_forks_commits_pushes_and_opens_a_pull_request_in_order() {
         "add --all -- extensions/hello",
         "commit --allow-empty -m hello 1.2.0",
         "https://github.com/octocat/extensions.git HEAD:refs/heads/hello-1.2.0",
-        "pr create --repo muxy-app/extensions --base main --head octocat:hello-1.2.0 --title hello 1.2.0",
+        "pr create --repo github.com/muxy-app/extensions --base main --head octocat:hello-1.2.0 --title hello 1.2.0",
     ];
     let positions: Vec<_> = order.iter().map(|text| position(&calls, text)).collect();
     assert!(positions.is_sorted(), "{calls:#?}");

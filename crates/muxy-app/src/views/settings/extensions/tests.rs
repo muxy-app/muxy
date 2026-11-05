@@ -439,14 +439,23 @@ fn rows_offer_an_agent_for_their_kind_of_extension(cx: &mut TestAppContext) {
     let mine = installed("mine", cx);
     let reader = installed("reader", cx);
     view.update(cx, |view, cx| {
-        assert!(
-            view.agent_button("row", &mine, true, cx).is_some(),
-            "unpacked extensions are edited"
+        assert_eq!(
+            view.agent_action(&mine, true, cx).map(|(_, task)| task),
+            Some(AgentTask::Edit {
+                name: "mine".into(),
+                folder: folder.clone(),
+            }),
+            "unpacked extensions are edited in their own folder"
         );
-        assert!(
-            view.agent_button("row", &reader, false, cx).is_some(),
+        assert_eq!(
+            view.agent_action(&reader, false, cx).map(|(_, task)| task),
+            Some(AgentTask::Clone {
+                name: "reader".into(),
+                installed: reader.directory.clone(),
+            }),
             "marketplace extensions are cloned"
         );
+        assert!(view.agent_button("row", &mine, true, cx).is_some());
     });
 }
 

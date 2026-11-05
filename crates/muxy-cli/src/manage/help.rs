@@ -107,7 +107,10 @@ pub(crate) const EXTENSION: &str = "Usage: muxy extension <command>
 Extension commands talk to the Muxy desktop app on this computer, not to the
 server, so they don't take --host. They start the app if it isn't running.
 Publish asks for approval in the app and needs the GitHub CLI, signed in.
+Use -- before a name or folder that starts with a dash.
 MUXY_CLI_TIMEOUT sets how many seconds the app has to answer (default 10).
+Load, reload, enable, disable, unload and validate get 30 more, and publish 15
+minutes more.
 Text list columns: name, version, state, source, folder (tab-separated).";
 pub(crate) const INSTALL_SKILLS: &str = "Usage: muxy install-skills [--dir DIR]...
 Installs the muxy-cli skill, which teaches AI coding agents to use this command,

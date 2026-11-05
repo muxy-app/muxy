@@ -141,6 +141,19 @@ fn a_folder_that_no_longer_loads_can_still_be_unloaded() {
 }
 
 #[test]
+fn a_folder_cant_be_loaded_twice_under_two_names() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    let mut registry = Registry::load(profile.path());
+    registry.load_unpacked(source.path()).unwrap();
+    package(source.path(), "renamed");
+    let error = registry.load_unpacked(source.path()).unwrap_err();
+    assert!(error.contains("'hello'"), "{error}");
+    assert!(!registry.extensions.contains_key("renamed"));
+}
+
+#[test]
 fn manifests_reject_escaping_resources_and_invalid_commands() {
     let root = tempfile::tempdir().unwrap();
     package(root.path(), "files");

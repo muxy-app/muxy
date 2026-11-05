@@ -355,6 +355,9 @@ pub(crate) fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
 fn rename_package(file: &Path, name: &str) -> Result<(), String> {
     let text = fs::read_to_string(file).map_err(|error| error.to_string())?;
     let mut value: Value = serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    if !value.is_object() {
+        return Err(tr!("package.json must hold an object.").to_string());
+    }
     let renamed = if let Some(renamed) = renamed_in_place(&text, &value, name) {
         renamed
     } else {
@@ -640,6 +643,17 @@ mod tests {
             fs::read_to_string(&copy).map_err(|error| error.to_string())?,
             "the user's changes"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn renaming_refuses_a_manifest_that_isnt_an_object() -> io::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let file = folder.path().join("package.json");
+        for manifest in ["[]", "\"text\"", "1", "true"] {
+            fs::write(&file, manifest)?;
+            assert!(rename_package(&file, "hello").is_err(), "{manifest}");
+        }
         Ok(())
     }
 

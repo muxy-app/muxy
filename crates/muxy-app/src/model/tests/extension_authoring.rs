@@ -544,6 +544,37 @@ fn a_command_that_arrives_before_extensions_are_read_waits_for_them(cx: &mut Tes
 }
 
 #[gpui::test]
+fn typing_while_an_agent_gets_ready_keeps_the_progress_showing(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(cx);
+    let picker = open_picker(&model, cx);
+    let shown = rows(&picker, cx);
+    model.update(cx, |model, cx| {
+        if let Some(Overlay::ExtensionAgent(open)) = &mut model.overlay {
+            open.attempt = 7;
+        }
+        model.ai.installed = Vec::new();
+        model.update_extension_agents(cx);
+    });
+    assert_eq!(
+        rows(&picker, cx),
+        shown,
+        "the list isn't rebuilt behind the progress"
+    );
+}
+
+#[gpui::test]
+fn a_renamed_folder_cant_be_loaded_a_second_time(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(cx);
+    let source = tempfile::tempdir().unwrap();
+    write_package(source.path(), "hello", "1.0.0");
+    let path = source.path().display().to_string();
+    call(&model, cx, "extension.load", json!({"path": path})).unwrap();
+    write_package(source.path(), "renamed", "1.0.0");
+    let error = call(&model, cx, "extension.load", json!({"path": path})).unwrap_err();
+    assert!(error.contains("'hello'"), "{error}");
+}
+
+#[gpui::test]
 fn commands_refuse_what_agents_may_not_do(cx: &mut TestAppContext) {
     let (model, cx) = open_model(cx);
     let installed = model.read_with(cx, |model, _| model.extensions.registry.directory());

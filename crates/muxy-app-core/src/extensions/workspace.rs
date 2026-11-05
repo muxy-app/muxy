@@ -5,6 +5,11 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
+
+/// Startup and starting an agent can both prepare a workspace, and cleaning up
+/// would delete the other's half-written files.
+static PREPARING: Mutex<()> = Mutex::new(());
 
 pub const SKILL_NAME: &str = "muxy-extensions";
 pub const SKILL: &str = include_str!("../../skills/muxy-extensions/SKILL.md");
@@ -97,9 +102,16 @@ pub fn skill_file(root: &Path) -> PathBuf {
 /// Creates the workspace if needed and brings its skill up to date with this
 /// build. Only Muxy's own skill and pointer files are touched.
 pub fn prepare(root: &Path) -> io::Result<()> {
+    let _preparing = PREPARING.lock().unwrap_or_else(PoisonError::into_inner);
     fs::create_dir_all(root.join("extensions"))?;
     for skills in AGENT_SKILLS {
         let folder = root.join(skills).join(SKILL_NAME);
+        if fs::symlink_metadata(&folder).is_ok_and(|metadata| metadata.is_symlink()) {
+            return Err(io::Error::other(format!(
+                "{} is a link; Muxy keeps its skill in a real folder there",
+                folder.display()
+            )));
+        }
         for (relative, contents) in FILES {
             write_if_changed(&folder.join(relative), contents)?;
         }
@@ -203,6 +215,22 @@ mod tests {
         assert!(!skill.join("references/old").exists());
         assert_eq!(fs::read_to_string(other)?, "the user's own skill");
         assert_eq!(fs::read_to_string(work)?, "{}");
+        Ok(())
+    }
+
+    #[test]
+    fn a_linked_skill_folder_is_refused_and_what_it_points_at_is_kept() -> io::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let elsewhere = folder.path().join("elsewhere");
+        fs::create_dir_all(&elsewhere)?;
+        fs::write(elsewhere.join("mine.txt"), "kept")?;
+        let root = folder.path().join("workspace");
+        let skills = root.join(AGENT_SKILLS[0]);
+        fs::create_dir_all(&skills)?;
+        std::os::unix::fs::symlink(&elsewhere, skills.join(SKILL_NAME))?;
+        assert!(prepare(&root).is_err());
+        assert_eq!(fs::read_to_string(elsewhere.join("mine.txt"))?, "kept");
+        assert!(!elsewhere.join("SKILL.md").exists());
         Ok(())
     }
 

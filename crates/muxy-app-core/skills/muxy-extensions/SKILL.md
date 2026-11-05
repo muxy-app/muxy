@@ -106,15 +106,17 @@ to their fork, and open a pull request titled `<name> <version>`.
    `references/contributing.md`. Ask the user for screenshots you can't make.
 2. Bump `version` if this updates something already published.
 3. Run `muxy extension publish my-extension`. Muxy asks the user to approve in
-   its own window, and prints the pull request's address when it is open. Only
-   the files listed when they approve are sent. Publishing the same version again
-   updates that pull request, replacing its earlier commits.
+   its own window, and prints the pull request's address when it is open. It sends
+   the files as they were when it asked, so later edits need another publish.
+   Publishing the same version again updates that pull request, replacing its
+   earlier commits but not its text.
 4. Offer to improve the pull request's text with `gh pr edit`, especially why
    each permission is needed.
 
 ### Without the GitHub CLI
 
-If `publish` says `gh` is missing or signed out, guide the user instead:
+If `validate` or `publish` says `gh` is missing or signed out, guide the user
+instead:
 
 1. Explain what publishing does, as above, before anything else.
 2. Help them install `gh` (`brew install gh` on macOS, or

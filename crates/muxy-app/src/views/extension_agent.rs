@@ -92,6 +92,9 @@ impl AppModel {
         let Some(Overlay::ExtensionAgent(open)) = &self.overlay else {
             return;
         };
+        if open.attempt != 0 {
+            return;
+        }
         let query = open.picker.read(cx).query().to_lowercase();
         let items = agents
             .iter()

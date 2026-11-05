@@ -745,6 +745,7 @@
 "Draft · Open" = "Draft · Open";
 "Drag to reposition, scroll to zoom" = "Drag to reposition, scroll to zoom";
 "Draw terminal text with a heavier stroke." = "Draw terminal text with a heavier stroke.";
+"Each marketplace.screenshots entry must be a file path." = "Each marketplace.screenshots entry must be a file path.";
 "Each profile keeps its own cookies, cache, history, and logins. Pick a profile per tab from the browser toolbar." = "Each profile keeps its own cookies, cache, history, and logins. Pick a profile per tab from the browser toolbar.";
 "Each project keeps its own draft, even across restarts." = "Each project keeps its own draft, even across restarts.";
 "Edit" = "Edit";
@@ -1828,7 +1829,7 @@
 "The extension kept an open view. Save or close it before reloading." = "The extension kept an open view. Save or close it before reloading.";
 "The extension view could not be closed. Try reloading again." = "The extension view could not be closed. Try reloading again.";
 "The extension was updated but could not be enabled: %@" = "The extension was updated but could not be enabled: %@";
-"The extension's files changed after you approved them. Publish again." = "The extension's files changed after you approved them. Publish again.";
+"The extension's files changed while checking them. Publish again." = "The extension's files changed while checking them. Publish again.";
 "The extension's page could not be loaded." = "The extension's page could not be loaded.";
 "The folder operation was cancelled." = "The folder operation was cancelled.";
 "The image is empty." = "The image is empty.";
@@ -2185,6 +2186,7 @@
 "open settings" = "open settings";
 "optional" = "optional";
 "package.json can't be read: %@" = "package.json can't be read: %@";
+"package.json must hold an object." = "package.json must hold an object.";
 "package.json needs a scripts.build that produces dist/ with package.json inside." = "package.json needs a scripts.build that produces dist/ with package.json inside.";
 "package.json needs a semantic version, such as 1.0.0." = "package.json needs a semantic version, such as 1.0.0.";
 "paste" = "paste";

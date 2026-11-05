@@ -401,10 +401,8 @@ impl AppModel {
             Ok(source) => source,
             Err(error) => return Task::ready(Err(PublishFailure::Failed(error))),
         };
-        let planning = {
-            let source = source.clone();
-            crate::extensions::io::network(move || Ok(publish::plan(&LocalTools, &source)))
-        };
+        let planning =
+            crate::extensions::io::network(move || Ok(publish::plan(&LocalTools, &source)));
         cx.spawn(async move |model, cx| {
             let plan = planning.await.map_err(PublishFailure::Failed)??;
             let (approved, approval) = async_channel::bounded(1);
@@ -443,7 +441,7 @@ impl AppModel {
             crate::extensions::io::network(move || {
                 publish::publish(
                     &LocalTools,
-                    &source,
+                    plan.staged.path(),
                     &plan.readiness,
                     &plan.login,
                     plan.update,

@@ -9,9 +9,12 @@ use muxy_app_core::extensions::Extension;
 use muxy_ui::tr;
 use serde_json::{Value, json};
 
-use super::authoring::{STORE_REPOSITORY, Tools};
+use super::authoring::{STORE_REPOSITORY, Tools, copy_tree};
 use super::marketplace;
 
+/// The store on github.com, whatever host `GH_HOST` points `gh` at.
+const STORE_ON_GITHUB: &str = "github.com/muxy-app/extensions";
+const GITHUB_HOST: &str = "github.com";
 const ICON_MIN_SIZE: u32 = 256;
 const ICON_MAX_SVG_BYTES: u64 = 512 * 1024;
 const ICON_MAX_PNG_BYTES: u64 = 1024 * 1024;
@@ -129,13 +132,16 @@ fn not_ready_message(problems: &[String]) -> String {
 }
 
 /// A publish that only needs the user's approval.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub(crate) struct PublishPlan {
     pub(crate) readiness: Readiness,
     pub(crate) login: String,
     pub(crate) update: bool,
     /// Who published this name already, when that isn't the user.
     pub(crate) other_author: Option<String>,
+    /// A private copy of the files, made before the user is asked, so what they
+    /// approve is exactly what gets sent.
+    pub(crate) staged: tempfile::TempDir,
 }
 
 /// Checks everything that can be checked without changing anything. The store
@@ -165,7 +171,9 @@ pub(crate) fn plan(tools: &dyn Tools, source: &Path) -> Result<PublishPlan, Publ
     if !readiness.problems.is_empty() {
         return Err(PublishFailure::NotReady(readiness.problems));
     }
+    let staged = stage(source, &readiness.files).map_err(PublishFailure::Failed)?;
     Ok(PublishPlan {
+        staged,
         readiness,
         update: published.is_some(),
         other_author: published
@@ -291,13 +299,13 @@ pub(crate) fn check(source: &Path) -> Readiness {
         .map(str::to_owned)
         .collect();
     readiness.permissions.sort();
-    if !source.join("README.md").is_file() {
+    if !regular_file(&source.join("README.md")) {
         readiness.problems.push(
             tr!("Add a README.md that says what it does and why it needs each permission.")
                 .to_string(),
         );
     }
-    if !source.join("package-lock.json").is_file() {
+    if !regular_file(&source.join("package-lock.json")) {
         readiness
             .problems
             .push(tr!("Add a package-lock.json. Run npm install to make one.").to_string());
@@ -320,6 +328,12 @@ pub(crate) fn check(source: &Path) -> Readiness {
         Err(error) => readiness.problems.push(error.to_string()),
     }
     readiness
+}
+
+/// Whether `path` is a file itself. A link to one is left out of what is sent,
+/// so it doesn't count.
+fn regular_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
 }
 
 fn publishable_name(name: &str) -> bool {
@@ -359,8 +373,12 @@ fn check_listing(source: &Path, listing: &Value, problems: &mut Vec<String>) {
     if screenshots.len() > SCREENSHOT_MAX_COUNT {
         problems.push(tr!("The store takes at most 6 screenshots.").to_string());
     }
-    for screenshot in screenshots.iter().filter_map(Value::as_str) {
-        check_screenshot(source, screenshot, problems);
+    for screenshot in screenshots {
+        match screenshot.as_str() {
+            Some(screenshot) => check_screenshot(source, screenshot, problems),
+            None => problems
+                .push(tr!("Each marketplace.screenshots entry must be a file path.").to_string()),
+        }
     }
 }
 
@@ -478,7 +496,7 @@ fn files_to_publish(source: &Path) -> io::Result<(Vec<PathBuf>, u64)> {
             }
             if kind.is_dir() {
                 walk(root, &path, files, bytes)?;
-            } else {
+            } else if kind.is_file() {
                 *bytes += entry.metadata()?.len();
                 files.push(relative.to_owned());
             }
@@ -496,7 +514,11 @@ pub(crate) fn github_account(tools: &dyn Tools) -> GitHub {
     if !tools.installed("gh") {
         return GitHub::Missing;
     }
-    match tools.run("gh", &["api", "user", "--jq", ".login"], None) {
+    match tools.run(
+        "gh",
+        &["api", "user", "--hostname", GITHUB_HOST, "--jq", ".login"],
+        None,
+    ) {
         Ok(login) if !login.is_empty() => GitHub::User(login),
         Ok(_) => GitHub::SignedOut,
         Err(error) if signed_out(&error) => GitHub::SignedOut,
@@ -511,10 +533,15 @@ fn signed_out(error: &str) -> bool {
         .any(|sign| error.contains(sign))
 }
 
-/// Copies exactly the files the user approved. Anything added since isn't sent,
-/// and one that went away or became a link stops the publish.
-fn copy_approved(source: &Path, destination: &Path, files: &[PathBuf]) -> Result<(), String> {
-    let changed = || tr!("The extension's files changed after you approved them. Publish again.");
+/// Copies the files to a private folder. One that went away or became a link
+/// since it was listed, or a folder that is itself a link, stops the publish.
+fn stage(source: &Path, files: &[PathBuf]) -> Result<tempfile::TempDir, String> {
+    let changed = || tr!("The extension's files changed while checking them. Publish again.");
+    let linked = fs::symlink_metadata(source).map_err(|_| changed().to_string())?;
+    if linked.is_symlink() {
+        return Err(changed().to_string());
+    }
+    let staged = tempfile::tempdir().map_err(|error| error.to_string())?;
     for file in files {
         let mut path = source.to_owned();
         for part in file.components() {
@@ -524,13 +551,13 @@ fn copy_approved(source: &Path, destination: &Path, files: &[PathBuf]) -> Result
                 return Err(changed().to_string());
             }
         }
-        let target = destination.join(file);
+        let target = staged.path().join(file);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
         fs::copy(&path, &target).map_err(|error| error.to_string())?;
     }
-    Ok(())
+    Ok(staged)
 }
 
 /// The store's copy of `name`, if it has one.
@@ -541,7 +568,14 @@ pub(crate) fn published_version(
     let path = format!("repos/{STORE_REPOSITORY}/contents/extensions/{name}/package.json");
     let text = match tools.run(
         "gh",
-        &["api", "-H", "Accept: application/vnd.github.raw", &path],
+        &[
+            "api",
+            "-H",
+            "Accept: application/vnd.github.raw",
+            &path,
+            "--hostname",
+            GITHUB_HOST,
+        ],
         None,
     ) {
         Ok(text) => text,
@@ -621,7 +655,7 @@ fn open_pull_request(
             "pr",
             "list",
             "--repo",
-            STORE_REPOSITORY,
+            STORE_ON_GITHUB,
             "--head",
             branch,
             "--state",
@@ -708,12 +742,12 @@ fn push(
     result
 }
 
-/// Forks the store if needed, commits the extension's source to a new branch,
-/// pushes it, and opens a pull request or updates the open one. The caller
-/// has already had this approved by the user.
+/// Forks the store if needed, commits the staged files to a new branch, pushes
+/// it, and opens a pull request or updates the open one. The caller has already
+/// had this approved by the user.
 pub(crate) fn publish(
     tools: &dyn Tools,
-    source: &Path,
+    staged: &Path,
     readiness: &Readiness,
     login: &str,
     update: bool,
@@ -725,6 +759,8 @@ pub(crate) fn publish(
             "-X",
             "POST",
             &format!("repos/{STORE_REPOSITORY}/forks"),
+            "--hostname",
+            GITHUB_HOST,
             "--jq",
             ".full_name",
         ],
@@ -764,7 +800,7 @@ pub(crate) fn publish(
     if destination.exists() {
         fs::remove_dir_all(&destination).map_err(|error| error.to_string())?;
     }
-    copy_approved(source, &destination, &readiness.files)?;
+    copy_tree(staged, &destination).map_err(|error| error.to_string())?;
     tools.run("git", &["add", "--all", "--", &folder], Some(&repository))?;
     let changed = tools.run("git", &["status", "--porcelain"], Some(&repository))?;
     if changed.is_empty() && open.is_none() {
@@ -801,7 +837,7 @@ pub(crate) fn publish(
             "pr",
             "create",
             "--repo",
-            STORE_REPOSITORY,
+            STORE_ON_GITHUB,
             "--base",
             "main",
             "--head",

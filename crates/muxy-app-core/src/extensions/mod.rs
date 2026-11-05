@@ -145,11 +145,14 @@ impl Registry {
         if self.extensions.contains_key(&extension.name) {
             return Err("an extension with this name is already loaded".into());
         }
+        let folder = path.canonicalize().map_err(|e| e.to_string())?;
+        if let Some((loaded, _)) = self.unpacked.iter().find(|(_, known)| **known == folder) {
+            return Err(format!(
+                "this folder is already loaded as '{loaded}'; unload it first"
+            ));
+        }
         let mut folders = self.unpacked.clone();
-        folders.insert(
-            extension.name.clone(),
-            path.canonicalize().map_err(|e| e.to_string())?,
-        );
+        folders.insert(extension.name.clone(), folder);
         storage::write(
             &self.profile.join("extension-folders.json"),
             &serde_json::json!(folders),

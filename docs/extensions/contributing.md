@@ -21,7 +21,8 @@ For an unpacked extension, open its page in **Settings → Extensions** and choo
    request titled `<name> <version>`.
 
 Publishing the same version again updates its open pull request, replacing its
-earlier commits. Only the files listed when you confirmed are sent. The top-level
+earlier commits but not its text. Muxy copies the files before it asks, so what
+you confirm is exactly what is sent. The top-level
 `dist/`, `logs/`, and `release/`, plus `node_modules/`, agent folders and
 instructions, `.env` files, keys and other credential files, and links are never
 sent. Muxy uses the [GitHub CLI](https://cli.github.com), signed in with
