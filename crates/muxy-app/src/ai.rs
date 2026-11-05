@@ -25,6 +25,19 @@ pub(crate) struct Provider {
     executable: &'static str,
     arguments: &'static [&'static str],
     environment: &'static [(&'static str, &'static str)],
+    interactive: &'static [&'static str],
+    initial_prompt: InitialPrompt,
+}
+
+/// How an interactive session of a provider takes its first prompt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InitialPrompt {
+    /// As the last argument.
+    Argument,
+    /// After this flag.
+    Flag(&'static str),
+    /// It has no documented way, so the user types it.
+    Typed,
 }
 
 pub(crate) const PROVIDERS: &[Provider] = &[
@@ -42,6 +55,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
             "--tools=",
         ],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Argument,
     },
     Provider {
         id: "codex",
@@ -56,6 +71,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
             "never",
         ],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Argument,
     },
     Provider {
         id: "opencode",
@@ -63,6 +80,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "opencode",
         arguments: &["run"],
         environment: &[("OPENCODE_PERMISSION", r#"{"*":"deny"}"#)],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Flag("--prompt"),
     },
     Provider {
         id: "copilot",
@@ -70,6 +89,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "copilot",
         arguments: &["--silent", "--no-ask-user", "--available-tools=", "-p"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Flag("-i"),
     },
     Provider {
         id: "cursor",
@@ -77,6 +98,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "cursor-agent",
         arguments: &["--print", "--output-format", "text"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Argument,
     },
     Provider {
         id: "droid",
@@ -84,6 +107,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "droid",
         arguments: &["exec", "--output-format", "text"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Argument,
     },
     Provider {
         id: "grok",
@@ -102,6 +127,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
             "-p",
         ],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Typed,
     },
     Provider {
         id: "kiro",
@@ -109,6 +136,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "kiro-cli",
         arguments: &["chat", "--no-interactive", "--trust-tools="],
         environment: &[],
+        interactive: &["chat"],
+        initial_prompt: InitialPrompt::Typed,
     },
     Provider {
         id: "pi",
@@ -116,6 +145,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "pi",
         arguments: &["--print", "--no-session", "--no-tools"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Typed,
     },
     Provider {
         id: "xal",
@@ -123,6 +154,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "xal",
         arguments: &["run", "--format", "text"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Typed,
     },
     Provider {
         id: "antigravity",
@@ -130,6 +163,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "agy",
         arguments: &["--print", "--output-format", "text", "--mode=plan"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Typed,
     },
     Provider {
         id: "omp",
@@ -137,6 +172,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "omp",
         arguments: &["--print", "--no-session", "--no-tools"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Typed,
     },
 ];
 
@@ -236,14 +273,12 @@ impl Provider {
     }
 
     fn executable_path_in(self, search: &[PathBuf]) -> Option<PathBuf> {
-        search
-            .iter()
-            .map(|dir| dir.join(self.executable))
-            .find(|path| {
-                path.metadata().is_ok_and(|metadata| {
-                    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-                })
-            })
+        executable_in(self.executable, search)
+    }
+
+    /// What starts an interactive session, after the executable.
+    pub(crate) fn interactive(self) -> (&'static [&'static str], InitialPrompt) {
+        (self.interactive, self.initial_prompt)
     }
 
     /// Runs the provider inside the project, where it reads the project's own instructions.
@@ -294,6 +329,50 @@ impl Provider {
         }
         Ok(output)
     }
+}
+
+fn executable_in(name: &str, search: &[PathBuf]) -> Option<PathBuf> {
+    search.iter().map(|dir| dir.join(name)).find(|path| {
+        path.metadata()
+            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+    })
+}
+
+/// A program installed on this computer, including in the usual folders that
+/// an app opened from the Finder doesn't have on its `PATH`.
+pub(crate) fn find_program(name: &str) -> Option<PathBuf> {
+    executable_in(name, &Provider::search_path())
+}
+
+/// A program as the user's own login shell finds it.
+pub(crate) fn find_in_login_shell(name: &str) -> Option<PathBuf> {
+    executable_in(name, LOGIN_PATH.get()?)
+}
+
+/// Runs a developer tool without a terminal, so it fails instead of waiting
+/// for an answer nobody can type, and returns what it printed.
+pub(crate) fn run_tool(
+    program: &str,
+    arguments: &[&str],
+    directory: Option<&Path>,
+) -> Result<String, String> {
+    let executable =
+        find_program(program).ok_or_else(|| tr!("%@ is not installed", program).to_string())?;
+    let mut command = Command::new(executable);
+    command
+        .args(arguments)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GH_PROMPT_DISABLED", "1")
+        .env("GH_NO_UPDATE_NOTIFIER", "1");
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
+    if let Ok(path) = std::env::join_paths(Provider::search_path()) {
+        command.env("PATH", path);
+    }
+    let (stdout, _) = capture(command, TIMEOUT, OUTPUT_LIMIT, &Cancellation::default())
+        .map_err(|failure| failure.describe(program))?;
+    Ok(String::from_utf8_lossy(&stdout).trim().to_owned())
 }
 
 /// Kills every provider that is still running, such as when the app quits.

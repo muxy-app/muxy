@@ -213,7 +213,8 @@ ends.
   projects closes them, and switching back reopens them.
 - **Extensions.** Add tabs, panels, a sidebar, toolbar and status bar items,
   shortcuts, and background scripts. They are managed in Settings → Extensions,
-  declare their permissions, and ask before sensitive actions. Most extensions
+  declare their permissions, and ask before sensitive actions. A coding agent
+  can [build, change, and publish them](../extensions/agents.md). Most extensions
   made for Muxy 1.x work unchanged; see the
   [compatibility limits](../extensions/get-started.md#coming-from-1x).
 - **Git and AI.** For Git projects, the footer shows the branch and changes,

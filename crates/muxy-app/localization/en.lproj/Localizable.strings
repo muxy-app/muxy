@@ -10,6 +10,7 @@
 "%@ CLI is not installed. Choose another provider or install its CLI." = "%@ CLI is not installed. Choose another provider or install its CLI.";
 "%@ Could not restore the extension's enabled state: %@" = "%@ Could not restore the extension's enabled state: %@";
 "%@ Images are sent as inline file paths." = "%@ Images are sent as inline file paths.";
+"%@ Isn't Ready to Publish" = "%@ Isn't Ready to Publish";
 "%@ Updates" = "%@ Updates";
 "%@ added" = "%@ added";
 "%@ already exists; move it before installing Muxy." = "%@ already exists; move it before installing Muxy.";
@@ -19,6 +20,7 @@
 "%@ failed: %@" = "%@ failed: %@";
 "%@ has no changes compared to %@" = "%@ has no changes compared to %@";
 "%@ is a folder. Only files can be sent to %@." = "%@ is a folder. Only files can be sent to %@.";
+"%@ is already published by %@. Your pull request would change their extension." = "%@ is already published by %@. Your pull request would change their extension.";
 "%@ is also bound to %@" = "%@ is also bound to %@";
 "%@ is also bound to %@: %@" = "%@ is also bound to %@: %@";
 "%@ is also bound to command: %@" = "%@ is also bound to command: %@";
@@ -26,9 +28,13 @@
 "%@ is checked out in another worktree, so this one stays on its branch." = "%@ is checked out in another worktree, so this one stays on its branch.";
 "%@ is larger than 100 MiB, the most Muxy sends to %@." = "%@ is larger than 100 MiB, the most Muxy sends to %@.";
 "%@ is no longer available. Try again." = "%@ is no longer available. Try again.";
+"%@ is not installed" = "%@ is not installed";
 "%@ is not installed, so there is nothing to open this with." = "%@ is not installed, so there is nothing to open this with.";
 "%@ is running" = "%@ is running";
+"%@ isn't an unpacked extension. Only unpacked folders can be published." = "%@ isn't an unpacked extension. Only unpacked folders can be published.";
+"%@ isn't an unpacked extension. Remove marketplace extensions in Settings → Extensions." = "%@ isn't an unpacked extension. Remove marketplace extensions in Settings → Extensions.";
 "%@ isn't connected." = "%@ isn't connected.";
+"%@ isn't loaded. Run muxy extension list." = "%@ isn't loaded. Run muxy extension list.";
 "%@ must be a regular file no larger than 16 MiB" = "%@ must be a regular file no larger than 16 MiB";
 "%@ must contain an object" = "%@ must contain an object";
 "%@ on %@" = "%@ on %@";
@@ -91,6 +97,7 @@
 "A Unicode range, such as U+E000-U+F8FF." = "A Unicode range, such as U+E000-U+F8FF.";
 "A color, cell-foreground, or cell-background. Leave empty to use the theme." = "A color, cell-foreground, or cell-background. Leave empty to use the theme.";
 "A few keys to remember" = "A few keys to remember";
+"A marketplace extension named %@ is installed. Choose another package name." = "A marketplace extension named %@ is installed. Choose another package name.";
 "A phone beside the code that pairs it." = "A phone beside the code that pairs it.";
 "A process is still running in these tabs.\nAre you sure you want to close them?" = "A process is still running in these tabs.\nAre you sure you want to close them?";
 "A process is still running in this pane.\nAre you sure you want to close it?" = "A process is still running in this pane.\nAre you sure you want to close it?";
@@ -132,10 +139,14 @@
 "Add Server…" = "Add Server…";
 "Add a GitHub remote named origin to open a pull request" = "Add a GitHub remote named origin to open a pull request";
 "Add a Project…" = "Add a Project…";
+"Add a README.md that says what it does and why it needs each permission." = "Add a README.md that says what it does and why it needs each permission.";
 "Add a Server…" = "Add a Server…";
 "Add a computer over SSH and its projects sit beside your local ones. Its terminals keep running when you disconnect." = "Add a computer over SSH and its projects sit beside your local ones. Its terminals keep running when you disconnect.";
+"Add a marketplace block to muxy in package.json, with an icon and at least one screenshot." = "Add a marketplace block to muxy in package.json, with an icon and at least one screenshot.";
+"Add a package-lock.json. Run npm install to make one." = "Add a package-lock.json. Run npm install to make one.";
 "Add a project" = "Add a project";
 "Add a project and the extensions most people start with." = "Add a project and the extensions most people start with.";
+"Add at least one marketplace.screenshots entry (PNG, 16:10 or 16:9)." = "Add at least one marketplace.screenshots entry (PNG, 16:10 or 16:9).";
 "Add space between terminal lines using pixels or a percentage, such as 10%%." = "Add space between terminal lines using pixels or a percentage, such as 10%%.";
 "Add the essentials" = "Add the essentials";
 "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"" = "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"";
@@ -157,6 +168,7 @@
 "Agents panel" = "Agents panel";
 "Agents panel icon" = "Agents panel icon";
 "Agents panel rows" = "Agents panel rows";
+"Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy." = "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy.";
 "All Projects" = "All Projects";
 "All extensions are up to date." = "All extensions are up to date.";
 "All of them at a glance" = "All of them at a glance";
@@ -176,8 +188,11 @@
 "Also restart the server" = "Also restart the server";
 "Always running" = "Always running";
 "Amber" = "Amber";
+"An agent can guide you through it, and explains what publishing does before it changes anything." = "An agent can guide you through it, and explains what publishing does before it changes anything.";
 "An agent is waiting for your attention." = "An agent is waiting for your attention.";
+"An extension named %@ is already loaded from %@. Unload it first." = "An extension named %@ is already loaded from %@. Unload it first.";
 "An import is ready for the next launch. Quit and reopen Muxy to apply it, or cancel the import here." = "An import is ready for the next launch. Quit and reopen Muxy to apply it, or cancel the import here.";
+"An open pull request for this version is updated instead, replacing its earlier commits." = "An open pull request for this version is updated instead, replacing its earlier commits.";
 "Another computer's Devices tab gives you a link to pair with." = "Another computer's Devices tab gives you a link to pair with.";
 "Another installation of the muxy command is in progress" = "Another installation of the muxy command is in progress";
 "Another update is in progress. Muxy will retry when it finishes." = "Another update is in progress. Muxy will retry when it finishes.";
@@ -307,6 +322,7 @@
 "Branch" = "Branch";
 "Branch name" = "Branch name";
 "Branch: %@" = "Branch: %@";
+"Branch: %@, or a numbered one if your fork already has it" = "Branch: %@, or a numbered one if your fork already has it";
 "Bright colors for bold text" = "Bright colors for bold text";
 "Bring history, bookmarks, or sign-ins from a browser on this computer." = "Bring history, bookmarks, or sign-ins from a browser on this computer.";
 "Bring your servers in" = "Bring your servers in";
@@ -363,6 +379,7 @@
 "Chart Line" = "Chart Line";
 "Chart Pie" = "Chart Pie";
 "Chart Pie Fill" = "Chart Pie Fill";
+"Check Again" = "Check Again";
 "Check after import:" = "Check after import:";
 "Check for Updates…" = "Check for Updates…";
 "Check for updates" = "Check for updates";
@@ -430,6 +447,8 @@
 "Clipboard paste" = "Clipboard paste";
 "Clock" = "Clock";
 "Clock Fill" = "Clock Fill";
+"Clone %@ as %@ with…" = "Clone %@ as %@ with…";
+"Clone and Modify…" = "Clone and Modify…";
 "Close" = "Close";
 "Close %@" = "Close %@";
 "Close Composer" = "Close Composer";
@@ -530,6 +549,7 @@
 "Connection succeeded · Muxy %@" = "Connection succeeded · Muxy %@";
 "Connects To" = "Connects To";
 "Continue" = "Continue";
+"Continue with Agent…" = "Continue with Agent…";
 "Controls the scale of the app interface." = "Controls the scale of the app interface.";
 "Cookies" = "Cookies";
 "Copied image is larger than 25 MiB" = "Copied image is larger than 25 MiB";
@@ -621,6 +641,7 @@
 "Couldn't create %@" = "Couldn't create %@";
 "Couldn't create pull request" = "Couldn't create pull request";
 "Couldn't create worktree" = "Couldn't create worktree";
+"Couldn't install the muxy command: %@" = "Couldn't install the muxy command: %@";
 "Couldn't merge PR #%lld" = "Couldn't merge PR #%lld";
 "Couldn't remove worktree" = "Couldn't remove worktree";
 "Couldn't start %@" = "Couldn't start %@";
@@ -628,11 +649,13 @@
 "Create" = "Create";
 "Create & Add" = "Create & Add";
 "Create & Add Project" = "Create & Add Project";
+"Create Extension…" = "Create Extension…";
 "Create PR" = "Create PR";
 "Create PR Prompt" = "Create PR Prompt";
 "Create Project Folder?" = "Create Project Folder?";
 "Create Pull Request" = "Create Pull Request";
 "Create a pull request from \"%@\"?" = "Create a pull request from \"%@\"?";
+"Create an extension with…" = "Create an extension with…";
 "Create new branch" = "Create new branch";
 "Created branch %@" = "Created branch %@";
 "Creating branch" = "Creating branch";
@@ -726,10 +749,12 @@
 "Each project keeps its own draft, even across restarts." = "Each project keeps its own draft, even across restarts.";
 "Edit" = "Edit";
 "Edit %@" = "Edit %@";
+"Edit %@ with…" = "Edit %@ with…";
 "Edit Paired Server" = "Edit Paired Server";
 "Edit Project Prompt…" = "Edit Project Prompt…";
 "Edit Remote Server" = "Edit Remote Server";
 "Edit in %@" = "Edit in %@";
+"Edit with Agent…" = "Edit with Agent…";
 "Editors & IDEs" = "Editors & IDEs";
 "Edit…" = "Edit…";
 "Enable" = "Enable";
@@ -802,6 +827,7 @@
 "File manager" = "File manager";
 "Files" = "Files";
 "Files and images" = "Files and images";
+"Files:" = "Files:";
 "Fill padding with the background color, or extend the color of the nearest cells." = "Fill padding with the background color, or extend the color of the nearest cells.";
 "Film" = "Film";
 "Film Fill" = "Film Fill";
@@ -819,6 +845,8 @@
 "Finding SSH key…" = "Finding SSH key…";
 "Find…" = "Find…";
 "Finished working" = "Finished working";
+"Fix these before publishing:" = "Fix these before publishing:";
+"Fix with Agent…" = "Fix with Agent…";
 "Flag" = "Flag";
 "Flag Fill" = "Flag Fill";
 "Float Panel" = "Float Panel";
@@ -850,6 +878,7 @@
 "Forget" = "Forget";
 "Forget %@?" = "Forget %@?";
 "Forget %lld Servers?" = "Forget %lld Servers?";
+"Fork: your fork of %@, created if needed" = "Fork: your fork of %@, created if needed";
 "Forward" = "Forward";
 "Forward Fill" = "Forward Fill";
 "From 1024 to 65535. Press Return to save." = "From 1024 to 65535. Press Return to save.";
@@ -860,6 +889,7 @@
 "Get Started" = "Get Started";
 "Get a notification when an agent needs you or finishes. Click it to jump right there." = "Get a notification when an agent needs you or finishes. Click it to jump right there.";
 "Get the app" = "Get the app";
+"Getting the workspace ready…" = "Getting the workspace ready…";
 "Git" = "Git";
 "Git Changes: %@" = "Git Changes: %@";
 "Give a branch its own worktree." = "Give a branch its own worktree.";
@@ -951,10 +981,12 @@
 "Install a Linux build there by hand, from scripts/build-linux-dev.sh." = "Install a Linux build there by hand, from scripts/build-linux-dev.sh.";
 "Install a matching build there by hand, from scripts/build-linux-dev.sh." = "Install a matching build there by hand, from scripts/build-linux-dev.sh.";
 "Install a supported AI provider CLI or choose one in Settings → AI." = "Install a supported AI provider CLI or choose one in Settings → AI.";
+"Install and Continue" = "Install and Continue";
 "Install and open %@.app before installing its command line tool." = "Install and open %@.app before installing its command line tool.";
 "Install failed: %@" = "Install failed: %@";
 "Install muxy-server & Test Connection" = "Install muxy-server & Test Connection";
 "Install muxy-server on %@?" = "Install muxy-server on %@?";
+"Install the muxy Command?" = "Install the muxy Command?";
 "Installed" = "Installed";
 "Installed %@." = "Installed %@.";
 "Installed %@.\n\n%@" = "Installed %@.\n\n%@";
@@ -985,6 +1017,7 @@
 "It changed after you confirmed. Refresh and try again." = "It changed after you confirmed. Refresh and try again.";
 "Italic font" = "Italic font";
 "Items" = "Items";
+"Its package name changed to %@. Unload it and load the folder again." = "Its package name changed to %@. Unload it and load the folder again.";
 "Its projects and layouts leave this app; nothing on the server changes." = "Its projects and layouts leave this app; nothing on the server changes.";
 "Its saved certificate fingerprint is invalid." = "Its saved certificate fingerprint is invalid.";
 "Just now" = "Just now";
@@ -1148,6 +1181,7 @@
 "New Branch" = "New Branch";
 "New Branch…" = "New Branch…";
 "New Browser Tab" = "New Browser Tab";
+"New Extension" = "New Extension";
 "New Group" = "New Group";
 "New Group…" = "New Group…";
 "New Home Tab" = "New Home Tab";
@@ -1174,6 +1208,7 @@
 "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead." = "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead.";
 "No SSH? Pair instead" = "No SSH? Pair instead";
 "No Shortcut" = "No Shortcut";
+"No agent found. Install Claude Code, Codex, or another supported agent." = "No agent found. Install Claude Code, Codex, or another supported agent.";
 "No agent sessions in this project" = "No agent sessions in this project";
 "No agents running" = "No agents running";
 "No cloud, no account" = "No cloud, no account";
@@ -1237,6 +1272,7 @@
 "Open Project" = "Open Project";
 "Open Project in %@" = "Open Project in %@";
 "Open Project…" = "Open Project…";
+"Open Pull Request" = "Open Pull Request";
 "Open Quick Terminal" = "Open Quick Terminal";
 "Open Quick Terminal settings" = "Open Quick Terminal settings";
 "Open a Copy" = "Open a Copy";
@@ -1252,6 +1288,7 @@
 "Open the same terminal from several apps at once." = "Open the same terminal from several apps at once.";
 "Open web pages in browser tabs and let muxy browser commands drive them." = "Open web pages in browser tabs and let muxy browser commands drive them.";
 "OpenType features separated by commas, such as ss01 or zero. Put a minus before one to turn it off, such as -calt." = "OpenType features separated by commas, such as ss01 or zero. Put a minus before one to turn it off, such as -calt.";
+"Opened a pull request from %@." = "Opened a pull request from %@.";
 "Opener does not support this resource" = "Opener does not support this resource";
 "Opener exited with %@" = "Opener exited with %@";
 "Opener timed out" = "Opener timed out";
@@ -1299,6 +1336,7 @@
 "Paste a new link to pair again" = "Paste a new link to pair again";
 "Paste image contents into compatible terminal apps or insert the saved image path." = "Paste image contents into compatible terminal apps or insert the saved image path.";
 "Paste the whole pairing link from the other computer's Devices tab." = "Paste the whole pairing link from the other computer's Devices tab.";
+"Paste this into the agent: %@" = "Paste this into the agent: %@";
 "Path template is required." = "Path template is required.";
 "Pencil" = "Pencil";
 "Pencil and Ruler" = "Pencil and Ruler";
@@ -1361,6 +1399,13 @@
 "Proxy removed" = "Proxy removed";
 "Proxy saved" = "Proxy saved";
 "Proxy · On" = "Proxy · On";
+"Publish" = "Publish";
+"Publish %@" = "Publish %@";
+"Publish %@ %@?" = "Publish %@ %@?";
+"Publish %@ with…" = "Publish %@ with…";
+"Publishing %@ Needs the GitHub CLI" = "Publishing %@ Needs the GitHub CLI";
+"Publishing…" = "Publishing…";
+"Publish…" = "Publish…";
 "Pull Request" = "Pull Request";
 "Pull Request #%lld" = "Pull Request #%lld";
 "Pull request changed" = "Pull request changed";
@@ -1369,6 +1414,7 @@
 "Pull request prompt" = "Pull request prompt";
 "Pull request provider" = "Pull request provider";
 "Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI." = "Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI.";
+"Pull request: %@" = "Pull request: %@";
 "Push after committing" = "Push after committing";
 "Pushing" = "Pushing";
 "Put the user and port either in the host or in their own fields" = "Put the user and port either in the host or in their own fields";
@@ -1752,8 +1798,12 @@
 "The AI provider returned an empty pull request title" = "The AI provider returned an empty pull request title";
 "The AI provider returned an invalid response. Update the prompt or try another provider." = "The AI provider returned an invalid response. Update the prompt or try another provider.";
 "The Devices section at the bottom of the sidebar manages every server." = "The Devices section at the bottom of the sidebar manages every server.";
+"The GitHub CLI (gh) isn't installed." = "The GitHub CLI (gh) isn't installed.";
+"The GitHub CLI (gh) isn't signed in. Run gh auth login." = "The GitHub CLI (gh) isn't signed in. Run gh auth login.";
+"The PNG icon must be at most 1 MB." = "The PNG icon must be at most 1 MB.";
 "The Quick Terminal is not available on this platform yet." = "The Quick Terminal is not available on this platform yet.";
 "The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved." = "The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved.";
+"The SVG icon must be at most 512 KB." = "The SVG icon must be at most 512 KB.";
 "The app is updated. The server will update when all terminal sessions end, or you can restart it now. Restarting ends all sessions, including idle and detached sessions." = "The app is updated. The server will update when all terminal sessions end, or you can restart it now. Restarting ends all sessions, including idle and detached sessions.";
 "The backup does not contain settings.toml" = "The backup does not contain settings.toml";
 "The branch changed. Try again." = "The branch changed. Try again.";
@@ -1775,6 +1825,7 @@
 "The extension kept an open view. Save or close it before reloading." = "The extension kept an open view. Save or close it before reloading.";
 "The extension view could not be closed. Try reloading again." = "The extension view could not be closed. Try reloading again.";
 "The extension was updated but could not be enabled: %@" = "The extension was updated but could not be enabled: %@";
+"The extension's files changed after you approved them. Publish again." = "The extension's files changed after you approved them. Publish again.";
 "The extension's page could not be loaded." = "The extension's page could not be loaded.";
 "The folder operation was cancelled." = "The folder operation was cancelled.";
 "The image is empty." = "The image is empty.";
@@ -1787,13 +1838,19 @@
 "The installed or staged update changed. Check for updates again." = "The installed or staged update changed. Check for updates again.";
 "The marketplace answered with a different extension." = "The marketplace answered with a different extension.";
 "The marketplace did not list this extension's permissions." = "The marketplace did not list this extension's permissions.";
+"The marketplace icon %@ wasn't found." = "The marketplace icon %@ wasn't found.";
+"The marketplace icon must be an SVG, or a square PNG of at least 256×256." = "The marketplace icon must be an SVG, or a square PNG of at least 256×256.";
 "The other computer accepted the pairing, but it couldn't be saved: %@. Fix that and pair again with the same link." = "The other computer accepted the pairing, but it couldn't be saved: %@. Fix that and pair again with the same link.";
+"The package name must start with a-z or 0-9, and may only use a-z, 0-9, dots and dashes." = "The package name must start with a-z or 0-9, and may only use a-z, 0-9, dots and dashes.";
 "The page new browser tabs open to. Leave it empty for the start page." = "The page new browser tabs open to. Leave it empty for the start page.";
 "The pairing code is too long to show." = "The pairing code is too long to show.";
 "The project directory isn't available on this Mac" = "The project directory isn't available on this Mac";
 "The project or home directory could not be found." = "The project or home directory could not be found.";
 "The project's tabs changed. Choose the layout again to confirm replacement." = "The project's tabs changed. Choose the layout again to confirm replacement.";
 "The proxy settings contain characters that can't be used" = "The proxy settings contain characters that can't be used";
+"The screenshot %@ must be a 16:10 or 16:9 PNG." = "The screenshot %@ must be a 16:10 or 16:9 PNG.";
+"The screenshot %@ must be at most 3 MB." = "The screenshot %@ must be at most 3 MB.";
+"The screenshot %@ wasn't found." = "The screenshot %@ wasn't found.";
 "The selected 1.x configuration contains no supported settings or projects." = "The selected 1.x configuration contains no supported settings or projects.";
 "The selected AI provider \"%@\" is no longer supported. Choose another one in Settings → AI." = "The selected AI provider \"%@\" is no longer supported. Choose another one in Settings → AI.";
 "The selected language extension is unavailable, so Muxy is temporarily using English." = "The selected language extension is unavailable, so Muxy is temporarily using English.";
@@ -1812,11 +1869,15 @@
 "The shortcut key is not available in the current keyboard layout." = "The shortcut key is not available in the current keyboard layout.";
 "The signed app has an unexpected %@" = "The signed app has an unexpected %@";
 "The signed beta build number does not match the update feed" = "The signed beta build number does not match the update feed";
+"The source is over 64 MB. Move generated files out of the folder." = "The source is over 64 MB. Move generated files out of the folder.";
 "The staged update metadata changed. Check for updates again." = "The staged update metadata changed. Check for updates again.";
+"The store has no source for %@" = "The store has no source for %@";
+"The store takes at most 6 screenshots." = "The store takes at most 6 screenshots.";
 "The terminal closed before sending." = "The terminal closed before sending.";
 "The typeface used to render text in every terminal pane." = "The typeface used to render text in every terminal pane.";
 "The update download is incomplete or has an unexpected size" = "The update download is incomplete or has an unexpected size";
 "The updater is starting. Try again shortly." = "The updater is starting. Try again shortly.";
+"The user declined publishing in Muxy." = "The user declined publishing in Muxy.";
 "The working tree is clean" = "The working tree is clean";
 "The working tree is clean." = "The working tree is clean.";
 "Their projects and layouts leave this app; nothing on the servers changes." = "Their projects and layouts leave this app; nothing on the servers changes.";
@@ -1838,9 +1899,11 @@
 "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it." = "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it.";
 "This desktop has no file chooser service. Install xdg-desktop-portal and its backend for your desktop." = "This desktop has no file chooser service. Install xdg-desktop-portal and its backend for your desktop.";
 "This extension is up to date." = "This extension is up to date.";
+"This folder's name has control characters, which can't be typed into a terminal safely. Rename it and try again." = "This folder's name has control characters, which can't be typed into a terminal safely. Rename it and try again.";
 "This is not a released version" = "This is not a released version";
 "This link has expired or was already used. Copy a new one from the other computer." = "This link has expired or was already used. Copy a new one from the other computer.";
 "This link is for %@, which is already listed. Pair it again from its own Edit… form." = "This link is for %@, which is already listed. Pair it again from its own Edit… form.";
+"This opens a public pull request against %@ from your GitHub account, %@. Maintainers review it, and once merged it is listed for everyone." = "This opens a public pull request against %@ from your GitHub account, %@. Maintainers review it, and once merged it is listed for everyone.";
 "This page can't be opened" = "This page can't be opened";
 "This path is a file. Choose a folder for the project." = "This path is a file. Choose a folder for the project.";
 "This permanently deletes the profile's cookies, history, and browsing data. Its tabs use the default profile." = "This permanently deletes the profile's cookies, history, and browsing data. Its tabs use the default profile.";
@@ -1852,6 +1915,7 @@
 "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones." = "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones.";
 "This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in the Devices tab." = "This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in the Devices tab.";
 "This update requires a server restart" = "This update requires a server restart";
+"This version is already what the store has. Nothing to publish." = "This version is already what the store has. Nothing to publish.";
 "Timer" = "Timer";
 "Tips turned off" = "Tips turned off";
 "To pair a phone or another computer, open the Devices tab, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair." = "To pair a phone or another computer, open the Devices tab, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair.";
@@ -1921,6 +1985,7 @@
 "Updated %@ extensions." = "Updated %@ extensions.";
 "Updated 1 extension." = "Updated 1 extension.";
 "Updated branch for PR #%lld" = "Updated branch for PR #%lld";
+"Updated the open pull request on %@." = "Updated the open pull request on %@.";
 "Updates" = "Updates";
 "Updates apply only to this computer's server" = "Updates apply only to this computer's server";
 "Updating %@" = "Updating %@";
@@ -1955,6 +2020,7 @@
 "Value" = "Value";
 "Version" = "Version";
 "Version %@ is available." = "Version %@ is available.";
+"Version %@ isn't newer than the published %@. Bump the version in package.json." = "Version %@ isn't newer than the published %@. Bump the version in package.json.";
 "Vertical padding (points)" = "Vertical padding (points)";
 "Vibrancy of the glass background." = "Vibrancy of the glass background.";
 "Video" = "Video";
@@ -2013,6 +2079,7 @@
 "Your code appears here" = "Your code appears here";
 "Your draft stays" = "Your draft stays";
 "Your extensions are ready." = "Your extensions are ready.";
+"Your fork already has too many branches named %@." = "Your fork already has too many branches named %@.";
 "Your previous projects are kept in %@" = "Your previous projects are kept in %@";
 "Your terminals live on a server" = "Your terminals live on a server";
 "You’re running the latest version of %@." = "You’re running the latest version of %@.";
@@ -2022,6 +2089,7 @@
 "Zoomed" = "Zoomed";
 "add project" = "add project";
 "allow" = "allow";
+"and %lld more" = "and %lld more";
 "archive checksum does not match the marketplace" = "archive checksum does not match the marketplace";
 "archive entry size mismatch" = "archive entry size mismatch";
 "archive identity does not match the marketplace" = "archive identity does not match the marketplace";
@@ -2088,6 +2156,7 @@
 "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, allow Muxy to run in the background in Login Items settings." = "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, allow Muxy to run in the background in Login Items settings.";
 "macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings." = "macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings.";
 "marketplace response is too large" = "marketplace response is too large";
+"marketplace.icon is required (SVG, or square PNG of at least 256×256)." = "marketplace.icon is required (SVG, or square PNG of at least 256×256).";
 "menu close submenu" = "menu close submenu";
 "menu confirm highlighted" = "menu confirm highlighted";
 "menu dismiss menu" = "menu dismiss menu";
@@ -2111,6 +2180,9 @@
 "open configuration" = "open configuration";
 "open settings" = "open settings";
 "optional" = "optional";
+"package.json can't be read: %@" = "package.json can't be read: %@";
+"package.json needs a scripts.build that produces dist/ with package.json inside." = "package.json needs a scripts.build that produces dist/ with package.json inside.";
+"package.json needs a semantic version, such as 1.0.0." = "package.json needs a semantic version, such as 1.0.0.";
 "paste" = "paste";
 "popover confirm" = "popover confirm";
 "popover dismiss" = "popover dismiss";

@@ -52,12 +52,31 @@ muxy --help          # all commands; muxy <command> --help for details
 | `muxy settings get\|set` | Reads or changes [server settings](server.md#settings). |
 | `muxy activity list\|ack` | Reads or clears [AI agent](ai-agents.md) activity. |
 | `muxy browser open\|list\|read\|click\|…` | Drives browser tabs in the desktop app on this computer. See [Browser control](#browser-control). |
+| `muxy extension list\|status\|logs\|load\|enable\|disable\|reload\|unload\|validate\|publish` | Manages extensions in the desktop app on this computer. See [Extension commands](#extension-commands). |
 | `muxy status <state> [--app APP] [--msg TEXT]` | Tells the terminal what a script is doing (OSC 7501): `idle`, `working`, `done`, `blocked`, `error`, or `clear`. Needs no server. |
 | `muxy exec <project> -- <program> [args]` | Runs a program in the project folder, without a shell. |
 | `muxy git`, `muxy files` | Run raw server Git and file actions as JSON. Advanced; the JSON shape follows the protocol and may change. |
 | `muxy mobile` | Turns on phone access and pairs phones. See [Mobile](mobile.md). |
 | `muxy install-skills` | Installs the Muxy CLI skill for the AI agents found in your home folder. `--dir <path>` adds another skills folder. |
 | `muxy stdio` | Joins stdin and stdout to the server. Used by `--host` over SSH; you don't run it yourself. |
+
+## Extension commands
+
+These talk to the desktop app on this computer and start it if needed, so they
+don't take `--host`. [Agents building extensions](../extensions/agents.md) use
+them too.
+
+| Command | What it does |
+| --- | --- |
+| `muxy extension list [--json]` | Lists extensions with their version, state, source, and folder, then any load errors. |
+| `muxy extension status <name> [--json]` | Shows one extension, its load errors, and recent log lines. |
+| `muxy extension logs <name> [--lines N]` | Prints recent log lines. The default is 100. |
+| `muxy extension load <folder>` | Loads an unpacked folder, disabled. Loading a folder that is already loaded reloads it. |
+| `muxy extension enable <name>`, `disable <name>` | Turns an extension on or off. |
+| `muxy extension reload <name>` | Restarts one extension from its folder. If the folder no longer loads, or its package name changed, it prints why and the running copy stays. |
+| `muxy extension unload <name>` | Forgets an unpacked folder and keeps its files. It doesn't work on marketplace extensions. |
+| `muxy extension validate <name\|folder> [--json]` | Checks what publishing needs, and exits nonzero if something is missing. |
+| `muxy extension publish <name> [--json]` | Opens a [pull request to the store](../extensions/contributing.md#publish-from-muxy), after you approve it in the app. |
 
 ## Sessions from a script
 

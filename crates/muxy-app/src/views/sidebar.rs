@@ -12,7 +12,8 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AccessibleAction, AnyElement, App, AppContext, Bounds, Context, Div, DragMoveEvent, Empty,
     FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Point, Role,
-    SharedString, Stateful, StatefulInteractiveElement, Styled, StyledImage, Window, div, px,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, StyledImage, Window, canvas, div,
+    px,
 };
 use muxy_app_core::{
     Project, ProjectId, ProjectStatus,
@@ -21,6 +22,7 @@ use muxy_app_core::{
 
 use super::{
     menu::{Command, Item},
+    overlays::Overlay,
     tab_activity, tab_sidebar,
 };
 use muxy_ui::accessibility::hidden_button;
@@ -43,6 +45,18 @@ pub(crate) fn register_commands(
 
     register_placed(registry, model, ShortcutId::AddProject);
     register_placed(registry, model, ShortcutId::NewTabInProject);
+    let create: Handler = Rc::new(|model, _, cx| {
+        model.open_extension_agent(crate::extensions::authoring::AgentTask::Create, cx);
+    });
+    registry.register(
+        Command::new("create_extension", tr!("Create Extension…"), create)
+            .keywords("new make build extension agent"),
+    );
+    let manage: Handler = Rc::new(AppModel::show_extensions_settings);
+    registry.register(
+        Command::new("manage_extensions", tr!("Manage Extensions"), manage)
+            .keywords("settings installed marketplace extension"),
+    );
     let has_workspaces = !model.state.workspaces().is_empty() || model.remote_servers_offered();
     let model = cx.weak_entity();
     registry.register(
@@ -219,6 +233,12 @@ pub(super) fn footer_button(
     model: &AppModel,
 ) -> Stateful<Div> {
     let label = label.into();
+    let tooltip = muxy_ui::components::tooltip(label.to_string(), &model.theme);
+    footer_control(id, &label, model).tooltip(tooltip)
+}
+
+/// A footer control without a tooltip, for one whose menu is open.
+fn footer_control(id: &'static str, label: &SharedString, model: &AppModel) -> Stateful<Div> {
     let theme = &model.theme;
     div()
         .id(id)
@@ -237,7 +257,6 @@ pub(super) fn footer_button(
         .cursor_pointer()
         .hover(|style| style.bg(theme.hover))
         .focus(|style| style.bg(theme.hover))
-        .tooltip(muxy_ui::components::tooltip(label.to_string(), theme))
 }
 
 /// A footer icon, with a dot on its corner for something worth a look.
@@ -275,7 +294,14 @@ fn extensions_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement
     let dot =
         (model.extension_update_count() > 0).then_some(("sidebar-extensions-dot", theme.accent));
     let wide = model.appearance.sidebar_expanded;
-    footer_button(ID, label, model)
+    let anchor = model.extensions_anchor.clone();
+    let open = matches!(
+        &model.overlay,
+        Some(Overlay::Menu(menu)) if menu.rises_from.is_some() && menu.rises_from == anchor.get()
+    );
+    let tooltip = muxy_ui::components::tooltip(label.clone(), theme);
+    footer_control(ID, &label.into(), model)
+        .when(!open, |button| button.tooltip(tooltip))
         .when(wide, |button| {
             button
                 .flex_1()
@@ -285,9 +311,21 @@ fn extensions_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement
                 .gap(m.spacing3())
                 .px(m.spacing4())
         })
+        .aria_expanded(open)
+        .when(open, |button| button.bg(theme.hover))
         .button_interaction(cx.listener(|model, _, window, cx| {
-            model.show_extensions_settings(window, cx);
+            model.open_extensions_menu(window, cx);
         }))
+        .child(
+            canvas(
+                move |bounds, _, _| anchor.set(Some(bounds)),
+                |_, (), _, _| {},
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        )
         .child(footer_icon(ID, Icon::Puzzle, theme.fg_muted, dot, model))
         .when(wide, |button| {
             button.child(
@@ -415,6 +453,29 @@ pub(super) fn describe(
 }
 
 impl AppModel {
+    /// Offers the two ways into extensions: building one, or managing them.
+    pub(crate) fn open_extensions_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let manage = tr!("Manage Extensions");
+        let manage = match self.extension_update_count() {
+            0 => manage.to_string(),
+            1 => format!("{manage} · {}", tr!("1 update available")),
+            count => format!("{manage} · {}", tr!("%lld updates available", count)),
+        };
+        let items = vec![
+            Item::action(tr!("Create Extension…"), Command::CreateExtension),
+            Item::action(manage, Command::ManageExtensions),
+        ];
+        let anchor = self.extensions_anchor.get();
+        let position = anchor.map_or_else(
+            || gpui::point(self.metrics.scaled(8.0), self.metrics.scaled(40.0)),
+            |anchor| anchor.bottom_left(),
+        );
+        self.open_menu(items, position, window, cx);
+        if let Some(Overlay::Menu(menu)) = &mut self.overlay {
+            menu.rises_from = anchor;
+        }
+    }
+
     /// Whether the sidebar's bottom row is on screen. A hidden sidebar and an
     /// extension's sidebar don't draw it.
     pub(crate) fn sidebar_footer_shown(&self) -> bool {

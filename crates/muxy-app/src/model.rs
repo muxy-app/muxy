@@ -162,6 +162,7 @@ pub(crate) struct AppModel {
     pub(crate) pairing: pairing::Pairing,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
+    pub(crate) extensions_anchor: muxy_ui::popover::PopoverAnchor,
     /// Servers selected in the Devices tab, and where a ⇧-click range
     /// starts.
     pub(crate) remote_selection: Vec<ServerId>,
@@ -603,6 +604,7 @@ impl AppModel {
             pairing: pairing::Pairing::default(),
             server_anchor: Rc::default(),
             remote_anchor: Rc::default(),
+            extensions_anchor: Rc::default(),
             remote_selection: Vec::new(),
             remote_selection_anchor: None,
             servers_tab: crate::views::servers_tab::ServersTab::new(cx),
@@ -683,6 +685,8 @@ impl AppModel {
         model.ensure_servers_search(cx);
         model.bind_extension_keys(cx);
         model.refresh_installed_extensions(cx);
+        #[cfg(not(test))]
+        model.refresh_extension_workspace(cx);
         model.start_webview_demo(cx);
         #[cfg(not(test))]
         Self::discover_ai_providers(cx);
@@ -2875,6 +2879,7 @@ pub(crate) mod tests {
     mod coverage;
     mod detach;
     mod dialogs;
+    mod extension_authoring;
     mod find;
     mod focus;
     mod git;

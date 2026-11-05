@@ -48,7 +48,9 @@ Installed extensions live in the `extensions/<name>/` folder of Muxy's
 [profile folder](../features/server.md#files). Each is the build output, with
 `package.json` at its root.
 
-Manage them in **Settings → Extensions**: **Installed** lists them with their
+**Extensions** at the bottom of the sidebar offers **Create Extension…**, which
+[hands the work to an agent](agents.md), and **Manage Extensions**, which opens
+**Settings → Extensions**. There, **Installed** lists them with their
 permissions, settings, and logs; **Browse** installs from the marketplace.
 Extensions start disabled after installing or loading. The one exception is
 **Install & Enable** in the [welcome tour](../product/app-model.md#welcome-tour),

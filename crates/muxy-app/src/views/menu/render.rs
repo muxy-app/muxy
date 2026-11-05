@@ -118,9 +118,10 @@ fn render(
         let size = dimensions(items, &shortcuts, level == 0, model, window);
         let origin = match (panels.last(), opener) {
             (Some(parent), Some(row)) => submenu_origin(*parent, row, size, viewport, m),
-            _ => match menu.drops_from {
-                Some(control) => popover::dropdown_origin(control, size, viewport),
-                None => clamp(menu.position, size, viewport),
+            _ => match (menu.rises_from, menu.drops_from) {
+                (Some(control), _) => popover::above_origin(control, size, viewport),
+                (None, Some(control)) => popover::dropdown_origin(control, size, viewport),
+                (None, None) => clamp(menu.position, size, viewport),
             },
         };
         let bounds = Bounds::new(origin, size);

@@ -9,9 +9,10 @@ use muxy_app_core::AppState;
 use muxy_app_core::extensions::Extension;
 use muxy_ui::text_input::{InputStyle, TextInput};
 
-use super::{ExtensionsView, Mutation, Tab, permissions_note};
+use super::{AgentTask, ExtensionsView, Mutation, Tab, permissions_note};
 use crate::model::extensions::{ActiveInstall, FinishedInstall};
 use crate::model::{AppModel, tests::stub_boot};
+use crate::views::overlays::Overlay;
 
 fn write_package(root: &Path, name: &str, version: &str, permissions: &[&str]) {
     std::fs::create_dir_all(root).unwrap();
@@ -393,4 +394,69 @@ fn a_live_size_change_restyles_every_extension_field(cx: &mut TestAppContext) {
         view.read_with(cx, |view, cx| view.search.read(cx).style()),
         expected
     );
+}
+
+#[gpui::test]
+fn rows_offer_an_agent_for_their_kind_of_extension(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let source = tempfile::tempdir().unwrap();
+    write_package(source.path(), "mine", "0.1.0", &[]);
+    let task = model.update(cx, |model, cx| {
+        model.load_unpacked_extension(source.path().to_owned(), cx)
+    });
+    cx.background_executor.allow_parking();
+    pump_until(cx, |cx| {
+        model.read_with(cx, |model, _| {
+            model.extensions.registry.extensions.contains_key("mine")
+        })
+    });
+    drop(task);
+    let view = open_view(&model, cx);
+    let folder = source.path().canonicalize().unwrap();
+    view.update(cx, |view, cx| {
+        view.agent_task(
+            AgentTask::Edit {
+                name: "mine".into(),
+                folder: folder.clone(),
+            },
+            cx,
+        );
+    });
+    model.read_with(cx, |model, _| {
+        assert!(matches!(
+            &model.overlay,
+            Some(Overlay::ExtensionAgent(picker)) if picker.task == AgentTask::Edit {
+                name: "mine".into(),
+                folder: folder.clone(),
+            }
+        ));
+    });
+    let installed = |name: &str, cx: &mut VisualTestContext| {
+        model.read_with(cx, |model, _| {
+            model.extensions.registry.extensions[name].clone()
+        })
+    };
+    let mine = installed("mine", cx);
+    let reader = installed("reader", cx);
+    view.update(cx, |view, cx| {
+        assert!(
+            view.agent_button("row", &mine, true, cx).is_some(),
+            "unpacked extensions are edited"
+        );
+        assert!(
+            view.agent_button("row", &reader, false, cx).is_some(),
+            "marketplace extensions are cloned"
+        );
+    });
+}
+
+#[gpui::test]
+fn publishing_a_marketplace_extension_is_refused(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let task = model.update(cx, |model, cx| model.publish_extension("reader", cx));
+    let result = cx.background_executor.block_test(task);
+    assert!(matches!(
+        result,
+        Err(crate::extensions::publish::PublishFailure::Failed(reason)) if reason.contains("reader")
+    ));
 }

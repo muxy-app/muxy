@@ -37,6 +37,7 @@ pub(crate) enum Overlay {
     /// The status bar's proxy popover.
     Proxy(Box<super::proxy::ProxyForm>),
     Onboarding,
+    ExtensionAgent(super::extension_agent::ExtensionAgentPicker),
 }
 
 /// One kind of overlay: what it draws, where, and what dismissing it
@@ -148,6 +149,7 @@ impl Overlay {
             Self::Password(prompt) => prompt.as_ref(),
             Self::Proxy(form) => form.as_ref(),
             Self::Onboarding => &super::onboarding::OnboardingModal,
+            Self::ExtensionAgent(picker) => picker,
         }
     }
 

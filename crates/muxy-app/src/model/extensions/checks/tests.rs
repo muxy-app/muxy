@@ -129,6 +129,9 @@ fn the_footer_marks_available_updates_with_a_dot(cx: &mut TestAppContext) {
     });
     cx.simulate_click(button.center(), gpui::Modifiers::none());
     cx.run_until_parked();
+    let manage = cx.debug_bounds("menu-item-1").expect("Manage Extensions");
+    cx.simulate_click(manage.center(), gpui::Modifiers::none());
+    cx.run_until_parked();
     assert!(cx.debug_bounds("settings-view").is_some());
     pump_until(cx, |cx| {
         model.read_with(cx, |model, _| {

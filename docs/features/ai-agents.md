@@ -150,3 +150,5 @@ that run an agent.
   `muxy activity ack <event-id>` clears alerts.
 - Extensions get the `agent.status` event and `muxy.agents.list()`. See
   [Events](../extensions/events.md).
+- Agents can build extensions for you. See
+  [Build with an agent](../extensions/agents.md).

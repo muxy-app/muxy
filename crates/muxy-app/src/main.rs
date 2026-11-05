@@ -31,6 +31,7 @@ mod views {
     pub(crate) mod confirm;
     pub(crate) mod devices;
     pub(crate) mod disconnected;
+    pub(crate) mod extension_agent;
     pub(crate) mod font_picker;
     pub(crate) mod git;
     pub(crate) mod menu;

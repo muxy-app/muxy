@@ -6,6 +6,32 @@ appear in **Settings → Extensions → Browse**. You publish by opening a pull
 request there; CI builds, checks, and lists your extension. The repository's
 `CONTRIBUTING.md` has the current validation steps.
 
+## Publish from Muxy
+
+For an unpacked extension, open its page in **Settings → Extensions** and choose
+**Publish…**, or run `muxy extension publish <name>`. Either way:
+
+1. Muxy checks what the store requires. If something is missing, an agent can
+   help you fix it.
+2. Muxy asks you to confirm, showing the branch, the pull request's title, and
+   the first files it will send with how many more there are. Run
+   `muxy extension validate <name> --json` to see the whole list.
+3. Muxy forks `muxy-app/extensions` to your account if needed, commits your
+   source to a branch named `<name>-<version>`, pushes it, and opens a pull
+   request titled `<name> <version>`.
+
+Publishing the same version again updates its open pull request, replacing its
+earlier commits. Only the files listed when you confirmed are sent. The top-level
+`dist/`, `logs/`, and `release/`, plus `node_modules/`, agent folders and
+instructions, `.env` files, keys and other credential files, and links are never
+sent. Muxy uses the [GitHub CLI](https://cli.github.com), signed in with
+`gh auth login`. Without it, **Publish…** offers an agent to guide you, and the
+agent explains what publishing does before it changes anything.
+
+An agent can start a publish, but only you can approve it, in Muxy's own window.
+
+The rest of this page does the same by hand.
+
 ## 1. Check out your fork
 
 Fork `muxy-app/extensions`, then check out only the tooling and your folder:

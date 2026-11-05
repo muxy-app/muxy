@@ -6,7 +6,7 @@ pub(crate) use form::field as form_field;
 mod pr;
 mod worktree_form;
 pub(crate) use ai::AiConfirmation;
-pub(crate) use ai_provider::AiProviderMenu;
+pub(crate) use ai_provider::{AiProviderMenu, provider_icon_path};
 pub(crate) use pr::PullRequestPopover;
 
 use super::overlays::{Dismissal, Mark, Overlay, OverlayView, Placement};

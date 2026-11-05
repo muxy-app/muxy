@@ -4,6 +4,7 @@ mod permissions;
 mod storage;
 
 pub mod api;
+pub mod workspace;
 pub use audit::{AUDIT_LOG, AuditEntry, AuditLog, timestamp};
 pub use manifest::{
     Action, BarItem, Command, Extension, FileOpener, HomeView, Icon, Localization, Manifest,
@@ -23,6 +24,8 @@ use std::path::{Path, PathBuf};
 pub struct Registry {
     pub extensions: BTreeMap<String, Extension>,
     pub errors: Vec<String>,
+    /// Errors reading the saved preferences, which no reload can change.
+    preference_errors: Vec<String>,
     enabled: BTreeSet<String>,
     unpacked: BTreeMap<String, PathBuf>,
     profile: PathBuf,
@@ -42,6 +45,7 @@ impl Registry {
         };
         registry.enabled = registry.read_preference("extension-enabled.json");
         registry.unpacked = registry.read_preference("extension-folders.json");
+        registry.preference_errors = std::mem::take(&mut registry.errors);
         registry.reload();
         registry
     }
@@ -69,6 +73,7 @@ impl Registry {
 
     pub fn reload(&mut self) {
         self.extensions.clear();
+        self.errors.clone_from(&self.preference_errors);
         match std::fs::read_dir(self.directory()) {
             Ok(entries) => {
                 for entry in entries {
@@ -112,6 +117,29 @@ impl Registry {
         Extension::load(path)
     }
 
+    /// Reads one extension again. A folder that no longer loads is an error
+    /// and leaves the loaded copy, and every other extension, as they were.
+    pub fn reload_one(&mut self, id: &str) -> Result<(), String> {
+        let folder = match self.unpacked.get(id) {
+            Some(folder) => folder.clone(),
+            None if self.extensions.contains_key(id) => self.directory().join(id),
+            None => return Err("extension is not installed".into()),
+        };
+        let extension = Extension::load(&folder)?;
+        if extension.name != id {
+            return Err(format!(
+                "its package name changed to '{}'; unload it and load the folder again",
+                extension.name
+            ));
+        }
+        let prefix = format!("{}:", folder.display());
+        let duplicate = format!("{id}:");
+        self.errors
+            .retain(|error| !error.starts_with(&prefix) && !error.starts_with(&duplicate));
+        self.extensions.insert(id.to_owned(), extension);
+        Ok(())
+    }
+
     pub fn load_unpacked(&mut self, path: &Path) -> Result<String, String> {
         let extension = Self::unpacked_extension(path)?;
         if self.extensions.contains_key(&extension.name) {
@@ -136,6 +164,12 @@ impl Registry {
         self.unpacked.contains_key(id)
     }
 
+    /// The folder an unpacked extension was loaded from: the source, where
+    /// `Extension::directory` is its build output.
+    pub fn source_folder(&self, id: &str) -> Option<&Path> {
+        self.unpacked.get(id).map(PathBuf::as_path)
+    }
+
     pub fn enabled(&self, id: &str) -> Option<&Extension> {
         self.extensions
             .get(id)
@@ -149,7 +183,8 @@ impl Registry {
     }
 
     pub fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<(), String> {
-        if !self.extensions.contains_key(id) {
+        let unloaded_folder = !enabled && self.unpacked.contains_key(id);
+        if !self.extensions.contains_key(id) && !unloaded_folder {
             return Err("extension is not installed".into());
         }
         let mut active = self.enabled.clone();
@@ -169,7 +204,7 @@ impl Registry {
     /// Forget developer folders without deleting their contents.
     pub fn remove(&mut self, id: &str) -> Result<(), String> {
         self.set_enabled(id, false)?;
-        if self.is_unpacked(id) {
+        if let Some(folder) = self.unpacked.get(id).cloned() {
             let mut folders = self.unpacked.clone();
             folders.remove(id);
             storage::write(
@@ -177,6 +212,10 @@ impl Registry {
                 &serde_json::json!(folders),
             )?;
             self.unpacked = folders;
+            let prefix = format!("{}:", folder.display());
+            let duplicate = format!("{id}:");
+            self.errors
+                .retain(|error| !error.starts_with(&prefix) && !error.starts_with(&duplicate));
         } else {
             std::fs::remove_dir_all(self.directory().join(id)).map_err(|e| e.to_string())?;
         }
