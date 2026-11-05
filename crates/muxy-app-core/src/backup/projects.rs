@@ -228,6 +228,7 @@ impl AppState {
         restored.ensure_home()?;
         restored.focus_selected_tab();
         restored.retain_one_settings_pane()?;
+        restored.remove_saved_devices_panes()?;
         restored.validate()?;
         Ok(restored)
     }
@@ -292,6 +293,7 @@ impl AppState {
         merged.ensure_home()?;
         merged.focus_selected_tab();
         merged.retain_one_settings_pane()?;
+        merged.remove_saved_devices_panes()?;
         merged.validate()?;
         Ok(merged)
     }

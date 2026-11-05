@@ -602,7 +602,7 @@ fn remote(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
                 point(
                     Icon::Network,
                     tr!("No SSH? Pair instead"),
-                    tr!("Another computer's Devices tab gives you a link to pair with."),
+                    tr!("Another computer's Settings → Devices gives you a link to pair with."),
                     model,
                 ),
                 point(
@@ -717,7 +717,7 @@ fn pairing_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
                 .text_color(theme.fg_muted)
                 .child(if model.mobile_available() {
                     tr!(
-                        "This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in the Devices tab."
+                        "This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in Settings → Devices."
                     )
                 } else {
                     tr!("Connect to this computer's server to manage device access.")

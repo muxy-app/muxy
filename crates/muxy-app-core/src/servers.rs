@@ -7,10 +7,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use muxy_protocol::{OperationId, ProjectIntent, ServerIdentity, SessionId};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    AppError, AppState, PaneContent, PaneId, Project, ProjectId, ProjectStatus, ServerId, Tab,
-    TabId,
-};
+use crate::{AppError, AppState, PaneContent, PaneId, Project, ProjectId, ServerId};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -116,68 +113,18 @@ impl AppState {
         }
     }
 
-    /// The Devices tab, if one is open in a project that can show it, with
-    /// that project.
-    pub fn servers_tab(&self) -> Option<(ProjectId, TabId)> {
-        self.find_servers_tab(|project| project.status() == ProjectStatus::Available)
-    }
-
-    fn find_servers_tab(&self, within: impl Fn(&Project) -> bool) -> Option<(ProjectId, TabId)> {
-        self.projects
-            .iter()
-            .filter(|project| within(project))
-            .find_map(|project| {
-                project
-                    .tabs
-                    .iter()
-                    .find(|tab| {
-                        tab.panes
-                            .iter()
-                            .any(|pane| pane.content == PaneContent::Servers)
-                    })
-                    .map(|tab| (project.id, tab.id))
-            })
-    }
-
-    /// Whether `pane` is the Devices tab's.
-    pub fn is_servers_pane(&self, pane: PaneId) -> bool {
-        self.projects
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .any(|candidate| candidate.id == pane && candidate.content == PaneContent::Servers)
-    }
-
-    /// Shows the Devices tab. There is only one: without one that can be
-    /// shown, it closes any left in an unavailable project and opens in
-    /// `project` when that is on this computer and available, or else in Home.
-    pub fn show_servers_tab(&mut self, project: ProjectId, title: &str) -> Result<TabId, AppError> {
-        let (project, tab) = if let Some(open) = self.servers_tab() {
-            for pane in &mut self.tab_mut(open.1)?.panes {
-                if pane.content == PaneContent::Servers {
-                    title.clone_into(&mut pane.title);
-                }
-            }
-            open
-        } else {
-            if let Some((stale, tab)) =
-                self.find_servers_tab(|project| project.status() != ProjectStatus::Available)
-            {
-                self.close_tab(stale, tab)?;
-            }
-            let here = self.project(project).is_some_and(|project| {
-                project.server_id.is_local() && project.status() == ProjectStatus::Available
-            });
-            let project = if here { project } else { self.home().id };
-            let tab = Tab::with_content(PaneContent::Servers, title);
-            let id = tab.id;
-            let near = self.window.selected_tab.get(&project).copied();
-            self.add_tab(project, tab, near)?;
-            (project, id)
-        };
-        self.select_project(project)?;
-        self.select_tab(project, tab)?;
-        Ok(tab)
+    /// Removes the panes of the Devices tab that older versions saved. Devices
+    /// is a Settings page now.
+    pub(crate) fn remove_saved_devices_panes(&mut self) -> Result<(), AppError> {
+        let panes: Vec<_> = self
+            .panes()
+            .filter(|placed| placed.pane.content == PaneContent::Servers)
+            .map(|placed| placed.pane.id)
+            .collect();
+        for pane in panes {
+            self.remove_pane(pane)?;
+        }
+        Ok(())
     }
 
     /// Removes `server`'s projects with their tabs and workspace memberships,

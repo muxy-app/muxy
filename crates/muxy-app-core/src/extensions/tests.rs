@@ -414,3 +414,38 @@ fn manifests_load_whatever_main_accepts() {
     assert!(!only("?").matches("ab"));
     assert!(only("src/*.rs").matches("SRC/lib.RS"));
 }
+
+#[test]
+fn a_one_x_sidebar_manifest_loads_unchanged() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("sidebar")).unwrap();
+    fs::write(root.path().join("sidebar/index.html"), "<!doctype html>").unwrap();
+    fs::write(
+        root.path().join("package.json"),
+        json!({
+            "name": "workspace-nav",
+            "version": "0.1.0",
+            "private": true,
+            "type": "module",
+            "scripts": { "dev": "vite", "build": "vite build" },
+            "devDependencies": { "vite": "^5.0.0" },
+            "muxy": {
+                "permissions": ["projects:read", "projects:write"],
+                "events": ["project.switched"],
+                "sidebar": {
+                    "id": "main",
+                    "title": "Workspace",
+                    "icon": "sidebar.left",
+                    "entry": "sidebar/index.html"
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let extension = Registry::unpacked_extension(root.path()).unwrap();
+    let sidebar = extension.manifest.sidebar.unwrap();
+    assert_eq!(sidebar.id, "main");
+    assert_eq!(sidebar.title.as_deref(), Some("Workspace"));
+    assert_eq!(sidebar.entry, "sidebar/index.html");
+}

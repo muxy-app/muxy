@@ -40,6 +40,7 @@ their `clear` functions.
 | `worktrees.switchTo(id, project?)`, `refresh(project?)` | |
 | `tabs.list()` | `[{ index, id, kind, title, isActive }]` for the current project |
 | `tabs.switchTo(indexOrIdOrTitle)`, `new()`, `next()`, `previous()` | |
+| `tabs.split(id, besideId, edge = "right")` | Moves a tab into a new [group](tabs.md#tab-groups) on the `left`, `right`, `up`, or `down` side of the group showing `besideId` |
 | `tabs.open(request)` | The new tab's ID. See [Tabs](tabs.md#opening-tabs) |
 | `panes.list()` | `[{ id, title, workingDirectory, isFocused }]` across projects |
 | `panes.send(id, text)`, `sendKeys(id, key)` | |

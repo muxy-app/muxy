@@ -73,6 +73,7 @@ pub(super) fn provider_id(provider: AgentProvider) -> &'static str {
         AgentProvider::Xal => "xal",
         AgentProvider::Antigravity => "antigravity",
         AgentProvider::OhMyPi => "omp",
+        AgentProvider::Hermes => "hermes",
         AgentProvider::Unrecognized(_) => "other",
     }
 }
@@ -124,10 +125,6 @@ impl AppModel {
                     .or_else(|| browser.url.clone())
                     .unwrap_or_default();
                 put("url", url);
-            }
-            Some((id, PaneContent::Servers)) => {
-                put("kind", "remoteServers".into());
-                put("paneID", id.to_string());
             }
             Some((id, _)) => {
                 put("kind", "terminal".into());

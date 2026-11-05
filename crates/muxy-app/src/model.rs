@@ -163,11 +163,11 @@ pub(crate) struct AppModel {
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) extensions_anchor: muxy_ui::popover::PopoverAnchor,
-    /// Servers selected in the Devices tab, and where a ⇧-click range
+    /// Servers selected on the Devices page, and where a ⇧-click range
     /// starts.
     pub(crate) remote_selection: Vec<ServerId>,
     pub(crate) remote_selection_anchor: Option<ServerId>,
-    pub(crate) servers_tab: crate::views::servers_tab::ServersTab,
+    pub(crate) devices_page: crate::views::devices_page::DevicesPage,
     pub(crate) pending_remote: Option<PendingRemote>,
     pub(crate) pending_folders: Vec<PathBuf>,
     pub(crate) remote_links: remote_files::RemoteLinks,
@@ -286,11 +286,7 @@ impl AppModel {
             });
         }
         self.refresh_quick_terminal(cx);
-        let inputs = [
-            self.agent_sessions.input.as_ref(),
-            self.servers_tab.search_input(),
-        ];
-        for input in inputs.into_iter().flatten() {
+        if let Some(input) = self.agent_sessions.input.as_ref() {
             input.update(cx, |input, cx| {
                 input.set_style(
                     muxy_ui::text_input::InputStyle::compact(&self.theme, &self.metrics),
@@ -298,10 +294,21 @@ impl AppModel {
                 );
             });
         }
-        if let Some(input) = self.servers_tab.port_input() {
+        if let Some(input) = self.devices_page.search_input() {
             input.update(cx, |input, cx| {
                 input.set_style(
-                    muxy_ui::text_input::InputStyle::field(&self.theme, &self.metrics),
+                    muxy_ui::text_input::InputStyle::compact(
+                        &self.theme,
+                        &self.devices_page.metrics,
+                    ),
+                    cx,
+                );
+            });
+        }
+        if let Some(input) = self.devices_page.port_input() {
+            input.update(cx, |input, cx| {
+                input.set_style(
+                    muxy_ui::text_input::InputStyle::field(&self.theme, &self.devices_page.metrics),
                     cx,
                 );
             });
@@ -342,7 +349,7 @@ impl AppModel {
         }
         self.metrics = metrics;
         self.agent_sessions.list.remeasure();
-        self.servers_tab.remeasure();
+        self.devices_page.set_metrics(metrics);
     }
 
     pub(crate) fn reload_configuration(&mut self, cx: &mut Context<Self>) {
@@ -607,7 +614,7 @@ impl AppModel {
             extensions_anchor: Rc::default(),
             remote_selection: Vec::new(),
             remote_selection_anchor: None,
-            servers_tab: crate::views::servers_tab::ServersTab::new(cx),
+            devices_page: crate::views::devices_page::DevicesPage::new(metrics),
             pending_remote: None,
             pending_folders: Vec::new(),
             remote_links: remote_files::RemoteLinks::default(),
@@ -1748,7 +1755,7 @@ impl AppModel {
         self.sync_agent_sessions(cx);
         self.sync_composer(cx);
         self.sync_project_layouts(cx);
-        self.sync_devices_tab(false, cx);
+        self.sync_devices_page(false, cx);
         self.sync_settings_tab(cx);
         self.sync_git(cx);
         self.sync_references(cx);
@@ -2221,7 +2228,7 @@ impl AppModel {
             self.read_server_settings(cx);
         }
         if server.is_local() {
-            self.sync_devices_tab(true, cx);
+            self.sync_devices_page(true, cx);
             self.settle_restored_access(cx);
         }
         cx.notify();

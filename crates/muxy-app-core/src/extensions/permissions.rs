@@ -52,7 +52,7 @@ pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
         "exec" | "execAsync" | "exec.start" | "exec.cancel" => "commands:exec",
         "runScript" => "commands:run-script",
         "tabs.list" => "tabs:read",
-        "tabs.switch" | "tabs.new" | "tabs.next" | "tabs.previous" | "tabs.open"
+        "tabs.switch" | "tabs.new" | "tabs.next" | "tabs.previous" | "tabs.open" | "tabs.split"
         | "tabs.setTitle" | "tabs.setIcon" => "tabs:write",
         "panes.list" | "panes.readScreen" => "panes:read",
         "panes.send" | "panes.sendKeys" | "panes.close" | "panes.rename" => "panes:write",

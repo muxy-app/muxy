@@ -6,8 +6,8 @@ plugins, and works while no app is open.
 
 ## Supported agents
 
-Antigravity, Claude Code, Codex, Copilot, Cursor, Droid, Grok, Kiro, Oh My Pi,
-OpenCode, Pi, and Xal.
+Antigravity, Claude Code, Codex, Copilot, Cursor, Droid, Grok, Hermes, Kiro,
+Oh My Pi, OpenCode, Pi, and Xal.
 
 The server spots them from the running program and what's on screen.
 Recognition is best effort.
@@ -29,6 +29,15 @@ and screen text, so disabling or customizing these signals can affect recognitio
 For foreground `omp` and `oh-my-pi` processes, automatic terminal titles omit
 the leading `π ` prefix. The provider icon remains visible, and custom tab
 titles are unchanged.
+
+Hermes is recognized whether it was installed as a `hermes` command or by its
+installer, which starts Python with a launcher program. In the TUI
+(`hermes --tui`), its state comes from the window title it sets: `⏳` while
+working, `⚠` while waiting, and `✓` when idle, in every language. In the
+default CLI, it comes from the screen: the spinner on the line above the input
+while working, and the approval, question, password, and setup prompts with
+their English labels. The classic layout (`display.cli_layout: classic`) and
+other languages show the CLI as idle.
 
 ## States
 
@@ -129,8 +138,9 @@ harness, which may update its session normally.
 | Xal | `~/.xal/sessions/*/*.jsonl` | `xal resume ID` |
 
 `CLAUDE_CONFIG_DIR` and `CODEX_HOME` are respected when set to absolute paths.
-OpenCode, Cursor, Grok, Kiro, and Antigravity appear as **Not supported** in the
-filter menu: their database-only or unverified storage formats are not read.
+OpenCode, Cursor, Grok, Kiro, Antigravity, and Hermes appear as **Not
+supported** in the filter menu: their database-only or unverified storage
+formats are not read.
 Running-agent detection for these providers is unaffected.
 
 Session discovery is best effort: malformed or unfinished records, records

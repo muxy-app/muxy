@@ -25,6 +25,24 @@ pub(super) struct Results {
     overdraw: Pixels,
 }
 
+/// The order of search results, which keeps related settings together.
+const SEARCH_ORDER: [Category; 14] = [
+    Category::General,
+    Category::QuickTerminal,
+    Category::Composer,
+    Category::Appearance,
+    Category::Terminal,
+    Category::Keyboard,
+    Category::Commands,
+    Category::Browser,
+    Category::Server,
+    Category::Devices,
+    Category::Extensions,
+    Category::Ai,
+    Category::Backup,
+    Category::About,
+];
+
 #[derive(Clone, Copy)]
 enum Item {
     Section(Category),
@@ -155,21 +173,7 @@ impl SettingsView {
         let order = if self.query.is_empty() {
             Category::ALL
         } else {
-            [
-                Category::General,
-                Category::QuickTerminal,
-                Category::Composer,
-                Category::Appearance,
-                Category::Terminal,
-                Category::Keyboard,
-                Category::Commands,
-                Category::Browser,
-                Category::Server,
-                Category::Extensions,
-                Category::Ai,
-                Category::Backup,
-                Category::About,
-            ]
+            SEARCH_ORDER
         };
         for category in order {
             if self.query.is_empty() && category != self.category {
@@ -206,9 +210,12 @@ impl SettingsView {
                 items.push(Item::Section(category));
             }
         }
-        self.results.editable = items
-            .iter()
-            .any(|item| !matches!(item, Item::Section(Category::About | Category::Extensions)));
+        self.results.editable = items.iter().any(|item| {
+            !matches!(
+                item,
+                Item::Section(Category::About | Category::Devices | Category::Extensions)
+            )
+        });
         if items.is_empty() {
             items.push(Item::Empty);
         }
@@ -316,6 +323,25 @@ impl SettingsView {
                             muxy_ui::controls::Button::secondary(&tr!("Manage Extensions")),
                             cx.listener(|view, _, _, cx| view.show_extensions(cx)),
                         )
+                        .into_any_element(),
+                    ]
+                } else {
+                    Vec::new()
+                }
+            }
+            Category::Devices => {
+                if self.matches(
+                    Category::Devices,
+                    tr_key!("Manage devices remote servers ssh pairing paired mobile phones computers port qr"),
+                ) {
+                    vec![
+                        muxy_ui::controls::button(
+                            self.style(),
+                            "manage-devices",
+                            muxy_ui::controls::Button::secondary(&tr!("Manage Devices")),
+                            cx.listener(|view, _, _, cx| view.show_devices(cx)),
+                        )
+                        .debug_selector(|| "settings-manage-devices".into())
                         .into_any_element(),
                     ]
                 } else {

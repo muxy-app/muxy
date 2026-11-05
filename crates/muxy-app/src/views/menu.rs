@@ -81,7 +81,7 @@ pub(crate) enum Command {
     AddRemoteProject(muxy_app_core::ServerId),
     RestoreRemovedProject(usize),
     ManageRemoteDevices,
-    /// A row of a remote server's menu, from the Remote popover or tab.
+    /// A row of a remote server's menu, from the Devices popover or page.
     RemoteServers(super::server_menu::Servers, super::server_menu::Action),
     /// The open remote file link's menu: copy the file here and open it.
     OpenRemoteCopy,
@@ -732,7 +732,7 @@ impl AppModel {
                 return;
             }
             Command::ManageRemoteDevices => {
-                self.open_servers_tab(window, cx);
+                self.show_devices_settings(window, cx);
                 return;
             }
             Command::RemoteServers(servers, action) => {

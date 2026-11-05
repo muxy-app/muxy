@@ -854,26 +854,6 @@ impl AppModel {
         }
     }
 
-    /// Shows the Devices tab, opening it in the current project when it
-    /// isn't open, and reads this computer's device access.
-    pub(crate) fn open_servers_tab(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
-        self.ensure_servers_search(cx);
-        let project = self.state.current_project().id;
-        match self.transact(|state| state.show_servers_tab(project, &tr!("Devices")), cx) {
-            Ok(Some(_)) => {}
-            Ok(None) => return,
-            Err(error) => {
-                self.fail(error.to_string(), cx);
-                return;
-            }
-        }
-        self.dismiss_overlay(cx);
-        self.changed(cx);
-        self.sync_devices_tab(true, cx);
-        self.focus_active(window, cx);
-        self.focus_owner.settle();
-    }
-
     /// Connects, or connects again: a fresh SSH login and server check.
     pub(crate) fn reconnect_remote_server(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if self.connection(server) != ConnectionState::Disconnected {

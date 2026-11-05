@@ -1,40 +1,42 @@
-//! The Devices tab: this computer's access for phones and other computers,
-//! then every remote server by group, to select and act on one or many at
-//! once.
+//! Settings' Devices page: this computer's access for phones and other
+//! computers, then every remote server by group, to select and act on one or
+//! many at once.
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, ClickEvent, Context, Entity, FocusHandle, FontWeight,
-    InteractiveElement, IntoElement, ListAlignment, ListState, MouseButton, ParentElement, Role,
-    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, list, px,
+    AnyElement, AppContext, ClickEvent, Context, Entity, FontWeight, InteractiveElement,
+    IntoElement, ListAlignment, ListState, MouseButton, ParentElement, Role, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, list, px,
 };
-use muxy_app_core::{PaneId, ServerId};
+use muxy_app_core::ServerId;
 use muxy_ui::accessibility;
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::controls::{self, Style};
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
+use muxy_ui::theme::Metrics;
 use muxy_ui::tr;
 
 use super::remote_servers::{dot, status_color, status_label};
 use super::server_menu::{Action, Servers, connect_choice, live};
 use crate::model::{AppModel, RemoteServer, ServerStatus};
 
-/// What the Devices tab keeps between frames. Its selection is the model's
+/// What the Devices page keeps between frames. Its selection is the model's
 /// `remote_selection`.
-pub(crate) struct ServersTab {
-    pub(crate) focus: FocusHandle,
+pub(crate) struct DevicesPage {
+    /// Drawn at Settings' content size, like the rest of Settings.
+    pub(crate) metrics: Metrics,
     search: Option<(Entity<TextInput>, Subscription)>,
     port: Option<(Entity<TextInput>, Subscription)>,
     port_edited: bool,
     list: ListState,
 }
 
-impl ServersTab {
-    pub(crate) fn new(cx: &mut Context<AppModel>) -> Self {
+impl DevicesPage {
+    pub(crate) fn new(metrics: Metrics) -> Self {
         Self {
-            focus: cx.focus_handle(),
+            metrics: crate::views::settings::content_metrics(metrics),
             search: None,
             port: None,
             port_edited: false,
@@ -42,7 +44,8 @@ impl ServersTab {
         }
     }
 
-    pub(crate) fn remeasure(&self) {
+    pub(crate) fn set_metrics(&mut self, metrics: Metrics) {
+        self.metrics = crate::views::settings::content_metrics(metrics);
         muxy_ui::scrollbar::remeasure_list(&self.list);
     }
 
@@ -93,10 +96,10 @@ fn shown<'a>(
 }
 
 impl AppModel {
-    /// The tab's search and port fields, made once.
+    /// The page's search and port fields, made once.
     pub(crate) fn ensure_servers_search(&mut self, cx: &mut Context<Self>) {
-        if self.servers_tab.port.is_none() {
-            let style = InputStyle::field(&self.theme, &self.metrics);
+        if self.devices_page.port.is_none() {
+            let style = InputStyle::field(&self.theme, &self.devices_page.metrics);
             let port = self
                 .device_access()
                 .state
@@ -110,19 +113,19 @@ impl AppModel {
                     .with_text(port)
             });
             let subscription = cx.subscribe(&input, |model, input, event, cx| match event {
-                InputEvent::Changed => model.servers_tab.port_edited = true,
+                InputEvent::Changed => model.devices_page.port_edited = true,
                 InputEvent::Submitted => {
                     let port = input.read(cx).text().to_owned();
                     model.set_device_port(&port, cx);
                 }
                 InputEvent::Cancelled => {}
             });
-            self.servers_tab.port = Some((input, subscription));
+            self.devices_page.port = Some((input, subscription));
         }
-        if self.servers_tab.search.is_some() {
+        if self.devices_page.search.is_some() {
             return;
         }
-        let style = InputStyle::compact(&self.theme, &self.metrics);
+        let style = InputStyle::compact(&self.theme, &self.devices_page.metrics);
         let input = cx.new(|cx| {
             TextInput::new(style, cx)
                 .with_placeholder_key(tr_key!("Search servers…"))
@@ -139,11 +142,11 @@ impl AppModel {
                 model.clear_servers_search(cx);
             }
         });
-        self.servers_tab.search = Some((input, subscription));
+        self.devices_page.search = Some((input, subscription));
     }
 
     fn clear_servers_search(&mut self, cx: &mut Context<Self>) {
-        if let Some((input, _)) = &self.servers_tab.search {
+        if let Some((input, _)) = &self.devices_page.search {
             input.update(cx, |input, cx| input.set_text("", cx));
         }
     }
@@ -160,24 +163,24 @@ impl AppModel {
         else {
             return;
         };
-        let Some(input) = self.servers_tab.port_input().cloned() else {
+        let Some(input) = self.devices_page.port_input().cloned() else {
             return;
         };
         if input.read(cx).text() == port {
-            self.servers_tab.port_edited = false;
-        } else if !self.servers_tab.port_edited {
+            self.devices_page.port_edited = false;
+        } else if !self.devices_page.port_edited {
             input.update(cx, |input, cx| input.set_text(port, cx));
         }
     }
 
     fn servers_query(&self, cx: &gpui::App) -> String {
-        self.servers_tab
+        self.devices_page
             .search_input()
             .map(|input| input.read(cx).text().to_owned())
             .unwrap_or_default()
     }
 
-    /// The servers the tab shows now, in order.
+    /// The servers the page shows now, in order.
     fn shown_server_ids(&self, cx: &gpui::App) -> Vec<ServerId> {
         let servers = self.remote_servers();
         shown(&servers, &self.servers_query(cx))
@@ -226,30 +229,25 @@ impl AppModel {
     }
 }
 
-/// How wide the tab's content grows, so rows stay easy to scan.
+/// How wide the page's content grows, so rows stay easy to scan.
 const CONTENT_WIDTH: f32 = 960.0;
 
-/// The Devices tab in `pane`, laid out like the Extensions manager.
-pub(crate) fn render(pane: PaneId, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+/// The Devices page, laid out like the Extensions manager.
+pub(crate) fn render(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let theme = &model.theme;
     let entity = cx.entity();
     div()
         .id("servers-tab")
         .debug_selector(|| "servers-tab".into())
-        .track_focus(&model.servers_tab.focus)
         .size_full()
         .flex()
         .flex_col()
         .bg(theme.bg)
         .text_color(theme.fg)
-        .text_size(model.metrics.font_body())
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |model, _, _, cx| model.focus_pane(pane, cx)),
-        )
+        .text_size(model.devices_page.metrics.font_body())
         .child(column(header(model, cx), model).flex_none())
         .child(
-            list(model.servers_tab.list.clone(), move |_, _, cx| {
+            list(model.devices_page.list.clone(), move |_, _, cx| {
                 entity.update(cx, |model, cx| body(model, cx))
             })
             .flex_1()
@@ -259,7 +257,7 @@ pub(crate) fn render(pane: PaneId, model: &AppModel, cx: &Context<AppModel>) -> 
 }
 
 /// Everything under the header, as the list's only item. A list lays its
-/// item out on its own at the tab's width, as Settings does, so wrapped
+/// item out on its own at the page's width, as Settings does, so wrapped
 /// descriptions never keep a width measured for the surrounding layout.
 fn body(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let servers = model.remote_servers();
@@ -291,7 +289,7 @@ fn body(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     div()
         .w_full()
         .text_color(model.theme.fg)
-        .text_size(model.metrics.font_body())
+        .text_size(model.devices_page.metrics.font_body())
         .child(column(
             sections(&selected, &shown, groups, model, cx),
             model,
@@ -302,7 +300,7 @@ fn body(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
 pub(super) fn style(model: &AppModel) -> Style<'_> {
     Style {
         theme: &model.theme,
-        metrics: &model.metrics,
+        metrics: &model.devices_page.metrics,
     }
 }
 
@@ -313,12 +311,12 @@ fn column(content: impl IntoElement, model: &AppModel) -> gpui::Div {
     div()
         .flex()
         .justify_center()
-        .px(model.metrics.scaled(32.0))
+        .px(model.devices_page.metrics.scaled(32.0))
         .child(
             div()
                 .flex_1()
                 .min_w(px(0.0))
-                .max_w(model.metrics.scaled(CONTENT_WIDTH))
+                .max_w(model.devices_page.metrics.scaled(CONTENT_WIDTH))
                 .flex()
                 .flex_col()
                 .child(content),
@@ -344,8 +342,8 @@ fn icon_button(
                 SharedString::from(id),
                 tooltip,
                 icon,
-                model.metrics.icon_sm(),
-                model.metrics.control_small(),
+                model.devices_page.metrics.icon_sm(),
+                model.devices_page.metrics.control_small(),
                 theme.fg_muted,
                 theme.fg,
             )
@@ -359,7 +357,7 @@ fn icon_button(
 /// A short status label, in accent while connected, as Extensions marks one
 /// that is enabled.
 fn badge(server: &RemoteServer, model: &AppModel) -> gpui::Div {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let theme = &model.theme;
     let connected = server.status == ServerStatus::Connected;
     div()
@@ -386,7 +384,7 @@ pub(super) fn card(model: &AppModel) -> gpui::Div {
         .flex()
         .flex_col()
         .min_w(px(0.0))
-        .rounded(model.metrics.radius_lg())
+        .rounded(model.devices_page.metrics.radius_lg())
         .bg(model.theme.surface)
         .border_1()
         .border_color(model.theme.border)
@@ -394,7 +392,7 @@ pub(super) fn card(model: &AppModel) -> gpui::Div {
 
 /// The icon, the title, Pair with Link, and Add Server.
 fn header(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let theme = &model.theme;
     div()
         .flex()
@@ -453,7 +451,7 @@ fn sections(
     model: &AppModel,
     cx: &Context<AppModel>,
 ) -> AnyElement {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let count: usize = shown.iter().map(|(_, members)| members.len()).sum();
     div()
         .flex()
@@ -470,7 +468,7 @@ fn sections(
                     tr!("Connects To"),
                 )),
         )
-        .children(model.servers_tab.search_input().map(|input| {
+        .children(model.devices_page.search_input().map(|input| {
             controls::search_field(style(model), "servers-search", input)
                 .debug_selector(|| "servers-search".into())
         }))
@@ -490,7 +488,7 @@ fn select_bar(
     model: &AppModel,
     cx: &Context<AppModel>,
 ) -> AnyElement {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let theme = &model.theme;
     let any = !selected.is_empty();
     let all = any && selected.len() >= shown;
@@ -592,7 +590,7 @@ fn select_bar(
 
 /// No servers yet, or none matching the search, as Extensions says so.
 fn empty_state(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let theme = &model.theme;
     let none = model.settings.servers.is_empty();
     let (title, description) = if none {
@@ -638,7 +636,7 @@ fn empty_state(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
-/// One group as the tab lists it.
+/// One group as the page lists it.
 struct Section<'a> {
     group: Option<&'a str>,
     /// The servers the search shows.
@@ -659,7 +657,7 @@ fn group_section(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>
     div()
         .flex()
         .flex_col()
-        .gap(model.metrics.spacing4())
+        .gap(model.devices_page.metrics.spacing4())
         .child(heading(section, model, cx))
         .child(card(model).overflow_hidden().children(rows))
         .into_any_element()
@@ -667,7 +665,7 @@ fn group_section(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>
 
 /// A group's title, its count, Connect, and its menu.
 fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let theme = &model.theme;
     let group = section.group;
     let key = group.unwrap_or_default().to_owned();
@@ -773,7 +771,7 @@ fn row(
     model: &AppModel,
     cx: &Context<AppModel>,
 ) -> AnyElement {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let theme = &model.theme;
     let id = server.entry.id;
     let group = SharedString::from(format!("servers-row-{id}"));
@@ -837,7 +835,7 @@ fn row(
 
 /// A server's name and state, where it is, and why it failed.
 fn row_text(server: &RemoteServer, model: &AppModel) -> AnyElement {
-    let m = model.metrics;
+    let m = model.devices_page.metrics;
     let theme = &model.theme;
     let error = match &server.install {
         Some(crate::model::Install::Failed(error)) => {
@@ -904,7 +902,7 @@ fn row_actions(
         .flex()
         .flex_none()
         .items_center()
-        .gap(model.metrics.spacing1())
+        .gap(model.devices_page.metrics.spacing1())
         .opacity(0.0)
         .group_hover(group, |style| style.opacity(1.0))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

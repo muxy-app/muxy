@@ -84,7 +84,7 @@ fn environment(
 }
 
 const CHARSET_LOCALE_KEYS: [&str; 3] = ["LC_ALL", "LC_CTYPE", "LANG"];
-const FALLBACK_UTF8_LOCALE: &str = "C.UTF-8";
+const FALLBACK_UTF8_LOCALES: [&str; 2] = ["C.UTF-8", "en_US.UTF-8"];
 
 fn apply_utf8_locale(env: &mut Vec<(OsString, OsString)>) {
     ensure_utf8_locale(env, system_locale().as_deref(), locale_installed);
@@ -117,7 +117,7 @@ fn preferred_utf8_locale(
         .and_then(language_and_region)
         .map(|locale| format!("{locale}.UTF-8"))
         .into_iter()
-        .chain([String::from(FALLBACK_UTF8_LOCALE)])
+        .chain(FALLBACK_UTF8_LOCALES.map(String::from))
         .find(|name| installed(name))
 }
 
@@ -243,7 +243,7 @@ mod tests {
     }
 
     fn chinese_installed(name: &str) -> bool {
-        name == "zh_CN.UTF-8" || name == FALLBACK_UTF8_LOCALE
+        name == "zh_CN.UTF-8" || name == "C.UTF-8"
     }
 
     #[test]
@@ -274,21 +274,29 @@ mod tests {
     fn unknown_locale_uses_installed_c_utf8() {
         assert_eq!(
             preferred_utf8_locale(Some("../tmp"), |_| true).as_deref(),
-            Some(FALLBACK_UTF8_LOCALE)
+            Some("C.UTF-8")
         );
         assert_eq!(
-            preferred_utf8_locale(Some("zz_ZZ"), |name| name == FALLBACK_UTF8_LOCALE).as_deref(),
-            Some(FALLBACK_UTF8_LOCALE)
+            preferred_utf8_locale(Some("zz_ZZ"), |name| name == "C.UTF-8").as_deref(),
+            Some("C.UTF-8")
         );
         assert_eq!(
             preferred_utf8_locale(Some("zh-Hans"), chinese_installed).as_deref(),
-            Some(FALLBACK_UTF8_LOCALE)
+            Some("C.UTF-8")
         );
         assert_eq!(
-            preferred_utf8_locale(None, |name| name == FALLBACK_UTF8_LOCALE).as_deref(),
-            Some(FALLBACK_UTF8_LOCALE)
+            preferred_utf8_locale(None, |name| name == "C.UTF-8").as_deref(),
+            Some("C.UTF-8")
         );
         assert_eq!(preferred_utf8_locale(None, |_| false), None);
+    }
+
+    #[test]
+    fn uninstalled_language_and_region_without_c_utf8_uses_en_us() {
+        let mut env = pairs(&[("LANG", ""), ("LC_MESSAGES", "C")]);
+        ensure_utf8_locale(&mut env, Some("en_UA"), |name| name == "en_US.UTF-8");
+        assert_eq!(value(&env, "LANG"), Some("en_US.UTF-8"));
+        assert_eq!(value(&env, "LC_MESSAGES"), Some("C"));
     }
 
     #[test]
