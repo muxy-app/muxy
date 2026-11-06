@@ -516,6 +516,7 @@ fn project_session_samples(project: crate::ProjectId, directory: ServerPath) -> 
             body: RequestBody::SetSessionName {
                 session: SessionId::from(NonZeroU64::MIN),
                 name: Some("API server".into()),
+                replacing: None,
             },
         },
         Message::Reply {

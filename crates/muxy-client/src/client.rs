@@ -465,13 +465,19 @@ impl Client {
     }
 
     /// Names a session for every client, or with `None` removes its name.
-    /// Servers from before this answer `Unsupported`.
+    /// With `replacing`, only while its name is still that one. Servers from
+    /// before this answer `Unsupported`.
     pub fn set_session_name(
         &self,
         session: SessionId,
         name: Option<String>,
+        replacing: Option<String>,
     ) -> Result<(), ClientError> {
-        match self.request(RequestBody::SetSessionName { session, name })? {
+        match self.request(RequestBody::SetSessionName {
+            session,
+            name,
+            replacing,
+        })? {
             ReplyBody::SessionNameSet => Ok(()),
             other => Err(ClientError::UnexpectedReply(Box::new(other))),
         }

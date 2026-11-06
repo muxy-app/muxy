@@ -100,29 +100,38 @@ impl Catalog {
         })
     }
 
-    /// Names a session for every client; an unchanged name changes nothing.
+    /// Names a session for every client. With `replacing`, only while its
+    /// name is still that one. A request that changes nothing only makes sure
+    /// an earlier change is on disk.
     pub(crate) fn set_session_name(
         &self,
         session: SessionId,
         name: Option<String>,
+        replacing: Option<&str>,
     ) -> Result<(), ServerError> {
-        {
+        let applies = |membership: &Membership| {
+            replacing.is_none_or(|expected| membership.name.as_deref() == Some(expected))
+        };
+        let unchanged = {
             let state = self.lock();
             let membership = state
                 .sessions
                 .get(&session)
                 .filter(|_| !state.discarding.contains(&session))
                 .ok_or_else(|| ServerError::unknown_session(session))?;
-            if membership.name == name {
-                return Ok(());
-            }
+            membership.name == name || !applies(membership)
+        };
+        if unchanged {
+            return self.ensure_durable();
         }
         self.update(|state| {
             let membership = state
                 .sessions
                 .get_mut(&session)
                 .ok_or_else(|| ServerError::unknown_session(session))?;
-            membership.name = name;
+            if applies(membership) {
+                membership.name = name;
+            }
             Ok(())
         })
     }

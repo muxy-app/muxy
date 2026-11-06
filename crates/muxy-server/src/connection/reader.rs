@@ -349,8 +349,14 @@ fn ordered_request(
             registry.introduce_all(connection);
             ReplyBody::SessionMetadataWatched
         }
-        RequestBody::SetSessionName { session, name } => {
-            registry.catalog.set_session_name(session, name)?;
+        RequestBody::SetSessionName {
+            session,
+            name,
+            replacing,
+        } => {
+            registry
+                .catalog
+                .set_session_name(session, name, replacing.as_deref())?;
             ReplyBody::SessionNameSet
         }
         RequestBody::Attach { session, size } => {

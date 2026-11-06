@@ -385,6 +385,7 @@ fn a_session_name_reaches_listing_clients_with_a_sessions_change()
             body: RequestBody::SetSessionName {
                 session,
                 name: Some("API server".into()),
+                replacing: None,
             },
         },
     )?;

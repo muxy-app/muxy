@@ -1754,18 +1754,19 @@ impl AppModel {
     /// and clears only the names this app gave, so another app's stay.
     fn sync_session_names(&mut self, cx: &mut Context<Self>) {
         for server in self.servers.ids() {
-            if !self.ready(server) {
+            if !self.ready(server) || !self.identified(server) {
                 continue;
             }
             let wanted = self.state.session_names(server);
             let given = self.state.given_session_names(server);
-            let resend = self
-                .servers
-                .get(server)
-                .is_none_or(|runtime| !runtime.names_current);
+            let Some(runtime) = self.servers.get_mut(server) else {
+                continue;
+            };
+            runtime
+                .names_asked
+                .retain(|session, _| wanted.contains_key(session) || given.contains_key(session));
             let changes: Vec<_> = wanted
                 .iter()
-                .filter(|(session, name)| resend || given.get(session) != Some(name))
                 .map(|(session, name)| (*session, Some(name.clone())))
                 .chain(
                     given
@@ -1773,23 +1774,50 @@ impl AppModel {
                         .filter(|session| !wanted.contains_key(session))
                         .map(|session| (*session, None)),
                 )
+                .filter(|(session, name)| runtime.names_asked.get(session) != Some(name))
                 .collect();
-            let mut current = true;
-            let mut recorded = false;
             for (session, name) in changes {
-                if !self.send(server, Work::SessionName(session, name.clone()), cx) {
-                    current = false;
+                let replacing = name
+                    .is_none()
+                    .then(|| given.get(&session).cloned())
+                    .flatten();
+                let work = Work::SessionName {
+                    session,
+                    name: name.clone(),
+                    replacing,
+                };
+                if !self.send(server, work, cx) {
                     break;
                 }
-                recorded |= given.get(&session) != name.as_ref();
-                self.state.record_session_name(server, session, name);
+                if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.names_asked.insert(session, name);
+                }
             }
-            if recorded {
-                self.save(cx);
+        }
+    }
+
+    /// Remembers a name the server took, or one it no longer needs because
+    /// the session is gone; other failures wait for the next connection.
+    fn receive_session_named(
+        &mut self,
+        server: ServerId,
+        session: SessionId,
+        name: Option<String>,
+        result: Result<(), muxy_client::ClientError>,
+        cx: &mut Context<Self>,
+    ) {
+        let name = match result {
+            Ok(()) => name,
+            Err(muxy_client::ClientError::Server(reply))
+                if reply.code == muxy_protocol::ErrorCode::UnknownSession =>
+            {
+                None
             }
-            if let Some(runtime) = self.servers.get_mut(server) {
-                runtime.names_current = current;
-            }
+            Err(_) => return,
+        };
+        if self.state.given_session_names(server).get(&session) != name.as_ref() {
+            self.state.record_session_name(server, session, name);
+            self.save(cx);
         }
     }
 
@@ -2251,7 +2279,7 @@ impl AppModel {
         runtime.activity = activity::ActivityView::default();
         runtime.activity.navigation = navigation;
         runtime.references = None;
-        runtime.names_current = false;
+        runtime.names_asked.clear();
         runtime.sessions_revision = 0;
         runtime.last_channel = 0;
         self.forget_server_sessions(server, cx);
@@ -2430,6 +2458,11 @@ impl AppModel {
             Update::Discarded { session, result } => {
                 self.receive_discarded(server, session, result, cx);
             }
+            Update::SessionNamed {
+                session,
+                name,
+                result,
+            } => self.receive_session_named(server, session, name, result, cx),
             Update::CloseChecked {
                 check,
                 session,

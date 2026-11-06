@@ -205,6 +205,12 @@ pub enum RequestBody {
         session: SessionId,
         #[n(1)]
         name: Option<String>,
+        /// Changes the name only while it is still this one, so an app
+        /// clears just the name it gave and not one another app gave since.
+        #[n(2)]
+        #[cbor(default)]
+        #[serde(default)]
+        replacing: Option<String>,
     },
     /// Sends this connection every session's `SessionMetadata` now and as it
     /// changes, without showing the sessions, so a phone can title tabs it

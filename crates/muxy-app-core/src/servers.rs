@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use muxy_protocol::{OperationId, ProjectIntent, ServerIdentity, SessionId};
 use serde::{Deserialize, Serialize};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{AppError, AppState, PaneContent, PaneId, Project, ProjectId, ServerId};
 
@@ -68,8 +69,8 @@ impl AppState {
             let Some(title) = placed.tab.and_then(|tab| tab.custom_title.as_deref()) else {
                 continue;
             };
-            if muxy_protocol::validate_session_name(title).is_ok() {
-                names.entry(session).or_insert_with(|| title.to_owned());
+            if let Some(name) = shared_name(title) {
+                names.entry(session).or_insert(name);
             }
         }
         names
@@ -227,4 +228,19 @@ impl AppState {
             self.queue_discard(server, session);
         }
     }
+}
+
+/// A title as a session name: whole graphemes up to the name's limit.
+fn shared_name(title: &str) -> Option<String> {
+    let mut length = 0;
+    for grapheme in title.graphemes(true) {
+        if length + grapheme.len() > muxy_protocol::MAX_SESSION_NAME {
+            break;
+        }
+        length += grapheme.len();
+    }
+    let name = title[..length].trim_end();
+    muxy_protocol::validate_session_name(name)
+        .is_ok()
+        .then(|| name.to_owned())
 }

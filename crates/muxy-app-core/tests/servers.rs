@@ -916,11 +916,16 @@ fn a_renamed_tab_names_every_terminal_in_it_on_its_own_server() -> TestResult {
     );
     assert!(state.session_names(remote).is_empty());
 
-    state.set_tab_title(
-        renamed,
-        Some("x".repeat(muxy_protocol::MAX_SESSION_NAME + 1)),
-    )?;
-    assert!(state.session_names(LOCAL).is_empty());
+    let long = format!(
+        "{} {}",
+        "x".repeat(muxy_protocol::MAX_SESSION_NAME - 2),
+        "é".repeat(3)
+    );
+    state.set_tab_title(renamed, Some(long.clone()))?;
+    let name = state.session_names(LOCAL)[&one].clone();
+    assert!(name.len() <= muxy_protocol::MAX_SESSION_NAME);
+    assert!(long.starts_with(&name), "a long title is cut, not dropped");
+    assert_eq!(name.trim_end(), name);
 
     state.set_tab_title(renamed, None)?;
     assert!(state.session_names(LOCAL).is_empty());

@@ -476,7 +476,7 @@ fn session_names_are_listed_saved_and_cleared() -> Result<(), crate::ServerError
         })
     };
 
-    catalog.set_session_name(named, Some("API server".into()))?;
+    catalog.set_session_name(named, Some("API server".into()), None)?;
     assert_eq!(name(&catalog)?, Some("API server".into()));
     let json = saved(&catalog.lock());
     assert_eq!(json["sessions"]["21"]["name"], "API server");
@@ -486,14 +486,22 @@ fn session_names_are_listed_saved_and_cleared() -> Result<(), crate::ServerError
     );
 
     let revision = catalog.revision();
-    catalog.set_session_name(named, Some("API server".into()))?;
+    catalog.set_session_name(named, Some("API server".into()), None)?;
     assert_eq!(
         catalog.revision(),
         revision,
         "an unchanged name is not a change"
     );
 
-    catalog.set_session_name(named, None)?;
+    catalog.set_session_name(named, Some("Worker".into()), None)?;
+    catalog.set_session_name(named, None, Some("API server"))?;
+    assert_eq!(
+        name(&catalog)?,
+        Some("Worker".into()),
+        "clearing an older name keeps the one given since"
+    );
+
+    catalog.set_session_name(named, None, Some("Worker"))?;
     assert_eq!(name(&catalog)?, None);
     assert!(
         saved(&catalog.lock())["sessions"]["21"]
@@ -501,7 +509,7 @@ fn session_names_are_listed_saved_and_cleared() -> Result<(), crate::ServerError
             .is_none()
     );
 
-    let unknown = catalog.set_session_name(session(99), Some("gone".into()));
+    let unknown = catalog.set_session_name(session(99), Some("gone".into()), None);
     assert_eq!(
         unknown.map_err(|error| error.to_reply().code),
         Err(ErrorCode::UnknownSession)

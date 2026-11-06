@@ -959,10 +959,21 @@ fn session_names_are_trimmed_bounded_and_free_of_control_characters() {
             request(RequestBody::SetSessionName {
                 session: session_id(),
                 name: name.clone(),
+                replacing: None,
             })
             .validate(),
             expected,
             "{name:?}"
+        );
+        assert_eq!(
+            request(RequestBody::SetSessionName {
+                session: session_id(),
+                name: None,
+                replacing: name.clone(),
+            })
+            .validate(),
+            expected,
+            "replacing {name:?}"
         );
         let listed = reply(ReplyBody::ProjectSessions(muxy_protocol::ProjectSessions {
             revision: 1,
