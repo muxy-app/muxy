@@ -287,7 +287,6 @@ impl AppModel {
             .into_iter()
             .filter_map(|tab| self.tab(tab)?.zoomed)
             .collect();
-        let split = self.visible_panes().len() > 1;
         let coverage = self.coverage();
         if coverage.modal() {
             self.split_resize.end();
@@ -298,15 +297,15 @@ impl AppModel {
             }
             pane.view.update(cx, |pane, cx| {
                 pane.set_focused(Some(*id) == active, cx);
-                let border = (pane.focused && split).then_some(self.theme.accent);
                 let radius = if zoomed.contains(id) {
                     (self.metrics.radius_lg() - px(1.0)).max(px(0.0))
                 } else {
                     px(0.0)
                 };
-                if pane.focus_border != border || pane.corner_radius != radius {
-                    pane.focus_border = border;
+                let below_header = self.appearance.pane_headers;
+                if pane.corner_radius != radius || pane.below_header != below_header {
                     pane.corner_radius = radius;
+                    pane.below_header = below_header;
                     cx.notify();
                 }
                 pane.set_native_visible(!coverage.hides_terminal_scroll(), cx);

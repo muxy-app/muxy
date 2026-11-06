@@ -420,3 +420,290 @@ fn a_panes_record_ends_with_the_pane_or_when_it_has_nothing_to_keep(cx: &mut Tes
         assert!(model.pane_runtime.is_empty());
     });
 }
+
+fn click_selector(cx: &mut VisualTestContext, selector: &str) {
+    cx.run_until_parked();
+    let point = cx
+        .debug_bounds(selector.to_owned().leak())
+        .unwrap_or_else(|| panic!("{selector}"))
+        .center();
+    cx.simulate_click(point, Modifiers::none());
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn every_pane_has_a_header_whose_buttons_act_on_that_pane(cx: &mut TestAppContext) {
+    let (state, _, panes) = split_state();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| attach_panes(model, &panes, cx));
+    cx.run_until_parked();
+    for pane in panes {
+        for part in [
+            "header",
+            "split-right",
+            "split-down",
+            "detach",
+            "maximize",
+            "close",
+        ] {
+            assert!(
+                cx.debug_bounds(format!("pane-{part}-{pane}").leak())
+                    .is_some(),
+                "{part} of {pane}"
+            );
+        }
+    }
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.active_pane(), Some(panes[2]));
+    });
+
+    click_selector(cx, &format!("pane-split-right-{}", panes[0]));
+    let added = view.read_with(cx, |model, _| {
+        let added = model.active_pane().expect("active pane");
+        assert!(!panes.contains(&added));
+        assert_eq!(model.state.home().tabs[0].panes.len(), 4);
+        assert_eq!(
+            model.state.neighbor(panes[0], Direction::Right),
+            Some(added)
+        );
+        added
+    });
+
+    click_selector(cx, &format!("pane-maximize-{}", panes[1]));
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.home().tabs[0].zoomed, Some(panes[1]));
+        assert_eq!(model.active_pane(), Some(panes[1]));
+    });
+    click_selector(cx, &format!("pane-restore-{}", panes[1]));
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.home().tabs[0].zoomed, None);
+    });
+
+    click_selector(cx, &format!("pane-close-{}", panes[0]));
+    view.update(cx, acknowledge_close);
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            model.state.home().tabs[0].layout.leaves(),
+            [added, panes[1], panes[2]]
+        );
+    });
+}
+
+fn shown(cx: &mut VisualTestContext, part: &str, pane: PaneId) -> bool {
+    cx.debug_bounds(format!("pane-{part}-{pane}").leak())
+        .is_some()
+}
+
+#[gpui::test]
+fn a_lone_pane_keeps_its_header_without_the_maximize_button(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let pane = state.home().tabs[0].panes[0].id;
+    let (boot, _requests) = stub_boot(state);
+    let (_view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    assert!(shown(cx, "header", pane));
+    assert!(shown(cx, "split-right", pane));
+    assert!(shown(cx, "close", pane));
+    assert!(!shown(cx, "maximize", pane));
+    assert!(!shown(cx, "detach", pane));
+    assert!(!shown(cx, "dim", pane));
+}
+
+#[gpui::test]
+fn closing_a_pane_from_its_header_keeps_focus_on_the_active_pane(cx: &mut TestAppContext) {
+    let (state, _, panes) = split_state();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| attach_panes(model, &panes, cx));
+    cx.run_until_parked();
+    for (pane, dimmed) in [(panes[0], true), (panes[1], true), (panes[2], false)] {
+        assert_eq!(shown(cx, "dim", pane), dimmed, "{pane}");
+    }
+    assert!(
+        cx.debug_bounds("maximize-pane").is_none(),
+        "the title bar leaves maximizing to the pane headers"
+    );
+    click_selector(cx, &format!("pane-close-{}", panes[0]));
+    view.update(cx, acknowledge_close);
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            model.state.home().tabs[0].layout.leaves(),
+            [panes[1], panes[2]]
+        );
+        assert_eq!(model.active_pane(), Some(panes[2]));
+    });
+}
+
+#[gpui::test]
+fn a_pinned_tabs_last_pane_offers_no_close(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let tab = state.open_terminal_tab(state.home().id).expect("tab");
+    state.toggle_tab_pin(tab).expect("pin");
+    let pane = state.home().tabs[0].panes[0].id;
+    let (boot, _requests) = stub_boot(state);
+    let (_view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    assert!(shown(cx, "split-right", pane));
+    assert!(!shown(cx, "close", pane));
+}
+
+#[gpui::test]
+fn a_pane_running_an_agent_shows_the_agents_icon_in_its_header(cx: &mut TestAppContext) {
+    use muxy_protocol::{ActivitySnapshot, AgentActivity, AgentProvider, AgentState};
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    state.open_terminal_tab(home).expect("tab");
+    let agent = state.window().active_pane.expect("pane");
+    let shell = state.split_pane(agent, Direction::Right).expect("split");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        let local = ServerId::local();
+        model.servers.local.connection = ConnectionState::Ready;
+        for (index, pane) in [agent, shell].into_iter().enumerate() {
+            let session = SessionId::new(index as u64 + 1).expect("session");
+            model.receive_attached(local, pane, session, attachment(), true, cx);
+        }
+        model.servers.local.activity.loaded = true;
+        model.receive_activity(
+            local,
+            Ok(ActivitySnapshot {
+                agents: vec![AgentActivity {
+                    session: SessionId::new(1).expect("session"),
+                    project: home,
+                    provider: AgentProvider::OpenCode,
+                    state: AgentState::Idle,
+                }],
+                ..ActivitySnapshot::default()
+            }),
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds(format!("pane-provider-{agent}-OpenCode").leak())
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds(format!("pane-provider-{shell}-OpenCode").leak())
+            .is_none()
+    );
+}
+
+#[gpui::test]
+fn with_pane_headers_off_panes_have_no_header_but_stay_dimmed(cx: &mut TestAppContext) {
+    let (state, _, panes) = split_state();
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.appearance.pane_headers = false;
+    let (_view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    cx.run_until_parked();
+    for pane in panes {
+        assert!(!shown(cx, "header", pane), "{pane}");
+        assert!(!shown(cx, "split-right", pane), "{pane}");
+    }
+    assert!(shown(cx, "dim", panes[0]));
+    assert!(!shown(cx, "dim", panes[2]));
+    assert!(cx.debug_bounds("maximize-pane").is_some());
+}
+
+#[gpui::test]
+fn the_pane_headers_setting_is_saved(cx: &mut TestAppContext) {
+    let (state, _, _) = split_state();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        assert!(model.appearance.pane_headers);
+        model.change_preference(crate::model::preferences::Change::PaneHeaders(false), cx);
+        assert!(!model.appearance.pane_headers);
+        let saved =
+            muxy_app_core::settings::Settings::load(&model.path.with_file_name("settings.toml"))
+                .expect("settings");
+        assert!(!saved.appearance.pane_headers);
+    });
+}
+
+#[gpui::test]
+fn a_narrow_pane_keeps_its_actions_ahead_of_its_icon_and_title(cx: &mut TestAppContext) {
+    let (mut state, tab, panes) = split_state();
+    state.set_ratio(tab, &[], 0.15).expect("ratio");
+    state.focus_pane(panes[0]).expect("focus");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1000.0), px(600.0)));
+    view.update(cx, |model, cx| attach_panes(model, &panes, cx));
+    cx.run_until_parked();
+    let pane = cx
+        .debug_bounds(format!("pane-{}", panes[0]).leak())
+        .expect("pane");
+    assert!(pane.size.width < px(200.0), "{pane:?}");
+    for part in ["split-right", "close"] {
+        let button = cx
+            .debug_bounds(format!("pane-{part}-{}", panes[0]).leak())
+            .expect(part);
+        assert!(
+            button.left() >= pane.left() && button.right() <= pane.right(),
+            "{part} {button:?} outside {pane:?}"
+        );
+    }
+    view.update(cx, |model, cx| {
+        model.state.set_ratio(tab, &[], 0.07).expect("ratio");
+        cx.notify();
+    });
+    cx.simulate_resize(size(px(900.0), px(600.0)));
+    cx.run_until_parked();
+    let narrow = cx
+        .debug_bounds(format!("pane-{}", panes[0]).leak())
+        .expect("pane");
+    let close = cx
+        .debug_bounds(format!("pane-close-{}", panes[0]).leak())
+        .expect("close");
+    assert!(close.right() <= narrow.right(), "{close:?} in {narrow:?}");
+    let first = cx
+        .debug_bounds(format!("pane-split-right-{}", panes[0]).leak())
+        .expect("split right");
+    assert!(
+        first.left() >= narrow.left() || first.top() >= close.bottom(),
+        "a button that doesn't fit moves out of the row instead of being cut: {first:?} in {narrow:?}"
+    );
+}
+
+#[gpui::test]
+fn only_the_focused_tab_is_underlined(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let shown = state.open_terminal_tab(home).expect("tab");
+    let hidden = state.open_terminal_tab(home).expect("tab");
+    state.select_tab(home, shown).expect("select");
+    let (boot, _requests) = stub_boot(state);
+    let (_view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds(format!("tab-focused-{shown}").leak())
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds(format!("tab-focused-{hidden}").leak())
+            .is_none()
+    );
+}
+
+#[gpui::test]
+fn only_terminal_panes_get_a_header(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    state
+        .show_settings_tab(state.home().id, "Settings")
+        .expect("settings");
+    let settings = state.window().active_pane.expect("settings pane");
+    let terminal = state.split_pane(settings, Direction::Right).expect("split");
+    let (boot, _requests) = stub_boot(state);
+    let (_view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    cx.run_until_parked();
+    assert!(shown(cx, "header", terminal));
+    assert!(!shown(cx, "header", settings));
+}

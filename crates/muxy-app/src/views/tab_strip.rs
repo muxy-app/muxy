@@ -395,6 +395,10 @@ fn tab_cell(
     let theme = &model.theme;
     let pane = tab.displayed_pane(model.state.shown_pane(tab));
     let active = model.visible_tabs().contains(&tab.id);
+    let focused = active
+        && model
+            .active_pane()
+            .is_some_and(|active| tab.panes.iter().any(|pane| pane.id == active));
     let grouped = model.state.current_project().groups().is_some();
     let bell = tab.panes.iter().any(|pane| {
         model
@@ -557,6 +561,18 @@ fn tab_cell(
                 ),
         ))
         .when(!tab.pinned, |cell| cell.child(close))
+        .when(focused, |cell| {
+            cell.child(
+                div()
+                    .debug_selector(move || format!("tab-focused-{id}"))
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(px(2.0))
+                    .bg(theme.accent),
+            )
+        })
         .into_any_element()
 }
 

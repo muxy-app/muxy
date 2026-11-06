@@ -355,6 +355,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
+        id: "pane-headers",
+        label: tr_key!("Show pane headers"),
+        description: tr_key!(
+            "Show each pane's icon, title and actions above it, in the color of what it shows."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "sidebar-collapsed-style",
         label: tr_key!("Collapsed sidebar style"),
         description: tr_key!(

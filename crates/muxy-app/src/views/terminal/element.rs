@@ -95,9 +95,21 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                 });
             }
             let physical_cell = physical_cell(cell, window.scale_factor());
+            let header = view.read(cx).displayed_grid().and_then(|grid| {
+                let start = view.read(cx).visible_start(grid);
+                padding::screen_background(
+                    (start..).map_while(|row| grid.content_row(row)),
+                    Size {
+                        cols: viewport.cols.min(grid.size.cols),
+                        rows: viewport.rows.min(grid.size.rows),
+                    },
+                    &palette,
+                )
+            });
             let weak = view.downgrade();
             window.defer(cx, move |_, cx| {
                 let _ = weak.update(cx, |pane, cx| {
+                    pane.set_header_background(header, cx);
                     pane.cell_height = f32::from(cell.height);
                     pane.set_viewport(viewport, cx);
                     pane.geometry = Some((frame.content, cell));
@@ -164,7 +176,6 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
         },
         move |bounds, (painting, frame, padding, scrollbar), window, cx| {
             let _span = crate::profiler::span(crate::profiler::Metric::TerminalPaint);
-            let focus_border = mouse_view.read(cx).focus_border;
             let focus = mouse_view.read(cx).focus.clone();
             window.handle_input(
                 &focus,
@@ -213,9 +224,6 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                 let mut color: Hsla = rgb(palette.foreground).into();
                 color.a = 0.4;
                 window.paint_quad(fill(thumb, color).corner_radii(thumb.size.width / 2.0));
-            }
-            if let Some(color) = focus_border {
-                window.paint_quad(gpui::outline(bounds, color, gpui::BorderStyle::Solid));
             }
         },
     )

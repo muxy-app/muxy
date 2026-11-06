@@ -85,3 +85,45 @@ fn stale_plans_cancel_if_the_tree_or_window_geometry_changes(cx: &mut TestAppCon
         });
     }
 }
+
+#[gpui::test]
+fn dragging_a_panes_header_handle_moves_it_without_command(cx: &mut TestAppContext) {
+    let (state, [tab, _], [a, b, c, _]) = state();
+    let (mut boot, _requests) = stub_boot(state);
+    boot.terminal.options.padding_x = [0.0; 2];
+    boot.terminal.options.padding_y = [0.0; 2];
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1001.0), px(701.0)));
+    cx.run_until_parked();
+    let bounds = view.read_with(cx, |model, _| {
+        model.layout_drag.geometry.get(tab).expect("geometry").0
+    });
+    let handle = cx
+        .debug_bounds(format!("pane-handle-{c}").leak())
+        .expect("handle")
+        .center();
+    press(cx, handle, false);
+    let target = point(bounds.right() - px(6.0), bounds.center().y);
+    pointer(cx, target, true);
+    assert!(view.read_with(cx, |model, _| model.layout_drag.preview.is_some()));
+    release(cx, target);
+    assert_eq!(
+        view.read_with(cx, |model, _| model.tab(tab).expect("tab").layout.leaves()),
+        [a, b, c]
+    );
+    let rectangles = [a, b, c].map(|pane| pane_bounds(&view, pane, cx));
+    assert!(rectangles[0].right() < rectangles[1].left());
+    assert!(rectangles[1].right() < rectangles[2].left());
+
+    let still = cx
+        .debug_bounds(format!("pane-handle-{b}").leak())
+        .expect("handle")
+        .center();
+    press(cx, still, false);
+    release(cx, still);
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.active_pane(), Some(b));
+        assert!(!model.layout_drag_pending());
+        assert_eq!(model.tab(tab).expect("tab").layout.leaves(), [a, b, c]);
+    });
+}

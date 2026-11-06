@@ -863,21 +863,30 @@ impl AppModel {
     }
 
     pub(crate) fn webview_title<'a>(&'a self, tab: &'a Tab, cx: &'a gpui::App) -> &'a str {
-        if tab.custom_title.is_none()
-            && let Some(pane) = tab.displayed_pane(self.state.shown_pane(tab))
-        {
-            if let Some(surface) = self.webviews.panes.get(&pane.id)
-                && let Some(title) = &surface.view.read(cx).title
-            {
-                return title;
-            }
-            if matches!(pane.content, PaneContent::Browser(_))
-                && let Some(title) = self.browser_title(pane.id, cx)
-            {
-                return title;
-            }
+        if let Some(title) = &tab.custom_title {
+            return title;
         }
-        tab.title(self.state.shown_pane(tab))
+        tab.displayed_pane(self.state.shown_pane(tab))
+            .map_or("", |pane| self.pane_title(pane, cx))
+    }
+
+    /// The title a pane shows: its page's title, or the one it was given.
+    pub(crate) fn pane_title<'a>(
+        &'a self,
+        pane: &'a muxy_app_core::Pane,
+        cx: &'a gpui::App,
+    ) -> &'a str {
+        if let Some(surface) = self.webviews.panes.get(&pane.id)
+            && let Some(title) = &surface.view.read(cx).title
+        {
+            return title;
+        }
+        if matches!(pane.content, PaneContent::Browser(_))
+            && let Some(title) = self.browser_title(pane.id, cx)
+        {
+            return title;
+        }
+        &pane.title
     }
 }
 
@@ -1179,11 +1188,22 @@ impl AppModel {
         foreground: gpui::Hsla,
         cx: &gpui::App,
     ) -> Option<gpui::AnyElement> {
-        use gpui::{IntoElement, Styled};
         let pane = tab.displayed_pane(self.state.shown_pane(tab))?;
         if tab.pinned {
             return None;
         }
+        self.page_glyph(pane, size, foreground, cx)
+    }
+
+    /// A browser's or an extension page's own icon.
+    pub(crate) fn page_glyph(
+        &self,
+        pane: &muxy_app_core::Pane,
+        size: gpui::Pixels,
+        foreground: gpui::Hsla,
+        cx: &gpui::App,
+    ) -> Option<gpui::AnyElement> {
+        use gpui::{IntoElement, Styled};
         if matches!(pane.content, PaneContent::Browser(_)) {
             return Some(self.browser_glyph(pane.id, size, foreground, cx));
         }
