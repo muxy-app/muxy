@@ -20,6 +20,7 @@ struct Key {
     directory: PathBuf,
     server: ServerId,
     generation: u64,
+    connection: Option<u64>,
     revision: u64,
 }
 
@@ -82,6 +83,9 @@ impl AppModel {
                     directory: project.directory.clone(),
                     server: project.server_id,
                     generation: self.generation(project.server_id),
+                    connection: (!project.server_id.is_local())
+                        .then(|| self.extensions.connection_install(project.server_id))
+                        .flatten(),
                     revision: self.project_icons.revision,
                 };
                 if self
@@ -99,7 +103,10 @@ impl AppModel {
             let source = if key.server.is_local() {
                 Source::Local(key.directory.clone())
             } else {
-                if !self.ready(key.server) || !self.confirmed(key.server) {
+                if !self.ready(key.server)
+                    || !self.confirmed(key.server)
+                    || self.state.project_creation_pending(id)
+                {
                     continue;
                 }
                 let Some(client) = self.extensions.client(key.server) else {

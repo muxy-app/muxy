@@ -116,7 +116,24 @@ fn skips_broken_candidates_and_uses_stable_priority() {
     )
     .expect("write");
     let source = Source::Local(root.path().into());
-    assert!(discover(&source).is_some());
+    assert_eq!(
+        discover(&source)
+            .expect("logo")
+            .as_bytes(0)
+            .expect("pixels")[..4],
+        [0, 0, 255, 255]
+    );
+    image::RgbaImage::from_pixel(32, 16, image::Rgba([0, 255, 0, 255]))
+        .save(root.path().join("favicon.png"))
+        .expect("favicon");
+    assert_eq!(
+        discover(&source)
+            .expect("favicon")
+            .as_bytes(0)
+            .expect("pixels")[..4],
+        [0, 255, 0, 255]
+    );
+    std::fs::remove_file(root.path().join("favicon.png")).expect("remove favicon");
     let mut names = ["logo.png", "favicon.png", "favicon.svg", "icon.ico"];
     names.sort_by_key(|name| rank(Path::new(name)));
     assert_eq!(

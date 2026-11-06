@@ -125,6 +125,10 @@ impl Runtime {
         self.epochs.get(owner).copied().unwrap_or(0)
     }
 
+    pub(super) fn connection_install(&self, server: ServerId) -> Option<u64> {
+        self.connection_installs.get(&server).copied()
+    }
+
     /// The server's extension connection, which other app work that must not
     /// queue behind terminals, such as listing folders, may share.
     pub(crate) fn client(&self, server: ServerId) -> Option<muxy_client::Client> {

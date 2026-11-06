@@ -8,7 +8,7 @@ mod icns;
 #[cfg(test)]
 mod tests;
 
-const MAX_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_BYTES: u64 = muxy_protocol::MAX_FILE_BYTES as u64;
 const DIRECTORIES: &[&str] = &[
     "",
     "public",
