@@ -595,6 +595,53 @@ fn a_pane_running_an_agent_shows_the_agents_icon_in_its_header(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn a_pane_header_names_the_shell_while_its_tab_keeps_its_title(cx: &mut TestAppContext) {
+    use muxy_protocol::MetadataEvent;
+    let (state, tab, panes) = split_state();
+    let pane = panes[0];
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let report = |event: MetadataEvent, cx: &mut VisualTestContext| {
+        view.update(cx, |model, cx| {
+            let terminal = model.terminal(&pane).expect("terminal").view.clone();
+            terminal.update(cx, |terminal, cx| terminal.metadata(event, cx));
+        });
+        cx.run_until_parked();
+    };
+    let tab_title = |cx: &mut VisualTestContext| {
+        view.update(cx, |model, cx| {
+            let tab = model.tab(tab).expect("tab");
+            model.webview_title(tab, cx).to_owned()
+        })
+    };
+    view.update(cx, |model, cx| {
+        attach_panes(model, &panes, cx);
+        model.focus_pane(pane, cx);
+    });
+    report(MetadataEvent::Directory("/home/dev/muxy".into()), cx);
+    assert!(
+        cx.debug_bounds(format!("pane-title-{pane}-sh").leak())
+            .is_some()
+    );
+    let before = tab_title(cx);
+    assert_eq!(before, "muxy");
+
+    report(
+        MetadataEvent::ForegroundProcess {
+            name: "-zsh".into(),
+            is_shell: true,
+        },
+        cx,
+    );
+    assert!(
+        cx.debug_bounds(format!("pane-title-{pane}-zsh").leak())
+            .is_some()
+    );
+    assert_eq!(tab_title(cx), before);
+}
+
+#[gpui::test]
 fn with_pane_headers_off_panes_have_no_header_but_stay_dimmed(cx: &mut TestAppContext) {
     let (state, _, panes) = split_state();
     let (mut boot, _requests) = stub_boot(state);

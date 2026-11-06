@@ -36,7 +36,29 @@ pub(crate) fn sanitize_or_default(title: &str) -> String {
     }
 }
 
+/// A terminal's title: the one its program set, else the running non-shell
+/// program's name, else its folder.
 pub fn derive(title: &str, process: Option<&ForegroundProcess>, directory: &ServerPath) -> String {
+    derive_with(title, process, directory, false)
+}
+
+/// A pane header's title: like [`derive()`], but a shell waiting at its
+/// prompt is named rather than its folder, which the project and tab already
+/// show.
+pub fn derive_for_header(
+    title: &str,
+    process: Option<&ForegroundProcess>,
+    directory: &ServerPath,
+) -> String {
+    derive_with(title, process, directory, true)
+}
+
+fn derive_with(
+    title: &str,
+    process: Option<&ForegroundProcess>,
+    directory: &ServerPath,
+    shell: bool,
+) -> String {
     let title = process
         .filter(|process| matches!(process.name.as_str(), "omp" | "oh-my-pi"))
         .and_then(|_| title.strip_prefix("π "))
@@ -47,9 +69,14 @@ pub fn derive(title: &str, process: Option<&ForegroundProcess>, directory: &Serv
         return title;
     }
     if let Some(process) = process
-        && !process.is_shell
+        && (shell || !process.is_shell)
     {
-        let title = sanitize(&process.name);
+        let name = if process.is_shell {
+            process.name.trim_start_matches('-')
+        } else {
+            &process.name
+        };
+        let title = sanitize(name);
         if !title.is_empty() {
             return title;
         }

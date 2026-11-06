@@ -106,7 +106,8 @@ Deleting always asks first and explains what will end.
 - Tabs can have a custom title and color, and can be pinned. Pinned tabs stay
   first and can't be closed until unpinned.
 - A terminal's title is the one its program sets, otherwise the running
-  program's name, otherwise its folder.
+  program's name, otherwise its folder. Its pane header names the shell
+  instead of the folder.
 - New terminals open in the project's folder, or optionally in the folder of
   the pane they were split from.
 - Terminals support selection, copy and paste, search, links, the mouse, input

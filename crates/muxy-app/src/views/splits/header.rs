@@ -197,13 +197,25 @@ fn handle(
                     )
                 }),
         )
-        .child(
+        .child({
+            let title = title(pane, model, cx);
+            let selector = format!("pane-title-{id}-{title}");
             div()
+                .debug_selector(move || selector.clone())
                 .min_w(px(0.0))
                 .truncate()
-                .child(model.pane_title(pane, cx).to_owned()),
-        )
+                .child(title)
+        })
         .into_any_element()
+}
+
+/// A terminal names its shell rather than its folder, which the project
+/// already shows, once it reports one; until then, its usual title.
+fn title(pane: &Pane, model: &AppModel, cx: &App) -> String {
+    model
+        .terminal(&pane.id)
+        .and_then(|terminal| terminal.view.read(cx).header_title())
+        .unwrap_or_else(|| model.pane_title(pane, cx).to_owned())
 }
 
 fn glyph(pane: &Pane, bell: bool, foreground: Hsla, model: &AppModel, cx: &App) -> AnyElement {

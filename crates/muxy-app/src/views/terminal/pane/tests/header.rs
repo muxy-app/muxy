@@ -86,3 +86,29 @@ fn the_header_text_stays_readable_on_a_light_app_background(cx: &mut TestAppCont
         assert_eq!(pane.header_colors().1, gpui::rgb(palette.background).into());
     });
 }
+
+#[gpui::test]
+fn the_header_names_the_shell_instead_of_its_folder(cx: &mut TestAppContext) {
+    let pane = cx.new(|cx| {
+        TerminalPane::new(
+            Palette::new(true),
+            muxy_app_core::settings::TerminalSettings::default(),
+            cx,
+        )
+    });
+    pane.update(cx, |pane, cx| {
+        assert_eq!(pane.header_title(), None);
+        pane.metadata(MetadataEvent::Directory("/home/dev/muxy".into()), cx);
+        assert_eq!(pane.header_title(), None);
+        pane.metadata(
+            MetadataEvent::ForegroundProcess {
+                name: "-zsh".into(),
+                is_shell: true,
+            },
+            cx,
+        );
+        assert_eq!(pane.header_title().as_deref(), Some("zsh"));
+        pane.metadata(MetadataEvent::Title("~/muxy".into()), cx);
+        assert_eq!(pane.header_title().as_deref(), Some("~/muxy"));
+    });
+}
