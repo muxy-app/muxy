@@ -83,17 +83,26 @@ focus. Use the arrow keys and Return to open a row.
   edges or corner to resize it; Muxy remembers where. **Reattach to Sidebar** or
   **Reattach to Right Panel** docks it on its last side. The other side's move
   button is also available while floating.
-- **Settings → Appearance → Agents panel rows** lists each agent under its
+- **Settings → Appearance → Agents panel rows** lists each agent grouped by
   project, most urgent first, with its status on the right like its tab, where
   Return opens its pane; or each project and worktree running agents, with
-  counts, where Return opens the worktree.
+  counts, where Return opens the worktree. Completed and idle agents keep their
+  place, so opening a finished agent doesn't move it.
+- **Settings → Appearance → Group by project** puts a heading naming each
+  project above its agents. It's on by default.
+- **Settings → Appearance → Agents panel density** shows each agent on two
+  lines, its tab's title and then its agent and status, with its project too
+  when agents aren't grouped (**Normal**), or on one short line with just its
+  icon and title (**Compact**).
 - **Settings → Appearance → Agents panel icon** shows each row's agent icon,
   or the icon of its project. Worktrees show their project's icon.
-- **Settings → Appearance → Show project colors** marks each row with its
-  project's color.
+- **Settings → Appearance → Show project colors** marks each row with a bar of
+  its project's color down its left edge. It's offered with agent icons in
+  Normal rows only, since a project icon already shows its project's color
+  and a compact row's icon is its only mark.
 - **Settings → Appearance → Show idle time** shows how long ago each completed
-  or idle agent finished. After the app restarts, an agent whose finish you
-  already saw shows no time until it finishes again.
+  or idle agent finished, at the right of its row. After the app restarts, an
+  agent whose finish you already saw shows no time until it finishes again.
 
 ## Saved agent sessions
 

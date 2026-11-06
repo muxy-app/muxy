@@ -3,7 +3,8 @@ use crate::model::preferences::{AgentsPanelToggle, Change, WorktreeToggle};
 use gpui::{AnyElement, Context, InteractiveElement, IntoElement};
 use muxy_app_core::localization;
 use muxy_app_core::settings::{
-    AgentsPanelGrouping, AgentsPanelIcon, CloseBehavior, InterfaceSize, SidebarCollapsedStyle,
+    AgentsPanelDensity, AgentsPanelGrouping, AgentsPanelIcon, CloseBehavior, InterfaceSize,
+    SidebarCollapsedStyle,
 };
 use muxy_ui::controls::{self, Choice};
 use muxy_ui::l10n::{tr_key, translate};
@@ -218,7 +219,15 @@ pub(super) fn rows(
     if category == Category::Appearance && pane.matches(category, tr_key!("Agents panel icon")) {
         rows.push(agents_panel_icon(pane, cx));
     }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Agents panel density")) {
+        rows.push(agents_panel_density(pane, cx));
+    }
     for (toggle, label, value) in [
+        (
+            AgentsPanelToggle::Grouped,
+            tr_key!("Group by project"),
+            appearance.agents_panel_grouped,
+        ),
         (
             AgentsPanelToggle::ProjectColors,
             tr_key!("Show project colors"),
@@ -230,7 +239,14 @@ pub(super) fn rows(
             appearance.agents_panel_idle_time,
         ),
     ] {
-        if category == Category::Appearance && pane.matches(category, label) {
+        let applies = match toggle {
+            AgentsPanelToggle::Grouped => {
+                appearance.agents_panel_grouping == AgentsPanelGrouping::Agents
+            }
+            AgentsPanelToggle::ProjectColors => appearance.agents_panel_colors_apply(),
+            AgentsPanelToggle::IdleTime => true,
+        };
+        if category == Category::Appearance && applies && pane.matches(category, label) {
             let id = toggle.id();
             rows.push(pane.row(
                 id,
@@ -414,6 +430,36 @@ fn agents_panel_grouping(pane: &SettingsView, cx: &mut Context<SettingsView>) ->
                         AgentsPanelGrouping::Worktrees
                     } else {
                         AgentsPanelGrouping::Agents
+                    },
+                )));
+            }),
+        ),
+    )
+}
+
+fn agents_panel_density(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+    let appearance = &pane.snapshot.settings.appearance;
+    pane.row(
+        "agents-panel-density",
+        tr_key!("Agents panel density"),
+        controls::segmented(
+            pane.style(),
+            "agents-panel-density",
+            &tr!("Agents panel density"),
+            &[
+                Choice::new("normal", tr!("Normal")),
+                Choice::new("compact", tr!("Compact")),
+            ],
+            match appearance.agents_panel_density {
+                AgentsPanelDensity::Normal => "normal",
+                AgentsPanelDensity::Compact => "compact",
+            },
+            cx.listener(|_, selected: &gpui::SharedString, _, cx| {
+                cx.emit(SettingsEvent::Change(Change::AgentsPanelDensity(
+                    if selected.as_ref() == "compact" {
+                        AgentsPanelDensity::Compact
+                    } else {
+                        AgentsPanelDensity::Normal
                     },
                 )));
             }),

@@ -27,6 +27,7 @@ pub(crate) enum Change {
     AgentsPanel(bool),
     AgentsPanelGrouping(muxy_app_core::settings::AgentsPanelGrouping),
     AgentsPanelIcon(muxy_app_core::settings::AgentsPanelIcon),
+    AgentsPanelDensity(muxy_app_core::settings::AgentsPanelDensity),
     AgentsPanelOption(AgentsPanelToggle, bool),
     StatusBar(bool),
     PaneHeaders(bool),
@@ -88,6 +89,7 @@ impl WorktreeToggle {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum AgentsPanelToggle {
+    Grouped,
     ProjectColors,
     IdleTime,
 }
@@ -95,6 +97,7 @@ pub(crate) enum AgentsPanelToggle {
 impl AgentsPanelToggle {
     pub(crate) fn id(self) -> &'static str {
         match self {
+            Self::Grouped => "agents-panel-grouped",
             Self::ProjectColors => "agents-panel-project-colors",
             Self::IdleTime => "agents-panel-idle-time",
         }
@@ -544,8 +547,15 @@ impl AppModel {
                 settings.appearance.agents_panel_icon = icon;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
+            Change::AgentsPanelDensity(density) => {
+                settings.appearance.agents_panel_density = density;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
             Change::AgentsPanelOption(toggle, value) => {
                 match toggle {
+                    AgentsPanelToggle::Grouped => {
+                        settings.appearance.agents_panel_grouped = value;
+                    }
                     AgentsPanelToggle::ProjectColors => {
                         settings.appearance.agents_panel_project_colors = value;
                     }
@@ -1137,6 +1147,7 @@ fn change_id(change: &Change) -> &str {
         Change::AgentsPanel(_) => "agents-panel",
         Change::AgentsPanelGrouping(_) => "agents-panel-grouping",
         Change::AgentsPanelIcon(_) => "agents-panel-icon",
+        Change::AgentsPanelDensity(_) => "agents-panel-density",
         Change::StatusBar(_) => "status-bar",
         Change::PaneHeaders(_) => "pane-headers",
         Change::Tips(_) => "tips",

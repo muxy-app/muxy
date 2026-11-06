@@ -983,6 +983,51 @@ fn the_active_sidebar_row_shows_before_any_extension_provides_one(cx: &mut TestA
 }
 
 #[gpui::test]
+fn agents_panel_options_show_only_where_they_apply(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelGrouping};
+    let root = tempfile::tempdir().expect("directory");
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.state_path = root.path().join("state.json");
+    boot.settings.appearance.agents_panel_density = AgentsPanelDensity::Compact;
+    boot.settings.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
+    let (_model, cx) = settings_tab(boot, cx);
+    click_preference(cx, "settings-category-Appearance");
+    assert!(
+        cx.debug_bounds("settings-row-agents-panel-idle-time")
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds("settings-row-agents-panel-project-colors")
+            .is_none(),
+        "a compact row's icon is its only mark"
+    );
+    assert!(
+        cx.debug_bounds("settings-row-agents-panel-grouped")
+            .is_none(),
+        "worktree rows are already one per project"
+    );
+}
+
+#[gpui::test]
+fn project_colors_are_offered_only_beside_agent_icons(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("directory");
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.state_path = root.path().join("state.json");
+    boot.settings.appearance.agents_panel_icon = muxy_app_core::settings::AgentsPanelIcon::Project;
+    let (_model, cx) = settings_tab(boot, cx);
+    click_preference(cx, "settings-category-Appearance");
+    assert!(
+        cx.debug_bounds("settings-row-agents-panel-grouped")
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds("settings-row-agents-panel-project-colors")
+            .is_none(),
+        "a project icon already wears its project's color"
+    );
+}
+
+#[gpui::test]
 fn an_extension_sidebar_is_listed_chosen_and_falls_back_when_disabled(cx: &mut TestAppContext) {
     let (_root, boot) = sidebar_extension_boot();
     let (model, cx) = settings_tab(boot, cx);
