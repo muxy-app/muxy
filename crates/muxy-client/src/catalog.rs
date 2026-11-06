@@ -307,6 +307,7 @@ mod tests {
             status: SessionStatus::Live,
             attached,
             owner: None,
+            name: None,
         }
     }
 

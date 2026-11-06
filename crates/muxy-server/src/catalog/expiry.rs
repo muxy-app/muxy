@@ -159,6 +159,7 @@ mod tests {
                 info: info.clone(),
                 status: SessionStatus::Live,
                 ended_at: None,
+                name: None,
             },
         );
         info

@@ -441,6 +441,7 @@ pub(crate) enum Work {
     Resize(ChannelId, Size),
     Colors(TerminalColors),
     SessionColors(SessionId, Option<TerminalColors>),
+    SessionName(SessionId, Option<String>),
     Input(ChannelId, Vec<u8>),
     TerminalInput(ChannelId, muxy_protocol::TerminalInput),
     ClearScreen(ChannelId),
@@ -496,6 +497,7 @@ impl Work {
             Self::Resize(..) => "Resize",
             Self::Colors(..) => "Colors",
             Self::SessionColors(..) => "SessionColors",
+            Self::SessionName(..) => "SessionName",
             Self::Input(..) => "Input",
             Self::TerminalInput(..) => "TerminalInput",
             Self::ClearScreen(..) => "ClearScreen",
@@ -1218,6 +1220,17 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
         Work::Resize(channel, size) => finished_if_gone(client.resize(channel, size)),
         Work::Colors(colors) => client.set_terminal_colors(colors),
         Work::SessionColors(session, colors) => match client.set_session_colors(session, colors) {
+            Err(ClientError::Server(reply))
+                if matches!(
+                    reply.code,
+                    ErrorCode::Unsupported | ErrorCode::UnknownSession
+                ) =>
+            {
+                return None;
+            }
+            result => result,
+        },
+        Work::SessionName(session, name) => match client.set_session_name(session, name) {
             Err(ClientError::Server(reply))
                 if matches!(
                     reply.code,

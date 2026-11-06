@@ -286,3 +286,138 @@ fn local_apps_learn_which_saved_files_the_server_could_not_read()
     std::fs::remove_dir_all(directory)?;
     Ok(())
 }
+
+type Wire = (
+    muxy_protocol::wire::Encoder<std::os::unix::net::UnixStream>,
+    muxy_protocol::wire::Decoder<std::os::unix::net::UnixStream>,
+);
+
+type Serving = std::thread::JoinHandle<Result<(), muxy_protocol::wire::WireError>>;
+
+/// A connection to `registry` that has finished its hello.
+fn greeted(
+    registry: &Arc<Registry>,
+    client: &std::os::unix::net::UnixStream,
+    server: std::os::unix::net::UnixStream,
+) -> Result<(Wire, Serving), Box<dyn std::error::Error>> {
+    use muxy_protocol::wire::{Decoder, Encoder};
+    use muxy_protocol::{CONTROL, Message};
+
+    let serving = Arc::clone(registry);
+    let connection = std::thread::spawn(move || super::serve(Box::new(server), serving));
+    client.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
+    let mut decoder = Decoder::new(client.try_clone()?);
+    let mut encoder = Encoder::new(client.try_clone()?);
+    encoder.send(
+        CONTROL,
+        &Message::Hello {
+            versions: muxy_protocol::SUPPORTED.to_vec(),
+        },
+    )?;
+    assert!(matches!(
+        decoder.next()?,
+        (CONTROL, Message::HelloReply { .. })
+    ));
+    Ok(((encoder, decoder), connection))
+}
+
+/// Lists `project`'s sessions and returns the first name among them.
+fn listed_name(
+    (encoder, decoder): &mut Wire,
+    project: muxy_protocol::ProjectId,
+    id: u32,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    use muxy_protocol::{CONTROL, Message, ReplyBody, RequestBody, RequestId};
+
+    encoder.send(
+        CONTROL,
+        &Message::Request {
+            id: RequestId(id),
+            body: RequestBody::ListProjectSessions {
+                project,
+                after: None,
+                revision: None,
+            },
+        },
+    )?;
+    loop {
+        match decoder.next()? {
+            (
+                CONTROL,
+                Message::Reply {
+                    body: ReplyBody::ProjectSessions(page),
+                    ..
+                },
+            ) => return Ok(page.sessions.into_iter().find_map(|listed| listed.name)),
+            (CONTROL, Message::Changed { .. }) => {}
+            other => return Err(format!("expected sessions, got {other:?}").into()),
+        }
+    }
+}
+
+#[test]
+fn a_session_name_reaches_listing_clients_with_a_sessions_change()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::net::UnixStream;
+
+    use muxy_protocol::{CONTROL, Message, ReplyBody, RequestBody, RequestId, SessionId, Topic};
+
+    let (sender, _requests) = mpsc::channel();
+    let registry = Arc::new(Registry::new(ServerSettings::default(), sender));
+    let project = registry.home_project();
+    let session = SessionId::new(1).expect("nonzero");
+    registry.catalog.reserve(
+        muxy_protocol::OperationId::new(),
+        &muxy_protocol::SessionInfo {
+            project,
+            id: session,
+            directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+        },
+    )?;
+    let (client, server) = UnixStream::pair()?;
+    let (mut wire, connection) = greeted(&registry, &client, server)?;
+    assert_eq!(listed_name(&mut wire, project, 1)?, None);
+
+    wire.0.send(
+        CONTROL,
+        &Message::Request {
+            id: RequestId(2),
+            body: RequestBody::SetSessionName {
+                session,
+                name: Some("API server".into()),
+            },
+        },
+    )?;
+    let (mut replied, mut changed) = (false, false);
+    while !(replied && changed) {
+        match wire.1.next()? {
+            (
+                CONTROL,
+                Message::Reply {
+                    body: ReplyBody::SessionNameSet,
+                    ..
+                },
+            ) => replied = true,
+            (
+                CONTROL,
+                Message::Changed {
+                    topic: Topic::Sessions,
+                    ..
+                },
+            ) => changed = true,
+            (CONTROL, Message::Changed { .. }) => {}
+            other => return Err(format!("expected the name to be set, got {other:?}").into()),
+        }
+    }
+    assert_eq!(
+        listed_name(&mut wire, project, 3)?.as_deref(),
+        Some("API server")
+    );
+
+    client.shutdown(std::net::Shutdown::Both)?;
+    connection
+        .join()
+        .map_err(|_| "connection panicked")?
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}

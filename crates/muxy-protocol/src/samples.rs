@@ -479,10 +479,66 @@ fn changed_samples() -> [Message; 2] {
         .map(|(topic, revision)| Message::Changed { topic, revision })
 }
 
+fn project_session_samples(project: crate::ProjectId, directory: ServerPath) -> [Message; 4] {
+    use crate::{ProjectSession, ProjectSessions, SessionInfo, SessionStatus};
+    [
+        Message::Reply {
+            id: RequestId(3),
+            body: ReplyBody::ProjectSessions(ProjectSessions {
+                revision: 1,
+                sessions: vec![ProjectSession {
+                    info: SessionInfo {
+                        id: SessionId::from(NonZeroU64::MIN),
+                        project,
+                        directory: directory.clone(),
+                    },
+                    status: SessionStatus::Live,
+                    owner: Some(crate::SessionClient {
+                        id: crate::ClientId::from_u128(4),
+                        kind: crate::ClientKind::Desktop,
+                    }),
+                    attached: true,
+                    name: None,
+                }],
+                next: None,
+            }),
+        },
+        Message::Request {
+            id: RequestId(5),
+            body: RequestBody::SetSessionName {
+                session: SessionId::from(NonZeroU64::MIN),
+                name: Some("API server".into()),
+            },
+        },
+        Message::Reply {
+            id: RequestId(5),
+            body: ReplyBody::SessionNameSet,
+        },
+        Message::Reply {
+            id: RequestId(6),
+            body: ReplyBody::ProjectSessions(ProjectSessions {
+                revision: 2,
+                sessions: vec![ProjectSession {
+                    info: SessionInfo {
+                        id: SessionId::from(NonZeroU64::MIN),
+                        project,
+                        directory,
+                    },
+                    status: SessionStatus::Live,
+                    owner: None,
+                    attached: false,
+                    name: Some("API server".into()),
+                }],
+                next: None,
+            }),
+        },
+    ]
+}
+
 fn project_samples() -> Vec<Message> {
     use crate::{
         CatalogPage, OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation,
-        ProjectSession, ProjectSessions, ServerIdentity, SessionInfo, SessionStatus,
+        ServerIdentity,
     };
     let project = ProjectDescriptor {
         id: ProjectId::from_u128(1),
@@ -553,30 +609,11 @@ fn project_samples() -> Vec<Message> {
             body: ReplyBody::ProjectMutated { revision: 1 },
         },
         Message::Reply {
-            id: RequestId(3),
-            body: ReplyBody::ProjectSessions(ProjectSessions {
-                revision: 1,
-                sessions: vec![ProjectSession {
-                    info: SessionInfo {
-                        id: SessionId::from(NonZeroU64::MIN),
-                        project: project.id,
-                        directory: project.directory,
-                    },
-                    status: SessionStatus::Live,
-                    owner: Some(crate::SessionClient {
-                        id: crate::ClientId::from_u128(4),
-                        kind: crate::ClientKind::Desktop,
-                    }),
-                    attached: true,
-                }],
-                next: None,
-            }),
-        },
-        Message::Reply {
             id: RequestId(4),
             body: ReplyBody::CreationCancelled,
         },
     ];
+    samples.extend(project_session_samples(project.id, project.directory));
     samples.extend(changed_samples());
     samples.push(prune_worktree_sample());
     samples

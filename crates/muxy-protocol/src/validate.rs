@@ -259,6 +259,9 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         RequestBody::Pair(request) => request.validate(),
         RequestBody::WriteRemoteAccess(settings) => settings.validate(),
         RequestBody::StartPairingWithHosts(hosts) => crate::validate_pairing_hosts(hosts),
+        RequestBody::SetSessionName { name, .. } => {
+            name.as_deref().map_or(Ok(()), crate::validate_session_name)
+        }
         RequestBody::Authenticate(_)
         | RequestBody::ReadRemoteAccess
         | RequestBody::StartPairing
@@ -401,6 +404,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         | ReplyBody::Resized
         | ReplyBody::TerminalColorsSet
         | ReplyBody::SessionColorsSet
+        | ReplyBody::SessionNameSet
         | ReplyBody::Pong
         | ReplyBody::Error(_)
         | ReplyBody::SessionDiscarded => Ok(()),

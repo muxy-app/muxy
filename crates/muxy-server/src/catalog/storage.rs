@@ -165,6 +165,8 @@ struct StoredMembership {
     status: StoredStatus,
     #[serde(default)]
     ended_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -462,6 +464,7 @@ impl From<&Membership> for StoredMembership {
             info: (&membership.info).into(),
             status: membership.status.into(),
             ended_at: membership.ended_at,
+            name: membership.name.clone(),
         }
     }
 }
@@ -472,6 +475,9 @@ impl From<StoredMembership> for Membership {
             info: membership.info.into(),
             status: membership.status.into(),
             ended_at: membership.ended_at,
+            name: membership
+                .name
+                .filter(|name| muxy_protocol::validate_session_name(name).is_ok()),
         }
     }
 }

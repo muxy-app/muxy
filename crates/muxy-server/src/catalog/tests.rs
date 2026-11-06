@@ -227,6 +227,7 @@ pub(super) fn sample() -> State {
                 info: info(id, &worktree),
                 status,
                 ended_at,
+                name: None,
             },
         )
     })
@@ -459,4 +460,61 @@ fn a_catalog_that_cannot_be_read_at_all_stops_startup_and_stays_in_place() -> st
     assert!(path.is_dir());
     assert_eq!(std::fs::read_dir(&directory)?.count(), 1);
     std::fs::remove_dir_all(&directory)
+}
+
+#[test]
+fn session_names_are_listed_saved_and_cleared() -> Result<(), crate::ServerError> {
+    let catalog = Catalog::from_state(sample(), None, std::sync::Arc::default());
+    let named = session(21);
+    let project = catalog.lock().sessions[&named].info.project;
+    let name = |catalog: &Catalog| {
+        catalog.list_project(project, None, None).map(|page| {
+            page.sessions
+                .into_iter()
+                .find(|listed| listed.info.id == named)
+                .and_then(|listed| listed.name)
+        })
+    };
+
+    catalog.set_session_name(named, Some("API server".into()))?;
+    assert_eq!(name(&catalog)?, Some("API server".into()));
+    let json = saved(&catalog.lock());
+    assert_eq!(json["sessions"]["21"]["name"], "API server");
+    assert_eq!(
+        load(&json).sessions[&named].name.as_deref(),
+        Some("API server")
+    );
+
+    let revision = catalog.revision();
+    catalog.set_session_name(named, Some("API server".into()))?;
+    assert_eq!(
+        catalog.revision(),
+        revision,
+        "an unchanged name is not a change"
+    );
+
+    catalog.set_session_name(named, None)?;
+    assert_eq!(name(&catalog)?, None);
+    assert!(
+        saved(&catalog.lock())["sessions"]["21"]
+            .get("name")
+            .is_none()
+    );
+
+    let unknown = catalog.set_session_name(session(99), Some("gone".into()));
+    assert_eq!(
+        unknown.map_err(|error| error.to_reply().code),
+        Err(ErrorCode::UnknownSession)
+    );
+    Ok(())
+}
+
+#[test]
+fn a_saved_session_name_that_is_not_valid_is_dropped() {
+    let mut json = fixture();
+    json["sessions"]["21"]["name"] = "two\nlines".into();
+    json["sessions"]["22"]["name"] = "kept".into();
+    let state = load(&json);
+    assert_eq!(state.sessions[&session(21)].name, None);
+    assert_eq!(state.sessions[&session(22)].name.as_deref(), Some("kept"));
 }

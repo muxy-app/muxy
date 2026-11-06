@@ -1687,6 +1687,7 @@ impl AppModel {
             }
         };
         if self.save(cx) {
+            self.sync_session_names(cx);
             Ok(Some(value))
         } else {
             self.state = previous;
@@ -1744,6 +1745,50 @@ impl AppModel {
                 && let Some(runtime) = self.servers.get_mut(server)
             {
                 runtime.references = Some(references);
+            }
+        }
+        self.sync_session_names(cx);
+    }
+
+    /// Tells each connected server the names renamed tabs give its sessions,
+    /// and clears only the names this app gave, so another app's stay.
+    fn sync_session_names(&mut self, cx: &mut Context<Self>) {
+        for server in self.servers.ids() {
+            if !self.ready(server) {
+                continue;
+            }
+            let wanted = self.state.session_names(server);
+            let given = self.state.given_session_names(server);
+            let resend = self
+                .servers
+                .get(server)
+                .is_none_or(|runtime| !runtime.names_current);
+            let changes: Vec<_> = wanted
+                .iter()
+                .filter(|(session, name)| resend || given.get(session) != Some(name))
+                .map(|(session, name)| (*session, Some(name.clone())))
+                .chain(
+                    given
+                        .keys()
+                        .filter(|session| !wanted.contains_key(session))
+                        .map(|session| (*session, None)),
+                )
+                .collect();
+            let mut current = true;
+            let mut recorded = false;
+            for (session, name) in changes {
+                if !self.send(server, Work::SessionName(session, name.clone()), cx) {
+                    current = false;
+                    break;
+                }
+                recorded |= given.get(&session) != name.as_ref();
+                self.state.record_session_name(server, session, name);
+            }
+            if recorded {
+                self.save(cx);
+            }
+            if let Some(runtime) = self.servers.get_mut(server) {
+                runtime.names_current = current;
             }
         }
     }
@@ -2206,6 +2251,7 @@ impl AppModel {
         runtime.activity = activity::ActivityView::default();
         runtime.activity.navigation = navigation;
         runtime.references = None;
+        runtime.names_current = false;
         runtime.sessions_revision = 0;
         runtime.last_channel = 0;
         self.forget_server_sessions(server, cx);
@@ -2913,6 +2959,7 @@ pub(crate) mod tests {
     mod remote_devices;
     mod remote_parity;
     mod servers;
+    mod session_names;
     mod session_ownership;
     mod session_show;
     mod splits;

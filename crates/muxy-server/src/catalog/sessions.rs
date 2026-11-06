@@ -70,6 +70,7 @@ impl Catalog {
                     info: info.clone(),
                     status: SessionStatus::Starting,
                     ended_at: None,
+                    name: None,
                 },
             );
             state.creations.insert(
@@ -95,6 +96,33 @@ impl Catalog {
                     membership.status = status;
                 }
             }
+            Ok(())
+        })
+    }
+
+    /// Names a session for every client; an unchanged name changes nothing.
+    pub(crate) fn set_session_name(
+        &self,
+        session: SessionId,
+        name: Option<String>,
+    ) -> Result<(), ServerError> {
+        {
+            let state = self.lock();
+            let membership = state
+                .sessions
+                .get(&session)
+                .filter(|_| !state.discarding.contains(&session))
+                .ok_or_else(|| ServerError::unknown_session(session))?;
+            if membership.name == name {
+                return Ok(());
+            }
+        }
+        self.update(|state| {
+            let membership = state
+                .sessions
+                .get_mut(&session)
+                .ok_or_else(|| ServerError::unknown_session(session))?;
+            membership.name = name;
             Ok(())
         })
     }
@@ -217,6 +245,7 @@ impl Catalog {
                 status: entry.status,
                 owner: None,
                 attached: false,
+                name: entry.name.clone(),
             })
             .collect();
         let next = entries

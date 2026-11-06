@@ -196,6 +196,16 @@ pub enum RequestBody {
         #[n(1)]
         colors: Option<TerminalColors>,
     },
+    /// A name for one session that every client sees, such as a renamed
+    /// tab's title; `None` removes it. Servers from before this answer
+    /// `Unsupported`.
+    #[n(45)]
+    SetSessionName {
+        #[n(0)]
+        session: SessionId,
+        #[n(1)]
+        name: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -311,6 +321,8 @@ pub enum ReplyBody {
     Uploaded(#[n(0)] Option<ServerPath>),
     #[n(39)]
     SessionColorsSet,
+    #[n(40)]
+    SessionNameSet,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

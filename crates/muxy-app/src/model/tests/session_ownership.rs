@@ -11,6 +11,7 @@ fn session(project: ProjectId, id: u64) -> ProjectSession {
         status: SessionStatus::Live,
         attached: false,
         owner: None,
+        name: None,
     }
 }
 

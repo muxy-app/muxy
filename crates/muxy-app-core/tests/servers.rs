@@ -881,3 +881,48 @@ fn backups_leave_a_set_aside_view_out_and_restoring_keeps_it() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn a_renamed_tab_names_every_terminal_in_it_on_its_own_server() -> TestResult {
+    let TwoServers {
+        mut state,
+        remote,
+        remote_home,
+        ..
+    } = two_servers()?;
+    let (one, two, three) = (session(1)?, session(2)?, session(3)?);
+    let renamed = state.open_terminal_tab(state.home().id)?;
+    let first = state.home().tabs[0].panes[0].id;
+    state.set_pane_session(first, Some(one))?;
+    let split = state.split_pane(first, Direction::Right)?;
+    state.set_pane_session(split, Some(two))?;
+    state.open_terminal_tab(state.home().id)?;
+    let plain = state.home().tabs[1].panes[0].id;
+    state.set_pane_session(plain, Some(three))?;
+    state.open_terminal_tab(remote_home)?;
+    let remote_pane = state.project(remote_home).ok_or("remote Home")?.tabs[0].panes[0].id;
+    state.set_pane_session(remote_pane, Some(one))?;
+    let quick = state.ensure_quick_terminal();
+    state.set_pane_session(quick, Some(three))?;
+    assert!(state.session_names(LOCAL).is_empty());
+
+    state.set_tab_title(renamed, Some("API server".into()))?;
+    assert_eq!(
+        state.session_names(LOCAL),
+        BTreeMap::from([
+            (one, "API server".to_owned()),
+            (two, "API server".to_owned())
+        ])
+    );
+    assert!(state.session_names(remote).is_empty());
+
+    state.set_tab_title(
+        renamed,
+        Some("x".repeat(muxy_protocol::MAX_SESSION_NAME + 1)),
+    )?;
+    assert!(state.session_names(LOCAL).is_empty());
+
+    state.set_tab_title(renamed, None)?;
+    assert!(state.session_names(LOCAL).is_empty());
+    Ok(())
+}

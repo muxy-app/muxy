@@ -464,6 +464,19 @@ impl Client {
         }
     }
 
+    /// Names a session for every client, or with `None` removes its name.
+    /// Servers from before this answer `Unsupported`.
+    pub fn set_session_name(
+        &self,
+        session: SessionId,
+        name: Option<String>,
+    ) -> Result<(), ClientError> {
+        match self.request(RequestBody::SetSessionName { session, name })? {
+            ReplyBody::SessionNameSet => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     pub fn ping(&self) -> Result<(), ClientError> {
         match self.request(RequestBody::Ping)? {
             ReplyBody::Pong => Ok(()),

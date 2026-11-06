@@ -181,6 +181,7 @@ impl Connection {
             status: SessionStatus::Live,
             owner: None,
             attached: false,
+            name: None,
         })
     }
 

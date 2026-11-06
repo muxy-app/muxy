@@ -344,6 +344,10 @@ fn ordered_request(
             connection.set_session_colors(session, colors);
             ReplyBody::SessionColorsSet
         }
+        RequestBody::SetSessionName { session, name } => {
+            registry.catalog.set_session_name(session, name)?;
+            ReplyBody::SessionNameSet
+        }
         RequestBody::Attach { session, size } => {
             attach(session, Some(size), id, registry, connection, last_channel)?;
             return Ok(None);

@@ -24,6 +24,10 @@ pub(crate) struct ServerState {
     pub(crate) pending_discards: Vec<SessionId>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) close_operations: BTreeMap<SessionId, OperationId>,
+    /// Names this app gave the server's sessions, kept so the ones its tabs
+    /// stop giving are cleared even after a restart.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) given_names: BTreeMap<SessionId, String>,
 }
 
 impl AppState {
@@ -51,6 +55,46 @@ impl AppState {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect()
+    }
+
+    /// Names for `server`'s sessions, shared with its other apps: each
+    /// terminal in a tab with a custom title goes by that title.
+    pub fn session_names(&self, server: ServerId) -> BTreeMap<SessionId, String> {
+        let mut names = BTreeMap::new();
+        for placed in self.panes().filter(|placed| placed.server == server) {
+            let Some(session) = placed.pane.session() else {
+                continue;
+            };
+            let Some(title) = placed.tab.and_then(|tab| tab.custom_title.as_deref()) else {
+                continue;
+            };
+            if muxy_protocol::validate_session_name(title).is_ok() {
+                names.entry(session).or_insert_with(|| title.to_owned());
+            }
+        }
+        names
+    }
+
+    /// Names this app has given `server`'s sessions.
+    pub fn given_session_names(&self, server: ServerId) -> BTreeMap<SessionId, String> {
+        self.servers
+            .get(&server)
+            .map(|state| state.given_names.clone())
+            .unwrap_or_default()
+    }
+
+    /// Records that `server` heard `name` for `session`; `None` forgets it.
+    pub fn record_session_name(
+        &mut self,
+        server: ServerId,
+        session: SessionId,
+        name: Option<String>,
+    ) {
+        let names = &mut self.servers.entry(server).or_default().given_names;
+        match name {
+            Some(name) => names.insert(session, name),
+            None => names.remove(&session),
+        };
     }
 
     /// Sessions shown by panes, for every server with projects here. A server

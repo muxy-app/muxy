@@ -41,6 +41,7 @@ struct Membership {
     info: SessionInfo,
     status: SessionStatus,
     ended_at: Option<u64>,
+    name: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -193,6 +194,7 @@ impl State {
                         directory,
                     },
                     ended_at: None,
+                    name: None,
                     status: if archive.contains(id) {
                         SessionStatus::Ended
                     } else {

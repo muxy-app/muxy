@@ -94,6 +94,7 @@ impl TryFrom<StoredState> for AppState {
                     pending_cancellations: stored.pending_cancellations,
                     pending_discards: stored.pending_discards,
                     close_operations: stored.close_operations,
+                    given_names: BTreeMap::new(),
                 },
             )])
         } else {

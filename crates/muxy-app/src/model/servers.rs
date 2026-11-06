@@ -41,6 +41,8 @@ pub(crate) struct Runtime {
     pub(super) password_login: bool,
     pub(super) catalog: catalog::Synchronization,
     pub(super) references: Option<Vec<SessionId>>,
+    /// This connection has heard every name this app gives its sessions.
+    pub(super) names_current: bool,
     pub(super) discarding: HashSet<SessionId>,
     pub(super) sessions_revision: u64,
     /// Channels up to this one were attached on this connection; the closed ones are acknowledged.
@@ -67,6 +69,7 @@ impl Runtime {
             password_login: false,
             catalog: catalog::Synchronization::default(),
             references: None,
+            names_current: false,
             discarding: HashSet::new(),
             sessions_revision: 0,
             last_channel: 0,

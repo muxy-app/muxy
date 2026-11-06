@@ -37,8 +37,8 @@ flowchart TB
 | Paired device | A phone allowed to connect to the server. |
 
 **Shared or private.** Project names, icons, colors, and deletions reach every
-app. Tabs, layouts, workspaces, and project order stay in the app that made
-them.
+app, and so do the names renamed tabs give their terminals. Tabs, layouts,
+workspaces, and project order stay in the app that made them.
 
 ## Projects
 
@@ -105,6 +105,9 @@ Deleting always asks first and explains what will end.
 - Closing a group's last tab removes the group.
 - Tabs can have a custom title and color, and can be pinned. Pinned tabs stay
   first and can't be closed until unpinned.
+- A custom title also names every terminal in the tab on the phone app, ahead
+  of the title its program sets. Removing it brings back the terminal's own
+  title there.
 - A terminal's title is the one its program sets, otherwise the running
   program's name, otherwise its folder. Its pane header names the shell
   instead of the folder.
