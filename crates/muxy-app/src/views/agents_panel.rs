@@ -60,6 +60,7 @@ fn status_glyph(
                 status,
                 m.icon_sm(),
                 Some(owner),
+                None,
                 model,
             ))
             .into_any_element(),

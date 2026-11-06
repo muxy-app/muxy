@@ -205,8 +205,31 @@ pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElem
     decorated("tab", tab.id, tab_status(tab, model), fallback, size, model)
 }
 
-/// A pane's own icon: the agent running in it, with that agent's progress or
-/// completion, or `fallback` when no agent runs there.
+/// An element whose hover swaps the spinners in it for a control. Native macOS
+/// spinners paint above the app's own opacity, so they hide themselves there.
+#[derive(Clone, Default)]
+pub(super) struct HoverZone(Rc<Cell<Option<Bounds<Pixels>>>>);
+
+impl HoverZone {
+    /// Records the zone's bounds; a child of the element the zone covers.
+    pub(super) fn track(&self) -> AnyElement {
+        let bounds = self.0.clone();
+        canvas(move |zone, _, _| bounds.set(Some(zone)), |_, (), _, _| {})
+            .absolute()
+            .inset_0()
+            .into_any_element()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn hovered(&self, window: &gpui::Window) -> bool {
+        self.0
+            .get()
+            .is_some_and(|bounds| bounds.contains(&window.mouse_position()))
+    }
+}
+
+/// A pane's own icon: the agent running in it, with that agent's completion,
+/// or `fallback` when no agent runs there. Its tab already spins for its work.
 pub(super) fn pane_glyph(
     pane: &Pane,
     model: &AppModel,
@@ -217,12 +240,16 @@ pub(super) fn pane_glyph(
     let Some(provider) = model.pane_agent(id).map(|agent| agent.provider) else {
         return fallback;
     };
-    let status = model
-        .state
-        .pane_session(id)
-        .map_or(Status::None, |(server, session)| {
-            resolve(server, &[session], model.pane_completed(id), false, model)
-        });
+    let status =
+        model
+            .state
+            .pane_session(id)
+            .map_or(Status::None, |(server, session)| {
+                match resolve(server, &[session], model.pane_completed(id), false, model) {
+                    Status::Progress(_) => Status::None,
+                    status => status,
+                }
+            });
     decorated(
         "pane",
         id,
@@ -335,7 +362,7 @@ impl Spinners {
     }
 
     fn glyph(&self, id: String, size: Pixels, color: Hsla) -> AnyElement {
-        self.glyph_in(id, size, color, None)
+        self.glyph_in(id, size, color, None, None)
     }
 
     pub(super) fn glyph_in(
@@ -344,8 +371,10 @@ impl Spinners {
         size: Pixels,
         color: Hsla,
         owner: Option<gpui::EntityId>,
+        zone: Option<&HoverZone>,
     ) -> AnyElement {
         let registry = self.0.clone();
+        let zone = zone.cloned();
         canvas(
             |_, _, _| (),
             move |bounds, (), window, _| {
@@ -372,7 +401,9 @@ impl Spinners {
                         native.bounds.set(Some(bounds));
                         native.owner.set(owner);
                         native.in_bounds.set(
-                            mask.contains(&bounds.origin) && mask.contains(&bounds.bottom_right()),
+                            mask.contains(&bounds.origin)
+                                && mask.contains(&bounds.bottom_right())
+                                && !zone.as_ref().is_some_and(|zone| zone.hovered(window)),
                         );
                         // `present` decides visibility once everything above is laid out.
                         if let Some(spinner) = &native.spinner {
@@ -418,6 +449,7 @@ impl Spinners {
         size: Pixels,
         color: Hsla,
         _owner: Option<gpui::EntityId>,
+        _zone: Option<&HoverZone>,
     ) -> AnyElement {
         self.glyph(id, size, color)
     }
@@ -509,7 +541,7 @@ pub(super) fn spinner_in(
 ) -> AnyElement {
     model
         .spinners
-        .glyph_in(id.into(), size, model.theme.accent, Some(owner))
+        .glyph_in(id.into(), size, model.theme.accent, Some(owner), None)
 }
 
 pub(super) fn status_glyph(
@@ -518,15 +550,17 @@ pub(super) fn status_glyph(
     size: Pixels,
     model: &AppModel,
 ) -> AnyElement {
-    status_glyph_in(id, status, size, None, model)
+    status_glyph_in(id, status, size, None, None, model)
 }
 
-/// A status glyph whose spinner stays visible over content `owner` paints.
+/// A status glyph whose spinner stays visible over content `owner` paints, and
+/// hides while `zone` is hovered.
 pub(super) fn status_glyph_in(
     id: String,
     status: Status,
     size: Pixels,
     owner: Option<gpui::EntityId>,
+    zone: Option<&HoverZone>,
     model: &AppModel,
 ) -> AnyElement {
     let theme = &model.theme;
@@ -537,7 +571,7 @@ pub(super) fn status_glyph_in(
             translate(key).to_string(),
             model
                 .spinners
-                .glyph_in(id.clone(), size, theme.accent, owner),
+                .glyph_in(id.clone(), size, theme.accent, owner, zone),
         ),
         Status::Progress(progress) => {
             let tooltip = match progress.state {
@@ -550,7 +584,7 @@ pub(super) fn status_glyph_in(
             (
                 "progress",
                 tooltip.to_string(),
-                progress_circle(&id, progress, size, owner, model),
+                progress_circle(&id, progress, size, owner, zone, model),
             )
         }
         Status::Blocked | Status::Completed => {
@@ -615,6 +649,7 @@ fn progress_circle(
     progress: TerminalProgress,
     size: Pixels,
     owner: Option<gpui::EntityId>,
+    zone: Option<&HoverZone>,
     model: &AppModel,
 ) -> AnyElement {
     let theme = &model.theme;
@@ -626,7 +661,9 @@ fn progress_circle(
         }
     };
     if progress.state == ProgressState::Indeterminate {
-        return model.spinners.glyph_in(id.to_owned(), size, color, owner);
+        return model
+            .spinners
+            .glyph_in(id.to_owned(), size, color, owner, zone);
     }
     progress_ring(
         size,
