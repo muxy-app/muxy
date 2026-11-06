@@ -1701,10 +1701,12 @@
 "Show an enabled extension's sidebar in place of the built-in one." = "Show an enabled extension's sidebar in place of the built-in one.";
 "Show connection and terminal information at the bottom of the workspace." = "Show connection and terminal information at the bottom of the workspace.";
 "Show each agent's icon, or the icon of the project it runs in." = "Show each agent's icon, or the icon of the project it runs in.";
+"Show each pane's icon, title and actions above it, in the color of what it shows." = "Show each pane's icon, title and actions above it, in the color of what it shows.";
 "Show how long ago each completed or idle agent finished working." = "Show how long ago each completed or idle agent finished working.";
 "Show idle time" = "Show idle time";
 "Show in File Manager" = "Show in File Manager";
 "Show or hide the sidebar" = "Show or hide the sidebar";
+"Show pane headers" = "Show pane headers";
 "Show project colors" = "Show project colors";
 "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed." = "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed.";
 "Show project names alongside their icons in the workspace sidebar." = "Show project names alongside their icons in the workspace sidebar.";

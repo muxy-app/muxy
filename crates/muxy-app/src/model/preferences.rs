@@ -29,6 +29,7 @@ pub(crate) enum Change {
     AgentsPanelIcon(muxy_app_core::settings::AgentsPanelIcon),
     AgentsPanelOption(AgentsPanelToggle, bool),
     StatusBar(bool),
+    PaneHeaders(bool),
     Tips(bool),
     RememberProjectsWithoutTabs(bool),
     ConfirmProcess(bool),
@@ -578,6 +579,10 @@ impl AppModel {
             }
             Change::StatusBar(value) => {
                 settings.appearance.status_bar_visible = value;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::PaneHeaders(value) => {
+                settings.appearance.pane_headers = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
             Change::Tips(value) => {
@@ -1133,6 +1138,7 @@ fn change_id(change: &Change) -> &str {
         Change::AgentsPanelGrouping(_) => "agents-panel-grouping",
         Change::AgentsPanelIcon(_) => "agents-panel-icon",
         Change::StatusBar(_) => "status-bar",
+        Change::PaneHeaders(_) => "pane-headers",
         Change::Tips(_) => "tips",
         Change::RememberProjectsWithoutTabs(_) => "remember-projects-without-tabs",
         Change::ConfirmProcess(_) => "confirm-process",

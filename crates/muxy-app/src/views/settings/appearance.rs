@@ -99,6 +99,12 @@ pub(super) fn rows(
             Change::StatusBar(!appearance.status_bar_visible),
         ),
         (
+            "pane-headers",
+            tr_key!("Show pane headers"),
+            appearance.pane_headers,
+            Change::PaneHeaders(!appearance.pane_headers),
+        ),
+        (
             "confirm-process",
             tr_key!("Confirm before closing a running process"),
             pane.snapshot.settings.window.confirm_running_process,

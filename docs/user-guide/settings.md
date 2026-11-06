@@ -15,7 +15,7 @@ On macOS, choose **About Muxy** (or **About Muxy Beta**) from the app menu to op
 | General | Closing behavior, the app that opens files, window size, worktree locations |
 | Quick Terminal | Global shortcut, pinning, size, transparency |
 | Composer | Clearing, image submission, font |
-| Appearance | Language, light and dark themes, interface size, sidebar, status bar, tips |
+| Appearance | Language, light and dark themes, interface size, sidebar, status bar, pane headers, tips |
 | Keyboard | Every shortcut. See [Keyboard shortcuts](keyboard-shortcuts.md) |
 | Commands | Your own commands, each run in a new tab, with optional shortcuts |
 | Terminal | Fonts, spacing, transparency, vibrancy, colors, cursor, padding, selection, scrolling, Option keys, key bindings |

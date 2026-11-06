@@ -1,4 +1,5 @@
 pub(crate) mod drag;
+mod header;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -536,6 +537,9 @@ fn pane_state(focused: bool, zoomed: bool) -> Option<SharedString> {
     ])
 }
 
+/// How much of a pane that isn't focused is covered by its background.
+const UNFOCUSED_DIM: f32 = 0.35;
+
 /// A named region around what a pane shows, so a client can tell the panes of a
 /// split apart.
 fn pane_element(
@@ -544,7 +548,8 @@ fn pane_element(
     model: &AppModel,
     cx: &Context<AppModel>,
 ) -> AnyElement {
-    let name = tab.panes.iter().find(|pane| pane.id == id).map_or_else(
+    let pane = tab.panes.iter().find(|pane| pane.id == id);
+    let name = pane.map_or_else(
         || tr!("Pane"),
         |pane| {
             let title = match pane.content {
@@ -554,6 +559,9 @@ fn pane_element(
             pane_name(&pane.content, title.unwrap_or(&pane.title))
         },
     );
+    let group = SharedString::from(format!("pane-{id}"));
+    let dimmed =
+        model.active_pane().is_some_and(|active| active != id) && model.visible_panes().len() > 1;
     let actions = model.grids.contains_key(&id).then(|| {
         super::sidebar::client_button(
             format!("pane-actions-{id}"),
@@ -568,19 +576,46 @@ fn pane_element(
         )
     });
     div()
-        .id(SharedString::from(format!("pane-{id}")))
+        .id(group.clone())
+        .debug_selector(move || format!("pane-{id}"))
+        .group(group.clone())
         .role(Role::Group)
         .aria_label(name)
         .when_some(
             pane_state(model.active_pane() == Some(id), tab.zoomed == Some(id)),
             StatefulInteractiveElement::aria_description,
         )
+        .relative()
         .flex()
+        .flex_col()
         .size_full()
         .min_w(px(0.0))
         .min_h(px(0.0))
         .children(actions)
-        .child(pane_content(id, model, cx))
+        .when_some(
+            pane.filter(|pane| {
+                model.appearance.pane_headers
+                    && matches!(pane.content, PaneContent::Terminal { .. })
+            }),
+            |element, pane| element.child(header::header(pane, tab, group, model, cx)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_1()
+                .min_w(px(0.0))
+                .min_h(px(0.0))
+                .child(pane_content(id, model, cx)),
+        )
+        .when(dimmed, |element| {
+            element.child(
+                div()
+                    .debug_selector(move || format!("pane-dim-{id}"))
+                    .absolute()
+                    .inset_0()
+                    .bg(header::colors(id, model, cx).0.opacity(UNFOCUSED_DIM)),
+            )
+        })
         .into_any_element()
 }
 

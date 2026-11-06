@@ -974,6 +974,7 @@ fn the_active_sidebar_row_shows_before_any_extension_provides_one(cx: &mut TestA
     let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     boot.state_path = root.path().join("state.json");
     let (model, cx) = settings_tab(boot, cx);
+    cx.simulate_resize(size(px(1920.0), px(1400.0)));
     click_preference(cx, "settings-category-Appearance");
     assert!(model.read_with(cx, |model, _| model.extension_sidebars().is_empty()));
     assert!(cx.debug_bounds("settings-row-extension-sidebar").is_some());
@@ -999,6 +1000,7 @@ fn an_extension_sidebar_is_listed_chosen_and_falls_back_when_disabled(cx: &mut T
         );
         assert!(!model.extension_sidebar_active());
     });
+    cx.simulate_resize(size(px(1920.0), px(1400.0)));
     click_preference(cx, "settings-category-Appearance");
     click_preference(cx, "settings-picker-extension-sidebar");
     click_preference(cx, "picker-row-workspace-nav");

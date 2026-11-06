@@ -40,6 +40,8 @@ pub(crate) enum PaneEvent {
     Mouse(ChannelId, MouseEvent),
     CellSize(ChannelId, muxy_protocol::CellSize),
     Title(String),
+    /// The color the pane's header takes from the terminal changed.
+    HeaderBackground,
     Bell,
     History(HistoryRequest),
     Search(find::SearchRequest),
@@ -150,10 +152,12 @@ pub(crate) struct TerminalPane {
     pub(crate) focus: FocusHandle,
     pub(crate) focused: bool,
     pub(crate) cursor_blink: super::cursor::CursorBlink,
-    pub(crate) focus_border: Option<gpui::Hsla>,
     pub(crate) corner_radius: gpui::Pixels,
+    /// A pane header sits above the terminal, so only its bottom is rounded.
+    pub(crate) below_header: bool,
     viewport: Option<Size>,
     pub(crate) palette: Palette,
+    header_background: Option<u32>,
     pub(crate) background_opacity: f32,
     pub(crate) native_vibrancy: bool,
     pub(crate) terminal: muxy_app_core::settings::TerminalSettings,
@@ -177,6 +181,31 @@ impl TerminalPane {
             1.0
         };
         self.background_opacity * self.terminal.options.background_opacity.unwrap_or(1.0) * tint
+    }
+
+    pub(super) fn set_header_background(&mut self, color: Option<u32>, cx: &mut Context<Self>) {
+        if self.header_background != color {
+            self.header_background = color;
+            cx.emit(PaneEvent::HeaderBackground);
+        }
+    }
+
+    /// The background and text colors of the pane's header: the color the
+    /// program paints the top row in, or the terminal's own background.
+    pub(crate) fn header_colors(&self) -> (gpui::Hsla, gpui::Hsla) {
+        let background = self.header_background.unwrap_or(self.palette.background);
+        let foreground = super::colors::readable_on(
+            background,
+            [self.palette.foreground, self.palette.background],
+        );
+        (
+            gpui::Rgba {
+                a: self.background_alpha(),
+                ..gpui::rgb(background)
+            }
+            .into(),
+            gpui::rgb(foreground).into(),
+        )
     }
 
     #[allow(
@@ -244,10 +273,11 @@ impl TerminalPane {
             focus: cx.focus_handle(),
             focused: true,
             cursor_blink: super::cursor::CursorBlink::default(),
-            focus_border: None,
             corner_radius: px(0.0),
+            below_header: false,
             viewport: None,
             palette,
+            header_background: None,
             background_opacity: 1.0,
             native_vibrancy: false,
             terminal,
@@ -1745,7 +1775,10 @@ impl Render for TerminalPane {
             .min_w(px(0.0))
             .min_h(px(0.0))
             .overflow_hidden()
-            .rounded(self.corner_radius)
+            .rounded_b(self.corner_radius)
+            .when(!self.below_header, |pane| {
+                pane.rounded_t(self.corner_radius)
+            })
             .bg(gpui::Rgba {
                 a: if self.terminal.options.background_opacity_cells {
                     0.0
@@ -1830,6 +1863,7 @@ impl Render for TerminalPane {
 mod tests {
     mod autoscroll;
     mod bindings;
+    mod header;
     mod links;
     mod scrollbar;
     mod server_input;

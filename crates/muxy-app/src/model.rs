@@ -1869,7 +1869,7 @@ impl AppModel {
             PaneEvent::SelectionCopied => {
                 model.show_notice(tr!("Copied to clipboard").to_string(), cx);
             }
-            PaneEvent::Bell => cx.notify(),
+            PaneEvent::Bell | PaneEvent::HeaderBackground => cx.notify(),
             PaneEvent::Focused => {
                 model.blur_webviews(cx);
                 if !model.is_quick_terminal(id) {

@@ -55,6 +55,7 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
     let layouts = available && model.has_project_layouts();
     let zoom_tab = project.tabs.iter().find(|tab| {
         available
+            && !model.appearance.pane_headers
             && Some(tab.id) == model.active_tab()
             && (tab.zoomed.is_some() || tab.panes.len() > 1)
     });
