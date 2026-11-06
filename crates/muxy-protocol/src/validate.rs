@@ -302,6 +302,14 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         ReplyBody::Activity(snapshot) => {
             if snapshot.events.len() <= crate::ACTIVITY_HISTORY_LIMIT
                 && snapshot.agents.len() <= 16_384
+                && snapshot.agents.iter().all(|agent| {
+                    agent
+                        .title
+                        .as_ref()
+                        .is_none_or(|title| title.len() <= crate::MAX_AGENT_TITLE)
+                })
+                && snapshot.tabs.len() <= crate::MAX_AGENT_TABS
+                && snapshot.tabs.iter().all(crate::AgentTab::validate)
             {
                 Ok(())
             } else {

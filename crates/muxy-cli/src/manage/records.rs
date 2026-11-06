@@ -7,7 +7,7 @@ pub(super) fn activity(snapshot: &ActivitySnapshot) -> Value {
         .iter()
         .map(|agent| {
             json!({"session":agent.session.get().to_string(), "project":agent.project,
-                "provider":agent.provider, "state":agent.state})
+                "provider":agent.provider, "state":agent.state, "title":agent.title})
         })
         .collect();
     let events: Vec<_> = snapshot
@@ -19,7 +19,19 @@ pub(super) fn activity(snapshot: &ActivitySnapshot) -> Value {
                 "kind":event.kind, "read":event.read})
         })
         .collect();
-    json!({"revision":snapshot.revision, "agents":agents, "events":events})
+    let tabs: Vec<_> = snapshot
+        .tabs
+        .iter()
+        .map(|tab| {
+            json!({"id":tab.id, "project":tab.project, "provider":tab.provider,
+                "title":tab.title, "state":tab.state,
+                "shown_by":tab.shown_by.map(|session| session.get().to_string()),
+                "index":tab.index,
+                "hosts":tab.hosts.iter().map(|host| host.get().to_string()).collect::<Vec<_>>(),
+                "resume":tab.resume, "can_switch":tab.switch.is_some()})
+        })
+        .collect();
+    json!({"revision":snapshot.revision, "agents":agents, "events":events, "tabs":tabs})
 }
 
 /// One row per session with an agent or an event: the agent's state and the
@@ -81,6 +93,7 @@ mod tests {
                 project,
                 provider: AgentProvider::Xal,
                 state: AgentState::Working,
+                title: None,
             }],
             events: vec![ActivityEvent {
                 id,
@@ -91,10 +104,23 @@ mod tests {
                 kind: ActivityKind::Completed,
                 read: false,
             }],
+            tabs: vec![muxy_protocol::AgentTab {
+                id: "ses_1".into(),
+                project,
+                provider: AgentProvider::OpenCode,
+                title: "Notes".into(),
+                state: AgentState::Idle,
+                shown_by: None,
+                index: Some(0),
+                hosts: vec![session],
+                switch: None,
+                resume: None,
+            }],
         };
         let activity = activity(&snapshot);
         assert_eq!(activity["agents"][0]["session"], id.to_string());
         assert_eq!(activity["events"][0]["session"], id.to_string());
+        assert_eq!(activity["tabs"][0]["hosts"][0], id.to_string());
         let event = activity["events"][0]["id"].as_str().ok_or("event")?;
         assert_eq!(
             args::parse(&["activity".into(), "ack".into(), event.into()])?.action,

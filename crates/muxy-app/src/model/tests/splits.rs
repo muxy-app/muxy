@@ -577,6 +577,7 @@ fn a_pane_running_an_agent_shows_the_agents_icon_in_its_header(cx: &mut TestAppC
                     project: home,
                     provider: AgentProvider::OpenCode,
                     state: AgentState::Idle,
+                    title: None,
                 }],
                 ..ActivitySnapshot::default()
             }),

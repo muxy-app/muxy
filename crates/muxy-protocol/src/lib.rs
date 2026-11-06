@@ -82,7 +82,8 @@ pub use git::{
 mod activity;
 pub use activity::{
     ACTIVITY_HISTORY_LIMIT, ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity,
-    AgentProvider, AgentState,
+    AgentProvider, AgentState, AgentTab, MAX_AGENT_TAB_HOSTS, MAX_AGENT_TAB_ID,
+    MAX_AGENT_TAB_RESUME, MAX_AGENT_TAB_SWITCH, MAX_AGENT_TABS, MAX_AGENT_TITLE,
 };
 
 mod files;
