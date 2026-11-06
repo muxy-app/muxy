@@ -1065,23 +1065,30 @@ fn project_row(
         || model.state.current_project().parent_id == Some(id);
     let has_worktrees = model.has_worktrees(project) && !missing;
     let group = SharedString::from(format!("project-{id}"));
-    let tile = shortcut
-        .and_then(|index| {
-            model.shortcut_hints.label(
-                muxy_core::shortcuts::ShortcutId::PROJECTS[index],
-                &model.settings.keymap,
-            )
-        })
-        .map_or_else(
-            || project_tile(project, model, tile_size(model), Some(group.clone())),
-            |label| {
-                div()
-                    .debug_selector(move || format!("project-shortcut-{id}"))
-                    .child(super::shortcut_hints::badge(label, tile_size(model), model))
-                    .into_any_element()
-            },
-        );
+    let hint = shortcut.and_then(|index| {
+        model.shortcut_hints.label(
+            muxy_core::shortcuts::ShortcutId::PROJECTS[index],
+            &model.settings.keymap,
+        )
+    });
+    let hinted = hint.is_some();
+    let tile = hint.map_or_else(
+        || project_tile(project, model, tile_size(model), Some(group.clone())),
+        |label| {
+            div()
+                .debug_selector(move || format!("project-shortcut-{id}"))
+                .child(super::shortcut_hints::badge(label, tile_size(model), model))
+                .into_any_element()
+        },
+    );
     let activity = tab_activity::project_status(id, model);
+    // A collapsed tile dims under its spinner rather than wearing it as a badge.
+    let dimmed = !wide
+        && !hinted
+        && matches!(
+            activity,
+            tab_activity::Status::Busy(_) | tab_activity::Status::Progress(_)
+        );
     let name = SharedString::from(model.project_title(project));
     let description = project_description(missing, remote_description(project, model), activity);
     let expanded = has_worktrees.then(|| wide && model.expanded_worktrees.contains(&id));
@@ -1170,7 +1177,32 @@ fn project_row(
             )
         })
         .when(wide, |row| row.children(remote_marker(project, model)))
-        .when(activity != tab_activity::Status::None, |row| {
+        .when(dimmed, |row| {
+            row.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(tile_size(model))
+                            .rounded(m.radius_md())
+                            .bg(theme.bg.opacity(0.6))
+                            .child(tab_activity::status_glyph(
+                                format!("project-activity-{id}"),
+                                activity,
+                                m.icon_lg(),
+                                model,
+                            )),
+                    ),
+            )
+        })
+        .when(activity != tab_activity::Status::None && !dimmed, |row| {
             row.child(
                 div()
                     .flex()
