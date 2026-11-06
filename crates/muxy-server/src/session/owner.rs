@@ -765,7 +765,7 @@ impl Owner {
                     self.activity.update(
                         muxy_protocol::AgentActivity {
                             session: self.info.id,
-                            project: self.info.project,
+                            project: self.published.project(),
                             provider,
                             state: self.detector.state,
                         },

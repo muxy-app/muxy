@@ -204,6 +204,14 @@ fn row(
             StatefulInteractiveElement::aria_description,
         )
         .debug_selector(move || format!("worktree-{id}"))
+        .relative()
+        .when(!unavailable, |row| {
+            row.child(crate::views::move_drag::zone(
+                &model.move_drag.zones,
+                crate::views::move_drag::Owner::Sidebar,
+                crate::views::move_drag::ZoneKind::Project(id),
+            ))
+        })
         .flex()
         .items_center()
         .gap(m.spacing3())

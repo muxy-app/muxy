@@ -320,6 +320,14 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("SessionClosed", ChannelKind::Control),
             Message::Request {
+                body: RequestBody::MoveSession { .. },
+                ..
+            } => ("MoveSession", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::SessionMoved,
+                ..
+            } => ("SessionMoved", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::StopServerIfIdle,
                 ..
             } => ("StopServerIfIdle", ChannelKind::Control),
@@ -573,6 +581,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "CloseSession",
             "SessionReferencesSynced",
             "SessionClosed",
+            "MoveSession",
+            "SessionMoved",
             "ReadCatalog",
             "MutateProject",
             "PruneWorktree",

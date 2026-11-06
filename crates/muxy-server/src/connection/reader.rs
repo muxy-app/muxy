@@ -402,6 +402,7 @@ fn ordered_request(
         }
         RequestBody::SyncSessionReferences { .. }
         | RequestBody::CloseSession { .. }
+        | RequestBody::MoveSession { .. }
         | RequestBody::DiscardSession(_)
         | RequestBody::CancelCreation(_)
         | RequestBody::ReadCatalog { .. }
@@ -535,6 +536,10 @@ fn project_request(
         RequestBody::CloseSession { session, operation } => {
             registry.close_session(session, operation, connection)?;
             ReplyBody::SessionClosed
+        }
+        RequestBody::MoveSession { session, project } => {
+            registry.move_session(session, project)?;
+            ReplyBody::SessionMoved
         }
         RequestBody::DiscardSession(session) => {
             registry.discard(session)?;

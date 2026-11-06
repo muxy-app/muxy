@@ -37,6 +37,7 @@ mod views {
     pub(crate) mod font_picker;
     pub(crate) mod git;
     pub(crate) mod menu;
+    pub(crate) mod move_drag;
     pub(crate) mod native_modal;
     pub(crate) mod onboarding;
     pub(crate) mod overlays;
@@ -61,6 +62,7 @@ mod views {
     pub(crate) mod tab_menu;
     pub(crate) mod tab_sidebar;
     pub(crate) mod tab_strip;
+    pub(crate) mod tab_window;
     pub(crate) mod theme_picker;
     pub(crate) mod tips;
     pub(crate) mod titlebar;

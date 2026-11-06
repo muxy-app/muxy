@@ -1,6 +1,6 @@
 use gpui::Context;
 use muxy_app_core::{
-    Direction, PaneId, ProjectStatus,
+    Direction, PaneId, Project, ProjectStatus, Tab,
     extensions::FileOpener,
     opener::{OpenContext, OpenRequest, Target},
 };
@@ -134,6 +134,43 @@ impl AppModel {
             .collect()
     }
 
+    /// Menu items that move pane `id` out of `tab`: into a new tab, a new
+    /// window, or another project.
+    fn pane_move_items(&self, id: PaneId, project: &Project, tab: &Tab) -> Vec<Item> {
+        let missing = project.status() == ProjectStatus::Missing;
+        let alone = tab.panes.len() < 2;
+        let mut to_tab = Item::action(
+            tr!("Move to New Tab"),
+            Command::MovePaneToTab(id, project.id),
+        )
+        .separated();
+        let mut to_window = Item::action(tr!("Move to New Window"), Command::MovePaneToWindow(id));
+        if missing || (alone && !tab.detached()) {
+            to_tab = to_tab.disabled();
+        }
+        if missing || (alone && tab.detached()) {
+            to_window = to_window.disabled();
+        }
+        let mut items = Vec::new();
+        if tab.detached() {
+            items.push(
+                Item::action(
+                    tr!("Move to Main Window"),
+                    Command::Tab(tab.id, crate::views::tab_menu::Action::ReturnToMainWindow),
+                )
+                .separated(),
+            );
+        }
+        items.extend([to_tab, to_window]);
+        if !missing {
+            items.extend(crate::views::tab_menu::move_to_project(
+                &self.move_destinations(project.id),
+                |project| Command::MovePaneToTab(id, project),
+            ));
+        }
+        items
+    }
+
     pub(super) fn terminal_menu(
         &self,
         id: PaneId,
@@ -143,7 +180,9 @@ impl AppModel {
         let Some(pane) = self.terminal(&id) else {
             return;
         };
-        let project = self.state.current_project();
+        let Some(project) = self.state.pane_project(id) else {
+            return;
+        };
         let Some(tab) = project
             .tabs
             .iter()
@@ -204,7 +243,7 @@ impl AppModel {
         if tab.pinned && tab.panes.len() == 1 {
             close = close.disabled();
         }
-        let items = vec![
+        let mut items = vec![
             copy,
             paste,
             all,
@@ -213,12 +252,11 @@ impl AppModel {
             split_down,
             zoom,
             equalize,
-            self.proxy_menu_item(id).separated(),
-            detach,
-            close,
         ];
+        items.extend(self.pane_move_items(id, project, tab));
+        items.extend([self.proxy_menu_item(id).separated(), detach, close]);
         let model = cx.entity().downgrade();
-        let window = self.window;
+        let window = self.window_for_pane(id);
         cx.defer(move |cx| {
             let _ = window.update(cx, |_, window, cx| {
                 let _ = model.update(cx, |model, cx| {

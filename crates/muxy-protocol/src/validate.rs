@@ -273,6 +273,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         | RequestBody::ReadCatalog { .. }
         | RequestBody::ListProjectSessions { .. }
         | RequestBody::CloseSession { .. }
+        | RequestBody::MoveSession { .. }
         | RequestBody::CancelCreation(_)
         | RequestBody::ReadServerSettings
         | RequestBody::StopServerIfIdle
@@ -403,6 +404,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         | ReplyBody::SessionReferencesSynced
         | ReplyBody::ClientIdentified(_)
         | ReplyBody::SessionClosed
+        | ReplyBody::SessionMoved
         | ReplyBody::CreationCancelled
         | ReplyBody::ServerSettingsWritten
         | ReplyBody::ServerBusy

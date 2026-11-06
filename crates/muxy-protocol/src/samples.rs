@@ -676,6 +676,17 @@ fn close_samples() -> Vec<Message> {
             id: RequestId(99),
             body: ReplyBody::SessionClosed,
         },
+        Message::Request {
+            id: RequestId(99),
+            body: RequestBody::MoveSession {
+                session: SessionId::from(NonZeroU64::MIN),
+                project: crate::ProjectId::from_u128(1),
+            },
+        },
+        Message::Reply {
+            id: RequestId(99),
+            body: ReplyBody::SessionMoved,
+        },
     ]
 }
 

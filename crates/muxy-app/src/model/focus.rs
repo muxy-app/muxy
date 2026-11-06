@@ -46,6 +46,11 @@ impl FocusOwner {
         focus.focus(window);
     }
 
+    /// Whether the active pane is to take the keyboard next.
+    pub(crate) fn wants_active_pane(&self) -> bool {
+        matches!(self.next, Some(Target::ActivePane))
+    }
+
     /// Drops any request, as the caller has just placed focus itself.
     pub(crate) fn settle(&mut self) {
         self.next = None;

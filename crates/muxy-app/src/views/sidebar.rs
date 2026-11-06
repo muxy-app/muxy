@@ -139,6 +139,10 @@ pub(crate) fn register_commands(
 
 pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
+    model.move_drag.zones.clear(
+        window.window_handle().window_id(),
+        super::move_drag::Owner::Sidebar,
+    );
     if model.extension_sidebar_active() {
         return div()
             .debug_selector(|| "workspace-sidebar".into())
@@ -1098,6 +1102,13 @@ fn project_row(
         .debug_selector(|| format!("project-row-{index}"))
         .group(group)
         .relative()
+        .when(!missing, |row| {
+            row.child(super::move_drag::zone(
+                &model.move_drag.zones,
+                super::move_drag::Owner::Sidebar,
+                super::move_drag::ZoneKind::Project(id),
+            ))
+        })
         .flex()
         .flex_none()
         .items_center()

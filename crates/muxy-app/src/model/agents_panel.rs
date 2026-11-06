@@ -457,7 +457,7 @@ impl AppModel {
                 .iter()
                 .any(|entry| entry.id == tab && entry.panes.iter().any(|entry| entry.id == pane))
         });
-        if !present {
+        if !present || self.raise_pane_window(pane, cx) {
             return;
         }
         self.select_project(project, cx);

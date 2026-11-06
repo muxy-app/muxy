@@ -30,6 +30,7 @@ mod settings_tab;
 mod state;
 pub mod store;
 mod tab;
+mod tab_windows;
 pub use muxy_protocol::title;
 pub mod webview;
 mod window;
@@ -37,7 +38,7 @@ mod workspace;
 
 pub use error::AppError;
 pub use groups::{TabGroup, TabGroups};
-pub use ids::{GroupId, PaneId, ProjectId, ServerId, TabId, WorkspaceId};
+pub use ids::{GroupId, PaneId, ProjectId, ServerId, TabId, TabWindowId, WorkspaceId};
 pub use layout::{Axis, Branch, Direction, Layout};
 pub use pane::{Pane, PaneContent};
 pub use panes::PlacedPane;
@@ -47,6 +48,7 @@ pub use project::{
 pub use set_aside::LocalCatalog;
 pub use state::AppState;
 pub use tab::{Tab, TabCloseScope, TabSide};
+pub use tab_windows::{PaneDrop, SessionMove, TabPlace, TabWindow};
 pub use window::{WindowBounds, WindowState};
 pub use workspace::Workspace;
 

@@ -195,8 +195,31 @@ impl AppModel {
         else {
             return;
         };
-        let items = crate::views::tab_menu::items(project, id);
+        let destinations = self.move_destinations(project.id);
+        let items = crate::views::tab_menu::items(project, id, &destinations);
         self.open_menu(items, position, window, cx);
+    }
+
+    /// Projects a tab or pane of `project` can move to, by name: available
+    /// ones on the same computer, other than `project`.
+    pub(crate) fn move_destinations(
+        &self,
+        project: ProjectId,
+    ) -> Vec<(ProjectId, gpui::SharedString)> {
+        self.sidebar_projects()
+            .into_iter()
+            .chain(self.state.projects().iter())
+            .filter(|candidate| {
+                candidate.id != project
+                    && candidate.status() == ProjectStatus::Available
+                    && self.state.can_move_into(project, candidate.id)
+            })
+            .fold(Vec::new(), |mut found, candidate| {
+                if !found.iter().any(|(id, _)| *id == candidate.id) {
+                    found.push((candidate.id, self.project_title(candidate).into()));
+                }
+                found
+            })
     }
 
     pub(crate) fn close_tabs(

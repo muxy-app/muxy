@@ -14,6 +14,7 @@ use muxy_ui::tr;
 use super::{menu, overlays, sidebar, status_bar, tab_strip, titlebar};
 use crate::model::AppModel;
 use crate::model::focus::Next;
+use crate::model::tab_windows::Surface;
 
 pub(crate) mod commands;
 
@@ -24,6 +25,9 @@ actions!(
         OpenAbout,
         ShowWelcomeTour,
         CheckForUpdates,
+        MoveTabToNewWindow,
+        MovePaneToNewTab,
+        MovePaneToNewWindow,
         InstallCommandLineTool,
         NewTab,
         ExistingTerminals,
@@ -233,7 +237,7 @@ impl AppModel {
     }
 }
 
-fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
+pub(crate) fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
     commands::action_handlers(cx)
         .key_context("WorkspaceTabs")
         .on_modifiers_changed(
@@ -291,12 +295,18 @@ impl AppModel {
         if coverage.modal() {
             self.split_resize.end();
         }
+        let focused: Vec<_> = self
+            .state
+            .tab_windows()
+            .filter_map(|(_, _, window)| window.active_pane())
+            .chain(self.main_active_pane())
+            .collect();
         for (id, pane) in &self.grids {
             if self.is_quick_terminal(*id) {
                 continue;
             }
             pane.view.update(cx, |pane, cx| {
-                pane.set_focused(Some(*id) == active, cx);
+                pane.set_focused(focused.contains(id), cx);
                 let radius = if zoomed.contains(id) {
                     (self.metrics.radius_lg() - px(1.0)).max(px(0.0))
                 } else {
@@ -318,6 +328,14 @@ impl AppModel {
     fn prepare_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let _span = crate::profiler::span(crate::profiler::Metric::WorkspacePrepare);
         let overlay = self.overlay.is_some();
+        let elsewhere = self.tab_windows.key_window().is_some() && !overlay;
+        if elsewhere && self.focus_owner.wants_active_pane() {
+            self.focus_owner.settle();
+            if let Some(id) = self.tab_windows.key_window() {
+                self.tab_windows.request_focus(id);
+                cx.notify();
+            }
+        }
         match self.focus_owner.take(overlay) {
             Some(Next::Element(focus)) => focus.focus(window),
             Some(Next::ActivePane) => self.focus_active(window, cx),
@@ -345,14 +363,29 @@ impl AppModel {
         }
         self.validate_layout_drag(cx);
         self.sync_tab_sidebar(cx);
-        self.layout_drag.geometry.clear();
+        let here = window.window_handle().window_id();
+        self.layout_drag.geometry.clear(here);
+        self.move_drag.zones.note_window(window);
+        self.move_drag
+            .zones
+            .clear(here, super::move_drag::Owner::Strip);
         self.tab_drag.clear_bounds();
     }
 }
 
 impl Render for AppModel {
-    #[allow(clippy::too_many_lines, reason = "One workspace layout")]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.drawing(Surface::Main, |model| model.render_workspace(window, cx))
+    }
+}
+
+impl AppModel {
+    #[allow(clippy::too_many_lines, reason = "One workspace layout")]
+    fn render_workspace(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
         let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceRender);
         self.metrics.apply_to_window(window);
         self.sync_traffic_lights(window);
@@ -386,7 +419,13 @@ impl Render for AppModel {
         let content = super::agent_sessions::panel_content(content, self, window, cx);
         let content = self.composer_content(content, window, cx);
         let workspace = action_handlers(cx)
-            .capture_key_down(cx.listener(AppModel::cancel_drag_on_escape))
+            .capture_any_mouse_down(cx.listener(|model, _, _, _| {
+                model.enter_surface(Surface::Main);
+            }))
+            .capture_key_down(cx.listener(|model, event, window, cx| {
+                model.enter_surface(Surface::Main);
+                model.cancel_drag_on_escape(event, window, cx);
+            }))
             .track_focus(&self.focus)
             .relative()
             .flex()
@@ -437,7 +476,8 @@ impl Render for AppModel {
                 body.child(div().absolute().inset_0().cursor_ew_resize().occlude())
             })
             .child(super::splits::drag::track_pointer(cx))
-            .child(super::splits::drag::overlay(self))
+            .child(super::splits::drag::overlay(self, window))
+            .child(super::move_drag::overlay(self, window))
             .child(self.floating_composer(window, cx))
             .children(super::tips::toast(self, window, cx))
             .children(super::banners::render(self, window, cx))
@@ -452,7 +492,9 @@ impl Render for AppModel {
                     )
                 },
             )
-            .child(titlebar::overlay(overlays::layer(self, window, cx), window))
+            .when(self.tab_windows.overlay == Surface::Main, |body| {
+                body.child(titlebar::overlay(overlays::layer(self, window, cx), window))
+            })
             .child(self.apply_webview_regions(cx));
         #[cfg(target_os = "linux")]
         let workspace = titlebar::frame::render(
@@ -463,7 +505,7 @@ impl Render for AppModel {
                 .then_some(super::onboarding::BACKDROP_ALPHA),
             window,
         );
-        crate::profiler::workspace(workspace)
+        crate::profiler::workspace(workspace).into_any_element()
     }
 }
 

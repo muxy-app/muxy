@@ -153,7 +153,13 @@ impl AppModel {
     }
 
     pub(super) fn attached_panes(&self) -> Vec<PaneId> {
-        let mut panes = self.visible_panes();
+        let mut panes: Vec<_> = self
+            .main_visible_tabs()
+            .into_iter()
+            .chain(self.state.tab_windows().map(|(_, tab, _)| tab.id))
+            .filter_map(|id| self.tab(id))
+            .flat_map(muxy_app_core::Tab::visible_panes)
+            .collect();
         if self.quick.visible {
             panes.extend(self.state.quick_terminal().map(|pane| pane.id));
         }

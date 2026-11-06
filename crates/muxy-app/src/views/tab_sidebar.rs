@@ -14,6 +14,7 @@ use muxy_ui::tr;
 use super::sidebar::{client_button, client_press, describe, project_description};
 use super::{tab_activity, tab_strip, titlebar};
 use crate::model::AppModel;
+use crate::views::move_drag;
 
 impl AppModel {
     pub(crate) fn set_layout(&mut self, layout: AppLayout, cx: &mut Context<Self>) {
@@ -106,7 +107,7 @@ impl AppModel {
         &'a self,
         project: &'a Project,
     ) -> impl Iterator<Item = &'a Tab> {
-        project.tabs.iter().filter(|tab| {
+        project.listed_tabs().filter(|tab| {
             self.appearance.layout != AppLayout::AgentsFocused || self.agent_tab_pane(tab).is_some()
         })
     }
@@ -143,8 +144,7 @@ impl AppModel {
             return self
                 .state
                 .current_project()
-                .tabs
-                .iter()
+                .listed_tabs()
                 .map(|tab| tab.id)
                 .collect();
         }
@@ -153,7 +153,7 @@ impl AppModel {
             .filter(|project| {
                 project.status() == ProjectStatus::Available && self.project_expanded(project.id)
             })
-            .flat_map(|project| project.tabs.iter().map(|tab| tab.id))
+            .flat_map(|project| project.listed_tabs().map(|tab| tab.id))
             .collect()
     }
 }
@@ -362,6 +362,14 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
             }),
         )
         .debug_selector(move || format!("tab-project-{id}"))
+        .relative()
+        .when(!missing, |row| {
+            row.child(move_drag::zone(
+                &model.move_drag.zones,
+                move_drag::Owner::Sidebar,
+                move_drag::ZoneKind::Project(id),
+            ))
+        })
         .mx(m.spacing3())
         .my(m.spacing1())
         .pl(m.spacing4())
@@ -637,6 +645,16 @@ fn tab_row(
             }),
         )
         .debug_selector(move || format!("sidebar-tab-{id}"))
+        .relative()
+        .child(move_drag::zone(
+            &model.move_drag.zones,
+            move_drag::Owner::Sidebar,
+            move_drag::ZoneKind::Tab {
+                project,
+                tab: id,
+                axis: muxy_app_core::Axis::Vertical,
+            },
+        ))
         .when(!model.tab_drag.is_active(), |row| row.group(group.clone()))
         .mx(m.spacing3())
         .my(m.spacing1())

@@ -123,6 +123,15 @@ impl NativeBrowser {
         ))
     }
 
+    /// Moves the page into `window`, keeping it loaded with its history, for
+    /// a pane that is now drawn there. It shows again once synced and made
+    /// visible in that window, and takes the keyboard back on
+    /// [`Self::focus`].
+    pub fn move_to_window(&self, window: &Window) -> Result<(), String> {
+        self.host.move_to(crate::appkit::gpui_view(window)?);
+        Ok(())
+    }
+
     /// The page itself: navigation, scripts, cookies, find, and more.
     pub fn browser(&self) -> &Browser {
         &self.browser

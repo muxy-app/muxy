@@ -57,6 +57,7 @@ pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(
         | RequestBody::ReadServerSettings
         | RequestBody::SyncSessionReferences { .. }
         | RequestBody::CloseSession { .. }
+        | RequestBody::MoveSession { .. }
         | RequestBody::Git(_)
         | RequestBody::ReadActivity
         | RequestBody::AcknowledgeActivity(_)

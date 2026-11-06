@@ -75,10 +75,10 @@ impl AppState {
             self.projects
                 .iter()
                 .find(|candidate| candidate.id == *project)
-                .is_some_and(|project| project.tabs.iter().any(|candidate| candidate.id == *tab))
+                .is_some_and(|project| project.listed_tabs().any(|candidate| candidate.id == *tab))
         });
         for project in &self.projects {
-            if let Some(tab) = project.tabs.first() {
+            if let Some(tab) = project.listed_tabs().next() {
                 self.window.selected_tab.entry(project.id).or_insert(tab.id);
             }
         }

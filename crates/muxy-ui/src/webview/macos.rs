@@ -376,6 +376,11 @@ impl NativeWebview {
         self.host.set_hit_regions(regions);
     }
 
+    pub(super) fn move_to_window(&self, window: &Window) -> Result<(), String> {
+        self.host.move_to(crate::appkit::gpui_view(window)?);
+        Ok(())
+    }
+
     pub(super) fn order_front(views: &[&Self]) {
         let hosts: Vec<_> = views.iter().map(|view| &view.host).collect();
         Host::order_front(&hosts);

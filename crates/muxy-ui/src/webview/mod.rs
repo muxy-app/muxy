@@ -183,8 +183,16 @@ impl NativeWebview {
         self.0.set_hit_regions(regions);
     }
 
-    /// Shows these pages above every other page in the window, the last one
-    /// in front.
+    /// Moves the page into `window`, keeping it loaded with its state, for a
+    /// pane that is now drawn there. It shows again once synced and made
+    /// visible in that window, and takes the keyboard back on
+    /// [`Self::focus`].
+    pub fn move_to_window(&self, window: &Window) -> Result<(), String> {
+        self.0.move_to_window(window)
+    }
+
+    /// Shows these pages above every other page in their window, the last
+    /// one in front. Pages in different windows are ordered per window.
     pub fn order_front(views: &[&Self]) {
         let views: Vec<_> = views.iter().map(|view| &view.0).collect();
         backend::NativeWebview::order_front(&views);

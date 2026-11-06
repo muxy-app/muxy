@@ -131,7 +131,7 @@ pub(crate) struct BrowserView {
     editing: bool,
     selecting_element: bool,
     selection_generation: u64,
-    _subscriptions: Vec<Subscription>,
+    subscriptions: Vec<Subscription>,
     _events: Task<()>,
 }
 
@@ -176,17 +176,7 @@ impl BrowserView {
                     .with_accessibility_id("browser-address")
                     .with_text(display_address(&url))
             });
-            let mut subscriptions = vec![cx.subscribe_in(&address, window, Self::address_event)];
-            subscriptions.push(cx.on_focus(
-                &address.focus_handle(cx),
-                window,
-                |view: &mut Self, _, cx| view.address_focused(cx),
-            ));
-            subscriptions.push(cx.on_blur(
-                &address.focus_handle(cx),
-                window,
-                |view: &mut Self, _, cx| view.address_blurred(cx),
-            ));
+            let subscriptions = address_subscriptions(&address, window, cx);
             let events = cx.spawn(async move |view: gpui::WeakEntity<Self>, cx| {
                 while let Ok(event) = events.recv().await {
                     if view.update(cx, |view, cx| view.handle(event, cx)).is_err() {
@@ -223,10 +213,15 @@ impl BrowserView {
                 editing: false,
                 selecting_element: false,
                 selection_generation: 0,
-                _subscriptions: subscriptions,
+                subscriptions,
                 _events: events,
             }
         }))
+    }
+
+    /// Listens to the address field in `window`, where the view shows now.
+    pub(crate) fn follow_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.subscriptions = address_subscriptions(&self.address, window, cx);
     }
 
     /// The title a tab shows for this page.
@@ -1080,4 +1075,20 @@ pub(crate) fn placeholder(
             )
         })
         .into_any_element()
+}
+
+fn address_subscriptions(
+    address: &Entity<TextInput>,
+    window: &mut Window,
+    cx: &mut Context<BrowserView>,
+) -> Vec<Subscription> {
+    vec![
+        cx.subscribe_in(address, window, BrowserView::address_event),
+        cx.on_focus(&address.focus_handle(cx), window, |view, _, cx| {
+            view.address_focused(cx);
+        }),
+        cx.on_blur(&address.focus_handle(cx), window, |view, _, cx| {
+            view.address_blurred(cx);
+        }),
+    ]
 }

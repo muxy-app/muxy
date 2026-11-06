@@ -453,6 +453,10 @@ impl AppModel {
             .session_pane(server, event.session)
             .map(|(project, tab, pane)| (project.id, tab, pane))
         {
+            if self.raise_pane_window(pane, cx) {
+                self.dismiss_overlay(cx);
+                return;
+            }
             self.select_project(project, cx);
             self.select_tab(tab, cx);
             self.focus_pane(pane, cx);

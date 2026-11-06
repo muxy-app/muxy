@@ -215,7 +215,7 @@ pub(crate) struct Host {
     container: Retained<Container>,
     page: Option<Retained<WKWebView>>,
     grips: Retained<GripOverlay>,
-    parent: Retained<NSView>,
+    parent: RefCell<Retained<NSView>>,
     focus: Rc<Focus>,
     monitor: Option<Retained<AnyObject>>,
     visible: Cell<bool>,
@@ -247,7 +247,7 @@ impl Host {
             container,
             page: None,
             grips,
-            parent,
+            parent: RefCell::new(parent),
             focus: Rc::default(),
             monitor: None,
             visible: Cell::new(false),
@@ -308,7 +308,7 @@ impl Host {
     /// coordinates, to Muxy and shows each grip's cursor there. The page's
     /// pixels don't change. Call after [`Self::occlude`].
     pub(crate) fn set_grips(&self, grips: &[(Bounds<Pixels>, CursorStyle)]) {
-        let frame = self.parent.bounds();
+        let frame = self.parent().bounds();
         let regions: Vec<_> = visible_grips(self.bounds.get(), &self.occlusions.borrow(), grips)
             .into_iter()
             .map(|(grip, cursor)| (flipped_rect(grip), cursor))
@@ -358,6 +358,22 @@ impl Host {
     /// something else covers it: raising a page that was just clicked moves
     /// the pages that go under it instead, so the click isn't interrupted.
     pub(crate) fn order_front(hosts: &[&Self]) {
+        let mut remaining = hosts.to_vec();
+        while let Some(first) = remaining.first() {
+            let parent = first.parent();
+            let (group, rest): (Vec<_>, Vec<_>) = remaining.into_iter().partition(|host| {
+                ptr::eq(
+                    Retained::as_ptr(&host.parent.borrow()),
+                    Retained::as_ptr(&parent),
+                )
+            });
+            Self::order_front_in_parent(&group);
+            remaining = rest;
+        }
+    }
+
+    /// [`Self::order_front`] for pages that share one parent.
+    fn order_front_in_parent(hosts: &[&Self]) {
         let Some(front) = hosts.last() else {
             return;
         };
@@ -396,9 +412,44 @@ impl Host {
         }
     }
 
+    fn parent(&self) -> Retained<NSView> {
+        self.parent.borrow().clone()
+    }
+
+    /// Moves the page into `parent`, another window's GPUI view, keeping it
+    /// loaded. It stays hidden there until the next [`Self::sync`] and
+    /// [`Self::set_visible`] place it in that window, and the keyboard
+    /// returns to it with the next [`Self::focus`] or key Muxy routes to it.
+    pub(crate) fn move_to(&self, parent: Retained<NSView>) {
+        if ptr::eq(
+            Retained::as_ptr(&self.parent.borrow()),
+            Retained::as_ptr(&parent),
+        ) {
+            return;
+        }
+        self.blur();
+        self.container.setHidden(true);
+        self.grips.setHidden(true);
+        self.grips.removeFromSuperview();
+        self.container.removeFromSuperview();
+        parent.addSubview(&self.container);
+        parent.addSubview_positioned_relativeTo(
+            &self.grips,
+            NSWindowOrderingMode::Above,
+            Some(&self.container),
+        );
+        self.grips.setFrame(parent.bounds());
+        self.grips.ivars().borrow_mut().clear();
+        if let Some(window) = parent.window() {
+            window.invalidateCursorRectsForView(&self.grips);
+        }
+        *self.parent.borrow_mut() = parent;
+        *self.applied.borrow_mut() = Applied::default();
+    }
+
     /// The parent's subviews, back to front, as they are now.
     fn subview_order(&self) -> Vec<*const NSView> {
-        let subviews = self.parent.subviews();
+        let subviews = self.parent().subviews();
         (0..subviews.count())
             .map(|index| Retained::as_ptr(&subviews.objectAtIndex(index)))
             .collect()
@@ -424,9 +475,9 @@ impl Host {
                 })
             })
         });
-        self.parent
-            .addSubview_positioned_relativeTo(&self.container, ordering, relative);
-        self.parent.addSubview_positioned_relativeTo(
+        let parent = self.parent();
+        parent.addSubview_positioned_relativeTo(&self.container, ordering, relative);
+        parent.addSubview_positioned_relativeTo(
             &self.grips,
             NSWindowOrderingMode::Above,
             Some(&self.container),
@@ -439,7 +490,7 @@ impl Host {
     pub(crate) fn sync(&self, bounds: Bounds<Pixels>, clip: Bounds<Pixels>, radius: f64) {
         self.bounds.set(bounds);
         self.clip.set(clip);
-        let frame = crate::appkit::frame_in(&self.parent, bounds);
+        let frame = crate::appkit::frame_in(&self.parent(), bounds);
         let mut applied = self.applied.borrow_mut();
         if applied.frame != Some(frame) {
             self.container.setFrame(frame);
@@ -563,7 +614,7 @@ impl Host {
                     .is_some_and(|view| view.isDescendantOf(&self.container))
             })
         {
-            window.makeFirstResponder(Some(&self.parent));
+            window.makeFirstResponder(Some(&*self.parent()));
         }
     }
 

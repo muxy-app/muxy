@@ -190,7 +190,17 @@ impl Mark {
 impl AppModel {
     /// Shows `overlay` in place of the open one, which closes through its
     /// [`OverlayView::on_close`].
+    /// Opens `overlay` in the main window, bringing that window forward when
+    /// the user works in a tab window.
     pub(crate) fn open_overlay(&mut self, overlay: Overlay, cx: &mut Context<Self>) {
+        if self.surface() != crate::model::tab_windows::Surface::Main {
+            self.raise_main_window(cx);
+        }
+        self.put_overlay(overlay, cx);
+    }
+
+    fn put_overlay(&mut self, overlay: Overlay, cx: &mut Context<Self>) {
+        self.tab_windows.overlay = crate::model::tab_windows::Surface::Main;
         if let Some(previous) = self.overlay.replace(overlay) {
             previous.view().on_close(self, cx);
         }
@@ -258,7 +268,8 @@ impl AppModel {
     ) {
         self.project_logo_task = None;
         self.overlay_subscription = None;
-        self.open_overlay(Overlay::Menu(Menu::new(items, position)), cx);
+        self.put_overlay(Overlay::Menu(Menu::new(items, position)), cx);
+        self.tab_windows.overlay = self.surface_of(window);
         self.overlay_focus.focus(window);
         // A focusable ancestor of the clicked row would otherwise take focus back.
         window.prevent_default();

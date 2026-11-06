@@ -96,6 +96,11 @@ impl NativeBrowser {
     pub fn browser(&self) -> &Self {
         self
     }
+    /// The page renders off screen and any window draws its snapshots, so
+    /// there is nothing to move.
+    pub fn move_to_window(&self, window: &Window) -> std::result::Result<(), String> {
+        self.page.move_to_window(window)
+    }
     pub fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<Keystroke>>) {
         self.page.set_shortcuts(modal, shortcuts);
     }

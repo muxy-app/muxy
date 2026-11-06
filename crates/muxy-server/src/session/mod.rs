@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use muxy_protocol::{
     AttachSnapshot, ChannelId, ExitReason, ForegroundProcess, HistoryCursor, HistoryPage, Message,
-    MetadataEvent, MouseEvent, ScreenFrame, SearchPage, SessionId, SessionInfo, SessionMetadata,
-    SessionProgress, Size, TerminalColors,
+    MetadataEvent, MouseEvent, ProjectId, ScreenFrame, SearchPage, SessionId, SessionInfo,
+    SessionMetadata, SessionProgress, Size, TerminalColors,
 };
 
 use crate::connection::Connection;
@@ -117,13 +117,15 @@ impl fmt::Debug for AttachmentSink {
     }
 }
 
-/// A session's progress and metadata as connections last heard them.
+/// A session's progress and metadata as connections last heard them, and
+/// the project it belongs to now.
 ///
 /// Changes are pushed while the lock is held, so a connection that starts
 /// referencing the session never receives an older value after a newer one.
 #[derive(Debug)]
 pub(crate) struct Published {
     session: SessionId,
+    project: Mutex<ProjectId>,
     state: Mutex<(SessionProgress, SessionMetadata)>,
     notifier: Arc<Notifier>,
 }
@@ -132,6 +134,7 @@ impl Published {
     pub(crate) fn new(info: &SessionInfo, notifier: Arc<Notifier>) -> Self {
         Self {
             session: info.id,
+            project: Mutex::new(info.project),
             state: Mutex::new((
                 SessionProgress::default(),
                 SessionMetadata {
@@ -142,6 +145,14 @@ impl Published {
             )),
             notifier,
         }
+    }
+
+    pub(crate) fn project(&self) -> ProjectId {
+        *self.project.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn set_project(&self, project: ProjectId) {
+        *self.project.lock().unwrap_or_else(PoisonError::into_inner) = project;
     }
 
     pub(crate) fn set_progress(&self, progress: SessionProgress) {
@@ -215,8 +226,16 @@ impl SessionHandle {
         self.info.id
     }
 
-    pub fn info(&self) -> &SessionInfo {
-        &self.info
+    pub fn info(&self) -> SessionInfo {
+        SessionInfo {
+            project: self.published.project(),
+            ..self.info.clone()
+        }
+    }
+
+    /// Records that the session belongs to another project now.
+    pub(crate) fn move_to(&self, project: ProjectId) {
+        self.published.set_project(project);
     }
 
     pub fn send(&self, command: SessionCommand) -> Result<(), ServerError> {
@@ -233,7 +252,7 @@ impl SessionHandle {
     #[cfg(test)]
     pub(crate) fn fake() -> (Self, std::sync::mpsc::Receiver<OwnerEvent>) {
         let info = SessionInfo {
-            project: muxy_protocol::ProjectId::from_u128(1),
+            project: ProjectId::from_u128(1),
             id: SessionId::from(std::num::NonZeroU64::MIN),
             directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
         };

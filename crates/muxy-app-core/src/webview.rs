@@ -139,8 +139,10 @@ impl AppState {
             });
             if let Some((tab, pane)) = existing {
                 self.set_webview_data(pane, descriptor.data)?;
-                self.select_project(project)?;
-                self.select_tab(project, tab)?;
+                if self.pane_window(pane).is_none() {
+                    self.select_project(project)?;
+                    self.select_tab(project, tab)?;
+                }
                 self.focus_pane(pane)?;
                 return Ok((tab, pane));
             }
