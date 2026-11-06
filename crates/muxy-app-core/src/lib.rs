@@ -30,7 +30,7 @@ mod settings_tab;
 mod state;
 pub mod store;
 mod tab;
-pub mod title;
+pub use muxy_protocol::title;
 pub mod webview;
 mod window;
 mod workspace;

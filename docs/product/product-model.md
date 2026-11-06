@@ -105,12 +105,11 @@ Deleting always asks first and explains what will end.
 - Closing a group's last tab removes the group.
 - Tabs can have a custom title and color, and can be pinned. Pinned tabs stay
   first and can't be closed until unpinned.
-- A custom title also names every terminal in the tab on the phone app, ahead
-  of the title its program sets. Removing it brings back the terminal's own
-  title there.
 - A terminal's title is the one its program sets, otherwise the running
   program's name, otherwise its folder. Its pane header names the shell
   instead of the folder.
+- The phone app titles terminals the same way, including the tabs it isn't
+  showing, and a custom title names every terminal in the tab there too.
 - New terminals open in the project's folder, or optionally in the folder of
   the pane they were split from.
 - Terminals support selection, copy and paste, search, links, the mouse, input

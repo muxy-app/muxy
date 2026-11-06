@@ -4795,6 +4795,7 @@ dependencies = [
  "minicbor",
  "muxy-core",
  "postcard",
+ "regex",
  "ring",
  "rustix 1.1.4",
  "rustls",

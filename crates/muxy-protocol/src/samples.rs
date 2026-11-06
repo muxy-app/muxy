@@ -479,9 +479,17 @@ fn changed_samples() -> [Message; 2] {
         .map(|(topic, revision)| Message::Changed { topic, revision })
 }
 
-fn project_session_samples(project: crate::ProjectId, directory: ServerPath) -> [Message; 4] {
+fn project_session_samples(project: crate::ProjectId, directory: ServerPath) -> [Message; 6] {
     use crate::{ProjectSession, ProjectSessions, SessionInfo, SessionStatus};
     [
+        Message::Request {
+            id: RequestId(7),
+            body: RequestBody::WatchSessionMetadata,
+        },
+        Message::Reply {
+            id: RequestId(7),
+            body: ReplyBody::SessionMetadataWatched,
+        },
         Message::Reply {
             id: RequestId(3),
             body: ReplyBody::ProjectSessions(ProjectSessions {

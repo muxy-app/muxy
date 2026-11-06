@@ -421,3 +421,75 @@ fn a_session_name_reaches_listing_clients_with_a_sessions_change()
         .map_err(|error| error.to_string())?;
     Ok(())
 }
+
+#[test]
+fn a_metadata_watcher_hears_titles_of_sessions_it_does_not_show()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::UnixStream;
+
+    use muxy_protocol::{CONTROL, Message, ReplyBody, RequestBody, RequestId};
+
+    let directory = std::env::temp_dir().join(format!(
+        "muxy-metadata-{}",
+        muxy_protocol::OperationId::new()
+    ));
+    std::fs::create_dir(&directory)?;
+    let shell = directory.join("shell");
+    std::fs::write(
+        &shell,
+        "#!/bin/sh\nprintf '\\033]0;lazygit\\007'\nexec /bin/sleep 60\n",
+    )?;
+    std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o700))?;
+    let (sender, _requests) = mpsc::channel();
+    let registry = Arc::new(Registry::new(
+        ServerSettings {
+            default_shell: Some(shell),
+            shell_integration: false,
+            ..ServerSettings::default()
+        },
+        sender,
+    ));
+    let info = registry.create(&directory, muxy_protocol::Size { cols: 80, rows: 24 })?;
+    let (client, server) = UnixStream::pair()?;
+    let ((mut encoder, mut decoder), connection) = greeted(&registry, &client, server)?;
+    encoder.send(
+        CONTROL,
+        &Message::Request {
+            id: RequestId(1),
+            body: RequestBody::WatchSessionMetadata,
+        },
+    )?;
+    let (mut watched, mut titled) = (false, false);
+    while !(watched && titled) {
+        match decoder.next()? {
+            (
+                CONTROL,
+                Message::Reply {
+                    body: ReplyBody::SessionMetadataWatched,
+                    ..
+                },
+            ) => watched = true,
+            (CONTROL, Message::SessionMetadata { session, metadata }) if session == info.id => {
+                titled |= metadata.title == "lazygit";
+            }
+            (CONTROL, Message::Changed { .. }) => {}
+            other => return Err(format!("expected session metadata, got {other:?}").into()),
+        }
+    }
+    let shown = registry
+        .notifier
+        .connections()
+        .iter()
+        .any(|connection| connection.references(info.id, true));
+    assert!(!shown, "watching is not showing the session");
+
+    registry.end(info.id)?;
+    client.shutdown(std::net::Shutdown::Both)?;
+    connection
+        .join()
+        .map_err(|_| "connection panicked")?
+        .map_err(|error| error.to_string())?;
+    std::fs::remove_dir_all(&directory)?;
+    Ok(())
+}

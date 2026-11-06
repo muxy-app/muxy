@@ -477,6 +477,16 @@ impl Client {
         }
     }
 
+    /// Asks for every session's metadata now and as it changes, delivered as
+    /// [`crate::ClientEvent::SessionMetadata`]. Servers from before this
+    /// answer `Unsupported`.
+    pub fn watch_session_metadata(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::WatchSessionMetadata)? {
+            ReplyBody::SessionMetadataWatched => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     pub fn ping(&self) -> Result<(), ClientError> {
         match self.request(RequestBody::Ping)? {
             ReplyBody::Pong => Ok(()),

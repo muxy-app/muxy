@@ -371,6 +371,14 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: ReplyBody::SessionNameSet,
                 ..
             } => ("SessionNameReply", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::WatchSessionMetadata,
+                ..
+            } => ("WatchSessionMetadata", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::SessionMetadataWatched,
+                ..
+            } => ("SessionMetadataWatched", ChannelKind::Control),
             Message::Reply {
                 body: ReplyBody::SessionColorsSet,
                 ..
@@ -593,6 +601,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "SessionColorsReply",
             "SessionNameRequest",
             "SessionNameReply",
+            "WatchSessionMetadata",
+            "SessionMetadataWatched",
             "NamedProjectSessions",
             "HistoryRequest",
             "SavedHistoryRequest",

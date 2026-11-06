@@ -5,11 +5,17 @@ use muxy_protocol::{
 };
 
 /// Invalidations a connection asked for by reading the matching state.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Each watch is an independent subscription"
+)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Watches {
     pub(super) catalog: bool,
     pub(super) activity: bool,
     pub(super) remote_access: bool,
+    /// Every session's metadata, whether or not the connection shows it.
+    pub(super) metadata: bool,
 }
 
 impl Watches {

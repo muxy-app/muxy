@@ -206,6 +206,11 @@ pub enum RequestBody {
         #[n(1)]
         name: Option<String>,
     },
+    /// Sends this connection every session's `SessionMetadata` now and as it
+    /// changes, without showing the sessions, so a phone can title tabs it
+    /// isn't attached to. Servers from before this answer `Unsupported`.
+    #[n(46)]
+    WatchSessionMetadata,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -323,6 +328,8 @@ pub enum ReplyBody {
     SessionColorsSet,
     #[n(40)]
     SessionNameSet,
+    #[n(41)]
+    SessionMetadataWatched,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

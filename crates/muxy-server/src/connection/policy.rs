@@ -53,6 +53,7 @@ pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(
         | RequestBody::SetTerminalColors(_)
         | RequestBody::SetSessionColors { .. }
         | RequestBody::SetSessionName { .. }
+        | RequestBody::WatchSessionMetadata
         | RequestBody::ReadServerSettings
         | RequestBody::SyncSessionReferences { .. }
         | RequestBody::CloseSession { .. }

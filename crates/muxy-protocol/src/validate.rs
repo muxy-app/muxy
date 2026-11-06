@@ -285,7 +285,8 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         | RequestBody::ReadSavedScreen(_)
         | RequestBody::DiscardSession(_)
         | RequestBody::SetTerminalColors(_)
-        | RequestBody::SetSessionColors { .. } => Ok(()),
+        | RequestBody::SetSessionColors { .. }
+        | RequestBody::WatchSessionMetadata => Ok(()),
     }
 }
 
@@ -405,6 +406,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         | ReplyBody::TerminalColorsSet
         | ReplyBody::SessionColorsSet
         | ReplyBody::SessionNameSet
+        | ReplyBody::SessionMetadataWatched
         | ReplyBody::Pong
         | ReplyBody::Error(_)
         | ReplyBody::SessionDiscarded => Ok(()),

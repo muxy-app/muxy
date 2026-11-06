@@ -184,6 +184,10 @@ impl Connection {
         self.lock().state.watches.remote_access = true;
     }
 
+    pub(super) fn watch_metadata(&self) {
+        self.lock().state.watches.metadata = true;
+    }
+
     pub(crate) fn participation(&self, session: SessionId) -> Option<(u64, SessionClient)> {
         let inner = self.lock();
         if inner.closed {
@@ -261,12 +265,15 @@ impl Connection {
     }
 
     /// Queues a control message. A session's progress and metadata reach
-    /// only connections that reference the session.
+    /// only connections that reference the session, and its metadata also
+    /// those that watch every session's.
     pub(crate) fn push_control(&self, message: Message) {
         let mut inner = self.lock();
+        let watched =
+            inner.state.watches.metadata && matches!(message, Message::SessionMetadata { .. });
         if inner.closed
             || session_state(&message)
-                .is_some_and(|session| !inner.references.lock().contains(session))
+                .is_some_and(|session| !watched && !inner.references.lock().contains(session))
         {
             return;
         }
@@ -685,6 +692,32 @@ mod tests {
         referencing(&connection, &[]);
         connection.push_control(message("ignored".into()));
         assert!(connection.take_control().is_empty());
+    }
+
+    #[test]
+    fn a_metadata_watcher_hears_every_session_title_but_not_its_progress() {
+        let connection = Connection::new(Arc::default());
+        let session = SessionId::from(std::num::NonZeroU64::MIN);
+        let metadata = Message::SessionMetadata {
+            session,
+            metadata: muxy_protocol::SessionMetadata {
+                title: "lazygit".into(),
+                directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+                process: None,
+            },
+        };
+        let progress = Message::Progress {
+            session,
+            progress: muxy_protocol::SessionProgress::default(),
+        };
+        connection.watch_metadata();
+        connection.push_control(progress);
+        connection.push_control(metadata.clone());
+        assert_eq!(connection.take_control(), [metadata]);
+        assert!(
+            !connection.references(session, true),
+            "watching is not showing the session"
+        );
     }
 
     #[test]

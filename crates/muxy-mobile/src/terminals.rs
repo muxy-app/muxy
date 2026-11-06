@@ -115,6 +115,10 @@ impl Terminals {
         view.lock().apply(event).then_some(view.session)
     }
 
+    pub(crate) fn session(&self, channel: ChannelId) -> Option<SessionId> {
+        self.lock().views.get(&channel).map(|view| view.session)
+    }
+
     pub(crate) fn remove(&self, channel: ChannelId) {
         self.lock().views.remove(&channel);
     }

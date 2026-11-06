@@ -106,14 +106,14 @@ pub struct Session {
     pub owner: Option<ClientKind>,
     /// Whether this device is attached.
     pub attached: bool,
-    /// The name an app gave it, such as a renamed desktop tab's title;
-    /// older servers send none.
-    #[uniffi(default = None)]
-    pub name: Option<String>,
+    /// What to call it, as the desktop app does: a renamed tab's title, else
+    /// the title its program set, else the running program's name, else its
+    /// folder. `TitleChanged` brings changes.
+    pub title: String,
 }
 
-impl From<&ProjectSession> for Session {
-    fn from(session: &ProjectSession) -> Self {
+impl Session {
+    pub(crate) fn listed(session: &ProjectSession, title: String) -> Self {
         Self {
             id: session.info.id.get(),
             project_id: session.info.project.to_string(),
@@ -133,7 +133,7 @@ impl From<&ProjectSession> for Session {
                 muxy_protocol::ClientKind::Unrecognized(_) => ClientKind::Other,
             }),
             attached: session.attached,
-            name: session.name.clone(),
+            title,
         }
     }
 }
@@ -386,32 +386,5 @@ impl Screen {
             mouse_tracking: input.mouse_tracking,
             alternate_scroll: input.alternate_scroll,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use muxy_protocol::{ProjectId, SessionId, SessionInfo};
-
-    use super::*;
-
-    #[test]
-    fn a_session_carries_its_name_and_older_servers_send_none() {
-        let listed = |name: Option<&str>| ProjectSession {
-            info: SessionInfo {
-                project: ProjectId::from_u128(1),
-                id: SessionId::new(7).expect("nonzero"),
-                directory: ServerPath(b"/home/dev/api".to_vec()),
-            },
-            status: muxy_protocol::SessionStatus::Live,
-            owner: None,
-            attached: false,
-            name: name.map(Into::into),
-        };
-        assert_eq!(
-            Session::from(&listed(Some("API server"))).name.as_deref(),
-            Some("API server")
-        );
-        assert_eq!(Session::from(&listed(None)).name, None);
     }
 }

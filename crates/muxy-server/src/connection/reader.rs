@@ -344,6 +344,11 @@ fn ordered_request(
             connection.set_session_colors(session, colors);
             ReplyBody::SessionColorsSet
         }
+        RequestBody::WatchSessionMetadata => {
+            connection.watch_metadata();
+            registry.introduce_all(connection);
+            ReplyBody::SessionMetadataWatched
+        }
         RequestBody::SetSessionName { session, name } => {
             registry.catalog.set_session_name(session, name)?;
             ReplyBody::SessionNameSet

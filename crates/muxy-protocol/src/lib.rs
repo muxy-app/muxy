@@ -66,6 +66,7 @@ pub use remote::{
     RemoteAccessSettings, RemoteAccessState, validate_device_name, validate_pairing_hosts,
 };
 
+pub mod title;
 pub mod wire;
 
 pub mod transport;
