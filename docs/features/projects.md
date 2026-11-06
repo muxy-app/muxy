@@ -14,6 +14,13 @@ workspaces, and project order are kept by each app.
   desktop app, adding the project if needed. On macOS, so does dropping a folder
   on the Dock icon or using **Open With**.
 - Right-click a project to rename it, or change its icon, logo, or color.
+- Projects automatically use a favicon or logo from their folder when no custom
+  icon or logo is set. Muxy checks the root first, then common folders such as
+  `public`, `static`, `app`, `src/app`, `src/assets`, and `assets`. It supports
+  SVG, ICO, PNG, JPEG, WebP, GIF, and ICNS up to 5 MiB each, including projects on
+  remote servers.
+  Icons refresh when you return to Muxy; unreadable images fall back to the
+  usual project tile. Home keeps its built-in icon.
 - **Remove Project…** removes it from every app and ends its terminals. Files
   stay on disk.
 - **Add Project → Recently Removed** brings back one of the last 10 removed

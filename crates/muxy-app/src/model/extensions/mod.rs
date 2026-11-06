@@ -125,6 +125,10 @@ impl Runtime {
         self.epochs.get(owner).copied().unwrap_or(0)
     }
 
+    pub(super) fn connection_install(&self, server: ServerId) -> Option<u64> {
+        self.connection_installs.get(&server).copied()
+    }
+
     /// The server's extension connection, which other app work that must not
     /// queue behind terminals, such as listing folders, may share.
     pub(crate) fn client(&self, server: ServerId) -> Option<muxy_client::Client> {
@@ -254,9 +258,7 @@ impl AppModel {
                     let install = model.extensions.next_install;
                     model.extensions.clients.insert(server, client.clone());
                     model.extensions.connection_installs.insert(server, install);
-                    model.sync_extension_events(cx);
-                    model.resume_remote(server, cx);
-                    model.check_remote_projects(server, cx);
+                    model.extension_connected(server, cx);
                     Some(install)
                 })
                 .ok()
@@ -297,6 +299,13 @@ impl AppModel {
             }
         })
         .detach();
+    }
+
+    fn extension_connected(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        self.sync_extension_events(cx);
+        self.resume_remote(server, cx);
+        self.check_remote_projects(server, cx);
+        self.sync_project_icons(cx);
     }
 
     /// Closes `server`'s extension connection. Its file watches end with it.

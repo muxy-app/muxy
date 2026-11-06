@@ -25,6 +25,7 @@ pub(crate) use pairing::PairingForm;
 mod pane_runtime;
 pub(crate) mod preferences;
 pub(crate) mod project_apps;
+mod project_icons;
 pub(crate) mod project_layouts;
 pub(crate) mod proxy;
 mod quick_terminal;
@@ -199,6 +200,7 @@ pub(crate) struct AppModel {
     pub(crate) tab_windows: tab_windows::TabWindows,
     pub(crate) move_drag: crate::views::move_drag::MoveDragState,
     pub(crate) layout_drag: crate::views::splits::drag::LayoutDragState,
+    pub(crate) project_icons: project_icons::ProjectIcons,
     pub(crate) project_logo_task: Option<Task<()>>,
     pub(crate) project_logos: crate::views::project_editor::logo::Cache,
     pub(crate) expanded_worktrees: HashSet<ProjectId>,
@@ -491,6 +493,7 @@ impl AppModel {
             self.notifications.refresh();
             self.refresh_git(cx);
             self.refresh_project_statuses(cx);
+            self.project_icons.refresh();
             self.reconnect_waiting(cx);
         } else {
             self.cancel_titlebar_drag(cx);
@@ -548,6 +551,7 @@ impl AppModel {
         let configuration_error = boot.import_message;
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
         cx.on_release(|model: &mut Self, cx| {
+            model.project_icons.release(cx);
             for (_, (_, image)) in model.project_logos.drain() {
                 image.remove_asset(cx);
             }
@@ -611,6 +615,7 @@ impl AppModel {
             appearance: boot.settings.appearance.clone(),
             project_logo_task: None,
             project_logos: HashMap::new(),
+            project_icons: project_icons::ProjectIcons::default(),
             expanded_worktrees: HashSet::new(),
             tab_sidebar_selection: None,
             projects_without_tabs_shown: boot.settings.appearance.remember_projects_without_tabs

@@ -1,3 +1,5 @@
+mod project_icons;
+
 use super::*;
 use crate::model::tests::stub_boot;
 use gpui::TestAppContext;

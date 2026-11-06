@@ -3542,6 +3542,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hayro-jpeg2000"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c75ab947623ef4ccaa7acf0579edf7cbb5a73838e3839a7be73335e522f433a1"
+
+[[package]]
 name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3722,6 +3728,15 @@ dependencies = [
  "tokio",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "icns"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f55019ac1db606ff01afed8a9d18d91b83e6463da421084f767c89026467b619"
+dependencies = [
+ "byteorder",
 ]
 
 [[package]]
@@ -4698,6 +4713,8 @@ version = "2.0.0-beta-0"
 dependencies = [
  "async-channel 2.5.0",
  "gpui",
+ "hayro-jpeg2000",
+ "icns",
  "image",
  "muxy-app-core",
  "muxy-client",

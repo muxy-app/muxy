@@ -1348,6 +1348,11 @@ pub(crate) fn project_tile(
                 .child(icon.clone())
                 .into_any_element()
         }
+    } else if let Some(image) = model.project_icons.image(project) {
+        gpui::img(image)
+            .size(size)
+            .object_fit(gpui::ObjectFit::Contain)
+            .into_any_element()
     } else if project.home && project.server_id.is_local() {
         SymbolGlyph::new("house.fill", m.font_title_large() * scale, foreground).into_any_element()
     } else {
