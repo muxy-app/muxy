@@ -207,7 +207,7 @@ fn handle(
 }
 
 /// A terminal names its shell rather than its folder, which the project
-/// already shows; other panes show their usual title.
+/// already shows, once it reports one; until then, its usual title.
 fn title(pane: &Pane, model: &AppModel, cx: &App) -> String {
     model
         .terminal(&pane.id)
