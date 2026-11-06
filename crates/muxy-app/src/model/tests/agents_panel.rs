@@ -1,8 +1,12 @@
 use super::worktrees::{Sent, connected, pruning_fixture};
 use super::*;
-use crate::model::agents_panel::{AgentStatus, Entry, EntryKey, Placement, RunningAgent};
+use crate::model::agents_panel::{
+    AgentStatus, Entry, EntryKey, Placement, RunningAgent, starts_project_group,
+};
 use gpui::Modifiers;
-use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping};
+use muxy_app_core::settings::{
+    AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping, AgentsPanelIcon,
+};
 use muxy_core::shortcuts::ShortcutId;
 use muxy_protocol::{
     ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity, AgentProvider, AgentState,
@@ -126,6 +130,10 @@ fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppCo
             [home_pane, root_pane, worktree_pane],
             "agents follow sidebar order, with a worktree after its project"
         );
+        assert!(
+            (0..entries.len()).all(|index| starts_project_group(&entries, index)),
+            "each project gets its own heading"
+        );
 
         let resting = |pane, project, session, status| RunningAgent {
             server: ServerId::local(),
@@ -158,6 +166,12 @@ fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppCo
             ],
             "the most urgent agent leads its project"
         );
+        assert_eq!(
+            (0..entries.len())
+                .map(|index| starts_project_group(&entries, index))
+                .collect::<Vec<_>>(),
+            [true, true, false]
+        );
 
         model.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
         let entries = model.agents_panel_entries();
@@ -169,6 +183,10 @@ fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppCo
                 Entry::Worktree { project: third, counts: [1, 0, 0, 0] },
             ] if *first == home && *second == fixture.root && *third == fixture.worktree
         ));
+        assert!(
+            !starts_project_group(&entries, 0),
+            "project rows have no headings"
+        );
     });
 }
 
@@ -645,12 +663,13 @@ fn the_floating_panel_moves_by_its_header_and_resizes_by_its_corner(cx: &mut Tes
 }
 
 #[gpui::test]
-fn normal_rows_add_a_details_line_and_compact_rows_fit_on_one(cx: &mut TestAppContext) {
+fn detailed_rows_add_a_details_line_and_compact_rows_fit_on_one(cx: &mut TestAppContext) {
     let (view, cx, _fixture) = agents(cx);
     cx.simulate_resize(size(px(1200.0), px(800.0)));
     view.update(cx, |model, cx| {
         model.appearance.sidebar_expanded = true;
         model.appearance.agents_panel_visible = true;
+        model.appearance.agents_panel_density = AgentsPanelDensity::Detailed;
         cx.notify();
     });
     cx.update(|window, _| window.refresh());
@@ -673,7 +692,7 @@ fn normal_rows_add_a_details_line_and_compact_rows_fit_on_one(cx: &mut TestAppCo
             .is_some(),
         "a working agent shows the tab's progress glyph"
     );
-    let normal = row.size.height;
+    let detailed = row.size.height;
 
     view.update(cx, |model, cx| {
         model.appearance.agents_panel_density = AgentsPanelDensity::Compact;
@@ -685,7 +704,7 @@ fn normal_rows_add_a_details_line_and_compact_rows_fit_on_one(cx: &mut TestAppCo
     let project = bounds(cx, format!("agents-panel-project-label-{key}"));
     let title = bounds(cx, format!("agents-panel-title-{key}"));
     assert!(
-        row.size.height <= px(24.0) && row.size.height < normal,
+        row.size.height <= px(24.0) && row.size.height < detailed,
         "compact rows are one short line: {row:?}"
     );
     assert!(
@@ -699,7 +718,7 @@ fn normal_rows_add_a_details_line_and_compact_rows_fit_on_one(cx: &mut TestAppCo
 }
 
 #[gpui::test]
-fn every_row_option_lays_out_the_same_at_either_density(cx: &mut TestAppContext) {
+fn every_row_option_lays_out_the_same_at_any_density(cx: &mut TestAppContext) {
     let (view, cx, _fixture) = agents(cx);
     cx.simulate_resize(size(px(1200.0), px(800.0)));
     let local = ServerId::local();
@@ -719,20 +738,24 @@ fn every_row_option_lays_out_the_same_at_either_density(cx: &mut TestAppContext)
     };
     let mut headers = Vec::new();
     let mut glyphs = Vec::new();
-    for density in [AgentsPanelDensity::Normal, AgentsPanelDensity::Compact] {
+    for density in [
+        AgentsPanelDensity::Normal,
+        AgentsPanelDensity::Detailed,
+        AgentsPanelDensity::Compact,
+    ] {
         render(cx, &|appearance| {
             appearance.agents_panel_density = density;
-            appearance.agents_panel_icon = muxy_app_core::settings::AgentsPanelIcon::Project;
+            appearance.agents_panel_icon = AgentsPanelIcon::Agent;
             appearance.agents_panel_project_colors = false;
             appearance.agents_panel_idle_time = true;
         });
-        let plain = bounds(cx, format!("agents-panel-project-{finished}")).expect("icon");
+        let plain = bounds(cx, format!("agents-panel-icon-{finished}")).expect("icon");
         render(cx, &|appearance| {
             appearance.agents_panel_project_colors = true;
         });
         let row = bounds(cx, format!("agents-panel-row-{finished}")).expect("row");
         let color = bounds(cx, format!("agents-panel-color-{finished}")).expect("color");
-        let icon = bounds(cx, format!("agents-panel-project-{finished}")).expect("icon");
+        let icon = bounds(cx, format!("agents-panel-icon-{finished}")).expect("icon");
         let status = bounds(cx, format!("agents-panel-status-{finished}")).expect("status");
         let idle = bounds(cx, format!("agents-panel-idle-{finished}")).expect("idle time");
         assert_eq!(
@@ -770,7 +793,7 @@ fn every_row_option_lays_out_the_same_at_either_density(cx: &mut TestAppContext)
         assert!(
             bounds(cx, format!("agents-panel-details-{finished}"))
                 .is_some_and(|details| details.right() <= idle.left())
-                || density == AgentsPanelDensity::Compact,
+                || density != AgentsPanelDensity::Detailed,
             "{density:?}: the idle time isn't part of the details"
         );
         headers.push(
@@ -780,8 +803,14 @@ fn every_row_option_lays_out_the_same_at_either_density(cx: &mut TestAppContext)
         );
         glyphs.push(status.size);
     }
-    assert_eq!(headers[0], headers[1], "density only changes the rows");
-    assert_eq!(glyphs[0], glyphs[1], "status glyphs keep one size");
+    assert!(
+        headers.windows(2).all(|pair| pair[0] == pair[1]),
+        "density only changes the rows: {headers:?}"
+    );
+    assert!(
+        glyphs.windows(2).all(|pair| pair[0] == pair[1]),
+        "status glyphs keep one size: {glyphs:?}"
+    );
 }
 
 #[gpui::test]
@@ -848,6 +877,89 @@ fn the_docked_panel_lines_up_with_the_agents_focused_sidebar(cx: &mut TestAppCon
     let panel_row = bounds(cx, format!("agents-panel-row-{key}"));
     assert_eq!(panel_row.left(), sidebar_row.left());
     assert_eq!(panel_row.right(), sidebar_row.right());
+    assert_eq!(panel_row.size.height, sidebar_row.size.height);
+    assert_eq!(
+        bounds(cx, format!("agents-panel-heading-{}", fixture.root)).left(),
+        bounds(cx, format!("tab-project-title-{}", fixture.root)).left()
+    );
+    assert_eq!(
+        bounds(cx, format!("agents-panel-status-{key}")).center().x,
+        bounds(cx, format!("sidebar-tab-accessory-{tab}"))
+            .center()
+            .x,
+        "the status lines up with the tab's"
+    );
+}
+
+#[gpui::test]
+fn rows_sit_under_their_project_heading_with_status_on_the_right(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let key = EntryKey::Agent(ServerId::local(), SessionId::new(1).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, selector: String| {
+        cx.debug_bounds(selector.leak()).expect("bounds")
+    };
+    let heading = bounds(cx, format!("agents-panel-heading-{}", fixture.root));
+    let title = bounds(cx, format!("agents-panel-title-{key}"));
+    let status = bounds(cx, format!("agents-panel-status-{key}"));
+    assert!(heading.bottom() <= title.top());
+    assert!(
+        status.left() >= title.right(),
+        "status sits right of the title"
+    );
+    let name = bounds(cx, "agents-panel-name".into());
+    let hide = bounds(cx, "agents-panel-hide".into());
+    assert_eq!(
+        heading.left(),
+        name.left(),
+        "headings line up with the panel name"
+    );
+    assert_eq!(
+        status.center().x,
+        hide.center().x,
+        "status lines up with the hide button"
+    );
+}
+
+#[gpui::test]
+fn a_compact_row_names_its_project_once(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model.appearance.agents_panel_density = AgentsPanelDensity::Compact;
+        model.appearance.agents_panel_icon = AgentsPanelIcon::Project;
+        model.appearance.agents_panel_project_colors = true;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let key = EntryKey::Agent(ServerId::local(), SessionId::new(1).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, part: &str| {
+        cx.debug_bounds(format!("agents-panel-{part}-{key}").leak())
+    };
+    assert!(bounds(cx, "project").is_some(), "the project icon shows");
+    assert!(
+        bounds(cx, "color").is_none(),
+        "a project icon already wears its color"
+    );
+    assert!(
+        bounds(cx, "project-label").is_none(),
+        "a project icon already names its project"
+    );
+    assert!(
+        cx.debug_bounds(format!("agents-panel-heading-{}", fixture.root).leak())
+            .is_none(),
+        "compact rows have no headings"
+    );
 }
 
 #[gpui::test]
@@ -955,4 +1067,34 @@ fn reading_a_finish_keeps_the_row_in_place(cx: &mut TestAppContext) {
         model.receive_activity(local, Ok(snapshot), cx);
     });
     assert_eq!(order(&view, cx), before, "reading the finish moves nothing");
+}
+
+#[gpui::test]
+fn a_detailed_worktree_row_shows_its_counts_once(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model.appearance.agents_panel_density = AgentsPanelDensity::Detailed;
+        model.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let key = EntryKey::Worktree(fixture.root);
+    let bounds = |cx: &mut VisualTestContext, part: &str| {
+        cx.debug_bounds(format!("agents-panel-{part}-{key}").leak())
+    };
+    let row = bounds(cx, "row").expect("row");
+    let title = bounds(cx, "title").expect("title");
+    assert!(
+        bounds(cx, "details").is_none(),
+        "the counts on the right aren't repeated under the title"
+    );
+    assert_eq!(
+        title.center().y,
+        row.center().y,
+        "the title is centered on its row"
+    );
 }

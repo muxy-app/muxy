@@ -234,7 +234,9 @@ pub(super) fn rows(
             appearance.agents_panel_idle_time,
         ),
     ] {
-        if category == Category::Appearance && pane.matches(category, label) {
+        let redundant = matches!(toggle, AgentsPanelToggle::ProjectColors)
+            && appearance.agents_panel_icon == AgentsPanelIcon::Project;
+        if category == Category::Appearance && !redundant && pane.matches(category, label) {
             let id = toggle.id();
             rows.push(pane.row(
                 id,
@@ -436,18 +438,20 @@ fn agents_panel_density(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
             &tr!("Agents panel density"),
             &[
                 Choice::new("normal", tr!("Normal")),
+                Choice::new("detailed", tr!("Detailed")),
                 Choice::new("compact", tr!("Compact")),
             ],
             match appearance.agents_panel_density {
                 AgentsPanelDensity::Normal => "normal",
+                AgentsPanelDensity::Detailed => "detailed",
                 AgentsPanelDensity::Compact => "compact",
             },
             cx.listener(|_, selected: &gpui::SharedString, _, cx| {
                 cx.emit(SettingsEvent::Change(Change::AgentsPanelDensity(
-                    if selected.as_ref() == "compact" {
-                        AgentsPanelDensity::Compact
-                    } else {
-                        AgentsPanelDensity::Normal
+                    match selected.as_ref() {
+                        "detailed" => AgentsPanelDensity::Detailed,
+                        "compact" => AgentsPanelDensity::Compact,
+                        _ => AgentsPanelDensity::Normal,
                     },
                 )));
             }),

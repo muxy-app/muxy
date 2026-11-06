@@ -88,14 +88,16 @@ focus. Use the arrow keys and Return to open a row.
   Return opens its pane; or each project and worktree running agents, with
   counts, where Return opens the worktree. Completed and idle agents keep their
   place, so opening a finished agent doesn't move it.
-- **Settings → Appearance → Agents panel density** shows each agent on two
-  lines, its tab's title and then its project, agent, and status (**Normal**),
-  or fits more on one short line each, the project before the title
-  (**Compact**).
+- **Settings → Appearance → Agents panel density** lists each agent on one
+  line under a heading naming its project (**Normal**), on two lines, its tab's
+  title and then its project, agent, and status (**Detailed**), or on one short
+  line each with no headings (**Compact**). A compact row names its project
+  once: by its icon, else by its color, else by its name before the title.
 - **Settings → Appearance → Agents panel icon** shows each row's agent icon,
   or the icon of its project. Worktrees show their project's icon.
 - **Settings → Appearance → Show project colors** marks each row with a bar of
-  its project's color down its left edge, beside either icon.
+  its project's color down its left edge. It's offered with agent icons only,
+  since a project icon already shows its project's color.
 - **Settings → Appearance → Show idle time** shows how long ago each completed
   or idle agent finished, at the right of its row. After the app restarts, an agent whose finish you
   already saw shows no time until it finishes again.

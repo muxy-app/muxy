@@ -77,10 +77,12 @@ pub enum AgentsPanelIcon {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentsPanelDensity {
-    /// Two lines per agent: its title, then its project, agent and status.
+    /// One line per agent, under a heading naming its project.
     #[default]
     Normal,
-    /// One short line per agent: its project, then its title.
+    /// Two lines per agent: its title, then its project, agent and status.
+    Detailed,
+    /// One short line per agent, naming its project only once.
     Compact,
 }
 

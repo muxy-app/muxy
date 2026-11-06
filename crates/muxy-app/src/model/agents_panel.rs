@@ -1,5 +1,5 @@
 use gpui::{AppContext, Context, FocusHandle, Pixels, Point, Window, px};
-use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping};
+use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping};
 use muxy_app_core::{PaneContent, PaneId, ProjectId, ServerId, TabId};
 use muxy_protocol::{ActivityKind, AgentProvider, AgentState, SessionId};
 use muxy_ui::floating::{Edges, FloatingDrag, FloatingFrame, SizeLimits};
@@ -78,6 +78,17 @@ impl Entry {
             Self::Worktree { project, .. } => EntryKey::Worktree(*project),
         }
     }
+}
+
+/// Whether the agent at `index` is the first listed for its project, so a
+/// project heading goes above it when the panel shows headings. Project rows
+/// have no headings.
+pub(crate) fn starts_project_group(entries: &[Entry], index: usize) -> bool {
+    let Entry::Agent(agent) = &entries[index] else {
+        return false;
+    };
+    index == 0
+        || !matches!(&entries[index - 1], Entry::Agent(previous) if previous.project == agent.project)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -390,7 +401,14 @@ impl AppModel {
             .unwrap_or(0);
         let next = current.saturating_add_signed(delta).min(entries.len() - 1);
         self.agents_panel.selected = Some(entries[next].key());
-        self.agents_panel.scroll.scroll_to_item(next);
+        let headings = if self.agents_panel_headings() {
+            (0..=next)
+                .filter(|index| starts_project_group(&entries, *index))
+                .count()
+        } else {
+            0
+        };
+        self.agents_panel.scroll.scroll_to_item(next + headings);
         cx.notify();
     }
 
@@ -536,6 +554,11 @@ impl AppModel {
             self.focus_agents_panel(window);
         }
         cx.notify();
+    }
+
+    /// Whether the panel puts a heading naming each project above its agents.
+    pub(crate) fn agents_panel_headings(&self) -> bool {
+        self.appearance.agents_panel_density == AgentsPanelDensity::Normal
     }
 
     pub(crate) fn focus_agents_panel(&mut self, window: &mut Window) {

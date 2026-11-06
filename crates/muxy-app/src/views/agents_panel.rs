@@ -16,6 +16,7 @@ use muxy_ui::tr;
 use crate::model::AppModel;
 use crate::model::agents_panel::{
     AgentStatus, Drag, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, PANEL, Placement, RunningAgent,
+    starts_project_group,
 };
 use crate::views::overlays::{Mark, OverlayView};
 
@@ -80,7 +81,7 @@ impl AppModel {
     }
 
     /// The project's short name in a compact row: a worktree's own name,
-    /// since its project's color and icon already lead the row.
+    /// which tells it from its project's other worktrees.
     fn agents_project_label(&self, project: muxy_app_core::ProjectId) -> String {
         match self.state.project(project) {
             Some(project) if project.parent_id.is_some() => project.name.clone(),
@@ -90,8 +91,8 @@ impl AppModel {
     }
 }
 
-fn compact(model: &AppModel) -> bool {
-    model.appearance.agents_panel_density == AgentsPanelDensity::Compact
+fn density(model: &AppModel) -> AgentsPanelDensity {
+    model.appearance.agents_panel_density
 }
 
 fn status_name(status: AgentStatus) -> SharedString {
@@ -155,28 +156,29 @@ fn idle_time(agent: &RunningAgent, model: &AppModel) -> Option<AnyElement> {
     )
 }
 
-/// The second line of a normal row: where the agent runs, which agent it
-/// is, unless the title already names it, and what it's doing.
-fn details(entry: &Entry, title: &str, model: &AppModel) -> String {
-    match entry {
-        Entry::Agent(agent) => {
-            let provider = agent.provider.name();
-            [
-                model.agents_location(agent.project),
-                if title == provider {
-                    String::new()
-                } else {
-                    provider.to_owned()
-                },
-                status_name(agent.status).to_string(),
-            ]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(" · ")
-        }
-        Entry::Worktree { counts, .. } => counts_description(counts),
-    }
+/// The second line of a detailed row: where the agent runs, which agent it
+/// is, unless the title already names it, and what it's doing. A worktree's
+/// counts already sit on its right.
+fn details(entry: &Entry, title: &str, model: &AppModel) -> Option<String> {
+    let Entry::Agent(agent) = entry else {
+        return None;
+    };
+    let provider = agent.provider.name();
+    Some(
+        [
+            model.agents_location(agent.project),
+            if title == provider {
+                String::new()
+            } else {
+                provider.to_owned()
+            },
+            status_name(agent.status).to_string(),
+        ]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · "),
+    )
 }
 
 fn trailing(entry: &Entry, owner: gpui::EntityId, model: &AppModel) -> AnyElement {
@@ -234,9 +236,11 @@ fn root_project<'a>(entry: &Entry, model: &'a AppModel) -> Option<&'a muxy_app_c
 }
 
 /// The project's color as a bar down the row's leading edge, so it spans
-/// the row at either density and leaves the icon where it is.
+/// the row at either density. Project icons already wear their color.
 fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
-    if !model.appearance.agents_panel_project_colors {
+    if !model.appearance.agents_panel_project_colors
+        || model.appearance.agents_panel_icon == AgentsPanelIcon::Project
+    {
         return None;
     }
     let root = root_project(entry, model)?;
@@ -256,12 +260,18 @@ fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     )
 }
 
+/// Whether a row's icon or color already names its project, so a compact
+/// row needn't spell it out too.
+fn project_marked(model: &AppModel) -> bool {
+    model.appearance.agents_panel_icon == AgentsPanelIcon::Project
+        || model.appearance.agents_panel_project_colors
+}
+
 /// How big a row's leading icon is: larger beside two lines of text.
 fn icon_size(model: &AppModel) -> gpui::Pixels {
-    if compact(model) {
-        model.metrics.icon_sm()
-    } else {
-        model.metrics.icon_lg()
+    match density(model) {
+        AgentsPanelDensity::Detailed => model.metrics.icon_lg(),
+        AgentsPanelDensity::Normal | AgentsPanelDensity::Compact => model.metrics.icon_sm(),
     }
 }
 
@@ -303,20 +313,26 @@ fn leading(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     }
 }
 
-/// A row's title, with its details under it in a normal row or its project
-/// before it in a compact one.
-fn row_text(entry: &Entry, title: String, compact: bool, model: &AppModel) -> gpui::Div {
+/// A row's title, alone under its project's heading, with its details under
+/// it in a detailed row, or after its project in a compact one.
+fn row_text(entry: &Entry, title: String, model: &AppModel) -> gpui::Div {
     let m = model.metrics;
     let theme = &model.theme;
     let key = entry.key();
-    let details = (!compact).then(|| details(entry, &title, model));
+    let density = density(model);
+    let details = (density == AgentsPanelDensity::Detailed)
+        .then(|| details(entry, &title, model))
+        .flatten();
     let title = div()
         .debug_selector(move || format!("agents-panel-title-{key}"))
-        .when(compact, |title| title.flex_1().min_w(px(0.0)))
+        .when(details.is_none(), |title| title.flex_1().min_w(px(0.0)))
         .truncate()
         .text_size(m.font_body())
         .text_color(theme.fg)
         .child(title);
+    if density == AgentsPanelDensity::Normal {
+        return title;
+    }
     if let Some(details) = details {
         return div()
             .flex()
@@ -334,10 +350,10 @@ fn row_text(entry: &Entry, title: String, compact: bool, model: &AppModel) -> gp
             );
     }
     let project = match entry {
-        Entry::Agent(agent) => {
+        Entry::Agent(agent) if !project_marked(model) => {
             Some(model.agents_project_label(agent.project)).filter(|label| !label.is_empty())
         }
-        Entry::Worktree { .. } => None,
+        _ => None,
     };
     div()
         .flex()
@@ -369,7 +385,7 @@ fn entry_row(
     let m = model.metrics;
     let theme = &model.theme;
     let key = entry.key();
-    let compact = compact(model);
+    let density = density(model);
     let title = match entry {
         Entry::Agent(agent) => model
             .state
@@ -384,7 +400,7 @@ fn entry_row(
     let leading = leading(entry, model);
     let stripe = project_stripe(entry, model);
     let label = title.clone();
-    let text = row_text(entry, title, compact, model);
+    let text = row_text(entry, title, model);
     div()
         .id(SharedString::from(format!("agents-panel-row-{key}")))
         .role(Role::TreeItem)
@@ -400,12 +416,14 @@ fn entry_row(
         .items_center()
         .gap(m.spacing3())
         .pl(m.spacing4())
-        .pr(m.spacing3())
+        .pr(m.spacing2())
         .rounded(m.radius_md())
-        .h(if compact {
-            m.control_medium()
-        } else {
-            m.control_large() + m.spacing2()
+        .map(|row| match density {
+            AgentsPanelDensity::Normal => row
+                .my(m.spacing1())
+                .h(super::tab_sidebar::row_height(model)),
+            AgentsPanelDensity::Detailed => row.h(m.control_large() + m.spacing2()),
+            AgentsPanelDensity::Compact => row.h(m.control_medium()),
         })
         .cursor_pointer()
         .when(active, |row| row.bg(theme.surface))
@@ -452,7 +470,9 @@ fn rows(
         .flex_col()
         .flex_1()
         .min_h(px(0.0))
-        .gap(m.spacing1())
+        .when(!model.agents_panel_headings(), |list| {
+            list.gap(m.spacing1())
+        })
         .px(inset)
         .pb(m.spacing2())
         .overflow_y_scroll()
@@ -472,7 +492,26 @@ fn rows(
             )
             .into_any_element();
     }
-    for entry in entries {
+    let headings = model.agents_panel_headings();
+    for (index, entry) in entries.iter().enumerate() {
+        if let Entry::Agent(agent) = entry
+            && headings
+            && starts_project_group(entries, index)
+        {
+            let project = agent.project;
+            list = list.child(
+                div()
+                    .h(m.control_medium())
+                    .my(m.spacing1())
+                    .pl(m.spacing4())
+                    .flex()
+                    .items_center()
+                    .child(
+                        super::tab_sidebar::group_label(model.agents_location(project), model)
+                            .debug_selector(move || format!("agents-panel-heading-{project}")),
+                    ),
+            );
+        }
         let is_active = active == Some(entry.key());
         let is_selected = selected == Some(entry.key());
         list = list.child(entry_row(entry, is_active, is_selected, model, cx));
