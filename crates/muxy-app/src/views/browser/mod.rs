@@ -163,8 +163,13 @@ impl BrowserView {
         let history = setup.profile.history().ok();
         let url = setup.url.unwrap_or_default().to_owned();
         Ok(cx.new(|cx| {
-            cx.on_release(|view: &mut Self, cx| view.clear_snapshot(cx))
-                .detach();
+            cx.on_release(|view: &mut Self, cx| {
+                // Something else may still hold the native browser for a
+                // moment; it must not stay on screen where it was last placed.
+                view.native.set_visible(false);
+                view.clear_snapshot(cx);
+            })
+            .detach();
             let address = cx.new(|cx| {
                 TextInput::new(InputStyle::compact(theme, &metrics), cx)
                     .with_placeholder_key(tr_key!("Search or enter address"))

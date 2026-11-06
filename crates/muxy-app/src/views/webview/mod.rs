@@ -570,6 +570,9 @@ fn render_snapshot(snapshot: muxy_ui::webview::Snapshot) -> Option<gpui::RenderI
 impl Drop for Webview {
     fn drop(&mut self) {
         self.fail_closes();
+        // Something else may still hold the native page for a moment; it
+        // must not stay on screen where it was last placed.
+        self.native.set_visible(false);
     }
 }
 
