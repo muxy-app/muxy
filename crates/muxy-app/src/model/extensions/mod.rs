@@ -254,10 +254,7 @@ impl AppModel {
                     let install = model.extensions.next_install;
                     model.extensions.clients.insert(server, client.clone());
                     model.extensions.connection_installs.insert(server, install);
-                    model.sync_extension_events(cx);
-                    model.resume_remote(server, cx);
-                    model.check_remote_projects(server, cx);
-                    model.sync_project_icons(cx);
+                    model.extension_connected(server, cx);
                     Some(install)
                 })
                 .ok()
@@ -298,6 +295,13 @@ impl AppModel {
             }
         })
         .detach();
+    }
+
+    fn extension_connected(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        self.sync_extension_events(cx);
+        self.resume_remote(server, cx);
+        self.check_remote_projects(server, cx);
+        self.sync_project_icons(cx);
     }
 
     /// Closes `server`'s extension connection. Its file watches end with it.
