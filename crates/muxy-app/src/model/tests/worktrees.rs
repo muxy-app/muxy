@@ -20,7 +20,7 @@ const SWITCH_WORKTREE: &str = if cfg!(target_os = "macos") {
 pub(super) struct Sent(std::sync::mpsc::Receiver<(u64, Work)>, Vec<Work>);
 
 impl Sent {
-    fn take(&mut self) -> &[Work] {
+    pub(super) fn take(&mut self) -> &[Work] {
         let start = self.1.len();
         self.1.extend(self.0.try_iter().map(|(_, work)| work));
         &self.1[start..]

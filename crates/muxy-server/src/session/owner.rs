@@ -88,6 +88,9 @@ struct Owner {
     next_detection: Instant,
     detection_screen: String,
     detection_progress: String,
+    /// The terminal title an agent with tabs last set, which changes when it
+    /// shows another tab.
+    tab_title: String,
     /// The foreground process group when the program status last changed.
     program_group: Option<u32>,
     program_reports: u64,
@@ -177,6 +180,7 @@ pub(crate) fn start(
                 next_detection: Instant::now(),
                 detection_screen: String::new(),
                 detection_progress: String::new(),
+                tab_title: String::new(),
                 program_group: None,
                 program_reports: 0,
                 seen_reports: 0,
@@ -755,6 +759,7 @@ impl Owner {
         if now >= self.next_detection {
             self.next_detection = now + METADATA_POLL;
             self.seen_reports = self.terminal.program_reports();
+            self.track_agent_tabs(agent);
             if let Some(agent) = agent {
                 let completed = if let Some(status) = status {
                     self.detector.report(agent, status.state)
@@ -768,6 +773,7 @@ impl Owner {
                             project: self.info.project,
                             provider,
                             state: self.detector.state,
+                            title: None,
                         },
                         completed,
                     );
@@ -809,13 +815,39 @@ impl Owner {
             }
             self.detection_dirty = false;
         }
-        self.detector.update(
+        self.detector.update_with_background(
             Some(agent),
             self.detection_screen.clone(),
             &self.metadata.title,
             &self.detection_progress,
+            self.activity.agent_tab_busy(self.info.id),
             now,
         )
+    }
+
+    /// Tells the activity what an agent with tabs shows, so the server can
+    /// match it to its tab, and forgets work begun on another tab.
+    fn track_agent_tabs(&mut self, agent: Option<muxy_protocol::AgentProvider>) {
+        let Some(provider) = agent.filter(|agent| crate::agent_tabs::supported(*agent)) else {
+            self.tab_title.clear();
+            self.activity.leave_agent_tabs(self.info.id);
+            return;
+        };
+        if self.tab_title != self.metadata.title {
+            if !self.tab_title.is_empty() {
+                self.detector.forget_cycle();
+            }
+            self.tab_title.clone_from(&self.metadata.title);
+        }
+        self.activity.observe_agent_tabs(
+            self.info.id,
+            crate::agent_tabs::Pane {
+                provider,
+                project: self.info.project,
+                directory: String::from_utf8_lossy(&self.metadata.directory.0).into_owned(),
+                title: self.metadata.title.clone(),
+            },
+        );
     }
 
     fn broadcast_frame(&mut self, resized: Option<AttachmentId>) -> Result<(), Fault> {
