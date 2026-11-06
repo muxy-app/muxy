@@ -154,6 +154,11 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<image::RgbaImage, String> {
     limits.max_alloc = Some(MAX_DECODED);
     reader.limits(limits);
     let mut decoder = reader.into_decoder().map_err(|_| unsupported())?;
+    let (width, height) = decoder.dimensions();
+    if decoder.total_bytes() > MAX_DECODED || u64::from(width) * u64::from(height) > MAX_DECODED / 4
+    {
+        return Err(unsupported());
+    }
     let orientation = decoder.orientation().map_err(|error| error.to_string())?;
     let mut image =
         image::DynamicImage::from_decoder(decoder).map_err(|error| error.to_string())?;
@@ -717,6 +722,31 @@ fn apply_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElemen
 #[cfg(test)]
 mod tests {
     use super::{load, rasterize_svg};
+
+    #[test]
+    fn decode_rejects_oversized_pixel_buffers_before_decoding() {
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(4, 4, image::Rgb([255, 0, 0]))
+            .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+            .expect("jpeg fixture");
+        let original = jpeg.into_inner();
+        let frame = original
+            .windows(2)
+            .position(|bytes| bytes == [0xff, 0xc0])
+            .expect("frame header");
+        for (width, height) in [(8192_u16, 8192_u16), (4096, 4097)] {
+            let mut bytes = original.clone();
+            bytes[frame + 5..frame + 7].copy_from_slice(&height.to_be_bytes());
+            bytes[frame + 7..frame + 9].copy_from_slice(&width.to_be_bytes());
+            let dimensions = image::ImageReader::new(std::io::Cursor::new(&bytes))
+                .with_guessed_format()
+                .expect("format")
+                .into_dimensions()
+                .expect("dimensions");
+            assert_eq!(dimensions, (u32::from(width), u32::from(height)));
+            assert_eq!(super::decode(&bytes), Err(super::unsupported()));
+        }
+    }
 
     #[test]
     fn load_draws_svg_bounded_whatever_size_it_declares() {
