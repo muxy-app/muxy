@@ -4831,10 +4831,12 @@ dependencies = [
 name = "muxy-terminal"
 version = "2.0.0-beta-0"
 dependencies = [
+ "base64 0.22.1",
  "image",
  "libghostty-vt",
  "muxy-protocol",
  "portable-pty",
+ "tempfile",
 ]
 
 [[package]]

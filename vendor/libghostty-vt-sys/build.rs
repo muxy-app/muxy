@@ -108,6 +108,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=patch.rs");
     println!("cargo:rerun-if-changed=patches/clear-screen.patch");
+    println!("cargo:rerun-if-changed=patches/kitty-image-file.patch");
 
     // An explicit source override should stay authoritative even when the
     // pkg-config feature is enabled, so local Ghostty checkouts remain easy to

@@ -119,5 +119,10 @@ Themes are in **Settings → Appearance**. See
 
 - `Cmd+=` and `Cmd+-` change the focused pane's font size. `Cmd+0` resets it.
 - `Option` acts as `Alt` by default (configurable in Terminal settings).
-- Images use the Kitty graphics protocol. Sixel and iTerm2 images are not
-  supported.
+- Programs can show images with the Kitty graphics protocol, Sixel, or iTerm2
+  inline images. Kitty images can also be passed as a file, a temporary file,
+  or shared memory, by programs on the computer that runs the terminal. Muxy
+  reads only regular files. As in Kitty and Ghostty, it deletes a temporary
+  file or shared memory once it has read the image. Kitty's PNG format also
+  accepts JPEG, GIF, WebP, BMP, TIFF and ICO files. Pictures over about a
+  million pixels are scaled down to fit.
