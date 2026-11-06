@@ -224,6 +224,11 @@ pub(super) fn rows(
     }
     for (toggle, label, value) in [
         (
+            AgentsPanelToggle::Grouped,
+            tr_key!("Group by project"),
+            appearance.agents_panel_grouped,
+        ),
+        (
             AgentsPanelToggle::ProjectColors,
             tr_key!("Show project colors"),
             appearance.agents_panel_project_colors,
@@ -234,9 +239,14 @@ pub(super) fn rows(
             appearance.agents_panel_idle_time,
         ),
     ] {
-        let redundant = matches!(toggle, AgentsPanelToggle::ProjectColors)
-            && appearance.agents_panel_icon == AgentsPanelIcon::Project;
-        if category == Category::Appearance && !redundant && pane.matches(category, label) {
+        let applies = match toggle {
+            AgentsPanelToggle::Grouped => {
+                appearance.agents_panel_grouping == AgentsPanelGrouping::Agents
+            }
+            AgentsPanelToggle::ProjectColors => appearance.agents_panel_colors_apply(),
+            AgentsPanelToggle::IdleTime => true,
+        };
+        if category == Category::Appearance && applies && pane.matches(category, label) {
             let id = toggle.id();
             rows.push(pane.row(
                 id,
@@ -438,20 +448,18 @@ fn agents_panel_density(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
             &tr!("Agents panel density"),
             &[
                 Choice::new("normal", tr!("Normal")),
-                Choice::new("detailed", tr!("Detailed")),
                 Choice::new("compact", tr!("Compact")),
             ],
             match appearance.agents_panel_density {
                 AgentsPanelDensity::Normal => "normal",
-                AgentsPanelDensity::Detailed => "detailed",
                 AgentsPanelDensity::Compact => "compact",
             },
             cx.listener(|_, selected: &gpui::SharedString, _, cx| {
                 cx.emit(SettingsEvent::Change(Change::AgentsPanelDensity(
-                    match selected.as_ref() {
-                        "detailed" => AgentsPanelDensity::Detailed,
-                        "compact" => AgentsPanelDensity::Compact,
-                        _ => AgentsPanelDensity::Normal,
+                    if selected.as_ref() == "compact" {
+                        AgentsPanelDensity::Compact
+                    } else {
+                        AgentsPanelDensity::Normal
                     },
                 )));
             }),

@@ -77,12 +77,10 @@ pub enum AgentsPanelIcon {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentsPanelDensity {
-    /// One line per agent, under a heading naming its project.
+    /// Two lines per agent: its title, then its agent and status.
     #[default]
     Normal,
-    /// Two lines per agent: its title, then its project, agent and status.
-    Detailed,
-    /// One short line per agent, naming its project only once.
+    /// One short line per agent, with its icon as its only mark.
     Compact,
 }
 
@@ -149,6 +147,7 @@ pub struct Appearance {
     pub agents_panel_frame: Option<[f32; 4]>,
     pub agents_panel_docked_height: Option<f32>,
     pub agents_panel_grouping: AgentsPanelGrouping,
+    pub agents_panel_grouped: bool,
     pub agents_panel_icon: AgentsPanelIcon,
     pub agents_panel_density: AgentsPanelDensity,
     pub agents_panel_project_colors: bool,
@@ -199,6 +198,7 @@ impl Default for Appearance {
             agents_panel_frame: None,
             agents_panel_docked_height: None,
             agents_panel_grouping: AgentsPanelGrouping::default(),
+            agents_panel_grouped: true,
             agents_panel_icon: AgentsPanelIcon::default(),
             agents_panel_density: AgentsPanelDensity::default(),
             agents_panel_project_colors: false,
@@ -219,6 +219,14 @@ impl Default for Appearance {
 }
 
 impl Appearance {
+    /// Whether agents panel rows can wear their project's color: beside
+    /// agent icons only, since a project icon already wears it, and not in
+    /// compact rows, whose icon is their only mark.
+    pub fn agents_panel_colors_apply(&self) -> bool {
+        self.agents_panel_icon == AgentsPanelIcon::Agent
+            && self.agents_panel_density == AgentsPanelDensity::Normal
+    }
+
     pub fn theme(&self, dark: bool) -> &str {
         if dark {
             &self.dark_theme

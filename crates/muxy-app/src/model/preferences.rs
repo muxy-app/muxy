@@ -89,6 +89,7 @@ impl WorktreeToggle {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum AgentsPanelToggle {
+    Grouped,
     ProjectColors,
     IdleTime,
 }
@@ -96,6 +97,7 @@ pub(crate) enum AgentsPanelToggle {
 impl AgentsPanelToggle {
     pub(crate) fn id(self) -> &'static str {
         match self {
+            Self::Grouped => "agents-panel-grouped",
             Self::ProjectColors => "agents-panel-project-colors",
             Self::IdleTime => "agents-panel-idle-time",
         }
@@ -551,6 +553,9 @@ impl AppModel {
             }
             Change::AgentsPanelOption(toggle, value) => {
                 match toggle {
+                    AgentsPanelToggle::Grouped => {
+                        settings.appearance.agents_panel_grouped = value;
+                    }
                     AgentsPanelToggle::ProjectColors => {
                         settings.appearance.agents_panel_project_colors = value;
                     }

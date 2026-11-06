@@ -463,8 +463,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         id: "agents-panel-density",
         label: tr_key!("Agents panel density"),
         description: tr_key!(
-            "List agents under their project's name, show each on two lines with its project, agent and status, or fit more on one line each."
+            "Show each agent on two lines with its agent and status, or fit more on one line each."
         ),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
+        id: "agents-panel-grouped",
+        label: tr_key!("Group by project"),
+        description: tr_key!("List agents under a heading naming their project."),
         category: Category::Appearance,
         section: tr_key!("Agents Panel"),
     },

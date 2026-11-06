@@ -1,5 +1,5 @@
 use gpui::{AppContext, Context, FocusHandle, Pixels, Point, Window, px};
-use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping};
+use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping};
 use muxy_app_core::{PaneContent, PaneId, ProjectId, ServerId, TabId};
 use muxy_protocol::{ActivityKind, AgentProvider, AgentState, SessionId};
 use muxy_ui::floating::{Edges, FloatingDrag, FloatingFrame, SizeLimits};
@@ -558,7 +558,8 @@ impl AppModel {
 
     /// Whether the panel puts a heading naming each project above its agents.
     pub(crate) fn agents_panel_headings(&self) -> bool {
-        self.appearance.agents_panel_density == AgentsPanelDensity::Normal
+        self.appearance.agents_panel_grouped
+            && self.appearance.agents_panel_grouping == AgentsPanelGrouping::Agents
     }
 
     pub(crate) fn focus_agents_panel(&mut self, window: &mut Window) {
