@@ -164,9 +164,7 @@ fn extend_vertical(runs: &[Run], cols: u16, palette: &Palette) -> bool {
             continue;
         }
         if palette.resolve(run.style.bg, palette.background) == palette.background
-            || run.text.chars().any(|character| {
-                matches!(character, '\u{e0b0}'..='\u{e0c8}' | '\u{e0ca}' | '\u{e0cc}'..='\u{e0d2}' | '\u{e0d4}')
-            })
+            || has_powerline(run)
         {
             return false;
         }
@@ -176,4 +174,133 @@ fn extend_vertical(runs: &[Run], cols: u16, palette: &Palette) -> bool {
         }
     }
     false
+}
+
+fn has_powerline(run: &Run) -> bool {
+    run.text.chars().any(|character| {
+        matches!(character, '\u{e0b0}'..='\u{e0c8}' | '\u{e0ca}' | '\u{e0cc}'..='\u{e0d2}' | '\u{e0d4}')
+    })
+}
+
+/// The background a full-screen program paints its screen in: the one most of
+/// its rows start and end in, when that isn't the terminal's own. Edges, not
+/// area, because panels and messages can cover most of an app's middle.
+pub(super) fn screen_background<'a>(
+    rows: impl IntoIterator<Item = &'a [Run]>,
+    size: Size,
+    palette: &Palette,
+) -> Option<u32> {
+    let mut edges: Vec<(u32, u32)> = Vec::new();
+    let mut samples = 0_u32;
+    for runs in rows.into_iter().take(usize::from(size.rows)) {
+        for column in [0, size.cols.saturating_sub(1)] {
+            let color = background_at(runs, column, palette);
+            match edges.iter_mut().find(|(candidate, _)| *candidate == color) {
+                Some((_, count)) => *count += 1,
+                None => edges.push((color, 1)),
+            }
+            samples += 1;
+        }
+    }
+    edges
+        .into_iter()
+        .find(|&(color, count)| count * 2 > samples && color != palette.background)
+        .map(|(color, _)| color)
+}
+
+fn background_at(runs: &[Run], column: u16, palette: &Palette) -> u32 {
+    let mut start = 0_u16;
+    for run in runs {
+        let end = start.saturating_add(run.width);
+        if column < end {
+            return palette.style(run.style).1;
+        }
+        start = end;
+    }
+    palette.background
+}
+
+#[cfg(test)]
+mod tests {
+    use muxy_protocol::{Color, Style};
+
+    use super::*;
+
+    fn run(text: &str, style: Style) -> Run {
+        Run {
+            text: text.into(),
+            width: u16::try_from(text.chars().count()).unwrap_or(u16::MAX),
+            style,
+        }
+    }
+
+    fn on(bg: Color) -> Style {
+        Style {
+            bg,
+            ..Style::default()
+        }
+    }
+
+    fn background(rows: &[Vec<Run>], cols: u16) -> Option<u32> {
+        let size = Size {
+            cols,
+            rows: u16::try_from(rows.len()).unwrap_or(u16::MAX),
+        };
+        screen_background(rows.iter().map(Vec::as_slice), size, &Palette::new(true))
+    }
+
+    #[test]
+    fn a_full_screen_app_gives_the_color_its_rows_start_and_end_in() {
+        let main = on(Color::Rgb(0x26, 0x26, 0x24));
+        let panel = on(Color::Rgb(0x1e, 0x1e, 0x1e));
+        let rows = [
+            vec![run(" ", main), run(" Greeting     ", panel), run(" ", main)],
+            vec![run(" ", main), run("  Hi! a long  ", panel), run(" ", main)],
+            vec![run(" ", main), run("  message box ", panel), run(" ", main)],
+            vec![run("                ", main)],
+        ];
+        assert_eq!(background(&rows, 16), Some(0x26_26_24));
+    }
+
+    #[test]
+    fn inverse_text_counts_its_foreground_as_the_background() {
+        let inverse = Style {
+            fg: Color::Rgb(0xaa, 0xbb, 0xcc),
+            inverse: true,
+            ..Style::default()
+        };
+        assert_eq!(background(&[vec![run("  ", inverse)]], 2), Some(0xaa_bb_cc));
+        assert_eq!(
+            background(&[vec![run("    ", on(Color::Indexed(4)))]], 4),
+            Some(Palette::new(true).indexed(4))
+        );
+    }
+
+    #[test]
+    fn a_screen_whose_edges_are_the_terminal_background_keeps_it() {
+        let blue = on(Color::Rgb(0x10, 0x20, 0x30));
+        let red = on(Color::Rgb(0x90, 0x10, 0x10));
+        for rows in [
+            vec![vec![run("$ ls", Style::default())], Vec::new()],
+            vec![vec![run("    ", blue)], Vec::new()],
+            vec![vec![run("  ", blue), run("  ", Style::default())]],
+            vec![vec![run("  ", blue), run("  ", red)]],
+            vec![vec![
+                run(" ", Style::default()),
+                run("  ", blue),
+                run(" ", Style::default()),
+            ]],
+            Vec::new(),
+        ] {
+            assert_eq!(background(&rows, 4), None, "{rows:?}");
+        }
+    }
+
+    #[test]
+    fn runs_wider_than_the_screen_count_only_what_shows() {
+        let blue = on(Color::Rgb(0x10, 0x20, 0x30));
+        let red = on(Color::Rgb(0x90, 0x10, 0x10));
+        let rows = [vec![run("  ", blue), run("  ", red)]];
+        assert_eq!(background(&rows, 2), Some(0x10_20_30));
+    }
 }

@@ -167,6 +167,19 @@
       delete: (paths, o) => dispatch('files.delete', { project: filesProject(o), paths: (paths || []).map(String) }),
     };
   }
+  const panelArgs = (panelID, extra) => {
+    const payload = { panelID: text(panelID) };
+    for (const [key, value] of Object.entries(extra)) if (value !== undefined) payload[key] = value;
+    return payload;
+  };
+  const instanceOf = instance => (instance == null ? undefined : String(instance));
+  muxy.panels = {
+    open: (panelID, data, options) => dispatch('panels.open', panelArgs(panelID, { data, options: options ?? undefined })),
+    toggle: (panelID, data, options) => dispatch('panels.toggle', panelArgs(panelID, { data, options: options ?? undefined })),
+    close: (panelID, instance) => dispatch('panels.close', panelArgs(panelID, { instance: instanceOf(instance) })),
+    update: (panelID, options, instance) => dispatch('panels.update', panelArgs(panelID, { options: options || {}, instance: instanceOf(instance) })),
+    list: () => dispatch('panels.list', {}),
+  };
   muxy.agents = { list: () => dispatch('agents.list', {}) };
   muxy.gh = { user: () => dispatch('gh.user', {}) };
   const gitProject = o => (o && o.project != null ? String(o.project) : null);

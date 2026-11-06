@@ -287,7 +287,6 @@ impl AppModel {
             .into_iter()
             .filter_map(|tab| self.tab(tab)?.zoomed)
             .collect();
-        let split = self.visible_panes().len() > 1;
         let coverage = self.coverage();
         if coverage.modal() {
             self.split_resize.end();
@@ -298,15 +297,15 @@ impl AppModel {
             }
             pane.view.update(cx, |pane, cx| {
                 pane.set_focused(Some(*id) == active, cx);
-                let border = (pane.focused && split).then_some(self.theme.accent);
                 let radius = if zoomed.contains(id) {
                     (self.metrics.radius_lg() - px(1.0)).max(px(0.0))
                 } else {
                     px(0.0)
                 };
-                if pane.focus_border != border || pane.corner_radius != radius {
-                    pane.focus_border = border;
+                let below_header = self.appearance.pane_headers;
+                if pane.corner_radius != radius || pane.below_header != below_header {
                     pane.corner_radius = radius;
+                    pane.below_header = below_header;
                     cx.notify();
                 }
                 pane.set_native_visible(!coverage.hides_terminal_scroll(), cx);
@@ -357,6 +356,7 @@ impl Render for AppModel {
         let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceRender);
         self.metrics.apply_to_window(window);
         self.sync_traffic_lights(window);
+        self.sync_floating_stack();
         {
             let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceSyncWebviews);
             self.sync_webviews(window, cx);
@@ -441,7 +441,7 @@ impl Render for AppModel {
             .child(self.floating_composer(window, cx))
             .children(super::tips::toast(self, window, cx))
             .children(super::banners::render(self, window, cx))
-            .children(super::agents_panel::floating(self, window, cx))
+            .child(super::floating::layer(self, window, cx))
             .when(
                 self.settings_picker_open() && self.overlay.is_none(),
                 |body| {

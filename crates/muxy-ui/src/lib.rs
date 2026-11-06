@@ -22,6 +22,7 @@ pub mod dialog;
 mod dialog_types;
 #[cfg(target_os = "linux")]
 pub mod file_manager;
+pub mod floating;
 pub mod font;
 pub mod form;
 pub mod icon;

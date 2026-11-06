@@ -475,6 +475,8 @@
 "Closed" = "Closed";
 "Closed PR #%lld" = "Closed PR #%lld";
 "Closed pane cleanup is pending: %@" = "Closed pane cleanup is pending: %@";
+"Closes only the focused split pane. Closing a tab's last pane closes the tab." = "Closes only the focused split pane. Closing a tab's last pane closes the tab.";
+"Closes the whole tab, including every split pane inside it." = "Closes the whole tab, including every split pane inside it.";
 "Closing PR #%lld" = "Closing PR #%lld";
 "Closing terminals" = "Closing terminals";
 "Cloud" = "Cloud";
@@ -623,6 +625,7 @@
 "Could not save tabs" = "Could not save tabs";
 "Could not save tabs: %@" = "Could not save tabs: %@";
 "Could not save the default app: %@" = "Could not save the default app: %@";
+"Could not save the panel layout: %@" = "Could not save the panel layout: %@";
 "Could not save the update schedule: %@" = "Could not save the update schedule: %@";
 "Could not save theme: %@" = "Could not save theme: %@";
 "Could not send %@ to %@: %@" = "Could not send %@ to %@: %@";
@@ -1380,6 +1383,7 @@
 "Play Rectangle" = "Play Rectangle";
 "Play Rectangle Fill" = "Play Rectangle Fill";
 "Points to change the font size by, such as 1." = "Points to change the font size by, such as 1.";
+"Pop Out Panel" = "Pop Out Panel";
 "Port" = "Port";
 "Press %@ for the agents panel, with every running agent in one list." = "Press %@ for the agents panel, with every running agent in one list.";
 "Press %@ to give a branch its own tabs and terminals." = "Press %@ to give a branch its own tabs and terminals.";
@@ -1701,10 +1705,12 @@
 "Show connection and terminal information at the bottom of the workspace." = "Show connection and terminal information at the bottom of the workspace.";
 "Show each agent on two lines with its project, agent and status, or fit more on one line each." = "Show each agent on two lines with its project, agent and status, or fit more on one line each.";
 "Show each agent's icon, or the icon of the project it runs in." = "Show each agent's icon, or the icon of the project it runs in.";
+"Show each pane's icon, title and actions above it, in the color of what it shows." = "Show each pane's icon, title and actions above it, in the color of what it shows.";
 "Show how long ago each completed or idle agent finished working." = "Show how long ago each completed or idle agent finished working.";
 "Show idle time" = "Show idle time";
 "Show in File Manager" = "Show in File Manager";
 "Show or hide the sidebar" = "Show or hide the sidebar";
+"Show pane headers" = "Show pane headers";
 "Show project colors" = "Show project colors";
 "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed." = "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed.";
 "Show project names alongside their icons in the workspace sidebar." = "Show project names alongside their icons in the workspace sidebar.";

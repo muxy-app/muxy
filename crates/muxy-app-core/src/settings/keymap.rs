@@ -149,6 +149,9 @@ impl Keymap {
             overrides.insert(id.into(), chord.to_string());
         } else {
             overrides.remove(id);
+            if let Some(other) = self.swapped_with(id) {
+                overrides.remove(&other);
+            }
         }
         let resolved = Self::from_overrides(overrides)?;
         if reset && !extension_action(id) && resolved.binding(id) != Self::default().binding(id) {
@@ -160,6 +163,23 @@ impl Keymap {
         Ok(resolved)
     }
 
+    /// The action that holds `id`'s default key while `id` holds its default
+    /// key. Neither could be reset alone, so resetting one resets both.
+    fn swapped_with(&self, id: &str) -> Option<String> {
+        let defaults = Self::default();
+        let default = defaults.binding(id)?;
+        let current = self.binding(id)?;
+        self.1
+            .keys()
+            .find(|other| {
+                other.as_str() != id
+                    && self.binding(other) == Some(default)
+                    && defaults.binding(other) == Some(current)
+                    && same_scope(id, other)
+            })
+            .cloned()
+    }
+
     pub fn save(&self, path: &std::path::Path) -> Result<()> {
         crate::settings::appearance::replace_section(path, "keymap", &self.1)
             .map_err(|error| Error::new("keymap", error))
@@ -167,6 +187,26 @@ impl Keymap {
 
     pub(crate) fn overrides(&self) -> &BTreeMap<String, String> {
         &self.1
+    }
+
+    /// Muxy 1.x closed a tab with ⌘W and a pane with ⇧⌘W, and importing it
+    /// kept those keys. Puts both actions back on their defaults in a settings
+    /// file that binds either one to the other's default key. Returns whether
+    /// the file changed; one that would no longer load is left alone.
+    pub fn reset_swapped_close_shortcuts(path: &std::path::Path) -> Result<bool> {
+        let error = |error| Error::new("keymap", error);
+        let document = crate::settings::appearance::read_document(path).map_err(error)?;
+        if close_shortcuts_reset(&document).is_none() {
+            return Ok(false);
+        }
+        crate::settings::appearance::edit_document(path, |document| {
+            let Some(keymap) = close_shortcuts_reset(document) else {
+                return Ok(false);
+            };
+            document.insert("keymap".into(), toml::Value::Table(keymap));
+            Ok(true)
+        })
+        .map_err(error)
     }
 
     fn from_overrides(mut overrides: BTreeMap<String, String>) -> Result<Self> {
@@ -282,6 +322,35 @@ const FORMER_LINUX_DEFAULTS: [(&str, &str); 2] = [
     ("new_worktree", "cmd-alt-n"),
     ("switch_worktree", "cmd-alt-w"),
 ];
+
+/// The `[keymap]` table without the close tab and close pane overrides, when
+/// either holds the other's default key and the result still loads.
+fn close_shortcuts_reset(document: &toml::Table) -> Option<toml::Table> {
+    let keymap = document.get("keymap")?.as_table()?;
+    let defaults = Keymap::default();
+    let pairs = [
+        (ShortcutId::CloseTab, ShortcutId::ClosePane),
+        (ShortcutId::ClosePane, ShortcutId::CloseTab),
+    ];
+    let swapped = pairs.iter().any(|(action, other)| {
+        keymap
+            .get(action.name())
+            .and_then(toml::Value::as_str)
+            .and_then(|value| value.parse::<KeyChord>().ok())
+            .is_some_and(|chord| defaults.chord(*other) == Some(&chord))
+    });
+    if !swapped {
+        return None;
+    }
+    let mut reset = keymap.clone();
+    for (action, _) in pairs {
+        reset.remove(action.name());
+    }
+    toml::Value::Table(reset.clone())
+        .try_into::<Keymap>()
+        .is_ok()
+        .then_some(reset)
+}
 
 fn former_linux_default(name: &str, value: &str) -> bool {
     !cfg!(target_os = "macos") && FORMER_LINUX_DEFAULTS.contains(&(name, value))

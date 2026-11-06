@@ -17,6 +17,15 @@ quit the app, and every app shows the same screen and history.
 | Next / previous tab | `Cmd+]` / `Cmd+[` |
 | Go to tab 1–9 | `Cmd+1`–`Cmd+9` |
 
+- Every terminal pane has a header with its icon (an agent's own icon while one
+  runs there) and title. The focused pane, or the one under the pointer, shows
+  buttons there to split it right or down, detach it, maximize it, or close it.
+  Drag a pane by its title to move it, as with `Cmd`-drag.
+  A terminal's header takes the background a full-screen app paints its screen
+  in, so it blends with the app. Turn headers off with **Settings → Appearance
+  → Show pane headers**.
+- Panes that aren't focused are dimmed, and the focused pane's tab is
+  underlined.
 - New panes open in the project folder. Set **Settings → Terminal → New pane
   directory** to open them in the current pane's folder instead.
 - Drag dividers to resize, or even them out with **Equalize Splits**

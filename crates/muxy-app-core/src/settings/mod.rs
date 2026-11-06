@@ -33,7 +33,7 @@ pub use commands::CustomCommand;
 pub use composer::{ComposerPosition, ComposerPresentation, ComposerSettings};
 pub use config::{
     ClipboardSettings, CloseBehavior, CommitChoices, NewPaneDirectory, OpenerSettings,
-    PaneSettings, ProjectSettings, Settings, WindowSettings,
+    PaneSettings, PanelLayout, ProjectSettings, Settings, WindowSettings,
 };
 pub use error::{Error, Result};
 pub use ghostty::{

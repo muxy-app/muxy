@@ -123,6 +123,11 @@ This is separate from the running-agents panel.
 - Drag the left edge to resize. The panel shares the right-panel area with
   Agents, extension panels, and the panel-mode composer; opening one replaces
   the other.
+- **Pop Out Panel** in its header floats it over the workspace instead, beside
+  any docked panel and other floating panels. Drag its header to move it and
+  any edge or corner to resize it; **Dock Panel** puts it back. The choice and
+  where it floats are remembered. Clicking a floating panel brings it to the
+  front.
 - History refreshes on opening the panel or switching projects. Large histories
   load automatically in bounded batches across providers; keep browsing while
   loading completes. Use **Refresh sessions** to pick up later changes.

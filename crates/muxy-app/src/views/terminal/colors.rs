@@ -167,6 +167,20 @@ impl Palette {
     }
 }
 
+/// Whichever of `candidates` stands out most against `background`.
+pub(crate) fn readable_on(background: u32, candidates: [u32; 2]) -> u32 {
+    let luma = |color: u32| {
+        let [_, r, g, b] = color.to_be_bytes();
+        u32::from(r) * 299 + u32::from(g) * 587 + u32::from(b) * 114
+    };
+    let [first, second] = candidates;
+    if luma(first).abs_diff(luma(background)) >= luma(second).abs_diff(luma(background)) {
+        first
+    } else {
+        second
+    }
+}
+
 const fn default_colors(ansi: [u32; 16]) -> [u32; 256] {
     let mut colors = [0; 256];
     let mut index = 0;
@@ -193,4 +207,17 @@ const fn default_colors(ansi: [u32; 16]) -> [u32; 256] {
         index += 1;
     }
     colors
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn readable_text_is_whichever_candidate_stands_out_more() {
+        let candidates = [0xee_ee_ee, 0x11_11_11];
+        assert_eq!(readable_on(0x10_10_10, candidates), 0xee_ee_ee);
+        assert_eq!(readable_on(0xf0_f0_f0, candidates), 0x11_11_11);
+        assert_eq!(readable_on(0x20_60_e0, candidates), 0xee_ee_ee);
+    }
 }

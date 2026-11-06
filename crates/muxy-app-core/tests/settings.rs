@@ -400,6 +400,24 @@ fn a_command_cannot_be_unbound_while_another_claims_its_default_key() -> Result 
 }
 
 #[test]
+fn resetting_either_of_two_swapped_shortcuts_resets_both() -> Result {
+    let tab = ShortcutId::CloseTab.definition().keys[0];
+    let pane = ShortcutId::ClosePane.definition().keys[0];
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        &format!("[keymap]\nclose_tab = '{pane}'\nclose_pane = '{tab}'\nnew_tab = 'cmd-alt-n'\n"),
+    )?;
+    let swapped = Settings::load(&path)?.keymap;
+    let mut expected = Keymap::default();
+    expected = expected.with_binding("new_tab", Some("cmd-alt-n".parse()?))?;
+    for id in ["close_tab", "close_pane"] {
+        assert_eq!(swapped.with_binding(id, None)?, expected);
+    }
+    Ok(())
+}
+
+#[test]
 fn ghostty_terminal_options_bindings_and_diagnostics_migrate() -> Result {
     use muxy_app_core::settings::{TerminalAction, TerminalColor};
     let fixture = Fixture::new()?;
@@ -939,5 +957,77 @@ fn finishing_the_welcome_tour_is_saved_beside_other_appearance_settings() -> Res
     let saved = Appearance::load(&path)?;
     assert!(saved.onboarding_completed);
     assert!(!saved.tips_visible);
+    Ok(())
+}
+
+#[test]
+fn a_panel_layout_round_trips_and_a_broken_frame_keeps_the_pop_out_choice() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "")?;
+    let mut settings = Settings::load(&path)?;
+    let layout = muxy_app_core::settings::PanelLayout {
+        detached: Some(true),
+        frame: Some([10.0, 20.0, 300.0, 200.0]),
+    };
+    settings.set_panel_layout("notes-ext", "note", layout, &path)?;
+    let saved = Settings::load(&path)?;
+    assert_eq!(saved.panel_layout("notes-ext", "note"), layout);
+    assert_eq!(
+        saved.panel_layout("notes-ext", "other"),
+        muxy_app_core::settings::PanelLayout::default()
+    );
+    let broken = fixture.write(
+        "broken.toml",
+        "[panel_layouts.notes-ext.note]\ndetached = true\nframe = [nan, 1.0, 2.0, 3.0]\n",
+    )?;
+    let broken = Settings::load(&broken)?;
+    assert_eq!(
+        broken.panel_layout("notes-ext", "note"),
+        muxy_app_core::settings::PanelLayout {
+            detached: Some(true),
+            frame: None,
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn close_tab_and_close_pane_swapped_by_a_one_x_import_return_to_their_defaults() -> Result {
+    let fixture = Fixture::new()?;
+    let pane = ShortcutId::ClosePane.definition().keys[0];
+    let tab = ShortcutId::CloseTab.definition().keys[0];
+    let path = fixture.write(
+        "settings.toml",
+        &format!("[keymap]\nclose_tab = '{pane}'\nclose_pane = '{tab}'\nnew_tab = 'cmd-alt-n'\n"),
+    )?;
+    assert!(Keymap::reset_swapped_close_shortcuts(&path)?);
+    let keymap = Settings::load(&path)?.keymap;
+    let defaults = Keymap::default();
+    assert_eq!(
+        keymap.chord(ShortcutId::ClosePane),
+        defaults.chord(ShortcutId::ClosePane)
+    );
+    assert_eq!(
+        keymap.chord(ShortcutId::CloseTab),
+        defaults.chord(ShortcutId::CloseTab)
+    );
+    assert_eq!(
+        keymap.binding("new_tab").map(KeyChord::as_str),
+        Some("cmd-alt-n")
+    );
+    assert!(!Keymap::reset_swapped_close_shortcuts(&path)?);
+    Ok(())
+}
+
+#[test]
+fn chosen_close_shortcuts_and_missing_files_are_left_alone() -> Result {
+    let fixture = Fixture::new()?;
+    let source = "[keymap]\nclose_tab = 'cmd-alt-w'\n";
+    let path = fixture.write("settings.toml", source)?;
+    assert!(!Keymap::reset_swapped_close_shortcuts(&path)?);
+    assert_eq!(fs::read_to_string(&path)?, source);
+    let missing = fixture.0.join("missing.toml");
+    assert!(!Keymap::reset_swapped_close_shortcuts(&missing)?);
+    assert!(!missing.exists());
     Ok(())
 }

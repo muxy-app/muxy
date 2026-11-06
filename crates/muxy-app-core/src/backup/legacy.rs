@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use muxy_core::quick_terminal::keys;
 use serde_json::{Map, Value};
 
 use super::{ImportReport, Result, ServerSettings, settings_source};
@@ -193,11 +194,28 @@ fn action_id(old: &str) -> String {
 }
 
 fn chord(value: &Value) -> Result<KeyChord> {
-    let combo: muxy_core::quick_terminal::keys::KeyCombo = serde_json::from_value(value.clone())?;
+    let combo: keys::KeyCombo = serde_json::from_value(value.clone())?;
     Ok(combo
         .keystroke()
         .ok_or("Shortcut is not supported")?
         .parse()?)
+}
+
+/// 1.x defaults that 2.x swapped: 1.x closed a tab with ⌘W and a pane with
+/// ⇧⌘W. A binding still on one of them takes the 2.x default instead.
+const SWAPPED_DEFAULTS: [(&str, u64); 2] = [
+    ("closeTab", keys::COMMAND),
+    ("closePane", keys::COMMAND | keys::SHIFT),
+];
+
+fn swapped_default(action: &str, value: &Value) -> bool {
+    let Ok(combo) = serde_json::from_value::<keys::KeyCombo>(value.clone()) else {
+        return false;
+    };
+    SWAPPED_DEFAULTS.iter().any(|(old, modifiers)| {
+        *old == action
+            && combo.canonicalized() == keys::KeyCombo::new("w", *modifiers).canonicalized()
+    })
 }
 
 fn import_bindings(
@@ -212,6 +230,10 @@ fn import_bindings(
         let id = action_id(action);
         if muxy_core::shortcuts::find(&id).is_none() {
             report.skipped.push(format!("shortcuts.app.{action}"));
+            continue;
+        }
+        if swapped_default(action, value) {
+            imported.push(action);
             continue;
         }
         match chord(value) {

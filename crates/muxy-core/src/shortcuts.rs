@@ -19,6 +19,19 @@ impl Shortcut {
         self.id.replace(['_', '.'], " ")
     }
 
+    /// What Settings shows under the name, where the name alone is unclear.
+    pub fn description(&self) -> Option<&'static str> {
+        match self.id {
+            "close_pane" => Some(crate::tr_key!(
+                "Closes only the focused split pane. Closing a tab's last pane closes the tab."
+            )),
+            "close_tab" => Some(crate::tr_key!(
+                "Closes the whole tab, including every split pane inside it."
+            )),
+            _ => None,
+        }
+    }
+
     /// The feature whose backend the shortcut's command needs.
     pub fn feature(&self) -> Option<Feature> {
         FEATURES

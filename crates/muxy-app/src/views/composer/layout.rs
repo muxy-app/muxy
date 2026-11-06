@@ -184,6 +184,7 @@ impl Composer {
                                 };
                         }
                         PanelControl::Mode(_) => view.settings.pinned = !view.settings.pinned,
+                        PanelControl::Detach(_) => return,
                     }
                     view.preferences(cx);
                 });

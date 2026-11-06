@@ -15,7 +15,7 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 use crate::model::agents_panel::{
-    AgentStatus, Drag, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, Placement, RunningAgent,
+    AgentStatus, Drag, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, PANEL, Placement, RunningAgent,
 };
 use crate::views::overlays::{Mark, OverlayView};
 
@@ -1142,6 +1142,7 @@ fn drag_tracker(cx: &mut Context<AppModel>) -> AnyElement {
     .into_any_element()
 }
 
+/// The detached agents panel's card, for the floating layer.
 pub(crate) fn floating(
     model: &AppModel,
     window: &Window,
@@ -1155,7 +1156,6 @@ pub(crate) fn floating(
     let m = model.metrics;
     let theme = &model.theme;
     let [x, y, width, height] = model.agents_panel_frame(window.viewport_size());
-    let dragging = model.agents_panel.drag.is_some();
     let panel = div()
         .group(FLOATING_GROUP)
         .absolute()
@@ -1171,6 +1171,9 @@ pub(crate) fn floating(
         .bg(theme.raised())
         .shadow_lg()
         .occlude()
+        .capture_any_mouse_down(cx.listener(|model, _, _, cx| {
+            model.raise_floating(&muxy_ui::panel::PanelId::new(PANEL), cx);
+        }))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(body(Placement::Floating, model, window, cx).flex_1())
         .child(resize_handle(
@@ -1192,16 +1195,7 @@ pub(crate) fn floating(
             cx,
         ))
         .child(model.webview_occlusion_except(Some(model.agents_panel.owner.entity_id())));
-    Some(
-        div()
-            .absolute()
-            .inset_0()
-            .when(dragging, |layer| {
-                layer.child(div().absolute().inset_0().occlude())
-            })
-            .child(panel)
-            .into_any_element(),
-    )
+    Some(panel.into_any_element())
 }
 
 #[cfg(test)]

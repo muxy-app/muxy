@@ -61,6 +61,8 @@ struct PaneDrag {
     pane: PaneId,
     origin: Point<Pixels>,
     active: bool,
+    /// Started from the pane header's handle rather than with Command held.
+    handle: bool,
     layout: Layout,
     geometry: (Bounds<Pixels>, f32),
     position: Point<Pixels>,
@@ -204,16 +206,53 @@ impl AppModel {
         else {
             return;
         };
-        let Some(descriptor) = self
-            .tab(tab)
-            .filter(|tab| tab.zoomed.is_none() && tab.panes.len() > 1)
-        else {
+        let Some(descriptor) = self.tab(tab) else {
             return;
         };
         let Some((pane, _)) = hit(
             &pane_rects(&descriptor.layout, bounds, scale),
             event.position,
         ) else {
+            return;
+        };
+        self.start_pane_drag(pane, event.position, false, window, cx);
+    }
+
+    /// Starts moving `pane` from its header's handle, without Command held.
+    pub(crate) fn begin_pane_handle_drag(
+        &mut self,
+        pane: PaneId,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.button == MouseButton::Left && !self.drag_blocked() {
+            self.start_pane_drag(pane, event.position, true, window, cx);
+        }
+    }
+
+    fn start_pane_drag(
+        &mut self,
+        pane: PaneId,
+        position: Point<Pixels>,
+        handle: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self
+            .state
+            .pane_tab(pane)
+            .filter(|tab| self.visible_tabs().contains(tab))
+        else {
+            return;
+        };
+        let Some(geometry) = self.layout_drag.geometry.get(tab) else {
+            return;
+        };
+        let Some(descriptor) = self
+            .tab(tab)
+            .filter(|tab| tab.zoomed.is_none() && tab.panes.len() > 1)
+        else {
             return;
         };
         let layout = descriptor.layout.clone();
@@ -225,12 +264,13 @@ impl AppModel {
             project: self.state.current_project().id,
             tab,
             pane,
-            origin: event.position,
+            origin: position,
             active: false,
+            handle,
             layout,
-            geometry: (bounds, scale),
-            position: event.position,
-            hover: event.position,
+            geometry,
+            position,
+            hover: position,
         });
         cx.notify();
         cx.stop_propagation();
@@ -295,7 +335,9 @@ impl AppModel {
         if let Some(drag) = self.layout_drag.pane.take() {
             if drag.active {
                 self.finish_layout_drop(cx);
-            } else if let Some(pane) = self.grids.get(&drag.pane) {
+            } else if !drag.handle
+                && let Some(pane) = self.grids.get(&drag.pane)
+            {
                 pane.view
                     .update(cx, |pane, cx| pane.command_click(event.position, cx));
             }

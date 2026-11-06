@@ -87,7 +87,7 @@ impl AppModel {
                 self.gh_user(call, cx);
                 return;
             }
-            "panels.open" | "panels.toggle" | "panels.close" => {
+            "panels.open" | "panels.toggle" | "panels.close" | "panels.update" | "panels.list" => {
                 self.panel_operation(&call.owner, &call.verb, &call.args, window, cx)
             }
             "popover.close" => {

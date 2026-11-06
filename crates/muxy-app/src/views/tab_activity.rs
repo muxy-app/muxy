@@ -197,18 +197,64 @@ pub(super) fn icon(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyEleme
 }
 
 pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElement) -> AnyElement {
-    let status = tab_status(tab, model);
     let fallback = if tab.pinned {
         fallback
     } else {
         icon(tab, model, size, fallback)
     };
+    decorated("tab", tab.id, tab_status(tab, model), fallback, size, model)
+}
+
+/// A pane's own icon: the agent running in it, with that agent's progress or
+/// completion, or `fallback` when no agent runs there.
+pub(super) fn pane_glyph(
+    pane: &Pane,
+    model: &AppModel,
+    size: Pixels,
+    fallback: AnyElement,
+) -> AnyElement {
+    let id = pane.id;
+    let Some(provider) = model.pane_agent(id).map(|agent| agent.provider) else {
+        return fallback;
+    };
+    let status = model
+        .state
+        .pane_session(id)
+        .map_or(Status::None, |(server, session)| {
+            resolve(server, &[session], model.pane_completed(id), false, model)
+        });
+    decorated(
+        "pane",
+        id,
+        status,
+        div()
+            .debug_selector(move || format!("pane-provider-{id}-{provider:?}"))
+            .flex()
+            .flex_none()
+            .size(size)
+            .child(provider_icon(provider, size, model))
+            .into_any_element(),
+        size,
+        model,
+    )
+}
+
+/// `icon` with a spinner in its place while work is in progress, and a dot
+/// when it is blocked or done.
+fn decorated(
+    kind: &str,
+    id: impl std::fmt::Display,
+    status: Status,
+    icon: AnyElement,
+    size: Pixels,
+    model: &AppModel,
+) -> AnyElement {
     let dot = match status {
         Status::Blocked => Some(model.theme.warning),
         Status::Completed | Status::Unread(_) => Some(model.theme.accent),
         _ => None,
     };
-    let id = tab.id;
+    let completion = format!("{kind}-completion-{id}");
     div()
         .relative()
         .flex()
@@ -217,14 +263,14 @@ pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElem
         .justify_center()
         .size(size)
         .child(if matches!(status, Status::Progress(_)) {
-            status_glyph(format!("tab-{id}"), status, size, model)
+            status_glyph(format!("{kind}-{id}"), status, size, model)
         } else {
-            fallback
+            icon
         })
         .when_some(dot, |glyph, color| {
             glyph.child(
                 div()
-                    .debug_selector(move || format!("tab-completion-{id}"))
+                    .debug_selector(move || completion.clone())
                     .absolute()
                     .top(model.metrics.scaled(-3.0))
                     .right(model.metrics.scaled(-3.0))

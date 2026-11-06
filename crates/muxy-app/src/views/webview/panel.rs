@@ -1,7 +1,9 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
+    AnyElement, Context, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
+    Window, div, px,
 };
+use muxy_ui::floating::FloatingCard;
 use muxy_ui::panel::{
     PanelAction, PanelChrome, PanelControl, PanelFrame, PanelId, PanelMode, PanelPosition,
     PanelSizeBounds, PanelSizing, PanelStyle,
@@ -110,6 +112,174 @@ impl AppModel {
         content
     }
 
+    /// A detached extension panel: a card of its own, or the bare page,
+    /// floating over the window. Its hit regions block what is under them and
+    /// its drag regions move it.
+    pub(crate) fn detached_webview_panel(
+        &self,
+        id: &PanelId,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        use muxy_app_core::extensions::panels::{PanelChrome as Chrome, Rect};
+        let panel = self.webviews.panels.get(id)?;
+        let (frame, _) = self.detached_webview_geometry(id, window)?;
+        let entity = panel.surface.view.entity_id();
+        let framed = panel.chrome == Chrome::Standard;
+        let regions = panel.pointer_regions();
+        let header = if framed {
+            self.webview_panel_chrome(id, cx)
+        } else {
+            None
+        };
+        let model = cx.weak_entity();
+        let rect = |rect: &Rect| {
+            div()
+                .absolute()
+                .left(px(rect.x))
+                .top(px(rect.y))
+                .w(px(rect.width))
+                .h(px(rect.height))
+        };
+        let blockers = regions.unwrap_or_default().iter().map(|region| {
+            rect(region)
+                .occlude()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .into_any_element()
+        });
+        let drags = panel
+            .drag_regions
+            .iter()
+            .filter(|_| panel.movable)
+            .enumerate()
+            .map(|(index, region)| {
+                let id = id.clone();
+                let model = model.clone();
+                rect(region)
+                    .id(gpui::SharedString::from(format!(
+                        "{}-drag-{index}",
+                        id.as_str()
+                    )))
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                        let _ = model.update(cx, |model, cx| {
+                            model.begin_floating_drag(&id, None, event.position, window, cx);
+                        });
+                        window.prevent_default();
+                        cx.stop_propagation();
+                    })
+                    .child(self.webview_grip(Some(entity), gpui::CursorStyle::Arrow))
+                    .into_any_element()
+            });
+        let header = header.map(|chrome| Self::detached_header(id, panel.movable, chrome, cx));
+        let content = div()
+            .relative()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .overflow_hidden()
+            .children(blockers)
+            .child(panel.surface.view.clone())
+            .children(drags);
+        let resize_id = id.clone();
+        let card = FloatingCard::new(
+            gpui::SharedString::from(format!("detached-{}", id.as_str())),
+            frame,
+            self.theme.clone(),
+            self.metrics,
+        )
+        .unit(1.0)
+        .framed(framed)
+        .resizable(panel.resizable)
+        .interactive(regions.is_none())
+        .on_resize({
+            let model = model.clone();
+            move |edges, pointer, window, cx| {
+                let _ = model.update(cx, |model, cx| {
+                    model.begin_floating_drag(&resize_id, edges, pointer, window, cx);
+                });
+            }
+        })
+        .on_press({
+            let id = id.clone();
+            move |_, cx| {
+                let _ = model.update(cx, |model, cx| model.raise_floating(&id, cx));
+            }
+        })
+        .grip(self.webview_grips(Some(entity)))
+        .children(header)
+        .child(content)
+        .child(if framed || !(panel.transparent || regions.is_some()) {
+            self.webview_occlusion_except(Some(entity))
+        } else {
+            self.webview_layer(entity)
+        });
+        Some(card.into_any_element())
+    }
+
+    /// Hides every native page, and every browser, under app content drawn
+    /// after their occlusions were applied, such as a tooltip.
+    fn native_cover(&self, cx: &gpui::App) -> impl Fn(gpui::Bounds<gpui::Pixels>) + 'static {
+        let pages: Vec<_> = self
+            .webviews
+            .panes
+            .values()
+            .map(|surface| &surface.view)
+            .chain(
+                self.webviews
+                    .panels
+                    .values()
+                    .map(|panel| &panel.surface.view),
+            )
+            .chain(
+                self.webviews
+                    .sidebar
+                    .iter()
+                    .map(|sidebar| &sidebar.surface.view),
+            )
+            .map(|view| view.read(cx).native.clone())
+            .collect();
+        let browsers: Vec<_> = self
+            .browsers
+            .views
+            .values()
+            .map(|surface| surface.view.read(cx).native.clone())
+            .collect();
+        move |bounds| {
+            for page in &pages {
+                page.occlude_also(bounds);
+            }
+            for browser in &browsers {
+                browser.occlude_also(bounds);
+            }
+        }
+    }
+
+    /// A framed detached panel's header, which moves the panel when dragged.
+    fn detached_header(
+        id: &PanelId,
+        movable: bool,
+        chrome: PanelChrome,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let id = id.clone();
+        let model = cx.weak_entity();
+        div()
+            .flex_none()
+            .occlude()
+            .when(movable, |header| {
+                header.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                    let _ = model.update(cx, |model, cx| {
+                        model.begin_floating_drag(&id, None, event.position, window, cx);
+                    });
+                    window.prevent_default();
+                    cx.stop_propagation();
+                })
+            })
+            .child(chrome)
+            .into_any_element()
+    }
+
     fn webview_panel_space(
         &self,
         window: &Window,
@@ -167,8 +337,15 @@ impl AppModel {
         let panel = &self.webviews.panels[id];
         let extension = self.extensions.registry.enabled(&panel.owner);
         let definition = extension.and_then(|extension| extension.manifest.panel(&panel.kind));
-        let hides = |control| definition.is_some_and(|definition| definition.hides(control));
-        if definition.is_some_and(|definition| definition.hide_topbar) {
+        let hide_topbar = definition.is_some_and(|definition| definition.hide_topbar);
+        let hides = |control| {
+            hide_topbar
+                || match &panel.hidden_controls {
+                    Some(hidden) => hidden.contains(&control),
+                    None => definition.is_some_and(|definition| definition.hides(control)),
+                }
+        };
+        if hide_topbar {
             return None;
         }
         let icon = extension
@@ -187,7 +364,7 @@ impl AppModel {
         if icon.is_none()
             && title.is_none()
             && buttons.is_empty()
-            && [Hidden::Position, Hidden::Pin, Hidden::Close]
+            && [Hidden::Position, Hidden::Pin, Hidden::Close, Hidden::Detach]
                 .into_iter()
                 .all(hides)
         {
@@ -202,11 +379,20 @@ impl AppModel {
             self.webview_panel_action(id, PanelControl::Close, 3, cx),
             PanelStyle::new(self.theme.clone(), self.metrics),
         );
-        if hides(Hidden::Position) {
+        chrome = chrome.cover_tooltips(self.native_cover(cx));
+        if hides(Hidden::Position) || panel.detached {
             chrome = chrome.without_move_action();
         }
-        if hides(Hidden::Pin) {
+        if hides(Hidden::Pin) || panel.detached {
             chrome = chrome.without_mode_action();
+        }
+        if !hides(Hidden::Detach) {
+            chrome = chrome.with_detach_action(self.webview_panel_action(
+                id,
+                PanelControl::Detach(panel.detached),
+                4,
+                cx,
+            ));
         }
         if hides(Hidden::Close) {
             chrome = chrome.without_close_action();
@@ -255,11 +441,12 @@ impl AppModel {
             gpui::SharedString::from(format!("{}-{index}", id.as_str())),
             control,
             panel.controls[index].clone(),
-            move |_, cx| {
+            move |window, cx| {
                 let _ = model.update(cx, |model, cx| match control {
                     PanelControl::Close => model.dismiss_webview_panel(&id, cx),
                     PanelControl::Move(_) => model.move_webview_panel(&id, false, cx),
                     PanelControl::Mode(_) => model.move_webview_panel(&id, true, cx),
+                    PanelControl::Detach(_) => model.toggle_webview_panel_detached(&id, window, cx),
                 });
             },
         )

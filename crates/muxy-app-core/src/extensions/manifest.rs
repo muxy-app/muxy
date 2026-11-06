@@ -4,6 +4,8 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
+use super::panels::{FrameSpec, PanelChrome, PanelScope, SizeSpec};
+
 const MAX_ICON_BYTES: u64 = 256 * 1024;
 
 /// Every permission an extension can declare. Unknown names fail the load, as on main.
@@ -121,6 +123,8 @@ pub enum PanelMode {
     #[default]
     Floating,
     Pinned,
+    /// Floats freely over the window, beside other panels.
+    Detached,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
@@ -132,10 +136,15 @@ pub enum PanelControl {
     #[serde(alias = "mode")]
     Pin,
     Position,
+    Detach,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Mirrors the manifest's independent panel flags"
+)]
 pub struct Panel {
     pub id: String,
     pub title: Option<String>,
@@ -153,6 +162,22 @@ pub struct Panel {
     pub hide_topbar: bool,
     #[serde(default)]
     pub default_data: Value,
+    /// Where a detached panel first opens, and its size.
+    pub frame: Option<FrameSpec>,
+    pub min_size: Option<SizeSpec>,
+    pub max_size: Option<SizeSpec>,
+    #[serde(default)]
+    pub chrome: PanelChrome,
+    /// Unset, a panel with `chrome: "none"` is transparent and others aren't.
+    pub transparent: Option<bool>,
+    #[serde(default)]
+    pub click_through: bool,
+    #[serde(default = "visible")]
+    pub movable: bool,
+    #[serde(default = "visible")]
+    pub resizable: bool,
+    #[serde(default)]
+    pub scope: PanelScope,
 }
 
 impl Panel {
@@ -163,6 +188,43 @@ impl Panel {
     /// Whether the user's float/dock choice applies instead of the declared mode.
     pub fn allows_mode_selection(&self) -> bool {
         !self.hides(PanelControl::Pin)
+    }
+
+    /// Whether the user's choice to pop the panel out, or dock it, applies
+    /// instead of the declared mode.
+    pub fn allows_detach_selection(&self) -> bool {
+        !self.hides(PanelControl::Detach)
+    }
+
+    fn validate_floating(&self) -> Result<(), String> {
+        let id = &self.id;
+        let finite = |value: f32| value.is_finite() && value.abs() <= 16384.0;
+        if let Some(frame) = self.frame {
+            let parts = [frame.x, frame.y, frame.width, frame.height];
+            if !parts.into_iter().flatten().all(finite)
+                || frame.width.is_some_and(|width| width <= 0.0)
+                || frame.height.is_some_and(|height| height <= 0.0)
+            {
+                return Err(format!(
+                    "panel '{id}' frame needs finite numbers and a positive size"
+                ));
+            }
+        }
+        for (name, size) in [("minSize", self.min_size), ("maxSize", self.max_size)] {
+            if size.is_some_and(|size| {
+                !finite(size.width) || !finite(size.height) || size.width < 0.0 || size.height < 0.0
+            }) {
+                return Err(format!(
+                    "panel '{id}' {name} needs finite, non-negative numbers"
+                ));
+            }
+        }
+        if let (Some(min), Some(max)) = (self.min_size, self.max_size)
+            && (min.width > max.width || min.height > max.height)
+        {
+            return Err(format!("panel '{id}' minSize is larger than its maxSize"));
+        }
+        Ok(())
     }
 }
 
@@ -717,6 +779,7 @@ impl Extension {
                 &format!("panel '{}' header button", panel.id),
                 panel.header_buttons.iter().map(|b| b.id.as_str()),
             )?;
+            panel.validate_floating()?;
         }
         distinct("popover", manifest.popovers.iter().map(|p| p.id.as_str()))?;
         for popover in &manifest.popovers {
