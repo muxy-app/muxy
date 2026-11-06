@@ -66,17 +66,207 @@ fn decodes_png_and_legacy_icns_and_rejects_invalid_lengths() {
     );
 }
 
-#[test]
-fn decodes_jpeg2000_icns() {
-    let data = include_bytes!("fixtures/red.jp2");
+fn jpeg2000_icns(data: &[u8]) -> Vec<u8> {
     let mut bytes = b"icns".to_vec();
     bytes.extend(u32::try_from(data.len() + 16).expect("size").to_be_bytes());
     bytes.extend(b"icp4");
     bytes.extend(u32::try_from(data.len() + 8).expect("size").to_be_bytes());
     bytes.extend(data);
+    bytes
+}
+
+#[test]
+fn decodes_jpeg2000_icns() {
+    let bytes = jpeg2000_icns(include_bytes!("fixtures/red.jp2"));
     let image = decode(&bytes).expect("JPEG 2000 ICNS");
     assert_eq!(image.dimensions(), (16, 16));
     assert!(image.get_pixel(0, 0)[0] > 240);
+}
+
+#[test]
+fn rejects_jpeg2000_tile_bombs_and_keeps_discovery_fallback() {
+    for (size, subsampling) in [(1024_u32, 1_u8), (65_280, 255)] {
+        let mut data = include_bytes!("fixtures/red.jp2").to_vec();
+        let start = data
+            .windows(4)
+            .position(|bytes| bytes == b"\xffO\xffQ")
+            .expect("codestream");
+        for offset in [8, 12] {
+            data[start + offset..start + offset + 4].copy_from_slice(&size.to_be_bytes());
+        }
+        for offset in [24, 28] {
+            data[start + offset..start + offset + 4].copy_from_slice(&1_u32.to_be_bytes());
+        }
+        for offset in [43, 44, 46, 47, 49, 50] {
+            data[start + offset] = subsampling;
+        }
+        let header = data
+            .windows(4)
+            .position(|bytes| bytes == b"ihdr")
+            .expect("image header");
+        for offset in [4, 8] {
+            data[header + offset..header + offset + 4].copy_from_slice(&size.to_be_bytes());
+        }
+        let image = hayro_jpeg2000::Image::new(&data, &hayro_jpeg2000::DecodeSettings::default())
+            .expect("header");
+        assert_eq!(image.width(), size / u32::from(subsampling));
+        assert_eq!(image.height(), image.width());
+        assert!(image.width() <= 1024);
+        let bytes = jpeg2000_icns(&data);
+        assert_eq!(bytes.len(), 282);
+        assert!(decode(&bytes).is_none());
+        let root = tempfile::tempdir().expect("project");
+        std::fs::write(root.path().join("favicon.icns"), bytes).expect("icon");
+        let source = Source::Local(root.path().into());
+        assert!(discover(&source).is_none());
+        std::fs::write(
+            root.path().join("logo.png"),
+            raster(image::ImageFormat::Png),
+        )
+        .expect("fallback");
+        assert!(discover(&source).is_some());
+    }
+}
+
+fn jpeg2000_with_coding_style(
+    size: u32,
+    marker: u8,
+    tile_part: Option<u8>,
+    style: &[u8],
+) -> Vec<u8> {
+    let mut data = include_bytes!("fixtures/red.jp2").to_vec();
+    let find = |data: &[u8], signature: &[u8]| {
+        data.windows(signature.len())
+            .position(|bytes| bytes == signature)
+            .expect("marker")
+    };
+    let start = find(&data, b"\xffO\xffQ");
+    for offset in [8, 12, 24, 28] {
+        data[start + offset..start + offset + 4].copy_from_slice(&size.to_be_bytes());
+    }
+    let header = find(&data, b"ihdr");
+    for offset in [4, 8] {
+        data[header + offset..header + offset + 4].copy_from_slice(&size.to_be_bytes());
+    }
+    let cod = find(&data, b"\xffR");
+    data[cod + 6..cod + 8].copy_from_slice(&style[2..4]);
+    let payload = if marker == 0x52 {
+        style.to_vec()
+    } else {
+        let mut payload = vec![0, style[0]];
+        payload.extend(&style[5..]);
+        payload
+    };
+    let mut segment = vec![0xff, marker];
+    segment.extend(
+        u16::try_from(payload.len() + 2)
+            .expect("length")
+            .to_be_bytes(),
+    );
+    segment.extend(payload);
+    match tile_part {
+        None => {
+            let end = cod + 2 + usize::from(u16::from_be_bytes([data[cod + 2], data[cod + 3]]));
+            data.splice(if marker == 0x52 { cod..end } else { end..end }, segment);
+        }
+        Some(part) => {
+            let start = find(&data, b"\xff\x90");
+            if part == 0 {
+                let length = u32::from_be_bytes(data[start + 6..start + 10].try_into().unwrap())
+                    + u32::try_from(segment.len()).expect("length");
+                data[start + 6..start + 10].copy_from_slice(&length.to_be_bytes());
+                data.splice(start + 12..start + 12, segment);
+            } else {
+                let mut tile = data[start..start + 12].to_vec();
+                tile[6..10].copy_from_slice(
+                    &u32::try_from(segment.len() + 14)
+                        .expect("length")
+                        .to_be_bytes(),
+                );
+                tile[10] = part;
+                tile.extend(segment);
+                tile.extend(b"\xff\x93");
+                data.splice(data.len() - 2..data.len() - 2, tile);
+            }
+        }
+    }
+    let start = find(&data, b"jp2c") - 4;
+    let length = u32::try_from(data.len() - start).expect("length");
+    data[start..start + 4].copy_from_slice(&length.to_be_bytes());
+    data
+}
+
+#[test]
+fn rejects_jpeg2000_coding_bombs_in_main_and_all_tile_headers() {
+    for marker in [0x52, 0x53] {
+        for tile_part in [None, Some(0), Some(1)] {
+            let ordinary = [0, 0, 0, 1, 0, 6, 2, 2, 0, 0];
+            let data = jpeg2000_with_coding_style(16, marker, tile_part, &ordinary);
+            assert!(
+                decode(&jpeg2000_icns(&data)).is_some(),
+                "{marker}: {tile_part:?}"
+            );
+            for style in [
+                &[1, 0, 0, 32, 0, 0, 4, 4, 0, 0, 0][..],
+                &[0, 0, 0, 32, 0, 0, 0, 0, 0, 0],
+                &[0, 0, 0, 32, 0, 0, 2, 2, 0, 0],
+            ] {
+                let data = jpeg2000_with_coding_style(1024, marker, tile_part, style);
+                let image =
+                    hayro_jpeg2000::Image::new(&data, &hayro_jpeg2000::DecodeSettings::default())
+                        .expect("header");
+                assert_eq!((image.width(), image.height()), (1024, 1024));
+                let bytes = jpeg2000_icns(&data);
+                assert!(decode(&bytes).is_none(), "{marker}: {tile_part:?}");
+                let root = tempfile::tempdir().expect("project");
+                std::fs::write(root.path().join("favicon.icns"), bytes).expect("icon");
+                let source = Source::Local(root.path().into());
+                assert!(discover(&source).is_none());
+                std::fs::write(
+                    root.path().join("logo.png"),
+                    raster(image::ImageFormat::Png),
+                )
+                .expect("fallback");
+                assert!(discover(&source).is_some());
+            }
+        }
+    }
+}
+
+#[test]
+fn jpeg2000_checks_extended_and_open_ended_codestream_boxes() {
+    let original = include_bytes!("fixtures/red.jp2");
+    let start = original
+        .windows(4)
+        .position(|bytes| bytes == b"jp2c")
+        .expect("codestream box")
+        - 4;
+    let mut open_ended = original.to_vec();
+    open_ended[start..start + 4].copy_from_slice(&0_u32.to_be_bytes());
+    assert!(decode(&jpeg2000_icns(&open_ended)).is_some());
+    let mut extended = original[..start].to_vec();
+    extended.extend(1_u32.to_be_bytes());
+    extended.extend(b"jp2c");
+    extended.extend(
+        u64::try_from(original.len() - start + 8)
+            .expect("length")
+            .to_be_bytes(),
+    );
+    extended.extend(&original[start + 8..]);
+    assert!(decode(&jpeg2000_icns(&extended)).is_some());
+    for length in [0_u64, 8, 15, u64::MAX] {
+        let mut invalid = extended.clone();
+        invalid[start + 8..start + 16].copy_from_slice(&length.to_be_bytes());
+        assert!(decode(&jpeg2000_icns(&invalid)).is_none());
+    }
+    for length in [2_u32, 7, u32::MAX] {
+        let mut invalid = original.to_vec();
+        invalid[start..start + 4].copy_from_slice(&length.to_be_bytes());
+        assert!(decode(&jpeg2000_icns(&invalid)).is_none());
+    }
+    for end in 0..original.len() {
+        assert!(decode(&jpeg2000_icns(&original[..end])).is_none());
+    }
 }
 
 #[test]
