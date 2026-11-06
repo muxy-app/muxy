@@ -397,3 +397,38 @@ fn a_pane_stays_put_when_its_destination_is_gone() -> TestResult {
     assert_eq!(state, before);
     Ok(())
 }
+
+#[test]
+fn a_terminal_whose_move_never_reached_its_server_reattaches_and_moves_again() -> TestResult {
+    let (mut state, home, other) = two_projects()?;
+    let a = state.open_terminal_tab(home)?;
+    let pane = first_pane(&state, a)?;
+    state.set_pane_session(pane, Some(session(9)?))?;
+    let moves = state.move_tab_to(a, TabPlace::end(other))?;
+    state.record_session_moves(&moves);
+    let state = reload(&state)?;
+    let listed = [muxy_protocol::SessionInfo {
+        project: home,
+        id: session(9)?,
+        directory: ServerPath::from("/tmp".to_owned()),
+    }];
+    let plan = muxy_app_core::restore::plan(&state, ServerId::local(), &listed);
+    assert_eq!(plan.attach, [(pane, session(9)?)]);
+    assert!(plan.close.is_empty());
+    assert_eq!(
+        plan.moves,
+        [(
+            SessionMove {
+                server: ServerId::local(),
+                session: session(9)?,
+                project: other,
+            },
+            home
+        )]
+    );
+    let mut settled = state.clone();
+    settled.settle_session_move(ServerId::local(), session(9)?);
+    let plan = muxy_app_core::restore::plan(&settled, ServerId::local(), &listed);
+    assert_eq!(plan.close, [(pane, session(9)?)]);
+    Ok(())
+}

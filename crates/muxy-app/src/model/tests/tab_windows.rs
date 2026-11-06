@@ -335,3 +335,32 @@ fn a_terminal_two_panes_show_moves_only_with_both(cx: &mut TestAppContext) {
         assert_eq!(listed(model, other), [a]);
     });
 }
+
+#[gpui::test]
+fn a_terminal_moves_again_only_once_its_server_answered(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let other = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
+    state.select_project(home).expect("select");
+    let a = state.open_terminal_tab(home).expect("tab");
+    let pane = state.window().active_pane.expect("pane");
+    let session = SessionId::new(97).expect("session");
+    state
+        .set_pane_session(pane, Some(session))
+        .expect("session");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        model.servers.local.features = vec![muxy_protocol::Feature::SESSION_MOVE];
+        model.move_tab_to_place(a, TabPlace::end(other), cx);
+        let moved = model.state.clone();
+        model.move_tab_to_place(a, TabPlace::end(home), cx);
+        assert_eq!(model.state, moved);
+        model.session_moved(ServerId::local(), session, Ok(()), cx);
+        model.move_tab_to_place(a, TabPlace::end(home), cx);
+        assert_eq!(listed(model, home), [a]);
+    });
+}

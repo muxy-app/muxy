@@ -29,6 +29,7 @@ impl AppState {
             removed_projects: Vec::new(),
             window,
             set_aside: None,
+            session_moves: Vec::new(),
         })
     }
 

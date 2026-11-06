@@ -81,7 +81,7 @@ impl TabWindow {
 
 /// A terminal whose tab or pane moved to another project. Its server must
 /// hear of it, so the session keeps belonging to where it shows.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SessionMove {
     pub server: ServerId,
     pub session: SessionId,
@@ -445,6 +445,34 @@ impl AppState {
             self.sync_groups(target);
         }
         Ok(sessions)
+    }
+
+    /// Remembers that servers were asked to make `moves`, until they answer.
+    pub fn record_session_moves(&mut self, moves: &[SessionMove]) {
+        for moved in moves {
+            self.session_moves.retain(|pending| {
+                (pending.server, pending.session) != (moved.server, moved.session)
+            });
+            self.session_moves.push(*moved);
+        }
+    }
+
+    /// `server` answered the move of `session`, either way.
+    pub fn settle_session_move(&mut self, server: ServerId, session: SessionId) {
+        self.session_moves
+            .retain(|pending| (pending.server, pending.session) != (server, session));
+    }
+
+    /// The move of `session` the app is still waiting on `server` for.
+    pub fn pending_session_move(
+        &self,
+        server: ServerId,
+        session: SessionId,
+    ) -> Option<SessionMove> {
+        self.session_moves
+            .iter()
+            .copied()
+            .find(|pending| (pending.server, pending.session) == (server, session))
     }
 
     /// Records where a tab window sits on screen.

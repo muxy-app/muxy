@@ -39,6 +39,10 @@ pub struct AppState {
     pub(crate) window: WindowState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) set_aside: Option<SetAsideView>,
+    /// Terminals the app asked a server to give another project, until it
+    /// answers, so a request lost to a disconnect or crash is sent again.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) session_moves: Vec<crate::SessionMove>,
 }
 
 #[derive(Deserialize)]
@@ -62,6 +66,8 @@ struct StoredState {
     window: WindowState,
     #[serde(default)]
     set_aside: Option<SetAsideView>,
+    #[serde(default)]
+    session_moves: Vec<crate::SessionMove>,
     /// Versions 1 and 2 kept the local server's state here, at the top level.
     #[serde(default)]
     catalog_server: Option<muxy_protocol::ServerIdentity>,
@@ -112,6 +118,7 @@ impl TryFrom<StoredState> for AppState {
             removed_projects: stored.removed_projects,
             window: stored.window,
             set_aside: stored.set_aside,
+            session_moves: stored.session_moves,
         };
         let detached: HashSet<_> = state
             .projects

@@ -579,7 +579,10 @@ impl AppModel {
         let moving_tab = match moving {
             Moving::Tab(tab) => Some(tab),
             Moving::Window(id) => self.window_tab(id),
-            Moving::Pane(_) => None,
+            Moving::Pane(pane) => self
+                .state
+                .pane_tab(pane)
+                .filter(|tab| self.tab(*tab).is_some_and(|tab| tab.panes.len() == 1)),
         };
         match zone.kind {
             ZoneKind::Project(project) => {

@@ -2075,6 +2075,7 @@
 "Wait for the running Git action to finish." = "Wait for the running Git action to finish.";
 "Wait for the server settings operation to finish before quitting" = "Wait for the server settings operation to finish before quitting";
 "Wait for the terminal to start before moving it to another project." = "Wait for the terminal to start before moving it to another project.";
+"Wait for this terminal’s last move to finish, then try again." = "Wait for this terminal’s last move to finish, then try again.";
 "Waiting" = "Waiting";
 "Waiting for you" = "Waiting for you";
 "Waiting…" = "Waiting…";

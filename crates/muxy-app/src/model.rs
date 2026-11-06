@@ -1404,9 +1404,11 @@ impl AppModel {
             .collect();
         if targets.len() != tabs.len()
             || restart.is_none()
-                && targets
-                    .iter()
-                    .any(|target| target.pinned && (pane.is_none() || target.panes.len() == 1))
+                && targets.iter().any(|target| {
+                    target.pinned
+                        && !target.detached()
+                        && (pane.is_none() || target.panes.len() == 1)
+                })
         {
             return;
         }
@@ -1562,6 +1564,7 @@ impl AppModel {
                 self.tab(*id).is_none_or(|tab| {
                     request.restart.is_none()
                         && tab.pinned
+                        && !tab.detached()
                         && (request.whole_tab || tab.panes.len() == 1)
                 })
             })
@@ -2121,7 +2124,19 @@ impl AppModel {
         if server.is_local() {
             self.restore_quick_terminal(sessions, cx);
         }
-        let plan = restore::plan(&self.state, server, sessions);
+        let mut plan = restore::plan(&self.state, server, sessions);
+        if !self.server_supports(server, muxy_protocol::Feature::SESSION_MOVE) {
+            for (moved, _) in plan.moves.drain(..) {
+                plan.close.extend(
+                    self.state
+                        .session_panes(moved.server, moved.session)
+                        .map(|pane| (pane, moved.session)),
+                );
+            }
+        }
+        for (moved, origin) in std::mem::take(&mut plan.moves) {
+            self.resend_session_move(moved, origin, cx);
+        }
         let active = self.active_pane();
         for (pane, _) in plan.close {
             if let Err(error) = self.state.close_ended_pane(pane) {

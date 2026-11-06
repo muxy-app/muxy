@@ -454,15 +454,9 @@ impl AppModel {
 
     /// Closes a tab window's tab, asking first as closing the tab would.
     pub(crate) fn close_tab_window(&mut self, id: TabWindowId, cx: &mut Context<Self>) {
-        let Some(tab) = self.window_tab(id) else {
-            return;
-        };
-        if self.tab(tab).is_some_and(|tab| tab.pinned)
-            && !self.edit_tab(|state| state.toggle_tab_pin(tab), cx)
-        {
-            return;
+        if let Some(tab) = self.window_tab(id) {
+            self.close_tab(tab, cx);
         }
-        self.close_tab(tab, cx);
     }
 
     /// Brings the window showing `pane` to the front, if it is a tab's own.
@@ -607,6 +601,29 @@ impl AppModel {
         }
     }
 
+    /// Asks the server again to give a terminal the project the app shows it
+    /// in, after a move that never reached it; `origin` is where the server
+    /// keeps it.
+    pub(crate) fn resend_session_move(
+        &mut self,
+        moved: SessionMove,
+        origin: ProjectId,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_windows
+            .moving
+            .insert((moved.server, moved.session), origin);
+        if !self.send(
+            moved.server,
+            Work::MoveSession(moved.session, moved.project),
+            cx,
+        ) {
+            self.tab_windows
+                .moving
+                .remove(&(moved.server, moved.session));
+        }
+    }
+
     /// The server answered a move of `session` to another project. When it
     /// refused, the terminal's pane goes back to the project the server keeps
     /// it in, so the app never shows it where the server doesn't.
@@ -618,7 +635,9 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         let origin = self.tab_windows.moving.remove(&(server, session));
+        self.state.settle_session_move(server, session);
         let Err(error) = result else {
+            self.save(cx);
             return;
         };
         if let Some(origin) = origin {
@@ -698,6 +717,21 @@ impl AppModel {
             );
             return None;
         }
+        let mut moves = moves;
+        let mut seen = HashSet::new();
+        moves.retain(|moved| seen.insert((moved.server, moved.session)));
+        if moves.iter().any(|moved| {
+            self.tab_windows
+                .moving
+                .contains_key(&(moved.server, moved.session))
+        }) {
+            self.state = previous;
+            self.fail(
+                tr!("Wait for this terminal’s last move to finish, then try again.").to_string(),
+                cx,
+            );
+            return None;
+        }
         let shared = moves.iter().any(|moved| {
             self.state
                 .session_panes(moved.server, moved.session)
@@ -718,6 +752,7 @@ impl AppModel {
             self.fail(refusal, cx);
             return None;
         }
+        self.state.record_session_moves(&moves);
         if !self.save(cx) {
             self.state = previous;
             return None;
