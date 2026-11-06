@@ -699,6 +699,130 @@ fn normal_rows_add_a_details_line_and_compact_rows_fit_on_one(cx: &mut TestAppCo
 }
 
 #[gpui::test]
+fn every_row_option_lays_out_the_same_at_either_density(cx: &mut TestAppContext) {
+    let (view, cx, _fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let local = ServerId::local();
+    let working = EntryKey::Agent(local, SessionId::new(1).expect("session"));
+    let finished = EntryKey::Agent(local, SessionId::new(3).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, selector: String| cx.debug_bounds(selector.leak());
+    let render = |cx: &mut VisualTestContext,
+                  update: &dyn Fn(&mut muxy_app_core::settings::Appearance)| {
+        view.update(cx, |model, cx| {
+            model.appearance.sidebar_expanded = true;
+            model.appearance.agents_panel_visible = true;
+            update(&mut model.appearance);
+            cx.notify();
+        });
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+    };
+    let mut headers = Vec::new();
+    let mut glyphs = Vec::new();
+    for density in [AgentsPanelDensity::Normal, AgentsPanelDensity::Compact] {
+        render(cx, &|appearance| {
+            appearance.agents_panel_density = density;
+            appearance.agents_panel_icon = muxy_app_core::settings::AgentsPanelIcon::Project;
+            appearance.agents_panel_project_colors = false;
+            appearance.agents_panel_idle_time = true;
+        });
+        let plain = bounds(cx, format!("agents-panel-project-{finished}")).expect("icon");
+        render(cx, &|appearance| {
+            appearance.agents_panel_project_colors = true;
+        });
+        let row = bounds(cx, format!("agents-panel-row-{finished}")).expect("row");
+        let color = bounds(cx, format!("agents-panel-color-{finished}")).expect("color");
+        let icon = bounds(cx, format!("agents-panel-project-{finished}")).expect("icon");
+        let status = bounds(cx, format!("agents-panel-status-{finished}")).expect("status");
+        let idle = bounds(cx, format!("agents-panel-idle-{finished}")).expect("idle time");
+        assert_eq!(
+            icon, plain,
+            "{density:?}: the color leaves the icon in place"
+        );
+        assert!(
+            color.right() < icon.left(),
+            "{density:?}: the color sits apart from the icon: {color:?} {icon:?}"
+        );
+        assert_eq!(
+            color.top() - row.top(),
+            row.bottom() - color.bottom(),
+            "{density:?}: the color is centered on the row"
+        );
+        assert!(
+            color.size.height > row.size.height * 0.5,
+            "{density:?}: the color spans the row: {color:?} in {row:?}"
+        );
+        assert!(
+            status.right() <= idle.left(),
+            "{density:?}: the idle time follows the status"
+        );
+        let edge = row.right() - idle.right();
+        assert!(
+            edge > px(0.0) && edge <= px(8.0),
+            "{density:?}: the idle time sits at the far right: {idle:?} in {row:?}"
+        );
+        let working_status = bounds(cx, format!("agents-panel-status-{working}")).expect("glyph");
+        assert_eq!(
+            row.right() - working_status.right(),
+            edge,
+            "{density:?}: a glyph without a time sits as far right as a time"
+        );
+        assert!(
+            bounds(cx, format!("agents-panel-details-{finished}"))
+                .is_some_and(|details| details.right() <= idle.left())
+                || density == AgentsPanelDensity::Compact,
+            "{density:?}: the idle time isn't part of the details"
+        );
+        headers.push(
+            bounds(cx, "agents-panel-header".into())
+                .expect("header")
+                .size,
+        );
+        glyphs.push(status.size);
+    }
+    assert_eq!(headers[0], headers[1], "density only changes the rows");
+    assert_eq!(glyphs[0], glyphs[1], "status glyphs keep one size");
+}
+
+#[gpui::test]
+fn an_idle_agents_time_sits_as_far_right_as_a_glyph(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    let [_, _, _, home_pane] = fixture.panes;
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let local = ServerId::local();
+    let working = EntryKey::Agent(local, SessionId::new(1).expect("session"));
+    let finished = EntryKey::Agent(local, SessionId::new(3).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, selector: String| cx.debug_bounds(selector.leak());
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model.appearance.agents_panel_idle_time = true;
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
+        snapshot.revision += 1;
+        for event in &mut snapshot.events {
+            event.read = true;
+        }
+        model.receive_activity(local, Ok(snapshot), cx);
+        model.set_pane_completed(home_pane, false);
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let row = bounds(cx, format!("agents-panel-row-{finished}")).expect("row");
+    let idle = bounds(cx, format!("agents-panel-idle-{finished}")).expect("idle time");
+    let working_status = bounds(cx, format!("agents-panel-status-{working}")).expect("glyph");
+    assert!(
+        bounds(cx, format!("agents-panel-status-{finished}")).is_none(),
+        "an idle agent shows no glyph"
+    );
+    assert_eq!(
+        row.right() - idle.right(),
+        row.right() - working_status.right(),
+        "with no glyph, the idle time takes the far right"
+    );
+}
+
+#[gpui::test]
 fn the_docked_panel_lines_up_with_the_agents_focused_sidebar(cx: &mut TestAppContext) {
     let (view, cx, fixture) = agents(cx);
     cx.simulate_resize(size(px(1200.0), px(800.0)));

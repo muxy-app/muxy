@@ -94,10 +94,10 @@ focus. Use the arrow keys and Return to open a row.
   (**Compact**).
 - **Settings → Appearance → Agents panel icon** shows each row's agent icon,
   or the icon of its project. Worktrees show their project's icon.
-- **Settings → Appearance → Show project colors** marks each row with its
-  project's color.
+- **Settings → Appearance → Show project colors** marks each row with a bar of
+  its project's color down its left edge, beside either icon.
 - **Settings → Appearance → Show idle time** shows how long ago each completed
-  or idle agent finished. After the app restarts, an agent whose finish you
+  or idle agent finished, at the right of its row. After the app restarts, an agent whose finish you
   already saw shows no time until it finishes again.
 
 ## Saved agent sessions

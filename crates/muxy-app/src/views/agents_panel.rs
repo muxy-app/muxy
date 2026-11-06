@@ -34,29 +34,35 @@ fn status_color(status: AgentStatus, model: &AppModel) -> Hsla {
     }
 }
 
-/// The agent's status as its terminal tab shows it.
-fn status_glyph(agent: &RunningAgent, owner: gpui::EntityId, model: &AppModel) -> AnyElement {
+/// The agent's status as its terminal tab shows it, when the tab shows one.
+fn status_glyph(
+    agent: &RunningAgent,
+    owner: gpui::EntityId,
+    model: &AppModel,
+) -> Option<AnyElement> {
     let m = model.metrics;
     let key = EntryKey::Agent(agent.server, agent.session);
-    div()
-        .debug_selector(move || format!("agents-panel-status-{key}"))
-        .flex_none()
-        .size(if compact(model) {
-            m.icon_sm() + m.spacing2()
-        } else {
-            m.control_small()
-        })
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(super::tab_activity::status_glyph_in(
-            format!("agents-panel-{key}"),
-            super::tab_activity::agent_status(agent, model),
-            m.icon_sm(),
-            Some(owner),
-            model,
-        ))
-        .into_any_element()
+    let status = super::tab_activity::agent_status(agent, model);
+    if status == super::tab_activity::Status::None {
+        return None;
+    }
+    Some(
+        div()
+            .debug_selector(move || format!("agents-panel-status-{key}"))
+            .flex_none()
+            .size(m.icon_sm())
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(super::tab_activity::status_glyph_in(
+                format!("agents-panel-{key}"),
+                status,
+                m.icon_sm(),
+                Some(owner),
+                model,
+            ))
+            .into_any_element(),
+    )
 }
 
 impl AppModel {
@@ -150,18 +156,24 @@ fn idle_time(agent: &RunningAgent, model: &AppModel) -> Option<AnyElement> {
 }
 
 /// The second line of a normal row: where the agent runs, which agent it
-/// is, and what it's doing.
-fn details(entry: &Entry, model: &AppModel) -> String {
+/// is, unless the title already names it, and what it's doing.
+fn details(entry: &Entry, title: &str, model: &AppModel) -> String {
     match entry {
         Entry::Agent(agent) => {
-            let mut parts = vec![
+            let provider = agent.provider.name();
+            [
                 model.agents_location(agent.project),
-                agent.provider.name().to_owned(),
+                if title == provider {
+                    String::new()
+                } else {
+                    provider.to_owned()
+                },
                 status_name(agent.status).to_string(),
-            ];
-            parts.extend(idle_age(agent, model).map(|age| age.to_string()));
-            parts.retain(|part| !part.is_empty());
-            parts.join(" · ")
+            ]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
         }
         Entry::Worktree { counts, .. } => counts_description(counts),
     }
@@ -175,8 +187,8 @@ fn trailing(entry: &Entry, owner: gpui::EntityId, model: &AppModel) -> AnyElemen
             .flex_none()
             .items_center()
             .gap(m.spacing2())
-            .children(compact(model).then(|| idle_time(agent, model)).flatten())
-            .child(status_glyph(agent, owner, model))
+            .children(status_glyph(agent, owner, model))
+            .children(idle_time(agent, model))
             .into_any_element(),
         Entry::Worktree { counts, .. } => div()
             .flex()
@@ -221,6 +233,8 @@ fn root_project<'a>(entry: &Entry, model: &'a AppModel) -> Option<&'a muxy_app_c
     )
 }
 
+/// The project's color as a bar down the row's leading edge, so it spans
+/// the row at either density and leaves the icon where it is.
 fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     if !model.appearance.agents_panel_project_colors {
         return None;
@@ -231,13 +245,24 @@ fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     Some(
         div()
             .debug_selector(move || format!("agents-panel-color-{key}"))
-            .flex_none()
+            .absolute()
+            .left(m.spacing1())
+            .top(m.spacing2())
+            .bottom(m.spacing2())
             .w(m.scaled(3.0))
-            .h(m.icon_sm())
             .rounded_full()
             .bg(super::sidebar::project_color(root, model))
             .into_any_element(),
     )
+}
+
+/// How big a row's leading icon is: larger beside two lines of text.
+fn icon_size(model: &AppModel) -> gpui::Pixels {
+    if compact(model) {
+        model.metrics.icon_sm()
+    } else {
+        model.metrics.icon_lg()
+    }
 }
 
 fn project_icon(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
@@ -246,10 +271,11 @@ fn project_icon(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     Some(
         div()
             .debug_selector(move || format!("agents-panel-project-{key}"))
+            .flex_none()
             .child(super::sidebar::project_tile(
                 root,
                 model,
-                model.metrics.icon_sm(),
+                icon_size(model),
                 None,
             ))
             .into_any_element(),
@@ -257,29 +283,24 @@ fn project_icon(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
 }
 
 fn leading(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
-    let m = model.metrics;
-    let icon =
-        match (model.appearance.agents_panel_icon, entry) {
-            (AgentsPanelIcon::Project, _) => project_icon(entry, model),
-            (AgentsPanelIcon::Agent, Entry::Agent(agent)) => Some(
-                super::tab_activity::provider_icon(agent.provider, m.icon_sm(), model),
-            ),
-            (AgentsPanelIcon::Agent, Entry::Worktree { .. }) => None,
-        };
-    let stripe = project_stripe(entry, model);
-    if stripe.is_none() && icon.is_none() {
-        return None;
+    match (model.appearance.agents_panel_icon, entry) {
+        (AgentsPanelIcon::Project, _) => project_icon(entry, model),
+        (AgentsPanelIcon::Agent, Entry::Agent(agent)) => {
+            let key = entry.key();
+            Some(
+                div()
+                    .debug_selector(move || format!("agents-panel-icon-{key}"))
+                    .flex_none()
+                    .child(super::tab_activity::provider_icon(
+                        agent.provider,
+                        icon_size(model),
+                        model,
+                    ))
+                    .into_any_element(),
+            )
+        }
+        (AgentsPanelIcon::Agent, Entry::Worktree { .. }) => None,
     }
-    Some(
-        div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(m.spacing2())
-            .children(stripe)
-            .children(icon)
-            .into_any_element(),
-    )
 }
 
 /// A row's title, with its details under it in a normal row or its project
@@ -288,6 +309,7 @@ fn row_text(entry: &Entry, title: String, compact: bool, model: &AppModel) -> gp
     let m = model.metrics;
     let theme = &model.theme;
     let key = entry.key();
+    let details = (!compact).then(|| details(entry, &title, model));
     let title = div()
         .debug_selector(move || format!("agents-panel-title-{key}"))
         .when(compact, |title| title.flex_1().min_w(px(0.0)))
@@ -295,7 +317,7 @@ fn row_text(entry: &Entry, title: String, compact: bool, model: &AppModel) -> gp
         .text_size(m.font_body())
         .text_color(theme.fg)
         .child(title);
-    if !compact {
+    if let Some(details) = details {
         return div()
             .flex()
             .flex_col()
@@ -308,7 +330,7 @@ fn row_text(entry: &Entry, title: String, compact: bool, model: &AppModel) -> gp
                     .truncate()
                     .text_size(m.font_footnote())
                     .text_color(theme.fg_dim)
-                    .child(details(entry, model)),
+                    .child(details),
             );
     }
     let project = match entry {
@@ -360,6 +382,7 @@ fn entry_row(
     };
     let trailing = trailing(entry, model.agents_panel.owner.entity_id(), model);
     let leading = leading(entry, model);
+    let stripe = project_stripe(entry, model);
     let label = title.clone();
     let text = row_text(entry, title, compact, model);
     div()
@@ -369,26 +392,20 @@ fn entry_row(
         .aria_description(entry_description(entry, model))
         .aria_selected(active)
         .debug_selector(move || format!("agents-panel-row-{key}"))
+        .relative()
         .flex()
         .flex_none()
         .w_full()
         .min_w(px(0.0))
         .items_center()
-        .map(|row| {
-            if compact {
-                row.gap(m.spacing2())
-                    .pl(m.spacing3())
-                    .pr(m.spacing2())
-                    .h(m.scaled(22.0))
-                    .rounded(m.radius_sm())
-            } else {
-                row.gap(m.spacing3())
-                    .my(m.spacing1())
-                    .pl(m.spacing4())
-                    .pr(m.spacing2())
-                    .py(m.spacing2())
-                    .rounded(m.radius_md())
-            }
+        .gap(m.spacing3())
+        .pl(m.spacing4())
+        .pr(m.spacing3())
+        .rounded(m.radius_md())
+        .h(if compact {
+            m.control_medium()
+        } else {
+            m.control_large() + m.spacing2()
         })
         .cursor_pointer()
         .when(active, |row| row.bg(theme.surface))
@@ -404,6 +421,7 @@ fn entry_row(
         .on_press(cx.listener(move |model, _, window, cx| {
             model.open_agents_entry(key, window, cx);
         }))
+        .children(stripe)
         .children(leading)
         .child(text)
         .child(trailing)
@@ -434,6 +452,7 @@ fn rows(
         .flex_col()
         .flex_1()
         .min_h(px(0.0))
+        .gap(m.spacing1())
         .px(inset)
         .pb(m.spacing2())
         .overflow_y_scroll()
@@ -600,18 +619,9 @@ fn header(
         .flex_none()
         .items_center()
         .gap(m.spacing2())
-        .pl(inset(placement, model)
-            + if compact(model) {
-                m.spacing3()
-            } else {
-                m.spacing4()
-            })
+        .pl(inset(placement, model) + m.spacing4())
         .pr(inset(placement, model))
-        .h(if compact(model) {
-            m.control_medium()
-        } else {
-            m.control_large()
-        })
+        .h(m.control_large())
         .when(detached, |header| {
             header.cursor(gpui::CursorStyle::OpenHand).on_mouse_down(
                 MouseButton::Left,
