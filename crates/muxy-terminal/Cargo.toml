@@ -15,5 +15,9 @@ workspace = true
 [dependencies]
 muxy-protocol = { path = "../muxy-protocol" }
 portable-pty = "0.9"
-image = { version = "0.25", default-features = false, features = ["png"] }
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 libghostty-vt = "=0.2.1"
+
+[dev-dependencies]
+tempfile = "3"

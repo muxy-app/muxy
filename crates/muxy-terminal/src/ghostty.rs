@@ -108,6 +108,7 @@ pub struct Terminal {
     held_buttons: Vec<MouseButton>,
     keyboard: crate::input::Keyboard,
     graphics_cache: crate::graphics::Cache,
+    inline_images: crate::graphics::Interceptor,
     cell: crate::CellSize,
 }
 
@@ -241,6 +242,7 @@ impl Terminal {
             held_buttons: Vec::new(),
             keyboard: crate::input::Keyboard::new().map_err(create)?,
             graphics_cache: crate::graphics::Cache::new().map_err(create)?,
+            inline_images: crate::graphics::Interceptor::default(),
             cell: crate::CellSize::default(),
         })
     }
@@ -334,7 +336,20 @@ impl Terminal {
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
-        self.engine.vt_write(bytes);
+        use crate::graphics::Piece;
+        let Self {
+            engine,
+            inline_images,
+            cell,
+            ..
+        } = self;
+        inline_images.feed(bytes, |piece| match piece {
+            Piece::Text(text) => engine.vt_write(text),
+            Piece::Sixel { params, data } => {
+                crate::graphics::show_sixel(engine, *cell, params, data);
+            }
+            Piece::Iterm(file) => crate::graphics::show_iterm(engine, *cell, file),
+        });
     }
 
     /// Clear the primary screen and history; queue a shell redraw only at a semantic prompt.

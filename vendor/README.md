@@ -14,15 +14,18 @@ upstream copy, outside this repository, to rebuild the vendored crate. Packaging
 | `core-text` | crates.io 21.0.0 | gpui and font-kit need 21.x, and 21.0.0 leaks font descriptor arrays | `CTFontCollection::get_descriptors` takes ownership under the Create rule ([upstream fix](https://github.com/servo/core-foundation-rs/commit/6f844cf1a1a18e25b70fcdf1bcdc458555bd2eff)). `CTRun` getters spell out their elided `Cow` lifetimes. |
 | `xim-ctext` | crates.io 0.4.1, kept at version 0.3.0 | `zed-xim`, behind gpui's X11 input method, asks for 0.3, which can't decode Chinese, Korean, ISO-8859 or mixed-charset compound text | 0.4.1's decoder ([upstream PR](https://github.com/Riey/xim-rs/pull/50)) under the 0.3.0 version number. Local fix: text before the first escape is decoded as plain text, so commits like `(June)` or `$(echo)` aren't mistaken for escape sequences. Upstream only guards `(B` and `(J` so far. The demo binary is dropped. |
 | `libghostty-vt` | [libghostty-rs `9ede35b8`](https://github.com/uzaaft/libghostty-rs/commit/9ede35b8ea94a55ed3608408d67e102883129f1e), unreleased | Muxy needs a newer Ghostty and a clear-screen call that no release has | `Terminal::clear_screen` wraps the patched Ghostty call. `vt_write_until_ground` uses Ghostty's newer `vt_write_until`. `key::Encoder::encode_to_vec` reserves the full required length when it retries. |
-| `libghostty-vt-sys` | [libghostty-rs `9ede35b8`](https://github.com/uzaaft/libghostty-rs/commit/9ede35b8ea94a55ed3608408d67e102883129f1e), unreleased | Builds the Ghostty that `libghostty-vt` needs | Pins Ghostty `83fb9562`. Applies `patches/clear-screen.patch` to a private copy of the Ghostty source before building (`patch.rs`). Retries Ghostty and Zig package downloads. Hides the app's Git tags from Ghostty's build. Rejects a pkg-config Ghostty that lacks the patch. Keeps Zig's build outputs in `LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR` when it's set, so CI can reuse them. `src/bindings.rs` is regenerated for that Ghostty. |
+| `libghostty-vt-sys` | [libghostty-rs `9ede35b8`](https://github.com/uzaaft/libghostty-rs/commit/9ede35b8ea94a55ed3608408d67e102883129f1e), unreleased | Builds the Ghostty that `libghostty-vt` needs | Pins Ghostty `83fb9562`. Applies `patches/clear-screen.patch` and `patches/kitty-image-file.patch` to a private copy of the Ghostty source before building (`patch.rs`). Retries Ghostty and Zig package downloads. Hides the app's Git tags from Ghostty's build. Rejects a pkg-config Ghostty that lacks the clear-screen patch. Keeps Zig's build outputs in `LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR` when it's set, so CI can reuse them. `src/bindings.rs` is regenerated for that Ghostty. |
 
 `Cargo.toml` in both libghostty crates is Cargo's packaged form of upstream's
 manifest, without the `readme` line. Upstream's manifest itself is kept
 unchanged as `Cargo.toml.orig`. `build.rs.orig` is upstream's build script.
 
-`libghostty-vt-sys/patches/clear-screen.patch` is different from the
-`upstream-*.patch` files: it changes Ghostty's own source, and the build
-applies it.
+`libghostty-vt-sys/patches/clear-screen.patch` and
+`libghostty-vt-sys/patches/kitty-image-file.patch` are different from the
+`upstream-*.patch` files: they change Ghostty's own source, and the build
+applies them. The Kitty image patch stats an image path before opening it, so a
+FIFO can't stall the terminal, and gives libghostty's small I/O layer the path
+stat it needs on POSIX. A pkg-config Ghostty needs both patches.
 
 ## gpui
 

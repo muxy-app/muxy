@@ -1,0 +1,104 @@
+diff --git a/src/lib/TinyIo.zig b/src/lib/TinyIo.zig
+index a3ee230..96c7760 100644
+--- a/src/lib/TinyIo.zig
++++ b/src/lib/TinyIo.zig
+@@ -93,7 +93,8 @@ const vtable: Io.VTable = if (!supported) std.Io.failing.vtable.* else .{
+     .dirCreateDirPathOpen = Io.failingDirCreateDirPathOpen,
+     .dirOpenDir = Io.failingDirOpenDir,
+     .dirStat = Io.failingDirStat,
+-    .dirStatFile = Io.failingDirStatFile,
++    // Kitty image loading stats a path before opening it (POSIX only).
++    .dirStatFile = if (builtin.target.os.tag == .windows) Io.failingDirStatFile else impl.dirStatFile,
+     .dirAccess = Io.failingDirAccess,
+     .dirCreateFile = Io.failingDirCreateFile,
+     .dirCreateFileAtomic = Io.failingDirCreateFileAtomic,
+diff --git a/src/lib/tinyio/posix.zig b/src/lib/tinyio/posix.zig
+index 1cbed21..e09bc59 100644
+--- a/src/lib/tinyio/posix.zig
++++ b/src/lib/tinyio/posix.zig
+@@ -144,6 +144,58 @@ pub fn fileClose(_: ?*anyopaque, files: []const File) void {
+     for (files) |file| closeFd(file.handle);
+ }
+ 
++pub fn dirStatFile(
++    _: ?*anyopaque,
++    dir: Dir,
++    sub_path: []const u8,
++    options: Dir.StatFileOptions,
++) Dir.StatFileError!File.Stat {
++    var path_buffer: [posix.PATH_MAX]u8 = undefined;
++    const sub_path_posix = try Threaded.pathToPosix(sub_path, &path_buffer);
++
++    if (builtin.target.os.tag == .linux) {
++        const linux = std.os.linux;
++        const flags: u32 = linux.AT.NO_AUTOMOUNT |
++            @as(u32, if (!options.follow_symlinks) linux.AT.SYMLINK_NOFOLLOW else 0);
++        while (true) {
++            var statx = std.mem.zeroes(linux.Statx);
++            switch (linux.errno(linux.statx(
++                dir.handle,
++                sub_path_posix,
++                flags,
++                Threaded.linux_statx_request,
++                &statx,
++            ))) {
++                .SUCCESS => return Threaded.statFromLinux(&statx),
++                .INTR => continue,
++                .ACCES => return error.AccessDenied,
++                .LOOP => return error.SymLinkLoop,
++                .NOENT => return error.FileNotFound,
++                .NOTDIR => return error.NotDir,
++                .NOMEM => return error.SystemResources,
++                else => |err| return posix.unexpectedErrno(err),
++            }
++        }
++    }
++
++    const flags: u32 = if (!options.follow_symlinks) posix.AT.SYMLINK_NOFOLLOW else 0;
++    while (true) {
++        var stat = std.mem.zeroes(posix.Stat);
++        switch (posix.errno(fstatat_sym(dir.handle, sub_path_posix, &stat, flags))) {
++            .SUCCESS => return Threaded.statFromPosix(&stat),
++            .INTR => continue,
++            .NOMEM => return error.SystemResources,
++            .ACCES => return error.AccessDenied,
++            .PERM => return error.PermissionDenied,
++            .NAMETOOLONG => return error.NameTooLong,
++            .LOOP => return error.SymLinkLoop,
++            .NOENT, .NOTDIR => return error.FileNotFound,
++            .ILSEQ => return error.BadPathName,
++            else => |err| return posix.unexpectedErrno(err),
++        }
++    }
++}
++
+ pub fn fileStat(_: ?*anyopaque, file: File) File.StatError!File.Stat {
+     if (builtin.target.os.tag == .linux) {
+         const linux = std.os.linux;
+diff --git a/src/terminal/kitty/graphics_image.zig b/src/terminal/kitty/graphics_image.zig
+index d0e3252..92fba82 100644
+--- a/src/terminal/kitty/graphics_image.zig
++++ b/src/terminal/kitty/graphics_image.zig
+@@ -371,6 +371,22 @@ pub const LoadingImage = struct {
+         const abs_buf = try alloc.alloc(u8, std.Io.Dir.max_path_bytes);
+         defer alloc.free(abs_buf);
+ 
++        // Refuse anything but a regular file before opening it. Opening a
++        // FIFO waits for a writer, which would stall the thread feeding the
++        // terminal, and opening a device can have side effects. The checks
++        // after the open still apply to the file that is actually read.
++        // Windows paths were already checked by kitty_windows above.
++        if (comptime builtin.target.os.tag != .windows) {
++            const pre_stat = std.Io.Dir.cwd().statFile(io, path, .{}) catch |err| {
++                log.warn("failed to stat image file: {}", .{err});
++                return error.InvalidData;
++            };
++            if (pre_stat.kind != .file) {
++                log.warn("image file is not a regular file kind={}", .{pre_stat.kind});
++                return error.InvalidData;
++            }
++        }
++
+         // Open our file right away before we do validation. This avoids
+         // TOCTOU issues.
+         var file = std.Io.Dir.cwd().openFile(

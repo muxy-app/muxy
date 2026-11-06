@@ -2,12 +2,26 @@ pub use muxy_protocol::{
     CellSize, GraphicImage, GraphicPlacement, Graphics, MAX_GRAPHICS_BYTES, MAX_GRAPHICS_PLACEMENTS,
 };
 
+mod iterm;
+mod sixel;
+mod stream;
+
+pub(crate) use stream::{Interceptor, Piece};
+
 use std::collections::BTreeMap;
 use std::io::Cursor;
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
+
+use base64::Engine as _;
+use image::RgbaImage;
 
 use libghostty_vt::kitty::graphics::{self, DecodePng, DecodedImage, ImageFormat};
 use libghostty_vt::render::{ImageIterator, ImageProtocol};
+use libghostty_vt::terminal::{
+    ConformanceLevel, DeviceAttributeFeature, DeviceAttributes, DeviceType,
+    PrimaryDeviceAttributes, SecondaryDeviceAttributes, SizeReportSize, TertiaryDeviceAttributes,
+};
 use libghostty_vt::{
     RenderState, Terminal,
     alloc::{Allocator, Bytes},
@@ -17,6 +31,46 @@ type Result<T> = std::result::Result<T, libghostty_vt::Error>;
 
 /// The character a program prints where an image with a virtual placement should appear.
 pub(crate) const PLACEHOLDER: char = '\u{10EEEE}';
+/// The widest or tallest image any decoder accepts.
+const MAX_SIDE: u32 = 8192;
+/// Memory a decoder may use for one image before it is shrunk to fit.
+const MAX_DECODE_BYTES: u64 = 64 * 1024 * 1024;
+/// Base64 bytes per Kitty command when showing a converted image.
+const KITTY_CHUNK: usize = 4096;
+/// IND: moves the cursor down a row, scrolling at the bottom, in its column.
+const INDEX: &[u8] = b"\x1bD";
+
+/// libghostty's default answers, plus Sixel, which is drawn as Kitty images.
+const DEVICE_ATTRIBUTES: DeviceAttributes = DeviceAttributes {
+    primary: PrimaryDeviceAttributes::new(
+        ConformanceLevel::VT220,
+        &[
+            DeviceAttributeFeature::SIXEL,
+            DeviceAttributeFeature::ANSI_COLOR,
+        ],
+    ),
+    secondary: SecondaryDeviceAttributes {
+        device_type: DeviceType::VT220,
+        firmware_version: 0,
+        rom_cartridge: 0,
+    },
+    tertiary: TertiaryDeviceAttributes { unit_id: 0 },
+};
+
+/// RGBA pixels decoded from a protocol libghostty doesn't implement.
+#[derive(Debug)]
+pub(crate) struct Picture {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) rgba: Vec<u8>,
+}
+
+/// Cells a picture is stretched over; a missing side keeps the aspect ratio.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Placement {
+    pub(crate) columns: Option<u32>,
+    pub(crate) rows: Option<u32>,
+}
 
 #[derive(Debug)]
 pub(crate) struct Cache {
@@ -36,10 +90,127 @@ pub(crate) fn install_png_decoder() -> Result<()> {
 
 pub(crate) fn configure(engine: &mut Terminal<'_, '_>) -> Result<()> {
     engine.set_kitty_image_storage_limit(MAX_GRAPHICS_BYTES as u64)?;
-    engine.set_kitty_image_from_file_allowed(false)?;
-    engine.set_kitty_image_temp_file_dir(None)?;
-    engine.set_kitty_image_from_shared_mem_allowed(false)?;
+    // libghostty reads only regular files outside /proc, /sys and /dev, and
+    // refuses FIFOs before opening them (libghostty-vt-sys
+    // patches/kitty-image-file.patch). It deletes temporary files only inside a
+    // temporary folder and named for the protocol, and unlinks shared memory
+    // once read, as Kitty and Ghostty do.
+    engine.set_kitty_image_from_file_allowed(true)?;
+    let temporary = std::env::temp_dir();
+    engine.set_kitty_image_temp_file_dir(temporary.to_str().map(Path::new))?;
+    engine.set_kitty_image_from_shared_mem_allowed(true)?;
+    engine.on_device_attributes(|_| Some(DEVICE_ATTRIBUTES))?;
+    engine.on_size(|terminal| {
+        let columns = terminal.cols().ok().filter(|n| *n > 0)?;
+        let rows = terminal.rows().ok().filter(|n| *n > 0)?;
+        Some(SizeReportSize {
+            rows,
+            columns,
+            cell_width: terminal.width_px().ok()? / u32::from(columns),
+            cell_height: terminal.height_px().ok()? / u32::from(rows),
+        })
+    })?;
     Ok(())
+}
+
+/// Shows a Sixel image at the cursor. As in xterm and foot, the cursor then
+/// sits at the image's left edge, on the last row the image covers.
+pub(crate) fn show_sixel(
+    engine: &mut Terminal<'static, 'static>,
+    cell: CellSize,
+    params: &[u8],
+    data: &[u8],
+) {
+    let background = engine
+        .default_bg_color()
+        .ok()
+        .flatten()
+        .map_or([0; 3], |color| [color.r, color.g, color.b]);
+    let Some(picture) = sixel::decode(params, data, background) else {
+        return;
+    };
+    show(engine, &picture, &Placement::default(), false);
+    let down = picture.height.div_ceil(u32::from(cell.height.max(1))) - 1;
+    engine.vt_write(&INDEX.repeat(down as usize));
+}
+
+/// Shows an iTerm2 inline image at the cursor.
+pub(crate) fn show_iterm(engine: &mut Terminal<'static, 'static>, cell: CellSize, file: &[u8]) {
+    let Some(file) = iterm::parse(file) else {
+        return;
+    };
+    let (Ok(columns), Ok(rows)) = (engine.cols(), engine.rows()) else {
+        return;
+    };
+    let placement = file.placement(columns, rows, cell);
+    show(engine, &file.picture, &placement, file.move_cursor);
+}
+
+/// Stores `picture` with Kitty commands and places it at the cursor.
+fn show(
+    engine: &mut Terminal<'static, 'static>,
+    picture: &Picture,
+    placement: &Placement,
+    move_cursor: bool,
+) {
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&picture.rgba);
+    let chunks = encoded.as_bytes().chunks(KITTY_CHUNK);
+    let last = chunks.len().saturating_sub(1);
+    let mut command = Vec::with_capacity(KITTY_CHUNK + 128);
+    for (index, chunk) in chunks.enumerate() {
+        command.clear();
+        command.extend_from_slice(b"\x1b_G");
+        if index == 0 {
+            let columns = placement
+                .columns
+                .map(|columns| format!("c={columns},"))
+                .unwrap_or_default();
+            let rows = placement
+                .rows
+                .map(|rows| format!("r={rows},"))
+                .unwrap_or_default();
+            let keys = format!(
+                "a=T,f=32,s={},v={},C={},{columns}{rows}",
+                picture.width,
+                picture.height,
+                u8::from(!move_cursor)
+            );
+            command.extend_from_slice(keys.as_bytes());
+        }
+        command.extend_from_slice(format!("q=2,m={};", u8::from(index < last)).as_bytes());
+        command.extend_from_slice(chunk);
+        command.extend_from_slice(b"\x1b\\");
+        engine.vt_write(&command);
+    }
+}
+
+/// Decodes an image file, shrinking a picture over the image budget to fit
+/// it, so large screenshots still show.
+pub(crate) fn decode_image(mut reader: image::ImageReader<Cursor<&[u8]>>) -> Option<RgbaImage> {
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
+    reader.limits(limits);
+    Some(fit(reader.decode().ok()?.into_rgba8()))
+}
+
+/// Shrinks `picture` to at most `MAX_GRAPHICS_BYTES`, keeping its aspect ratio.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn fit(picture: RgbaImage) -> RgbaImage {
+    let pixels = u64::from(picture.width()) * u64::from(picture.height());
+    let budget = (MAX_GRAPHICS_BYTES / 4) as u64;
+    if pixels <= budget {
+        return picture;
+    }
+    let scale = (budget as f64 / pixels as f64).sqrt();
+    let width = ((f64::from(picture.width()) * scale) as u32).max(1);
+    let height = ((f64::from(picture.height()) * scale) as u32).max(1);
+    image::imageops::thumbnail(&picture, width, height)
 }
 
 struct PngDecoder;
@@ -50,17 +221,10 @@ impl DecodePng for PngDecoder {
         alloc: &'alloc Allocator<'_>,
         data: &[u8],
     ) -> Option<DecodedImage<'alloc>> {
-        let mut reader =
-            image::ImageReader::with_format(Cursor::new(data), image::ImageFormat::Png);
-        let mut limits = image::Limits::default();
-        limits.max_alloc = Some(MAX_GRAPHICS_BYTES as u64);
-        limits.max_image_width = Some(8192);
-        limits.max_image_height = Some(8192);
-        reader.limits(limits);
-        let decoded = reader.decode().ok()?.into_rgba8();
-        if decoded.len() > MAX_GRAPHICS_BYTES {
-            return None;
-        }
+        let decoded = decode_image(image::ImageReader::with_format(
+            Cursor::new(data),
+            image::ImageFormat::Png,
+        ))?;
         let mut bytes = Bytes::new_with_alloc(alloc, decoded.len()).ok()?;
         bytes.copy_from_slice(decoded.as_raw());
         Some(DecodedImage {
