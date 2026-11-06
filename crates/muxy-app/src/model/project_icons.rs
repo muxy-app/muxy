@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use gpui::{Context, RenderImage, Task};
 use muxy_app_core::{Project, ProjectId, ProjectStatus, ServerId};
@@ -11,6 +12,7 @@ use crate::project_icon::Source;
 #[derive(Default)]
 pub(crate) struct ProjectIcons {
     entries: HashMap<ProjectId, Entry>,
+    connection_attempts: HashMap<ServerId, (u64, Instant)>,
     revision: u64,
     next_request: u64,
 }
@@ -59,6 +61,24 @@ impl ProjectIcons {
         }
     }
 
+    fn begin_connection_attempt(
+        &mut self,
+        server: ServerId,
+        generation: u64,
+        now: Instant,
+    ) -> bool {
+        if self
+            .connection_attempts
+            .get(&server)
+            .is_some_and(|(previous, next)| *previous == generation && now < *next)
+        {
+            return false;
+        }
+        self.connection_attempts
+            .insert(server, (generation, now + Duration::from_secs(30)));
+        true
+    }
+
     pub(super) fn refresh(&mut self) {
         self.revision = self.revision.wrapping_add(1);
     }
@@ -66,6 +86,12 @@ impl ProjectIcons {
 
 impl AppModel {
     pub(crate) fn sync_project_icons(&mut self, cx: &mut Context<Self>) {
+        self.project_icons.connection_attempts.retain(|server, _| {
+            self.state
+                .projects()
+                .iter()
+                .any(|project| project.server_id == *server)
+        });
         self.project_icons.entries.retain(|id, entry| {
             let keep = self.state.project(*id).is_some_and(eligible);
             if !keep && let Some(image) = entry.image.take() {
@@ -100,20 +126,8 @@ impl AppModel {
             })
             .collect();
         for (id, key) in projects {
-            let source = if key.server.is_local() {
-                Source::Local(key.directory.clone())
-            } else {
-                if !self.ready(key.server)
-                    || !self.confirmed(key.server)
-                    || self.state.project_creation_pending(id)
-                {
-                    continue;
-                }
-                let Some(client) = self.extensions.client(key.server) else {
-                    self.extension_client(key.server, cx);
-                    continue;
-                };
-                Source::Remote(client, id)
+            let Some(source) = self.project_icon_source(id, &key, cx) else {
+                continue;
             };
             self.project_icons.next_request = self.project_icons.next_request.wrapping_add(1);
             let request = self.project_icons.next_request;
@@ -158,6 +172,35 @@ impl AppModel {
             );
         }
     }
+
+    fn project_icon_source(
+        &mut self,
+        id: ProjectId,
+        key: &Key,
+        cx: &mut Context<Self>,
+    ) -> Option<Source> {
+        if key.server.is_local() {
+            return Some(Source::Local(key.directory.clone()));
+        }
+        if !self.ready(key.server)
+            || !self.confirmed(key.server)
+            || self.state.project_creation_pending(id)
+        {
+            return None;
+        }
+        let Some(client) = self.extensions.client(key.server) else {
+            if self.project_icons.begin_connection_attempt(
+                key.server,
+                key.generation,
+                Instant::now(),
+            ) {
+                self.extension_client(key.server, cx);
+            }
+            return None;
+        };
+        self.project_icons.connection_attempts.remove(&key.server);
+        Some(Source::Remote(client, id))
+    }
 }
 
 #[cfg(test)]
@@ -165,6 +208,20 @@ mod tests {
     use super::*;
     use gpui::TestAppContext;
     use muxy_app_core::AppState;
+
+    #[test]
+    fn project_icon_connection_attempts_back_off_per_server_and_reset_on_reconnect() {
+        let mut icons = ProjectIcons::default();
+        let server = ServerId::new();
+        let other = ServerId::new();
+        let now = Instant::now();
+        assert!(icons.begin_connection_attempt(server, 1, now));
+        assert!(!icons.begin_connection_attempt(server, 1, now));
+        assert!(icons.begin_connection_attempt(other, 1, now));
+        assert!(!icons.begin_connection_attempt(server, 1, now + Duration::from_secs(29)));
+        assert!(icons.begin_connection_attempt(server, 1, now + Duration::from_secs(30)));
+        assert!(icons.begin_connection_attempt(server, 2, now + Duration::from_secs(31)));
+    }
 
     #[gpui::test]
     fn project_icons_refresh_cache_and_respect_manual_appearance(cx: &mut TestAppContext) {

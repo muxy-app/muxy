@@ -133,6 +133,18 @@ fn skips_broken_candidates_and_uses_stable_priority() {
             .expect("pixels")[..4],
         [0, 255, 0, 255]
     );
+    std::fs::write(
+        root.path().join("favicon.svg"),
+        br#"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="16"><rect width="32" height="16" fill="blue"/></svg>"#,
+    ).expect("svg");
+    assert_eq!(
+        discover(&source)
+            .expect("svg favicon")
+            .as_bytes(0)
+            .expect("pixels")[..4],
+        [255, 0, 0, 255]
+    );
+    std::fs::write(root.path().join("favicon.svg"), b"broken").expect("invalid svg");
     std::fs::remove_file(root.path().join("favicon.png")).expect("remove favicon");
     let mut names = ["logo.png", "favicon.png", "favicon.svg", "icon.ico"];
     names.sort_by_key(|name| rank(Path::new(name)));
