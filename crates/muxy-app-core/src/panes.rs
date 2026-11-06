@@ -1,6 +1,8 @@
 //! Finding panes wherever they live: in a project's tabs, or in the Quick
 //! Terminal, which belongs to no tab and runs on this computer.
 
+use std::path::Path;
+
 use muxy_protocol::SessionId;
 
 use crate::{AppState, Pane, PaneId, Project, ServerId, Tab, TabId};
@@ -59,6 +61,15 @@ impl AppState {
     pub fn pane_project(&self, id: PaneId) -> Option<&Project> {
         let placed = self.placed_pane(id)?;
         Some(placed.project.unwrap_or_else(|| self.home()))
+    }
+
+    /// The home folder of the computer a pane runs on, once its Home is known.
+    pub fn pane_home(&self, id: PaneId) -> Option<&Path> {
+        let server = self.placed_pane(id)?.server;
+        self.projects
+            .iter()
+            .find(|project| project.home && project.server_id == server)
+            .map(|project| project.directory.as_path())
     }
 
     /// Panes that show `server`'s `session`.

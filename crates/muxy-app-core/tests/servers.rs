@@ -931,3 +931,18 @@ fn a_renamed_tab_names_every_terminal_in_it_on_its_own_server() -> TestResult {
     assert!(state.session_names(LOCAL).is_empty());
     Ok(())
 }
+
+#[test]
+fn a_pane_finds_the_home_of_the_computer_it_runs_on() -> TestResult {
+    let TwoServers { mut state, api, .. } = two_servers()?;
+    state.open_terminal_tab(state.home().id)?;
+    let local_pane = state.home().tabs[0].panes[0].id;
+    state.open_terminal_tab(api)?;
+    let remote_pane = state.project(api).ok_or("api")?.tabs[0].panes[0].id;
+    let quick = state.ensure_quick_terminal();
+    let local_home = state.home().directory.clone();
+    assert_eq!(state.pane_home(local_pane), Some(local_home.as_path()));
+    assert_eq!(state.pane_home(quick), Some(local_home.as_path()));
+    assert_eq!(state.pane_home(remote_pane), Some(Path::new("/home/dev")));
+    Ok(())
+}

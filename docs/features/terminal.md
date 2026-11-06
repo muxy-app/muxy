@@ -19,9 +19,11 @@ quit the app, and every app shows the same screen and history.
 
 - Every terminal pane has a header with its icon (an agent's own icon while one
   runs there) and title. At a prompt, the header names the shell, such as
-  `zsh`, rather than the folder, unless the shell sets its own title. The
-  focused pane, or the one under the pointer, shows buttons there to split it
-  right or down, detach it, maximize it, or close it.
+  `zsh`, rather than the folder, unless the shell sets its own title. Beside
+  the title, dimmed, the header shows the folder the terminal works in, such as
+  `~/Projects/muxy`, unless the title already shows it. The focused pane, or
+  the one under the pointer, shows buttons there to split it right or down,
+  detach it, maximize it, or close it.
   Drag a pane by its title to move it, as with `Cmd`-drag.
   A terminal's header takes the background a full-screen app paints its screen
   in, so it blends with the app. Turn headers off with **Settings → Appearance

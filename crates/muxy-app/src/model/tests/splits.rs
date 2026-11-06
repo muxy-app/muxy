@@ -642,6 +642,102 @@ fn a_pane_header_names_the_shell_while_its_tab_keeps_its_title(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn a_pane_header_shows_its_folder_unless_the_title_already_does(cx: &mut TestAppContext) {
+    use muxy_protocol::MetadataEvent;
+    let (state, _, panes) = split_state();
+    let pane = panes[0];
+    let home = state.home().directory.to_string_lossy().into_owned();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let report = |event: MetadataEvent, cx: &mut VisualTestContext| {
+        view.update(cx, |model, cx| {
+            let terminal = model.terminal(&pane).expect("terminal").view.clone();
+            terminal.update(cx, |terminal, cx| terminal.metadata(event, cx));
+        });
+        cx.run_until_parked();
+    };
+    let directory = |name: &str, cx: &mut VisualTestContext| {
+        cx.debug_bounds(format!("pane-directory-{pane}-{name}").leak())
+            .is_some()
+    };
+    view.update(cx, |model, cx| attach_panes(model, &panes, cx));
+    report(
+        MetadataEvent::ForegroundProcess {
+            name: "-zsh".into(),
+            is_shell: true,
+        },
+        cx,
+    );
+    report(
+        MetadataEvent::Directory(format!("{home}/muxy/crates").into()),
+        cx,
+    );
+    assert!(
+        cx.debug_bounds(format!("pane-title-{pane}-zsh").leak())
+            .is_some()
+    );
+    assert!(directory("~/muxy/crates", cx));
+
+    for (title, folder) in [("~/muxy", "muxy"), ("dev@host: ~/api", "api")] {
+        report(MetadataEvent::Title(title.into()), cx);
+        report(
+            MetadataEvent::Directory(format!("{home}/{folder}").into()),
+            cx,
+        );
+        assert!(
+            cx.debug_bounds(format!("pane-title-{pane}-{title}").leak())
+                .is_some()
+        );
+        assert!(!directory(&format!("~/{folder}"), cx), "{title}");
+    }
+}
+
+#[gpui::test]
+fn a_narrow_pane_header_cuts_its_folder_before_its_title(cx: &mut TestAppContext) {
+    use muxy_protocol::MetadataEvent;
+    let (state, _, panes) = split_state();
+    let pane = panes[0];
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| attach_panes(model, &panes, cx));
+    let folder = format!("/srv/{}", "deep/".repeat(40));
+    let folder = folder.trim_end_matches('/').to_owned();
+    for event in [
+        MetadataEvent::ForegroundProcess {
+            name: "a-long-running-program-name".into(),
+            is_shell: false,
+        },
+        MetadataEvent::Directory(folder.clone().into()),
+    ] {
+        view.update(cx, |model, cx| {
+            let terminal = model.terminal(&pane).expect("terminal").view.clone();
+            terminal.update(cx, |terminal, cx| terminal.metadata(event, cx));
+        });
+    }
+    cx.run_until_parked();
+    let title = |cx: &mut VisualTestContext| {
+        cx.debug_bounds(format!("pane-title-{pane}-a-long-running-program-name").leak())
+            .expect("title")
+            .size
+            .width
+    };
+    let directory = |cx: &mut VisualTestContext| {
+        cx.debug_bounds(format!("pane-directory-{pane}-{folder}").leak())
+            .expect("folder")
+            .size
+            .width
+    };
+    let wide = title(cx);
+    let wide_directory = directory(cx);
+    cx.simulate_resize(size(px(700.0), px(800.0)));
+    cx.run_until_parked();
+    assert_eq!(title(cx), wide);
+    assert!(directory(cx) < wide_directory);
+}
+
+#[gpui::test]
 fn with_pane_headers_off_panes_have_no_header_but_stay_dimmed(cx: &mut TestAppContext) {
     let (state, _, panes) = split_state();
     let (mut boot, _requests) = stub_boot(state);

@@ -223,6 +223,11 @@ impl TerminalPane {
         })
     }
 
+    /// The folder the pane's header shows beside its title.
+    pub(crate) fn header_directory(&self, home: Option<&std::path::Path>) -> Option<String> {
+        muxy_app_core::title::directory_for_header(&self.directory, home)
+    }
+
     #[allow(
         clippy::large_types_passed_by_value,
         reason = "Each pane owns its palette snapshot"

@@ -1,6 +1,7 @@
 //! How every client titles a terminal, so the desktop, terminal UI, and
 //! phone apps agree.
 
+use std::path::Path;
 use std::sync::LazyLock;
 
 use crate::{ForegroundProcess, ServerPath};
@@ -54,6 +55,23 @@ pub fn derive_for_header(
     directory: &ServerPath,
 ) -> String {
     derive_with(title, process, directory, true)
+}
+
+/// Where a terminal works, as its pane header shows it: within `home` as
+/// `~`. `None` until the terminal reports a folder.
+pub fn directory_for_header(directory: &ServerPath, home: Option<&Path>) -> Option<String> {
+    let directory = directory.as_path();
+    if directory.as_os_str().is_empty() {
+        return None;
+    }
+    let relative = home
+        .filter(|home| home.parent().is_some())
+        .and_then(|home| directory.strip_prefix(home).ok());
+    Some(match relative {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
+        Some(rest) => format!("~/{}", rest.to_string_lossy()),
+        None => directory.to_string_lossy().into_owned(),
+    })
 }
 
 fn derive_with(
