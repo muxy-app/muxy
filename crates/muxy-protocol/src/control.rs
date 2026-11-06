@@ -196,6 +196,27 @@ pub enum RequestBody {
         #[n(1)]
         colors: Option<TerminalColors>,
     },
+    /// A name for one session that every client sees, such as a renamed
+    /// tab's title; `None` removes it. Servers from before this answer
+    /// `Unsupported`.
+    #[n(45)]
+    SetSessionName {
+        #[n(0)]
+        session: SessionId,
+        #[n(1)]
+        name: Option<String>,
+        /// Changes the name only while it is still this one, so an app
+        /// clears just the name it gave and not one another app gave since.
+        #[n(2)]
+        #[cbor(default)]
+        #[serde(default)]
+        replacing: Option<String>,
+    },
+    /// Sends this connection every session's `SessionMetadata` now and as it
+    /// changes, without showing the sessions, so a phone can title tabs it
+    /// isn't attached to. Servers from before this answer `Unsupported`.
+    #[n(46)]
+    WatchSessionMetadata,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -311,6 +332,10 @@ pub enum ReplyBody {
     Uploaded(#[n(0)] Option<ServerPath>),
     #[n(39)]
     SessionColorsSet,
+    #[n(40)]
+    SessionNameSet,
+    #[n(41)]
+    SessionMetadataWatched,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

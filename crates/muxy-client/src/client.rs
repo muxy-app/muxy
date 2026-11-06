@@ -464,6 +464,35 @@ impl Client {
         }
     }
 
+    /// Names a session for every client, or with `None` removes its name.
+    /// With `replacing`, only while its name is still that one. Servers from
+    /// before this answer `Unsupported`.
+    pub fn set_session_name(
+        &self,
+        session: SessionId,
+        name: Option<String>,
+        replacing: Option<String>,
+    ) -> Result<(), ClientError> {
+        match self.request(RequestBody::SetSessionName {
+            session,
+            name,
+            replacing,
+        })? {
+            ReplyBody::SessionNameSet => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
+    /// Asks for every session's metadata now and as it changes, delivered as
+    /// [`crate::ClientEvent::SessionMetadata`]. Servers from before this
+    /// answer `Unsupported`.
+    pub fn watch_session_metadata(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::WatchSessionMetadata)? {
+            ReplyBody::SessionMetadataWatched => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     pub fn ping(&self) -> Result<(), ClientError> {
         match self.request(RequestBody::Ping)? {
             ReplyBody::Pong => Ok(()),

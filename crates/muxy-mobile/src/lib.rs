@@ -22,6 +22,7 @@ mod records;
 mod scrollback;
 mod terminal;
 mod terminals;
+mod titles;
 
 use muxy_client::Client;
 use muxy_protocol::{DeviceKind, MAX_DEVICE_NAME, PairingInvite};

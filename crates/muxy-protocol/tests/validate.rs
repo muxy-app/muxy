@@ -266,6 +266,12 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("ProjectMutated", ChannelKind::Control),
             Message::Reply {
+                body: ReplyBody::ProjectSessions(page),
+                ..
+            } if page.sessions.iter().any(|session| session.name.is_some()) => {
+                ("NamedProjectSessions", ChannelKind::Control)
+            }
+            Message::Reply {
                 body: ReplyBody::ProjectSessions(_),
                 ..
             } => ("ProjectSessions", ChannelKind::Control),
@@ -357,6 +363,29 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: RequestBody::SetSessionColors { .. },
                 ..
             } => ("SessionColorsRequest", ChannelKind::Control),
+            Message::Request {
+                body:
+                    RequestBody::SetSessionName {
+                        replacing: Some(_), ..
+                    },
+                ..
+            } => ("SessionNameClearRequest", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::SetSessionName { .. },
+                ..
+            } => ("SessionNameRequest", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::SessionNameSet,
+                ..
+            } => ("SessionNameReply", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::WatchSessionMetadata,
+                ..
+            } => ("WatchSessionMetadata", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::SessionMetadataWatched,
+                ..
+            } => ("SessionMetadataWatched", ChannelKind::Control),
             Message::Reply {
                 body: ReplyBody::SessionColorsSet,
                 ..
@@ -577,6 +606,12 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "TerminalColorsReply",
             "SessionColorsRequest",
             "SessionColorsReply",
+            "SessionNameRequest",
+            "SessionNameClearRequest",
+            "SessionNameReply",
+            "WatchSessionMetadata",
+            "SessionMetadataWatched",
+            "NamedProjectSessions",
             "HistoryRequest",
             "SavedHistoryRequest",
             "HistoryReply",
@@ -907,6 +942,64 @@ fn history_and_screen_link_budgets_are_independent_and_bounded()
         );
     }
     Ok(())
+}
+
+#[test]
+fn session_names_are_trimmed_bounded_and_free_of_control_characters() {
+    let project = muxy_protocol::ProjectId::from_u128(1);
+    for (name, expected) in [
+        (None, Ok(())),
+        (Some("API server".to_owned()), Ok(())),
+        (
+            Some("é".repeat(muxy_protocol::MAX_SESSION_NAME / 2)),
+            Ok(()),
+        ),
+        (Some(String::new()), Err(ErrorCode::BadRequest)),
+        (Some(" padded".into()), Err(ErrorCode::BadRequest)),
+        (Some("two\nlines".into()), Err(ErrorCode::BadRequest)),
+        (Some("bell\u{7}".into()), Err(ErrorCode::BadRequest)),
+        (
+            Some("x".repeat(muxy_protocol::MAX_SESSION_NAME + 1)),
+            Err(ErrorCode::BadRequest),
+        ),
+    ] {
+        assert_eq!(
+            request(RequestBody::SetSessionName {
+                session: session_id(),
+                name: name.clone(),
+                replacing: None,
+            })
+            .validate(),
+            expected,
+            "{name:?}"
+        );
+        assert_eq!(
+            request(RequestBody::SetSessionName {
+                session: session_id(),
+                name: None,
+                replacing: name.clone(),
+            })
+            .validate(),
+            expected,
+            "replacing {name:?}"
+        );
+        let listed = reply(ReplyBody::ProjectSessions(muxy_protocol::ProjectSessions {
+            revision: 1,
+            sessions: vec![muxy_protocol::ProjectSession {
+                info: muxy_protocol::SessionInfo {
+                    project,
+                    id: session_id(),
+                    directory: directory(),
+                },
+                status: muxy_protocol::SessionStatus::Live,
+                owner: None,
+                attached: false,
+                name: name.clone(),
+            }],
+            next: None,
+        }));
+        assert_eq!(listed.validate(), expected, "{name:?}");
+    }
 }
 
 #[test]

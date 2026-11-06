@@ -441,6 +441,11 @@ pub(crate) enum Work {
     Resize(ChannelId, Size),
     Colors(TerminalColors),
     SessionColors(SessionId, Option<TerminalColors>),
+    SessionName {
+        session: SessionId,
+        name: Option<String>,
+        replacing: Option<String>,
+    },
     Input(ChannelId, Vec<u8>),
     TerminalInput(ChannelId, muxy_protocol::TerminalInput),
     ClearScreen(ChannelId),
@@ -496,6 +501,7 @@ impl Work {
             Self::Resize(..) => "Resize",
             Self::Colors(..) => "Colors",
             Self::SessionColors(..) => "SessionColors",
+            Self::SessionName { .. } => "SessionName",
             Self::Input(..) => "Input",
             Self::TerminalInput(..) => "TerminalInput",
             Self::ClearScreen(..) => "ClearScreen",
@@ -580,6 +586,12 @@ pub(crate) enum Update {
         result: Result<SavedScreen, ClientError>,
     },
     ReferencesSynced(Result<(), ClientError>),
+    /// A `SessionName` request finished.
+    SessionNamed {
+        session: SessionId,
+        name: Option<String>,
+        result: Result<(), ClientError>,
+    },
     Discarded {
         session: SessionId,
         result: Result<(), ClientError>,
@@ -1037,6 +1049,11 @@ fn rejected(work: Work, error: ClientError) -> Update {
             result: Err(error),
         },
         Work::References(_) => Update::ReferencesSynced(Err(error)),
+        Work::SessionName { session, name, .. } => Update::SessionNamed {
+            session,
+            name,
+            result: Err(error),
+        },
         Work::Discard(session, _) => Update::Discarded {
             session,
             result: Err(error),
@@ -1228,6 +1245,18 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             }
             result => result,
         },
+        Work::SessionName {
+            session,
+            name,
+            replacing,
+        } => {
+            let result = client.set_session_name(session, name.clone(), replacing);
+            return Some(Update::SessionNamed {
+                session,
+                name,
+                result,
+            });
+        }
         Work::Input(channel, bytes) => client.send_input(channel, &bytes),
         Work::TerminalInput(channel, input) => client.send_terminal_input(channel, input),
         Work::ClearScreen(channel) => client.clear_screen(channel),

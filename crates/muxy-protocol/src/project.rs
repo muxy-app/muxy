@@ -178,6 +178,22 @@ impl ProjectDescriptor {
     }
 }
 
+pub const MAX_SESSION_NAME: usize = 256;
+
+/// A session name is trimmed, not empty, at most [`MAX_SESSION_NAME`] bytes,
+/// and has no control characters.
+pub fn validate_session_name(name: &str) -> Result<(), ErrorCode> {
+    if name.is_empty()
+        || name.len() > MAX_SESSION_NAME
+        || name.trim() != name
+        || name.chars().any(char::is_control)
+    {
+        Err(ErrorCode::BadRequest)
+    } else {
+        Ok(())
+    }
+}
+
 fn validate_name(name: &str) -> Result<(), ErrorCode> {
     if name.trim().is_empty() || name.len() > 1024 {
         Err(ErrorCode::BadRequest)
@@ -359,6 +375,11 @@ pub struct ProjectSession {
     pub owner: Option<crate::SessionClient>,
     #[n(3)]
     pub attached: bool,
+    /// The name `SetSessionName` gave it. Older servers send none.
+    #[n(4)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -414,6 +435,9 @@ impl ProjectSessions {
         }
         for session in &self.sessions {
             crate::validate_path(&session.info.directory)?;
+            if let Some(name) = &session.name {
+                validate_session_name(name)?;
+            }
         }
         Ok(())
     }

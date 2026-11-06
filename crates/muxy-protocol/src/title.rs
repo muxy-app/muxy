@@ -1,6 +1,9 @@
+//! How every client titles a terminal, so the desktop, terminal UI, and
+//! phone apps agree.
+
 use std::sync::LazyLock;
 
-use muxy_protocol::{ForegroundProcess, ServerPath};
+use crate::{ForegroundProcess, ServerPath};
 use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -15,7 +18,7 @@ static DECORATIONS: LazyLock<Regex> = LazyLock::new(|| {
     .expect("valid title decoration pattern")
 });
 
-pub(crate) fn sanitize(title: &str) -> String {
+pub fn sanitize(title: &str) -> String {
     let title = title.trim();
     if title.is_ascii() || !DECORATIONS.is_match(title) {
         return title.to_owned();
@@ -27,7 +30,7 @@ pub(crate) fn sanitize(title: &str) -> String {
     title.trim().to_owned()
 }
 
-pub(crate) fn sanitize_or_default(title: &str) -> String {
+pub fn sanitize_or_default(title: &str) -> String {
     let title = sanitize(title);
     if title.is_empty() {
         "Terminal".into()

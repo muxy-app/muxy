@@ -12,6 +12,7 @@ use crate::git::GitRepository;
 use crate::records::{Activity, Project, ServerCredential, Session, SessionStatus, text};
 use crate::terminal::Terminal;
 use crate::terminals::{Delivery, Terminals};
+use crate::titles::Titles;
 
 /// Receives connection events on an SDK thread; hop to the main thread before touching UI.
 #[uniffi::export(with_foreign)]
@@ -28,6 +29,11 @@ pub enum ConnectionEvent {
     /// The terminal's title, directory, history size, or mouse modes changed.
     MetadataChanged {
         session_id: u64,
+    },
+    /// What to call the session changed, for its tab whether or not it is attached.
+    TitleChanged {
+        session_id: u64,
+        title: String,
     },
     SessionEnded {
         session_id: u64,
@@ -59,6 +65,7 @@ pub enum ConnectionEvent {
 pub struct Connection {
     client: Client,
     terminals: Arc<Terminals>,
+    titles: Arc<Titles>,
 }
 
 impl std::fmt::Debug for Connection {
@@ -151,7 +158,12 @@ impl Connection {
             .all_project_sessions(project, |_| true)?
             .sessions
             .iter()
-            .map(Session::from)
+            .map(|listed| {
+                let title =
+                    self.titles
+                        .listed(listed.info.id, listed.name.clone(), &listed.info.directory);
+                Session::listed(listed, title)
+            })
             .collect())
     }
 
@@ -181,6 +193,7 @@ impl Connection {
             status: SessionStatus::Live,
             owner: None,
             attached: false,
+            title: self.titles.listed(info.id, None, &info.directory),
         })
     }
 
@@ -247,14 +260,26 @@ impl Connection {
     ) -> Result<Arc<Self>, MobileError> {
         let events = client.events().ok_or(MobileError::Disconnected)?;
         let terminals = Arc::<Terminals>::default();
-        let pump = (client.clone(), Arc::clone(&terminals));
+        let titles = Arc::<Titles>::default();
+        let pump = Pump {
+            client: client.clone(),
+            terminals: Arc::clone(&terminals),
+            titles: Arc::clone(&titles),
+        };
         thread::Builder::new()
             .name("muxy-mobile-events".into())
-            .spawn(move || deliver(&pump.0, &events, &pump.1, listener.as_ref()))
+            .spawn(move || deliver(&pump, &events, listener.as_ref()))
             .map_err(|error| MobileError::Unreachable {
                 reason: error.to_string(),
             })?;
-        Ok(Arc::new(Self { client, terminals }))
+        if client.watch_session_metadata().is_ok() {
+            titles.watching();
+        }
+        Ok(Arc::new(Self {
+            client,
+            terminals,
+            titles,
+        }))
     }
 }
 
@@ -282,13 +307,28 @@ fn session(id: u64) -> Result<SessionId, MobileError> {
     })
 }
 
+/// What the event thread applies events to.
+struct Pump {
+    client: Client,
+    terminals: Arc<Terminals>,
+    titles: Arc<Titles>,
+}
+
 /// Applies frames and acknowledges them, then tells the app what to read again.
-fn deliver(
-    client: &Client,
-    events: &Receiver<ClientEvent>,
-    terminals: &Terminals,
-    listener: &dyn ConnectionListener,
-) {
+fn deliver(pump: &Pump, events: &Receiver<ClientEvent>, listener: &dyn ConnectionListener) {
+    let Pump {
+        client,
+        terminals,
+        titles,
+    } = pump;
+    let retitled = |session: SessionId, title: Option<String>| {
+        if let Some(title) = title {
+            listener.on_event(ConnectionEvent::TitleChanged {
+                session_id: session.get(),
+                title,
+            });
+        }
+    };
     for event in events {
         let notice = match event {
             ClientEvent::Attached {
@@ -296,6 +336,15 @@ fn deliver(
                 session,
                 attachment,
             } => {
+                retitled(
+                    session,
+                    titles.attached(
+                        session,
+                        &attachment.title,
+                        &attachment.directory,
+                        attachment.process.as_ref(),
+                    ),
+                );
                 if let Some(channel) = terminals.attached(tag, session, *attachment) {
                     client.detach_async(channel).on_complete(drop);
                 }
@@ -315,14 +364,22 @@ fn deliver(
                 Delivery::Unknown => None,
             },
             ClientEvent::Metadata { channel, event } => {
+                if let Some(session) = terminals.session(channel) {
+                    retitled(session, titles.event(session, &event));
+                }
                 terminals
                     .metadata(channel, event)
                     .map(|session| ConnectionEvent::MetadataChanged {
                         session_id: session.get(),
                     })
             }
+            ClientEvent::SessionMetadata { session, metadata } => {
+                retitled(session, titles.metadata(session, metadata));
+                None
+            }
             ClientEvent::SessionEnded { session, .. } => {
                 terminals.ended(session);
+                titles.ended(session);
                 Some(ConnectionEvent::SessionEnded {
                     session_id: session.get(),
                 })
@@ -347,8 +404,7 @@ fn deliver(
                 listener.on_event(ConnectionEvent::Disconnected);
                 return;
             }
-            ClientEvent::SessionMetadata { .. }
-            | ClientEvent::ClipboardWrite { .. }
+            ClientEvent::ClipboardWrite { .. }
             | ClientEvent::Progress { .. }
             | ClientEvent::RemoteAccessChanged { .. } => None,
         };

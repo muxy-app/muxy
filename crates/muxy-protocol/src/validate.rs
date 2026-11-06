@@ -259,6 +259,9 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         RequestBody::Pair(request) => request.validate(),
         RequestBody::WriteRemoteAccess(settings) => settings.validate(),
         RequestBody::StartPairingWithHosts(hosts) => crate::validate_pairing_hosts(hosts),
+        RequestBody::SetSessionName {
+            name, replacing, ..
+        } => validate_session_names(&[name, replacing]),
         RequestBody::Authenticate(_)
         | RequestBody::ReadRemoteAccess
         | RequestBody::StartPairing
@@ -282,8 +285,16 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         | RequestBody::ReadSavedScreen(_)
         | RequestBody::DiscardSession(_)
         | RequestBody::SetTerminalColors(_)
-        | RequestBody::SetSessionColors { .. } => Ok(()),
+        | RequestBody::SetSessionColors { .. }
+        | RequestBody::WatchSessionMetadata => Ok(()),
     }
+}
+
+fn validate_session_names(names: &[&Option<String>]) -> Result<(), ErrorCode> {
+    names
+        .iter()
+        .filter_map(|name| name.as_deref())
+        .try_for_each(crate::validate_session_name)
 }
 
 #[allow(
@@ -401,6 +412,8 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         | ReplyBody::Resized
         | ReplyBody::TerminalColorsSet
         | ReplyBody::SessionColorsSet
+        | ReplyBody::SessionNameSet
+        | ReplyBody::SessionMetadataWatched
         | ReplyBody::Pong
         | ReplyBody::Error(_)
         | ReplyBody::SessionDiscarded => Ok(()),

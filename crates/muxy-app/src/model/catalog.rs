@@ -177,6 +177,7 @@ impl AppModel {
         if let Some(runtime) = self.servers.get_mut(server) {
             runtime.catalog.identified = true;
         }
+        self.sync_session_names(cx);
         if server.is_local() && first {
             for remote in self.servers.ids() {
                 if self.state.server_identity(remote).is_none() {

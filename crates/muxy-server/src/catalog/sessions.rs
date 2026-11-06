@@ -70,6 +70,7 @@ impl Catalog {
                     info: info.clone(),
                     status: SessionStatus::Starting,
                     ended_at: None,
+                    name: None,
                 },
             );
             state.creations.insert(
@@ -94,6 +95,42 @@ impl Catalog {
                 if status != SessionStatus::Live || membership.status == SessionStatus::Starting {
                     membership.status = status;
                 }
+            }
+            Ok(())
+        })
+    }
+
+    /// Names a session for every client. With `replacing`, only while its
+    /// name is still that one. A request that changes nothing only makes sure
+    /// an earlier change is on disk.
+    pub(crate) fn set_session_name(
+        &self,
+        session: SessionId,
+        name: Option<String>,
+        replacing: Option<&str>,
+    ) -> Result<(), ServerError> {
+        let applies = |membership: &Membership| {
+            replacing.is_none_or(|expected| membership.name.as_deref() == Some(expected))
+        };
+        let unchanged = {
+            let state = self.lock();
+            let membership = state
+                .sessions
+                .get(&session)
+                .filter(|_| !state.discarding.contains(&session))
+                .ok_or_else(|| ServerError::unknown_session(session))?;
+            membership.name == name || !applies(membership)
+        };
+        if unchanged {
+            return self.ensure_durable();
+        }
+        self.update(|state| {
+            let membership = state
+                .sessions
+                .get_mut(&session)
+                .ok_or_else(|| ServerError::unknown_session(session))?;
+            if applies(membership) {
+                membership.name = name;
             }
             Ok(())
         })
@@ -217,6 +254,7 @@ impl Catalog {
                 status: entry.status,
                 owner: None,
                 attached: false,
+                name: entry.name.clone(),
             })
             .collect();
         let next = entries

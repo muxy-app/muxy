@@ -698,6 +698,12 @@ impl Registry {
         }
     }
 
+    /// Gives a connection that watches every session's metadata its current state.
+    pub(crate) fn introduce_all(&self, connection: &Connection) {
+        let sessions: Vec<_> = self.list().into_iter().map(|info| info.id).collect();
+        self.introduce(connection, sessions.iter());
+    }
+
     /// Gives a connection the current state of sessions it just started referencing.
     fn introduce<'a>(
         &self,

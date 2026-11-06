@@ -1,4 +1,4 @@
-use muxy_app_core::title::{derive, derive_for_header};
+use muxy_protocol::title::{derive, derive_for_header};
 use muxy_protocol::{ForegroundProcess, ServerPath};
 
 fn process(name: &str, is_shell: bool) -> ForegroundProcess {
