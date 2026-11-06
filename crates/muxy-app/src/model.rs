@@ -2124,6 +2124,7 @@ impl AppModel {
         if server.is_local() {
             self.restore_quick_terminal(sessions, cx);
         }
+        self.state.settle_session_moves(server, sessions);
         let mut plan = restore::plan(&self.state, server, sessions);
         if !self.server_supports(server, muxy_protocol::Feature::SESSION_MOVE) {
             for (moved, _) in plan.moves.drain(..) {

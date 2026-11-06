@@ -3,7 +3,7 @@
 //! its panes, sessions and server keep working, but the main window no longer
 //! lists it until it returns.
 
-use muxy_protocol::SessionId;
+use muxy_protocol::{SessionId, SessionInfo};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -461,6 +461,17 @@ impl AppState {
     pub fn settle_session_move(&mut self, server: ServerId, session: SessionId) {
         self.session_moves
             .retain(|pending| (pending.server, pending.session) != (server, session));
+    }
+
+    /// Forgets the moves `server`'s `sessions` show it made: those it lists
+    /// under the project they were moving to.
+    pub fn settle_session_moves(&mut self, server: ServerId, sessions: &[SessionInfo]) {
+        self.session_moves.retain(|pending| {
+            pending.server != server
+                || !sessions.iter().any(|session| {
+                    session.id == pending.session && session.project == pending.project
+                })
+        });
     }
 
     /// The move of `session` the app is still waiting on `server` for.

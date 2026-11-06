@@ -577,6 +577,7 @@
 "Could not choose a key file: %@" = "Could not choose a key file: %@";
 "Could not choose logo: %@" = "Could not choose logo: %@";
 "Could not clear terminal panes: %@" = "Could not clear terminal panes: %@";
+"Could not confirm the terminal’s move to its new project; it is sent again on reconnect: %@" = "Could not confirm the terminal’s move to its new project; it is sent again on reconnect: %@";
 "Could not create folder: %@" = "Could not create folder: %@";
 "Could not enable" = "Could not enable";
 "Could not end all sessions: %@" = "Could not end all sessions: %@";

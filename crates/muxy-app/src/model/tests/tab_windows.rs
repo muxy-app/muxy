@@ -275,8 +275,40 @@ fn a_move_the_server_refuses_puts_the_terminal_back(cx: &mut TestAppContext) {
             Err(muxy_client::ClientError::Disconnected),
             cx,
         );
+        assert_eq!(model.state.pane_project(pane).map(|p| p.id), Some(other));
+        assert!(
+            model
+                .state
+                .pending_session_move(ServerId::local(), session)
+                .is_some()
+        );
+        model.move_tab_to_place(a, TabPlace::end(home), cx);
+        assert_eq!(model.state.pane_project(pane).map(|p| p.id), Some(other));
+        model.resend_session_move(
+            muxy_app_core::SessionMove {
+                server: ServerId::local(),
+                session,
+                project: other,
+            },
+            home,
+            cx,
+        );
+        model.session_moved(
+            ServerId::local(),
+            session,
+            Err(muxy_client::ClientError::Invalid(
+                muxy_protocol::ErrorCode::UnknownProject,
+            )),
+            cx,
+        );
         assert_eq!(model.state.pane_project(pane).map(|p| p.id), Some(home));
         assert!(listed(model, other).is_empty());
+        assert!(
+            model
+                .state
+                .pending_session_move(ServerId::local(), session)
+                .is_none()
+        );
     });
 }
 

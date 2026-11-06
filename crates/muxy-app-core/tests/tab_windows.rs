@@ -426,6 +426,26 @@ fn a_terminal_whose_move_never_reached_its_server_reattaches_and_moves_again() -
             home
         )]
     );
+    let mut applied = state.clone();
+    applied.settle_session_moves(
+        ServerId::local(),
+        &[muxy_protocol::SessionInfo {
+            project: other,
+            ..listed[0].clone()
+        }],
+    );
+    assert!(
+        applied
+            .pending_session_move(ServerId::local(), session(9)?)
+            .is_none()
+    );
+    let mut unapplied = state.clone();
+    unapplied.settle_session_moves(ServerId::local(), &listed);
+    assert!(
+        unapplied
+            .pending_session_move(ServerId::local(), session(9)?)
+            .is_some()
+    );
     let mut settled = state.clone();
     settled.settle_session_move(ServerId::local(), session(9)?);
     let plan = muxy_app_core::restore::plan(&settled, ServerId::local(), &listed);

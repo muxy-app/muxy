@@ -624,9 +624,10 @@ impl AppModel {
         }
     }
 
-    /// The server answered a move of `session` to another project. When it
-    /// refused, the terminal's pane goes back to the project the server keeps
-    /// it in, so the app never shows it where the server doesn't.
+    /// The server answered a move of `session` to another project, or the
+    /// answer was lost. Only a refusal puts the pane back. A lost answer
+    /// keeps the move pending, and the next connection settles it or sends it
+    /// again.
     pub(crate) fn session_moved(
         &mut self,
         server: ServerId,
@@ -635,27 +636,27 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         let origin = self.tab_windows.moving.remove(&(server, session));
-        self.state.settle_session_move(server, session);
-        let Err(error) = result else {
-            self.save(cx);
-            return;
+        let error = match result {
+            Ok(()) => {
+                self.state.settle_session_move(server, session);
+                self.save(cx);
+                return;
+            }
+            Err(error) if refused(&error) => error,
+            Err(error) => {
+                self.server_problem(
+                    server,
+                    tr!(
+                        "Could not confirm the terminal’s move to its new project; it is sent again on reconnect: %@",
+                        error.to_string()
+                    )
+                    .to_string(),
+                    cx,
+                );
+                return;
+            }
         };
-        if let Some(origin) = origin {
-            let panes: Vec<_> = self.state.session_panes(server, session).collect();
-            let previous = self.state.clone();
-            let mut reverted = true;
-            for pane in panes {
-                reverted &= self
-                    .state
-                    .move_pane_to_new_tab(pane, TabPlace::end(origin))
-                    .is_ok();
-            }
-            if !reverted || !self.save(cx) {
-                self.state = previous;
-            }
-            self.refresh_open_contexts(cx);
-            self.changed(cx);
-        }
+        self.undo_session_move(server, session, origin, cx);
         self.server_problem(
             server,
             tr!(
@@ -665,6 +666,36 @@ impl AppModel {
             .to_string(),
             cx,
         );
+    }
+
+    /// Puts the panes of `session` back in `origin`, where its server keeps
+    /// it, and forgets the move.
+    fn undo_session_move(
+        &mut self,
+        server: ServerId,
+        session: SessionId,
+        origin: Option<ProjectId>,
+        cx: &mut Context<Self>,
+    ) {
+        self.state.settle_session_move(server, session);
+        let Some(origin) = origin else {
+            self.save(cx);
+            return;
+        };
+        let panes: Vec<_> = self.state.session_panes(server, session).collect();
+        let previous = self.state.clone();
+        let mut reverted = true;
+        for pane in panes {
+            reverted &= self
+                .state
+                .move_pane_to_new_tab(pane, TabPlace::end(origin))
+                .is_ok();
+        }
+        if !reverted || !self.save(cx) {
+            self.state = previous;
+        }
+        self.refresh_open_contexts(cx);
+        self.changed(cx);
     }
 
     /// Whether `pane`'s or `tab`'s terminals may move to `project`: on the
@@ -724,6 +755,9 @@ impl AppModel {
             self.tab_windows
                 .moving
                 .contains_key(&(moved.server, moved.session))
+                || previous
+                    .pending_session_move(moved.server, moved.session)
+                    .is_some()
         }) {
             self.state = previous;
             self.fail(
@@ -772,10 +806,14 @@ impl AppModel {
                 Work::MoveSession(moved.session, moved.project),
                 cx,
             ) {
-                self.session_moved(
-                    moved.server,
-                    moved.session,
-                    Err(muxy_client::ClientError::Disconnected),
+                let origin = self
+                    .tab_windows
+                    .moving
+                    .remove(&(moved.server, moved.session));
+                self.undo_session_move(moved.server, moved.session, origin, cx);
+                self.fail(
+                    tr!("Connect to the server before moving its terminals to another project.")
+                        .to_string(),
                     cx,
                 );
             }
@@ -856,4 +894,15 @@ fn open_tab_window(model: &gpui::WeakEntity<AppModel>, id: TabWindowId, cx: &mut
         })
         .map_err(|error| error.to_string());
     let _ = model.update(cx, |model, cx| model.tab_window_opened(id, opened, cx));
+}
+
+/// Whether the server answered and refused, as opposed to the answer being
+/// lost, which leaves open whether the move happened.
+fn refused(error: &muxy_client::ClientError) -> bool {
+    matches!(
+        error,
+        muxy_client::ClientError::Server(_)
+            | muxy_client::ClientError::Invalid(_)
+            | muxy_client::ClientError::UnexpectedReply(_)
+    )
 }
