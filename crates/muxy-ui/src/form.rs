@@ -98,6 +98,31 @@ pub fn row(
         .child(div().flex_none().min_w(px(0.0)).child(control))
 }
 
+/// A row for a list setting: its `action`, such as an Add button, sits beside
+/// the label like any other control, and the list's `items` span the row below.
+pub fn list_row(
+    style: Style,
+    label: &str,
+    description: Option<&str>,
+    action: AnyElement,
+    items: Option<AnyElement>,
+    compact: bool,
+) -> Div {
+    let metrics = style.metrics;
+    let has_items = items.is_some();
+    div()
+        .flex()
+        .flex_col()
+        .min_w(px(0.0))
+        .child(
+            row(style, label, description, action, compact)
+                .when(has_items, |header| header.pb(metrics.spacing6())),
+        )
+        .when_some(items, |list, items| {
+            list.child(div().min_w(px(0.0)).pb(metrics.scaled(22.0)).child(items))
+        })
+}
+
 pub fn section_heading(style: Style, id: impl Into<gpui::ElementId>, title: &str) -> Div {
     let Style { theme, metrics } = style;
     div()

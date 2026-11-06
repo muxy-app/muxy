@@ -133,7 +133,21 @@ fn editor_buttons(
         ))
 }
 
-pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+/// A list setting's Add control, and its entries when there are any.
+type ListControl = (AnyElement, Option<AnyElement>);
+
+fn entries(pane: &SettingsView, rows: Vec<gpui::Div>) -> Option<AnyElement> {
+    (!rows.is_empty()).then(|| {
+        div()
+            .flex()
+            .flex_col()
+            .gap(pane.layout_metrics.scaled(6.0))
+            .children(rows)
+            .into_any_element()
+    })
+}
+
+pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> ListControl {
     let names = pane
         .snapshot
         .terminal
@@ -188,20 +202,13 @@ pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
             )
         })
         .collect();
-    div()
-        .flex()
-        .flex_col()
-        .gap(pane.layout_metrics.scaled(6.0))
-        .children(rows)
-        .child(div().flex().child(pane.picker(
-            PickerKind::Font(FontSlot::Fallback),
-            &tr!("Add Font…"),
-            cx,
-        )))
-        .into_any_element()
+    (
+        pane.picker(PickerKind::Font(FontSlot::Fallback), &tr!("Add Font…"), cx),
+        entries(pane, rows),
+    )
 }
 
-pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>) -> ListControl {
     let editing = pane.codepoint_editor.is_some();
     let rows: Vec<_> = pane
         .snapshot
@@ -244,28 +251,21 @@ pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>
             )
         })
         .collect();
-    div()
-        .flex()
-        .flex_col()
-        .gap(pane.layout_metrics.scaled(6.0))
-        .children(rows)
-        .child(if editing {
-            codepoint_editor(pane, cx)
-        } else {
-            div()
-                .flex()
-                .child(controls::button(
-                    pane.style(),
-                    "codepoint-add",
-                    controls::Button::secondary(&tr!("Add Map")),
-                    cx.listener(|pane, _, window, cx| pane.edit_codepoint_map(None, window, cx)),
-                ))
-                .into_any_element()
-        })
-        .into_any_element()
+    let add = controls::button(
+        pane.style(),
+        "codepoint-add",
+        controls::Button::secondary(&tr!("Add Map")).enabled(!editing),
+        cx.listener(|pane, _, window, cx| pane.edit_codepoint_map(None, window, cx)),
+    )
+    .into_any_element();
+    let rows = rows
+        .into_iter()
+        .chain(editing.then(|| codepoint_editor(pane, cx)))
+        .collect();
+    (add, entries(pane, rows))
 }
 
-fn codepoint_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+fn codepoint_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> gpui::Div {
     let family = pane
         .codepoint_editor
         .as_ref()
@@ -293,10 +293,9 @@ fn codepoint_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyE
             pane.compact,
         ))
         .child(editor_buttons(pane, CODEPOINT_RANGE, cx))
-        .into_any_element()
 }
 
-pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> ListControl {
     let editing = pane.binding_editor.is_some();
     let bindings = &pane.snapshot.terminal.keybindings.bindings;
     let rows: Vec<_> = bindings
@@ -343,36 +342,30 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
             )
         })
         .collect();
-    div()
-        .flex()
-        .flex_col()
-        .gap(pane.layout_metrics.scaled(6.0))
-        .when(bindings.is_empty() && !editing, |list| {
-            list.child(pane.readable_note(
-                "settings-no-key-bindings",
-                &tr!("No custom key bindings yet."),
-            ))
-        })
-        .children(rows)
-        .child(if editing {
-            binding_editor(pane, cx)
-        } else {
-            div()
-                .flex()
-                .child(controls::button(
-                    pane.style(),
-                    "keybind-add",
-                    controls::Button::secondary(&tr!("Add Binding")),
-                    cx.listener(|pane, _, window, cx| pane.edit_binding(None, window, cx)),
-                ))
-                .into_any_element()
-        })
-        .into_any_element()
+    let add = controls::button(
+        pane.style(),
+        "keybind-add",
+        controls::Button::secondary(&tr!("Add Binding")).enabled(!editing),
+        cx.listener(|pane, _, window, cx| pane.edit_binding(None, window, cx)),
+    )
+    .into_any_element();
+    let empty = (bindings.is_empty() && !editing).then(|| {
+        div().child(pane.readable_note(
+            "settings-no-key-bindings",
+            &tr!("No custom key bindings yet."),
+        ))
+    });
+    let rows = empty
+        .into_iter()
+        .chain(rows)
+        .chain(editing.then(|| binding_editor(pane, cx)))
+        .collect();
+    (add, entries(pane, rows))
 }
 
-fn binding_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+fn binding_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> gpui::Div {
     let Some(editor) = &pane.binding_editor else {
-        return div().into_any_element();
+        return div();
     };
     let key = if pane.recording.as_deref() == Some(BINDING_CHORD) {
         tr!("Press a key…")
@@ -433,7 +426,6 @@ fn binding_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEle
             ))
         })
         .child(editor_buttons(pane, BINDING_PARAMETER, cx))
-        .into_any_element()
 }
 
 impl SettingsView {

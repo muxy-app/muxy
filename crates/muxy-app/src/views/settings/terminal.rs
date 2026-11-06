@@ -575,14 +575,17 @@ pub(super) fn rows(
                 | "cursor-text"
                 | "selection-foreground"
                 | "selection-background" => color_control(pane, id, cx),
-                "font-fallbacks" | "font-codepoint-map" | "palette" | "terminal-keybindings" => {
-                    let control = match id {
+                "font-fallbacks" | "font-codepoint-map" | "terminal-keybindings" => {
+                    let (action, items) = match id {
                         "font-fallbacks" => terminal_lists::fallbacks(pane, cx),
                         "font-codepoint-map" => terminal_lists::codepoint_maps(pane, cx),
-                        "palette" => palette_control(pane),
                         _ => terminal_lists::bindings(pane, cx),
                     };
-                    rows.push(pane.row_with(id, setting.label, control, true));
+                    rows.push(pane.list_row(id, setting.label, action, items));
+                    continue;
+                }
+                "palette" => {
+                    rows.push(pane.row_with(id, setting.label, palette_control(pane), true));
                     continue;
                 }
                 "background-transparency" => slider(
