@@ -8,6 +8,9 @@ description: Build, change, debug, and publish Muxy extensions, and load them in
 A Muxy extension is a folder with a `package.json` whose `muxy` block declares
 what it adds: tabs, panels, popovers, commands, bar items, settings, and a
 background script. Its pages are plain web pages with a `window.muxy` API.
+Panels can also float freely over the window, several at once, framed or
+frameless, transparent, and click-through: sticky notes, widgets, or animated
+pets. `references/panels.md` covers them.
 
 ## Where the work goes
 

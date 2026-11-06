@@ -357,6 +357,7 @@ impl Render for AppModel {
         let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceRender);
         self.metrics.apply_to_window(window);
         self.sync_traffic_lights(window);
+        self.sync_floating_stack();
         {
             let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceSyncWebviews);
             self.sync_webviews(window, cx);
@@ -441,7 +442,7 @@ impl Render for AppModel {
             .child(self.floating_composer(window, cx))
             .children(super::tips::toast(self, window, cx))
             .children(super::banners::render(self, window, cx))
-            .children(super::agents_panel::floating(self, window, cx))
+            .child(super::floating::layer(self, window, cx))
             .when(
                 self.settings_picker_open() && self.overlay.is_none(),
                 |body| {

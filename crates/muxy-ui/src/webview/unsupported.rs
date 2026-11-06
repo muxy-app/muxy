@@ -41,6 +41,13 @@ impl NativeWebview {
     pub(super) fn set_mouse_passthrough(&self, _enabled: bool) {
         match *self {}
     }
+    pub(super) fn set_hit_regions(&self, _regions: Option<&[Bounds<Pixels>]>) {
+        match *self {}
+    }
+    pub(super) fn order_front(_views: &[&Self]) {}
+    pub(super) fn occlude_also(&self, _bounds: Bounds<Pixels>) {
+        match *self {}
+    }
     pub(super) fn generation(&self) -> u64 {
         match *self {}
     }

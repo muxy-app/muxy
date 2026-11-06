@@ -176,6 +176,20 @@ impl NativeWebview {
         self.0.set_mouse_passthrough(enabled);
     }
 
+    /// Where the page takes the pointer, in points from its top left corner.
+    /// Elsewhere the pointer reaches what is under the page. `None` takes it
+    /// everywhere.
+    pub fn set_hit_regions(&self, regions: Option<&[Bounds<Pixels>]>) {
+        self.0.set_hit_regions(regions);
+    }
+
+    /// Shows these pages above every other page in the window, the last one
+    /// in front.
+    pub fn order_front(views: &[&Self]) {
+        let views: Vec<_> = views.iter().map(|view| &view.0).collect();
+        backend::NativeWebview::order_front(&views);
+    }
+
     /// Counts the documents the page has shown. A request or snapshot from an
     /// earlier one is void.
     pub fn generation(&self) -> u64 {
@@ -215,6 +229,12 @@ impl NativeWebview {
     /// App content drawn above the page, in window coordinates.
     pub fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
         self.0.occlude(occlusions);
+    }
+
+    /// Adds `bounds` to what covers the page this frame, for app content
+    /// drawn after the frame's occlusions were applied, such as a tooltip.
+    pub fn occlude_also(&self, bounds: Bounds<Pixels>) {
+        self.0.occlude_also(bounds);
     }
 
     /// A hidden page stays loaded and stops drawing.

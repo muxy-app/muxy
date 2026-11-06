@@ -1,7 +1,8 @@
 #![allow(
     clippy::unwrap_used,
     clippy::panic,
-    reason = "Tests fail immediately on fixture errors"
+    clippy::float_cmp,
+    reason = "Tests fail immediately on fixture errors and compare exact parsed values"
 )]
 use super::*;
 use serde_json::json;
@@ -494,4 +495,74 @@ fn a_one_x_sidebar_manifest_loads_unchanged() {
     assert_eq!(sidebar.id, "main");
     assert_eq!(sidebar.title.as_deref(), Some("Workspace"));
     assert_eq!(sidebar.entry, "sidebar/index.html");
+}
+
+#[test]
+fn detached_panels_declare_their_floating_defaults() {
+    use crate::extensions::panels::{PanelChrome, PanelScope};
+    let root = tempfile::tempdir().unwrap();
+    write_package(
+        root.path(),
+        &json!({
+            "panels": [
+                {"id": "plain", "entry": "index.html"},
+                {
+                    "id": "pet",
+                    "entry": "index.html",
+                    "mode": "detached",
+                    "frame": {"x": 40, "y": 60, "width": 160, "height": 120},
+                    "minSize": {"width": 32, "height": 32},
+                    "chrome": "none",
+                    "transparent": true,
+                    "clickThrough": true,
+                    "movable": false,
+                    "resizable": false,
+                    "scope": "project",
+                    "hiddenControls": ["detach"]
+                }
+            ],
+        }),
+        &[("index.html", "")],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    let plain = extension.manifest.panel("plain").unwrap();
+    assert_eq!(plain.mode, PanelMode::Floating);
+    assert_eq!(plain.chrome, PanelChrome::Standard);
+    assert!(plain.movable && plain.resizable && !plain.click_through);
+    assert_eq!(plain.transparent, None);
+    assert_eq!(plain.scope, PanelScope::Global);
+    assert!(plain.allows_detach_selection());
+    let pet = extension.manifest.panel("pet").unwrap();
+    assert_eq!(pet.mode, PanelMode::Detached);
+    assert_eq!(pet.frame.unwrap().width, Some(160.0));
+    assert_eq!(pet.min_size.unwrap().height, 32.0);
+    assert_eq!(pet.chrome, PanelChrome::None);
+    assert!(pet.click_through && !pet.movable && !pet.resizable);
+    assert_eq!(pet.transparent, Some(true));
+    assert_eq!(pet.scope, PanelScope::Project);
+    assert!(!pet.allows_detach_selection());
+}
+
+#[test]
+fn detached_panel_frames_must_be_sane() {
+    for frame in [
+        json!({"frame": {"width": 0}}),
+        json!({"frame": {"height": -10}}),
+        json!({"frame": {"x": 1e30}}),
+        json!({"minSize": {"width": -1, "height": 4}}),
+        json!({"minSize": {"width": 90, "height": 4}, "maxSize": {"width": 40, "height": 40}}),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let mut panel = json!({"id": "p", "entry": "index.html", "mode": "detached"});
+        panel
+            .as_object_mut()
+            .unwrap()
+            .extend(frame.as_object().unwrap().clone());
+        write_package(
+            root.path(),
+            &json!({"panels": [panel]}),
+            &[("index.html", "")],
+        );
+        assert!(Extension::load(root.path()).is_err(), "{frame}");
+    }
 }

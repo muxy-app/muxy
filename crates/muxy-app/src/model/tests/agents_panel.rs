@@ -532,6 +532,7 @@ fn right_agents_share_the_panel_host_without_losing_the_composer_draft(cx: &mut 
         let saved = crate::model::webviews::panel_sessions::SavedPanel {
             owner: "test-extension".into(),
             kind: "right".into(),
+            instance: None,
             position: PanelPosition::Right,
             data: serde_json::Value::Null,
         };

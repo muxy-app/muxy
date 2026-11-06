@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const source = readFileSync(`${__dirname}/bridge.js`, 'utf8');
 const apiSource = readFileSync(`${__dirname}/../../extensions/bridge.js`, 'utf8');
 
-function page(reply = () => null, { rootPresent = true, surface = "tab", console = false } = {}) {
+function page(reply = () => null, { rootPresent = true, surface = "tab", console = false, instance = undefined } = {}) {
   const messages = [], css = new Map(), events = new Map(), observers = [];
   const authoredStyle = { tagName: 'STYLE', textContent: 'html { background: pink; }' };
   const root = {
@@ -25,14 +25,14 @@ function page(reply = () => null, { rootPresent = true, surface = "tab", console
     document.documentElement = root;
     for (const observer of observers) if (observer.active) observer.callback();
   };
-  const context = vm.createContext({ document, MutationObserver, setTimeout });
+  const context = vm.createContext({ document, MutationObserver, setTimeout, clearTimeout });
   context.window = context;
   if (console) context.console = { log() {}, warn() {}, error() {} };
   context.webkit = { messageHandlers: { muxy: { postMessage: async message => {
     messages.push(JSON.parse(JSON.stringify(message)));
     return { ok: true, value: await reply(message) };
   } } } };
-  vm.runInContext(`${source}(${JSON.stringify({ owner: 'test', id: 'instance', surface, data: { saved: true }, theme: { background: '#123456', foregroundMuted: '#888888', colorScheme: 'dark', topbarHeight: '34px' } })}, ${apiSource});`, context);
+  vm.runInContext(`${source}(${JSON.stringify({ owner: 'test', id: 'instance', instance, surface, data: { saved: true }, theme: { background: '#123456', foregroundMuted: '#888888', colorScheme: 'dark', topbarHeight: '34px' } })}, ${apiSource});`, context);
   return { context, muxy: context.muxy, messages, css, events, root, authoredStyle, observers, attachRoot };
 }
 const settled = () => new Promise(resolve => setImmediate(resolve));
@@ -157,6 +157,99 @@ test('panels forward scoped IDs and preserve omitted versus explicit data', asyn
     {verb:'panels.close', args:{panelID:'other'}},
   ]);
   assert.equal(page().muxy.panelID, null);
+});
+
+test('panels take options and instances, and close the calling instance', async () => {
+  const { muxy, messages } = page(undefined, { surface: 'panel', instance: 'note-2' });
+  assert.equal(muxy.panelInstanceID, 'note-2');
+  assert.equal(muxy.panel.instanceID, 'note-2');
+  await muxy.panels.open('note', { text: 'hi' }, { instance: 'note-3', mode: 'detached', frame: { x: 10, y: 20 } });
+  await muxy.panels.update('note', { title: 'Renamed' }, 'note-3');
+  await muxy.panels.close('note', 'note-3');
+  await muxy.panels.list();
+  await muxy.panels.close();
+  assert.deepEqual(messages.map(({verb, args}) => ({verb, args})), [
+    {verb:'panels.open', args:{panelID:'note', data:{text:'hi'}, options:{instance:'note-3', mode:'detached', frame:{x:10, y:20}}}},
+    {verb:'panels.update', args:{panelID:'note', options:{title:'Renamed'}, instance:'note-3'}},
+    {verb:'panels.close', args:{panelID:'note', instance:'note-3'}},
+    {verb:'panels.list', args:{}},
+    {verb:'panels.close', args:{panelID:'instance', instance:'note-2'}},
+  ]);
+  assert.equal(page().muxy.panel, null);
+});
+
+test('a panel changes its own frame and options and hears about changes', async () => {
+  const { context, muxy, messages } = page(message => ({ echoed: message.verb }), { surface: 'panel' });
+  await muxy.panel.setFrame({ width: 240, height: 120 });
+  await muxy.panel.setOptions({ chrome: 'none', clickThrough: true });
+  await muxy.panel.setHitRegions([{ x: 1, y: 2, width: 3, height: 4, extra: true }]);
+  await muxy.panel.setHitRegions(null);
+  await muxy.panel.setDragRegions(null);
+  await muxy.panel.setTitle(null);
+  await muxy.panel.raise();
+  assert.deepEqual(await muxy.panel.get(), { echoed: 'panel.get' });
+  assert.deepEqual(messages.map(({verb, args}) => ({verb, args})), [
+    {verb:'panel.update', args:{options:{frame:{width:240, height:120}}}},
+    {verb:'panel.update', args:{options:{chrome:'none', clickThrough:true}}},
+    {verb:'panel.update', args:{options:{hitRegions:[{x:1, y:2, width:3, height:4}]}}},
+    {verb:'panel.update', args:{options:{hitRegions:null}}},
+    {verb:'panel.update', args:{options:{dragRegions:[]}}},
+    {verb:'panel.update', args:{options:{title:null}}},
+    {verb:'panel.raise', args:{}},
+    {verb:'panel.get', args:{}},
+  ]);
+  const seen = [];
+  const stop = muxy.panel.onChange(state => seen.push(state.frame.width));
+  context.__muxyApplyPanel({ frame: { width: 240 } });
+  stop();
+  context.__muxyApplyPanel({ frame: { width: 300 } });
+  assert.deepEqual(seen, [240]);
+  assert.equal(muxy.panel.state.frame.width, 300);
+  assert.ok(Object.isFrozen(muxy.panel.state));
+});
+
+test('tracked hit elements send their padded rectangles only when they change', async () => {
+  const { muxy, messages } = page(undefined, { surface: 'panel' });
+  let rect = { left: 10.4, top: 20.6, width: 30, height: 40 };
+  const pet = { getBoundingClientRect: () => rect };
+  const hidden = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }) };
+  const stop = muxy.panel.trackHitElements([pet, hidden], { padding: 2, interval: 16 });
+  await new Promise(resolve => setTimeout(resolve, 40));
+  rect = { left: 50, top: 20, width: 30, height: 40 };
+  await new Promise(resolve => setTimeout(resolve, 40));
+  stop();
+  await settled();
+  const regions = messages.map(({args}) => args.options.hitRegions);
+  assert.deepEqual(regions, [
+    [{ x: 8, y: 18, width: 34, height: 44 }],
+    [{ x: 48, y: 18, width: 34, height: 44 }],
+    null,
+  ]);
+});
+
+test('tracked hit elements retry an update that failed', async () => {
+  let fail = true;
+  const { muxy, messages } = page(message => {
+    if (message.verb === 'panel.update' && fail) { fail = false; throw new Error('busy'); }
+    return null;
+  }, { surface: 'panel' });
+  const pet = { getBoundingClientRect: () => ({ left: 1, top: 2, width: 3, height: 4 }) };
+  const stop = muxy.panel.trackHitElements(pet, { interval: 16 });
+  await new Promise(resolve => setTimeout(resolve, 80));
+  stop();
+  await settled();
+  const sent = messages.map(({args}) => JSON.stringify(args.options.hitRegions));
+  assert.equal(sent.filter(regions => regions === '[{"x":1,"y":2,"width":3,"height":4}]').length, 2);
+  assert.equal(sent.at(-1), 'null');
+});
+
+test('close handlers of a named panel hear its instance', async () => {
+  const { context, muxy } = page(undefined, { surface: 'panel', instance: 'note-7' });
+  let heard = null;
+  muxy.lifecycle.onBeforeClose(info => { heard = info; });
+  context.__muxyBeforeClose(1, 'panel', 'note', 'note-7');
+  await settled();
+  assert.deepEqual({ ...heard }, { surface: 'panel', instanceID: 'note', panelInstanceID: 'note-7' });
 });
 
 test('panel close handlers receive their surface identity and can veto', async () => {

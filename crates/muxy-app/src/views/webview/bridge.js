@@ -7,8 +7,10 @@
     if (reply?.ok) return reply.value;
     throw new Error(reply?.error || 'webview API unavailable');
   };
-  const listeners = { data: new Set(), theme: new Set(), focus: new Set() };
-  let data = initial.data, theme = initial.theme, focused = false;
+  const listeners = { data: new Set(), theme: new Set(), focus: new Set(), panel: new Set() };
+  let data = initial.data, theme = initial.theme, focused = false, panelState = null;
+  const isPanel = initial.surface === 'panel';
+  const panelInstance = isPanel ? (initial.instance ?? null) : null;
   const subscribe = (set, callback) => {
     if (typeof callback !== 'function') return () => {};
     set.add(callback);
@@ -32,13 +34,71 @@
     focused = value;
     emit(listeners.focus, focused);
   };
+  window.__muxyApplyPanel = value => {
+    panelState = Object.freeze({ ...value });
+    emit(listeners.panel, panelState);
+  };
+  const rectOf = rect => ({ x: Number(rect.x), y: Number(rect.y), width: Number(rect.width), height: Number(rect.height) });
+  const updatePanel = options => send('panel.update', { options: options || {} });
+  const trackHitElements = (target, opts = {}) => {
+    const padding = Math.max(0, Number(opts.padding) || 0);
+    const interval = Math.max(16, Number(opts.interval) || 50);
+    const elements = () => {
+      if (typeof target === 'function') return Array.from(target() || []);
+      if (typeof target === 'string') return Array.from(document.querySelectorAll(target));
+      if (target && typeof target[Symbol.iterator] === 'function') return Array.from(target);
+      return target ? [target] : [];
+    };
+    let last = null, stopped = false, timer = null, sending = false;
+    const measure = () => elements()
+      .map(element => element.getBoundingClientRect())
+      .filter(rect => rect.width > 0 && rect.height > 0)
+      .slice(0, 64)
+      .map(rect => ({
+        x: Math.floor(rect.left - padding), y: Math.floor(rect.top - padding),
+        width: Math.ceil(rect.width + padding * 2), height: Math.ceil(rect.height + padding * 2),
+      }));
+    const tick = () => {
+      if (stopped) return;
+      const regions = measure();
+      const key = JSON.stringify(regions);
+      if (key !== last && !sending) {
+        sending = true;
+        updatePanel({ hitRegions: regions }).then(
+          () => { if (!stopped) last = key; },
+          () => {},
+        ).finally(() => { sending = false; });
+      }
+      timer = setTimeout(tick, interval);
+    };
+    tick();
+    return () => {
+      stopped = true;
+      if (timer != null) clearTimeout(timer);
+      updatePanel({ hitRegions: null }).catch(() => {});
+    };
+  };
+  const panel = isPanel ? Object.freeze({
+    instanceID: panelInstance,
+    get state() { return panelState; },
+    get: () => send('panel.get', {}),
+    update: updatePanel,
+    setOptions: updatePanel,
+    setFrame: frame => updatePanel({ frame: frame || {} }),
+    setTitle: title => updatePanel({ title: title == null ? null : String(title) }),
+    setHitRegions: regions => updatePanel({ hitRegions: regions == null ? null : Array.from(regions, rectOf) }),
+    setDragRegions: regions => updatePanel({ dragRegions: regions == null ? [] : Array.from(regions, rectOf) }),
+    trackHitElements,
+    raise: () => send('panel.raise', {}),
+    onChange: callback => subscribe(listeners.panel, callback),
+  }) : null;
   let beforeClose = null;
-  window.__muxyBeforeClose = (callID, surface, instanceID) => {
+  window.__muxyBeforeClose = (callID, surface, instanceID, panelInstanceID = null) => {
     const resolve = prevent => send('lifecycle.resolveBeforeClose', { callID: String(callID), prevent }).catch(() => {});
     if (!beforeClose) { resolve(false); return; }
     send('lifecycle.ackBeforeClose', { callID: String(callID) }).catch(() => {});
     try {
-      Promise.resolve(beforeClose({ surface, instanceID })).then(
+      Promise.resolve(beforeClose({ surface, instanceID, panelInstanceID })).then(
         value => resolve(value === true || value?.prevent === true), () => resolve(false));
     } catch (_) { resolve(false); }
   };
@@ -153,7 +213,9 @@
     ...api,
     extensionID: initial.owner,
     tabInstanceID: initial.id,
-    panelID: initial.surface === 'panel' ? initial.id : null,
+    panelID: isPanel ? initial.id : null,
+    panelInstanceID: panelInstance,
+    panel,
     get data() { return data; },
     get theme() { return theme; },
     get focused() { return focused; },
@@ -166,9 +228,10 @@
       setIcon: icon => send('tabs.setIcon', { tabInstanceID: initial.id, icon: icon ?? null }),
     }),
     panels: Object.freeze({
-      open: (panelID, data) => send('panels.open', { panelID, ...(data === undefined ? {} : { data }) }),
-      toggle: (panelID, data) => send('panels.toggle', { panelID, ...(data === undefined ? {} : { data }) }),
-      close: (panelID = initial.id) => send('panels.close', { panelID }),
+      ...api.panels,
+      close: (panelID, instance) => (panelID === undefined
+        ? send('panels.close', { panelID: initial.id, ...(panelInstance == null ? {} : { instance: panelInstance }) })
+        : api.panels.close(panelID, instance)),
     }),
     popover: Object.freeze({
       close: () => send('popover.close', {}),

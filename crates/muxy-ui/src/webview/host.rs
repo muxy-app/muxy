@@ -48,16 +48,24 @@ struct Focus {
 struct HitTestRegions {
     occluded: RefCell<Vec<NSRect>>,
     passthrough_all: Cell<bool>,
+    /// Where the page takes clicks, from its top left corner. `None` takes
+    /// them everywhere.
+    interactive: RefCell<Option<Vec<NSRect>>>,
 }
 
 impl HitTestRegions {
-    fn excludes(&self, point: NSPoint) -> bool {
+    fn excludes(&self, point: NSPoint, page: NSPoint) -> bool {
         self.passthrough_all.get()
             || self
                 .occluded
                 .borrow()
                 .iter()
                 .any(|rect| contains_point(*rect, point))
+            || self
+                .interactive
+                .borrow()
+                .as_ref()
+                .is_some_and(|regions| !regions.iter().any(|rect| contains_point(*rect, page)))
     }
 }
 
@@ -96,7 +104,8 @@ define_class!(
         #[unsafe(method_id(hitTest:))]
         fn hit_test(&self, point: NSPoint) -> Option<Retained<NSView>> {
             let local = self.convertPoint_fromView(point, unsafe { self.superview() }.as_deref());
-            if self.ivars().excludes(local) { None }
+            let page = if self.isFlipped() { local } else { NSPoint::new(local.x, self.bounds().size.height - local.y) };
+            if self.ivars().excludes(local, page) { None }
             else { unsafe { msg_send![super(self), hitTest: point] } }
         }
 
@@ -318,6 +327,113 @@ impl Host {
 
     pub(crate) fn set_mouse_passthrough(&self, enabled: bool) {
         self.container.ivars().passthrough_all.set(enabled);
+    }
+
+    /// Where the page takes clicks, from its top left corner; elsewhere
+    /// they reach what is under it. `None` takes them everywhere.
+    pub(crate) fn set_hit_regions(&self, regions: Option<&[Bounds<Pixels>]>) {
+        let regions = regions.map(|regions| {
+            regions
+                .iter()
+                .map(|region| {
+                    NSRect::new(
+                        NSPoint::new(
+                            f64::from(f32::from(region.origin.x)),
+                            f64::from(f32::from(region.origin.y)),
+                        ),
+                        NSSize::new(
+                            f64::from(f32::from(region.size.width)),
+                            f64::from(f32::from(region.size.height)),
+                        ),
+                    )
+                })
+                .collect()
+        });
+        *self.container.ivars().interactive.borrow_mut() = regions;
+    }
+
+    /// Puts these pages above every other native view in the window, the
+    /// last one in front. Views already in place are left alone, so calling
+    /// this every frame costs nothing, and the front page moves only when
+    /// something else covers it: raising a page that was just clicked moves
+    /// the pages that go under it instead, so the click isn't interrupted.
+    pub(crate) fn order_front(hosts: &[&Self]) {
+        let Some(front) = hosts.last() else {
+            return;
+        };
+        let ours: Vec<*const NSView> = hosts
+            .iter()
+            .flat_map(|host| [host.container_ptr(), host.grips_ptr()])
+            .collect();
+        let views = front.subview_order();
+        let at = |views: &[*const NSView], view: *const NSView| {
+            views.iter().position(|entry| ptr::eq(*entry, view))
+        };
+        let covered = at(&views, front.container_ptr()).is_none_or(|index| {
+            views[index + 1..]
+                .iter()
+                .any(|view| !ours.iter().any(|entry| ptr::eq(*entry, *view)))
+                || at(&views, front.grips_ptr()) != Some(index + 1)
+        });
+        if covered {
+            front.place(NSWindowOrderingMode::Above, None);
+        }
+        for pair in hosts.windows(2).rev() {
+            let (below, above) = (pair[0], pair[1]);
+            let views = front.subview_order();
+            let in_place = match (
+                at(&views, below.container_ptr()),
+                at(&views, above.container_ptr()),
+            ) {
+                (Some(container), Some(anchor)) => {
+                    container + 2 == anchor && at(&views, below.grips_ptr()) == Some(container + 1)
+                }
+                _ => false,
+            };
+            if !in_place {
+                below.place(NSWindowOrderingMode::Below, Some(&above.container));
+            }
+        }
+    }
+
+    /// The parent's subviews, back to front, as they are now.
+    fn subview_order(&self) -> Vec<*const NSView> {
+        let subviews = self.parent.subviews();
+        (0..subviews.count())
+            .map(|index| Retained::as_ptr(&subviews.objectAtIndex(index)))
+            .collect()
+    }
+
+    fn container_ptr(&self) -> *const NSView {
+        Retained::as_ptr(&self.container).cast()
+    }
+
+    fn grips_ptr(&self) -> *const NSView {
+        Retained::as_ptr(&self.grips).cast()
+    }
+
+    /// Moves the page and its grips next to `relative`, or to the front,
+    /// keeping the keyboard on the page if it had it.
+    fn place(&self, ordering: NSWindowOrderingMode, relative: Option<&NSView>) {
+        let focused = self.page.as_ref().is_some_and(|page| {
+            self.container.window().is_some_and(|window| {
+                window.firstResponder().is_some_and(|responder| {
+                    responder
+                        .downcast_ref::<NSView>()
+                        .is_some_and(|view| view.isDescendantOf(page))
+                })
+            })
+        });
+        self.parent
+            .addSubview_positioned_relativeTo(&self.container, ordering, relative);
+        self.parent.addSubview_positioned_relativeTo(
+            &self.grips,
+            NSWindowOrderingMode::Above,
+            Some(&self.container),
+        );
+        if focused {
+            self.focus();
+        }
     }
 
     pub(crate) fn sync(&self, bounds: Bounds<Pixels>, clip: Bounds<Pixels>, radius: f64) {

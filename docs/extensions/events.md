@@ -31,7 +31,7 @@ Every payload value is a string.
 | `agent.status` | `projectID`, `worktreeID`, `paneID`, `providerID`, `status` (`working`, `waiting`, `idle`) | `agents:read` |
 | `file.changed` | `path`, `projectPath` | `files:read` |
 | `notification.posted` | `paneID`, `projectID`, `worktreeID`, `worktreePath`, `tabID`, `source`, `title`, `body` | |
-| `panel.opened`, `panel.closed` | `extensionID`, `panelID` | |
+| `panel.opened`, `panel.closed` | `extensionID`, `panelID`, and `instance` for a named [instance](panels.md#instances) | |
 | `popover.opened`, `popover.closed` | `extensionID`, `popoverID` | |
 | `modal.opened`, `modal.closed` | `extensionID`, `modalID` | |
 

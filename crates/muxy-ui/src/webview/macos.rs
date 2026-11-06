@@ -372,6 +372,15 @@ impl NativeWebview {
         self.host.set_mouse_passthrough(enabled);
     }
 
+    pub(super) fn set_hit_regions(&self, regions: Option<&[Bounds<Pixels>]>) {
+        self.host.set_hit_regions(regions);
+    }
+
+    pub(super) fn order_front(views: &[&Self]) {
+        let hosts: Vec<_> = views.iter().map(|view| &view.host).collect();
+        Host::order_front(&hosts);
+    }
+
     pub(super) fn generation(&self) -> u64 {
         self.delegate.ivars().generation.get()
     }
@@ -451,6 +460,10 @@ impl NativeWebview {
 
     pub(super) fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
         self.host.occlude(occlusions);
+    }
+
+    pub(super) fn occlude_also(&self, bounds: Bounds<Pixels>) {
+        self.host.occlude_also(bounds);
     }
 
     pub(super) fn set_visible(&self, visible: bool) {
@@ -538,12 +551,14 @@ impl Drop for NativeWebview {
     }
 }
 
+/// The color the engine draws past the page's edges: clear for a page that lets
+/// what is behind it show through, and otherwise the opaque theme color.
 fn background_color(background: Rgba) -> Retained<NSColor> {
     NSColor::colorWithSRGBRed_green_blue_alpha(
         f64::from(background.r),
         f64::from(background.g),
         f64::from(background.b),
-        1.0,
+        if background.a <= 0.0 { 0.0 } else { 1.0 },
     )
 }
 

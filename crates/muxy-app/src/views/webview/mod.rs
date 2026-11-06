@@ -64,6 +64,11 @@ pub(crate) struct Page {
     pub instance: String,
     pub data: Value,
     pub kind: SurfaceKind,
+    /// The name of a panel opened as one of several copies.
+    pub panel_instance: Option<String>,
+    /// Whether nothing is drawn behind the page, so what is under it shows
+    /// where the page is transparent.
+    pub transparent: bool,
 }
 
 #[derive(Default)]
@@ -81,8 +86,8 @@ impl Presentation {
     /// A page the app draws is its snapshots. One the system shows keeps a
     /// snapshot under it for when it is hidden, except where the page lets
     /// what is behind it show through.
-    fn show_snapshot(&self, modal: bool, failed: bool) -> bool {
-        NativeWebview::DRAWN_BY_APP || !modal || !self.native_visible(failed)
+    fn show_snapshot(&self, see_through: bool, failed: bool) -> bool {
+        NativeWebview::DRAWN_BY_APP || !see_through || !self.native_visible(failed)
     }
 
     fn update_focus(&mut self, visible: bool, blocked: bool, focused: bool) -> Option<bool> {
@@ -107,6 +112,11 @@ pub(crate) struct Webview {
     data: Value,
     theme: Value,
     background: gpui::Rgba,
+    transparent: bool,
+    /// Whether the page takes the pointer only over its hit regions, so a
+    /// click elsewhere on it must not take the keyboard.
+    pass_through: bool,
+    panel_instance: Option<String>,
     presentation: Presentation,
     snapshot: Option<Arc<gpui::RenderImage>>,
     error: Option<String>,
@@ -137,16 +147,26 @@ impl Webview {
             instance,
             data,
             kind,
+            panel_instance,
+            transparent,
         } = page;
         let theme_values = theme_snapshot(theme, metrics);
         let theme = theme.clone();
-        let script = bridge_script(&source.owner, &instance, kind, &data, &theme_values);
+        let script = bridge_script(
+            &source.owner,
+            &instance,
+            panel_instance.as_deref(),
+            kind,
+            &data,
+            &theme_values,
+        );
+        let background = page_background(&theme, transparent);
         let (native, events) = NativeWebview::new(
             window,
             source.clone(),
             &script,
-            theme.bg.into(),
-            matches!(kind, SurfaceKind::Modal | SurfaceKind::Popover),
+            background,
+            transparent || matches!(kind, SurfaceKind::Modal | SurfaceKind::Popover),
         )?;
         Ok(cx.new(move |cx| {
             cx.on_release(|view: &mut Self, cx| view.clear_snapshot(cx))
@@ -169,7 +189,10 @@ impl Webview {
                 icon_revision: 0,
                 data,
                 theme: theme_values,
-                background: theme.bg.into(),
+                background,
+                transparent,
+                pass_through: false,
+                panel_instance,
                 presentation: Presentation::default(),
                 snapshot: None,
                 error: None,
@@ -308,6 +331,13 @@ impl Webview {
         }
     }
 
+    pub(crate) fn set_pass_through(&mut self, pass_through: bool, cx: &mut Context<Self>) {
+        if self.pass_through != pass_through {
+            self.pass_through = pass_through;
+            cx.notify();
+        }
+    }
+
     pub(crate) fn refresh_theme(
         &mut self,
         theme: &Theme,
@@ -330,7 +360,7 @@ impl Webview {
         cx: &mut Context<Self>,
     ) {
         let values = theme_snapshot(theme, metrics);
-        self.background = theme.bg.into();
+        self.background = page_background(theme, self.transparent);
         let data_changed = self.data != data;
         let theme_changed = self.theme != values;
         if data_changed || theme_changed {
@@ -349,6 +379,7 @@ impl Webview {
             self.native.install_script(&bridge_script(
                 &self.source.owner,
                 &self.instance,
+                self.panel_instance.as_deref(),
                 self.kind,
                 &self.data,
                 &self.theme,
@@ -426,9 +457,10 @@ impl Webview {
         self.close_results.insert(id, sender);
         let kind = self.kind.name();
         self.native.evaluate(&format!(
-            "window.__muxyBeforeClose?.({id},{},{});",
+            "window.__muxyBeforeClose?.({id},{},{},{});",
             json!(kind),
-            json!(self.instance)
+            json!(self.instance),
+            json!(self.panel_instance)
         ));
         cx.spawn(async move |view, cx| {
             cx.background_executor()
@@ -556,8 +588,12 @@ impl Render for Webview {
             reason = "A corner radius is a few points"
         )]
         let corners = px(radius as f32);
+        let pass_through = self.pass_through;
         div()
-            .track_focus(&self.focus)
+            .when(!pass_through, |page| page.track_focus(&self.focus))
+            .when(pass_through, |page| {
+                page.child(div().absolute().size_0().track_focus(&self.focus))
+            })
             .when(drawn, |page| {
                 page.on_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, _, cx| {
                     view.key(&event.keystroke, true, cx);
@@ -581,7 +617,8 @@ impl Render for Webview {
                     .clone()
                     .filter(|_| {
                         self.presentation.show_snapshot(
-                            matches!(self.kind, SurfaceKind::Modal | SurfaceKind::Popover),
+                            self.transparent
+                                || matches!(self.kind, SurfaceKind::Modal | SurfaceKind::Popover),
                             failed,
                         )
                     })
@@ -631,11 +668,26 @@ impl Render for Webview {
     }
 }
 
-fn bridge_script(owner: &str, id: &str, kind: SurfaceKind, data: &Value, theme: &Value) -> String {
+fn page_background(theme: &Theme, transparent: bool) -> gpui::Rgba {
+    if transparent {
+        gpui::Rgba::default()
+    } else {
+        theme.bg.into()
+    }
+}
+
+fn bridge_script(
+    owner: &str,
+    id: &str,
+    instance: Option<&str>,
+    kind: SurfaceKind,
+    data: &Value,
+    theme: &Value,
+) -> String {
     format!(
         "{}({}, {});",
         include_str!("bridge.js"),
-        json!({ "owner": owner, "id": id, "surface": kind.name(), "data": data, "theme": theme }),
+        json!({ "owner": owner, "id": id, "instance": instance, "surface": kind.name(), "data": data, "theme": theme }),
         include_str!("../../extensions/bridge.js")
     )
 }

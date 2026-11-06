@@ -13,6 +13,7 @@ use serde_json::Value;
 pub(crate) struct SavedPanel {
     pub owner: String,
     pub kind: String,
+    pub instance: Option<String>,
     pub position: PanelPosition,
     pub data: Value,
 }

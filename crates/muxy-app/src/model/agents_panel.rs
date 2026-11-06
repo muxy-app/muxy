@@ -2,6 +2,7 @@ use gpui::{AppContext, Context, FocusHandle, Pixels, Point, Window, px};
 use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping};
 use muxy_app_core::{PaneContent, PaneId, ProjectId, ServerId, TabId};
 use muxy_protocol::{ActivityKind, AgentProvider, AgentState, SessionId};
+use muxy_ui::floating::{Edges, FloatingDrag, FloatingFrame, SizeLimits};
 use muxy_ui::panel::{PanelId, PanelMode, PanelPlacement, PanelPosition, PanelResizeState};
 
 use super::AppModel;
@@ -89,15 +90,7 @@ pub(crate) enum Placement {
 
 #[derive(Clone, Copy)]
 pub(crate) enum Drag {
-    Move {
-        pointer: Point<Pixels>,
-        origin: [f32; 2],
-    },
-    Resize {
-        pointer: Point<Pixels>,
-        size: [f32; 2],
-        axes: [bool; 2],
-    },
+    Floating(FloatingDrag),
     Docked {
         pointer: Pixels,
         height: f32,
@@ -319,6 +312,9 @@ impl AppModel {
                 }
             }
         }
+        if self.agents_panel_placement() == Placement::Floating {
+            self.raise_floating(&PanelId::new(PANEL), cx);
+        }
         self.focus_agents_panel(window);
         cx.notify();
     }
@@ -534,6 +530,9 @@ impl AppModel {
         self.agents_panel.resize.end();
         self.save_appearance(cx);
         self.sync_agents_panel(cx);
+        if detached {
+            self.raise_floating(&PanelId::new(PANEL), cx);
+        }
         if self.agents_panel_placement() == Placement::Popup {
             self.focus_active(window, cx);
         } else {
@@ -548,22 +547,25 @@ impl AppModel {
     }
 
     pub(crate) fn agents_panel_frame(&self, viewport: gpui::Size<Pixels>) -> [f32; 4] {
-        let scale = self.metrics.multiplier();
-        let [x, y, width, height] = self
-            .appearance
+        self.appearance
             .agents_panel_frame
-            .filter(|frame| frame.iter().all(|value| value.is_finite()))
-            .unwrap_or(DEFAULT_FRAME);
-        let max_width = (f32::from(viewport.width) / scale).max(MIN_WIDTH);
-        let max_height = (f32::from(viewport.height) / scale).max(MIN_HEIGHT);
-        let width = width.clamp(MIN_WIDTH, max_width);
-        let height = height.clamp(MIN_HEIGHT, max_height);
-        [
-            x.clamp(0.0, max_width - width),
-            y.clamp(0.0, max_height - height),
-            width,
-            height,
-        ]
+            .map(FloatingFrame::from_array)
+            .filter(|frame| frame.is_finite())
+            .unwrap_or(FloatingFrame::from_array(DEFAULT_FRAME))
+            .clamped(Self::agents_area(self, viewport), Self::agents_limits())
+            .to_array()
+    }
+
+    fn agents_area(&self, viewport: gpui::Size<Pixels>) -> gpui::Size<f32> {
+        let scale = self.metrics.multiplier();
+        gpui::Size {
+            width: f32::from(viewport.width) / scale,
+            height: f32::from(viewport.height) / scale,
+        }
+    }
+
+    fn agents_limits() -> SizeLimits {
+        SizeLimits::at_least(MIN_WIDTH, MIN_HEIGHT)
     }
 
     pub(crate) fn begin_agents_panel_drag(
@@ -573,18 +575,14 @@ impl AppModel {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let [x, y, width, height] = self.agents_panel_frame(window.viewport_size());
-        self.agents_panel.drag = Some(match resize {
-            Some(axes) => Drag::Resize {
-                pointer,
-                size: [width, height],
-                axes,
-            },
-            None => Drag::Move {
-                pointer,
-                origin: [x, y],
-            },
-        });
+        let frame = FloatingFrame::from_array(self.agents_panel_frame(window.viewport_size()));
+        self.agents_panel.drag = Some(Drag::Floating(match resize {
+            Some([true, true]) => FloatingDrag::resizing(pointer, frame, Edges::BOTTOM_RIGHT),
+            Some([true, false]) => FloatingDrag::resizing(pointer, frame, Edges::RIGHT),
+            Some(_) => FloatingDrag::resizing(pointer, frame, Edges::BOTTOM),
+            None => FloatingDrag::moving(pointer, frame),
+        }));
+        self.raise_floating(&PanelId::new(PANEL), cx);
         cx.notify();
     }
 
@@ -606,8 +604,6 @@ impl AppModel {
                 let height = height - f32::from(pointer.y - from) / scale;
                 self.appearance.agents_panel_docked_height =
                     Some(self.clamp_docked_height(height, window.viewport_size()));
-                cx.notify();
-                return;
             }
             Drag::Scroll {
                 pointer: from,
@@ -618,41 +614,17 @@ impl AppModel {
                 let max = scroll.max_offset().height;
                 let target = (offset + (pointer.y - from) * ratio).clamp(px(0.0), max);
                 scroll.set_offset(gpui::point(scroll.offset().x, -target));
-                cx.notify();
-                return;
             }
-            Drag::Move { .. } | Drag::Resize { .. } => {}
+            Drag::Floating(drag) => {
+                let frame = drag.frame_at(
+                    pointer,
+                    scale,
+                    self.agents_area(window.viewport_size()),
+                    Self::agents_limits(),
+                );
+                self.appearance.agents_panel_frame = Some(frame.to_array());
+            }
         }
-        let [x, y, width, height] = self.agents_panel_frame(window.viewport_size());
-        let offset = |from: Point<Pixels>| {
-            [
-                f32::from(pointer.x - from.x) / scale,
-                f32::from(pointer.y - from.y) / scale,
-            ]
-        };
-        let frame = match drag {
-            Drag::Move { pointer, origin } => {
-                let [dx, dy] = offset(pointer);
-                [origin[0] + dx, origin[1] + dy, width, height]
-            }
-            Drag::Resize {
-                pointer,
-                size,
-                axes,
-            } => {
-                let [dx, dy] = offset(pointer);
-                [
-                    x,
-                    y,
-                    if axes[0] { size[0] + dx } else { width },
-                    if axes[1] { size[1] + dy } else { height },
-                ]
-            }
-            Drag::Docked { .. } | Drag::Scroll { .. } => return,
-        };
-        self.appearance.agents_panel_frame = Some(frame);
-        let clamped = self.agents_panel_frame(window.viewport_size());
-        self.appearance.agents_panel_frame = Some(clamped);
         cx.notify();
     }
 

@@ -623,6 +623,7 @@
 "Could not save tabs" = "Could not save tabs";
 "Could not save tabs: %@" = "Could not save tabs: %@";
 "Could not save the default app: %@" = "Could not save the default app: %@";
+"Could not save the panel layout: %@" = "Could not save the panel layout: %@";
 "Could not save the update schedule: %@" = "Could not save the update schedule: %@";
 "Could not save theme: %@" = "Could not save theme: %@";
 "Could not send %@ to %@: %@" = "Could not send %@ to %@: %@";
@@ -1379,6 +1380,7 @@
 "Play Rectangle" = "Play Rectangle";
 "Play Rectangle Fill" = "Play Rectangle Fill";
 "Points to change the font size by, such as 1." = "Points to change the font size by, such as 1.";
+"Pop Out Panel" = "Pop Out Panel";
 "Port" = "Port";
 "Press %@ for the agents panel, with every running agent in one list." = "Press %@ for the agents panel, with every running agent in one list.";
 "Press %@ to give a branch its own tabs and terminals." = "Press %@ to give a branch its own tabs and terminals.";

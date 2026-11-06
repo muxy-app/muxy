@@ -6,7 +6,7 @@ pub(crate) mod browser;
 mod ffi;
 mod page;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -124,6 +124,9 @@ pub(super) struct NativeWebview {
     shared: Arc<Shared>,
     modal: Cell<bool>,
     passthrough: Cell<bool>,
+    hit_regions: RefCell<Option<Vec<Bounds<Pixels>>>>,
+    /// The buttons pressed on the page and not yet released, one bit each.
+    pressed_inside: Cell<u8>,
     placed: Cell<Option<(u32, u32, f32)>>,
     shown: Cell<Option<bool>>,
 }
@@ -175,6 +178,8 @@ impl NativeWebview {
                 shared,
                 modal: Cell::new(false),
                 passthrough: Cell::new(false),
+                hit_regions: RefCell::new(None),
+                pressed_inside: Cell::new(0),
                 placed: Cell::new(None),
                 shown: Cell::new(None),
             },
@@ -211,8 +216,60 @@ impl NativeWebview {
     #[allow(clippy::unused_self)]
     pub(super) fn occlude(&self, _occlusions: &[Bounds<Pixels>]) {}
 
+    #[allow(clippy::unused_self)]
+    pub(super) fn occlude_also(&self, _bounds: Bounds<Pixels>) {}
+
     pub(super) fn set_mouse_passthrough(&self, enabled: bool) {
         self.passthrough.set(enabled);
+    }
+
+    pub(super) fn set_hit_regions(&self, regions: Option<&[Bounds<Pixels>]>) {
+        let regions = regions.map(<[_]>::to_vec);
+        if *self.hit_regions.borrow() != regions {
+            *self.hit_regions.borrow_mut() = regions;
+        }
+    }
+
+    /// GPUI draws these pages in its own order, so there is nothing to raise.
+    pub(super) fn order_front(_views: &[&Self]) {}
+
+    /// The pointer event the page gets, or `None` where it lets the pointer
+    /// through to what is under it. A button pressed on the page keeps the
+    /// pointer until that same button is released, whatever the regions do
+    /// meanwhile.
+    fn admit(&self, event: Pointer) -> Option<Pointer> {
+        let regions = self.hit_regions.borrow();
+        let inside = |position: gpui::Point<Pixels>| {
+            regions
+                .as_ref()
+                .is_none_or(|regions| regions.iter().any(|region| region.contains(&position)))
+        };
+        let held = self.pressed_inside.get();
+        match event {
+            Pointer::Pressed {
+                position, button, ..
+            } => {
+                if !inside(position) {
+                    return None;
+                }
+                self.pressed_inside.set(held | button_bit(button));
+                Some(event)
+            }
+            Pointer::Released { button, .. } => {
+                let bit = button_bit(button);
+                self.pressed_inside.set(held & !bit);
+                (held & bit != 0 || regions.is_none()).then_some(event)
+            }
+            Pointer::Moved { position, .. } => {
+                if held != 0 || inside(position) {
+                    Some(event)
+                } else {
+                    Some(Pointer::Left)
+                }
+            }
+            Pointer::Scrolled { position, .. } => inside(position).then_some(event),
+            Pointer::Left => Some(event),
+        }
     }
 
     pub(super) fn generation(&self) -> u64 {
@@ -288,6 +345,9 @@ impl NativeWebview {
         if self.passthrough.get() {
             return;
         }
+        let Some(event) = self.admit(event) else {
+            return;
+        };
         self.with(move |runtime, page| page.pointer(runtime, event));
     }
 
@@ -376,5 +436,14 @@ impl Events {
         if let Self::Browser(_, navigation) = self {
             navigation.store(id, Ordering::Release);
         }
+    }
+}
+
+fn button_bit(button: gpui::MouseButton) -> u8 {
+    match button {
+        gpui::MouseButton::Left => 1,
+        gpui::MouseButton::Right => 2,
+        gpui::MouseButton::Middle => 4,
+        gpui::MouseButton::Navigate(_) => 8,
     }
 }
