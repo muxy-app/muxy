@@ -418,6 +418,8 @@ pub(crate) enum Work {
     },
     References(Vec<SessionId>),
     Discard(SessionId, muxy_protocol::OperationId),
+    /// Tells the server a terminal now belongs to another project.
+    MoveSession(SessionId, muxy_protocol::ProjectId),
     CheckClose {
         check: CloseCheckId,
         session: SessionId,
@@ -490,6 +492,7 @@ impl Work {
             Self::Attach { .. } => "Attach",
             Self::References(..) => "References",
             Self::Discard(..) => "Discard",
+            Self::MoveSession(..) => "MoveSession",
             Self::CheckClose { .. } => "CheckClose",
             Self::ReadSaved { .. } => "ReadSaved",
             Self::History { .. } => "History",
@@ -590,6 +593,10 @@ pub(crate) enum Update {
     SessionNamed {
         session: SessionId,
         name: Option<String>,
+        result: Result<(), ClientError>,
+    },
+    SessionMoved {
+        session: SessionId,
         result: Result<(), ClientError>,
     },
     Discarded {
@@ -1054,6 +1061,10 @@ fn rejected(work: Work, error: ClientError) -> Update {
             name,
             result: Err(error),
         },
+        Work::MoveSession(session, _) => Update::SessionMoved {
+            session,
+            result: Err(error),
+        },
         Work::Discard(session, _) => Update::Discarded {
             session,
             result: Err(error),
@@ -1210,6 +1221,12 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
                 client.disconnect();
             }
             return Some(Update::ReferencesSynced(result));
+        }
+        Work::MoveSession(session, project) => {
+            return Some(Update::SessionMoved {
+                session,
+                result: client.move_session(session, project),
+            });
         }
         Work::Discard(session, operation) => {
             return Some(Update::Discarded {

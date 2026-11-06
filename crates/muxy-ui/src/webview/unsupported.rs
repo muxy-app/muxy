@@ -44,6 +44,9 @@ impl NativeWebview {
     pub(super) fn set_hit_regions(&self, _regions: Option<&[Bounds<Pixels>]>) {
         match *self {}
     }
+    pub(super) fn move_to_window(&self, _window: &Window) -> Result<(), String> {
+        match *self {}
+    }
     pub(super) fn order_front(_views: &[&Self]) {}
     pub(super) fn occlude_also(&self, _bounds: Bounds<Pixels>) {
         match *self {}

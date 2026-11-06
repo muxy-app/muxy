@@ -197,6 +197,7 @@
 "An open pull request for this version is updated instead, replacing its earlier commits." = "An open pull request for this version is updated instead, replacing its earlier commits.";
 "Another computer's Settings → Devices gives you a link to pair with." = "Another computer's Settings → Devices gives you a link to pair with.";
 "Another installation of the muxy command is in progress" = "Another installation of the muxy command is in progress";
+"Another pane shows this terminal too. Move both together." = "Another pane shows this terminal too. Move both together.";
 "Another update is in progress. Muxy will retry when it finishes." = "Another update is in progress. Muxy will retry when it finishes.";
 "App" = "App";
 "App Badge" = "App Badge";
@@ -542,6 +543,7 @@
 "Connect to the server before editing its settings" = "Connect to the server before editing its settings";
 "Connect to the server before ending all sessions" = "Connect to the server before ending all sessions";
 "Connect to the server before installing so Muxy can check whether sessions can be preserved" = "Connect to the server before installing so Muxy can check whether sessions can be preserved";
+"Connect to the server before moving its terminals to another project." = "Connect to the server before moving its terminals to another project.";
 "Connect to the server first" = "Connect to the server first";
 "Connect to the server so Muxy can check whether terminal sessions can be preserved." = "Connect to the server so Muxy can check whether terminal sessions can be preserved.";
 "Connect to the server to create." = "Connect to the server to create.";
@@ -575,6 +577,7 @@
 "Could not choose a key file: %@" = "Could not choose a key file: %@";
 "Could not choose logo: %@" = "Could not choose logo: %@";
 "Could not clear terminal panes: %@" = "Could not clear terminal panes: %@";
+"Could not confirm the terminal’s move to its new project; it is sent again on reconnect: %@" = "Could not confirm the terminal’s move to its new project; it is sent again on reconnect: %@";
 "Could not create folder: %@" = "Could not create folder: %@";
 "Could not enable" = "Could not enable";
 "Could not end all sessions: %@" = "Could not end all sessions: %@";
@@ -588,6 +591,7 @@
 "Could not load match" = "Could not load match";
 "Could not load themes from %@: %@" = "Could not load themes from %@: %@";
 "Could not mark activity read: %@" = "Could not mark activity read: %@";
+"Could not move the terminal to its new project: %@" = "Could not move the terminal to its new project: %@";
 "Could not open %@: %@" = "Could not open %@: %@";
 "Could not open a copy: %@" = "Could not open a copy: %@";
 "Could not open file: %@" = "Could not open file: %@";
@@ -1150,10 +1154,18 @@
 "Move %@ Up" = "Move %@ Up";
 "Move %@.app to Applications and reopen it before installing its command line tool." = "Move %@.app to Applications and reopen it before installing its command line tool.";
 "Move %@.app to Applications and reopen it before updating" = "Move %@.app to Applications and reopen it before updating";
+"Move Pane to New Tab" = "Move Pane to New Tab";
+"Move Pane to New Window" = "Move Pane to New Window";
+"Move Tab to New Window" = "Move Tab to New Window";
+"Move tab here" = "Move tab here";
 "Move to Bottom" = "Move to Bottom";
 "Move to Group" = "Move to Group";
 "Move to Group…" = "Move to Group…";
 "Move to Left Sidebar" = "Move to Left Sidebar";
+"Move to Main Window" = "Move to Main Window";
+"Move to New Tab" = "Move to New Tab";
+"Move to New Window" = "Move to New Window";
+"Move to Project" = "Move to Project";
 "Move to Right" = "Move to Right";
 "Music Note" = "Music Note";
 "Music Note List" = "Music Note List";
@@ -1212,6 +1224,7 @@
 "New permissions: %@. After updating, review the permissions and enable the extension again." = "New permissions: %@. After updating, review the permissions and enable the extension again.";
 "New tab" = "New tab";
 "New terminals on this computer, Muxy's own downloads, and SSH to remote servers use the proxy. Terminals already running keep their settings." = "New terminals on this computer, Muxy's own downloads, and SSH to remote servers use the proxy. Terminals already running keep their settings.";
+"New window" = "New window";
 "Next Project" = "Next Project";
 "Next Prompt" = "Next Prompt";
 "Next Tab" = "Next Tab";
@@ -1280,6 +1293,7 @@
 "On" = "On";
 "On the other computer, open Settings → Devices, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN." = "On the other computer, open Settings → Devices, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN.";
 "One terminal, any client" = "One terminal, any client";
+"Only within this computer" = "Only within this computer";
 "Open" = "Open";
 "Open Browser Tab" = "Open Browser Tab";
 "Open Login Items" = "Open Login Items";
@@ -1563,6 +1577,7 @@
 "Return every setting on this page, including key bindings, to its default." = "Return every setting on this page, including key bindings, to its default.";
 "Return to live output when sending a keystroke." = "Return to live output when sending a keystroke.";
 "Return to live output whenever the terminal receives new text." = "Return to live output whenever the terminal receives new text.";
+"Return to tabs" = "Return to tabs";
 "Reveal audit log" = "Reveal audit log";
 "Reveal in Finder" = "Reveal in Finder";
 "Reveal log" = "Reveal log";
@@ -1737,6 +1752,7 @@
 "Split Down" = "Split Down";
 "Split Right" = "Split Right";
 "Split down" = "Split down";
+"Split here" = "Split here";
 "Split right" = "Split right";
 "Square Grid 2x2" = "Square Grid 2x2";
 "Square Grid 2x2 Fill" = "Square Grid 2x2 Fill";
@@ -1788,6 +1804,7 @@
 "Tab closed; server cleanup is pending: %@" = "Tab closed; server cleanup is pending: %@";
 "Tab type: %@" = "Tab type: %@";
 "Tabs" = "Tabs";
+"Tabs and panes move only between projects on the same computer." = "Tabs and panes move only between projects on the same computer.";
 "Tabs and projects show each agent's state, and waiting comes first." = "Tabs and projects show each agent's state, and waiting comes first.";
 "Tabs in %@" = "Tabs in %@";
 "Tag" = "Tag";
@@ -1931,6 +1948,7 @@
 "This prompt overrides Settings → AI only for this project." = "This prompt overrides Settings → AI only for this project.";
 "This release needs a new server. Wait for all terminal sessions to end, or confirm ending them to update now." = "This release needs a new server. Wait for all terminal sessions to end, or confirm ending them to update now.";
 "This remote server is no longer listed" = "This remote server is no longer listed";
+"This server can’t move terminals between projects. Update it, then try again." = "This server can’t move terminals between projects. Update it, then try again.";
 "This session is no longer available. Refresh the session list." = "This session is no longer available. Refresh the session list.";
 "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones." = "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones.";
 "This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in Settings → Devices." = "This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in Settings → Devices.";
@@ -2057,6 +2075,8 @@
 "Wait for the current pairing to finish." = "Wait for the current pairing to finish.";
 "Wait for the running Git action to finish." = "Wait for the running Git action to finish.";
 "Wait for the server settings operation to finish before quitting" = "Wait for the server settings operation to finish before quitting";
+"Wait for the terminal to start before moving it to another project." = "Wait for the terminal to start before moving it to another project.";
+"Wait for this terminal’s last move to finish, then try again." = "Wait for this terminal’s last move to finish, then try again.";
 "Waiting" = "Waiting";
 "Waiting for you" = "Waiting for you";
 "Waiting…" = "Waiting…";

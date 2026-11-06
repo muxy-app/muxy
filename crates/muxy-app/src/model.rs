@@ -38,6 +38,7 @@ pub(crate) use remote_servers::{
 mod server_status;
 mod servers;
 pub(crate) use server_status::ServerStatus;
+pub(crate) mod tab_windows;
 mod tabs;
 pub(crate) mod tips;
 mod updates;
@@ -195,6 +196,8 @@ pub(crate) struct AppModel {
     pub(crate) agent_sessions: agent_sessions::AgentSessions,
     pub(crate) agents_panel: agents_panel::AgentsPanel,
     pub(crate) tab_drag: crate::views::tab_strip::TabDragState,
+    pub(crate) tab_windows: tab_windows::TabWindows,
+    pub(crate) move_drag: crate::views::move_drag::MoveDragState,
     pub(crate) layout_drag: crate::views::splits::drag::LayoutDragState,
     pub(crate) project_logo_task: Option<Task<()>>,
     pub(crate) project_logos: crate::views::project_editor::logo::Cache,
@@ -454,7 +457,7 @@ impl AppModel {
     fn navigation_target_exists(&self, project: ProjectId, tab: TabId) -> bool {
         self.state.project(project).is_some_and(|project| {
             project.status() == ProjectStatus::Available
-                && project.tabs.iter().any(|candidate| candidate.id == tab)
+                && project.listed_tabs().any(|candidate| candidate.id == tab)
         })
     }
 
@@ -468,6 +471,9 @@ impl AppModel {
 
     fn activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.window_active = window.is_window_active();
+        if self.window_active {
+            self.enter_surface(tab_windows::Surface::Main);
+        }
         self.update_shortcut_hints(
             if self.window_active {
                 window.modifiers()
@@ -650,6 +656,8 @@ impl AppModel {
             agent_sessions: agent_sessions::AgentSessions::new(cx),
             agents_panel: agents_panel::AgentsPanel::new(cx),
             tab_drag: crate::views::tab_strip::TabDragState::default(),
+            tab_windows: tab_windows::TabWindows::default(),
+            move_drag: crate::views::move_drag::MoveDragState::default(),
             layout_drag: crate::views::splits::drag::LayoutDragState::default(),
             #[cfg(target_os = "macos")]
             window_drag: muxy_ui::window_drag::WindowDrag::new(window),
@@ -732,6 +740,9 @@ impl AppModel {
     }
 
     pub(crate) fn active_tab(&self) -> Option<TabId> {
+        if let tab_windows::Surface::Tab(id) = self.surface() {
+            return self.window_tab(id);
+        }
         let project = self.state.current_project();
         let selected = self.state.window().selected_tab.get(&project.id).copied()?;
         if project.status() == ProjectStatus::Missing {
@@ -741,16 +752,51 @@ impl AppModel {
     }
 
     pub(crate) fn active_pane(&self) -> Option<PaneId> {
+        if let tab_windows::Surface::Tab(id) = self.surface() {
+            return self
+                .state
+                .tab_window(id)
+                .and_then(|(_, _, window)| window.active_pane());
+        }
         self.active_tab()?;
         self.state.window().active_pane
     }
 
-    /// The tab each of the current project's groups shows.
+    /// The tab each of the current project's groups shows, or the tab of the
+    /// tab window the model works for.
     pub(crate) fn visible_tabs(&self) -> Vec<TabId> {
-        if self.active_tab().is_none() {
+        let Some(active) = self.active_tab() else {
             return Vec::new();
+        };
+        if self.surface() != tab_windows::Surface::Main {
+            return vec![active];
         }
         self.state.visible_tabs(self.state.current_project().id)
+    }
+
+    /// The tabs the main window shows, whichever window the model works for.
+    pub(crate) fn main_visible_tabs(&self) -> Vec<TabId> {
+        let project = self.state.current_project();
+        if project.status() == ProjectStatus::Missing
+            || !self.state.window().selected_tab.contains_key(&project.id)
+        {
+            return Vec::new();
+        }
+        self.state.visible_tabs(project.id)
+    }
+
+    /// The main window's focused pane, whichever window the model works for.
+    pub(crate) fn main_active_pane(&self) -> Option<PaneId> {
+        if self.main_visible_tabs().is_empty() {
+            return None;
+        }
+        self.state.window().active_pane
+    }
+
+    /// Whether `tab` shows in some window: the main window, or its own.
+    pub(crate) fn tab_shown(&self, tab: TabId) -> bool {
+        self.main_visible_tabs().contains(&tab)
+            || self.tab(tab).is_some_and(muxy_app_core::Tab::detached)
     }
 
     pub(crate) fn visible_panes(&self) -> Vec<PaneId> {
@@ -768,14 +814,18 @@ impl AppModel {
         let Some(source) = self.active_pane() else {
             return;
         };
+        let project_directory = self.state.pane_project(source).map_or_else(
+            || self.state.current_project().directory.clone(),
+            |project| project.directory.clone(),
+        );
         let directory = if self.settings.panes.new_pane_directory
             == muxy_app_core::settings::NewPaneDirectory::Current
         {
             self.terminal(&source)
                 .and_then(|pane| pane.view.read(cx).directory())
-                .unwrap_or_else(|| self.state.current_project().directory.clone())
+                .unwrap_or(project_directory)
         } else {
-            self.state.current_project().directory.clone()
+            project_directory
         };
         let mut size = self
             .terminal(&source)
@@ -815,12 +865,25 @@ impl AppModel {
     }
 
     pub(crate) fn focus_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
+        if let Some(id) = self.state.pane_window(pane) {
+            if self.quitting == Quitting::Idle
+                && self
+                    .state
+                    .tab_window(id)
+                    .is_some_and(|(_, _, window)| window.active_pane() != Some(pane))
+                && self.state.focus_pane(pane).is_ok()
+            {
+                self.tab_windows.request_focus(id);
+                self.changed(cx);
+            }
+            return;
+        }
         if self.quitting != Quitting::Idle
             || self
                 .state
                 .pane_tab(pane)
-                .is_none_or(|tab| !self.visible_tabs().contains(&tab))
-            || self.active_pane() == Some(pane)
+                .is_none_or(|tab| !self.tab_shown(tab))
+            || self.main_active_pane() == Some(pane)
         {
             return;
         }
@@ -868,7 +931,7 @@ impl AppModel {
         }
     }
 
-    fn tab_project(&self, tab: TabId) -> Option<&muxy_app_core::Project> {
+    pub(crate) fn tab_project(&self, tab: TabId) -> Option<&muxy_app_core::Project> {
         self.state
             .projects()
             .iter()
@@ -1122,8 +1185,20 @@ impl AppModel {
         cx.notify();
     }
 
+    /// Opens a terminal tab in the current project, or, from a tab window,
+    /// in that tab's project, showing it in the main window.
     pub(crate) fn new_tab(&mut self, cx: &mut Context<Self>) {
-        self.new_tab_in(self.state.current_project().id, cx);
+        let project = match self.surface() {
+            tab_windows::Surface::Tab(id) => {
+                self.raise_main_window(cx);
+                self.state.tab_window(id).map_or_else(
+                    || self.state.current_project().id,
+                    |(project, ..)| project.id,
+                )
+            }
+            tab_windows::Surface::Main => self.state.current_project().id,
+        };
+        self.new_tab_in(project, cx);
     }
 
     /// Opens a terminal tab in `project` and shows it, switching the sidebar's
@@ -1179,6 +1254,14 @@ impl AppModel {
     }
 
     pub(crate) fn select_tab(&mut self, tab: TabId, cx: &mut Context<Self>) {
+        if let Some(pane) = self
+            .tab(tab)
+            .and_then(|tab| tab.window.as_ref())
+            .and_then(muxy_app_core::TabWindow::active_pane)
+        {
+            self.raise_pane_window(pane, cx);
+            return;
+        }
         if self.active_tab() == Some(tab) {
             return;
         }
@@ -1196,6 +1279,9 @@ impl AppModel {
     }
 
     pub(crate) fn cycle_tab(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if self.surface() != tab_windows::Surface::Main {
+            return;
+        }
         let tabs = self.navigation_tabs();
         if tabs.is_empty() {
             return;
@@ -1318,9 +1404,11 @@ impl AppModel {
             .collect();
         if targets.len() != tabs.len()
             || restart.is_none()
-                && targets
-                    .iter()
-                    .any(|target| target.pinned && (pane.is_none() || target.panes.len() == 1))
+                && targets.iter().any(|target| {
+                    target.pinned
+                        && !target.detached()
+                        && (pane.is_none() || target.panes.len() == 1)
+                })
         {
             return;
         }
@@ -1476,6 +1564,7 @@ impl AppModel {
                 self.tab(*id).is_none_or(|tab| {
                     request.restart.is_none()
                         && tab.pinned
+                        && !tab.detached()
                         && (request.whole_tab || tab.panes.len() == 1)
                 })
             })
@@ -1656,9 +1745,11 @@ impl AppModel {
         self.state.reveal_current_project();
         self.sync_extension_events(cx);
         self.split_resize.end();
-        if let Some(tab) = self.active_tab() {
-            self.navigation
-                .record((self.state.current_project().id, tab));
+        let project = self.state.current_project().id;
+        if !self.main_visible_tabs().is_empty()
+            && let Some(tab) = self.state.window().selected_tab.get(&project).copied()
+        {
+            self.navigation.record((project, tab));
         }
         self.save(cx);
         self.sync_visible(cx);
@@ -1892,6 +1983,7 @@ impl AppModel {
             self.create_terminal_view(id, cx);
         }
         self.ensure_visible(cx);
+        self.sync_tab_windows(cx);
     }
 
     fn create_terminal_view(&mut self, id: PaneId, cx: &mut Context<Self>) {
@@ -2032,7 +2124,20 @@ impl AppModel {
         if server.is_local() {
             self.restore_quick_terminal(sessions, cx);
         }
-        let plan = restore::plan(&self.state, server, sessions);
+        self.state.settle_session_moves(server, sessions);
+        let mut plan = restore::plan(&self.state, server, sessions);
+        if !self.server_supports(server, muxy_protocol::Feature::SESSION_MOVE) {
+            for (moved, _) in plan.moves.drain(..) {
+                plan.close.extend(
+                    self.state
+                        .session_panes(moved.server, moved.session)
+                        .map(|pane| (pane, moved.session)),
+                );
+            }
+        }
+        for (moved, origin) in std::mem::take(&mut plan.moves) {
+            self.resend_session_move(moved, origin, cx);
+        }
         let active = self.active_pane();
         for (pane, _) in plan.close {
             if let Err(error) = self.state.close_ended_pane(pane) {
@@ -2463,6 +2568,9 @@ impl AppModel {
                 name,
                 result,
             } => self.receive_session_named(server, session, name, result, cx),
+            Update::SessionMoved { session, result } => {
+                self.session_moved(server, session, result, cx);
+            }
             Update::CloseChecked {
                 check,
                 session,
@@ -2999,6 +3107,7 @@ pub(crate) mod tests {
     mod tab_groups;
     mod tab_menu;
     mod tab_sidebar;
+    mod tab_windows;
     mod tips;
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     mod updates;

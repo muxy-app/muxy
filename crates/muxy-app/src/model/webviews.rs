@@ -30,7 +30,7 @@ struct Registered {
 pub(crate) struct Surface {
     pub view: Entity<Webview>,
     kind: String,
-    _subscription: Subscription,
+    subscription: Subscription,
 }
 
 pub(crate) struct Modal {
@@ -91,6 +91,24 @@ pub(crate) struct Webviews {
     restore_focus: Option<gpui::WeakEntity<Webview>>,
 }
 
+/// Hears `view`'s requests, with `window` as the window it shows in.
+fn page_subscription(
+    view: &Entity<Webview>,
+    window: &mut Window,
+    cx: &mut Context<AppModel>,
+) -> Subscription {
+    cx.subscribe_in(view, window, |model, view, event, window, cx| match event {
+        SurfaceEvent::Request(request) => {
+            model.webview_request(view, request, window, cx);
+        }
+        SurfaceEvent::Navigated => model.forget_expired_calls(cx),
+        SurfaceEvent::Escape => model.webview_escape(view.read(cx).kind, cx),
+        SurfaceEvent::Shortcut(key) => {
+            dispatch_shortcut(key.clone(), window, cx);
+        }
+    })
+}
+
 impl AppModel {
     pub(crate) fn sync_webviews(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sync_extension_sidebar(window, cx);
@@ -123,7 +141,52 @@ impl AppModel {
         self.spinners
             .set_blocked(resizing || coverage.hides_spinners());
         let shortcuts = self.webview_shortcuts();
+        self.present_page_panes(&descriptors, blocked, resizing, window, cx);
+        self.sync_webview_panels(blocked, resizing, window, cx);
+        self.sync_extension_surfaces(&shortcuts, coverage, resizing, window, cx);
+        if let Some(modal) = &self.webviews.modal
+            && let Err(error) = modal.surface.view.read(cx).native.move_to_window(window)
+        {
+            self.set_banner_error(Some(error));
+        }
+        if let Some(modal) = &self.webviews.modal {
+            modal
+                .surface
+                .view
+                .read(cx)
+                .native
+                .set_shortcuts(true, Rc::default());
+            modal.surface.view.update(cx, |view, cx| {
+                view.refresh_theme(&self.theme, self.metrics, cx);
+                view.present(
+                    true,
+                    coverage.hides_overlay_webviews(),
+                    window.is_window_active() && view.focus.is_focused(window),
+                    f64::from(f32::from(self.metrics.radius_xl())),
+                    cx,
+                );
+            });
+        }
+    }
+
+    /// Moves the pages `window` shows into it, then shows each page pane
+    /// that lives in `window` as its pane is.
+    pub(crate) fn present_page_panes(
+        &mut self,
+        descriptors: &HashMap<PaneId, WebviewDescriptor>,
+        blocked: bool,
+        resizing: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.rehome_pages(window, cx);
+        let here = window.window_handle().window_id();
+        let visible = self.visible_panes();
+        let shortcuts = self.webview_shortcuts();
         for (id, surface) in &self.webviews.panes {
+            if self.page_window(*id) != here {
+                continue;
+            }
             surface
                 .view
                 .read(cx)
@@ -146,25 +209,53 @@ impl AppModel {
             });
         }
         self.sync_browsers(blocked, resizing, window, cx);
-        self.sync_webview_panels(blocked, resizing, window, cx);
-        self.sync_extension_surfaces(&shortcuts, coverage, resizing, window, cx);
-        if let Some(modal) = &self.webviews.modal {
-            modal
-                .surface
-                .view
-                .read(cx)
-                .native
-                .set_shortcuts(true, Rc::default());
-            modal.surface.view.update(cx, |view, cx| {
-                view.refresh_theme(&self.theme, self.metrics, cx);
-                view.present(
-                    true,
-                    coverage.hides_overlay_webviews(),
-                    window.is_window_active() && view.focus.is_focused(window),
-                    f64::from(f32::from(self.metrics.radius_xl())),
-                    cx,
-                );
-            });
+    }
+
+    /// The window a page pane's native view lives in.
+    pub(crate) fn page_window(&self, pane: PaneId) -> gpui::WindowId {
+        self.tab_windows
+            .page_home(pane)
+            .unwrap_or_else(|| self.window.window_id())
+    }
+
+    /// Moves the native views of the page panes `window` shows into it, so
+    /// they keep their pages instead of loading them again.
+    fn rehome_pages(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let here = window.window_handle().window_id();
+        for pane in self.visible_panes() {
+            if self.page_window(pane) == here {
+                continue;
+            }
+            let moved = if let Some(surface) = self.webviews.panes.get(&pane) {
+                let view = surface.view.clone();
+                let moved = view.read(cx).native.move_to_window(window);
+                if moved.is_ok()
+                    && let Some(surface) = self.webviews.panes.get_mut(&pane)
+                {
+                    surface.subscription = page_subscription(&view, window, cx);
+                }
+                Some(moved)
+            } else if let Some(view) = self.browser_view(pane).cloned() {
+                let moved = view.read(cx).native.move_to_window(window);
+                if moved.is_ok() {
+                    self.resubscribe_browser(pane, &view, window, cx);
+                }
+                Some(moved)
+            } else {
+                None
+            };
+            match moved {
+                Some(Ok(())) => {
+                    self.tab_windows
+                        .set_page_home(pane, here, self.window.window_id());
+                    if self.active_pane() == Some(pane) {
+                        self.focus_owner.request_active_pane();
+                    }
+                    window.refresh();
+                }
+                Some(Err(error)) => self.set_banner_error(Some(error)),
+                None => {}
+            }
         }
     }
 
@@ -192,7 +283,7 @@ impl AppModel {
         self.state
             .pane_tab(pane)
             .and_then(|tab| self.tab(tab))
-            .is_some_and(|tab| tab.zoomed.is_none() && tab.panes.len() > 1)
+            .is_some_and(|tab| tab.zoomed.is_none())
     }
 
     /// Presents the extension sidebar and the open popover.
@@ -235,7 +326,7 @@ impl AppModel {
         }
     }
 
-    fn ensure_webview_panes(
+    pub(crate) fn ensure_webview_panes(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -277,6 +368,11 @@ impl AppModel {
                 ) {
                     Ok(mut surface) => {
                         surface.kind.clone_from(&descriptor.kind);
+                        self.tab_windows.set_page_home(
+                            *id,
+                            window.window_handle().window_id(),
+                            self.window.window_id(),
+                        );
                         self.webviews.panes.insert(*id, surface);
                     }
                     Err(error) => {
@@ -388,27 +484,13 @@ impl AppModel {
     ) -> Result<Surface, String> {
         self.capabilities.check(Feature::ExtensionWebviews)?;
         let view = Webview::create(page, &self.theme, self.metrics, window, cx)?;
-        let subscription =
-            cx.subscribe_in(
-                &view,
-                window,
-                |model, view, event, window, cx| match event {
-                    SurfaceEvent::Request(request) => {
-                        model.webview_request(view, request, window, cx);
-                    }
-                    SurfaceEvent::Navigated => model.forget_expired_calls(cx),
-                    SurfaceEvent::Escape => model.webview_escape(view.read(cx).kind, cx),
-                    SurfaceEvent::Shortcut(key) => {
-                        dispatch_shortcut(key.clone(), window, cx);
-                    }
-                },
-            );
+        let subscription = page_subscription(&view, window, cx);
         cx.observe_release(&view, |model, _, cx| model.forget_expired_calls(cx))
             .detach();
         Ok(Surface {
             view,
             kind: String::new(),
-            _subscription: subscription,
+            subscription,
         })
     }
 
@@ -452,7 +534,10 @@ impl AppModel {
             )?
             .ok_or("could not save webview tab")?;
         self.sync_visible(cx);
-        self.focus_owner.request_active_pane();
+        if !self.raise_pane_window(pane, cx) {
+            self.show_main_window(cx);
+            self.focus_owner.request_active_pane();
+        }
         cx.notify();
         Ok(pane)
     }
@@ -1010,11 +1095,27 @@ impl AppModel {
 
     pub(crate) fn apply_webview_regions(&self, cx: &gpui::App) -> gpui::AnyElement {
         use gpui::{IntoElement, Styled};
+        let main = self.window.window_id();
+        let pages_elsewhere: Vec<_> = self
+            .webviews
+            .panes
+            .iter()
+            .filter(|(pane, _)| self.page_window(**pane) != main)
+            .map(|(_, surface)| surface.view.read(cx).native.clone())
+            .collect();
+        let browsers_elsewhere: Vec<_> = self
+            .browsers
+            .views
+            .iter()
+            .filter(|(pane, _)| self.page_window(**pane) != main)
+            .map(|(_, surface)| surface.view.read(cx).native.clone())
+            .collect();
         let views: Vec<_> = self
             .webviews
             .panes
-            .values()
-            .map(|surface| (&surface.view, true))
+            .iter()
+            .filter(|(pane, _)| self.page_window(**pane) == main)
+            .map(|(_, surface)| (&surface.view, true))
             .chain(
                 self.webviews
                     .panels
@@ -1032,8 +1133,9 @@ impl AppModel {
         let browsers: Vec<_> = self
             .browsers
             .views
-            .values()
-            .map(|surface| {
+            .iter()
+            .filter(|(pane, _)| self.page_window(**pane) == main)
+            .map(|(_, surface)| {
                 (
                     surface.view.entity_id(),
                     surface.view.read(cx).native.clone(),
@@ -1046,6 +1148,14 @@ impl AppModel {
         let spinners = self.spinners.clone();
         gpui::canvas(
             move |_, _, _| {
+                for view in &pages_elsewhere {
+                    view.occlude(&[]);
+                    view.set_grips(&[]);
+                }
+                for view in &browsers_elsewhere {
+                    view.occlude(&[]);
+                    view.set_grips(&[]);
+                }
                 for (id, view, pane) in &views {
                     view.occlude(&occlusions_for(*id, &occlusions.borrow()));
                     view.set_grips(&grips_for(*id, *pane, &grips.borrow()));

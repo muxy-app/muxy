@@ -174,3 +174,19 @@ fn a_reply_after_the_caller_gave_up_still_announces_the_terminal() {
     ));
     assert!(client.is_connected());
 }
+
+#[test]
+fn moving_a_session_names_its_new_project_and_expects_its_reply() {
+    let fake = crate::fake::Fake::start();
+    let session = SessionId::from(std::num::NonZeroU64::MIN);
+    let project = muxy_protocol::ProjectId::from_u128(2);
+    let (request, moved) = fake.answer(ReplyBody::SessionMoved, |client| {
+        client.move_session(session, project)
+    });
+    assert_eq!(request, RequestBody::MoveSession { session, project });
+    assert!(moved.is_ok());
+    let (_, unexpected) = fake.answer(ReplyBody::SessionClosed, |client| {
+        client.move_session(session, project)
+    });
+    assert!(matches!(unexpected, Err(ClientError::UnexpectedReply(_))));
+}

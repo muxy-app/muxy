@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use muxy_protocol::{
     ACTIVITY_HISTORY_LIMIT, ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity,
-    AgentState, SessionId, Topic,
+    AgentState, ProjectId, SessionId, Topic,
 };
 
 use crate::notifier::Notifier;
@@ -158,6 +158,29 @@ impl Activity {
         }
     }
 
+    /// Attributes a session's agent and unread event to another project.
+    pub(crate) fn move_session(&self, session: SessionId, project: ProjectId) {
+        let mut state = lock(&self.state);
+        let mut moved = false;
+        if let Some(agent) = state.agents.get_mut(&session)
+            && agent.project != project
+        {
+            agent.project = project;
+            moved = true;
+        }
+        for event in state
+            .events
+            .iter_mut()
+            .filter(|event| event.session == session && event.project != project)
+        {
+            event.project = project;
+            moved = true;
+        }
+        if moved {
+            self.changed(state);
+        }
+    }
+
     pub(crate) fn acknowledge(&self, ids: &[u64]) {
         let mut state = lock(&self.state);
         if state.retain_events(|event| !ids.contains(&event.id)) {
@@ -187,7 +210,7 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use muxy_protocol::{AgentProvider, ProjectId};
+    use muxy_protocol::AgentProvider;
 
     fn agent(state: AgentState) -> AgentActivity {
         AgentActivity {
@@ -232,5 +255,22 @@ mod tests {
         assert!(activity.snapshot().events.is_empty());
         assert!(lock(&activity.state).claimed.is_empty());
         assert!(activity.revision() > revision);
+    }
+
+    #[test]
+    fn a_moved_session_takes_its_agent_and_unread_event_along() {
+        let activity = Activity::default();
+        let blocked = agent(AgentState::Blocked);
+        activity.update(blocked.clone(), false);
+        let revision = activity.revision();
+        let project = ProjectId::from_u128(2);
+        activity.move_session(blocked.session, project);
+        let snapshot = activity.snapshot();
+        assert_eq!(snapshot.agents[0].project, project);
+        assert_eq!(snapshot.events[0].project, project);
+        assert!(activity.revision() > revision);
+        let revision = activity.revision();
+        activity.move_session(blocked.session, project);
+        assert_eq!(activity.revision(), revision);
     }
 }

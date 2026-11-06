@@ -217,6 +217,14 @@ pub enum RequestBody {
     /// isn't attached to. Servers from before this answer `Unsupported`.
     #[n(46)]
     WatchSessionMetadata,
+    /// Gives a session to another project. Requires `Feature::SESSION_MOVE`.
+    #[n(47)]
+    MoveSession {
+        #[n(0)]
+        session: SessionId,
+        #[n(1)]
+        project: crate::ProjectId,
+    },
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -336,6 +344,8 @@ pub enum ReplyBody {
     SessionNameSet,
     #[n(41)]
     SessionMetadataWatched,
+    #[n(42)]
+    SessionMoved,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

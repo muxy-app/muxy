@@ -76,6 +76,18 @@ impl Operations {
         Ok(())
     }
 
+    /// Refuses while any of `projects` has a worktree operation running,
+    /// which may end the sessions it owns.
+    pub(crate) fn check_projects(&self, projects: &[ProjectId]) -> Result<()> {
+        let active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
+        if projects.iter().any(|id| active.projects.contains(id)) {
+            return Err(error(
+                "Project has an active worktree operation; retry when it completes",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn check_session(&self, directory: &Path) -> Result<()> {
         let active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
         if active
@@ -102,5 +114,23 @@ impl Drop for Reservation<'_> {
         if let Some(path) = &self.removal {
             active.removals.remove(path);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sessions_stay_put_while_their_project_has_a_worktree_operation() {
+        let operations = Operations::default();
+        let (busy, other) = (ProjectId::new(), ProjectId::new());
+        assert!(operations.check_projects(&[busy, other]).is_ok());
+        let reservation = operations.reserve(vec![busy], None);
+        assert!(reservation.is_ok());
+        assert!(operations.check_projects(&[other, busy]).is_err());
+        assert!(operations.check_projects(&[other]).is_ok());
+        drop(reservation);
+        assert!(operations.check_projects(&[busy]).is_ok());
     }
 }

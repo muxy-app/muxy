@@ -39,6 +39,10 @@ pub struct AppState {
     pub(crate) window: WindowState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) set_aside: Option<SetAsideView>,
+    /// Terminals the app asked a server to give another project, until it
+    /// answers, so a request lost to a disconnect or crash is sent again.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) session_moves: Vec<crate::SessionMove>,
 }
 
 #[derive(Deserialize)]
@@ -62,6 +66,8 @@ struct StoredState {
     window: WindowState,
     #[serde(default)]
     set_aside: Option<SetAsideView>,
+    #[serde(default)]
+    session_moves: Vec<crate::SessionMove>,
     /// Versions 1 and 2 kept the local server's state here, at the top level.
     #[serde(default)]
     catalog_server: Option<muxy_protocol::ServerIdentity>,
@@ -112,7 +118,22 @@ impl TryFrom<StoredState> for AppState {
             removed_projects: stored.removed_projects,
             window: stored.window,
             set_aside: stored.set_aside,
+            session_moves: stored.session_moves,
         };
+        let detached: HashSet<_> = state
+            .projects
+            .iter_mut()
+            .flat_map(|project| &mut project.tabs)
+            .filter_map(|tab| {
+                let layout = tab.layout.clone();
+                tab.window.as_mut()?.retain_in(&layout);
+                Some(tab.id)
+            })
+            .collect();
+        state
+            .window
+            .selected_tab
+            .retain(|_, tab| !detached.contains(tab));
         let previous_project = state.window.current_project;
         let previous_tab = state.window.selected_tab.get(&previous_project).copied();
         state.ensure_home()?;
@@ -590,49 +611,22 @@ impl AppState {
         for pane in panes {
             self.cancel_pending_creation(pane);
         }
-        let active = self.window.active_pane;
-        let history = self.window.focus_history.clone();
-        let target = self.project_mut(project)?;
-        let next = target.tab_after_close(tab);
-        let grouped = target.groups.is_some();
-        let tabs = &mut target.tabs;
+        self.drop_tab(project, tab)
+    }
+
+    /// Removes `tab` without cancelling its terminals' creation, so its panes
+    /// can live on elsewhere.
+    pub(crate) fn drop_tab(&mut self, project: ProjectId, tab: TabId) -> Result<(), AppError> {
+        self.unlist_tab(project, tab)?;
+        let tabs = &mut self.project_mut(project)?.tabs;
         let index = tabs
             .iter()
             .position(|candidate| candidate.id == tab)
             .ok_or(AppError::UnknownTab { project, tab })?;
-        let removed_active = active.is_some_and(|pane| tabs[index].layout.contains(pane));
         let removed = tabs.remove(index);
-        let next = next.and_then(|next| tabs.iter_mut().find(|tab| tab.id == next));
-        let next_pane = next.as_ref().and_then(|next| {
-            let shown = |pane: &&PaneId| next.layout.contains(**pane);
-            let previous = history.iter().rev().find(shown);
-            grouped
-                .then(|| next.zoomed.or(previous.copied()))
-                .flatten()
-                .or_else(|| next.layout.leaves().first().copied())
-        });
-        let next = next.map(|next| {
-            if removed_active && !grouped {
-                next.zoomed = None;
-            }
-            next.id
-        });
-        if let Some(groups) = &mut target.groups {
-            groups.remove(tab);
-        }
         self.window
             .focus_history
             .retain(|pane| !removed.layout.contains(*pane));
-        if self.window.selected_tab.get(&project) == Some(&tab) {
-            if let Some(next) = next {
-                self.window.selected_tab.insert(project, next);
-            } else {
-                self.window.selected_tab.remove(&project);
-            }
-        }
-        if removed_active {
-            self.window.activate(next_pane);
-        }
         self.sync_groups(project);
         Ok(())
     }
@@ -709,6 +703,13 @@ impl AppState {
     }
 
     pub(crate) fn remove_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
+        self.cancel_pending_creation(pane);
+        self.extract_pane(pane)
+    }
+
+    /// Takes `pane` out of its tab, closing the tab once empty, without
+    /// cancelling its terminal's creation.
+    pub(crate) fn extract_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
         let (project, tab) = self
             .projects
             .iter()
@@ -721,7 +722,6 @@ impl AppState {
                 })
             })
             .ok_or(AppError::UnknownPane(pane))?;
-        self.cancel_pending_creation(pane);
         let history = self.window.focus_history.clone();
         let target = self
             .project_mut(project)?
@@ -730,8 +730,12 @@ impl AppState {
             .find(|item| item.id == tab)
             .ok_or(AppError::UnknownTab { project, tab })?;
         if target.panes.len() == 1 {
-            return self.close_tab(project, tab);
+            return self.drop_tab(project, tab);
         }
+        let history = target
+            .window
+            .as_ref()
+            .map_or(history, |window| window.focus_history().to_vec());
         let neighbor = target.layout.nearest(pane);
         target.layout.remove(pane);
         target.panes.retain(|candidate| candidate.id != pane);
@@ -745,6 +749,12 @@ impl AppState {
             .find(|previous| *previous != pane && target.layout.contains(*previous))
             .or(neighbor)
             .or_else(|| target.layout.leaves().first().copied());
+        if let Some(window) = &mut target.window {
+            window.forget(pane);
+            if window.active_pane() == Some(pane) {
+                window.activate(fallback);
+            }
+        }
         self.window
             .focus_history
             .retain(|previous| *previous != pane);
@@ -794,6 +804,9 @@ impl AppState {
         tab.panes[index] = new;
         if tab.zoomed == Some(pane) {
             tab.zoomed = Some(id);
+        }
+        if let Some(window) = &mut tab.window {
+            window.replace(pane, id);
         }
         for previous in &mut self.window.focus_history {
             if *previous == pane {
@@ -848,6 +861,10 @@ impl AppState {
         let tab = self.pane_tab_mut(pane)?;
         if tab.zoomed.is_some() {
             tab.zoomed = Some(pane);
+        }
+        if let Some(window) = &mut tab.window {
+            window.activate(Some(pane));
+            return Ok(());
         }
         let tab = tab.id;
         let project = self
@@ -926,13 +943,18 @@ impl AppState {
 
     pub fn select_tab(&mut self, project: ProjectId, tab: TabId) -> Result<(), AppError> {
         self.project_mut(project)?.require_available()?;
-        if !self
+        let Some(target) = self
             .project_mut(project)?
             .tabs
             .iter()
-            .any(|item| item.id == tab)
-        {
+            .find(|item| item.id == tab)
+        else {
             return Err(AppError::UnknownTab { project, tab });
+        };
+        if target.detached() {
+            return Err(AppError::InvalidState(
+                "the tab shows in a window of its own".into(),
+            ));
         }
         self.window.selected_tab.insert(project, tab);
         self.window.current_project = project;
@@ -969,6 +991,14 @@ impl AppState {
     /// The pane `tab` shows as its own: the active pane, or the one last
     /// focused in it.
     pub fn shown_pane(&self, tab: &Tab) -> Option<PaneId> {
+        if let Some(pane) = tab
+            .window
+            .as_ref()
+            .and_then(crate::TabWindow::active_pane)
+            .filter(|pane| tab.layout.contains(*pane))
+        {
+            return Some(pane);
+        }
         self.window
             .active_pane
             .into_iter()
@@ -1132,7 +1162,16 @@ impl AppState {
         }
         let mut tabs = HashSet::new();
         let mut panes = HashSet::new();
+        let mut windows = HashSet::new();
         for tab in self.projects.iter().flat_map(|project| &project.tabs) {
+            if let Some(window) = &tab.window {
+                if !windows.insert(window.id) {
+                    return Err(AppError::InvalidState("duplicate tab window".into()));
+                }
+                if let Some(bounds) = window.bounds {
+                    bounds.validate()?;
+                }
+            }
             if !tabs.insert(tab.id) {
                 return Err(AppError::InvalidState(format!(
                     "duplicate tab ID {}",
@@ -1151,8 +1190,18 @@ impl AppState {
         }
 
         for project in &self.projects {
+            if let Some(selected) = self.window.selected_tab.get(&project.id)
+                && project
+                    .tabs
+                    .iter()
+                    .any(|tab| tab.id == *selected && tab.detached())
+            {
+                return Err(AppError::InvalidState(
+                    "a tab in its own window can't be selected".into(),
+                ));
+            }
             if let Some(groups) = &project.groups {
-                let order: Vec<_> = project.tabs.iter().map(|tab| tab.id).collect();
+                let order: Vec<_> = project.listed_tabs().map(|tab| tab.id).collect();
                 groups.validate(&order, self.window.selected_tab.get(&project.id).copied())?;
             }
         }

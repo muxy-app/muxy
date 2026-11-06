@@ -26,6 +26,7 @@ impl Project {
             .enumerate()
             .filter(|(candidate, tab)| {
                 !tab.pinned
+                    && tab.window.is_none()
                     && group.contains(&tab.id)
                     && match scope {
                         TabCloseScope::Other => *candidate != index,
@@ -50,6 +51,9 @@ pub struct Tab {
     pub(crate) legacy_active_pane: Option<PaneId>,
     pub layout: Layout,
     pub zoomed: Option<PaneId>,
+    /// The window of its own the tab shows in, instead of the main window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<crate::TabWindow>,
 }
 
 #[derive(Deserialize)]
@@ -68,6 +72,8 @@ struct StoredTab {
     layout: Option<Layout>,
     #[serde(default)]
     zoomed: Option<PaneId>,
+    #[serde(default)]
+    window: Option<crate::TabWindow>,
 }
 
 impl TryFrom<StoredTab> for Tab {
@@ -87,6 +93,7 @@ impl TryFrom<StoredTab> for Tab {
             panes: stored.panes,
             legacy_active_pane: stored.active_pane,
             zoomed: stored.zoomed,
+            window: stored.window,
         };
         tab.sanitize_titles();
         tab.validate()?;
@@ -123,6 +130,11 @@ impl Tab {
             .any(|pane| pane.proxy && matches!(pane.content, PaneContent::Terminal { .. }))
     }
 
+    /// Whether the tab shows in a window of its own.
+    pub fn detached(&self) -> bool {
+        self.window.is_some()
+    }
+
     pub fn visible_panes(&self) -> Vec<PaneId> {
         self.zoomed
             .map_or_else(|| self.layout.leaves(), |pane| vec![pane])
@@ -142,6 +154,11 @@ impl Tab {
             .legacy_active_pane
             .is_some_and(|pane| !ids.contains(&pane))
             || self.zoomed.is_some_and(|pane| !ids.contains(&pane))
+            || self
+                .window
+                .as_ref()
+                .and_then(crate::TabWindow::active_pane)
+                .is_some_and(|pane| !ids.contains(&pane))
         {
             return Err(AppError::InvalidState(
                 "active and zoomed panes must be layout leaves".into(),
@@ -187,6 +204,7 @@ impl Tab {
             legacy_active_pane: None,
             layout: Layout::Leaf(pane.id),
             zoomed: None,
+            window: None,
             panes: vec![pane],
         }
     }

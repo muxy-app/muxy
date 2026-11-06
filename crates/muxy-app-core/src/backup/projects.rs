@@ -32,6 +32,16 @@ impl AppState {
         state.starting_directories.clear();
         state.starting_proxies.clear();
         state.quick_terminal = None;
+        for tab in state
+            .projects
+            .iter_mut()
+            .flat_map(|project| &mut project.tabs)
+        {
+            tab.window = None;
+        }
+        for project in &mut state.projects {
+            project.sync_groups(state.window.selected_tab.get(&project.id).copied());
+        }
         for pane in state
             .projects
             .iter_mut()

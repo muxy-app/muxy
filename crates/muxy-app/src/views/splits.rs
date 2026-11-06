@@ -51,8 +51,7 @@ impl SplitResize {
         let ratio = self.ratio_at(pointer);
         match self.owner {
             SplitOwner::Tab(tab) => {
-                model.visible_tabs().contains(&tab)
-                    && model.state.set_ratio(tab, &self.path, ratio).is_ok()
+                model.tab_shown(tab) && model.state.set_ratio(tab, &self.path, ratio).is_ok()
             }
             SplitOwner::Groups(project) => {
                 model.state.current_project().id == project
@@ -129,6 +128,20 @@ pub(crate) fn render(
     )
 }
 
+/// A tab window's panes.
+pub(crate) fn tab_window_body(
+    tab: &Tab,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    div()
+        .relative()
+        .size_full()
+        .child(tab_content(tab, model, cx))
+        .child(resize_tracker(model, cx))
+        .into_any_element()
+}
+
 /// Follows the pointer while a divider is dragged.
 fn resize_tracker(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let state = model.split_resize.clone();
@@ -192,7 +205,14 @@ fn tab_content(tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>) -> AnyEl
         .child(content)
         .child(
             canvas(
-                move |bounds, window, _| geometry.set(id, bounds, window.scale_factor()),
+                move |bounds, window, _| {
+                    geometry.set(
+                        window.window_handle().window_id(),
+                        id,
+                        bounds,
+                        window.scale_factor(),
+                    );
+                },
                 |_, (), _, _| {},
             )
             .absolute()

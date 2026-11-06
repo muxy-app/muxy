@@ -159,6 +159,24 @@ impl NativeScrollView {
         })
     }
 
+    /// Moves the scroll bar into `window`, for a pane now drawn there. It
+    /// keeps its position and shows once synced in that window.
+    pub fn move_to_window(&mut self, window: &gpui::Window) -> Result<(), String> {
+        let parent = crate::appkit::ns_window(window)?
+            .contentView()
+            .ok_or("native window has no content view")?;
+        if std::ptr::eq(Retained::as_ptr(&parent), Retained::as_ptr(&self.parent)) {
+            return Ok(());
+        }
+        let hidden = self.view.isHidden();
+        self.view.setHidden(true);
+        self.view.removeFromSuperview();
+        parent.addSubview(&self.view);
+        self.view.setHidden(hidden);
+        self.parent = parent;
+        Ok(())
+    }
+
     pub fn set_visible(&self, visible: bool) {
         self.view.setHidden(!visible);
     }

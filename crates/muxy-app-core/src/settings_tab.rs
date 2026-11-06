@@ -86,8 +86,10 @@ impl AppState {
             self.add_tab(project, tab, near)?;
             (project, id)
         };
-        self.select_project(project)?;
-        self.select_tab(project, tab)?;
+        if self.tab_mut(tab)?.window.is_none() {
+            self.select_project(project)?;
+            self.select_tab(project, tab)?;
+        }
         if let Some(pane) = self
             .tab_mut(tab)?
             .panes

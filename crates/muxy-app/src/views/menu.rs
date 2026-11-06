@@ -57,6 +57,10 @@ pub(crate) enum Command {
     ExistingSessions(muxy_app_core::ProjectId),
     ProjectLayouts(muxy_app_core::ProjectId),
     DetachTerminal(muxy_app_core::PaneId),
+    /// Moves a pane out of its tab into a new tab of `ProjectId`.
+    MovePaneToTab(muxy_app_core::PaneId, muxy_app_core::ProjectId),
+    /// Moves a pane out of its tab into a window of its own.
+    MovePaneToWindow(muxy_app_core::PaneId),
     /// Restarts the terminal with the app's proxy, or without it.
     RestartWithProxy(muxy_app_core::PaneId, bool),
     /// Opens the status bar's proxy popover.
@@ -609,6 +613,15 @@ impl AppModel {
                         self.edit_tab(|state| state.toggle_tab_pin(id), cx);
                     }
                     Action::Close => self.close_tab(id, cx),
+                    Action::MoveToWindow => self.move_tab_to_window(id, None, None, cx),
+                    Action::MoveToProject(project) => {
+                        self.move_tab_to_place(id, muxy_app_core::TabPlace::end(project), cx);
+                    }
+                    Action::ReturnToMainWindow => {
+                        if let Some(window) = self.tab(id).and_then(|tab| tab.window.as_ref()) {
+                            self.return_tab_window(window.id, None, cx);
+                        }
+                    }
                     Action::CloseTabs(scope) => self.close_tabs(id, scope, cx),
                 }
             }
@@ -672,6 +685,10 @@ impl AppModel {
                 return;
             }
             Command::DetachTerminal(pane) => self.detach_terminal(pane, cx),
+            Command::MovePaneToTab(pane, project) => {
+                self.move_pane_to_new_tab(pane, muxy_app_core::TabPlace::end(project), cx);
+            }
+            Command::MovePaneToWindow(pane) => self.move_pane_to_window(pane, None, None, cx),
             Command::RestartWithProxy(pane, proxy) => self.restart_terminal(pane, proxy, cx),
             Command::ProxySettings => {
                 self.open_proxy_popover(window, cx);

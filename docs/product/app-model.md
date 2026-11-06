@@ -75,6 +75,38 @@ flowchart LR
   tab moves focus to the next tab, or the previous one. Closing something in the
   background never steals focus.
 
+## Moving tabs and panes
+
+Tabs and panes move anywhere on the same computer. Terminals keep running and
+pages keep their state. A terminal moved to another project belongs to it on
+the server too, so removing the old project no longer ends it. Servers too old
+to do that refuse the move.
+
+- Drag a tab from the tab bar or the tab sidebar onto another place in the
+  tabs, onto a project, or out of the app into a window of its own.
+- Drag a pane by its header, or with Command held, into another tab's splits,
+  onto the tab bar or a sidebar row as a new tab, onto a project, or out of the
+  app into a window of its own.
+- While dragging, a chip follows the pointer, the drop place is outlined or
+  marked between tabs, and a place on another computer shows as refused.
+- A tab in its own window has the system's window controls and leaves the main
+  window's tabs. Drag its titlebar over the main window to put it back, or use
+  **Move to Main Window**. Closing the window closes the tab. Tab windows reopen
+  where they were after a restart.
+- The pane header of a tab window is its titlebar: it holds the window's
+  controls and moves the window. A tab window shows a titlebar of its own only
+  when no pane header runs along its top.
+- The tab menu offers **Move to New Window** and **Move to Project**; the pane
+  menu adds **Move to New Tab** and, in a tab window, **Move to Main Window**.
+  The command palette has **Move Tab to New Window**, **Move Pane to New Tab**,
+  and **Move Pane to New Window** for the main window.
+- A terminal still starting can't change project until it has started.
+
+On Linux, panes and tabs move between windows through these menus, and a drag
+out of the main window opens a window of its own. Only macOS follows a drag
+from one window into another, since Linux doesn't tell apps where their
+windows are on screen.
+
 ## Opening and restoring
 
 - The desktop app restores all projects, tabs, and window state on launch. It

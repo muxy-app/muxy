@@ -604,7 +604,7 @@ impl Registry {
         lock(&self.sessions)
             .sessions
             .values()
-            .map(|handle| handle.info().clone())
+            .map(SessionHandle::info)
             .collect()
     }
 
@@ -748,6 +748,27 @@ impl Registry {
         if discard {
             self.discard_owned(session)?;
         }
+        Ok(())
+    }
+
+    /// Gives a live or saved session to another project.
+    pub fn move_session(
+        &self,
+        session: SessionId,
+        project: muxy_protocol::ProjectId,
+    ) -> Result<(), ServerError> {
+        let _operation = self.session_operation();
+        let source = self.catalog.session_project(session);
+        self.git
+            .operations
+            .check_projects(&source.into_iter().chain([project]).collect::<Vec<_>>())?;
+        if !self.catalog.move_session(session, project)? {
+            return Ok(());
+        }
+        if let Some(handle) = self.handle(session) {
+            handle.move_to(project);
+        }
+        self.activity.move_session(session, project);
         Ok(())
     }
 

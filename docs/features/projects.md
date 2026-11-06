@@ -35,6 +35,8 @@ can't be removed. `Cmd+N` opens a tab in Home.
   projects** at the bottom. Turn on **Settings → Appearance → Remember shown
   projects without tabs** to keep them shown after a restart.
 - Sort by **Manual Order** and drag to reorder, or by **Name**.
+- Drop a dragged tab or pane on a project to move it there as a new tab. See
+  [Moving tabs and panes](../product/app-model.md#moving-tabs-and-panes).
 - `Ctrl+1`–`Ctrl+9` jumps to a project. Hold a modifier to see the numbers.
 
 ## Workspaces

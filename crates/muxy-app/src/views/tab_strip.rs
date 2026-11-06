@@ -15,6 +15,7 @@ use super::sidebar::{client_button, client_press};
 use super::tab_sidebar::tab_description;
 use super::titlebar;
 use crate::model::AppModel;
+use crate::views::move_drag;
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::Metrics;
@@ -50,10 +51,11 @@ pub(crate) fn tab_strip(
         - actions_width
         - new_tab_width)
         .max(0.0);
-    let count = u16::try_from(model.state.current_project().tabs.len()).unwrap_or(u16::MAX);
+    let count =
+        u16::try_from(model.state.current_project().listed_tabs().count()).unwrap_or(u16::MAX);
     let ideal_width = available / f32::from(count.max(1));
     let width = ideal_width.clamp(min_tab_width(model), max_tab_width(model));
-    let tabs: Vec<_> = model.state.current_project().tabs.iter().collect();
+    let tabs: Vec<_> = model.state.current_project().listed_tabs().collect();
     let mut cells = tab_cells(&tabs, width, true, model, cx);
     let pinned_button = if ideal_width < min_tab_width(model) {
         new_button
@@ -70,12 +72,18 @@ pub(crate) fn tab_strip(
                 .accessibility_id("tabs-scroll")
                 .aria_label(tr!("Tabs"))
                 .debug_selector(|| "tabs-scroll".into())
+                .relative()
                 .flex()
                 .flex_1()
                 .min_w(px(0.0))
                 .h_full()
                 .overflow_x_scroll()
-                .child(cells),
+                .child(cells)
+                .child(move_drag::zone(
+                    &model.move_drag.zones,
+                    move_drag::Owner::Strip,
+                    move_drag::ZoneKind::Strip(model.state.current_project().id),
+                )),
         )
         .children(pinned_button)
         .child(actions)
@@ -146,6 +154,11 @@ pub(crate) fn group_strip(
                 .overflow_x_scroll()
                 .child(cells),
         )
+        .child(move_drag::zone(
+            &model.move_drag.zones,
+            move_drag::Owner::Strip,
+            move_drag::ZoneKind::Strip(project.id),
+        ))
         .child(
             gpui::canvas(
                 move |bounds, _, _| strips.borrow_mut().push((shown, bounds)),
@@ -166,8 +179,24 @@ fn tab_cells(
     cx: &mut Context<AppModel>,
 ) -> gpui::Div {
     let mut cells = div().flex().flex_none().items_center().h_full();
+    let project = model.state.current_project().id;
     for (index, tab) in tabs.iter().enumerate() {
-        cells = cells.child(tab_cell(tab, index, width, shortcuts, model, cx));
+        cells = cells.child(
+            div()
+                .relative()
+                .flex_none()
+                .h_full()
+                .child(tab_cell(tab, index, width, shortcuts, model, cx))
+                .child(move_drag::zone(
+                    &model.move_drag.zones,
+                    move_drag::Owner::Strip,
+                    move_drag::ZoneKind::Tab {
+                        project,
+                        tab: tab.id,
+                        axis: muxy_app_core::Axis::Horizontal,
+                    },
+                )),
+        );
     }
     drag::measure_tabs(
         cells,

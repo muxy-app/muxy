@@ -13,12 +13,12 @@ use super::{
     CloseTab, DecreaseFontSize, DetachTerminal, EndAllSessionsAndQuit, EqualizeSplits,
     ExistingTerminals, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight,
     FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize,
-    NavigateBack, NavigateForward, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree,
-    NextProject, NextPrompt, NextTab, OpenAbout, OpenConfiguration, OpenSettings, PreviousProject,
-    PreviousPrompt, PreviousTab, Quit, ScrollToBottom, SelectCommandOutput, ShowAll,
-    ShowWelcomeTour, SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel,
-    ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar, ToggleThemePicker,
-    ToggleZoomPane, Zoom,
+    MovePaneToNewTab, MovePaneToNewWindow, MoveTabToNewWindow, NavigateBack, NavigateForward,
+    NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree, NextProject, NextPrompt,
+    NextTab, OpenAbout, OpenConfiguration, OpenSettings, PreviousProject, PreviousPrompt,
+    PreviousTab, Quit, ScrollToBottom, SelectCommandOutput, ShowAll, ShowWelcomeTour, SplitDown,
+    SplitRight, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel, ToggleCommandPalette,
+    ToggleComposer, ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleZoomPane, Zoom,
 };
 use crate::model::AppModel;
 use crate::model::browsers::BrowserAction;
@@ -172,6 +172,16 @@ fn has_pane(model: &AppModel) -> bool {
     project_present(model) && model.active_pane().is_some()
 }
 
+/// Whether the active pane can move into a window of its own: any pane of
+/// the main window, or a pane sharing its tab window with another.
+fn pane_can_leave_window(model: &AppModel) -> bool {
+    project_present(model)
+        && model
+            .active_tab()
+            .and_then(|tab| model.tab(tab))
+            .is_some_and(|tab| !tab.detached() || tab.panes.len() >= 2)
+}
+
 fn has_split(model: &AppModel) -> bool {
     project_present(model)
         && model
@@ -220,8 +230,10 @@ static COMMANDS: &[CommandDef] = &[
         .run(|model, _, cx| model.new_tab(cx)),
     row::<NewHomeTab>(ShortcutId::NewHomeTab, Label::Key(tr_key!("New Home Tab"))).run(
         |model, _, cx| {
-            model.select_project(model.state.home().id, cx);
-            model.new_tab(cx);
+            let home = model.state.home().id;
+            model.show_main_window(cx);
+            model.select_project(home, cx);
+            model.new_tab_in(home, cx);
         },
     ),
     row::<CloseTab>(ShortcutId::CloseTab, Label::Key(tr_key!("Close Tab")))
@@ -425,6 +437,41 @@ static COMMANDS: &[CommandDef] = &[
     .run(|model, _, cx| {
         model.end_all_and_quit(cx);
         cx.stop_propagation();
+    }),
+    unbound::<MoveTabToNewWindow>(
+        "move_tab_to_new_window",
+        Label::Key(tr_key!("Move Tab to New Window")),
+    )
+    .keywords("Detach Tab Window Separate")
+    .available(project_present)
+    .run(|model, _, cx| {
+        if let Some(tab) = model.active_tab() {
+            model.move_tab_to_window(tab, None, None, cx);
+        }
+    }),
+    unbound::<MovePaneToNewTab>(
+        "move_pane_to_new_tab",
+        Label::Key(tr_key!("Move Pane to New Tab")),
+    )
+    .keywords("Split Pane Tab Break Out")
+    .available(has_split)
+    .run(|model, _, cx| {
+        if let Some(pane) = model.active_pane()
+            && let Some(project) = model.state.pane_project(pane).map(|project| project.id)
+        {
+            model.move_pane_to_new_tab(pane, muxy_app_core::TabPlace::end(project), cx);
+        }
+    }),
+    unbound::<MovePaneToNewWindow>(
+        "move_pane_to_new_window",
+        Label::Key(tr_key!("Move Pane to New Window")),
+    )
+    .keywords("Detach Pane Window Separate")
+    .available(pane_can_leave_window)
+    .run(|model, _, cx| {
+        if let Some(pane) = model.active_pane() {
+            model.move_pane_to_window(pane, None, None, cx);
+        }
     }),
     unbound::<CheckForUpdates>(
         "check_for_updates",

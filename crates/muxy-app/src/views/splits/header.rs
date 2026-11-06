@@ -37,7 +37,7 @@ struct Action {
     name: &'static str,
     icon: Icon,
     label: SharedString,
-    shortcut: ShortcutId,
+    shortcut: Option<ShortcutId>,
     perform: Perform,
 }
 
@@ -68,8 +68,10 @@ pub(super) fn header(
     let zoomed = tab.zoomed == Some(id);
     let actions = actions(pane, tab, model);
     let count = u16::try_from(actions.len()).unwrap_or(u16::MAX);
+    let edges = model.header_edges(id, tab);
     let shown = m.spacing4()
         + m.spacing4()
+        + edges.trailing
         + m.control_small() * f32::from(count)
         + m.spacing2() * f32::from(count.saturating_sub(1));
     div()
@@ -83,8 +85,12 @@ pub(super) fn header(
         .min_w(px(0.0))
         .overflow_hidden()
         .h(m.title_bar_height())
-        .pl(m.spacing6())
-        .pr(if active { shown } else { m.spacing4() })
+        .pl(m.spacing6() + edges.leading)
+        .pr(if active {
+            shown
+        } else {
+            m.spacing4() + edges.trailing
+        })
         .group_hover(group.clone(), move |style| style.pr(shown))
         .bg(background)
         .when(zoomed, |header| {
@@ -94,19 +100,31 @@ pub(super) fn header(
         .text_color(foreground)
         .on_mouse_down(
             MouseButton::Left,
-            cx.listener(move |model, _, window, cx| {
+            cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
                 model.focus_pane(id, cx);
                 model.focus_active(window, cx);
+                if let Some(carried) = edges.carries
+                    && event.click_count == 1
+                {
+                    model.begin_carry(carried, event.position, window, cx);
+                }
             }),
         )
+        .when(edges.carries.is_some(), |header| {
+            header.on_click(cx.listener(|_, event: &gpui::ClickEvent, window, _| {
+                if event.click_count() == 2 {
+                    window.zoom_window();
+                }
+            }))
+        })
         .child(handle(pane, tab, bell, foreground, model, cx))
         .child(
             div()
                 .debug_selector(move || format!("pane-header-actions-{id}"))
                 .absolute()
                 .top(((m.title_bar_height() - m.control_small()) / 2.0).max(px(0.0)))
-                .left(m.spacing6())
-                .right(m.spacing4())
+                .left(m.spacing6() + edges.leading)
+                .right(m.spacing4() + edges.trailing)
                 .h(m.control_small())
                 .overflow_hidden()
                 .flex()
@@ -138,7 +156,7 @@ fn handle(
 ) -> AnyElement {
     let id = pane.id;
     let m = model.metrics;
-    let movable = tab.zoomed.is_none() && tab.panes.len() > 1;
+    let movable = tab.zoomed.is_none();
     let group = SharedString::from(format!("pane-handle-{id}"));
     let size = m.scaled(13.0);
     let hover = foreground.opacity(0.08);
@@ -246,14 +264,14 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             name: "split-right",
             icon: Icon::Columns,
             label: tr!("Split Right"),
-            shortcut: ShortcutId::SplitRight,
+            shortcut: Some(ShortcutId::SplitRight),
             perform: Perform::Active(|model, cx| model.split_pane(Direction::Right, cx)),
         },
         Action {
             name: "split-down",
             icon: Icon::Rows,
             label: tr!("Split Down"),
-            shortcut: ShortcutId::SplitDown,
+            shortcut: Some(ShortcutId::SplitDown),
             perform: Perform::Active(|model, cx| model.split_pane(Direction::Down, cx)),
         },
     ];
@@ -262,8 +280,17 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             name: "detach",
             icon: Icon::Overlap,
             label: tr!("Detach Terminal"),
-            shortcut: ShortcutId::DetachTerminal,
+            shortcut: Some(ShortcutId::DetachTerminal),
             perform: Perform::Pane(AppModel::detach_terminal),
+        });
+    }
+    if tab.detached() {
+        actions.push(Action {
+            name: "return",
+            icon: Icon::AppWindow,
+            label: tr!("Move to Main Window"),
+            shortcut: None,
+            perform: Perform::Pane(AppModel::return_pane_window),
         });
     }
     if tab.zoomed == Some(pane.id) {
@@ -271,7 +298,7 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             name: "restore",
             icon: Icon::Restore,
             label: tr!("Restore Pane"),
-            shortcut: ShortcutId::ToggleZoomPane,
+            shortcut: Some(ShortcutId::ToggleZoomPane),
             perform: Perform::Active(AppModel::toggle_zoom_pane),
         });
     } else if tab.layout.leaves().len() > 1 {
@@ -279,7 +306,7 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             name: "maximize",
             icon: Icon::Maximize,
             label: tr!("Maximize Pane"),
-            shortcut: ShortcutId::ToggleZoomPane,
+            shortcut: Some(ShortcutId::ToggleZoomPane),
             perform: Perform::Active(AppModel::toggle_zoom_pane),
         });
     }
@@ -288,7 +315,7 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             name: "close",
             icon: Icon::X,
             label: tr!("Close Pane"),
-            shortcut: ShortcutId::ClosePane,
+            shortcut: Some(ShortcutId::ClosePane),
             perform: Perform::Pane(AppModel::close_pane),
         });
     }
@@ -303,10 +330,13 @@ fn button(
     cx: &Context<AppModel>,
 ) -> AnyElement {
     let m = model.metrics;
-    let tooltip = model.settings.keymap.chord(action.shortcut).map_or_else(
-        || action.label.to_string(),
-        |chord| format!("{} ({chord})", action.label),
-    );
+    let tooltip = action
+        .shortcut
+        .and_then(|shortcut| model.settings.keymap.chord(shortcut))
+        .map_or_else(
+            || action.label.to_string(),
+            |chord| format!("{} ({chord})", action.label),
+        );
     let name = action.name;
     let perform = action.perform;
     let hover = foreground.opacity(0.12);

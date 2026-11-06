@@ -145,6 +145,9 @@ pub(crate) struct TerminalPane {
     pub(crate) native_visible: bool,
     #[cfg(target_os = "macos")]
     pub(crate) native_scroll: Option<muxy_ui::native_scroll::NativeScrollView>,
+    /// The window the native scroll view lives in.
+    #[cfg(target_os = "macos")]
+    native_scroll_window: Option<gpui::WindowId>,
     #[cfg(target_os = "macos")]
     native_sequence: u64,
     pub(super) scrollbar: Scrollbar,
@@ -278,6 +281,8 @@ impl TerminalPane {
             native_visible: true,
             #[cfg(target_os = "macos")]
             native_scroll: None,
+            #[cfg(target_os = "macos")]
+            native_scroll_window: None,
             #[cfg(target_os = "macos")]
             native_sequence: 0,
             scrollbar: Scrollbar::new(cx.background_executor().now()),
@@ -516,7 +521,15 @@ impl TerminalPane {
 
     #[cfg(target_os = "macos")]
     fn setup_native_scroll(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let here = window.window_handle().window_id();
+        if self.native_scroll_window != Some(here)
+            && let Some(scroll) = &mut self.native_scroll
+            && scroll.move_to_window(window).is_ok()
+        {
+            self.native_scroll_window = Some(here);
+        }
         if self.native_scroll.is_none() {
+            self.native_scroll_window = Some(here);
             let weak = cx.entity().downgrade();
             let app = cx.to_async();
             self.native_scroll =

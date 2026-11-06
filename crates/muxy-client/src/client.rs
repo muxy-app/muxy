@@ -323,6 +323,19 @@ impl Client {
         }
     }
 
+    /// Gives a live or saved session to another project. Requires
+    /// `Feature::SESSION_MOVE`; older servers reply `ErrorCode::Unsupported`.
+    pub fn move_session(
+        &self,
+        session: SessionId,
+        project: muxy_protocol::ProjectId,
+    ) -> Result<(), ClientError> {
+        match self.request(RequestBody::MoveSession { session, project })? {
+            ReplyBody::SessionMoved => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     pub fn discard_session(&self, id: SessionId) -> Result<(), ClientError> {
         match self.request(RequestBody::DiscardSession(id))? {
             ReplyBody::SessionDiscarded => Ok(()),

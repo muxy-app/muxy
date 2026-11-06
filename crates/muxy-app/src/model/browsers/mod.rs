@@ -35,7 +35,7 @@ const ADDRESS_SAVE_DELAY: std::time::Duration = std::time::Duration::from_secs(1
 
 pub(crate) struct Surface {
     pub view: Entity<BrowserView>,
-    _subscription: Subscription,
+    subscription: Subscription,
 }
 
 #[derive(Default)]
@@ -162,7 +162,11 @@ impl AppModel {
         let theme = self.theme.clone();
         let metrics = self.metrics;
         let engine = self.settings.browser.search_engine;
+        let here = window.window_handle().window_id();
         for (id, surface) in &self.browsers.views {
+            if self.page_window(*id) != here {
+                continue;
+            }
             let command_drag = window.modifiers().platform && self.pane_drag_available(*id);
             surface.view.update(cx, |view, cx| {
                 view.native.set_shortcuts(drag, shortcuts.clone());
@@ -209,17 +213,35 @@ impl AppModel {
             window,
             cx,
         )?;
-        let subscription = cx.subscribe_in(&view, window, move |model, _, event, window, cx| {
-            model.browser_event(pane, event, window, cx);
-        });
+        let subscription = browser_subscription(pane, &view, window, cx);
+        self.tab_windows.set_page_home(
+            pane,
+            window.window_handle().window_id(),
+            self.window.window_id(),
+        );
         self.browsers.views.insert(
             pane,
             Surface {
                 view: view.clone(),
-                _subscription: subscription,
+                subscription,
             },
         );
         Ok(view)
+    }
+
+    /// Hears `view`'s events with `window` as the window it shows in.
+    pub(super) fn resubscribe_browser(
+        &mut self,
+        pane: PaneId,
+        view: &Entity<BrowserView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        view.update(cx, |view, cx| view.follow_window(window, cx));
+        let subscription = browser_subscription(pane, view, window, cx);
+        if let Some(surface) = self.browsers.views.get_mut(&pane) {
+            surface.subscription = subscription;
+        }
     }
 
     pub(super) fn browser_event(
@@ -699,4 +721,15 @@ impl AppModel {
             }
         }
     }
+}
+
+fn browser_subscription(
+    pane: PaneId,
+    view: &Entity<BrowserView>,
+    window: &mut Window,
+    cx: &mut Context<AppModel>,
+) -> Subscription {
+    cx.subscribe_in(view, window, move |model, _, event, window, cx| {
+        model.browser_event(pane, event, window, cx);
+    })
 }

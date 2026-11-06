@@ -526,3 +526,73 @@ fn a_saved_session_name_that_is_not_valid_is_dropped() {
     assert_eq!(state.sessions[&session(21)].name, None);
     assert_eq!(state.sessions[&session(22)].name.as_deref(), Some("kept"));
 }
+
+#[test]
+fn a_session_moves_only_to_a_project_that_stays_and_never_while_discarded() {
+    let mut state = State::fresh(std::path::Path::new("/home/muxy"));
+    let home = state.home;
+    let project = |id: u128| ProjectDescriptor {
+        id: ProjectId::from_u128(id),
+        home: false,
+        directory: ServerPath::from("/home/muxy/app"),
+        name: "App".into(),
+        icon: None,
+        logo: None,
+        color: "#30a46c".into(),
+        kind: None,
+        parent_id: None,
+    };
+    let (app, leaving) = (project(2), project(3));
+    state.projects.insert(app.id, app.clone());
+    state.projects.insert(leaving.id, leaving.clone());
+    state.deleting.insert(leaving.id);
+    for id in [1, 2] {
+        state.sessions.insert(
+            session(id),
+            Membership {
+                info: SessionInfo {
+                    id: session(id),
+                    project: home,
+                    directory: ServerPath::from("/home/muxy"),
+                },
+                status: SessionStatus::Ended,
+                ended_at: None,
+                name: None,
+            },
+        );
+    }
+    state.discarding.insert(session(2));
+    let catalog = Catalog::from_state(state, None, std::sync::Arc::default());
+    let revision = catalog.revision();
+    let code = |result: Result<bool, crate::ServerError>| result.map_err(|error| error.code());
+
+    assert_eq!(
+        code(catalog.move_session(session(1), leaving.id)),
+        Err(ErrorCode::UnknownProject)
+    );
+    assert_eq!(
+        code(catalog.move_session(session(1), ProjectId::from_u128(9))),
+        Err(ErrorCode::UnknownProject)
+    );
+    assert_eq!(
+        code(catalog.move_session(session(2), app.id)),
+        Err(ErrorCode::UnknownSession)
+    );
+    assert_eq!(
+        code(catalog.move_session(session(3), app.id)),
+        Err(ErrorCode::UnknownSession)
+    );
+    assert_eq!(code(catalog.move_session(session(1), home)), Ok(false));
+    assert_eq!(catalog.revision(), revision);
+
+    assert_eq!(code(catalog.move_session(session(1), app.id)), Ok(true));
+    assert!(catalog.revision() > revision);
+    assert_eq!(catalog.owned(app.id), vec![session(1)]);
+    assert_eq!(catalog.owned(home), vec![session(2)]);
+    assert_eq!(
+        catalog
+            .list_project(app.id, None, None)
+            .map(|page| page.sessions.len()),
+        Ok(1)
+    );
+}

@@ -230,6 +230,13 @@ impl NativeWebview {
         }
     }
 
+    /// The page renders off screen and any window draws its snapshots, so
+    /// there is nothing to move.
+    #[allow(clippy::unused_self, clippy::unnecessary_wraps)]
+    pub(super) fn move_to_window(&self, _window: &Window) -> Result<(), String> {
+        Ok(())
+    }
+
     /// GPUI draws these pages in its own order, so there is nothing to raise.
     pub(super) fn order_front(_views: &[&Self]) {}
 
