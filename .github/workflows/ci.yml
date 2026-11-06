@@ -101,8 +101,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config binutils
-        timeout-minutes: 5
+      - run: bash scripts/apt-install.sh build-essential pkg-config binutils
+        timeout-minutes: 15
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0
@@ -147,11 +147,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: >-
-          sudo apt-get update && sudo apt-get install -y
+          bash scripts/apt-install.sh
           build-essential pkg-config clang cmake libssl-dev libfontconfig1-dev libfreetype-dev
           libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libvulkan-dev
           binutils unzip
-        timeout-minutes: 5
+        timeout-minutes: 15
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0

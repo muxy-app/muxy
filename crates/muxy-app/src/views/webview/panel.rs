@@ -219,6 +219,10 @@ impl AppModel {
 
     /// Hides every native page, and every browser, under app content drawn
     /// after their occlusions were applied, such as a tooltip.
+    ///
+    /// The pages are held weakly: GPUI can keep a tooltip, and so this
+    /// closure, alive after its element is gone, and a page it kept would
+    /// stay on screen where it was last placed.
     fn native_cover(&self, cx: &gpui::App) -> impl Fn(gpui::Bounds<gpui::Pixels>) + 'static {
         let pages: Vec<_> = self
             .webviews
@@ -237,19 +241,19 @@ impl AppModel {
                     .iter()
                     .map(|sidebar| &sidebar.surface.view),
             )
-            .map(|view| view.read(cx).native.clone())
+            .map(|view| std::rc::Rc::downgrade(&view.read(cx).native))
             .collect();
         let browsers: Vec<_> = self
             .browsers
             .views
             .values()
-            .map(|surface| surface.view.read(cx).native.clone())
+            .map(|surface| std::rc::Rc::downgrade(&surface.view.read(cx).native))
             .collect();
         move |bounds| {
-            for page in &pages {
+            for page in pages.iter().filter_map(std::rc::Weak::upgrade) {
                 page.occlude_also(bounds);
             }
-            for browser in &browsers {
+            for browser in browsers.iter().filter_map(std::rc::Weak::upgrade) {
                 browser.occlude_also(bounds);
             }
         }
