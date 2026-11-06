@@ -122,5 +122,5 @@ Themes are in **Settings → Appearance**. See
   or shared memory, by programs on the computer that runs the terminal. Muxy
   reads only regular files. As in Kitty and Ghostty, it deletes a temporary
   file or shared memory once it has read the image. Kitty's PNG format also
-  accepts JPEG, GIF, WebP, BMP, TIFF and ICO files. Pictures over about two
+  accepts JPEG, GIF, WebP, BMP, TIFF and ICO files. Pictures over about a
   million pixels are scaled down to fit.

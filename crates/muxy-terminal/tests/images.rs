@@ -74,8 +74,8 @@ fn kitty_pictures_over_the_image_budget_are_shrunk_to_fit() -> Result {
     assert_eq!(terminal.take_pty_output(), b"\x1b_Gi=9;OK\x1b\\");
     let graphics = terminal.graphics()?;
     let image = &graphics.images[0];
-    assert!(image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES);
-    assert!(image.width > 2000 && image.width.abs_diff(3 * image.height) <= 3);
+    assert!(image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES / 2);
+    assert!(image.width > 1500 && image.width.abs_diff(3 * image.height) <= 3);
     assert_eq!(&image.rgba[..4], &[0, 0, 255, 255]);
     assert_eq!(graphics.placements[0].size[0], 10 * u32::from(CELL.width));
     Ok(())
@@ -97,6 +97,36 @@ fn kitty_png_format_also_reads_other_image_files() -> Result {
             "{name}: {green:?}"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn two_large_pictures_show_together() -> Result {
+    let folder = tempfile::tempdir()?;
+    let mut terminal = terminal()?;
+    for (index, color) in [[255, 0, 0, 255], [0, 0, 255, 255]].into_iter().enumerate() {
+        let path = folder.path().join(format!("{index}.png"));
+        image::RgbaImage::from_pixel(3000, 1000, image::Rgba(color)).save(&path)?;
+        terminal.feed(format!("\x1b[1;{}H", 1 + 10 * index).as_bytes());
+        terminal.feed(format!("\x1b_Ga=T,f=100,t=f,c=8,C=1;{}\x1b\\", encoded(&path)).as_bytes());
+    }
+    let graphics = terminal.graphics()?;
+    assert_eq!(graphics.images.len(), 2);
+    assert_eq!(graphics.placements.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn large_grayscale_pictures_are_shrunk_before_taking_colour() -> Result {
+    let folder = tempfile::tempdir()?;
+    let path = folder.path().join("gray.png");
+    image::GrayImage::from_pixel(6000, 4000, image::Luma([200])).save(&path)?;
+    let mut terminal = terminal()?;
+    terminal.feed(format!("\x1b_Gi=4,a=T,f=100,t=f,c=8;{}\x1b\\", encoded(&path)).as_bytes());
+    assert_eq!(terminal.take_pty_output(), b"\x1b_Gi=4;OK\x1b\\");
+    let image = &terminal.graphics()?.images[0];
+    assert!(image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES / 2);
+    assert_eq!(&image.rgba[..4], &[200, 200, 200, 255]);
     Ok(())
 }
 

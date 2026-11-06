@@ -35,6 +35,9 @@ pub(crate) const PLACEHOLDER: char = '\u{10EEEE}';
 const MAX_SIDE: u32 = 8192;
 /// Memory a decoder may use for one image before it is shrunk to fit.
 const MAX_DECODE_BYTES: u64 = 64 * 1024 * 1024;
+/// Each picture is shrunk to at most this, so two large pictures fit together
+/// in libghostty's image storage and in one frame.
+const PICTURE_BUDGET: usize = MAX_GRAPHICS_BYTES / 2;
 /// Base64 bytes per Kitty command when showing a converted image.
 const KITTY_CHUNK: usize = 4096;
 /// IND: moves the cursor down a row, scrolling at the bottom, in its column.
@@ -137,10 +140,10 @@ pub(crate) fn show_sixel(
     engine.vt_write(&INDEX.repeat(down as usize));
 }
 
-/// Shrinks a picture over the image budget, placing it over the columns its
+/// Shrinks a picture over the picture budget, placing it over the columns its
 /// full size covers.
 fn within_budget(picture: Picture, cell: CellSize) -> Option<(Picture, Placement)> {
-    if picture.rgba.len() <= MAX_GRAPHICS_BYTES {
+    if picture.rgba.len() <= PICTURE_BUDGET {
         return Some((picture, Placement::default()));
     }
     let columns = picture.width.div_ceil(u32::from(cell.width.max(1)));
@@ -211,33 +214,49 @@ fn show(
     }
 }
 
-/// Decodes an image file, shrinking a picture over the image budget to fit
-/// it, so large screenshots still show.
+/// Decodes an image file, shrinking a picture over the picture budget to fit
+/// it, so large screenshots still show. The picture is shrunk in its decoded
+/// pixel format, so only the shrunk copy is ever converted to RGBA.
 pub(crate) fn decode_image(mut reader: image::ImageReader<Cursor<&[u8]>>) -> Option<RgbaImage> {
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(MAX_DECODE_BYTES);
     limits.max_image_width = Some(MAX_SIDE);
     limits.max_image_height = Some(MAX_SIDE);
     reader.limits(limits);
-    Some(fit(reader.decode().ok()?.into_rgba8()))
+    let decoded = reader.decode().ok()?;
+    let size = fitted(decoded.width(), decoded.height());
+    if size == (decoded.width(), decoded.height()) {
+        return Some(decoded.into_rgba8());
+    }
+    Some(decoded.thumbnail_exact(size.0, size.1).into_rgba8())
 }
 
-/// Shrinks `picture` to at most `MAX_GRAPHICS_BYTES`, keeping its aspect ratio.
+/// Shrinks `picture` to the picture budget, keeping its aspect ratio.
+fn fit(picture: RgbaImage) -> RgbaImage {
+    let (width, height) = fitted(picture.width(), picture.height());
+    if (width, height) == picture.dimensions() {
+        return picture;
+    }
+    image::imageops::thumbnail(&picture, width, height)
+}
+
+/// The size a `width` by `height` picture takes within the picture budget.
 #[allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
-fn fit(picture: RgbaImage) -> RgbaImage {
-    let pixels = u64::from(picture.width()) * u64::from(picture.height());
-    let budget = (MAX_GRAPHICS_BYTES / 4) as u64;
+fn fitted(width: u32, height: u32) -> (u32, u32) {
+    let pixels = u64::from(width) * u64::from(height);
+    let budget = (PICTURE_BUDGET / 4) as u64;
     if pixels <= budget {
-        return picture;
+        return (width, height);
     }
     let scale = (budget as f64 / pixels as f64).sqrt();
-    let width = ((f64::from(picture.width()) * scale) as u32).max(1);
-    let height = ((f64::from(picture.height()) * scale) as u32).max(1);
-    image::imageops::thumbnail(&picture, width, height)
+    (
+        ((f64::from(width) * scale) as u32).max(1),
+        ((f64::from(height) * scale) as u32).max(1),
+    )
 }
 
 /// Decodes Kitty `f=100` images. Kitty defines only PNG; as in some other
@@ -287,6 +306,7 @@ impl Cache {
             ..Graphics::default()
         };
         let mut used = std::collections::BTreeSet::new();
+        let mut visible = std::collections::BTreeSet::new();
         let mut total = 0;
         while let Some(placement) = iter.next() {
             if result.placements.len() >= MAX_GRAPHICS_PLACEMENTS {
@@ -300,6 +320,7 @@ impl Cache {
                 continue;
             };
             let generation = image.generation()?;
+            visible.insert(id);
             if !used.contains(&id) {
                 if self
                     .images
@@ -353,7 +374,7 @@ impl Cache {
                 z: placement.z()?,
             });
         }
-        self.images.retain(|id, _| used.contains(id));
+        self.images.retain(|id, _| visible.contains(id));
         result.placements.sort_by_key(|p| (p.z, p.image, p.id));
         result.images.sort_by_key(|image| image.id);
         Ok(result)
