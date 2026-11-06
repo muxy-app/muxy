@@ -364,6 +364,7 @@ impl Render for AppModel {
         self.ensure_settings_tab(window, cx);
         self.prepare_workspace(window, cx);
         self.sync_project_logos(window, cx);
+        self.sync_project_icons(cx);
         #[cfg(all(target_os = "macos", not(test)))]
         self.sync_background_effects(window, cx);
         self.sync_toast(cx);

@@ -14,6 +14,7 @@ mod navigation;
 mod opener;
 mod picker;
 mod profiler;
+mod project_icon;
 mod proxy;
 mod remote_install;
 mod repository_actions;

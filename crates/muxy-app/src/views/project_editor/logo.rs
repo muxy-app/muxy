@@ -138,8 +138,12 @@ fn load(path: &Path) -> Result<image::RgbaImage, String> {
     if bytes.len() as u64 > MAX_FILE {
         return Err(tr!("Choose an image smaller than 20 MB.").to_string());
     }
-    if image::guess_format(&bytes).is_err() {
-        return rasterize_svg(&bytes);
+    decode(&bytes)
+}
+
+pub(crate) fn decode(bytes: &[u8]) -> Result<image::RgbaImage, String> {
+    if image::guess_format(bytes).is_err() {
+        return rasterize_svg(bytes);
     }
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -156,6 +160,9 @@ fn load(path: &Path) -> Result<image::RgbaImage, String> {
     image.apply_orientation(orientation);
     if image.width() == 0 || image.height() == 0 {
         return Err(tr!("The image is empty.").to_string());
+    }
+    if image.width() <= 1024 && image.height() <= 1024 {
+        return Ok(image.into_rgba8());
     }
     Ok(image.thumbnail(1024, 1024).to_rgba8())
 }

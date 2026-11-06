@@ -257,6 +257,7 @@ impl AppModel {
                     model.sync_extension_events(cx);
                     model.resume_remote(server, cx);
                     model.check_remote_projects(server, cx);
+                    model.sync_project_icons(cx);
                     Some(install)
                 })
                 .ok()
