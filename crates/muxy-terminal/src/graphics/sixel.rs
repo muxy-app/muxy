@@ -3,13 +3,12 @@
 //! Pixels use a 1:1 aspect ratio, as modern encoders expect. The palette
 //! starts from the VT340 colors for every image.
 
-use super::{MAX_SIDE, Picture};
+use super::{MAX_DECODE_BYTES, MAX_SIDE, Picture};
 
 const REGISTERS: usize = 1024;
-/// Pixel writes allowed per image: four times the most pixels an image may
-/// have, so data that paints the same pixels over and over can't stall the
-/// terminal.
-const MAX_PAINTED: u64 = crate::MAX_GRAPHICS_BYTES as u64;
+/// Pixel writes allowed per image: twice the most pixels an image may have,
+/// so data that paints the same pixels over and over can't stall the terminal.
+const MAX_PAINTED: u64 = MAX_DECODE_BYTES / 2;
 /// VT340 default colors, in percent.
 const VT340: [[u8; 3]; 16] = [
     [0, 0, 0],
@@ -33,19 +32,21 @@ const VT340: [[u8; 3]; 16] = [
 /// Decodes the parameters and data between `ESC P` and `ST`.
 ///
 /// Unset pixels are transparent when the second parameter is 1; otherwise
-/// they take `background`, as on a VT340.
+/// they take `background`, as on a VT340. The picture keeps its full size,
+/// which may be over the image budget.
 pub(crate) fn decode(params: &[u8], data: &[u8], background: [u8; 3]) -> Option<Picture> {
     let transparent = params.split(|&b| b == b';').nth(1) == Some(b"1");
-    let extent = walk(data, |_, _, _| {})?;
+    let extent = walk(data, Extent::new(!transparent, true), |_, _, _| {})?;
     let width = extent.raster[0].max(extent.right);
     let height = extent.raster[1].max(extent.bottom);
     if width == 0 || height == 0 || width > MAX_SIDE || height > MAX_SIDE {
         return None;
     }
-    let len = usize::try_from(u64::from(width) * u64::from(height) * 4).ok()?;
-    if len > crate::MAX_GRAPHICS_BYTES {
+    let len = u64::from(width) * u64::from(height) * 4;
+    if len > MAX_DECODE_BYTES {
         return None;
     }
+    let len = usize::try_from(len).ok()?;
     let fill = if transparent {
         [0; 4]
     } else {
@@ -53,7 +54,7 @@ pub(crate) fn decode(params: &[u8], data: &[u8], background: [u8; 3]) -> Option<
     };
     let mut rgba = fill.repeat(len / 4);
     let row = width as usize * 4;
-    walk(data, |x, y, color| {
+    walk(data, Extent::new(!transparent, false), |x, y, color| {
         if x < width && y < height {
             let at = y as usize * row + x as usize * 4;
             rgba[at..at + 4].copy_from_slice(&[color[0], color[1], color[2], 255]);
@@ -74,15 +75,36 @@ struct Extent {
     right: u32,
     bottom: u32,
     painted: u64,
+    opaque: bool,
+    /// Only measures the image, without drawing it.
+    measuring: bool,
+}
+
+impl Extent {
+    fn new(opaque: bool, measuring: bool) -> Self {
+        Self {
+            opaque,
+            measuring,
+            ..Self::default()
+        }
+    }
+
+    /// An opaque image without a declared size paints each sixel's whole band.
+    fn fills_bands(&self) -> bool {
+        self.opaque && self.raster == [0, 0]
+    }
 }
 
 /// Runs the sixel commands, calling `draw` for every set pixel.
-fn walk(data: &[u8], mut draw: impl FnMut(u32, u32, [u8; 3])) -> Option<Extent> {
+fn walk(
+    data: &[u8],
+    mut extent: Extent,
+    mut draw: impl FnMut(u32, u32, [u8; 3]),
+) -> Option<Extent> {
     let mut palette = vec![[0_u8; 3]; REGISTERS];
     for (register, color) in palette.iter_mut().zip(VT340) {
         *register = color.map(|value| percent(u32::from(value)));
     }
-    let mut extent = Extent::default();
     let mut color = 0;
     let (mut x, mut y) = (0_u32, 0_u32);
     let mut i = 0;
@@ -149,6 +171,10 @@ fn paint(
 ) -> Option<()> {
     let end = x.checked_add(count).filter(|end| *end <= MAX_SIDE)?;
     let bits = sixel - b'?';
+    if extent.fills_bands() {
+        extent.right = extent.right.max(end);
+        extent.bottom = extent.bottom.max(y + 6);
+    }
     if bits != 0 {
         for bit in 0..6 {
             if bits & (1 << bit) != 0 {
@@ -156,8 +182,10 @@ fn paint(
                 if extent.painted > MAX_PAINTED {
                     return None;
                 }
-                for column in *x..end {
-                    draw(column, y + bit, color);
+                if !extent.measuring {
+                    for column in *x..end {
+                        draw(column, y + bit, color);
+                    }
                 }
                 extent.bottom = extent.bottom.max(y + bit + 1);
             }
@@ -197,7 +225,7 @@ fn percent(value: u32) -> u8 {
 /// DEC hue puts blue at 0°, red at 120° and green at 240°.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn hls(hue: u32, lightness: u32, saturation: u32) -> [u8; 3] {
-    let turn = f64::from((hue + 240) % 360) / 360.0;
+    let turn = f64::from((hue % 360 + 240) % 360) / 360.0;
     let light = f64::from(lightness.min(100)) / 100.0;
     let chroma = f64::from(saturation.min(100)) / 100.0;
     if chroma == 0.0 {
@@ -271,6 +299,19 @@ mod tests {
         assert_eq!(hls(120, 50, 100), [255, 0, 0]);
         assert_eq!(hls(240, 50, 100), [0, 255, 0]);
         assert_eq!(hls(0, 100, 0), [255; 3]);
+        assert_eq!(hls(u32::MAX, 50, 100), hls(u32::MAX % 360, 50, 100));
+    }
+
+    #[test]
+    fn blank_sixels_still_size_an_opaque_image() -> Result<(), &'static str> {
+        let picture = decode(b"", b"#1;2;100;0;0~??", [9, 9, 9]).ok_or("decode")?;
+        assert_eq!((picture.width, picture.height), (3, 6));
+        assert_eq!(pixel(&picture, 2, 5), [9, 9, 9, 255]);
+        let blank = decode(b"", b"??", [9, 9, 9]).ok_or("blank")?;
+        assert_eq!((blank.width, blank.height), (2, 6));
+        let transparent = decode(b"0;1", b"~??", [9, 9, 9]).ok_or("transparent")?;
+        assert_eq!((transparent.width, transparent.height), (1, 6));
+        Ok(())
     }
 
     #[test]
@@ -282,7 +323,7 @@ mod tests {
 
     #[test]
     fn rejects_data_that_repaints_the_same_pixels_without_end() {
-        let overdrawn = b"!8192~$".repeat(200);
+        let overdrawn = b"!8192~$".repeat(1000);
         let started = std::time::Instant::now();
         assert!(decode(b"", &overdrawn, [0; 3]).is_none());
         assert!(started.elapsed() < std::time::Duration::from_secs(1));

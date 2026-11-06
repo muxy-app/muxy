@@ -15,6 +15,10 @@ const MAX_PARAMS: usize = 32;
 const MAX_PAYLOAD: usize = 4 * crate::MAX_GRAPHICS_BYTES;
 /// A held buffer that grew past this is freed once its image is done.
 const KEEP_CAPACITY: usize = 4096;
+/// Stands in for a sequence taken out of the output. It begins with ESC, as
+/// the sequence did, so libghostty ends any sequence the program left
+/// unfinished before it, and otherwise does nothing.
+const STRING_TERMINATOR: &[u8] = b"\x1b\\";
 
 /// A piece of program output, in the order it arrived.
 #[derive(Debug, PartialEq, Eq)]
@@ -287,6 +291,7 @@ impl Interceptor {
     }
 
     fn finish(&mut self, kind: Kind, out: &mut impl FnMut(Piece<'_>)) {
+        out(Piece::Text(STRING_TERMINATOR));
         match kind {
             Kind::Sixel => {
                 let (params, data) = self.held.split_at(self.params);
@@ -370,7 +375,7 @@ mod tests {
         every_split(
             b"a\x1b[1mb\x1bP0;1;0q\"1;1;2;6#0~~\x1b\\c",
             &[
-                Owned::Text(b"a\x1b[1mb".to_vec()),
+                Owned::Text(b"a\x1b[1mb\x1b\\".to_vec()),
                 Owned::Sixel(b"0;1;0".to_vec(), b"\"1;1;2;6#0~~".to_vec()),
                 Owned::Text(b"c".to_vec()),
             ],
@@ -381,7 +386,10 @@ mod tests {
     fn bel_inside_sixel_data_does_not_end_it() {
         every_split(
             b"\x1bPq#0~\x07~\x1b\\",
-            &[Owned::Sixel(Vec::new(), b"#0~\x07~".to_vec())],
+            &[
+                Owned::Text(b"\x1b\\".to_vec()),
+                Owned::Sixel(Vec::new(), b"#0~\x07~".to_vec()),
+            ],
         );
     }
 
@@ -396,9 +404,9 @@ mod tests {
         every_split(
             b"x\x1b]1337;File=inline=1:AAAA\x07y\x1b]1337;File=inline=1;width=2:BBBB\x1b\\",
             &[
-                Owned::Text(b"x".to_vec()),
+                Owned::Text(b"x\x1b\\".to_vec()),
                 Owned::Iterm(b"inline=1:AAAA".to_vec()),
-                Owned::Text(b"y".to_vec()),
+                Owned::Text(b"y\x1b\\".to_vec()),
                 Owned::Iterm(b"inline=1;width=2:BBBB".to_vec()),
             ],
         );
@@ -409,6 +417,7 @@ mod tests {
         every_split(
             b"\x1b]1337;MultipartFile=inline=1\x07\x1b]1337;FilePart=AA\x07\x1b]1337;FilePart=BB\x07\x1b]1337;FileEnd\x07z",
             &[
+                Owned::Text(b"\x1b\\".repeat(4)),
                 Owned::Iterm(b"inline=1:AABB".to_vec()),
                 Owned::Text(b"z".to_vec()),
             ],
@@ -443,7 +452,7 @@ mod tests {
     fn other_output_drops_an_unfinished_multipart_file() {
         every_split(
             b"\x1b]1337;MultipartFile=inline=1\x07\x1b]1337;FilePart=AA\x07x\x1b]1337;FileEnd\x07",
-            &[Owned::Text(b"x".to_vec())],
+            &[Owned::Text(b"\x1b\\\x1b\\x\x1b\\".to_vec())],
         );
     }
 
@@ -452,6 +461,9 @@ mod tests {
         let mut input = b"\x1bPq".to_vec();
         input.resize(input.len() + MAX_PAYLOAD + 1, b'~');
         input.extend_from_slice(b"\x1b\\after");
-        assert_eq!(run(&input, 64 * 1024), [Owned::Text(b"after".to_vec())]);
+        assert_eq!(
+            run(&input, 64 * 1024),
+            [Owned::Text(b"\x1b\\after".to_vec())]
+        );
     }
 }

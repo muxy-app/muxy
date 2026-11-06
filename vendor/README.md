@@ -23,9 +23,10 @@ unchanged as `Cargo.toml.orig`. `build.rs.orig` is upstream's build script.
 `libghostty-vt-sys/patches/clear-screen.patch` and
 `libghostty-vt-sys/patches/kitty-image-file.patch` are different from the
 `upstream-*.patch` files: they change Ghostty's own source, and the build
-applies them. The Kitty image patch stats an image path before opening it, so a
-FIFO can't stall the terminal, and gives libghostty's small I/O layer the path
-stat it needs on POSIX. A pkg-config Ghostty needs both patches.
+applies them. The Kitty image patch stats an image path before opening it and
+opens files to read without waiting, so a FIFO can't stall the terminal. It
+also gives libghostty's small I/O layer the path stat it needs on POSIX. A
+pkg-config Ghostty needs both patches.
 
 ## gpui
 

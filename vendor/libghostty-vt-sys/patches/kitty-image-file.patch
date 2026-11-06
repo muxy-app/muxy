@@ -13,10 +13,21 @@ index a3ee230..96c7760 100644
      .dirCreateFile = Io.failingDirCreateFile,
      .dirCreateFileAtomic = Io.failingDirCreateFileAtomic,
 diff --git a/src/lib/tinyio/posix.zig b/src/lib/tinyio/posix.zig
-index 1cbed21..e09bc59 100644
+index 1cbed21..e25a432 100644
 --- a/src/lib/tinyio/posix.zig
 +++ b/src/lib/tinyio/posix.zig
-@@ -144,6 +144,58 @@ pub fn fileClose(_: ?*anyopaque, files: []const File) void {
+@@ -81,6 +81,10 @@ pub fn dirOpenFile(
+     if (@hasField(posix.O, "NOCTTY")) flags.NOCTTY = !options.allow_ctty;
+     if (@hasField(posix.O, "PATH")) flags.PATH = options.path_only;
+     if (@hasField(posix.O, "RESOLVE_BENEATH")) flags.RESOLVE_BENEATH = options.resolve_beneath;
++    // The terminal opens files only to read Kitty images, which must be
++    // regular files. Opening a FIFO for reading would wait for a writer, so
++    // never wait; reads of regular files ignore the flag.
++    if (options.mode == .read_only) flags.NONBLOCK = true;
+ 
+     const mode: posix.mode_t = 0;
+     const fd: posix.fd_t = while (true) {
+@@ -144,6 +148,58 @@ pub fn fileClose(_: ?*anyopaque, files: []const File) void {
      for (files) |file| closeFd(file.handle);
  }
  

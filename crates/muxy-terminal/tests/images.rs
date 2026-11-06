@@ -239,3 +239,32 @@ fn other_dcs_requests_still_reach_the_terminal() -> Result {
     assert!(reply.starts_with(b"\x1bP1$r"), "{reply:?}");
     Ok(())
 }
+
+#[test]
+fn a_dropped_image_still_ends_an_unfinished_sequence() -> Result {
+    for input in [
+        &b"\x1b[1;\x1bPq\x1b\\AB"[..],
+        b"\x1b[1;\x1b]1337;File=name=YQ==:AAAA\x07AB",
+    ] {
+        let mut terminal = terminal()?;
+        terminal.feed(input);
+        let rows = terminal.screen()?;
+        let text: String = rows[0].runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(text.trim_end(), "AB", "{input:?}");
+    }
+    Ok(())
+}
+
+#[test]
+fn sixel_pictures_over_the_image_budget_are_shrunk_but_keep_their_width() -> Result {
+    let band = "#1!3000~-".repeat(167);
+    let sixel = format!("\x1bP0;1;0q#1;2;100;0;0{band}\x1b\\");
+    let mut terminal = terminal()?;
+    terminal.feed(sixel.as_bytes());
+    let graphics = terminal.graphics()?;
+    let image = &graphics.images[0];
+    assert!(image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES);
+    assert_eq!(&image.rgba[..4], &[255, 0, 0, 255]);
+    assert_eq!(graphics.placements[0].size[0], 3000);
+    Ok(())
+}

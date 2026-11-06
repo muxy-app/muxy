@@ -129,9 +129,36 @@ pub(crate) fn show_sixel(
     let Some(picture) = sixel::decode(params, data, background) else {
         return;
     };
-    show(engine, &picture, &Placement::default(), false);
     let down = picture.height.div_ceil(u32::from(cell.height.max(1))) - 1;
+    let Some((picture, placement)) = within_budget(picture, cell) else {
+        return;
+    };
+    show(engine, &picture, &placement, false);
     engine.vt_write(&INDEX.repeat(down as usize));
+}
+
+/// Shrinks a picture over the image budget, placing it over the columns its
+/// full size covers.
+fn within_budget(picture: Picture, cell: CellSize) -> Option<(Picture, Placement)> {
+    if picture.rgba.len() <= MAX_GRAPHICS_BYTES {
+        return Some((picture, Placement::default()));
+    }
+    let columns = picture.width.div_ceil(u32::from(cell.width.max(1)));
+    let image = fit(RgbaImage::from_raw(
+        picture.width,
+        picture.height,
+        picture.rgba,
+    )?);
+    let picture = Picture {
+        width: image.width(),
+        height: image.height(),
+        rgba: image.into_raw(),
+    };
+    let placement = Placement {
+        columns: Some(columns),
+        rows: None,
+    };
+    Some((picture, placement))
 }
 
 /// Shows an iTerm2 inline image at the cursor.
