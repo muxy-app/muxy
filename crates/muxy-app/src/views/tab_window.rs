@@ -223,7 +223,7 @@ fn titlebar(
                 )),
         );
     #[cfg(target_os = "linux")]
-    if let Some(controls) = super::titlebar::linux::controls(
+    if let Some(controls) = titlebar::linux::controls(
         window,
         &model.theme,
         m,
@@ -248,7 +248,7 @@ fn window_controls(
 ) -> Option<AnyElement> {
     #[cfg(target_os = "linux")]
     {
-        let controls = super::titlebar::linux::controls(
+        let controls = titlebar::linux::controls(
             window,
             &model.theme,
             model.metrics,
