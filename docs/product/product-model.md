@@ -107,7 +107,7 @@ Deleting always asks first and explains what will end.
   first and can't be closed until unpinned.
 - A terminal's title is the one its program sets, otherwise the running
   program's name, otherwise its folder. Its pane header names the shell
-  instead of the folder.
+  instead of the folder, and shows the folder beside the title.
 - The phone app titles terminals the same way, including the tabs it isn't
   showing, and a custom title names every terminal in the tab there too.
 - New terminals open in the project's folder, or optionally in the folder of

@@ -143,9 +143,9 @@ pub(super) fn header(
         .into_any_element()
 }
 
-/// The pane's icon and title. While the pane can be moved, they turn into a
-/// handle under the pointer: the icon becomes a move icon and dragging moves the
-/// pane, as dragging with Command held does.
+/// The pane's icon, title and, for a terminal, its folder. While the pane can
+/// be moved, they turn into a handle under the pointer: the icon becomes a
+/// move icon and dragging moves the pane, as dragging with Command held does.
 fn handle(
     pane: &Pane,
     tab: &Tab,
@@ -160,6 +160,8 @@ fn handle(
     let group = SharedString::from(format!("pane-handle-{id}"));
     let size = m.scaled(13.0);
     let hover = foreground.opacity(0.08);
+    let title = title(pane, model, cx);
+    let directory = directory(pane, &title, model, cx);
     div()
         .id(group.clone())
         .debug_selector(move || format!("pane-handle-{id}"))
@@ -216,7 +218,6 @@ fn handle(
                 }),
         )
         .child({
-            let title = title(pane, model, cx);
             let selector = format!("pane-title-{id}-{title}");
             div()
                 .debug_selector(move || selector.clone())
@@ -224,7 +225,32 @@ fn handle(
                 .truncate()
                 .child(title)
         })
+        .when_some(directory, |handle, directory| {
+            let selector = format!("pane-directory-{id}-{directory}");
+            handle.child(
+                div()
+                    .debug_selector(move || selector.clone())
+                    .min_w(px(0.0))
+                    .map(|mut path| {
+                        path.style().flex_shrink = Some(1000.0);
+                        path
+                    })
+                    .truncate()
+                    .text_color(foreground.opacity(0.55))
+                    .child(directory),
+            )
+        })
         .into_any_element()
+}
+
+/// The folder a terminal works in, unless its title already shows it.
+fn directory(pane: &Pane, title: &str, model: &AppModel, cx: &App) -> Option<String> {
+    model
+        .terminal(&pane.id)?
+        .view
+        .read(cx)
+        .header_directory(model.state.pane_home(pane.id))
+        .filter(|directory| !title.ends_with(directory.as_str()))
 }
 
 /// A terminal names its shell rather than its folder, which the project
