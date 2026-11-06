@@ -144,6 +144,24 @@ fn restore_accounts_for_each_leaf_even_when_zoomed() -> Result {
 }
 
 #[test]
+fn closing_the_focused_pane_returns_focus_to_the_pane_focused_before_it() -> Result {
+    let mut state = AppState::bootstrap()?;
+    state.open_terminal_tab(state.home().id)?;
+    let left = state.window().active_pane.ok_or("focus")?;
+    let right = state.split_pane(left, Direction::Right)?;
+    let bottom = state.split_pane(right, Direction::Down)?;
+    state.close_pane(bottom)?;
+    assert_eq!(state.window().active_pane, Some(right));
+
+    let bottom = state.split_pane(right, Direction::Down)?;
+    state.focus_pane(left)?;
+    state.focus_pane(bottom)?;
+    state.close_pane(bottom)?;
+    assert_eq!(state.window().active_pane, Some(left));
+    Ok(())
+}
+
+#[test]
 fn window_owns_focus_and_closing_chooses_neighbors_without_stealing_focus() -> Result {
     let mut state = AppState::bootstrap()?;
     let home = state.home().id;

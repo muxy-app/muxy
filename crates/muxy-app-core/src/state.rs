@@ -721,6 +721,7 @@ impl AppState {
             })
             .ok_or(AppError::UnknownPane(pane))?;
         self.cancel_pending_creation(pane);
+        let history = self.window.focus_history.clone();
         let target = self
             .project_mut(project)?
             .tabs
@@ -736,7 +737,13 @@ impl AppState {
         if target.zoomed == Some(pane) {
             target.zoomed = None;
         }
-        let fallback = neighbor.or_else(|| target.layout.leaves().first().copied());
+        let fallback = history
+            .iter()
+            .rev()
+            .copied()
+            .find(|previous| *previous != pane && target.layout.contains(*previous))
+            .or(neighbor)
+            .or_else(|| target.layout.leaves().first().copied());
         self.window
             .focus_history
             .retain(|previous| *previous != pane);
