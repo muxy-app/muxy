@@ -595,6 +595,38 @@ fn a_pane_running_an_agent_shows_the_agents_icon_in_its_header(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn a_pane_header_names_the_shell_while_its_tab_keeps_its_title(cx: &mut TestAppContext) {
+    let (state, _, panes) = split_state();
+    let pane = panes[0];
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        attach_panes(model, &panes, cx);
+        let terminal = model.terminal(&pane).expect("terminal").view.clone();
+        terminal.update(cx, |terminal, cx| {
+            terminal.metadata(
+                muxy_protocol::MetadataEvent::ForegroundProcess {
+                    name: "-zsh".into(),
+                    is_shell: true,
+                },
+                cx,
+            );
+        });
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds(format!("pane-title-{pane}-zsh").leak())
+            .is_some()
+    );
+    view.read_with(cx, |model, _| {
+        let tab = &model.state.home().tabs[0];
+        let title = &tab.panes.iter().find(|p| p.id == pane).expect("pane").title;
+        assert_ne!(title, "zsh");
+    });
+}
+
+#[gpui::test]
 fn with_pane_headers_off_panes_have_no_header_but_stay_dimmed(cx: &mut TestAppContext) {
     let (state, _, panes) = split_state();
     let (mut boot, _requests) = stub_boot(state);

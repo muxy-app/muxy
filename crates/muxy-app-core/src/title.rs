@@ -36,8 +36,8 @@ pub(crate) fn sanitize_or_default(title: &str) -> String {
     }
 }
 
-/// A terminal's title: the one its program set, else the program running in
-/// it, else its folder.
+/// A terminal's title: the one its program set, else the running non-shell
+/// program's name, else its folder.
 pub fn derive(title: &str, process: Option<&ForegroundProcess>, directory: &ServerPath) -> String {
     derive_with(title, process, directory, false)
 }

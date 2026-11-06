@@ -197,12 +197,15 @@ fn handle(
                     )
                 }),
         )
-        .child(
+        .child({
+            let title = title(pane, model, cx);
+            let selector = format!("pane-title-{id}-{title}");
             div()
+                .debug_selector(move || selector.clone())
                 .min_w(px(0.0))
                 .truncate()
-                .child(title(pane, model, cx)),
-        )
+                .child(title)
+        })
         .into_any_element()
 }
 
