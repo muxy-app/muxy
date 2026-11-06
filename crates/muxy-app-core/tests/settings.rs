@@ -400,6 +400,24 @@ fn a_command_cannot_be_unbound_while_another_claims_its_default_key() -> Result 
 }
 
 #[test]
+fn resetting_either_of_two_swapped_shortcuts_resets_both() -> Result {
+    let tab = ShortcutId::CloseTab.definition().keys[0];
+    let pane = ShortcutId::ClosePane.definition().keys[0];
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        &format!("[keymap]\nclose_tab = '{pane}'\nclose_pane = '{tab}'\nnew_tab = 'cmd-alt-n'\n"),
+    )?;
+    let swapped = Settings::load(&path)?.keymap;
+    let mut expected = Keymap::default();
+    expected = expected.with_binding("new_tab", Some("cmd-alt-n".parse()?))?;
+    for id in ["close_tab", "close_pane"] {
+        assert_eq!(swapped.with_binding(id, None)?, expected);
+    }
+    Ok(())
+}
+
+#[test]
 fn ghostty_terminal_options_bindings_and_diagnostics_migrate() -> Result {
     use muxy_app_core::settings::{TerminalAction, TerminalColor};
     let fixture = Fixture::new()?;

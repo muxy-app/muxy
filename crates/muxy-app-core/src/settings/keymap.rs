@@ -149,6 +149,9 @@ impl Keymap {
             overrides.insert(id.into(), chord.to_string());
         } else {
             overrides.remove(id);
+            if let Some(other) = self.swapped_with(id) {
+                overrides.remove(&other);
+            }
         }
         let resolved = Self::from_overrides(overrides)?;
         if reset && !extension_action(id) && resolved.binding(id) != Self::default().binding(id) {
@@ -158,6 +161,23 @@ impl Keymap {
             ));
         }
         Ok(resolved)
+    }
+
+    /// The action that holds `id`'s default key while `id` holds its default
+    /// key. Neither could be reset alone, so resetting one resets both.
+    fn swapped_with(&self, id: &str) -> Option<String> {
+        let defaults = Self::default();
+        let default = defaults.binding(id)?;
+        let current = self.binding(id)?;
+        self.1
+            .keys()
+            .find(|other| {
+                other.as_str() != id
+                    && self.binding(other) == Some(default)
+                    && defaults.binding(other) == Some(current)
+                    && same_scope(id, other)
+            })
+            .cloned()
     }
 
     pub fn save(&self, path: &std::path::Path) -> Result<()> {
