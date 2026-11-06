@@ -240,6 +240,8 @@ fn fit(picture: RgbaImage) -> RgbaImage {
     image::imageops::thumbnail(&picture, width, height)
 }
 
+/// Decodes Kitty `f=100` images. Kitty defines only PNG; as in some other
+/// terminals, any format the server can read is accepted, found from the data.
 struct PngDecoder;
 
 impl DecodePng for PngDecoder {
@@ -248,10 +250,10 @@ impl DecodePng for PngDecoder {
         alloc: &'alloc Allocator<'_>,
         data: &[u8],
     ) -> Option<DecodedImage<'alloc>> {
-        let decoded = decode_image(image::ImageReader::with_format(
-            Cursor::new(data),
-            image::ImageFormat::Png,
-        ))?;
+        let reader = image::ImageReader::new(Cursor::new(data))
+            .with_guessed_format()
+            .ok()?;
+        let decoded = decode_image(reader)?;
         let mut bytes = Bytes::new_with_alloc(alloc, decoded.len()).ok()?;
         bytes.copy_from_slice(decoded.as_raw());
         Some(DecodedImage {

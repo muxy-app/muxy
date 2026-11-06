@@ -82,6 +82,25 @@ fn kitty_pictures_over_the_image_budget_are_shrunk_to_fit() -> Result {
 }
 
 #[test]
+fn kitty_png_format_also_reads_other_image_files() -> Result {
+    let folder = tempfile::tempdir()?;
+    for name in ["photo.jpg", "photo.gif", "photo.bmp"] {
+        let path = folder.path().join(name);
+        image::RgbImage::from_pixel(8, 8, image::Rgb([0, 255, 0])).save(&path)?;
+        let mut terminal = terminal()?;
+        terminal.feed(format!("\x1b_Gi=3,a=T,f=100,t=f;{}\x1b\\", encoded(&path)).as_bytes());
+        assert_eq!(terminal.take_pty_output(), b"\x1b_Gi=3;OK\x1b\\", "{name}");
+        let graphics = terminal.graphics()?;
+        let green = &graphics.images[0].rgba[..4];
+        assert!(
+            green[1] > 240 && green[0] < 16 && green[2] < 16,
+            "{name}: {green:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn kitty_temporary_file_is_loaded_and_deleted() -> Result {
     let folder = tempfile::Builder::new().tempdir_in(std::env::temp_dir())?;
     let path = folder.path().join("tty-graphics-protocol-test.png");
