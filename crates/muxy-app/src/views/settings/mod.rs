@@ -669,6 +669,40 @@ impl SettingsView {
         control: AnyElement,
         stacked: bool,
     ) -> AnyElement {
+        self.framed_row(id, description, |description| {
+            form::row(self.layout_style(), label, description, control, stacked)
+        })
+    }
+
+    /// A list setting's row: `action` sits beside the label, `items` below.
+    fn list_row(
+        &self,
+        id: &str,
+        label: &str,
+        action: AnyElement,
+        items: Option<AnyElement>,
+    ) -> AnyElement {
+        let label = translate(label);
+        self.framed_row(id, None, |description| {
+            form::list_row(
+                self.layout_style(),
+                &label,
+                description,
+                action,
+                items,
+                self.compact,
+            )
+        })
+    }
+
+    /// Wraps a row's body with its section heading, error, and focus reveal.
+    /// `body` gets the description to show, falling back to the catalog's.
+    fn framed_row(
+        &self,
+        id: &str,
+        description: Option<&str>,
+        body: impl FnOnce(Option<&str>) -> gpui::Div,
+    ) -> AnyElement {
         let setting = catalog::setting(id);
         let catalog_description = setting.map(|setting| translate(setting.description));
         let description = description.or(catalog_description.as_deref());
@@ -698,13 +732,7 @@ impl SettingsView {
             .when_some(section, |row, setting| {
                 row.child(self.subsection_heading(setting.category, setting.section))
             })
-            .child(form::row(
-                self.layout_style(),
-                label,
-                description,
-                control,
-                stacked,
-            ))
+            .child(body(description))
             .when_some(self.errors.get(id), |row, error| {
                 row.child(announced_error(self.note(error, true).pt_0(), id, error))
             })
