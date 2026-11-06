@@ -479,7 +479,7 @@ fn changed_samples() -> [Message; 2] {
         .map(|(topic, revision)| Message::Changed { topic, revision })
 }
 
-fn project_session_samples(project: crate::ProjectId, directory: ServerPath) -> [Message; 6] {
+fn project_session_samples(project: crate::ProjectId, directory: ServerPath) -> [Message; 7] {
     use crate::{ProjectSession, ProjectSessions, SessionInfo, SessionStatus};
     [
         Message::Request {
@@ -522,6 +522,14 @@ fn project_session_samples(project: crate::ProjectId, directory: ServerPath) -> 
         Message::Reply {
             id: RequestId(5),
             body: ReplyBody::SessionNameSet,
+        },
+        Message::Request {
+            id: RequestId(8),
+            body: RequestBody::SetSessionName {
+                session: SessionId::from(NonZeroU64::MIN),
+                name: None,
+                replacing: Some("API server".into()),
+            },
         },
         Message::Reply {
             id: RequestId(6),

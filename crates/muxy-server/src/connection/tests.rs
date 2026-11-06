@@ -486,6 +486,13 @@ fn a_metadata_watcher_hears_titles_of_sessions_it_does_not_show()
     assert!(!shown, "watching is not showing the session");
 
     registry.end(info.id)?;
+    loop {
+        match decoder.next()? {
+            (CONTROL, Message::SessionEnded { session, .. }) if session == info.id => break,
+            (CONTROL, Message::SessionMetadata { .. } | Message::Changed { .. }) => {}
+            other => return Err(format!("expected the session to end, got {other:?}").into()),
+        }
+    }
     client.shutdown(std::net::Shutdown::Both)?;
     connection
         .join()

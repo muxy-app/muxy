@@ -364,6 +364,13 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("SessionColorsRequest", ChannelKind::Control),
             Message::Request {
+                body:
+                    RequestBody::SetSessionName {
+                        replacing: Some(_), ..
+                    },
+                ..
+            } => ("SessionNameClearRequest", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::SetSessionName { .. },
                 ..
             } => ("SessionNameRequest", ChannelKind::Control),
@@ -600,6 +607,7 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "SessionColorsRequest",
             "SessionColorsReply",
             "SessionNameRequest",
+            "SessionNameClearRequest",
             "SessionNameReply",
             "WatchSessionMetadata",
             "SessionMetadataWatched",
