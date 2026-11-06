@@ -814,14 +814,18 @@ impl AppModel {
         let Some(source) = self.active_pane() else {
             return;
         };
+        let project_directory = self.state.pane_project(source).map_or_else(
+            || self.state.current_project().directory.clone(),
+            |project| project.directory.clone(),
+        );
         let directory = if self.settings.panes.new_pane_directory
             == muxy_app_core::settings::NewPaneDirectory::Current
         {
             self.terminal(&source)
                 .and_then(|pane| pane.view.read(cx).directory())
-                .unwrap_or_else(|| self.state.current_project().directory.clone())
+                .unwrap_or(project_directory)
         } else {
-            self.state.current_project().directory.clone()
+            project_directory
         };
         let mut size = self
             .terminal(&source)

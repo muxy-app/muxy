@@ -218,6 +218,17 @@ impl AppModel {
                 })
     }
 
+    /// Points each terminal's links at the project it belongs to now.
+    fn refresh_open_contexts(&mut self, cx: &mut Context<Self>) {
+        let panes: Vec<_> = self.grids.keys().copied().collect();
+        for pane in panes {
+            let context = self.opener_context(pane);
+            if let Some(view) = self.terminal(&pane).map(|view| view.view.clone()) {
+                view.update(cx, |view, _| view.open_context = context);
+            }
+        }
+    }
+
     /// Brings the tab showing `pane` back to the main window.
     pub(crate) fn return_pane_window(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         if let Some(id) = self.state.pane_window(pane) {
@@ -375,6 +386,10 @@ impl AppModel {
         if active {
             self.tab_windows.key = Some(id);
             self.tab_windows.focus.insert(id);
+            if self.path.with_file_name("terminal.toml").exists() {
+                self.reload_configuration(cx);
+            }
+            self.acknowledge_focused_activity(cx);
         } else if self.tab_windows.key == Some(id) {
             self.tab_windows.key = None;
             self.cancel_tab_and_layout_drags(cx);
@@ -439,9 +454,15 @@ impl AppModel {
 
     /// Closes a tab window's tab, asking first as closing the tab would.
     pub(crate) fn close_tab_window(&mut self, id: TabWindowId, cx: &mut Context<Self>) {
-        if let Some(tab) = self.window_tab(id) {
-            self.close_tab(tab, cx);
+        let Some(tab) = self.window_tab(id) else {
+            return;
+        };
+        if self.tab(tab).is_some_and(|tab| tab.pinned)
+            && !self.edit_tab(|state| state.toggle_tab_pin(tab), cx)
+        {
+            return;
         }
+        self.close_tab(tab, cx);
     }
 
     /// Brings the window showing `pane` to the front, if it is a tab's own.
@@ -459,6 +480,14 @@ impl AppModel {
         }
         cx.notify();
         true
+    }
+
+    /// Brings the main window forward when a tab window asked for something
+    /// that only the main window shows.
+    pub(crate) fn show_main_window(&mut self, cx: &mut Context<Self>) {
+        if self.surface() != Surface::Main {
+            self.raise_main_window(cx);
+        }
     }
 
     /// Brings the main window to the front.
@@ -605,6 +634,7 @@ impl AppModel {
             if !reverted || !self.save(cx) {
                 self.state = previous;
             }
+            self.refresh_open_contexts(cx);
             self.changed(cx);
         }
         self.server_problem(
@@ -668,6 +698,21 @@ impl AppModel {
             );
             return None;
         }
+        let shared = moves.iter().any(|moved| {
+            self.state
+                .session_panes(moved.server, moved.session)
+                .any(|pane| {
+                    self.state.pane_project(pane).map(|project| project.id) != Some(moved.project)
+                })
+        });
+        if shared {
+            self.state = previous;
+            self.fail(
+                tr!("Another pane shows this terminal too. Move both together.").to_string(),
+                cx,
+            );
+            return None;
+        }
         if let Some(refusal) = self.move_refusal(&moves) {
             self.state = previous;
             self.fail(refusal, cx);
@@ -687,12 +732,20 @@ impl AppModel {
                     .moving
                     .insert((moved.server, moved.session), origin.id);
             }
-            self.send(
+            if !self.send(
                 moved.server,
                 Work::MoveSession(moved.session, moved.project),
                 cx,
-            );
+            ) {
+                self.session_moved(
+                    moved.server,
+                    moved.session,
+                    Err(muxy_client::ClientError::Disconnected),
+                    cx,
+                );
+            }
         }
+        self.refresh_open_contexts(cx);
         self.cancel_tab_and_layout_drags(cx);
         self.changed(cx);
         self.focus_owner.request_active_pane();

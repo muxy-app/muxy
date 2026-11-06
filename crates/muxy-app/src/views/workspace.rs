@@ -264,11 +264,15 @@ pub(crate) fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
             cx.listener(|model, _, _, cx| model.navigate(true, cx)),
         )
         .on_action(cx.listener(|model, action: &SelectProject, _, cx| {
-            if let Some(project) = model.navigation_projects().get(action.index) {
-                model.select_project(*project, cx);
+            if let Some(project) = model.navigation_projects().get(action.index).copied() {
+                model.show_main_window(cx);
+                model.select_project(project, cx);
             }
         }))
         .on_action(cx.listener(|model, action: &SelectTab, _, cx| {
+            if model.surface() != Surface::Main {
+                return;
+            }
             if let Some(tab) = model.navigation_tabs().get(action.index) {
                 model.select_tab(*tab, cx);
             }
@@ -369,6 +373,11 @@ impl AppModel {
         self.move_drag
             .zones
             .clear(here, super::move_drag::Owner::Strip);
+        if self.sidebar_width() <= 0.0 || self.extension_sidebar_active() {
+            self.move_drag
+                .zones
+                .clear(here, super::move_drag::Owner::Sidebar);
+        }
         self.tab_drag.clear_bounds();
     }
 }

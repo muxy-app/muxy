@@ -304,3 +304,34 @@ fn a_terminal_still_starting_keeps_its_project(cx: &mut TestAppContext) {
         assert!(model.tab(a).is_some_and(muxy_app_core::Tab::detached));
     });
 }
+
+#[gpui::test]
+fn a_terminal_two_panes_show_moves_only_with_both(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let other = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
+    state.select_project(home).expect("select");
+    let a = state.open_terminal_tab(home).expect("tab");
+    let first = state.window().active_pane.expect("pane");
+    let second = state.split_pane(first, Direction::Right).expect("split");
+    let session = SessionId::new(95).expect("session");
+    for pane in [first, second] {
+        state
+            .set_pane_session(pane, Some(session))
+            .expect("session");
+    }
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        model.servers.local.features = vec![muxy_protocol::Feature::SESSION_MOVE];
+        let before = model.state.clone();
+        model.move_pane_to_new_tab(second, TabPlace::end(other), cx);
+        assert_eq!(model.state, before);
+        assert!(model.error.is_some());
+        model.move_tab_to_place(a, TabPlace::end(other), cx);
+        assert_eq!(listed(model, other), [a]);
+    });
+}

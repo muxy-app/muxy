@@ -984,6 +984,14 @@ impl AppState {
     /// The pane `tab` shows as its own: the active pane, or the one last
     /// focused in it.
     pub fn shown_pane(&self, tab: &Tab) -> Option<PaneId> {
+        if let Some(pane) = tab
+            .window
+            .as_ref()
+            .and_then(crate::TabWindow::active_pane)
+            .filter(|pane| tab.layout.contains(*pane))
+        {
+            return Some(pane);
+        }
         self.window
             .active_pane
             .into_iter()

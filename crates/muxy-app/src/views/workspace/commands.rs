@@ -172,6 +172,16 @@ fn has_pane(model: &AppModel) -> bool {
     project_present(model) && model.active_pane().is_some()
 }
 
+/// Whether the active pane can move into a window of its own: any pane of
+/// the main window, or a pane sharing its tab window with another.
+fn pane_can_leave_window(model: &AppModel) -> bool {
+    project_present(model)
+        && model
+            .active_tab()
+            .and_then(|tab| model.tab(tab))
+            .is_some_and(|tab| !tab.detached() || tab.panes.len() >= 2)
+}
+
 fn has_split(model: &AppModel) -> bool {
     project_present(model)
         && model
@@ -220,8 +230,10 @@ static COMMANDS: &[CommandDef] = &[
         .run(|model, _, cx| model.new_tab(cx)),
     row::<NewHomeTab>(ShortcutId::NewHomeTab, Label::Key(tr_key!("New Home Tab"))).run(
         |model, _, cx| {
-            model.select_project(model.state.home().id, cx);
-            model.new_tab(cx);
+            let home = model.state.home().id;
+            model.show_main_window(cx);
+            model.select_project(home, cx);
+            model.new_tab_in(home, cx);
         },
     ),
     row::<CloseTab>(ShortcutId::CloseTab, Label::Key(tr_key!("Close Tab")))
@@ -455,7 +467,7 @@ static COMMANDS: &[CommandDef] = &[
         Label::Key(tr_key!("Move Pane to New Window")),
     )
     .keywords("Detach Pane Window Separate")
-    .available(has_split)
+    .available(pane_can_leave_window)
     .run(|model, _, cx| {
         if let Some(pane) = model.active_pane() {
             model.move_pane_to_window(pane, None, None, cx);

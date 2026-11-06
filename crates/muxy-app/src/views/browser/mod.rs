@@ -93,7 +93,7 @@ struct Suggestions {
 struct FindBar {
     input: Entity<TextInput>,
     found: Option<bool>,
-    _subscription: Subscription,
+    subscription: Subscription,
 }
 
 #[derive(Default)]
@@ -222,6 +222,12 @@ impl BrowserView {
     /// Listens to the address field in `window`, where the view shows now.
     pub(crate) fn follow_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.subscriptions = address_subscriptions(&self.address, window, cx);
+        if let Some(input) = self.find.as_ref().map(|find| find.input.clone()) {
+            let subscription = find_subscription(&input, window, cx);
+            if let Some(find) = &mut self.find {
+                find.subscription = subscription;
+            }
+        }
     }
 
     /// The title a tab shows for this page.
@@ -629,28 +635,13 @@ impl BrowserView {
                 .with_accessibility_id("browser-find-input")
                 .with_key_context(SEARCH_CONTEXT)
         });
-        let subscription =
-            cx.subscribe_in(
-                &input,
-                window,
-                |view, input, event, window, cx| match event {
-                    InputEvent::Changed => {
-                        if let Some(find) = &mut view.find {
-                            find.found = None;
-                        }
-                        let query = input.read(cx).text().to_owned();
-                        view.find_text(&query, false, cx);
-                    }
-                    InputEvent::Submitted => view.step_find(false, cx),
-                    InputEvent::Cancelled => view.close_find(window, cx),
-                },
-            );
+        let subscription = find_subscription(&input, window, cx);
         input.focus_handle(cx).focus(window);
         self.native.blur();
         self.find = Some(FindBar {
             input,
             found: None,
-            _subscription: subscription,
+            subscription,
         });
         cx.notify();
     }
@@ -1075,6 +1066,28 @@ pub(crate) fn placeholder(
             )
         })
         .into_any_element()
+}
+
+fn find_subscription(
+    input: &Entity<TextInput>,
+    window: &mut Window,
+    cx: &mut Context<BrowserView>,
+) -> Subscription {
+    cx.subscribe_in(
+        input,
+        window,
+        |view, input, event, window, cx| match event {
+            InputEvent::Changed => {
+                if let Some(find) = &mut view.find {
+                    find.found = None;
+                }
+                let query = input.read(cx).text().to_owned();
+                view.find_text(&query, false, cx);
+            }
+            InputEvent::Submitted => view.step_find(false, cx),
+            InputEvent::Cancelled => view.close_find(window, cx),
+        },
+    )
 }
 
 fn address_subscriptions(

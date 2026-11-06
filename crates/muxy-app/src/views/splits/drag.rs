@@ -169,7 +169,7 @@ fn hit<T: Copy>(
 
 impl AppModel {
     pub(crate) fn layout_drag_pending(&self) -> bool {
-        self.tab_drag.pending() || self.layout_drag.pane.is_some()
+        self.tab_drag.pending() || self.layout_drag.pane.is_some() || self.move_drag.carrying()
     }
 
     pub(crate) fn cancel_layout_drag(&mut self, cx: &mut Context<Self>) -> bool {

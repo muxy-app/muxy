@@ -197,6 +197,7 @@
 "An open pull request for this version is updated instead, replacing its earlier commits." = "An open pull request for this version is updated instead, replacing its earlier commits.";
 "Another computer's Settings → Devices gives you a link to pair with." = "Another computer's Settings → Devices gives you a link to pair with.";
 "Another installation of the muxy command is in progress" = "Another installation of the muxy command is in progress";
+"Another pane shows this terminal too. Move both together." = "Another pane shows this terminal too. Move both together.";
 "Another update is in progress. Muxy will retry when it finishes." = "Another update is in progress. Muxy will retry when it finishes.";
 "App" = "App";
 "App Badge" = "App Badge";

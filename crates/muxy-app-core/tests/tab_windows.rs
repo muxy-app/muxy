@@ -359,3 +359,41 @@ fn moves_between_servers_are_refused() -> TestResult {
     assert_eq!(state, before);
     Ok(())
 }
+
+#[test]
+fn a_tab_window_shows_its_own_focused_pane() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    state.open_terminal_tab(home)?;
+    let b = state.open_terminal_tab(home)?;
+    let first = first_pane(&state, b)?;
+    state.move_tab_to_window(b, None)?;
+    let second = state.split_pane(first, Direction::Right)?;
+    state.focus_pane(first)?;
+    state.focus_pane(second)?;
+    let tab = state
+        .projects()
+        .iter()
+        .flat_map(|project| &project.tabs)
+        .find(|tab| tab.id == b)
+        .ok_or("tab")?;
+    assert_eq!(state.shown_pane(tab), Some(second));
+    Ok(())
+}
+
+#[test]
+fn a_pane_stays_put_when_its_destination_is_gone() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let a = state.open_terminal_tab(home)?;
+    let first = first_pane(&state, a)?;
+    let second = state.split_pane(first, Direction::Right)?;
+    let before = state.clone();
+    let place = TabPlace {
+        project: home,
+        before: Some(TabId::new()),
+    };
+    assert!(state.move_pane_to_new_tab(second, place).is_err());
+    assert_eq!(state, before);
+    Ok(())
+}

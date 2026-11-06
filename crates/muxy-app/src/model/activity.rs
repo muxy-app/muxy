@@ -185,7 +185,8 @@ impl AppModel {
     }
 
     fn focused_activity_session(&self) -> Option<(ServerId, SessionId)> {
-        if !self.window_active || self.overlay.is_some() || self.dialogs.is_open() {
+        let active = self.window_active || self.tab_windows.key_window().is_some();
+        if !active || self.overlay.is_some() || self.dialogs.is_open() {
             return None;
         }
         let pane = self.active_pane()?;

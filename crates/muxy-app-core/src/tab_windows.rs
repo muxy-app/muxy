@@ -205,6 +205,20 @@ impl AppState {
         }
     }
 
+    /// Refuses a place before a tab the project doesn't list.
+    fn check_place(&self, place: TabPlace) -> Result<(), AppError> {
+        if place.before.is_some_and(|before| {
+            self.project(place.project).is_none_or(|project| {
+                !project
+                    .listed_tabs()
+                    .any(|candidate| candidate.id == before)
+            })
+        }) {
+            return Err(AppError::InvalidState("unknown destination tab".into()));
+        }
+        Ok(())
+    }
+
     /// Moves `tab` into a window of its own. The main window shows what it
     /// would after closing the tab.
     pub fn move_tab_to_window(
@@ -287,15 +301,7 @@ impl AppState {
         }
         let source = self.tab_project(tab)?;
         self.check_move(source, place.project)?;
-        if place.before.is_some_and(|before| {
-            self.project(place.project).is_none_or(|project| {
-                !project
-                    .listed_tabs()
-                    .any(|candidate| candidate.id == before)
-            })
-        }) {
-            return Err(AppError::InvalidState("unknown destination tab".into()));
-        }
+        self.check_place(place)?;
         self.unlist_tab(source, tab)?;
         let from = self.project_mut(source)?;
         let index = from
@@ -337,6 +343,7 @@ impl AppState {
     ) -> Result<(TabId, Vec<SessionMove>), AppError> {
         let (source, tab) = self.pane_project_id(pane)?;
         self.check_move(source, place.project)?;
+        self.check_place(place)?;
         if self.tab_mut(tab)?.panes.len() == 1 {
             let sessions = self.move_tab_to(tab, place)?;
             return Ok((tab, sessions));

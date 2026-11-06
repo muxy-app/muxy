@@ -243,6 +243,11 @@ struct Carry {
 }
 
 impl MoveDragState {
+    /// Whether a tab window is being carried by its titlebar.
+    pub(crate) fn carrying(&self) -> bool {
+        self.carry.is_some()
+    }
+
     pub(crate) fn target(&self) -> Option<Target> {
         self.gesture.as_ref().and_then(|gesture| gesture.target)
     }

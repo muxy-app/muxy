@@ -144,6 +144,11 @@ impl AppModel {
         self.present_page_panes(&descriptors, blocked, resizing, window, cx);
         self.sync_webview_panels(blocked, resizing, window, cx);
         self.sync_extension_surfaces(&shortcuts, coverage, resizing, window, cx);
+        if let Some(modal) = &self.webviews.modal
+            && let Err(error) = modal.surface.view.read(cx).native.move_to_window(window)
+        {
+            self.set_banner_error(Some(error));
+        }
         if let Some(modal) = &self.webviews.modal {
             modal
                 .surface
@@ -278,7 +283,7 @@ impl AppModel {
         self.state
             .pane_tab(pane)
             .and_then(|tab| self.tab(tab))
-            .is_some_and(|tab| tab.zoomed.is_none() && tab.panes.len() > 1)
+            .is_some_and(|tab| tab.zoomed.is_none())
     }
 
     /// Presents the extension sidebar and the open popover.
@@ -529,7 +534,10 @@ impl AppModel {
             )?
             .ok_or("could not save webview tab")?;
         self.sync_visible(cx);
-        self.focus_owner.request_active_pane();
+        if !self.raise_pane_window(pane, cx) {
+            self.show_main_window(cx);
+            self.focus_owner.request_active_pane();
+        }
         cx.notify();
         Ok(pane)
     }
