@@ -208,6 +208,18 @@ impl TerminalPane {
         )
     }
 
+    /// The title the pane's header shows: the program's title, else what runs
+    /// in it, its shell included. `None` until the terminal reports either.
+    pub(crate) fn header_title(&self) -> Option<String> {
+        (self.process.is_some() || !self.title.trim().is_empty()).then(|| {
+            muxy_app_core::title::derive_for_header(
+                &self.title,
+                self.process.as_ref(),
+                &self.directory,
+            )
+        })
+    }
+
     #[allow(
         clippy::large_types_passed_by_value,
         reason = "Each pane owns its palette snapshot"

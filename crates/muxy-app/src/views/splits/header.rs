@@ -201,9 +201,18 @@ fn handle(
             div()
                 .min_w(px(0.0))
                 .truncate()
-                .child(model.pane_title(pane, cx).to_owned()),
+                .child(title(pane, model, cx)),
         )
         .into_any_element()
+}
+
+/// A terminal names its shell rather than its folder, which the project
+/// already shows; other panes show their usual title.
+fn title(pane: &Pane, model: &AppModel, cx: &App) -> String {
+    model
+        .terminal(&pane.id)
+        .and_then(|terminal| terminal.view.read(cx).header_title())
+        .unwrap_or_else(|| model.pane_title(pane, cx).to_owned())
 }
 
 fn glyph(pane: &Pane, bell: bool, foreground: Hsla, model: &AppModel, cx: &App) -> AnyElement {
