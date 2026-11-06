@@ -42,8 +42,9 @@ pub fn derive(title: &str, process: Option<&ForegroundProcess>, directory: &Serv
     derive_with(title, process, directory, false)
 }
 
-/// A pane header's title: like [`derive`], but a shell waiting at its prompt is
-/// named rather than its folder, which the project and tab already show.
+/// A pane header's title: like [`derive()`], but a shell waiting at its
+/// prompt is named rather than its folder, which the project and tab already
+/// show.
 pub fn derive_for_header(
     title: &str,
     process: Option<&ForegroundProcess>,
