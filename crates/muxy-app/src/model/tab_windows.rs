@@ -66,6 +66,9 @@ pub(crate) struct TabWindows {
     /// Terminals a server was asked to give another project, with the project
     /// they came from.
     moving: HashMap<(ServerId, SessionId), ProjectId>,
+    /// Moves sent again once after their answer was lost on a live
+    /// connection; a second loss waits for the next connection.
+    retried: HashSet<(ServerId, SessionId)>,
     /// How wide each window's own controls are at its top right.
     controls: HashMap<TabWindowId, f32>,
 }
@@ -636,6 +639,9 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         let origin = self.tab_windows.moving.remove(&(server, session));
+        if !matches!(&result, Err(error) if !refused(error)) {
+            self.tab_windows.retried.remove(&(server, session));
+        }
         let error = match result {
             Ok(()) => {
                 self.state.settle_session_move(server, session);
@@ -644,6 +650,14 @@ impl AppModel {
             }
             Err(error) if refused(&error) => error,
             Err(error) => {
+                if let (Some(origin), Some(pending)) =
+                    (origin, self.state.pending_session_move(server, session))
+                    && self.ready(server)
+                    && self.tab_windows.retried.insert((server, session))
+                {
+                    self.resend_session_move(pending, origin, cx);
+                    return;
+                }
                 self.server_problem(
                     server,
                     tr!(
@@ -677,13 +691,15 @@ impl AppModel {
         origin: Option<ProjectId>,
         cx: &mut Context<Self>,
     ) {
+        let previous = self.state.clone();
         self.state.settle_session_move(server, session);
         let Some(origin) = origin else {
-            self.save(cx);
+            if !self.save(cx) {
+                self.state = previous;
+            }
             return;
         };
         let panes: Vec<_> = self.state.session_panes(server, session).collect();
-        let previous = self.state.clone();
         let mut reverted = true;
         for pane in panes {
             reverted &= self

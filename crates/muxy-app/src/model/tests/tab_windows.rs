@@ -396,3 +396,54 @@ fn a_terminal_moves_again_only_once_its_server_answered(cx: &mut TestAppContext)
         assert_eq!(listed(model, home), [a]);
     });
 }
+
+#[gpui::test]
+fn a_move_whose_answer_timed_out_is_sent_again_once(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let other = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
+    state.select_project(home).expect("select");
+    let a = state.open_terminal_tab(home).expect("tab");
+    let pane = state.window().active_pane.expect("pane");
+    let session = SessionId::new(99).expect("session");
+    state
+        .set_pane_session(pane, Some(session))
+        .expect("session");
+    let (boot, requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        model.servers.local.features = vec![muxy_protocol::Feature::SESSION_MOVE];
+        model.move_tab_to_place(a, TabPlace::end(other), cx);
+        let sent = |requests: &std::sync::mpsc::Receiver<(u64, Work)>| {
+            requests
+                .try_iter()
+                .filter(|(_, work)| matches!(work, Work::MoveSession(id, _) if *id == session))
+                .count()
+        };
+        assert_eq!(sent(&requests), 1);
+        model.session_moved(
+            ServerId::local(),
+            session,
+            Err(muxy_client::ClientError::Timeout),
+            cx,
+        );
+        assert_eq!(sent(&requests), 1);
+        model.session_moved(
+            ServerId::local(),
+            session,
+            Err(muxy_client::ClientError::Timeout),
+            cx,
+        );
+        assert_eq!(sent(&requests), 0);
+        assert_eq!(model.state.pane_project(pane).map(|p| p.id), Some(other));
+        assert!(
+            model
+                .state
+                .pending_session_move(ServerId::local(), session)
+                .is_some()
+        );
+    });
+}
