@@ -13,6 +13,7 @@ mod pickers;
 mod quick_terminal;
 mod results;
 mod server;
+mod slider;
 pub(crate) mod tab;
 mod terminal;
 mod terminal_lists;
@@ -123,6 +124,7 @@ pub(crate) enum SettingsEvent {
     OpenConfiguration(&'static str),
     DismissProblem,
     ShowWelcomeTour,
+    AskAgent,
 }
 
 #[derive(Clone)]
@@ -161,10 +163,9 @@ pub(crate) struct SettingsView {
     navigation_view: Entity<super::cached::CachedView<Self>>,
     content_view: Entity<super::cached::CachedView<Self>>,
     quick_recording: Option<(muxy_ui::quick_terminal::ShortcutRecording, gpui::Task<()>)>,
-    terminal_slider: Option<terminal::Drag>,
+    slider: Option<slider::Drag>,
     codepoint_editor: Option<terminal_lists::CodepointEditor>,
     binding_editor: Option<terminal_lists::BindingEditor>,
-    quick_slider: Option<(&'static str, gpui::Bounds<gpui::Pixels>)>,
     pub(crate) focus: FocusHandle,
     snapshot: Snapshot,
     theme: Theme,
@@ -266,10 +267,9 @@ impl SettingsView {
             ),
             content_view: super::cached::CachedView::new(|view, _, cx| view.content(cx), cx),
             quick_recording: None,
-            terminal_slider: None,
+            slider: None,
             codepoint_editor: None,
             binding_editor: None,
-            quick_slider: None,
             focus,
             snapshot,
             theme,
@@ -418,16 +418,6 @@ impl SettingsView {
         for (id, value) in [
             ("composer-font", settings.composer.font_family.clone()),
             (
-                "composer-line-height",
-                settings.composer.line_height.to_string(),
-            ),
-            ("quick-width", settings.quick_terminal.width.to_string()),
-            ("quick-height", settings.quick_terminal.height.to_string()),
-            (
-                "sidebar-vibrancy-level",
-                settings.appearance.sidebar_vibrancy_level.to_string(),
-            ),
-            (
                 "worktree-template",
                 settings.worktrees.default_location.path_template.clone(),
             ),
@@ -507,7 +497,9 @@ impl SettingsView {
         self.dirty
             .drain()
             .map(|id| Change::Field(id, self.fields[id].read(cx).text().trim().to_owned()))
-            .chain(self.terminal_slider.take().and_then(terminal::Drag::change))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .chain(self.take_slider_change())
             .collect()
     }
 
@@ -809,11 +801,7 @@ impl SettingsView {
                 self.style(),
                 id,
                 &self.fields[id],
-                if matches!(id, "quick-width" | "quick-height") {
-                    Some(64.0)
-                } else {
-                    (!self.compact).then_some(210.0)
-                },
+                (!self.compact).then_some(210.0),
             ))
             .into_any_element()
     }
@@ -853,10 +841,6 @@ fn field_ids() -> impl Iterator<Item = (&'static str, bool)> {
         "command-name",
         "command-text",
         "composer-font",
-        "composer-line-height",
-        "quick-width",
-        "quick-height",
-        "sidebar-vibrancy-level",
         "worktree-template",
         "worktree-folder",
         "width",
@@ -895,24 +879,15 @@ impl Render for SettingsView {
         div()
             .id("settings-view")
             .on_mouse_move(cx.listener(|view, event: &gpui::MouseMoveEvent, _, cx| {
-                view.move_terminal_slider(event.position, cx);
-                if let Some((id, bounds)) = view.quick_slider {
-                    view.move_quick_slider(id, bounds, event.position, cx);
-                }
+                view.move_slider(event.position, cx);
             }))
             .on_mouse_up(
                 gpui::MouseButton::Left,
-                cx.listener(|view, _, _, cx| {
-                    view.finish_terminal_slider(cx);
-                    view.quick_slider = None;
-                }),
+                cx.listener(|view, _, _, cx| view.finish_slider(cx)),
             )
             .on_mouse_up_out(
                 gpui::MouseButton::Left,
-                cx.listener(|view, _, _, cx| {
-                    view.finish_terminal_slider(cx);
-                    view.quick_slider = None;
-                }),
+                cx.listener(|view, _, _, cx| view.finish_slider(cx)),
             )
             .debug_selector(|| "settings-view".into())
             .track_focus(&self.focus)

@@ -554,6 +554,16 @@ impl AppModel {
         settings: muxy_app_core::settings::QuickTerminalSettings,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        self.adopt_quick_settings(settings, true, cx)
+    }
+
+    /// Runs the Quick Terminal with `settings`, saving them first if `save`.
+    pub(crate) fn adopt_quick_settings(
+        &mut self,
+        settings: muxy_app_core::settings::QuickTerminalSettings,
+        save: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
         settings.validate().map_err(|error| error.to_string())?;
         let mut conflicts = shortcut_conflicts(&self.settings.keymap);
         conflicts.extend(self.custom_bindings().filter_map(|(command, chord)| {
@@ -567,7 +577,7 @@ impl AppModel {
             .shortcuts
             .prepare_shortcut_for_enabled(settings.shortcut.clone(), &conflicts, settings.enabled)
             .map_err(|error| error.to_string())?;
-        if let Err(error) = settings.save(&self.path.with_file_name("settings.toml")) {
+        if save && let Err(error) = settings.save(&self.path.with_file_name("settings.toml")) {
             self.quick.shortcuts.cancel_prepared(prepared);
             return Err(error.to_string());
         }

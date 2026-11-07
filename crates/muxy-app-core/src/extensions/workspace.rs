@@ -136,7 +136,7 @@ pub fn refresh(root: &Path) -> io::Result<()> {
 /// A folder on the way to a skill file that is a link would put Muxy's files, and
 /// its cleanup, somewhere else. Above the workspace links are fine: `~/.config` is
 /// often one.
-fn refuse_links_on_the_way(folder: &Path, relative: &str) -> io::Result<()> {
+pub(crate) fn refuse_links_on_the_way(folder: &Path, relative: &str) -> io::Result<()> {
     let mut path = folder.to_owned();
     for part in Path::new(relative)
         .parent()
@@ -154,7 +154,7 @@ fn refuse_links_on_the_way(folder: &Path, relative: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn write_if_changed(path: &Path, contents: &str) -> io::Result<()> {
+pub(crate) fn write_if_changed(path: &Path, contents: &str) -> io::Result<()> {
     if fs::read(path).is_ok_and(|current| current == contents.as_bytes()) {
         return Ok(());
     }

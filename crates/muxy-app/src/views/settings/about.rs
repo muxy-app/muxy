@@ -8,7 +8,7 @@ use super::{Category, SettingsEvent, SettingsView};
 
 impl SettingsView {
     pub(crate) fn show_about(&mut self, cx: &mut Context<Self>) {
-        self.finish_terminal_slider(cx);
+        self.finish_slider(cx);
         self.recording = None;
         self.cancel_quick_recording(cx);
         self.category = Category::About;

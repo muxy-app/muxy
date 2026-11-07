@@ -1,3 +1,4 @@
+use super::slider::{Commit, Slider};
 use super::{Category, PickerKind, SettingsEvent, SettingsView};
 use crate::model::preferences::Change;
 use gpui::prelude::FluentBuilder;
@@ -7,6 +8,7 @@ use gpui::{
 use muxy_app_core::settings::QuickTerminalSettings;
 use muxy_core::capability::Feature;
 use muxy_core::quick_terminal::QuickTerminalShortcut;
+use muxy_core::quick_terminal::limits::{DEFAULT_HEIGHT, DEFAULT_WIDTH, HEIGHT, WIDTH};
 use muxy_ui::controls;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
@@ -198,30 +200,49 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     }
     if view.matches(Category::QuickTerminal, tr_key!("Terminal size")) {
         let mut next = settings.clone();
-        next.width = 720;
-        next.height = 430;
+        next.width = DEFAULT_WIDTH;
+        next.height = DEFAULT_HEIGHT;
+        let sizes = [
+            ("quick-width", tr!("Width"), settings.width, &WIDTH),
+            ("quick-height", tr!("Height"), settings.height, &HEIGHT),
+        ];
         rows.push(
             view.row(
                 "quick-size",
                 tr_key!("Terminal size"),
                 div()
                     .flex()
-                    .items_center()
-                    .flex_wrap()
+                    .flex_col()
                     .gap(view.layout_metrics.scaled(8.0))
-                    .child(tr!("Width"))
-                    .child(view.field("quick-width"))
-                    .child(tr!("Height"))
-                    .child(view.field("quick-height"))
-                    .child(controls::button(
-                        view.style(),
-                        "quick-size-reset",
-                        controls::Button::secondary(&tr!("Reset"))
-                            .named(&tr!("Reset %@", &tr!("Terminal size"))),
-                        cx.listener(move |_: &mut SettingsView, _, _, cx| {
-                            cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
-                        }),
-                    ))
+                    .children(sizes.into_iter().map(|(id, label, value, range)| {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(view.layout_metrics.scaled(8.0))
+                            .child(div().w(view.layout_metrics.scaled(60.0)).child(label))
+                            .child(view.slider(
+                                Slider::new(
+                                    id,
+                                    (f32::from(*range.start()), f32::from(*range.end())),
+                                    10.0,
+                                    "",
+                                    Commit::Quick,
+                                ),
+                                f32::from(value),
+                                cx,
+                            ))
+                    }))
+                    .child(
+                        div().flex().child(controls::button(
+                            view.style(),
+                            "quick-size-reset",
+                            controls::Button::secondary(&tr!("Reset"))
+                                .named(&tr!("Reset %@", &tr!("Terminal size"))),
+                            cx.listener(move |_: &mut SettingsView, _, _, cx| {
+                                cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
+                            }),
+                        )),
+                    )
                     .into_any_element(),
             ),
         );
@@ -254,26 +275,16 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         ),
     ] {
         if view.matches(Category::QuickTerminal, label) {
-            let slider = controls::slider(
-                view.style(),
-                id,
-                &muxy_ui::l10n::translate(label),
+            let slider = view.slider(
+                Slider::new(id, (0.0, max), 1.0, "%", Commit::Quick),
                 f32::from(value),
-                (0.0, max),
-                cx.listener(move |view, grab: &controls::Grab, _, cx| {
-                    view.quick_slider = Some((id, grab.bounds));
-                    view.move_quick_slider(id, grab.bounds, grab.position, cx);
-                }),
-                cx.listener(move |view, value: &f32, _, cx| {
-                    view.set_quick_slider(id, *value, cx);
-                }),
+                cx,
             );
             let mut control = div()
                 .flex()
                 .items_center()
                 .gap(view.layout_metrics.scaled(8.0))
-                .child(slider)
-                .child(tr!("%lld%%", value));
+                .child(slider);
             if id == "quick-blur" {
                 let mut next = settings.clone();
                 next.transparency = 18;
@@ -302,40 +313,6 @@ impl SettingsView {
         self.search.update(cx, |search, cx| search.set_text("", cx));
         self.results.reset();
         cx.notify();
-    }
-
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub(super) fn move_quick_slider(
-        &mut self,
-        id: &'static str,
-        bounds: gpui::Bounds<gpui::Pixels>,
-        position: gpui::Point<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) {
-        let fraction = controls::fraction_at(bounds, position);
-        let max = if id == "quick-transparency" {
-            55.0
-        } else {
-            100.0
-        };
-        self.set_quick_slider(id, fraction * max, cx);
-    }
-
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "These sliders stay between 0 and 100"
-    )]
-    fn set_quick_slider(&mut self, id: &'static str, value: f32, cx: &mut Context<Self>) {
-        let mut next = self.snapshot.settings.quick_terminal.clone();
-        if id == "quick-transparency" {
-            next.transparency = value.round() as u8;
-        } else {
-            next.blur = value.round() as u8;
-        }
-        if next != self.snapshot.settings.quick_terminal {
-            cx.emit(SettingsEvent::Change(Change::QuickTerminal(next)));
-        }
     }
 
     fn record_quick_shortcut(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -10,6 +10,7 @@ Usage: muxy [--host DESTINATION] [COMMAND]
   session       Create terminals, send input, read output and end sessions
   worktree      List, create, register or remove Git worktree projects
   settings      Read or update server settings
+  config        Read or change the desktop app's settings
   activity      Read or acknowledge agent activity
   git           Run a server Git action using JSON
   files         Run a server file action using JSON
@@ -32,6 +33,7 @@ ssh://user@host:port); Muxy must be installed there, and directories are
 absolute paths on that computer.
 MUXY_DIR selects the local profile, which also keeps the terminal UI layouts
 for other computers. No desktop app is required, except by browser and extension commands.
+config edits this computer's app settings files and never starts the server.
 Tabs, panes and workspaces belong to UI clients.
 Project selectors accept an exact ID, unique name or directory path.
 Inside a Muxy terminal, session commands default to that terminal.
@@ -112,6 +114,21 @@ MUXY_CLI_TIMEOUT sets how many seconds the app has to answer (default 10).
 Load, reload, enable, disable, unload and validate get 30 more, and publish 15
 minutes more.
 Text list columns: name, version, state, source, folder (tab-separated).";
+pub(crate) const CONFIG: &str = "Usage: muxy config <command>
+  list [--json]                     Every app setting with its current value
+  get <key> [--json]                One setting, or a whole table of them
+  set <key> <value> [--json]        Change a setting and apply it
+  unset <key> [--json]              Return a setting to its default
+  reload                            Have the running app read the files again
+
+Keys are dotted paths in settings.toml, such as appearance.dark_theme, or in
+terminal.toml after terminal., such as terminal.font_size. Quote a part that
+holds a dot: keymap.\"command.build\". Values are TOML (true, 14, 0.5,
+[\"a\", \"b\"]); anything else is text, so names need no quotes.
+A change is saved only if the app can start with it; set and unset then have
+a running desktop app apply it, and never start one. reload applies hand edits.
+Remote servers are managed in Settings, and server settings with muxy settings.
+Text list lines: key = value, with the value in TOML.";
 pub(crate) const INSTALL_SKILLS: &str = "Usage: muxy install-skills [--dir DIR]...
 Installs the muxy-cli skill, which teaches AI coding agents to use this command,
 into each agent folder that exists: ~/.claude/skills, ~/.codex/skills and
@@ -226,6 +243,7 @@ pub(crate) fn topic(group: &str) -> Option<&'static str> {
         "session" => SESSION,
         "worktree" => WORKTREE,
         "settings" => SETTINGS,
+        "config" => CONFIG,
         "activity" => ACTIVITY,
         "git" => GIT,
         "files" => FILES,

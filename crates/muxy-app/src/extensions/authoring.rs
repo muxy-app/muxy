@@ -64,6 +64,10 @@ pub(crate) enum AgentTask {
         name: String,
         folder: PathBuf,
     },
+    /// Change the app's settings, working in its profile folder.
+    Settings {
+        profile: PathBuf,
+    },
 }
 
 /// Where the agent starts, and what it is told first.
@@ -130,7 +134,30 @@ impl AgentTask {
                 ),
                 title: tr!("Publish %@", name).to_string(),
             },
+            Self::Settings { profile } => AgentStart {
+                directory: profile.clone(),
+                prompt: format!(
+                    "Read {} and follow it to help me change Muxy's settings. \
+                     Start by asking me what to change.",
+                    muxy_app_core::settings::agent::skill_file(profile).display()
+                ),
+                title: tr!("Muxy Settings").to_string(),
+            },
         }
+    }
+
+    /// Readies the folder the agent starts in: its skill, and for a clone the
+    /// copy it works on.
+    pub(crate) fn prepare(&self, root: &Path) -> Result<(), String> {
+        if let Self::Settings { profile } = self {
+            return muxy_app_core::settings::agent::prepare(profile)
+                .map_err(|error| error.to_string());
+        }
+        workspace::prepare(root).map_err(|error| error.to_string())?;
+        if let Self::Clone { name, installed } = self {
+            clone_extension(&LocalTools, root, name, installed)?;
+        }
+        Ok(())
     }
 }
 

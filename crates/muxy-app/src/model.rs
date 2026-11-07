@@ -812,6 +812,28 @@ impl AppModel {
             .collect()
     }
 
+    /// The working directory `source` reports, when new tabs and panes start
+    /// where the focused pane is.
+    fn inherited_directory(&self, source: PaneId, cx: &gpui::App) -> Option<PathBuf> {
+        if self.settings.panes.new_pane_directory
+            != muxy_app_core::settings::NewPaneDirectory::Current
+        {
+            return None;
+        }
+        self.terminal(&source)
+            .and_then(|pane| pane.view.read(cx).directory())
+    }
+
+    /// Where a new tab in `project` starts: the focused pane's working
+    /// directory when that pane belongs to `project` and the setting asks for it.
+    pub(crate) fn new_tab_directory(&self, project: ProjectId, cx: &gpui::App) -> Option<PathBuf> {
+        let source = self.active_pane()?;
+        if self.state.pane_project(source)?.id != project {
+            return None;
+        }
+        self.inherited_directory(source, cx)
+    }
+
     pub(crate) fn split_pane(&mut self, edge: Direction, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle || self.close_request.is_some() {
             return;
@@ -819,19 +841,12 @@ impl AppModel {
         let Some(source) = self.active_pane() else {
             return;
         };
-        let project_directory = self.state.pane_project(source).map_or_else(
-            || self.state.current_project().directory.clone(),
-            |project| project.directory.clone(),
-        );
-        let directory = if self.settings.panes.new_pane_directory
-            == muxy_app_core::settings::NewPaneDirectory::Current
-        {
-            self.terminal(&source)
-                .and_then(|pane| pane.view.read(cx).directory())
-                .unwrap_or(project_directory)
-        } else {
-            project_directory
-        };
+        let directory = self.inherited_directory(source, cx).unwrap_or_else(|| {
+            self.state.pane_project(source).map_or_else(
+                || self.state.current_project().directory.clone(),
+                |project| project.directory.clone(),
+            )
+        });
         let mut size = self
             .terminal(&source)
             .and_then(|pane| pane.view.read(cx).viewport())
@@ -1203,17 +1218,30 @@ impl AppModel {
             }
             tab_windows::Surface::Main => self.state.current_project().id,
         };
-        self.new_tab_in(project, cx);
+        let directory = self.new_tab_directory(project, cx);
+        self.open_new_tab(project, directory.as_deref(), cx);
     }
 
     /// Opens a terminal tab in `project` and shows it, switching the sidebar's
     /// workspace when it doesn't list the project.
     pub(crate) fn new_tab_in(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        self.open_new_tab(project, None, cx);
+    }
+
+    fn open_new_tab(
+        &mut self,
+        project: ProjectId,
+        directory: Option<&std::path::Path>,
+        cx: &mut Context<Self>,
+    ) {
         if self.quitting != Quitting::Idle {
             return;
         }
         match self.state.open_terminal_tab(project) {
             Ok(_) => {
+                if let Some(pane) = self.state.window().active_pane {
+                    self.state.plan_creation(pane, directory, None);
+                }
                 self.changed(cx);
                 self.focus_owner.request_active_pane();
             }

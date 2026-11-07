@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use gpui::{Context, Task};
 use muxy_app_core::ServerId;
-use muxy_app_core::extensions::{Extension, workspace};
+use muxy_app_core::extensions::Extension;
 use muxy_core::capability::Feature;
 use muxy_ui::picker::PickerStatus;
 use muxy_ui::tr;
@@ -39,9 +39,19 @@ impl AppModel {
         };
         cx.background_executor()
             .spawn(async move {
-                let _ = workspace::refresh(&root);
+                let _ = muxy_app_core::extensions::workspace::refresh(&root);
             })
             .detach();
+    }
+
+    /// Offers the agents that can change the app's settings in its profile folder.
+    pub(crate) fn open_settings_agent(&mut self, cx: &mut Context<Self>) {
+        let profile = self
+            .path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_owned();
+        self.open_extension_agent(AgentTask::Settings { profile }, cx);
     }
 
     /// The agents to offer, the last one used first.
@@ -208,13 +218,7 @@ impl AppModel {
         let preparing = {
             let task = task.clone();
             let root = root.clone();
-            crate::extensions::io::network(move || {
-                workspace::prepare(&root).map_err(|error| error.to_string())?;
-                if let AgentTask::Clone { name, installed } = &task {
-                    authoring::clone_extension(&LocalTools, &root, name, installed)?;
-                }
-                Ok(())
-            })
+            crate::extensions::io::network(move || task.prepare(&root))
         };
         cx.spawn(async move |model, cx| {
             let prepared = preparing.await;
@@ -308,7 +312,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let root = self.extension_workspace()?;
-        workspace::prepare(&root).map_err(|error| error.to_string())?;
+        task.prepare(&root)?;
         self.start_extension_agent_at(provider, task, &root, Path::new("/test/agent"), None, cx)
     }
 

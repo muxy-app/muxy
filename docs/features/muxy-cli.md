@@ -50,6 +50,7 @@ muxy --help          # all commands; muxy <command> --help for details
 | `muxy session list\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard\|show` | Creates terminals, sends input, reads output, waits for text or exit, and shows a terminal in the desktop app. |
 | `muxy worktree list\|create\|checkout-pr\|register\|remove` | Manages Git worktree projects, including checking out pull requests. |
 | `muxy settings get\|set` | Reads or changes [server settings](server.md#settings). |
+| `muxy config list\|get\|set\|unset\|reload` | Reads or changes the desktop app's settings on this computer and applies them to the running app. See [App settings](#app-settings). |
 | `muxy activity list\|ack` | Reads or clears [AI agent](ai-agents.md) activity. |
 | `muxy browser open\|list\|read\|click\|…` | Drives browser tabs in the desktop app on this computer. See [Browser control](#browser-control). |
 | `muxy extension list\|status\|logs\|load\|enable\|disable\|reload\|unload\|validate\|publish` | Manages extensions in the desktop app on this computer. See [Extension commands](#extension-commands). |
@@ -77,6 +78,31 @@ them too.
 | `muxy extension unload <name>` | Forgets an unpacked folder and keeps its files. It doesn't work on marketplace extensions. |
 | `muxy extension validate <name\|folder> [--json]` | Checks what publishing needs, including the GitHub CLI, and exits nonzero if something is missing. |
 | `muxy extension publish <name> [--json]` | Opens a [pull request to the store](../extensions/contributing.md#publish-from-muxy), after you approve it in the app. |
+
+## App settings
+
+```bash
+muxy config list                          # every setting, defaults included
+muxy config get terminal                  # one table, as TOML
+muxy config set appearance.dark_theme "Builtin Dark"
+muxy config set terminal.font_size 14
+muxy config set 'keymap."settings.focus_navbar"' cmd-l
+muxy config unset terminal.font_size
+muxy config reload                        # apply hand edits
+```
+
+- Keys are dotted paths in `settings.toml`, or in `terminal.toml` after
+  `terminal.`. Quote a part that holds a dot. New settings get keys
+  automatically, from the files' own format.
+- Values are TOML, such as `true`, `14`, or `["Menlo", "Monaco"]`. Anything else
+  is text, so names need no quotes of their own.
+- A change is saved only if the app can still start with it, and the file is
+  left as it was otherwise. `set` and `unset` then have a running desktop app
+  apply it. They never start the app, which reads the files when it starts.
+- Remote servers are read-only here; manage them in **Settings → Devices**.
+  Server settings use `muxy settings`.
+- `config` works on this computer's profile and doesn't take `--host`. `--json`
+  prints machine-readable output for `list`, `get`, `set`, and `unset`.
 
 ## Sessions from a script
 

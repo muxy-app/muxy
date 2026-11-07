@@ -816,9 +816,9 @@ pub(super) const SETTINGS: &[Setting] = &[
     },
     Setting {
         id: "directory",
-        label: tr_key!("New pane directory"),
+        label: tr_key!("Keep working directory"),
         description: tr_key!(
-            "Start new splits in the project folder or the current pane's working directory."
+            "Start new tabs and splits in the focused pane's working directory instead of the project folder."
         ),
         category: Category::Terminal,
         section: tr_key!("Input"),

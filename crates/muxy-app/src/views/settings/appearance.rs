@@ -1,3 +1,4 @@
+use super::slider::{Commit, Slider};
 use super::{Category, PickerKind, SettingsEvent, SettingsView, Snapshot};
 use crate::model::preferences::{AgentsPanelToggle, Change, WorktreeToggle};
 use gpui::{AnyElement, Context, InteractiveElement, IntoElement};
@@ -146,7 +147,17 @@ pub(super) fn rows(
         rows.push(pane.row(
             "sidebar-vibrancy-level",
             tr_key!("Sidebar vibrancy level"),
-            pane.field("sidebar-vibrancy-level"),
+            pane.slider(
+                Slider::new(
+                    "sidebar-vibrancy-level",
+                    (0.0, 100.0),
+                    1.0,
+                    "%",
+                    Commit::Field,
+                ),
+                f32::from(appearance.sidebar_vibrancy_level),
+                cx,
+            ),
         ));
     }
     if category == Category::Appearance && pane.matches(category, tr_key!("Show tips")) {
@@ -262,9 +273,24 @@ pub(super) fn rows(
             pane.picker(PickerKind::FileOpener, &file_opener(&pane.snapshot), cx),
         ));
     }
+    let size = pane.snapshot.settings.window.default_size;
+    for (index, id, label, minimum) in [
+        (0, "width", tr_key!("Default window width"), 640.0),
+        (1, "height", tr_key!("Default window height"), 400.0),
+    ] {
+        if category == Category::General && pane.matches(category, label) {
+            rows.push(pane.row(
+                id,
+                label,
+                pane.slider_field(
+                    Slider::new(id, (minimum, 16384.0), 10.0, "", Commit::Field),
+                    size[index],
+                    cx,
+                ),
+            ));
+        }
+    }
     for (id, label) in [
-        ("width", tr_key!("Default window width")),
-        ("height", tr_key!("Default window height")),
         (
             "worktree-template",
             tr_key!("Default worktree path template"),

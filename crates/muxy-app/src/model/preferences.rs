@@ -718,6 +718,18 @@ impl AppModel {
             }
             _ => return Err(tr!("Unknown app setting").to_string().into()),
         }
+        self.adopt_settings(settings, theme_changed, bindings_changed, cx);
+        Ok(())
+    }
+
+    /// Makes `settings`, already saved, the ones the app runs with.
+    fn adopt_settings(
+        &mut self,
+        settings: muxy_app_core::settings::Settings,
+        theme_changed: bool,
+        bindings_changed: bool,
+        cx: &mut Context<Self>,
+    ) {
         let theme_changed = theme_changed
             || self.appearance.dark_theme != settings.appearance.dark_theme
             || self.appearance.light_theme != settings.appearance.light_theme
@@ -744,6 +756,58 @@ impl AppModel {
                 cx.notify();
             });
         }
+    }
+
+    /// Applies `settings.toml` and `terminal.toml` as they are on disk now,
+    /// after something other than this app changed them, such as
+    /// `muxy config`. Remote servers keep the list the app connected.
+    pub(crate) fn reload_settings(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> std::result::Result<(), String> {
+        if self.quitting != Quitting::Idle {
+            return Err("Muxy is closing".to_owned());
+        }
+        self.flush_preferences(cx);
+        self.reload_configuration(cx);
+        if let Some(error) = &self.configuration_error {
+            return Err(error.clone());
+        }
+        let mut loaded =
+            muxy_app_core::settings::Settings::load(&self.path.with_file_name("settings.toml"))
+                .and_then(|loaded| {
+                    loaded.validate_command_shortcuts(&self.terminal)?;
+                    Ok(loaded)
+                })
+                .map_err(|error| error.to_string())?;
+        loaded.servers.clone_from(&self.settings.servers);
+        let mut current = self.settings.clone();
+        current.appearance = self.appearance.clone();
+        if loaded == current {
+            return Ok(());
+        }
+        let quick = std::mem::replace(&mut loaded.quick_terminal, current.quick_terminal.clone());
+        let bindings_changed =
+            loaded.keymap != current.keymap || loaded.commands != current.commands;
+        let composer_changed = loaded.composer != current.composer;
+        self.adopt_settings(loaded, false, bindings_changed, cx);
+        if bindings_changed {
+            cx.set_menus(crate::menus());
+        }
+        if composer_changed {
+            self.composer.preferences_dirty = false;
+            if let Some(view) = &self.composer.view {
+                view.update(cx, |view, cx| {
+                    view.settings = self.settings.composer.clone();
+                    view.refresh_style(cx);
+                });
+            }
+        }
+        if quick != current.quick_terminal {
+            self.adopt_quick_settings(quick, false, cx)?;
+        }
+        self.sync_preferences(cx);
+        cx.notify();
         Ok(())
     }
 
@@ -872,7 +936,49 @@ impl AppModel {
                     .map(|(id, pane)| (*id, pane.view.read(cx).terminal.font_size))
                     .collect(),
             });
-        self.apply_terminal_preferences(next, false, cx);
+        self.preview_terminal_preferences(next, cx);
+    }
+
+    /// Shows `next` in the terminals while a slider moves, without the work a
+    /// saved change does: the theme stays resolved and Settings keeps the
+    /// value it shows itself until the slider is released.
+    fn preview_terminal_preferences(
+        &mut self,
+        next: muxy_app_core::settings::TerminalSettings,
+        cx: &mut Context<Self>,
+    ) {
+        let changed_size = self.terminal.font_size.to_bits() != next.font_size.to_bits();
+        self.terminal = next;
+        let previous_colors = self.palette.terminal_colors();
+        let palette = self.palette.with_options(&self.terminal.options);
+        let palette_changed = palette != self.palette;
+        self.palette = palette;
+        if previous_colors != self.palette.terminal_colors() {
+            for server in self.servers.ids() {
+                if self.ready(server) {
+                    self.send(server, Work::Colors(self.palette.terminal_colors()), cx);
+                }
+            }
+        }
+        for (id, pane) in &self.grids {
+            let quick = self.is_quick_terminal(*id);
+            pane.view.update(cx, |pane, cx| {
+                let zoom = pane.terminal.font_size;
+                pane.terminal = self.terminal.clone();
+                pane.configured_font_size = self.terminal.font_size;
+                if !changed_size {
+                    pane.terminal.font_size = zoom;
+                }
+                if palette_changed && !quick {
+                    pane.palette = self.palette;
+                }
+                cx.notify();
+            });
+        }
+        if palette_changed {
+            self.refresh_quick_terminal(cx);
+        }
+        cx.notify();
     }
 
     fn save_terminal(

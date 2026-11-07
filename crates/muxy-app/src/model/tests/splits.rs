@@ -850,3 +850,84 @@ fn only_terminal_panes_get_a_header(cx: &mut TestAppContext) {
     assert!(shown(cx, "header", terminal));
     assert!(!shown(cx, "header", settings));
 }
+
+fn attach_reporting(
+    model: &mut AppModel,
+    pane: PaneId,
+    reported: &[u8],
+    cx: &mut Context<AppModel>,
+) {
+    let mut data = attachment();
+    data.directory = muxy_protocol::ServerPath(reported.to_vec());
+    model.receive(
+        (
+            ServerId::local(),
+            1,
+            Update::Attached {
+                pane,
+                session: SessionId::new(100).expect("session"),
+                attachment: data,
+                created: false,
+            },
+        ),
+        cx,
+    );
+}
+
+fn starts_in(model: &AppModel, pane: PaneId) -> Vec<u8> {
+    model
+        .state
+        .clone()
+        .prepare_creation(pane, std::path::Path::new("/fallback"))
+        .0
+}
+
+#[gpui::test]
+fn new_tabs_start_in_the_focused_panes_directory_only_when_configured_and_in_its_project(
+    cx: &mut TestAppContext,
+) {
+    use muxy_app_core::settings::NewPaneDirectory;
+    let other_folder = tempfile::tempdir().expect("folder");
+    for (setting, reported, inherit) in [
+        (NewPaneDirectory::Project, b"/tmp".as_slice(), false),
+        (NewPaneDirectory::Current, b"/tmp".as_slice(), true),
+        (NewPaneDirectory::Current, b"".as_slice(), false),
+    ] {
+        let mut state = AppState::bootstrap().expect("state");
+        let other = state
+            .add_project(ServerId::local(), other_folder.path().to_owned())
+            .expect("project");
+        state.select_project(state.home().id).expect("home");
+        let anchor = state.open_terminal_tab(state.home().id).expect("tab");
+        let original = state.home().tabs[0].panes[0].id;
+        state
+            .set_pane_session(original, SessionId::new(100))
+            .expect("session");
+        let (mut boot, _requests) = stub_boot(state);
+        boot.settings.panes.new_pane_directory = setting;
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model.servers.local.connection = ConnectionState::Ready;
+            let expected: &[u8] = if inherit { b"/tmp" } else { b"/fallback" };
+
+            attach_reporting(model, original, reported, cx);
+            model.new_tab(cx);
+            let pane = model.active_pane().expect("new tab");
+            assert_ne!(pane, original);
+            assert_eq!(starts_in(model, pane), expected);
+
+            model.select_tab(anchor, cx);
+            attach_reporting(model, original, reported, cx);
+            assert_eq!(model.active_pane(), Some(original));
+            model.new_tab_adjacent(anchor, muxy_app_core::TabSide::Right, cx);
+            let pane = model.active_pane().expect("adjacent tab");
+            assert_eq!(starts_in(model, pane), expected);
+
+            model.select_tab(anchor, cx);
+            attach_reporting(model, original, reported, cx);
+            model.new_tab_in(other, cx);
+            let pane = model.active_pane().expect("other project's tab");
+            assert_eq!(starts_in(model, pane), b"/fallback");
+        });
+    }
+}
