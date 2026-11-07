@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use gpui::Context;
 use muxy_app_core::{AppError, ProjectId, ProjectStatus, ServerId};
-use muxy_protocol::{ProjectSession, SessionId, SessionInfo, SessionStatus};
+use muxy_protocol::{ProjectSession, SessionId, SessionStatus};
 
 use super::{AppModel, Quitting};
 
@@ -46,6 +46,12 @@ impl AppModel {
             Ok(Some(())) => {}
             Ok(None) | Err(_) => return,
         }
+        if self
+            .pending_remote
+            .is_some_and(|pending| pending.server != server)
+        {
+            self.pending_remote = None;
+        }
         if server.is_local() {
             if self.connection(server) == super::ConnectionState::Disconnected {
                 self.connect(cx);
@@ -54,6 +60,15 @@ impl AppModel {
             self.connect_on_demand(server, cx);
         }
         self.changed(cx);
+    }
+
+    /// The server of `project` when it can open a terminal, so failing work
+    /// never switches the app.
+    pub(crate) fn available_project_server(&self, project: ProjectId) -> Option<ServerId> {
+        self.state
+            .project(project)
+            .filter(|project| project.status() == ProjectStatus::Available)
+            .map(|project| project.server_id)
     }
 
     /// Work aimed at another server than the default one switches the app
@@ -148,13 +163,16 @@ impl AppModel {
     }
 
     /// Forgets the dismissed sessions that no longer run on `server`, from
-    /// the list a new connection reports.
-    pub(super) fn prune_dismissed(
-        &mut self,
-        server: ServerId,
-        live: &[SessionInfo],
-        cx: &mut Context<Self>,
-    ) {
+    /// the list its connection reported, once its catalog showed it is the
+    /// server the app knew.
+    pub(super) fn prune_dismissed(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        let Some(live) = self
+            .servers
+            .get(server)
+            .and_then(|runtime| runtime.catalog.restore.as_ref())
+        else {
+            return;
+        };
         let live: HashSet<_> = live.iter().map(|session| session.id).collect();
         if self.state.retain_dismissed(server, &live) {
             self.save(cx);

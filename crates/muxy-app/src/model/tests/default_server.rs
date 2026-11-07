@@ -1,4 +1,4 @@
-use super::servers::{connect_remote, entry, work};
+use super::servers::{connect_remote, entry, page, work};
 use super::*;
 use muxy_protocol::{ProjectSession, ProjectSessions, SessionStatus};
 
@@ -336,5 +336,105 @@ fn the_agents_panel_shows_only_the_default_servers_agents(cx: &mut TestAppContex
         assert_eq!(servers(model), [remote]);
         model.set_default_server(ServerId::local(), cx);
         assert_eq!(servers(model), [ServerId::local()]);
+    });
+}
+
+/// Reconnects `server` to whichever server answers with `catalog`.
+fn reconnect(
+    model: &mut AppModel,
+    server: ServerId,
+    catalog: muxy_protocol::CatalogPage,
+    cx: &mut Context<AppModel>,
+) {
+    let generation = model.generation(server);
+    let offline = Update::Event(ClientEvent::Disconnected);
+    model.receive((server, generation, offline), cx);
+    model.connect_server(server, cx);
+    let generation = model.generation(server);
+    model.receive((server, generation, Update::Connected(vec![])), cx);
+    model.receive((server, generation, Update::Catalog(Ok(catalog))), cx);
+}
+
+#[gpui::test]
+fn dismissals_are_forgotten_only_once_the_known_server_answers(cx: &mut TestAppContext) {
+    let (remote, api) = (ServerId::new(), ProjectId::new());
+    let (view, cx, _requests, _remotes, home) = two_servers(remote, api, cx);
+    let session = SessionId::new(4).expect("session");
+    view.update(cx, |model, cx| {
+        model.set_default_server(remote, cx);
+        model.receive(listing(remote, api, vec![listed(api, 4, true, false)]), cx);
+        let pane = model
+            .state
+            .session_panes(remote, session)
+            .next()
+            .expect("opened");
+        model.detach_terminal(pane, cx);
+        assert!(model.state.dismissed_sessions(remote).contains(&session));
+
+        reconnect(model, remote, page(9, ProjectId::new(), &[]), cx);
+        assert!(
+            model.state.dismissed_sessions(remote).contains(&session),
+            "another server's list changes nothing"
+        );
+        reconnect(model, remote, page(2, home, &[(api, "api")]), cx);
+        assert!(
+            model.state.dismissed_sessions(remote).is_empty(),
+            "the known server no longer runs it"
+        );
+    });
+}
+
+#[gpui::test]
+fn new_tab_waits_for_the_default_servers_home_instead_of_opening_here(cx: &mut TestAppContext) {
+    let remote = ServerId::new();
+    let (boot, _requests, _remotes) = remote_boot(
+        AppState::bootstrap().expect("state"),
+        vec![entry(remote, "devbox")],
+    );
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive(local(1, Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        model.set_default_server(remote, cx);
+        model.new_tab(cx);
+        assert!(model.state.home().tabs.is_empty(), "no local terminal");
+        assert!(model.pending_remote.is_some_and(
+            |pending| pending.server == remote && pending.intent == RemoteIntent::HomeTab
+        ));
+
+        model.set_default_server(ServerId::local(), cx);
+        assert!(
+            model.pending_remote.is_none(),
+            "switching away drops what waited for devbox"
+        );
+        connect_remote(model, remote, vec![], &[], cx);
+        assert_eq!(model.default_server(), ServerId::local());
+    });
+}
+
+#[gpui::test]
+fn back_stays_on_the_default_server(cx: &mut TestAppContext) {
+    let (remote, api) = (ServerId::new(), ProjectId::new());
+    let (view, cx, _requests, _remotes, _home) = two_servers(remote, api, cx);
+    view.update(cx, |model, cx| {
+        model.select_project(api, cx);
+        model.new_tab_in(api, cx);
+        model.set_default_server(ServerId::local(), cx);
+        model.new_tab(cx);
+        assert!(!model.can_navigate(false), "devbox's tab isn't a step back");
+    });
+}
+
+#[gpui::test]
+fn a_listing_from_before_the_switch_opens_its_terminals_once_it_is_the_default(
+    cx: &mut TestAppContext,
+) {
+    let (remote, api) = (ServerId::new(), ProjectId::new());
+    let (view, cx, _requests, _remotes, _home) = two_servers(remote, api, cx);
+    view.update(cx, |model, cx| {
+        model.receive(listing(remote, api, vec![listed(api, 4, true, false)]), cx);
+        assert!(sessions_in(model, api).is_empty(), "not the default yet");
+        model.set_default_server(remote, cx);
+        assert_eq!(sessions_in(model, api), [SessionId::new(4).expect("id")]);
     });
 }

@@ -8,11 +8,11 @@ pub(crate) enum Target {
     Project(ProjectId),
 }
 
-/// This computer's projects, which New Tab in Project offers while it is the
-/// default server. Another default server's picker browses its folders.
-pub(super) fn registry(model: &AppModel) -> Registry<Target> {
+/// The default server's projects, which New Tab in Project offers by name
+/// before its folders.
+pub(super) fn registry(model: &AppModel, server: ServerId) -> Registry<Target> {
     let mut commands = Registry::default();
-    for project in projects(model, ServerId::local()) {
+    for project in projects(model, server) {
         commands.register(project_command(project, model.project_title(project)));
     }
     commands

@@ -29,7 +29,7 @@ impl AppModel {
         }: OpenTerminal<'_>,
         cx: &mut Context<Self>,
     ) -> Result<Option<(TabId, PaneId)>, String> {
-        if let Some(server) = self.state.project_server(project) {
+        if let Some(server) = self.available_project_server(project) {
             self.use_server(server, cx);
         }
         let opened = self.transact(

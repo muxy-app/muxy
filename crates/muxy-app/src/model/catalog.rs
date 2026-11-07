@@ -177,6 +177,7 @@ impl AppModel {
         if let Some(runtime) = self.servers.get_mut(server) {
             runtime.catalog.identified = true;
         }
+        self.prune_dismissed(server, cx);
         self.sync_session_names(cx);
         if server.is_local() && first {
             for remote in self.servers.ids() {
@@ -490,7 +491,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<PaneId, String> {
         if opening == Opening::Selected
-            && let Some(server) = self.state.project_server(project)
+            && let Some(server) = self.available_project_server(project)
         {
             self.use_server(server, cx);
         }

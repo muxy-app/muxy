@@ -124,7 +124,8 @@ windows are on screen.
 ## Opening and restoring
 
 - The desktop app restores all projects, tabs, and window state on launch. It
-  never opens a tab by itself. Until the [welcome tour](#welcome-tour) is finished
+  never opens a tab by itself, except for terminals another client shows on
+  the default server, which open as tabs. Until the [welcome tour](#welcome-tour) is finished
   or skipped, it opens over them.
 - The terminal UI opens one shell in Home the first time, then restores its
   layout.

@@ -246,7 +246,10 @@ fn choice(server: ServerId, model: &AppModel, cx: &mut Context<AppModel>) -> Any
         })
         .debug_selector(move || id.clone())
         .when(selected, |row| row.bg(theme.hover))
-        .on_click(cx.listener(move |model, _, _, cx| model.set_default_server(server, cx)))
+        .focus(|style| style.bg(theme.hover))
+        .button_interaction(cx.listener(move |model, _, _, cx| {
+            model.set_default_server(server, cx);
+        }))
         .child(
             div()
                 .size(m.scaled(6.0))

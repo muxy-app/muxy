@@ -460,6 +460,7 @@ impl AppModel {
     fn navigation_target_exists(&self, project: ProjectId, tab: TabId) -> bool {
         self.state.project(project).is_some_and(|project| {
             project.status() == ProjectStatus::Available
+                && self.project_listed(project)
                 && project.listed_tabs().any(|candidate| candidate.id == tab)
         })
     }
@@ -1209,6 +1210,11 @@ impl AppModel {
             }
             tab_windows::Surface::Main => self.state.current_project().id,
         };
+        let server = self.state.default_server();
+        if self.state.project_server(project) != Some(server) && !server.is_local() {
+            self.new_remote_home_tab(server, cx);
+            return;
+        }
         self.new_tab_in(project, cx);
     }
 
@@ -2418,7 +2424,6 @@ impl AppModel {
             runtime.catalog.replaying = false;
             runtime.catalog.restore = Some(sessions.to_vec());
         }
-        self.prune_dismissed(server, sessions, cx);
         self.discard_pending(server, cx);
         self.refresh_catalog(server, cx);
         if server.is_local() && self.settings_tab.is_some() {

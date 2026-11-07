@@ -915,7 +915,11 @@ impl AppModel {
         else {
             return;
         };
-        if self.overlay.is_some() || pending.asked.elapsed() > PATIENCE {
+        let elsewhere = self
+            .overlay
+            .as_ref()
+            .is_some_and(|overlay| !matches!(overlay, crate::views::overlays::Overlay::Onboarding));
+        if elsewhere || pending.asked.elapsed() > PATIENCE {
             self.pending_remote = None;
             return;
         }

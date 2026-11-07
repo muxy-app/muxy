@@ -417,11 +417,7 @@ impl ProjectPicker {
             row.disabled = true;
             items.push(PickerItem::Row(row));
         }
-        let targets = if self.session.input_mode() == InputMode::FolderSearch {
-            self.targets.items(self.session.search_query())
-        } else {
-            Vec::new()
-        };
+        let targets = self.target_items();
         let has_targets = !targets.is_empty();
         items.splice(..0, targets);
         let status = match self.session.load_state {
@@ -478,6 +474,22 @@ impl ProjectPicker {
             ),
             cx,
         );
+    }
+
+    /// Saved projects matching the query: while searching folders, or by name
+    /// on another computer, where typing is otherwise a path.
+    fn target_items(&self) -> Vec<PickerItem> {
+        let query = self.session.search_query();
+        let named = self.session.input_mode() == InputMode::FolderSearch
+            || (self.remote.is_some()
+                && !query.is_empty()
+                && !query.starts_with('~')
+                && !query.contains('/'));
+        if named {
+            self.targets.items(query)
+        } else {
+            Vec::new()
+        }
     }
 
     fn footer_actions(&self, target: Option<Target>, disabled: bool) -> Vec<PickerAction> {
@@ -722,7 +734,7 @@ impl AppModel {
         let paths = self.project_paths(ServerId::local());
         let targets = match purpose {
             Purpose::AddProject => Registry::default(),
-            Purpose::NewTab => targets::registry(self),
+            Purpose::NewTab => targets::registry(self, ServerId::local()),
         };
         let picker = cx.new(|cx| {
             ProjectPicker::new(
@@ -775,6 +787,10 @@ impl AppModel {
         self.pending_remote = None;
         let folders = RemoteFolders::through(client, name, project, &home);
         let paths = self.project_paths(server);
+        let targets = match purpose {
+            Purpose::AddProject => Registry::default(),
+            Purpose::NewTab => targets::registry(self, server),
+        };
         let picker = cx.new(|cx| {
             ProjectPicker::remote(
                 purpose,
@@ -785,6 +801,7 @@ impl AppModel {
                 cx,
             )
         });
+        picker.update(cx, |picker, _| picker.targets = targets);
         self.show_project_picker(server, picker, cx);
     }
 

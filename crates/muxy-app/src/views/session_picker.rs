@@ -101,8 +101,25 @@ impl AppModel {
         }
         for project in self.adoptable_projects() {
             self.request_sessions(project, cx);
+            self.adopt_listed(project, cx);
         }
         self.update_session_picker(cx);
+    }
+
+    /// Opens other clients' terminals from a listing still current, which
+    /// arrived while its server wasn't the default or wasn't confirmed yet.
+    fn adopt_listed(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let Some(current) = self.sessions_revision(project) else {
+            return;
+        };
+        let Some(listing) = self.existing_sessions.projects.get(&project) else {
+            return;
+        };
+        if listing.pending || listing.revision.is_none_or(|revision| revision < current) {
+            return;
+        }
+        let sessions = listing.entries.clone();
+        self.adopt_sessions(project, &sessions, cx);
     }
 
     /// Forgets what `server` listed, which a new connection lists again.
