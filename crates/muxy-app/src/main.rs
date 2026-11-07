@@ -21,6 +21,7 @@ mod repository_actions;
 mod server;
 mod theme;
 mod updater;
+mod usage_ping;
 mod views {
     pub(crate) mod agent_sessions;
     pub(crate) mod agents_panel;

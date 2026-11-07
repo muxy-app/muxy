@@ -23,6 +23,7 @@ are in git history.
 | D10 | portable-pty for PTYs | Same speed, ready for Windows |
 | D11 | Phones pin a certificate, or use SSH | No cloud; pairing needs no SSH setup |
 | D12 | Protocol changes are additive | Old and new builds keep talking |
+| D13 | Active installs are counted with an anonymous ping | Version, OS, and architecture, with no ID |
 
 ## D1. Ghostty is the terminal engine
 
@@ -128,3 +129,21 @@ version. See the [protocol](./protocol.md#versions).
 
 Turned down: a version per change, protobuf, JSON, and a custom postcard
 extension.
+
+## D13. Active installs are counted with an anonymous ping
+
+Installed desktop releases send `POST https://muxy.app/api/ping` with only
+`{"version", "os", "arch"}`, at most once per UTC day. The app saves the last
+day it sent in the profile's `usage-ping` file and checks every hour. Local
+builds never send it, and the **Send an anonymous daily ping** setting or
+`DO_NOT_TRACK=1` turns it off. The server counts one ping per address per day
+using a hash with a daily salt that it then deletes, and keeps only daily
+totals per version, OS, and architecture.
+
+Because the app is open source, anyone can send the same request, so the
+counts are estimates. The server's per-address limit and version checks keep
+fake pings to a minimum.
+
+Turned down: an install ID, which would let pings be linked over time; signed
+requests, since the key would ship in the app; and pings from the server, the
+CLI, and the phone apps.

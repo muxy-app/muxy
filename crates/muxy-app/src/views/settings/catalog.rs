@@ -298,6 +298,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Worktrees"),
     },
     Setting {
+        id: "usage-ping",
+        label: tr_key!("Send an anonymous daily ping"),
+        description: tr_key!(
+            "Once a day, tells muxy.app the app version, operating system, and processor type, so we can count active installs per version. Nothing identifies you or this computer. Starting Muxy with DO_NOT_TRACK=1 also turns it off."
+        ),
+        category: Category::General,
+        section: tr_key!("Privacy"),
+    },
+    Setting {
         id: "app-language",
         label: tr_key!("App language"),
         description: tr_key!(
@@ -951,6 +960,7 @@ pub(super) fn search_aliases(id: &str) -> &'static str {
     match id {
         "interface-size" => "zoom density",
         "extension-sidebar" => "custom replace",
+        "usage-ping" => "telemetry analytics tracking statistics",
         _ => "",
     }
 }

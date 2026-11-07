@@ -301,6 +301,16 @@ pub(super) fn rows(
             rows.push(pane.row(id, label, pane.field(id)));
         }
     }
+    if category == Category::General
+        && pane.matches(category, tr_key!("Send an anonymous daily ping"))
+    {
+        let enabled = pane.snapshot.settings.privacy.usage_ping;
+        rows.push(pane.row(
+            "usage-ping",
+            tr_key!("Send an anonymous daily ping"),
+            pane.toggle("usage-ping", enabled, Change::UsagePing(!enabled), cx),
+        ));
+    }
     rows
 }
 

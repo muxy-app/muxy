@@ -123,6 +123,25 @@ fn agents_panel_docking_preserves_legacy_floating_settings_and_saved_geometry() 
 }
 
 #[test]
+fn usage_ping_is_on_by_default_and_saves_without_touching_other_sections() -> Result {
+    let fixture = Fixture::new()?;
+    assert!(Settings::default().privacy.usage_ping);
+    let path = fixture.write(
+        "settings.toml",
+        "[window]\nconfirm_running_process = false\n",
+    )?;
+    let mut settings = Settings::load(&path)?;
+    assert!(settings.privacy.usage_ping);
+    settings.privacy.usage_ping = false;
+    settings.save_privacy(&path)?;
+    let loaded = Settings::load(&path)?;
+    assert!(!loaded.privacy.usage_ping);
+    assert!(!loaded.window.confirm_running_process);
+    assert!(fs::read_to_string(&path)?.contains("[privacy]\nusage_ping = false"));
+    Ok(())
+}
+
+#[test]
 fn saving_close_confirmation_preserves_invalid_files_and_in_memory_preferences() -> Result {
     let fixture = Fixture::new()?;
     for source in ["not valid TOML", "window = 'invalid'"] {
