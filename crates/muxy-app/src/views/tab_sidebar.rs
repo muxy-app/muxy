@@ -621,6 +621,7 @@ fn tab_row(
         .and_then(|color| muxy_ui::theme::parse_hex(color.as_str()))
         .map(gpui::Hsla::from);
     let group = SharedString::from(format!("sidebar-tab-{id}"));
+    let zone = tab_activity::HoverZone::default();
     let status = tab_activity::tab_status(tab, model);
     let hover = color.map_or(if active { theme.surface } else { theme.hover }, |color| {
         color.opacity(if active { 0.18 } else { 0.08 })
@@ -655,7 +656,9 @@ fn tab_row(
                 axis: muxy_app_core::Axis::Vertical,
             },
         ))
-        .when(!model.tab_drag.is_active(), |row| row.group(group.clone()))
+        .when(!model.tab_drag.is_active(), |row| {
+            row.group(group.clone()).child(zone.track())
+        })
         .mx(m.spacing3())
         .my(m.spacing1())
         .pl(m.spacing4())
@@ -758,6 +761,7 @@ fn tab_row(
             }),
             bell,
             group,
+            &zone,
             model,
             cx,
         ))
@@ -859,12 +863,17 @@ impl AppModel {
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "One tab row's accessory and its hover"
+)]
 fn tab_accessory(
     tab: &Tab,
     status: tab_activity::Status,
     shortcut: Option<String>,
     bell: bool,
     group: SharedString,
+    zone: &tab_activity::HoverZone,
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
@@ -885,7 +894,14 @@ fn tab_accessory(
             .child(super::shortcut_hints::badge(shortcut, m.icon_md(), model))
             .into_any_element()
     } else if status != tab_activity::Status::None {
-        tab_activity::status_glyph(format!("tab-{id}"), status, m.icon_sm(), model)
+        tab_activity::status_glyph_in(
+            format!("tab-{id}"),
+            status,
+            m.icon_sm(),
+            None,
+            Some(zone),
+            model,
+        )
     } else if bell {
         div()
             .size(m.scaled(7.0))

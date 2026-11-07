@@ -2,7 +2,7 @@
 //! one listed in `settings.toml`. Session and channel IDs are counters per
 //! server, so what they key lives with the server too.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use gpui::Context;
 use muxy_app_core::settings::ServerEntry;
@@ -50,6 +50,9 @@ pub(crate) struct Runtime {
     pub(super) last_channel: u32,
     pub(crate) progress: HashMap<SessionId, SessionProgress>,
     pub(crate) activity: activity::ActivityView,
+    /// The sessions this app showed when it last looked, so the ones it
+    /// stops showing while they keep running aren't opened here again.
+    pub(super) shown: Option<BTreeSet<SessionId>>,
 }
 
 impl Runtime {
@@ -76,6 +79,7 @@ impl Runtime {
             last_channel: 0,
             progress: HashMap::new(),
             activity: activity::ActivityView::default(),
+            shown: None,
         }
     }
 }
@@ -357,11 +361,10 @@ impl AppModel {
             .and_then(|runtime| runtime.error.as_deref())
     }
 
-    /// Projects the sidebar and Switch Project list: shown ones, with another
-    /// computer's Home only under the Remote Servers workspace.
+    /// Projects the sidebar and Switch Project list: shown ones on the
+    /// default server.
     pub(crate) fn project_listed(&self, project: &Project) -> bool {
-        self.project_shown(project)
-            && (!project.is_remote_home() || self.state.remote_servers_selected())
+        self.project_shown(project) && project.server_id == self.state.default_server()
     }
 
     /// The name settings give another computer's server.
@@ -372,7 +375,7 @@ impl AppModel {
     }
 
     /// A failure nobody asked about: this computer's server alerts; another
-    /// computer's shows beside it in the sidebar's Remote section.
+    /// computer's shows beside it in the sidebar's Servers section.
     pub(super) fn server_problem(
         &mut self,
         server: ServerId,
@@ -584,7 +587,7 @@ impl AppModel {
             }
             self.server_preferences.busy = false;
             self.server_preferences.pending.clear();
-            self.mobile = self.mobile.after_disconnect();
+            self.client_access = self.client_access.after_disconnect();
         }
         self.sync_preferences(cx);
         self.forget_requests(server);

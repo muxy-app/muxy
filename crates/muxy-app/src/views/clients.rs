@@ -1,6 +1,6 @@
-//! The Devices page's This Computer section: whether phones and other
+//! The Servers page's This Computer section: whether phones and other
 //! computers may reach this computer's server, the code that pairs one, and
-//! the devices paired with it.
+//! the clients paired with it.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,7 +17,7 @@ use muxy_ui::controls;
 use muxy_ui::theme::Metrics;
 use muxy_ui::tr;
 
-use super::devices_page::{card, style};
+use super::servers_page::{card, style};
 use crate::model::AppModel;
 
 pub(crate) const CODE_SIZE: f32 = 196.0;
@@ -49,49 +49,49 @@ impl Pairing {
 
 /// The section's title and its card, or why it can't show yet.
 pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let theme = &model.theme;
-    let access = model.device_access();
-    let body = if !model.mobile_available() {
+    let access = model.client_access();
+    let body = if !model.client_access_available() {
         note(
-            &tr!("Connect to this computer's server to manage device access."),
+            &tr!("Connect to this computer's server to manage its clients."),
             false,
             model,
         )
     } else if let Some(state) = &access.state {
         card(model)
             .child(row(
-                "devices-access",
-                tr!("Allow other devices"),
+                "clients-access",
+                tr!("Allow clients"),
                 Some(tr!(
                     "Let paired phones and computers reach this computer's server over the local network or a VPN. A paired phone gets full terminal access; a paired computer can also run commands and change or stop this server."
                 )),
                 controls::toggle(
                     style(model),
-                    "devices-access",
-                    &tr!("Allow other devices"),
+                    "clients-access",
+                    &tr!("Allow clients"),
                     state.settings.enabled,
                     cx.listener({
                         let enabled = state.settings.enabled;
-                        move |model, _, _, cx| model.set_device_access(!enabled, cx)
+                        move |model, _, _, cx| model.set_client_access(!enabled, cx)
                     }),
                 ).into_any_element(),
                 true,
                 model,
             ))
             .child(row(
-                "devices-port",
+                "clients-port",
                 tr!("Port"),
                 Some(tr!("From 1024 to 65535. Press Return to save.")),
-                model.devices_page.port_input().map_or_else(
+                model.servers_page.port_input().map_or_else(
                     || div().into_any_element(),
-                    |input| controls::text_field(style(model), "devices-port", input, Some(96.0)),
+                    |input| controls::text_field(style(model), "clients-port", input, Some(96.0)),
                 ),
                 false,
                 model,
             ))
             .child(row(
-                "devices-status",
+                "clients-status",
                 tr!("Status"),
                 None,
                 status(state, model),
@@ -99,25 +99,25 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
                 model,
             ))
             .child(stacked(
-                "devices-pair",
-                tr!("Pair a device"),
+                "clients-pair",
+                tr!("Pair a client"),
                 tr!("Show a one-time code to scan with the Muxy phone app, or a link to paste on another computer."),
                 pairing(state, model, cx),
                 model,
             ))
             .child(stacked(
-                "devices-paired",
-                tr!("Paired with this computer"),
-                tr!("Phones and computers that can connect. Revoking one disconnects it immediately."),
-                devices(state, model, cx),
+                "clients-paired",
+                tr!("Clients"),
+                tr!("Phones and other computers paired with this server. Revoking one disconnects it immediately."),
+                clients(state, model, cx),
                 model,
             ))
             .into_any_element()
     } else {
-        note(&tr!("Loading device access…"), false, model)
+        note(&tr!("Loading clients…"), false, model)
     };
     div()
-        .debug_selector(|| "devices-this-computer".into())
+        .debug_selector(|| "clients-this-computer".into())
         .min_w(px(0.0))
         .flex()
         .flex_col()
@@ -127,8 +127,8 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
                 .text_color(theme.fg_muted)
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(accessibility::label(
-                    "devices-this-computer-heading",
-                    tr!("This Computer"),
+                    "clients-this-computer-heading",
+                    model.server_label(muxy_app_core::ServerId::local()),
                 )),
         )
         .children(
@@ -144,9 +144,9 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
 fn note(text: &str, error: bool, model: &AppModel) -> AnyElement {
     let note = muxy_ui::form::note(style(model), text, error);
     if error {
-        accessibility::announced(note.id("devices-error"), text.to_owned(), true).into_any_element()
+        accessibility::announced(note.id("clients-error"), text.to_owned(), true).into_any_element()
     } else {
-        note.id("devices-note")
+        note.id("clients-note")
             .role(Role::Label)
             .aria_value(text.to_owned())
             .into_any_element()
@@ -162,7 +162,7 @@ fn row(
     first: bool,
     model: &AppModel,
 ) -> AnyElement {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let theme = &model.theme;
     div()
         .debug_selector(move || format!("{id}-row"))
@@ -201,7 +201,7 @@ fn stacked(
     content: AnyElement,
     model: &AppModel,
 ) -> AnyElement {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let theme = &model.theme;
     div()
         .debug_selector(move || format!("{id}-row"))
@@ -242,9 +242,9 @@ fn status(state: &RemoteAccessState, model: &AppModel) -> AnyElement {
     };
     accessibility::announced(
         div()
-            .id("devices-status")
-            .accessibility_id("devices-status")
-            .debug_selector(|| "devices-status".into())
+            .id("clients-status")
+            .accessibility_id("clients-status")
+            .debug_selector(|| "clients-status".into())
             .text_color(if failed {
                 model.theme.danger
             } else {
@@ -258,13 +258,13 @@ fn status(state: &RemoteAccessState, model: &AppModel) -> AnyElement {
 }
 
 fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
-    let access = model.device_access();
+    let access = model.client_access();
     let Some(pairing) = &access.pairing else {
         return div()
             .flex()
             .child(controls::button(
                 style(model),
-                "devices-show-code",
+                "clients-show-code",
                 controls::Button::secondary(&tr!("Show Pairing Code"))
                     .enabled(state.status == ListenerStatus::Listening && !access.busy),
                 cx.listener(|model, _, _, cx| model.show_pairing_code(cx)),
@@ -275,27 +275,27 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
         .min_w(px(0.0))
         .flex()
         .flex_col()
-        .gap(model.devices_page.metrics.scaled(10.0))
-        .child(code(pairing.code.clone(), model.devices_page.metrics))
+        .gap(model.servers_page.metrics.scaled(10.0))
+        .child(code(pairing.code.clone(), model.servers_page.metrics))
         .child(div().min_w(px(0.0)).text_color(model.theme.fg_muted).child(accessibility::label(
-            "devices-code-hint",
+            "clients-code-hint",
             tr!(
-                "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in Settings → Devices and paste the link. The code works once and expires in 5 minutes."
+                "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in Settings → Servers and paste the link. The code works once and expires in 5 minutes."
             ),
         )))
         .child(
             div()
                 .flex()
-                .gap(model.devices_page.metrics.scaled(8.0))
+                .gap(model.servers_page.metrics.scaled(8.0))
                 .child(controls::button(
                     style(model),
-                    "devices-copy-link",
+                    "clients-copy-link",
                     controls::Button::secondary(&tr!("Copy Link")),
                     cx.listener(|model, _, _, cx| model.copy_pairing_link(cx)),
                 ))
                 .child(controls::button(
                     style(model),
-                    "devices-cancel-code",
+                    "clients-cancel-code",
                     controls::Button::secondary(&tr!("Cancel")),
                     cx.listener(|model, _, _, cx| model.cancel_pairing(cx)),
                 )),
@@ -308,18 +308,18 @@ pub(crate) fn code(code: Option<Arc<QrCode>>, metrics: Metrics) -> AnyElement {
     let Some(code) = code else {
         return div()
             .child(accessibility::label(
-                "devices-code-too-long",
+                "clients-code-too-long",
                 tr!("The pairing code is too long to show."),
             ))
             .into_any_element();
     };
     let painted = qr(code).size(metrics.scaled(CODE_SIZE));
     div()
-        .id("devices-code")
+        .id("clients-code")
         .role(Role::Image)
-        .accessibility_id("devices-code")
+        .accessibility_id("clients-code")
         .aria_label(tr!("Pairing code"))
-        .debug_selector(|| "devices-code".into())
+        .debug_selector(|| "clients-code".into())
         .child(painted)
         .into_any_element()
 }
@@ -358,13 +358,13 @@ pub(crate) fn qr(code: Arc<QrCode>) -> gpui::Canvas<()> {
     )
 }
 
-fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+fn clients(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     if state.devices.is_empty() {
         return div()
             .text_color(model.theme.fg_muted)
             .child(accessibility::label(
-                "devices-none",
-                tr!("No paired devices yet."),
+                "clients-none",
+                tr!("No clients paired yet."),
             ))
             .into_any_element();
     }
@@ -372,12 +372,12 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let busy = model.device_access().busy;
+    let busy = model.client_access().busy;
     div()
         .min_w(px(0.0))
         .flex()
         .flex_col()
-        .gap(model.devices_page.metrics.scaled(8.0))
+        .gap(model.servers_page.metrics.scaled(8.0))
         .children(state.devices.iter().map(|device| {
             let id = device.id;
             div()
@@ -385,8 +385,8 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
                 .flex()
                 .items_center()
                 .justify_between()
-                .gap(model.devices_page.metrics.scaled(12.0))
-                .debug_selector(move || format!("devices-paired-{id}"))
+                .gap(model.servers_page.metrics.scaled(12.0))
+                .debug_selector(move || format!("clients-paired-{id}"))
                 .child(
                     div()
                         .flex()
@@ -394,12 +394,12 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
                         .flex_1()
                         .min_w(px(0.0))
                         .child(div().truncate().child(accessibility::label(
-                            SharedString::from(format!("devices-paired-name-{id}")),
+                            SharedString::from(format!("clients-paired-name-{id}")),
                             device.name.clone(),
                         )))
                         .child(div().truncate().text_color(model.theme.fg_muted).child(
                             accessibility::label(
-                                SharedString::from(format!("devices-paired-state-{id}")),
+                                SharedString::from(format!("clients-paired-state-{id}")),
                                 format!("{} · {}", kind(device.kind), presence(device, now)),
                             ),
                         )),
@@ -407,7 +407,7 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
                 .child(
                     div().flex_none().child(controls::button(
                         style(model),
-                        &format!("devices-revoke-{id}"),
+                        &format!("clients-revoke-{id}"),
                         controls::Button::secondary(&tr!("Revoke"))
                             .named(&tr!("Revoke %@", device.name.as_str()))
                             .enabled(!busy),
@@ -422,7 +422,7 @@ fn devices(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
 
 fn kind(kind: DeviceKind) -> SharedString {
     match kind {
-        DeviceKind::Computer => tr!("Computer"),
+        DeviceKind::Computer => tr!("Desktop"),
         DeviceKind::Phone | DeviceKind::Unrecognized(_) => tr!("Phone"),
     }
 }

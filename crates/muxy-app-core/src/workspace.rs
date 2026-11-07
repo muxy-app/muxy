@@ -27,17 +27,12 @@ impl AppState {
         self.window.workspace.and_then(|id| self.workspace(id))
     }
 
-    /// Whether the fixed Remote Servers workspace filters the sidebar.
-    pub fn remote_servers_selected(&self) -> bool {
-        self.window.remote_servers
-    }
-
-    /// Whether the active workspace lists `project`. Remote Servers lists each
-    /// remote server's Home and nothing else. Every other workspace lists this
-    /// computer's Home, and worktrees follow their parent.
+    /// Whether the sidebar lists `project`: only the default server's
+    /// projects are listed, and the active workspace lists that server's Home
+    /// and its members, with worktrees following their parent.
     pub fn is_listed(&self, project: &Project) -> bool {
-        if project.is_remote_home() || self.window.remote_servers {
-            return project.is_remote_home() && self.window.remote_servers;
+        if project.server_id != self.default_server {
+            return false;
         }
         let root = project.parent_id.unwrap_or(project.id);
         self.active_workspace()
@@ -76,14 +71,7 @@ impl AppState {
             self.workspace_mut(id)?;
         }
         self.window.workspace = id;
-        self.window.remote_servers = false;
         Ok(())
-    }
-
-    /// Filters the sidebar to each remote server's Home.
-    pub fn select_remote_servers(&mut self) {
-        self.window.workspace = None;
-        self.window.remote_servers = true;
     }
 
     pub fn set_workspace_member(
@@ -110,8 +98,7 @@ impl AppState {
     }
 
     /// Adds an opened project, or a worktree's parent, to the active workspace;
-    /// Home is skipped. No project joins Remote Servers, so the sidebar goes
-    /// back to all projects instead.
+    /// Home is skipped.
     pub fn join_active_workspace(&mut self, project: ProjectId) {
         let root = self
             .project(project)
@@ -119,23 +106,17 @@ impl AppState {
         if let Some(id) = self.window.workspace {
             let _ = self.set_workspace_member(id, root, true);
         }
-        self.window.remote_servers = false;
     }
 
-    /// Keeps the current project listed by switching to Remote Servers for a
-    /// remote server's Home, otherwise to a workspace that contains it, or to
-    /// all projects.
+    /// Keeps the current project listed by switching to a workspace that
+    /// contains it, or to all projects. A project of another server than the
+    /// default one is never listed, whichever workspace is active.
     pub fn reveal_current_project(&mut self) {
         let current = self.current_project();
-        if self.is_listed(current) {
-            return;
-        }
-        if current.is_remote_home() {
-            self.select_remote_servers();
+        if self.is_listed(current) || current.server_id != self.default_server {
             return;
         }
         let root = current.parent_id.unwrap_or(current.id);
-        self.window.remote_servers = false;
         self.window.workspace = self
             .workspaces
             .iter()
@@ -157,9 +138,6 @@ impl AppState {
         }
         if self.active_workspace().is_none() {
             self.window.workspace = None;
-        }
-        if !self.projects.iter().any(Project::is_remote_home) {
-            self.window.remote_servers = false;
         }
     }
 

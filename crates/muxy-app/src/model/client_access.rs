@@ -9,23 +9,23 @@ use muxy_ui::tr;
 
 use super::{AppModel, Quitting};
 use crate::boot::Work;
-use crate::views::devices::Pairing;
+use crate::views::clients::Pairing;
 
-/// Device access as the Devices page shows it; the server owns the real state.
+/// Client access as the Servers page shows it; the server owns the real state.
 #[derive(Default)]
 #[allow(
     clippy::struct_excessive_bools,
     reason = "The running request and the follow-ups it owes"
 )]
-pub(crate) struct MobileAccess {
+pub(crate) struct ClientAccess {
     pub(crate) state: Option<RemoteAccessState>,
     /// The current pairing code, until it is used, cancelled, or expires.
     pub(crate) pairing: Option<Pairing>,
-    /// Settings is on the Devices page, whether or not its tab is displayed.
+    /// Settings is on the Servers page, whether or not its tab is displayed.
     page_open: bool,
-    /// The Devices page was on screen when last checked.
+    /// The Servers page was on screen when last checked.
     page_shown: bool,
-    /// The code's link was copied, so it stays valid away from the Devices
+    /// The code's link was copied, so it stays valid away from the Servers
     /// page until it is used or expires.
     copied: bool,
     pub(crate) busy: bool,
@@ -44,7 +44,7 @@ pub(crate) struct MobileAccess {
     expiry: Option<Task<()>>,
 }
 
-impl MobileAccess {
+impl ClientAccess {
     pub(super) fn show_page(&mut self) {
         self.page_open = true;
     }
@@ -53,7 +53,7 @@ impl MobileAccess {
         self.page_open = false;
     }
 
-    /// What survives losing the server: the Devices page staying on screen,
+    /// What survives losing the server: the Servers page staying on screen,
     /// and the promise to turn access back off, which is kept once it returns.
     pub(super) fn after_disconnect(&self) -> Self {
         Self {
@@ -65,17 +65,17 @@ impl MobileAccess {
 }
 
 impl AppModel {
-    pub(crate) fn device_access(&self) -> &MobileAccess {
-        &self.mobile
+    pub(crate) fn client_access(&self) -> &ClientAccess {
+        &self.client_access
     }
 
-    pub(crate) fn mobile_available(&self) -> bool {
+    pub(crate) fn client_access_available(&self) -> bool {
         self.quitting == Quitting::Idle && self.ready(ServerId::local())
     }
 
-    /// The Devices page is on screen, which focus elsewhere doesn't change.
-    fn devices_page_open(&self) -> bool {
-        self.mobile.page_open
+    /// The Servers page is on screen, which focus elsewhere doesn't change.
+    fn servers_page_open(&self) -> bool {
+        self.client_access.page_open
             && self.state.settings_tab().is_some()
             && self
                 .visible_panes()
@@ -83,27 +83,27 @@ impl AppModel {
                 .any(|pane| self.state.is_settings_pane(pane))
     }
 
-    /// Settings moved to the Devices page or away from it.
-    pub(crate) fn set_devices_page_open(&mut self, open: bool, cx: &mut Context<Self>) {
-        if self.mobile.page_open != open {
-            self.mobile.page_open = open;
-            self.sync_devices_page(open, cx);
+    /// Settings moved to the Servers page or away from it.
+    pub(crate) fn set_servers_page_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if self.client_access.page_open != open {
+            self.client_access.page_open = open;
+            self.sync_servers_page(open, cx);
         }
     }
 
-    /// Device access is on screen, on the Devices page or in the welcome tour.
-    fn device_access_shown(&self) -> bool {
-        self.devices_page_open() || self.onboarding_pairing_shown()
+    /// Client access is on screen, on the Servers page or in the welcome tour.
+    fn client_access_shown(&self) -> bool {
+        self.servers_page_open() || self.onboarding_pairing_shown()
     }
 
-    /// Reads device access when the Devices page comes on screen or this
+    /// Reads client access when the Servers page comes on screen or this
     /// computer's server connects with it open, and withdraws a pairing code
     /// that was never copied once it leaves the screen.
-    pub(crate) fn sync_devices_page(&mut self, opened: bool, cx: &mut Context<Self>) {
-        let page = self.devices_page_open();
-        let returned = page && !self.mobile.page_shown;
-        self.mobile.page_shown = page;
-        if !self.device_access_shown() {
+    pub(crate) fn sync_servers_page(&mut self, opened: bool, cx: &mut Context<Self>) {
+        let page = self.servers_page_open();
+        let returned = page && !self.client_access.page_shown;
+        self.client_access.page_shown = page;
+        if !self.client_access_shown() {
             self.withdraw_pairing(cx);
         } else if opened || returned {
             self.read_remote_access(cx);
@@ -111,26 +111,26 @@ impl AppModel {
     }
 
     pub(crate) fn read_remote_access(&mut self, cx: &mut Context<Self>) {
-        if !self.mobile_available() {
+        if !self.client_access_available() {
             return;
         }
-        if self.mobile.busy {
-            self.mobile.stale = true;
+        if self.client_access.busy {
+            self.client_access.stale = true;
             return;
         }
-        self.mobile.busy = self.send(ServerId::local(), Work::ReadRemoteAccess, cx);
+        self.client_access.busy = self.send(ServerId::local(), Work::ReadRemoteAccess, cx);
         cx.notify();
     }
 
-    /// Paired devices connected, disconnected, or changed; refresh only while device access is on screen.
+    /// Paired clients connected, disconnected, or changed; refresh only while client access is on screen.
     pub(super) fn remote_access_changed(&mut self, cx: &mut Context<Self>) {
-        if self.device_access_shown() {
+        if self.client_access_shown() {
             self.read_remote_access(cx);
         }
     }
 
-    /// Turns access for other devices on or off. A refusal shows on the page.
-    pub(crate) fn set_device_access(&mut self, enabled: bool, cx: &mut Context<Self>) {
+    /// Turns client access on or off. A refusal shows on the page.
+    pub(crate) fn set_client_access(&mut self, enabled: bool, cx: &mut Context<Self>) {
         let result = self.write_remote_access(
             |settings| RemoteAccessSettings {
                 enabled,
@@ -141,8 +141,8 @@ impl AppModel {
         self.finish_access_change(result, cx);
     }
 
-    /// Moves access for other devices to the typed port.
-    pub(crate) fn set_device_port(&mut self, port: &str, cx: &mut Context<Self>) {
+    /// Moves client access to the typed port.
+    pub(crate) fn set_client_port(&mut self, port: &str, cx: &mut Context<Self>) {
         let result = port
             .trim()
             .parse()
@@ -154,7 +154,7 @@ impl AppModel {
     }
 
     fn finish_access_change(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
-        self.mobile.error = result.err();
+        self.client_access.error = result.err();
         cx.notify();
     }
 
@@ -163,25 +163,26 @@ impl AppModel {
         change: impl FnOnce(RemoteAccessSettings) -> RemoteAccessSettings,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        if !self.mobile_available() {
-            return Err(tr!("Connect to the server before changing device access").to_string());
+        if !self.client_access_available() {
+            return Err(tr!("Connect to the server before changing client access").to_string());
         }
-        if self.mobile.busy {
-            return Err(tr!("Wait for the current device access change to finish").to_string());
+        if self.client_access.busy {
+            return Err(tr!("Wait for the current client access change to finish").to_string());
         }
         let current = self
-            .mobile
+            .client_access
             .state
             .as_ref()
             .map(|state| state.settings)
-            .ok_or_else(|| tr!("Load device access first").to_string())?;
+            .ok_or_else(|| tr!("Load client access first").to_string())?;
         let settings = change(current);
         settings
             .validate()
             .map_err(|_| tr!("Use a port from 1024 to 65535").to_string())?;
         if settings != current {
-            self.mobile.busy = self.send(ServerId::local(), Work::WriteRemoteAccess(settings), cx);
-            if !self.mobile.busy {
+            self.client_access.busy =
+                self.send(ServerId::local(), Work::WriteRemoteAccess(settings), cx);
+            if !self.client_access.busy {
                 return Err(tr!("Could not send the change to the server").to_string());
             }
         }
@@ -189,10 +190,10 @@ impl AppModel {
     }
 
     pub(crate) fn show_pairing_code(&mut self, cx: &mut Context<Self>) {
-        if self.mobile_available() && !self.mobile.busy {
-            self.mobile.error = None;
-            self.mobile.busy = self.send(ServerId::local(), Work::StartPairing, cx);
-            self.mobile.starting = self.mobile.busy;
+        if self.client_access_available() && !self.client_access.busy {
+            self.client_access.error = None;
+            self.client_access.busy = self.send(ServerId::local(), Work::StartPairing, cx);
+            self.client_access.starting = self.client_access.busy;
             cx.notify();
         }
     }
@@ -201,16 +202,16 @@ impl AppModel {
     /// when there is none.
     pub(crate) fn copy_pairing_link(&mut self, cx: &mut Context<Self>) {
         self.dismiss_overlay(cx);
-        if !self.mobile_available() {
+        if !self.client_access_available() {
             self.fail(
                 tr!("Connect to this computer's server to copy its pairing link.").to_string(),
                 cx,
             );
             return;
         }
-        self.mobile.copy_link = true;
-        let code_may_be_stale = !self.devices_page_open();
-        if code_may_be_stale && !self.mobile.busy {
+        self.client_access.copy_link = true;
+        let code_may_be_stale = !self.servers_page_open();
+        if code_may_be_stale && !self.client_access.busy {
             self.read_remote_access(cx);
         }
         self.continue_link_copy(cx);
@@ -219,41 +220,41 @@ impl AppModel {
     /// Copies the code's link once there is one, asks for a code once access
     /// is listening, or says why there can't be one.
     fn continue_link_copy(&mut self, cx: &mut Context<Self>) {
-        if !self.mobile.copy_link || self.mobile.busy {
+        if !self.client_access.copy_link || self.client_access.busy {
             return;
         }
-        if let Some(pairing) = &self.mobile.pairing {
+        if let Some(pairing) = &self.client_access.pairing {
             cx.write_to_clipboard(ClipboardItem::new_string(pairing.link().to_owned()));
-            self.mobile.copy_link = false;
-            self.mobile.copied = true;
+            self.client_access.copy_link = false;
+            self.client_access.copied = true;
             self.show_notice(tr!("Pairing link copied").to_string(), cx);
             return;
         }
-        let Some(state) = &self.mobile.state else {
+        let Some(state) = &self.client_access.state else {
             return;
         };
         if state.status == ListenerStatus::Listening {
             self.show_pairing_code(cx);
             return;
         }
-        self.mobile.copy_link = false;
+        self.client_access.copy_link = false;
         let reason = if state.settings.enabled {
-            tr!("This computer isn't listening for devices yet. Try again in a moment.")
+            tr!("This computer isn't listening for clients yet. Try again in a moment.")
         } else {
-            tr!("Turn on Allow other devices in Settings → Devices to copy a pairing link.")
+            tr!("Turn on Allow clients in Settings → Servers to copy a pairing link.")
         };
         self.fail(reason.to_string(), cx);
     }
 
     pub(crate) fn cancel_pairing(&mut self, cx: &mut Context<Self>) {
-        self.mobile.copy_link = false;
-        self.mobile.copied = false;
-        self.mobile.pairing = None;
-        self.mobile.expiry = None;
-        if self.mobile.busy {
-            self.mobile.cancel = true;
-        } else if self.mobile_available() {
-            self.mobile.busy = self.send(ServerId::local(), Work::CancelPairing, cx);
+        self.client_access.copy_link = false;
+        self.client_access.copied = false;
+        self.client_access.pairing = None;
+        self.client_access.expiry = None;
+        if self.client_access.busy {
+            self.client_access.cancel = true;
+        } else if self.client_access_available() {
+            self.client_access.busy = self.send(ServerId::local(), Work::CancelPairing, cx);
         }
         cx.notify();
     }
@@ -261,8 +262,8 @@ impl AppModel {
     /// A code that was only shown must not stay valid on the server once it
     /// leaves the screen.
     pub(super) fn withdraw_pairing(&mut self, cx: &mut Context<Self>) {
-        let shown = self.mobile.pairing.is_some() && !self.mobile.copied;
-        let starting = self.mobile.starting && !self.mobile.copy_link;
+        let shown = self.client_access.pairing.is_some() && !self.client_access.copied;
+        let starting = self.client_access.starting && !self.client_access.copy_link;
         if shown || starting {
             self.cancel_pairing(cx);
         }
@@ -274,7 +275,7 @@ impl AppModel {
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        let Some(name) = self.mobile.state.as_ref().and_then(|state| {
+        let Some(name) = self.client_access.state.as_ref().and_then(|state| {
             state
                 .devices
                 .iter()
@@ -290,18 +291,19 @@ impl AppModel {
             async move |parent, cx| crate::views::confirm::prompt_revoke(parent, &name, cx).await,
             move |model, response, cx| match response {
                 Ok(true)
-                    if generation == model.servers.local.generation && model.mobile_available() =>
+                    if generation == model.servers.local.generation
+                        && model.client_access_available() =>
                 {
-                    if model.mobile.busy {
-                        model.mobile.error = Some(
-                            tr!("Wait for the current device access change to finish").to_string(),
+                    if model.client_access.busy {
+                        model.client_access.error = Some(
+                            tr!("Wait for the current client access change to finish").to_string(),
                         );
                     } else {
-                        model.mobile.busy =
+                        model.client_access.busy =
                             model.send(ServerId::local(), Work::RevokeDevice(device), cx);
                     }
                 }
-                Err(error) => model.mobile.error = Some(error),
+                Err(error) => model.client_access.error = Some(error),
                 Ok(_) => {}
             },
             cx,
@@ -313,22 +315,22 @@ impl AppModel {
         result: Result<RemoteAccessState, muxy_client::ClientError>,
         cx: &mut Context<Self>,
     ) {
-        self.mobile.busy = false;
+        self.client_access.busy = false;
         match result {
             Ok(state) => {
                 // The code was used, cancelled elsewhere, or expired.
                 if state.pairing_expires_at.is_none() {
-                    self.mobile.pairing = None;
-                    self.mobile.copied = false;
-                    self.mobile.expiry = None;
+                    self.client_access.pairing = None;
+                    self.client_access.copied = false;
+                    self.client_access.expiry = None;
                 }
-                self.mobile.error = None;
-                self.mobile.state = Some(state);
-                self.show_device_port(cx);
+                self.client_access.error = None;
+                self.client_access.state = Some(state);
+                self.show_client_port(cx);
             }
-            Err(error) => self.mobile.error = Some(error.to_string()),
+            Err(error) => self.client_access.error = Some(error.to_string()),
         }
-        self.finish_mobile_request(cx);
+        self.finish_client_access_request(cx);
     }
 
     pub(super) fn receive_pairing(
@@ -336,13 +338,14 @@ impl AppModel {
         result: Result<PairingOffer, muxy_client::ClientError>,
         cx: &mut Context<Self>,
     ) {
-        self.mobile.busy = false;
-        self.mobile.starting = false;
+        self.client_access.busy = false;
+        self.client_access.starting = false;
         match result {
             Ok(_)
-                if self.mobile.cancel || !(self.device_access_shown() || self.mobile.copy_link) =>
+                if self.client_access.cancel
+                    || !(self.client_access_shown() || self.client_access.copy_link) =>
             {
-                self.mobile.cancel = true;
+                self.client_access.cancel = true;
             }
             Ok(offer) => {
                 let lifetime = offer.expires_at.saturating_sub(
@@ -351,35 +354,40 @@ impl AppModel {
                         .unwrap_or_default()
                         .as_secs(),
                 );
-                self.mobile.expiry = Some(cx.spawn(async move |model, cx| {
+                self.client_access.expiry = Some(cx.spawn(async move |model, cx| {
                     cx.background_executor()
                         .timer(Duration::from_secs(lifetime))
                         .await;
                     let _ = model.update(cx, |model, cx| {
-                        model.mobile.pairing = None;
-                        model.mobile.copied = false;
+                        model.client_access.pairing = None;
+                        model.client_access.copied = false;
                         model.read_remote_access(cx);
                         cx.notify();
                     });
                 }));
-                self.mobile.pairing = Some(Pairing::new(&offer));
-                self.mobile.copied = false;
-                self.mobile.error = None;
+                self.client_access.pairing = Some(Pairing::new(&offer));
+                self.client_access.copied = false;
+                self.client_access.error = None;
             }
-            Err(error) => self.mobile.error = Some(error.to_string()),
+            Err(error) => self.client_access.error = Some(error.to_string()),
         }
-        self.finish_mobile_request(cx);
+        self.finish_client_access_request(cx);
     }
 
-    fn finish_mobile_request(&mut self, cx: &mut Context<Self>) {
-        if std::mem::take(&mut self.mobile.cancel) && self.mobile_available() {
-            self.mobile.busy = self.send(ServerId::local(), Work::CancelPairing, cx);
+    fn finish_client_access_request(&mut self, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.client_access.cancel) && self.client_access_available() {
+            self.client_access.busy = self.send(ServerId::local(), Work::CancelPairing, cx);
         }
-        if std::mem::take(&mut self.mobile.stale) {
+        if std::mem::take(&mut self.client_access.stale) {
             self.read_remote_access(cx);
         }
-        if let Some(error) = self.mobile.error.clone().filter(|_| self.mobile.copy_link) {
-            self.mobile.copy_link = false;
+        if let Some(error) = self
+            .client_access
+            .error
+            .clone()
+            .filter(|_| self.client_access.copy_link)
+        {
+            self.client_access.copy_link = false;
             self.fail(error, cx);
         }
         self.continue_link_copy(cx);
@@ -393,24 +401,27 @@ impl AppModel {
     /// the server it waits for it to return, and after a refusal, for the next
     /// good answer.
     pub(super) fn settle_restored_access(&mut self, cx: &mut Context<Self>) {
-        if !self.mobile.restore_off || self.mobile.busy || !self.mobile_available() {
+        if !self.client_access.restore_off
+            || self.client_access.busy
+            || !self.client_access_available()
+        {
             return;
         }
         let Some(enabled) = self
-            .mobile
+            .client_access
             .state
             .as_ref()
             .map(|state| state.settings.enabled)
         else {
-            if self.mobile.error.is_none() {
+            if self.client_access.error.is_none() {
                 self.read_remote_access(cx);
             }
             return;
         };
         if !enabled {
-            self.mobile.restore_off = false;
-        } else if self.mobile.error.is_none() {
-            self.set_device_access(false, cx);
+            self.client_access.restore_off = false;
+        } else if self.client_access.error.is_none() {
+            self.set_client_access(false, cx);
         }
     }
 }

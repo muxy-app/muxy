@@ -1,5 +1,5 @@
 //! The form that pairs with another computer from the link its Settings →
-//! Devices shows, and renames or regroups a paired server.
+//! Servers shows, and renames or regroups a paired server.
 
 use gpui::{
     AnyElement, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
@@ -18,7 +18,7 @@ use crate::model::{AppModel, PairingForm};
 
 pub(crate) struct PairForm {
     /// `None` pairs a new computer.
-    device: Option<ServerId>,
+    server: Option<ServerId>,
     link: Entity<TextInput>,
     name: Entity<TextInput>,
     group: Entity<TextInput>,
@@ -43,16 +43,16 @@ impl PairForm {
 }
 
 impl AppModel {
-    /// Opens the pairing form, or with `device` the form that renames,
+    /// Opens the pairing form, or with `server` the form that renames,
     /// regroups, or pairs again with a paired server.
-    pub(crate) fn open_pair_form(&mut self, device: Option<ServerId>, cx: &mut Context<Self>) {
-        let entry = device.and_then(|id| self.settings.server(id).cloned());
+    pub(crate) fn open_pair_form(&mut self, server: Option<ServerId>, cx: &mut Context<Self>) {
+        let entry = server.and_then(|id| self.settings.server(id).cloned());
         let link = input(
             self,
             cx,
             tr_key!("Pairing Link"),
             "pair-link",
-            if device.is_some() {
+            if server.is_some() {
                 tr_key!("Paste a new link to pair again")
             } else {
                 "muxy://pair?…"
@@ -97,7 +97,7 @@ impl AppModel {
         self.overlay_subscription = None;
         self.open_overlay(
             Overlay::PairForm(Box::new(PairForm {
-                device,
+                server,
                 link,
                 name,
                 group,
@@ -113,16 +113,16 @@ impl AppModel {
         let Some(Overlay::PairForm(form)) = &mut self.overlay else {
             return;
         };
-        let (device, submitted) = (form.device, form.submitted(cx));
+        let (server, submitted) = (form.server, form.submitted(cx));
         form.error = None;
-        if let Some(device) = device
+        if let Some(server) = server
             && submitted.link.trim().is_empty()
         {
-            let result = self.edit_paired_server(device, &submitted, cx);
+            let result = self.edit_paired_server(server, &submitted, cx);
             self.finish_pair_form(result, cx);
             return;
         }
-        if let Err(error) = self.start_pairing(device, submitted, cx) {
+        if let Err(error) = self.start_pairing(server, submitted, cx) {
             self.finish_pair_form(Err(error), cx);
         }
         cx.notify();
@@ -172,7 +172,7 @@ fn render(
     let theme = &model.theme;
     let style = Style { theme, metrics: &m };
     let text = |id: &str, input: &Entity<TextInput>| controls::text_field(style, id, input, None);
-    let editing = form.device.is_some();
+    let editing = form.server.is_some();
     let pairing = model.pairing_running();
     let ready = editing || !form.link.read(cx).text().trim().is_empty();
     let (status, color) = match &form.error {
@@ -183,13 +183,13 @@ fn render(
         ),
         None if editing => (
             tr!(
-                "If it was revoked, moved, or reset, copy a new pairing link from its Settings → Devices to pair again."
+                "If it was revoked, moved, or reset, copy a new pairing link from its Settings → Servers to pair again."
             ),
             theme.fg_muted,
         ),
         None => (
             tr!(
-                "On the other computer, open Settings → Devices, turn on Allow other devices, and copy its pairing link. Both computers must reach each other on the network or through a VPN."
+                "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN."
             ),
             theme.fg_muted,
         ),

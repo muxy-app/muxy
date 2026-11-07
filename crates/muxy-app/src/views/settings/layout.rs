@@ -42,7 +42,7 @@ impl Category {
                 tr_key!("Sessions"),
                 tr_key!("Server control"),
             ],
-            Self::Devices | Self::Extensions | Self::Commands | Self::About => &[],
+            Self::Servers | Self::Extensions | Self::Commands | Self::About => &[],
             Self::Backup => &[
                 tr_key!("Backup & Restore"),
                 tr_key!("Migration"),
@@ -300,7 +300,11 @@ impl SettingsView {
                     .text_color(self.theme.accent)
                     .bg(self.theme.accent_soft)
                     .child(if self.category == Category::Server {
-                        tr!("Current device")
+                        if cfg!(target_os = "macos") {
+                            tr!("This Mac")
+                        } else {
+                            tr!("This Computer")
+                        }
                     } else {
                         tr!("User")
                     }),
@@ -421,16 +425,16 @@ impl SettingsView {
                 .child(extensions.clone())
                 .into_any_element();
         }
-        if self.category == Category::Devices
+        if self.category == Category::Servers
             && self.query.is_empty()
-            && let Some(devices) = &self.devices
+            && let Some(servers) = &self.servers
         {
             return div()
                 .w_full()
                 .min_w_0()
                 .min_h_0()
                 .h_full()
-                .child(devices.clone())
+                .child(servers.clone())
                 .into_any_element();
         }
         let view = cx.entity();

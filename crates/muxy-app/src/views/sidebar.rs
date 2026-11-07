@@ -57,7 +57,7 @@ pub(crate) fn register_commands(
         Command::new("manage_extensions", tr!("Manage Extensions"), manage)
             .keywords("settings installed marketplace extension"),
     );
-    let has_workspaces = !model.state.workspaces().is_empty() || model.remote_servers_offered();
+    let has_workspaces = !model.state.workspaces().is_empty();
     let model = cx.weak_entity();
     registry.register(
         Command::list("switch_project", tr!("Switch Project…"), move |cx| {
@@ -123,13 +123,6 @@ pub(crate) fn register_commands(
                 } else {
                     command
                 });
-                if id.is_none() && model.remote_servers_offered() {
-                    let handler: Handler = Rc::new(|model, _, cx| model.select_remote_servers(cx));
-                    workspaces.register(
-                        Command::new("remote_servers", tr!("Remote Servers"), handler)
-                            .keywords("Remote Servers"),
-                    );
-                }
             }
             workspaces
         })
@@ -496,27 +489,10 @@ impl AppModel {
         self.open_menu(items, position, window, cx);
     }
 
+    /// Add Project's choices: a folder on the default server, then projects
+    /// removed from it that can come back.
     fn project_source_items(&self) -> Vec<Item> {
-        let server = |entry: &muxy_app_core::settings::ServerEntry| {
-            Item::action(entry.name.clone(), Command::AddRemoteProject(entry.id))
-        };
-        let devices = crate::model::by_group(&self.settings.servers, |entry| entry)
-            .into_iter()
-            .flat_map(|(group, entries)| match group {
-                Some(group) => vec![Item::submenu(
-                    group.to_owned(),
-                    entries.into_iter().map(server).collect(),
-                )],
-                None => entries.into_iter().map(server).collect(),
-            })
-            .chain(std::iter::once(
-                Item::action(tr!("Manage Devices…"), Command::ManageRemoteDevices).separated(),
-            ))
-            .collect();
-        let mut items = vec![
-            Item::action(tr!("Local"), Command::AddProject),
-            Item::submenu(tr!("Remote"), devices),
-        ];
+        let mut items = vec![Item::action(tr!("Folder…"), Command::AddProject)];
         let removed = self.restorable_projects();
         if !removed.is_empty() {
             items.push(Item::submenu(tr!("Recently Removed"), removed).separated());
@@ -530,7 +506,8 @@ impl AppModel {
             .iter()
             .enumerate()
             .filter(|(_, removed)| {
-                self.state.server_home(removed.server_id).is_some()
+                removed.server_id == self.state.default_server()
+                    && self.state.server_home(removed.server_id).is_some()
                     && !self.state.projects().iter().any(|project| {
                         project.server_id == removed.server_id
                             && project.directory == removed.directory
@@ -633,9 +610,6 @@ impl AppModel {
         if self.appearance.sidebar_focus {
             return tr!("Focused Project");
         }
-        if self.state.remote_servers_selected() {
-            return tr!("Remote Servers");
-        }
         self.state.active_workspace().map_or_else(
             || tr!("All Projects"),
             |workspace| workspace.name.clone().into(),
@@ -660,19 +634,7 @@ impl AppModel {
 
     /// Sorts top-level projects as the sidebar lists them.
     pub(crate) fn sort_parents(&self, parents: &mut [&Project]) {
-        let server = |project: &Project| {
-            self.settings
-                .servers
-                .iter()
-                .position(|entry| entry.id == project.server_id)
-                .map_or(0, |index| index + 1)
-        };
         self.sort_projects(parents);
-        if self.state.remote_servers_selected()
-            || self.appearance.sidebar_project_order != ProjectOrder::Manual
-        {
-            parents.sort_by_cached_key(|project| server(project));
-        }
     }
 
     pub(crate) fn sort_projects(&self, projects: &mut [&Project]) {
@@ -837,17 +799,10 @@ fn current_parent(model: &AppModel) -> ProjectId {
 fn filter_items(model: &AppModel) -> Vec<Item> {
     let focused = model.appearance.sidebar_focus;
     let active = model.state.active_workspace().map(|workspace| workspace.id);
-    let remote = model.state.remote_servers_selected();
     let mut items = vec![
         Item::action(tr!("All Projects"), Command::SelectWorkspace(None))
-            .checked_if(!focused && !remote && active.is_none()),
+            .checked_if(!focused && active.is_none()),
     ];
-    if model.remote_servers_offered() {
-        items.push(
-            Item::action(tr!("Remote Servers"), Command::SelectRemoteServers)
-                .checked_if(!focused && remote),
-        );
-    }
     items.extend(model.state.workspaces().iter().map(|workspace| {
         Item::action(
             workspace.name.clone(),
@@ -1065,23 +1020,30 @@ fn project_row(
         || model.state.current_project().parent_id == Some(id);
     let has_worktrees = model.has_worktrees(project) && !missing;
     let group = SharedString::from(format!("project-{id}"));
-    let tile = shortcut
-        .and_then(|index| {
-            model.shortcut_hints.label(
-                muxy_core::shortcuts::ShortcutId::PROJECTS[index],
-                &model.settings.keymap,
-            )
-        })
-        .map_or_else(
-            || project_tile(project, model, tile_size(model), Some(group.clone())),
-            |label| {
-                div()
-                    .debug_selector(move || format!("project-shortcut-{id}"))
-                    .child(super::shortcut_hints::badge(label, tile_size(model), model))
-                    .into_any_element()
-            },
-        );
+    let hint = shortcut.and_then(|index| {
+        model.shortcut_hints.label(
+            muxy_core::shortcuts::ShortcutId::PROJECTS[index],
+            &model.settings.keymap,
+        )
+    });
+    let hinted = hint.is_some();
+    let tile = hint.map_or_else(
+        || project_tile(project, model, tile_size(model), Some(group.clone())),
+        |label| {
+            div()
+                .debug_selector(move || format!("project-shortcut-{id}"))
+                .child(super::shortcut_hints::badge(label, tile_size(model), model))
+                .into_any_element()
+        },
+    );
     let activity = tab_activity::project_status(id, model);
+    // A collapsed tile dims under its spinner rather than wearing it as a badge.
+    let dimmed = !wide
+        && !hinted
+        && matches!(
+            activity,
+            tab_activity::Status::Busy(_) | tab_activity::Status::Progress(_)
+        );
     let name = SharedString::from(model.project_title(project));
     let description = project_description(missing, remote_description(project, model), activity);
     let expanded = has_worktrees.then(|| wide && model.expanded_worktrees.contains(&id));
@@ -1170,7 +1132,32 @@ fn project_row(
             )
         })
         .when(wide, |row| row.children(remote_marker(project, model)))
-        .when(activity != tab_activity::Status::None, |row| {
+        .when(dimmed, |row| {
+            row.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(tile_size(model))
+                            .rounded(m.radius_md())
+                            .bg(theme.bg.opacity(0.6))
+                            .child(tab_activity::status_glyph(
+                                format!("project-activity-{id}"),
+                                activity,
+                                m.icon_lg(),
+                                model,
+                            )),
+                    ),
+            )
+        })
+        .when(activity != tab_activity::Status::None && !dimmed, |row| {
             row.child(
                 div()
                     .flex()
@@ -1270,7 +1257,7 @@ pub(super) fn project_description(
 }
 
 pub(super) fn remote_description(project: &Project, model: &AppModel) -> Option<SharedString> {
-    if project.is_remote_home() {
+    if project.home || project.server_id == model.state.default_server() {
         return None;
     }
     model

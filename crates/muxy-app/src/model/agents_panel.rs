@@ -140,6 +140,7 @@ impl AgentsPanel {
 }
 
 impl AppModel {
+    /// The agents in the default server's projects, which the sidebar lists.
     pub(crate) fn running_agents(&self) -> Vec<RunningAgent> {
         type Index<'a> = (
             std::collections::HashMap<SessionId, &'a muxy_protocol::AgentActivity>,
@@ -150,6 +151,9 @@ impl AppModel {
         let mut seen = std::collections::BTreeSet::new();
         let mut agents: Vec<RunningAgent> = Vec::new();
         for project in self.state.projects() {
+            if !self.project_listed(project) {
+                continue;
+            }
             let position = servers
                 .iter()
                 .position(|(server, _)| *server == project.server_id)

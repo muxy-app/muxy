@@ -46,7 +46,7 @@ pub(crate) const TIPS: &[&str] = &[
         "Record a shortcut in Settings → Quick Terminal → Shortcut to open a floating Home shell over any app."
     ),
     tr_key!(
-        "To pair a phone or another computer, open Settings → Devices, turn on Allow other devices, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair."
+        "To pair a phone or another computer, open Settings → Servers, turn on Allow clients, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair."
     ),
     tr_key!(
         "Working over SSH? Run muxy on that machine for tabs and splits in the terminal, and press Ctrl-B then ? to see its keys."

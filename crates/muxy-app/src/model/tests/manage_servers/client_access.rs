@@ -1,4 +1,4 @@
-//! This computer's access for phones and other computers, as the Devices page
+//! This computer's access for phones and other computers, as the Servers page
 //! shows and changes it.
 
 use muxy_protocol::{
@@ -46,8 +46,8 @@ fn offer(expires_at: u64) -> PairingOffer {
     }
 }
 
-/// A window with the Devices page open, its first read answered with `state`.
-fn devices_tab(
+/// A window with the Servers page open, its first read answered with `state`.
+fn servers_tab(
     cx: &mut TestAppContext,
     state: RemoteAccessState,
 ) -> (
@@ -72,7 +72,7 @@ fn devices_tab(
     (view, cx, requests)
 }
 
-fn close_devices_tab(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
+fn close_servers_tab(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
     view.update(cx, |model, cx| {
         let (_, tab) = model.state.settings_tab().expect("settings tab");
         model.close_tab(tab, cx);
@@ -82,20 +82,20 @@ fn close_devices_tab(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
 
 #[gpui::test]
 fn the_page_shows_access_and_its_port(cx: &mut TestAppContext) {
-    let (view, cx, _) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, _) = servers_tab(cx, access(true, None, Vec::new()));
     view.read_with(cx, |model, cx| {
         assert_eq!(
             model
-                .devices_page
+                .servers_page
                 .port_input()
                 .map(|input| input.read(cx).text().to_owned()),
             Some("7419".into())
         );
     });
     for selector in [
-        "devices-this-computer",
-        "devices-access-row",
-        "devices-status",
+        "clients-this-computer",
+        "clients-access-row",
+        "clients-status",
     ] {
         assert!(
             cx.debug_bounds(selector).is_some(),
@@ -106,13 +106,13 @@ fn the_page_shows_access_and_its_port(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn access_and_port_changes_go_to_the_server_or_say_why_not(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(false, None, Vec::new()));
-    view.update(cx, |model, cx| model.set_device_port("80", cx));
+    let (view, cx, requests) = servers_tab(cx, access(false, None, Vec::new()));
+    view.update(cx, |model, cx| model.set_client_port("80", cx));
     view.read_with(cx, |model, _| {
-        assert!(model.device_access().error.is_some());
+        assert!(model.client_access().error.is_some());
     });
     assert!(work(&requests).is_empty(), "an invalid port isn't sent");
-    view.update(cx, |model, cx| model.set_device_access(true, cx));
+    view.update(cx, |model, cx| model.set_client_access(true, cx));
     assert!(work(&requests).iter().any(|work| matches!(
         work,
         Work::WriteRemoteAccess(RemoteAccessSettings {
@@ -121,13 +121,13 @@ fn access_and_port_changes_go_to_the_server_or_say_why_not(cx: &mut TestAppConte
         })
     )));
     view.read_with(cx, |model, _| {
-        assert!(model.device_access().error.is_none());
+        assert!(model.client_access().error.is_none());
     });
 }
 
 #[gpui::test]
 fn device_changes_refresh_only_while_the_page_is_open(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     view.update(cx, AppModel::remote_access_changed);
     assert!(
         work(&requests)
@@ -137,7 +137,7 @@ fn device_changes_refresh_only_while_the_page_is_open(cx: &mut TestAppContext) {
     view.update(cx, |model, cx| {
         model.receive_remote_access(Ok(access(true, None, Vec::new())), cx);
     });
-    close_devices_tab(&view, cx);
+    close_servers_tab(&view, cx);
     work(&requests);
     view.update(cx, AppModel::remote_access_changed);
     assert!(
@@ -149,13 +149,13 @@ fn device_changes_refresh_only_while_the_page_is_open(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn a_cancel_during_another_request_still_reaches_the_server(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     view.update(cx, |model, cx| {
         model.receive_pairing(Ok(offer(now() + 300)), cx);
         model.read_remote_access(cx);
-        assert!(model.mobile.busy);
+        assert!(model.client_access.busy);
         model.cancel_pairing(cx);
-        assert!(model.mobile.pairing.is_none());
+        assert!(model.client_access.pairing.is_none());
     });
     assert!(
         work(&requests)
@@ -174,33 +174,35 @@ fn a_cancel_during_another_request_still_reaches_the_server(cx: &mut TestAppCont
 
 #[gpui::test]
 fn closing_settings_withdraws_a_code_still_on_screen(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     view.update(cx, |model, cx| {
         model.receive_pairing(Ok(offer(now() + 300)), cx);
     });
-    assert!(cx.debug_bounds("devices-code").is_some());
-    close_devices_tab(&view, cx);
+    assert!(cx.debug_bounds("clients-code").is_some());
+    close_servers_tab(&view, cx);
     assert!(
         work(&requests)
             .iter()
             .any(|work| matches!(work, Work::CancelPairing))
     );
-    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_none()));
+    view.read_with(cx, |model, _| {
+        assert!(model.client_access.pairing.is_none());
+    });
 }
 
 #[gpui::test]
 fn closing_settings_withdraws_a_pending_code(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     view.update(cx, AppModel::show_pairing_code);
     assert!(
         work(&requests)
             .iter()
             .any(|work| matches!(work, Work::StartPairing))
     );
-    close_devices_tab(&view, cx);
+    close_servers_tab(&view, cx);
     view.update(cx, |model, cx| {
         model.receive_pairing(Ok(offer(now() + 300)), cx);
-        assert!(model.mobile.pairing.is_none());
+        assert!(model.client_access.pairing.is_none());
     });
     assert!(
         work(&requests)
@@ -211,7 +213,7 @@ fn closing_settings_withdraws_a_pending_code(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn leaving_the_page_withdraws_a_shown_code_and_coming_back_reads_access(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     view.update(cx, |model, cx| {
         model.receive_pairing(Ok(offer(now() + 300)), cx);
     });
@@ -222,13 +224,13 @@ fn leaving_the_page_withdraws_a_shown_code_and_coming_back_reads_access(cx: &mut
         model.receive_remote_access(Ok(access(true, None, Vec::new())), cx);
     });
     work(&requests);
-    press(cx, "settings-category-Devices".into());
+    press(cx, "settings-category-Servers".into());
     assert!(reads_access(&sent(&requests)));
 }
 
 #[gpui::test]
 fn searching_hides_the_page_and_withdraws_a_shown_code(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     view.update(cx, |model, cx| {
         model.receive_pairing(Ok(offer(now() + 300)), cx);
     });
@@ -237,12 +239,14 @@ fn searching_hides_the_page_and_withdraws_a_shown_code(cx: &mut TestAppContext) 
     cx.simulate_input("theme");
     cx.run_until_parked();
     assert!(cancels_code(&sent(&requests)), "the code is off screen");
-    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_none()));
+    view.read_with(cx, |model, _| {
+        assert!(model.client_access.pairing.is_none());
+    });
 }
 
 #[gpui::test]
 fn the_page_reads_access_again_when_its_server_returns(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     view.update(cx, |model, cx| {
         model.receive(
             (
@@ -264,7 +268,7 @@ fn the_page_reads_access_again_when_its_server_returns(cx: &mut TestAppContext) 
 
 #[gpui::test]
 fn switching_tabs_withdraws_a_shown_code_and_coming_back_reads_access(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     let (settings, terminal) = view.update(cx, |model, cx| {
         let (_, settings) = model.state.settings_tab().expect("settings tab");
         let home = model.state.home().id;
@@ -289,7 +293,7 @@ fn switching_tabs_withdraws_a_shown_code_and_coming_back_reads_access(cx: &mut T
 
 #[gpui::test]
 fn focusing_a_split_beside_settings_keeps_a_shown_code(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     view.update(cx, |model, cx| {
         model.receive_pairing(Ok(offer(now() + 300)), cx);
         let pane = model.active_pane().expect("settings pane");
@@ -302,14 +306,16 @@ fn focusing_a_split_beside_settings_keeps_a_shown_code(cx: &mut TestAppContext) 
                 .active_pane()
                 .is_some_and(|pane| model.state.is_settings_pane(pane))
         );
-        model.sync_devices_page(false, cx);
+        model.sync_servers_page(false, cx);
     });
     cx.run_until_parked();
     assert!(
         !cancels_code(&sent(&requests)),
         "the code is still on screen"
     );
-    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_some()));
+    view.read_with(cx, |model, _| {
+        assert!(model.client_access.pairing.is_some());
+    });
 }
 
 /// A window connected to this computer's server, with no Devices page.
@@ -356,7 +362,7 @@ fn cancels_code(work: &[Work]) -> bool {
 
 #[gpui::test]
 fn copying_the_link_uses_the_code_on_screen(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     let code = offer(now() + 300);
     view.update(cx, |model, cx| model.receive_pairing(Ok(code.clone()), cx));
     work(&requests);
@@ -385,7 +391,7 @@ fn copying_the_link_away_from_the_page_copies_in_place(cx: &mut TestAppContext) 
     view.update(cx, |model, cx| model.receive_pairing(Ok(code.clone()), cx));
     cx.run_until_parked();
     assert_eq!(clipboard(cx), Some(code.invite.to_link()));
-    view.update(cx, |model, cx| model.sync_devices_page(false, cx));
+    view.update(cx, |model, cx| model.sync_servers_page(false, cx));
     view.read_with(cx, |model, _| {
         assert!(model.state.settings_tab().is_none(), "no tab opens");
         assert_eq!(model.notice.as_deref(), Some("Pairing link copied"));
@@ -396,7 +402,7 @@ fn copying_the_link_away_from_the_page_copies_in_place(cx: &mut TestAppContext) 
 #[gpui::test]
 fn a_copied_code_outlives_the_page_but_a_shown_one_does_not(cx: &mut TestAppContext) {
     for copied in [true, false] {
-        let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+        let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
         view.update(cx, |model, cx| {
             model.receive_pairing(Ok(offer(now() + 300)), cx);
         });
@@ -404,7 +410,7 @@ fn a_copied_code_outlives_the_page_but_a_shown_one_does_not(cx: &mut TestAppCont
             copy_link(&view, cx);
         }
         work(&requests);
-        close_devices_tab(&view, cx);
+        close_servers_tab(&view, cx);
         assert_eq!(cancels_code(&sent(&requests)), !copied, "copied: {copied}");
     }
 }
@@ -445,7 +451,7 @@ fn copying_the_link_with_access_off_says_why_not(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn a_code_cancelled_before_it_arrives_is_not_copied(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     copy_link(&view, cx);
     assert!(asks_for_code(&sent(&requests)));
     view.update(cx, AppModel::cancel_pairing);
@@ -465,10 +471,10 @@ fn a_code_cancelled_before_it_arrives_is_not_copied(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn a_refresh_keeps_a_port_edit_until_it_is_saved(cx: &mut TestAppContext) {
-    let (view, cx, requests) = devices_tab(cx, access(true, None, Vec::new()));
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
     let input = view.read_with(cx, |model, _| {
         model
-            .devices_page
+            .servers_page
             .port_input()
             .cloned()
             .expect("port field")
@@ -488,7 +494,7 @@ fn a_refresh_keeps_a_port_edit_until_it_is_saved(cx: &mut TestAppContext) {
         model.receive_remote_access(Ok(reported(7419)), cx);
     });
     assert_eq!(port(cx), "7420", "a device reconnecting keeps the edit");
-    view.update(cx, |model, cx| model.set_device_port("7420", cx));
+    view.update(cx, |model, cx| model.set_client_port("7420", cx));
     assert!(work(&requests).iter().any(|work| matches!(
         work,
         Work::WriteRemoteAccess(RemoteAccessSettings { port: 7420, .. })

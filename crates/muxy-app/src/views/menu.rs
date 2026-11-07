@@ -44,7 +44,6 @@ pub(crate) enum Command {
     /// Shows only this top-level project in the sidebar, or every project again.
     FocusProject(Option<muxy_app_core::ProjectId>),
     SelectWorkspace(Option<muxy_app_core::WorkspaceId>),
-    SelectRemoteServers,
     NewWorkspace(Option<muxy_app_core::ProjectId>),
     RenameWorkspace(muxy_app_core::WorkspaceId),
     DeleteWorkspace(muxy_app_core::WorkspaceId),
@@ -82,10 +81,8 @@ pub(crate) enum Command {
     RemoveProjectLogo(muxy_app_core::ProjectId),
     RemoveProject(muxy_app_core::ProjectId),
     AddProject,
-    AddRemoteProject(muxy_app_core::ServerId),
     RestoreRemovedProject(usize),
-    ManageRemoteDevices,
-    /// A row of a remote server's menu, from the Devices popover or page.
+    /// A row of a remote server's menu, from the Servers popover or page.
     RemoteServers(super::server_menu::Servers, super::server_menu::Action),
     /// The open remote file link's menu: copy the file here and open it.
     OpenRemoteCopy,
@@ -636,7 +633,6 @@ impl AppModel {
             }
             Command::FocusProject(project) => self.set_project_focus(project, cx),
             Command::SelectWorkspace(workspace) => self.select_workspace(workspace, cx),
-            Command::SelectRemoteServers => self.select_remote_servers(cx),
             Command::NewWorkspace(project) => {
                 self.open_new_workspace_editor(project, position, window, cx);
                 return;
@@ -739,17 +735,9 @@ impl AppModel {
                 self.open_project_picker(window, cx);
                 return;
             }
-            Command::AddRemoteProject(server) => {
-                self.open_remote_project_picker(server, cx);
-                return;
-            }
             Command::RestoreRemovedProject(index) => {
                 self.restore_removed_project(index, cx);
                 self.focus_active(window, cx);
-                return;
-            }
-            Command::ManageRemoteDevices => {
-                self.show_devices_settings(window, cx);
                 return;
             }
             Command::RemoteServers(servers, action) => {

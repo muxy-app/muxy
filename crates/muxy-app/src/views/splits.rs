@@ -541,7 +541,7 @@ fn pane_name(content: &PaneContent, title: &str) -> SharedString {
         PaneContent::Settings => tr!("Settings"),
         PaneContent::Webview(_) => tr!("Extension"),
         PaneContent::Browser(_) => tr!("Browser"),
-        PaneContent::Servers => tr!("Devices"),
+        PaneContent::Servers => tr!("Servers"),
     };
     if title.is_empty() || title == kind.as_ref() {
         kind

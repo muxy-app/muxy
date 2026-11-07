@@ -183,16 +183,16 @@ impl AppModel {
         }
     }
 
-    /// Opens Settings at Devices and reads this computer's device access.
-    pub(crate) fn show_devices_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Opens Settings at Servers and reads which clients may reach this computer.
+    pub(crate) fn show_servers_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.show_settings(window, cx) {
             return;
         }
         if let Some(settings) = &self.settings_tab {
-            settings.view.update(cx, SettingsView::show_devices);
+            settings.view.update(cx, SettingsView::show_servers);
         }
-        self.mobile.show_page();
-        self.sync_devices_page(true, cx);
+        self.client_access.show_page();
+        self.sync_servers_page(true, cx);
     }
 
     pub(super) fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
@@ -246,14 +246,14 @@ impl AppModel {
                 cx,
             )
         });
-        let devices = crate::views::cached::CachedView::new(
-            |model, _, cx| crate::views::devices_page::render(model, cx),
+        let servers = crate::views::cached::CachedView::new(
+            |model, _, cx| crate::views::servers_page::render(model, cx),
             cx,
         );
         let view = cx.new(|cx| {
             let mut view = SettingsView::new(snapshot, self.theme.clone(), self.metrics, cx);
             view.extensions = Some(extensions);
-            view.devices = Some(devices);
+            view.servers = Some(servers);
             view.set_backup_pending(self.path.with_file_name("pending-import.muxy").exists());
             view
         });
@@ -292,7 +292,7 @@ impl AppModel {
             self.record_quick_shortcut(false, cx);
             self.flush_preferences(cx);
             self.settings_tab = None;
-            self.mobile.hide_page();
+            self.client_access.hide_page();
         }
     }
 

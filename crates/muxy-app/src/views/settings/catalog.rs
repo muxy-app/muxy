@@ -861,7 +861,7 @@ pub(super) const SETTINGS: &[Setting] = &[
     },
     Setting {
         id: "server",
-        label: tr_key!("Current device"),
+        label: tr_key!("This computer's server"),
         description: tr_key!("Manage the local server that keeps your terminal sessions running."),
         category: Category::Server,
         section: tr_key!("Connection"),
@@ -906,7 +906,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         id: "Stop Server",
         label: tr_key!("Stop Server"),
         description: tr_key!(
-            "End all sessions on this device and stop the server. A confirmation is required."
+            "End all sessions on this computer and stop the server. A confirmation is required."
         ),
         category: Category::Server,
         section: tr_key!("Server control"),

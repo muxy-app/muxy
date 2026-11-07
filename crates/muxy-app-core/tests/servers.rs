@@ -493,7 +493,7 @@ fn the_same_server_under_two_entries_is_refused() -> TestResult {
 }
 
 #[test]
-fn remote_servers_lists_only_remote_homes_until_the_last_server_is_forgotten() -> TestResult {
+fn the_default_server_decides_which_projects_are_listed_and_where_the_window_goes() -> TestResult {
     let TwoServers {
         mut state,
         remote,
@@ -509,26 +509,106 @@ fn remote_servers_lists_only_remote_homes_until_the_last_server_is_forgotten() -
             .map(|project| project.id)
             .collect::<Vec<_>>()
     };
-    assert_eq!(listed(&state), [state.home().id, local_project, api]);
+    assert_eq!(state.default_server(), LOCAL);
+    assert_eq!(listed(&state), [state.home().id, local_project]);
+    assert_eq!(state.default_home().id, state.home().id);
 
-    state.open_terminal_tab(remote_home)?;
-    state.reveal_current_project();
-    assert!(state.remote_servers_selected());
-    assert_eq!(listed(&state), [remote_home]);
+    state.select_project(local_project)?;
+    assert!(state.set_default_server(remote));
+    assert!(!state.set_default_server(remote));
+    assert_eq!(listed(&state), [remote_home, api]);
+    assert_eq!(state.default_home().id, remote_home);
+    assert_eq!(state.current_project().id, remote_home);
+    let workspace = state.create_workspace("Work")?;
+    state.set_workspace_member(workspace, api, true)?;
+    state.select_workspace(Some(workspace))?;
+    assert_eq!(listed(&state), [remote_home, api], "Home stays listed");
+    state.select_workspace(None)?;
+
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("desktop-state.json");
     store::save(&path, &state)?;
-    assert!(store::load(&path)?.remote_servers_selected());
+    assert_eq!(store::load(&path)?.default_server(), remote);
 
     state.select_project(api)?;
-    state.reveal_current_project();
-    assert!(!state.remote_servers_selected());
-    assert!(state.is_listed(state.current_project()));
+    state.remove_project(api)?;
+    assert_eq!(
+        state.current_project().id,
+        remote_home,
+        "falls back to its Home"
+    );
 
-    state.select_remote_servers();
     state.forget_server(remote)?;
-    assert!(!state.remote_servers_selected());
+    assert_eq!(state.default_server(), LOCAL);
+    assert_eq!(state.current_project().id, state.home().id);
     assert!(state.is_listed(state.current_project()));
+    Ok(())
+}
+
+#[test]
+fn a_state_saved_with_the_remote_servers_filter_still_loads_on_this_computer() -> TestResult {
+    let state = AppState::bootstrap()?;
+    let mut saved = serde_json::to_value(&state)?;
+    saved["window"]["remote_servers"] = json!(true);
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    std::fs::write(&path, serde_json::to_vec(&saved)?)?;
+    let loaded = store::load(&path)?;
+    assert_eq!(loaded.default_server(), LOCAL);
+    assert!(loaded.is_listed(loaded.current_project()));
+    Ok(())
+}
+
+#[test]
+fn an_unknown_default_server_keeps_this_computers_home_until_its_catalog_arrives() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let remote = ServerId::new();
+    assert!(state.set_default_server(remote));
+    assert_eq!(state.default_home().id, state.home().id);
+    assert_eq!(state.current_project().id, state.home().id);
+    assert!(!state.is_listed(state.current_project()));
+    let home = ProjectId::new();
+    state.apply_catalog(remote, &remote_catalog(2, home, &[]))?;
+    assert!(state.show_default_home());
+    assert_eq!(state.current_project().id, home);
+    Ok(())
+}
+
+#[test]
+fn dismissed_sessions_survive_a_restart_until_they_end_or_are_shown_again() -> TestResult {
+    let TwoServers {
+        mut state,
+        remote,
+        api,
+        ..
+    } = two_servers()?;
+    assert!(state.dismiss_sessions(remote, [session(3)?, session(4)?, session(5)?]));
+    assert!(!state.dismiss_sessions(remote, [session(3)?]));
+    assert!(state.dismissed_sessions(LOCAL).is_empty());
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    store::save(&path, &state)?;
+    let mut state = store::load(&path)?;
+    assert_eq!(
+        state.dismissed_sessions(remote),
+        [session(3)?, session(4)?, session(5)?].into()
+    );
+
+    let tab = state.open_terminal_tab(api)?;
+    let pane = state
+        .project(api)
+        .ok_or("api")?
+        .tabs
+        .iter()
+        .find(|candidate| candidate.id == tab)
+        .ok_or("tab")?
+        .panes[0]
+        .id;
+    state.set_pane_session(pane, Some(session(4)?))?;
+    let live = [session(3)?, session(4)?].into_iter().collect();
+    assert!(state.retain_dismissed(remote, &live));
+    assert_eq!(state.dismissed_sessions(remote), [session(3)?].into());
+    assert!(!state.retain_dismissed(remote, &live));
     Ok(())
 }
 

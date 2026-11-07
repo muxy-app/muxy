@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use muxy_protocol::SessionId;
@@ -43,6 +43,14 @@ pub struct AppState {
     /// answers, so a request lost to a disconnect or crash is sent again.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) session_moves: Vec<crate::SessionMove>,
+    /// The server the app works with: the sidebar lists its projects, and
+    /// new projects and tabs go to it.
+    #[serde(skip_serializing_if = "is_local")]
+    pub(crate) default_server: ServerId,
+}
+
+fn is_local(server: &ServerId) -> bool {
+    server.is_local()
 }
 
 #[derive(Deserialize)]
@@ -68,6 +76,8 @@ struct StoredState {
     set_aside: Option<SetAsideView>,
     #[serde(default)]
     session_moves: Vec<crate::SessionMove>,
+    #[serde(default = "ServerId::local")]
+    default_server: ServerId,
     /// Versions 1 and 2 kept the local server's state here, at the top level.
     #[serde(default)]
     catalog_server: Option<muxy_protocol::ServerIdentity>,
@@ -101,6 +111,7 @@ impl TryFrom<StoredState> for AppState {
                     pending_discards: stored.pending_discards,
                     close_operations: stored.close_operations,
                     given_names: BTreeMap::new(),
+                    dismissed: BTreeSet::new(),
                 },
             )])
         } else {
@@ -119,6 +130,7 @@ impl TryFrom<StoredState> for AppState {
             window: stored.window,
             set_aside: stored.set_aside,
             session_moves: stored.session_moves,
+            default_server: stored.default_server,
         };
         let detached: HashSet<_> = state
             .projects
@@ -244,7 +256,7 @@ impl AppState {
 
     pub fn current_project(&self) -> &Project {
         self.project(self.window.current_project)
-            .unwrap_or_else(|| self.home())
+            .unwrap_or_else(|| self.default_home())
     }
 
     pub fn refresh_project_statuses(&mut self) {
@@ -461,7 +473,7 @@ impl AppState {
             .focus_history
             .retain(|pane| !project.tabs.iter().any(|tab| tab.layout.contains(*pane)));
         if self.window.current_project == id {
-            self.window.current_project = self.home().id;
+            self.window.current_project = self.default_home().id;
             self.focus_selected_tab();
         }
         let mut sessions = Vec::new();

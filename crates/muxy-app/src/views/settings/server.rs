@@ -14,11 +14,11 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     {
         rows.push(pane.note(description, false).into_any_element());
     }
-    if pane.matches(Category::Server, tr_key!("Current device")) {
+    if pane.matches(Category::Server, tr_key!("This computer's server")) {
         rows.push(
             pane.row(
                 "server",
-                tr_key!("Current device"),
+                tr_key!("This computer's server"),
                 controls::button(
                     pane.style(),
                     "server-read",
@@ -77,7 +77,7 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             ));
         }
     } else if pane.matches(Category::Server, tr_key!("Loading settings")) {
-        let note = tr!("Load the current device's settings to edit them.");
+        let note = tr!("Load this computer's server settings to edit them.");
         rows.push(pane.note(&note, false).into_any_element());
     }
     for (restart, label) in [
