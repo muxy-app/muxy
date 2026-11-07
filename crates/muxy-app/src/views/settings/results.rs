@@ -43,7 +43,7 @@ const SEARCH_ORDER: [Category; 14] = [
     Category::About,
 ];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Item {
     Section(Category),
     KeyboardHeading,
@@ -222,6 +222,10 @@ impl SettingsView {
         if self.results.editable {
             items.push(Item::Footer);
         }
+        if self.unchanged(&items, overdraw) {
+            self.results.dirty = false;
+            return;
+        }
         self.refresh_shortcut_focus(&items, cx);
         let offset = self.results.state.logical_scroll_top();
         self.scrollbar.reset();
@@ -255,6 +259,21 @@ impl SettingsView {
         self.results.items = items;
         self.results.dirty = false;
         self.results.reset_scroll = false;
+    }
+
+    /// Whether the list already holds `items`, each still meaning the same
+    /// row, so it can keep its measurements and scrolling. The list draws its
+    /// visible rows again either way.
+    fn unchanged(&self, items: &[Item], overdraw: Pixels) -> bool {
+        self.results.overdraw == overdraw
+            && !self.results.reset_scroll
+            && self.results.items == items
+            && !items.iter().any(|item| {
+                matches!(
+                    item,
+                    Item::CustomCommand(_) | Item::ExtensionHeading(_) | Item::ExtensionShortcut(_)
+                )
+            })
     }
 
     fn refresh_shortcut_focus(&mut self, items: &[Item], cx: &mut Context<Self>) {

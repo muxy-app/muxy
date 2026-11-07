@@ -212,7 +212,9 @@ proxy icon. Terminals get the proxy as `http_proxy`, `https_proxy`,
 - Settings opens in a single tab, on the default server. Opening it again selects the
   existing tab. It works while offline, and changes apply immediately.
 - App preferences live in `settings.toml`, terminal preferences in
-  `terminal.toml`, and custom themes in `themes/`.
+  `terminal.toml`, and custom themes in `themes/`. `muxy config` reads and
+  changes both files and the running app applies the change, and **Ask Agent…**
+  at the top of Settings starts a coding agent that changes them for you.
 - Every app shortcut can be changed in Settings → Keyboard. Terminal key
   bindings are set in Settings → Terminal, and the Quick Terminal
   shortcut has its own setting. Normal keystrokes in a terminal always go to

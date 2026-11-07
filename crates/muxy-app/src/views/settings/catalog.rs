@@ -94,7 +94,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         id: "backup-files",
         label: tr_key!("Configuration files"),
         description: tr_key!(
-            "Open configuration files in the system editor. Restart Muxy after editing app settings. Terminal settings reload when Muxy or Settings becomes active."
+            "Open configuration files in the system editor. After editing app settings, run muxy config reload or restart Muxy. Terminal settings reload when Muxy or Settings becomes active."
         ),
         category: Category::Backup,
         section: tr_key!("Configuration"),
@@ -816,9 +816,9 @@ pub(super) const SETTINGS: &[Setting] = &[
     },
     Setting {
         id: "directory",
-        label: tr_key!("New pane directory"),
+        label: tr_key!("Keep working directory"),
         description: tr_key!(
-            "Start new splits in the project folder or the current pane's working directory."
+            "Start new tabs and splits in the focused pane's working directory instead of the project folder."
         ),
         category: Category::Terminal,
         section: tr_key!("Input"),

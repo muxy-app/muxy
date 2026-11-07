@@ -40,6 +40,7 @@ pub(crate) fn placeholder(task: &AgentTask) -> gpui::SharedString {
         AgentTask::Edit { name, .. } => tr!("Edit %@ with…", name),
         AgentTask::Clone { name, .. } => tr!("Clone %@ as %@ with…", name, clone_name(name)),
         AgentTask::Publish { name, .. } => tr!("Publish %@ with…", name),
+        AgentTask::Settings { .. } => tr!("Change settings with…"),
     }
 }
 

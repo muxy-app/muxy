@@ -24,6 +24,8 @@ pub(crate) enum Command {
     Browser(Box<crate::browser::Invocation>),
     /// Manages extensions in the desktop app on this computer.
     Extension(Box<crate::extension::Invocation>),
+    /// Reads or changes the desktop app's settings on this computer.
+    Config(crate::config::Invocation),
     /// Installs the agent skill into agent folders and these folders.
     InstallSkills(Vec<PathBuf>),
     /// A program status report for this computer's terminal.
@@ -42,8 +44,8 @@ pub(crate) enum Mobile {
 /// Reads the command, and the other computer whose server it uses when it
 /// starts with `--host DESTINATION`. Help, version and build info describe
 /// this computer's Muxy, a bridge must never reach on to another computer,
-/// and browser tabs and extensions live in this computer's desktop app, so
-/// none of them takes `--host`.
+/// and browser tabs, extensions and app settings live in this computer's
+/// desktop app, so none of them takes `--host`.
 pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Command)> {
     match arguments {
         [flag, destination, rest @ ..] if flag == "--host" => {
@@ -63,6 +65,7 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
                     | Command::Open(_)
                     | Command::Browser(_)
                     | Command::Extension(_)
+                    | Command::Config(_)
                     | Command::InstallSkills(_)
                     | Command::Status(_),
                     [word, ..],
@@ -102,6 +105,7 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
         }
         [command, rest @ ..] if command == "browser" => crate::browser::parse(rest),
         [command, rest @ ..] if command == "extension" => crate::extension::parse(rest),
+        [command, rest @ ..] if command == "config" => crate::config::parse(rest),
         [command, rest @ ..] if command == "status" && asks_help(rest) => {
             Ok(Command::Usage(help::STATUS))
         }

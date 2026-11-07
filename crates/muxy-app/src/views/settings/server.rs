@@ -1,3 +1,4 @@
+use super::slider::{Commit, Slider};
 use super::{Category, SettingsEvent, SettingsView};
 use crate::model::preferences::Change;
 use gpui::{AnyElement, Context, IntoElement};
@@ -50,16 +51,18 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         return rows;
     }
     if let Some(server) = &pane.snapshot.server {
-        for (id, label) in [
-            ("default-shell", tr_key!("Default shell (executable path)")),
-            (
-                "history-budget",
-                tr_key!("History budget per session (MiB)"),
-            ),
-        ] {
-            if pane.matches(Category::Server, label) {
-                rows.push(pane.row(id, label, pane.field(id)));
-            }
+        if pane.matches(Category::Server, tr_key!("Default shell (executable path)")) {
+            rows.push(pane.row(
+                "default-shell",
+                tr_key!("Default shell (executable path)"),
+                pane.field("default-shell"),
+            ));
+        }
+        if pane.matches(
+            Category::Server,
+            tr_key!("History budget per session (MiB)"),
+        ) {
+            rows.push(history_budget(pane, server, cx));
         }
         if pane.matches(Category::Server, tr_key!("Shell integration")) {
             rows.push(pane.row(
@@ -120,4 +123,25 @@ fn background_activity(pane: &SettingsView, cx: &mut Context<SettingsView>) -> O
             .into_any_element(),
         )
     })
+}
+
+fn history_budget(
+    pane: &SettingsView,
+    server: &muxy_protocol::ServerSettingsDoc,
+    cx: &mut Context<SettingsView>,
+) -> AnyElement {
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "The budget is at most 65536 MiB"
+    )]
+    let budget = (server.history_budget_bytes / (1024 * 1024)) as f32;
+    pane.row(
+        "history-budget",
+        tr_key!("History budget per session (MiB)"),
+        pane.slider_field(
+            Slider::new("history-budget", (0.0, 65536.0), 1.0, "", Commit::Field),
+            budget,
+            cx,
+        ),
+    )
 }

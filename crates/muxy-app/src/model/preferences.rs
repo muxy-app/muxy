@@ -14,6 +14,8 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>
 pub(crate) enum Change {
     Composer(ComposerToggle, bool),
     QuickTerminal(muxy_app_core::settings::QuickTerminalSettings),
+    /// One Quick Terminal number, such as `quick-width`, set on the saved settings.
+    QuickNumber(&'static str, u16),
     Theme(bool, String),
     Sidebar(bool),
     SidebarVibrancy(bool),
@@ -358,13 +360,7 @@ impl AppModel {
     }
 
     pub(crate) fn flush_preferences(&mut self, cx: &mut Context<Self>) {
-        let changes = self
-            .settings_tab
-            .as_ref()
-            .map_or_else(Vec::new, |settings| {
-                settings.view.update(cx, |view, cx| view.take_changes(cx))
-            });
-        for change in changes {
+        for change in self.take_pending_preferences(cx) {
             self.change_preference(change, cx);
         }
     }
@@ -473,6 +469,13 @@ impl AppModel {
                 | Change::RemoveCommand(_)
         );
         match change {
+            Change::QuickNumber(id, value) => {
+                self.apply_quick_settings(
+                    quick_number(&self.settings.quick_terminal, id, value),
+                    cx,
+                )?;
+                return Ok(());
+            }
             Change::QuickTerminal(quick) => {
                 self.apply_quick_settings(quick, cx)?;
                 return Ok(());
@@ -718,11 +721,29 @@ impl AppModel {
             }
             _ => return Err(tr!("Unknown app setting").to_string().into()),
         }
+        self.adopt_settings(settings, theme_changed, bindings_changed, cx);
+        Ok(())
+    }
+
+    /// Makes `settings`, already saved, the ones the app runs with.
+    fn adopt_settings(
+        &mut self,
+        settings: muxy_app_core::settings::Settings,
+        theme_changed: bool,
+        bindings_changed: bool,
+        cx: &mut Context<Self>,
+    ) {
         let theme_changed = theme_changed
             || self.appearance.dark_theme != settings.appearance.dark_theme
             || self.appearance.light_theme != settings.appearance.light_theme
             || self.appearance.interface_size != settings.appearance.interface_size;
         let language_changed = self.appearance.language != settings.appearance.language;
+        if settings.appearance.remember_projects_without_tabs
+            && settings.appearance.projects_without_tabs_shown
+                != self.appearance.projects_without_tabs_shown
+        {
+            self.projects_without_tabs_shown = settings.appearance.projects_without_tabs_shown;
+        }
         self.appearance = settings.appearance.clone();
         self.settings = settings;
         self.sync_agents_panel(cx);
@@ -744,6 +765,100 @@ impl AppModel {
                 cx.notify();
             });
         }
+    }
+
+    /// Applies `settings.toml` and `terminal.toml` as they are on disk now,
+    /// after something other than this app changed them, such as
+    /// `muxy config`. Remote servers keep the list the app connected.
+    pub(crate) fn reload_settings(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> std::result::Result<(), String> {
+        if self.quitting != Quitting::Idle {
+            return Err("Muxy is closing".to_owned());
+        }
+        if self.composer.preferences_dirty {
+            self.settings
+                .save_composer(&self.path.with_file_name("settings.toml"))
+                .map_err(|error| error.to_string())?;
+            self.composer.preferences_dirty = false;
+        }
+        let (sliders, edits): (Vec<_>, Vec<_>) = self
+            .take_pending_preferences(cx)
+            .into_iter()
+            .partition(|change| matches!(change, Change::Terminal(..)));
+        for change in sliders {
+            self.change_preference(change, cx);
+        }
+        let reloaded = self.adopt_saved_settings(cx);
+        for change in edits {
+            self.change_preference(change, cx);
+        }
+        reloaded
+    }
+
+    /// Settings edits not saved yet, such as text still being typed.
+    fn take_pending_preferences(&mut self, cx: &mut Context<Self>) -> Vec<Change> {
+        self.settings_tab
+            .as_ref()
+            .map_or_else(Vec::new, |settings| {
+                settings.view.update(cx, |view, cx| view.take_changes(cx))
+            })
+    }
+
+    fn adopt_saved_settings(&mut self, cx: &mut Context<Self>) -> std::result::Result<(), String> {
+        let loaded =
+            muxy_app_core::settings::Settings::load(&self.path.with_file_name("settings.toml"))
+                .and_then(|loaded| {
+                    let terminal = muxy_app_core::settings::TerminalSettings::load_native(
+                        &self.path.with_file_name("terminal.toml"),
+                    )?;
+                    loaded.validate_command_shortcuts(&terminal)?;
+                    Ok((loaded, terminal))
+                })
+                .map_err(|error| error.to_string())
+                .and_then(|(loaded, terminal)| {
+                    Self::quick_keymap_conflict(&loaded.keymap, &loaded.quick_terminal)?;
+                    Ok((loaded, terminal))
+                });
+        let (mut loaded, terminal) = match loaded {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                self.configuration_failed(&error, cx);
+                return Err(error);
+            }
+        };
+        if self.terminal_preview.is_none() {
+            self.adopt_terminal(terminal, cx);
+        }
+        loaded.servers.clone_from(&self.settings.servers);
+        let mut current = self.settings.clone();
+        current.appearance = self.appearance.clone();
+        if loaded == current {
+            return Ok(());
+        }
+        let quick = std::mem::replace(&mut loaded.quick_terminal, current.quick_terminal.clone());
+        let bindings_changed =
+            loaded.keymap != current.keymap || loaded.commands != current.commands;
+        let composer_changed = loaded.composer != current.composer;
+        self.adopt_settings(loaded, false, bindings_changed, cx);
+        if bindings_changed {
+            cx.set_menus(crate::menus());
+        }
+        if composer_changed {
+            self.composer.preferences_dirty = false;
+            if let Some(view) = &self.composer.view {
+                view.update(cx, |view, cx| {
+                    view.settings = self.settings.composer.clone();
+                    view.refresh_style(cx);
+                });
+            }
+        }
+        if quick != current.quick_terminal {
+            self.adopt_quick_settings(quick, false, cx)?;
+        }
+        self.sync_preferences(cx);
+        cx.notify();
         Ok(())
     }
 
@@ -872,7 +987,49 @@ impl AppModel {
                     .map(|(id, pane)| (*id, pane.view.read(cx).terminal.font_size))
                     .collect(),
             });
-        self.apply_terminal_preferences(next, false, cx);
+        self.preview_terminal_preferences(next, cx);
+    }
+
+    /// Shows `next` in the terminals while a slider moves, without the work a
+    /// saved change does: the theme stays resolved and Settings keeps the
+    /// value it shows itself until the slider is released.
+    fn preview_terminal_preferences(
+        &mut self,
+        next: muxy_app_core::settings::TerminalSettings,
+        cx: &mut Context<Self>,
+    ) {
+        let changed_size = self.terminal.font_size.to_bits() != next.font_size.to_bits();
+        self.terminal = next;
+        let previous_colors = self.palette.terminal_colors();
+        let palette = self.palette.with_options(&self.terminal.options);
+        let palette_changed = palette != self.palette;
+        self.palette = palette;
+        if previous_colors != self.palette.terminal_colors() {
+            for server in self.servers.ids() {
+                if self.ready(server) {
+                    self.send(server, Work::Colors(self.palette.terminal_colors()), cx);
+                }
+            }
+        }
+        for (id, pane) in &self.grids {
+            let quick = self.is_quick_terminal(*id);
+            pane.view.update(cx, |pane, cx| {
+                let zoom = pane.terminal.font_size;
+                pane.terminal = self.terminal.clone();
+                pane.configured_font_size = self.terminal.font_size;
+                if !changed_size {
+                    pane.terminal.font_size = zoom;
+                }
+                if palette_changed && !quick {
+                    pane.palette = self.palette;
+                }
+                cx.notify();
+            });
+        }
+        if palette_changed {
+            self.refresh_quick_terminal(cx);
+        }
+        cx.notify();
     }
 
     fn save_terminal(
@@ -1161,7 +1318,7 @@ fn change_id(change: &Change) -> &str {
         Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",
         Change::Terminal("dismiss-import-notes", _) => "terminal-import-notes",
         Change::Composer(toggle, _) => toggle.id(),
-        Change::Terminal(id, _) | Change::Field(id, _) => id,
+        Change::Terminal(id, _) | Change::Field(id, _) | Change::QuickNumber(id, _) => id,
         Change::ResetTerminal => "terminal-reset",
         Change::TerminalEdit(edit) => match edit {
             TerminalEdit::Fallbacks(_) => "font-fallbacks",
@@ -1197,4 +1354,23 @@ fn browser_settings(
         _ => {}
     }
     browser
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "Transparency and vibrancy stay between 0 and 100"
+)]
+fn quick_number(
+    current: &muxy_app_core::settings::QuickTerminalSettings,
+    id: &str,
+    value: u16,
+) -> muxy_app_core::settings::QuickTerminalSettings {
+    let mut next = current.clone();
+    match id {
+        "quick-width" => next.width = value,
+        "quick-height" => next.height = value,
+        "quick-transparency" => next.transparency = value.min(255) as u8,
+        _ => next.blur = value.min(255) as u8,
+    }
+    next
 }

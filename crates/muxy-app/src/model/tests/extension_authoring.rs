@@ -250,6 +250,12 @@ fn each_task_says_what_the_agent_is_picked_for() {
             "Clone files as files-custom with…",
         ),
         (AgentTask::Publish { name, folder }, "Publish files with…"),
+        (
+            AgentTask::Settings {
+                profile: "/profile".into(),
+            },
+            "Change settings with…",
+        ),
     ] {
         assert_eq!(
             crate::views::extension_agent::placeholder(&task).as_ref(),
@@ -610,4 +616,53 @@ fn validate_reports_what_the_store_needs(cx: &mut TestAppContext) {
     let problems = reply["problems"].as_array().expect("problems");
     assert!(!problems.is_empty());
     assert_eq!(reply["name"], "hello");
+}
+
+#[gpui::test]
+fn a_settings_agent_starts_in_a_home_tab_at_the_profile_with_its_skill(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(cx);
+    model.update(cx, |model, cx| {
+        model.open_settings_agent(cx);
+        let Some(Overlay::ExtensionAgent(open)) = &model.overlay else {
+            panic!("no picker");
+        };
+        let task = open.task.clone();
+        let profile = model.path.parent().expect("profile").to_owned();
+        assert_eq!(
+            task,
+            AgentTask::Settings {
+                profile: profile.clone()
+            }
+        );
+        model
+            .start_agent_for_test(provider("claude").expect("claude"), &task, cx)
+            .expect("start");
+        assert!(model.overlay.is_none(), "the picker closed");
+        let home = model.state.server_home(ServerId::local()).expect("home");
+        assert_eq!(model.state.current_project().id, home.id);
+        let skill = muxy_app_core::settings::agent::skill_file(&profile);
+        assert_eq!(
+            std::fs::read_to_string(&skill).expect("skill"),
+            muxy_app_core::settings::agent::SKILL
+        );
+        assert!(
+            !model.path.with_file_name("extension-workspace").exists(),
+            "no extension workspace is made"
+        );
+        let pane = model.active_pane().expect("pane");
+        let command = model
+            .state
+            .startup_command(pane)
+            .expect("command")
+            .to_owned();
+        assert!(command.contains(&skill.display().to_string()), "{command}");
+        assert_eq!(
+            model
+                .state
+                .clone()
+                .prepare_creation(pane, Path::new("/elsewhere"))
+                .0,
+            profile.display().to_string().into_bytes(),
+        );
+    });
 }

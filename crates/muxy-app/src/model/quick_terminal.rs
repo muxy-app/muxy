@@ -554,6 +554,16 @@ impl AppModel {
         settings: muxy_app_core::settings::QuickTerminalSettings,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        self.adopt_quick_settings(settings, true, cx)
+    }
+
+    /// Runs the Quick Terminal with `settings`, saving them first if `save`.
+    pub(crate) fn adopt_quick_settings(
+        &mut self,
+        settings: muxy_app_core::settings::QuickTerminalSettings,
+        save: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
         settings.validate().map_err(|error| error.to_string())?;
         let mut conflicts = shortcut_conflicts(&self.settings.keymap);
         conflicts.extend(self.custom_bindings().filter_map(|(command, chord)| {
@@ -567,7 +577,7 @@ impl AppModel {
             .shortcuts
             .prepare_shortcut_for_enabled(settings.shortcut.clone(), &conflicts, settings.enabled)
             .map_err(|error| error.to_string())?;
-        if let Err(error) = settings.save(&self.path.with_file_name("settings.toml")) {
+        if save && let Err(error) = settings.save(&self.path.with_file_name("settings.toml")) {
             self.quick.shortcuts.cancel_prepared(prepared);
             return Err(error.to_string());
         }
@@ -580,6 +590,27 @@ impl AppModel {
         self.prepare_quick_terminal(cx);
         self.sync_preferences(cx);
         Ok(())
+    }
+
+    /// Why `keymap` can't be used beside `quick`'s global shortcut, if it can't.
+    pub(super) fn quick_keymap_conflict(
+        keymap: &muxy_app_core::settings::Keymap,
+        quick: &muxy_app_core::settings::QuickTerminalSettings,
+    ) -> Result<(), String> {
+        let Some(shortcut) = quick.shortcut.key_combo().filter(|_| quick.enabled) else {
+            return Ok(());
+        };
+        match shortcut_conflicts(keymap)
+            .into_iter()
+            .find(|candidate| shortcut.conflicts_with(&candidate.combo))
+        {
+            Some(candidate) => Err(tr!(
+                "The %@ shortcut conflicts with Quick Terminal",
+                &candidate.label
+            )
+            .to_string()),
+            None => Ok(()),
+        }
     }
 
     pub(super) fn validate_quick_conflict(

@@ -246,6 +246,7 @@
 "Arrowshape Backward" = "Arrowshape Backward";
 "Arrowshape Fill" = "Arrowshape Fill";
 "Arrowshape Forward" = "Arrowshape Forward";
+"Ask Agent…" = "Ask Agent…";
 "Ask before ending a running command. Detaching never requires confirmation." = "Ask before ending a running command. Detaching never requires confirmation.";
 "Asked when connecting if empty" = "Asked when connecting if empty";
 "Asks for: %@" = "Asks for: %@";
@@ -372,6 +373,7 @@
 "Case" = "Case";
 "Change Icon…" = "Change Icon…";
 "Change Theme…" = "Change Theme…";
+"Change settings with…" = "Change settings with…";
 "Changes" = "Changes";
 "Changes apply immediately. Press Return or leave a field to save text." = "Changes apply immediately. Press Return or leave a field to save text.";
 "Channel" = "Channel";
@@ -675,7 +677,6 @@
 "Crop Logo" = "Crop Logo";
 "Cube" = "Cube";
 "Cube Fill" = "Cube Fill";
-"Current pane" = "Current pane";
 "Cursor" = "Cursor";
 "Cursor blinking" = "Cursor blinking";
 "Cursor color" = "Cursor color";
@@ -1038,6 +1039,7 @@
 "Keep a layout in .muxy/layouts to reopen the same workspace." = "Keep a layout in .muxy/layouts to reopen the same workspace.";
 "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused." = "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused.";
 "Keep terminals running after quitting" = "Keep terminals running after quitting";
+"Keep working directory" = "Keep working directory";
 "Key" = "Key";
 "Key Fill" = "Key Fill";
 "Key bindings" = "Key bindings";
@@ -1176,6 +1178,7 @@
 "Muxy 1.x was imported. Check these items:" = "Muxy 1.x was imported. Check these items:";
 "Muxy 1.x was not imported. Try again from Settings → Backup & Restore. %@" = "Muxy 1.x was not imported. Try again from Settings → Backup & Restore. %@";
 "Muxy Quick Terminal" = "Muxy Quick Terminal";
+"Muxy Settings" = "Muxy Settings";
 "Muxy Update" = "Muxy Update";
 "Muxy can open copies only of files in %@'s projects and Home." = "Muxy can open copies only of files in %@'s projects and Home.";
 "Muxy is already running but did not answer: %@" = "Muxy is already running but did not answer: %@";
@@ -1220,7 +1223,6 @@
 "New Workspace…" = "New Workspace…";
 "New Worktree" = "New Worktree";
 "New Worktree…" = "New Worktree…";
-"New pane directory" = "New pane directory";
 "New permissions: %@. After updating, review the permissions and enable the extension again." = "New permissions: %@. After updating, review the permissions and enable the extension again.";
 "New tab" = "New tab";
 "New terminals on this computer, Muxy's own downloads, and SSH to remote servers use the proxy. Terminals already running keep their settings." = "New terminals on this computer, Muxy's own downloads, and SSH to remote servers use the proxy. Terminals already running keep their settings.";
@@ -1306,7 +1308,7 @@
 "Open a Copy" = "Open a Copy";
 "Open a live terminal before sending." = "Open a live terminal before sending.";
 "Open a new terminal tab to start working in this project." = "Open a new terminal tab to start working in this project.";
-"Open configuration files in the system editor. Restart Muxy after editing app settings. Terminal settings reload when Muxy or Settings becomes active." = "Open configuration files in the system editor. Restart Muxy after editing app settings. Terminal settings reload when Muxy or Settings becomes active.";
+"Open configuration files in the system editor. After editing app settings, run muxy config reload or restart Muxy. Terminal settings reload when Muxy or Settings becomes active." = "Open configuration files in the system editor. After editing app settings, run muxy config reload or restart Muxy. Terminal settings reload when Muxy or Settings becomes active.";
 "Open files with" = "Open files with";
 "Open in Default Browser" = "Open in Default Browser";
 "Open in External Browser" = "Open in External Browser";
@@ -1773,7 +1775,7 @@
 "Star" = "Star";
 "Star Fill" = "Star Fill";
 "Start Tour" = "Start Tour";
-"Start new splits in the project folder or the current pane's working directory." = "Start new splits in the project folder or the current pane's working directory.";
+"Start new tabs and splits in the focused pane's working directory instead of the project folder." = "Start new tabs and splits in the focused pane's working directory instead of the project folder.";
 "Starting" = "Starting";
 "Starting the server and reconnecting to Muxy." = "Starting the server and reconnecting to Muxy.";
 "Status" = "Status";
@@ -1826,6 +1828,7 @@
 "Text color" = "Text color";
 "Text to send. Write special keys as escapes, such as \\e for Escape or \\x01 for Control-A." = "Text to send. Write special keys as escapes, such as \\e for Escape or \\x01 for Control-A.";
 "That browser is no longer available" = "That browser is no longer available";
+"The %@ shortcut conflicts with Quick Terminal" = "The %@ shortcut conflicts with Quick Terminal";
 "The AI provider returned an empty commit message" = "The AI provider returned an empty commit message";
 "The AI provider returned an empty pull request title" = "The AI provider returned an empty pull request title";
 "The AI provider returned an invalid response. Update the prompt or try another provider." = "The AI provider returned an invalid response. Update the prompt or try another provider.";

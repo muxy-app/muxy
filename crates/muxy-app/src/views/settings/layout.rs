@@ -60,7 +60,7 @@ impl SettingsView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.finish_terminal_slider(cx);
+        self.finish_slider(cx);
         self.recording = None;
         self.cancel_quick_recording(cx);
         if section.is_none()
@@ -266,6 +266,11 @@ impl SettingsView {
             tr!("Welcome Tour"),
             cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::ShowWelcomeTour)),
         );
+        let agent = self.header_button(
+            "settings-ask-agent",
+            tr!("Ask Agent…"),
+            cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::AskAgent)),
+        );
         if !self.results.editable {
             return div()
                 .h(self.layout_metrics.scaled(56.0))
@@ -273,6 +278,8 @@ impl SettingsView {
                 .flex()
                 .items_center()
                 .justify_end()
+                .gap(self.layout_metrics.scaled(8.0))
+                .child(agent)
                 .child(tour)
                 .into_any_element();
         }
@@ -308,6 +315,7 @@ impl SettingsView {
                     .flex_none()
                     .items_center()
                     .gap(self.layout_metrics.scaled(8.0))
+                    .child(agent)
                     .child(tour)
                     .child(self.header_button(
                         "settings-open-configuration",

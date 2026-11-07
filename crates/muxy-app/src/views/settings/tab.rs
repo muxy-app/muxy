@@ -627,6 +627,9 @@ impl SettingsTab {
             SettingsEvent::ShowWelcomeTour => {
                 let _ = self.model.update(cx, AppModel::open_onboarding);
             }
+            SettingsEvent::AskAgent => {
+                let _ = self.model.update(cx, AppModel::open_settings_agent);
+            }
         }
     }
 
