@@ -485,6 +485,62 @@ fn fallback_providers_complete_only_after_stable_idle() {
 }
 
 #[test]
+fn opencode_background_work_keeps_an_idle_prompt_working_until_it_ends() {
+    let opencode = Some(AgentProvider::OpenCode);
+    let footer = "  ┃  Build · Claude\n                    ↓ 2 subagents · 1 shell · 70.5K (7%)  ctrl+p commands";
+    let chat = "I started 2 subagents to look into it.\n  ┃  Build · Claude\n            70.5K (7%)  ctrl+p commands";
+    let now = Instant::now();
+    let mut detector = Detector::default();
+    detector.update(opencode, footer.into(), "", "", now);
+    assert_eq!(
+        detector.state,
+        AgentState::Working,
+        "the footer lists running work"
+    );
+    let mut detector = Detector::default();
+    detector.update(opencode, chat.into(), "", "", now);
+    assert_eq!(
+        detector.state,
+        AgentState::Idle,
+        "the transcript mentioning subagents is not work"
+    );
+
+    let mut detector = Detector::default();
+    let busy = |detector: &mut Detector, screen: &str, background, at| {
+        detector.update_with_background(
+            opencode,
+            screen.into(),
+            "",
+            "",
+            background,
+            now + Duration::from_millis(at),
+        )
+    };
+    assert!(!busy(&mut detector, "esc interrupt ⬝⬝⬝⬝⬝", false, 0));
+    assert_eq!(detector.state, AgentState::Working);
+    for at in [100, 800, 2000] {
+        assert!(
+            !busy(&mut detector, chat, true, at),
+            "no completion while the service reports work"
+        );
+        assert_eq!(detector.state, AgentState::Working);
+    }
+    assert!(!busy(&mut detector, "△ Permission required", true, 2100));
+    assert_eq!(
+        detector.state,
+        AgentState::Blocked,
+        "a prompt on screen outranks background work"
+    );
+    assert!(!busy(&mut detector, chat, true, 2200));
+    assert!(!busy(&mut detector, chat, false, 2300));
+    assert!(
+        busy(&mut detector, chat, false, 3000),
+        "finishes once the work stops and the screen settles"
+    );
+    assert_eq!(detector.state, AgentState::Idle);
+}
+
+#[test]
 fn long_blank_redraw_preserves_cycle_and_blocked_state() {
     for (initial, expected) in [
         ("⠋ Working · Esc interrupt", AgentState::Working),
@@ -771,6 +827,7 @@ fn omp_current_approval_requests_attention_until_work_resumes() {
                 project: ProjectId::from_u128(1),
                 provider: AgentProvider::OhMyPi,
                 state: detector.state,
+                title: None,
             },
             completed,
         );
