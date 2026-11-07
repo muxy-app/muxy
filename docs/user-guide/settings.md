@@ -12,7 +12,7 @@ On macOS, choose **About Muxy** (or **About Muxy Beta**) from the app menu to op
 
 | Section | What's in it |
 | --- | --- |
-| General | Closing behavior, the app that opens files, window size, worktree locations |
+| General | Closing behavior, the app that opens files, window size, worktree locations, the anonymous daily ping |
 | Quick Terminal | Global shortcut, pinning, size, transparency |
 | Composer | Clearing, image submission, font |
 | Appearance | Language, light and dark themes, interface size, sidebar, status bar, pane headers, tips |
@@ -117,6 +117,18 @@ muxy config unset terminal.font_size     # back to the default
 A value that would stop the app from starting is refused, and the file stays
 as it was. Remote servers stay in **Settings → Devices**, and server settings use
 `muxy settings`. See [Muxy CLI](../features/muxy-cli.md#app-settings).
+
+## Anonymous daily ping
+
+Installed releases of the desktop app send one ping a day to `muxy.app`, so
+we can count active installs per version. It contains only the app version,
+the operating system, and the processor type, such as
+`{"version": "2.4.0", "os": "macos", "arch": "aarch64"}`. Nothing identifies
+you or your computer, and nothing else about how you use Muxy is sent.
+
+Turn it off in **Settings → General → Send an anonymous daily ping**, with
+`muxy config set privacy.usage_ping false`, or by starting Muxy with
+`DO_NOT_TRACK=1` set. The server, the CLI, and the phone apps never send it.
 
 ## Ask an agent
 

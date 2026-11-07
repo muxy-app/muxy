@@ -88,7 +88,7 @@ mod tests {
     fn about_search_only_offers_configuration_for_preference_results(cx: &mut TestAppContext) {
         for (category, query, editable) in [
             (Category::About, "", false),
-            (Category::About, "version", false),
+            (Category::About, "channel", false),
             (Category::About, "updates", false),
             (Category::About, "marketplace", false),
             (Category::General, "marketplace", false),
@@ -96,7 +96,7 @@ mod tests {
             (Category::About, "a", true),
             (Category::About, "no-match", false),
             (Category::General, "", true),
-            (Category::General, "version", false),
+            (Category::General, "channel", false),
             (Category::General, "a", true),
         ] {
             let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));

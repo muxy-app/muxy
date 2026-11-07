@@ -1294,6 +1294,7 @@
 "Older sessions" = "Older sessions";
 "On" = "On";
 "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN." = "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN.";
+"Once a day, tells muxy.app the app version, operating system, and processor type, so we can count active installs per version. Nothing identifies you or this computer. Starting Muxy with DO_NOT_TRACK=1 also turns it off." = "Once a day, tells muxy.app the app version, operating system, and processor type, so we can count active installs per version. Nothing identifies you or this computer. Starting Muxy with DO_NOT_TRACK=1 also turns it off.";
 "One terminal, any client" = "One terminal, any client";
 "Only within this computer" = "Only within this computer";
 "Open" = "Open";
@@ -1413,6 +1414,7 @@
 "Previous Prompt" = "Previous Prompt";
 "Previous Tab" = "Previous Tab";
 "Previous match" = "Previous match";
+"Privacy" = "Privacy";
 "Profile name" = "Profile name";
 "Profiles" = "Profiles";
 "Profiles keep cookies and logins apart. New tabs use the default profile." = "Profiles keep cookies and logins apart. New tabs use the default profile.";
@@ -1663,6 +1665,7 @@
 "Send CSI sequence" = "Send CSI sequence";
 "Send Escape sequence" = "Send Escape sequence";
 "Send Without Enter" = "Send Without Enter";
+"Send an anonymous daily ping" = "Send an anonymous daily ping";
 "Send it" = "Send it";
 "Send it where it's needed" = "Send it where it's needed";
 "Send mouse events to terminal programs that request them. Hold Shift to select text instead." = "Send mouse events to terminal programs that request them. Hold Shift to select text instead.";
