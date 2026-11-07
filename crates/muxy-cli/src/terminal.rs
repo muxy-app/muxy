@@ -8,6 +8,10 @@ use std::time::{Duration, Instant};
 use ratatui::crossterm::{cursor, event, execute, terminal};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGSTOP, SIGTERM, SIGTSTP};
 
+mod quiet;
+
+use quiet::Quiet;
+
 pub(crate) fn require_interactive() -> io::Result<()> {
     if io::stdin().is_terminal() && io::stdout().is_terminal() {
         Ok(())
@@ -25,7 +29,7 @@ pub(crate) fn over_ssh() -> bool {
         .any(|name| std::env::var_os(name).is_some())
 }
 
-pub(crate) type Terminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>;
+pub(crate) type Terminal = ratatui::Terminal<Quiet<ratatui::backend::CrosstermBackend<io::Stdout>>>;
 
 pub(crate) struct Events {
     receiver: Receiver<io::Result<event::Event>>,
@@ -141,7 +145,9 @@ impl Host {
             previous(info);
         }));
         let mut host = Self {
-            terminal: Terminal::new(ratatui::backend::CrosstermBackend::new(io::stdout()))?,
+            terminal: Terminal::new(Quiet::new(ratatui::backend::CrosstermBackend::new(
+                io::stdout(),
+            )))?,
             stop,
             suspend,
             _signals: signals,
