@@ -89,7 +89,7 @@ impl Profile {
                 })?;
             }
         }
-        self.get(key)
+        Ok(self.get(key).unwrap_or(value))
     }
 
     /// Returns `key` to its default by removing it from its file.
@@ -97,24 +97,27 @@ impl Profile {
         let segments = parse_key(key)?;
         refuse_read_only(key, &segments)?;
         let known = self.get(key).is_ok();
-        let removed = match scope(segments)? {
+        match scope(segments)? {
             Scope::App(segments) => {
                 let terminal = TerminalSettings::load_native(&self.terminal_path())?;
                 self.edit_app(key, &segments, &terminal, |document| {
-                    Ok(remove(document, &segments))
-                })?
+                    if remove(document, &segments) || known {
+                        Ok(())
+                    } else {
+                        Err(UNKNOWN.to_owned())
+                    }
+                })
             }
             Scope::Terminal(segments) => {
                 let settings = Settings::load(&self.settings_path())?;
                 self.edit_terminal(key, &segments, &settings, |table| {
-                    Ok(remove(table, &segments))
-                })?
+                    if remove(table, &segments) || known {
+                        Ok(())
+                    } else {
+                        Err(unknown(key))
+                    }
+                })
             }
-        };
-        if removed || known {
-            Ok(())
-        } else {
-            Err(unknown(key))
         }
     }
 
@@ -242,11 +245,11 @@ fn refuse_read_only(key: &str, segments: &[String]) -> Result<()> {
     Ok(())
 }
 
+const UNKNOWN: &str =
+    "is not a setting, or has no value; run `muxy config list` to see every setting";
+
 fn unknown(key: &str) -> Error {
-    Error::new(
-        key,
-        "is not a setting, or has no value; run `muxy config list` to see every setting",
-    )
+    Error::new(key, UNKNOWN)
 }
 
 fn to_table(value: &impl serde::Serialize, file: &str) -> Result<toml::Table> {
@@ -321,13 +324,22 @@ fn remove(table: &mut toml::Table, segments: &[String]) -> bool {
 }
 
 /// A key the format ignores, or one whose value it drops, disappears when the
-/// settings are written back, so that is how an unknown key shows.
+/// settings are written back, so that is how an unknown key shows. An empty
+/// list or table disappears too where the format leaves empty ones out.
 fn check_kept(
     segments: &[String],
     saved: &toml::Table,
     edited: &toml::Table,
 ) -> std::result::Result<(), String> {
-    if lookup_table(edited, segments).is_some() && lookup_table(saved, segments).is_none() {
+    let Some(value) = lookup_table(edited, segments) else {
+        return Ok(());
+    };
+    let empty = match value {
+        toml::Value::Array(items) => items.is_empty(),
+        toml::Value::Table(table) => table.is_empty(),
+        _ => false,
+    };
+    if !empty && lookup_table(saved, segments).is_none() {
         return Err(
             "is not a setting, or that value isn't allowed; run `muxy config list` to see every setting"
                 .to_owned(),

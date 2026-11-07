@@ -47,6 +47,9 @@ muxy config reload
 - Values are TOML: `true`, `14`, `0.5`, `["Menlo", "Monaco"]`. Anything that
   isn't TOML is taken as text, so names need no quotes of their own.
 - `unset` returns a setting to its default.
+- Optional settings, such as `projects.search_root` or
+  `terminal.options.background_opacity`, appear in `list` only once they are
+  set. `references/settings.md` describes them.
 - A rejected change prints why and leaves the files as they were. Read the
   message, fix the value, and try again instead of editing the file.
 - `reload` is only needed after a file was edited by hand.

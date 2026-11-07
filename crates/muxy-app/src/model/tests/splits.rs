@@ -931,3 +931,57 @@ fn new_tabs_start_in_the_focused_panes_directory_only_when_configured_and_in_its
         });
     }
 }
+
+#[gpui::test]
+fn a_new_tab_from_a_tab_window_starts_in_that_windows_pane_directory(cx: &mut TestAppContext) {
+    use crate::model::tab_windows::Surface;
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    state.open_terminal_tab(home).expect("tab");
+    let main = state.home().tabs[0].panes[0].id;
+    let detached = state.open_terminal_tab(home).expect("tab");
+    let pane = state.home().tabs[1].panes[0].id;
+    state
+        .set_pane_session(main, SessionId::new(100))
+        .expect("session");
+    state
+        .set_pane_session(pane, SessionId::new(101))
+        .expect("session");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.panes.new_pane_directory = muxy_app_core::settings::NewPaneDirectory::Current;
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.move_tab_to_window(detached, None, None, cx);
+    });
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        for (pane, session, directory) in [
+            (main, 100, b"/main".as_slice()),
+            (pane, 101, b"/detached".as_slice()),
+        ] {
+            let mut data = attachment();
+            data.directory = muxy_protocol::ServerPath(directory.to_vec());
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Attached {
+                        pane,
+                        session: SessionId::new(session).expect("session"),
+                        attachment: data,
+                        created: false,
+                    },
+                ),
+                cx,
+            );
+        }
+        let id = model.state.tab_windows().next().expect("window").2.id;
+        model.enter_surface(Surface::Tab(id));
+        assert_eq!(model.active_pane(), Some(pane));
+        model.new_tab(cx);
+        let opened = model.state.window().active_pane.expect("new tab");
+        assert_ne!(opened, main);
+        assert_eq!(starts_in(model, opened), b"/detached");
+    });
+}

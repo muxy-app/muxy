@@ -1308,7 +1308,7 @@
 "Open a Copy" = "Open a Copy";
 "Open a live terminal before sending." = "Open a live terminal before sending.";
 "Open a new terminal tab to start working in this project." = "Open a new terminal tab to start working in this project.";
-"Open configuration files in the system editor. Restart Muxy after editing app settings. Terminal settings reload when Muxy or Settings becomes active." = "Open configuration files in the system editor. Restart Muxy after editing app settings. Terminal settings reload when Muxy or Settings becomes active.";
+"Open configuration files in the system editor. After editing app settings, run muxy config reload or restart Muxy. Terminal settings reload when Muxy or Settings becomes active." = "Open configuration files in the system editor. After editing app settings, run muxy config reload or restart Muxy. Terminal settings reload when Muxy or Settings becomes active.";
 "Open files with" = "Open files with";
 "Open in Default Browser" = "Open in Default Browser";
 "Open in External Browser" = "Open in External Browser";

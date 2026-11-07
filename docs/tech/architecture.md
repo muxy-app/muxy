@@ -157,7 +157,8 @@ flowchart LR
 - The server knows nothing about browsers. `muxy browser` reaches the desktop
   app over its own socket in the profile folder, `app.sock`, which only this
   user can open. One JSON request gets one JSON reply. `muxy extension` uses the
-  same socket, since extensions live in the desktop app too.
+  same socket, since extensions live in the desktop app too, and so does
+  `muxy config`, to have the app reload the settings files it just changed.
 
 ## AI activity
 

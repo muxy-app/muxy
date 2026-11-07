@@ -58,7 +58,7 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
         ["get", key] => Action::Get(key_argument(key)?),
         ["set", key, value] => Action::Set(key_argument(key)?, (*value).to_owned()),
         ["unset", key] => Action::Unset(key_argument(key)?),
-        ["reload"] if !json => Action::Reload,
+        ["reload"] => Action::Reload,
         _ => return Err(invalid("unknown config command; run muxy config --help")),
     };
     Ok(Command::Config(Invocation { action, json }))
@@ -113,7 +113,10 @@ pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
             }
         }
         Action::Reload => {
-            if reload_app()? {
+            let applied = reload_app()?;
+            if invocation.json {
+                writeln!(stdout, "{}", json!({ "applied": applied }))?;
+            } else if applied {
                 writeln!(stdout, "reloaded")?;
             } else {
                 writeln!(stdout, "the Muxy desktop app is not running")?;
@@ -183,6 +186,7 @@ mod tests {
             (Action::Unset("panes.new_pane_directory".into()), false)
         );
         assert_eq!(action(&["reload"]), (Action::Reload, false));
+        assert_eq!(action(&["reload", "--json"]), (Action::Reload, true));
     }
 
     #[test]
@@ -221,7 +225,7 @@ mod tests {
             &["get"][..],
             &["get", "a..b"],
             &["set", "panes.new_pane_directory"],
-            &["reload", "--json"],
+            &["reload", "now"],
             &["remove", "x"],
         ] {
             assert!(parsed(words).is_err(), "{words:?}");

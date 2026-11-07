@@ -1208,17 +1208,18 @@ impl AppModel {
     /// Opens a terminal tab in the current project, or, from a tab window,
     /// in that tab's project, showing it in the main window.
     pub(crate) fn new_tab(&mut self, cx: &mut Context<Self>) {
-        let project = match self.surface() {
-            tab_windows::Surface::Tab(id) => {
-                self.raise_main_window(cx);
-                self.state.tab_window(id).map_or_else(
-                    || self.state.current_project().id,
-                    |(project, ..)| project.id,
-                )
-            }
+        let surface = self.surface();
+        let project = match surface {
+            tab_windows::Surface::Tab(id) => self.state.tab_window(id).map_or_else(
+                || self.state.current_project().id,
+                |(project, ..)| project.id,
+            ),
             tab_windows::Surface::Main => self.state.current_project().id,
         };
         let directory = self.new_tab_directory(project, cx);
+        if surface != tab_windows::Surface::Main {
+            self.raise_main_window(cx);
+        }
         self.open_new_tab(project, directory.as_deref(), cx);
     }
 

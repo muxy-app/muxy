@@ -94,7 +94,32 @@ fn unset_returns_a_setting_to_its_default() {
     let terminal =
         TerminalSettings::load_native(&directory.path().join("terminal.toml")).expect("load");
     assert!((terminal.font_size - TerminalSettings::default().font_size).abs() < f32::EPSILON);
+    let before = std::fs::read_to_string(directory.path().join("settings.toml")).expect("file");
     assert!(profile.unset("not_a_section.key").is_err());
+    assert!(profile.unset("terminal.not_an_option").is_err());
+    let after = std::fs::read_to_string(directory.path().join("settings.toml")).expect("file");
+    assert_eq!(before, after, "a refused unset leaves the file alone");
+}
+
+#[test]
+fn optional_and_empty_settings_can_be_set_and_cleared() {
+    let (_directory, profile) = profile().expect("profile");
+    assert!(profile.get("projects.search_root").is_err());
+    profile
+        .set("projects.search_root", "/tmp")
+        .expect("an optional setting");
+    assert_eq!(
+        display(&profile.get("projects.search_root").expect("get")),
+        "/tmp"
+    );
+    profile
+        .set("projects.search_skip", r#"["node_modules"]"#)
+        .expect("a list");
+    profile
+        .set("projects.search_skip", "[]")
+        .expect("an empty list");
+    profile.unset("projects.search_root").expect("unset");
+    assert!(profile.get("projects.search_root").is_err());
 }
 
 #[test]

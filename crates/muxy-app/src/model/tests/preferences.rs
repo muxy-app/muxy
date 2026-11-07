@@ -1140,3 +1140,31 @@ fn sliders_keep_their_place_while_dragging_and_save_once_on_release(cx: &mut Tes
     let reloaded = muxy_app_core::settings::Settings::load(&path).expect("saved");
     assert_eq!(reloaded.composer.line_height, height);
 }
+
+#[gpui::test]
+fn reloading_keeps_a_cli_change_and_an_unsaved_field_of_the_same_section(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, settings) = settings_tab(boot, cx);
+    click_preference(settings, "settings-field-width");
+    settings.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-a 1 4 0 0"
+    } else {
+        "ctrl-a 1 4 0 0"
+    });
+    view.update(settings, |model, cx| {
+        assert_eq!(model.settings.window.default_size[0], 1200.0);
+        let profile =
+            muxy_app_core::settings::keys::Profile::new(model.path.parent().expect("profile"));
+        profile.set("window.close_behavior", "detach").expect("set");
+        model.reload_settings(cx).expect("reload");
+        assert_eq!(model.settings.window.default_size[0], 1400.0);
+        assert_eq!(
+            model.settings.window.close_behavior,
+            muxy_app_core::settings::CloseBehavior::Detach
+        );
+        let saved =
+            muxy_app_core::settings::Settings::load(&profile.settings_path()).expect("load");
+        assert_eq!(saved.window, model.settings.window);
+    });
+}

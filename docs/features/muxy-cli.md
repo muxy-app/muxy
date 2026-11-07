@@ -93,7 +93,8 @@ muxy config reload                        # apply hand edits
 
 - Keys are dotted paths in `settings.toml`, or in `terminal.toml` after
   `terminal.`. Quote a part that holds a dot. New settings get keys
-  automatically, from the files' own format.
+  automatically, from the files' own format. Optional settings appear in
+  `list` once they are set.
 - Values are TOML, such as `true`, `14`, or `["Menlo", "Monaco"]`. Anything else
   is text, so names need no quotes of their own.
 - A change is saved only if the app can still start with it, and the file is
@@ -101,8 +102,8 @@ muxy config reload                        # apply hand edits
   apply it. They never start the app, which reads the files when it starts.
 - Remote servers are read-only here; manage them in **Settings → Devices**.
   Server settings use `muxy settings`.
-- `config` works on this computer's profile and doesn't take `--host`. `--json`
-  prints machine-readable output for `list`, `get`, `set`, and `unset`.
+- `config` works on this computer's profile and doesn't take `--host`. Every
+  command takes `--json` for machine-readable output.
 
 ## Sessions from a script
 

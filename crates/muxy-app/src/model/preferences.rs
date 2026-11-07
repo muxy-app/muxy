@@ -358,13 +358,7 @@ impl AppModel {
     }
 
     pub(crate) fn flush_preferences(&mut self, cx: &mut Context<Self>) {
-        let changes = self
-            .settings_tab
-            .as_ref()
-            .map_or_else(Vec::new, |settings| {
-                settings.view.update(cx, |view, cx| view.take_changes(cx))
-            });
-        for change in changes {
+        for change in self.take_pending_preferences(cx) {
             self.change_preference(change, cx);
         }
     }
@@ -768,7 +762,36 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return Err("Muxy is closing".to_owned());
         }
-        self.flush_preferences(cx);
+        if self.composer.preferences_dirty {
+            self.settings
+                .save_composer(&self.path.with_file_name("settings.toml"))
+                .map_err(|error| error.to_string())?;
+            self.composer.preferences_dirty = false;
+        }
+        let (sliders, edits): (Vec<_>, Vec<_>) = self
+            .take_pending_preferences(cx)
+            .into_iter()
+            .partition(|change| matches!(change, Change::Terminal(..)));
+        for change in sliders {
+            self.change_preference(change, cx);
+        }
+        let reloaded = self.adopt_saved_settings(cx);
+        for change in edits {
+            self.change_preference(change, cx);
+        }
+        reloaded
+    }
+
+    /// Settings edits not saved yet, such as text still being typed.
+    fn take_pending_preferences(&mut self, cx: &mut Context<Self>) -> Vec<Change> {
+        self.settings_tab
+            .as_ref()
+            .map_or_else(Vec::new, |settings| {
+                settings.view.update(cx, |view, cx| view.take_changes(cx))
+            })
+    }
+
+    fn adopt_saved_settings(&mut self, cx: &mut Context<Self>) -> std::result::Result<(), String> {
         self.reload_configuration(cx);
         if let Some(error) = &self.configuration_error {
             return Err(error.clone());
