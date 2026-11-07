@@ -1,4 +1,4 @@
-//! The menus of remote servers, in the Devices popover and on the Devices page:
+//! The menus of remote servers, in the Servers popover and on the Servers page:
 //! one server, the servers selected on the page, or a group.
 
 use gpui::{Context, Pixels, Point, SharedString, Window};
@@ -13,7 +13,7 @@ use crate::model::{AppModel, RemoteServer, ServerStatus};
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Servers {
     One(ServerId),
-    /// The servers selected on the Devices page.
+    /// The servers selected on the Servers page.
     Selected,
     /// The group at an index of `Settings::server_groups`, or the ungrouped.
     Group(Option<usize>),
@@ -21,6 +21,8 @@ pub(crate) enum Servers {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Action {
+    /// Switches the whole app to the server.
+    UseAsDefault,
     NewTab,
     AddProject,
     /// Connects the servers that are offline.
@@ -130,10 +132,16 @@ fn move_items(groups: &[&str], servers: Servers, members: &[&RemoteServer]) -> V
 }
 
 /// One server's menu.
-fn single_server_items(server: &RemoteServer, groups: &[&str], controls: bool) -> Vec<Item> {
+fn single_server_items(
+    server: &RemoteServer,
+    groups: &[&str],
+    controls: bool,
+    default: bool,
+) -> Vec<Item> {
     let servers = Servers::One(server.entry.id);
     let mut items = vec![
-        item(tr!("New Tab"), servers, Action::NewTab),
+        item(tr!("Use as Default Server"), servers, Action::UseAsDefault).checked_if(default),
+        item(tr!("New Tab"), servers, Action::NewTab).separated(),
         item(tr!("Add Project…"), servers, Action::AddProject),
     ];
     items.extend(
@@ -252,7 +260,12 @@ impl AppModel {
         let groups = self.settings.server_groups();
         let items = match members.as_slice() {
             [] => return,
-            [server] => single_server_items(server, &groups, self.control_enabled(server.entry.id)),
+            [server] => single_server_items(
+                server,
+                &groups,
+                self.control_enabled(server.entry.id),
+                server.entry.id == self.default_server(),
+            ),
             several => {
                 let mut items = connection_items(servers, several);
                 items.push(Item::submenu(
@@ -338,7 +351,8 @@ impl AppModel {
         };
         let leaves = matches!(
             action,
-            Action::NewTab
+            Action::UseAsDefault
+                | Action::NewTab
                 | Action::AddProject
                 | Action::Restart
                 | Action::Stop
@@ -357,6 +371,7 @@ impl AppModel {
             _ => None,
         };
         match action {
+            Action::UseAsDefault => self.set_default_server(first, cx),
             Action::NewTab => self.new_remote_home_tab(first, cx),
             Action::AddProject => self.open_remote_project_picker(first, cx),
             Action::Connect => {

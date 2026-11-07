@@ -11,7 +11,7 @@ use super::kit::{
     muted, packet, paint_marks, place, solid, text, tint,
 };
 use super::timeline::{cycle, ease_in_out, progress, rise, span, typed};
-use crate::views::devices;
+use crate::views::clients;
 
 pub(super) const STILL: f32 = 2.4;
 
@@ -25,7 +25,7 @@ const SLOT_Y: f32 = 182.0;
 const SLOT: f32 = 204.0;
 
 pub(super) fn scene(frame: &Frame) -> Div {
-    let access = frame.model.device_access();
+    let access = frame.model.client_access();
     let pairing = access.pairing.as_ref();
     let paired = frame
         .model
@@ -61,7 +61,7 @@ pub(super) fn scene(frame: &Frame) -> Div {
     }
     let slot = if let Some(name) = &paired {
         paired_card(frame, name)
-    } else if let Some(code) = pairing.and_then(devices::Pairing::qr) {
+    } else if let Some(code) = pairing.and_then(clients::Pairing::qr) {
         code_card(frame, code)
     } else {
         waiting_card(frame)
@@ -294,7 +294,7 @@ fn waiting_card(frame: &Frame) -> Div {
 }
 
 fn code_card(frame: &Frame, code: std::sync::Arc<muxy_app_core::qr::QrCode>) -> Div {
-    let side = devices::CODE_SIZE;
+    let side = clients::CODE_SIZE;
     let inset = (SLOT - side) / 2.0;
     div()
         .absolute()
@@ -303,7 +303,7 @@ fn code_card(frame: &Frame, code: std::sync::Arc<muxy_app_core::qr::QrCode>) -> 
             place(frame, SLOT_X + inset, SLOT_Y + inset, side, side)
                 .rounded(frame.px(8.0))
                 .overflow_hidden()
-                .child(devices::qr(code).size_full()),
+                .child(clients::qr(code).size_full()),
         )
         .child(slot_label(frame, tr!("Scan with the Muxy app")))
 }

@@ -3,7 +3,7 @@ use super::*;
 
 pub(super) fn open_tab(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
     cx.update(|window, cx| {
-        view.update(cx, |model, cx| model.show_devices_settings(window, cx));
+        view.update(cx, |model, cx| model.show_servers_settings(window, cx));
     });
     cx.run_until_parked();
 }
@@ -22,7 +22,7 @@ pub(super) fn tab_window(
 }
 
 #[gpui::test]
-fn manage_devices_in_the_popover_opens_settings_at_devices(cx: &mut TestAppContext) {
+fn manage_servers_in_the_popover_opens_settings_at_servers(cx: &mut TestAppContext) {
     let devbox = ServerId::new();
     let (view, cx, _, _) = tab_window(vec![grouped(devbox, "devbox", None)], cx);
     press(cx, "remote-servers-section".into());
@@ -39,7 +39,7 @@ fn manage_devices_in_the_popover_opens_settings_at_devices(cx: &mut TestAppConte
         assert!(model.state.is_settings_pane(pane));
         assert!(model.overlay.is_none());
         let settings = model.settings_tab.as_ref().expect("settings tab");
-        assert!(settings.view.read(cx).devices_shown());
+        assert!(settings.view.read(cx).servers_shown());
     });
     open_tab(&view, cx);
     view.read_with(cx, |model, cx| {
@@ -59,10 +59,10 @@ fn manage_devices_in_the_popover_opens_settings_at_devices(cx: &mut TestAppConte
         assert_eq!(tabs, 1, "opening it again shows the same tab");
         assert!(model.overlay.is_none());
         let settings = model.settings_tab.as_ref().expect("settings tab");
-        assert!(settings.view.read(cx).devices_shown());
+        assert!(settings.view.read(cx).servers_shown());
     });
     assert!(cx.debug_bounds("servers-tab").is_some());
-    assert!(cx.debug_bounds("settings-category-Devices").is_some());
+    assert!(cx.debug_bounds("settings-category-Servers").is_some());
     assert!(
         cx.debug_bounds(format!("servers-row-{devbox}").leak())
             .is_some()
@@ -70,7 +70,7 @@ fn manage_devices_in_the_popover_opens_settings_at_devices(cx: &mut TestAppConte
 }
 
 #[gpui::test]
-fn searching_settings_finds_the_devices_page(cx: &mut TestAppContext) {
+fn searching_settings_finds_the_servers_page(cx: &mut TestAppContext) {
     let (view, cx, _, _) = tab_window(Vec::new(), cx);
     cx.update(|window, cx| view.update(cx, |model, cx| model.open_settings(window, cx)));
     cx.run_until_parked();
@@ -78,7 +78,7 @@ fn searching_settings_finds_the_devices_page(cx: &mut TestAppContext) {
     press(cx, "settings-search".into());
     cx.simulate_input("pairing");
     cx.run_until_parked();
-    press(cx, "settings-manage-devices".into());
+    press(cx, "settings-manage-servers".into());
     assert!(cx.debug_bounds("servers-tab").is_some());
 }
 
@@ -148,7 +148,7 @@ fn right_click_acts_on_the_server_or_the_selection_without_changing_it(cx: &mut 
         assert!(matches!(model.overlay, Some(Overlay::Menu(_))));
         assert_eq!(model.remote_selection, [api], "right-click selects nothing");
     });
-    press(cx, "menu-item-5".into());
+    press(cx, "menu-item-6".into());
     cx.simulate_prompt_answer("Forget");
     cx.run_until_parked();
     assert_eq!(
@@ -223,7 +223,7 @@ fn the_search_takes_typing_and_drops_hidden_servers_from_the_selection(cx: &mut 
     cx.simulate_input("api");
     cx.run_until_parked();
     view.read_with(cx, |model, cx| {
-        let search = model.devices_page.search_input().expect("search");
+        let search = model.servers_page.search_input().expect("search");
         assert_eq!(search.read(cx).text(), "api");
         assert!(
             model.remote_selection.is_empty(),
@@ -251,17 +251,42 @@ fn disconnecting_a_connecting_server_tells_its_worker(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn opened_from_another_computers_project_settings_goes_to_home(cx: &mut TestAppContext) {
+fn settings_open_on_the_default_server_and_move_when_it_changes(cx: &mut TestAppContext) {
     let remote = ServerId::new();
     let (view, cx, _, _) = tab_window(vec![grouped(remote, "box", None)], cx);
     let project = ProjectId::new();
     view.update(cx, |model, cx| {
         connect_remote(model, remote, vec![], &[(project, "api")], cx);
         model.select_project(project, cx);
+        assert_eq!(model.default_server(), remote);
     });
     open_tab(&view, cx);
     view.read_with(cx, |model, _| {
         let (owner, _) = model.state.settings_tab().expect("tab");
-        assert_eq!(owner, model.state.home().id);
+        assert_eq!(owner, project, "it opens where the window is");
+    });
+    view.update(cx, |model, cx| {
+        model.set_default_server(ServerId::local(), cx);
+    });
+    open_tab(&view, cx);
+    view.read_with(cx, |model, _| {
+        let (owner, _) = model.state.settings_tab().expect("tab");
+        assert_eq!(
+            owner,
+            model.state.home().id,
+            "it follows the default server"
+        );
+        let tabs = model
+            .state
+            .projects()
+            .iter()
+            .flat_map(|project| &project.tabs)
+            .filter(|tab| {
+                tab.panes
+                    .iter()
+                    .any(|pane| model.state.is_settings_pane(pane.id))
+            })
+            .count();
+        assert_eq!(tabs, 1, "the hidden one is closed");
     });
 }

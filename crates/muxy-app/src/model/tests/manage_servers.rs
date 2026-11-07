@@ -4,8 +4,8 @@ use super::*;
 use crate::views::settings::SettingsEvent;
 use muxy_app_core::settings::{ServerEntry, Settings};
 
+mod client_access;
 mod commands;
-mod device_access;
 mod forms;
 mod groups;
 mod pairing;
@@ -23,11 +23,11 @@ fn boot_with(servers: Vec<ServerEntry>) -> (Boot, std::sync::mpsc::Receiver<(u64
     (boot, local, remotes)
 }
 
-fn form(name: &str, host: &str) -> DeviceForm {
-    DeviceForm {
+fn form(name: &str, host: &str) -> ServerFields {
+    ServerFields {
         name: name.into(),
         host: host.into(),
-        ..DeviceForm::default()
+        ..ServerFields::default()
     }
 }
 
@@ -426,6 +426,11 @@ fn a_remote_home_tab_waits_for_the_password_and_opens_once_connected(cx: &mut Te
         let current = model.state.current_project();
         assert_eq!((current.id, current.tabs.len()), (home, 1));
         assert!(model.project_listed(current));
+        assert_eq!(
+            model.default_server(),
+            remote,
+            "a Home tab there switches to it"
+        );
 
         let later = muxy_protocol::CatalogPage {
             revision: 2,
@@ -438,7 +443,7 @@ fn a_remote_home_tab_waits_for_the_password_and_opens_once_connected(cx: &mut Te
         model
             .forget_remote_servers(&[remote], cx)
             .expect("forgotten");
-        assert!(!model.state.remote_servers_selected());
+        assert_eq!(model.default_server(), ServerId::local());
         assert!(model.project_listed(model.state.current_project()));
     });
 }
@@ -464,26 +469,26 @@ fn a_new_key_file_or_login_reconnects_through_a_new_worker(cx: &mut TestAppConte
         }
         stopped
     };
-    let save = |form: &DeviceForm, cx: &mut VisualTestContext| {
+    let save = |form: &ServerFields, cx: &mut VisualTestContext| {
         view.update(cx, |model, cx| {
             model
                 .save_remote_server(Some(device), form, cx)
                 .expect("saved");
         });
     };
-    let keyed = DeviceForm {
+    let keyed = ServerFields {
         identity_file: "~/.ssh/box".into(),
         ..form("box", "dev@box")
     };
     save(&keyed, cx);
     assert!(restarted(&mut worker), "a new key file");
-    let renamed = DeviceForm {
+    let renamed = ServerFields {
         name: "renamed".into(),
         ..keyed.clone()
     };
     save(&renamed, cx);
     assert!(!restarted(&mut worker), "a rename keeps the worker");
-    let password = DeviceForm {
+    let password = ServerFields {
         password_login: true,
         password: "hunter2".into(),
         ..keyed.clone()
@@ -493,7 +498,7 @@ fn a_new_key_file_or_login_reconnects_through_a_new_worker(cx: &mut TestAppConte
     view.read_with(cx, |model, _| {
         assert!(!model.remote_servers()[0].needs_password);
     });
-    let kept = DeviceForm {
+    let kept = ServerFields {
         password: String::new(),
         ..password
     };

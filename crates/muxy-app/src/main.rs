@@ -27,11 +27,10 @@ mod views {
     pub(crate) mod banners;
     pub(crate) mod browser;
     pub(crate) mod cached;
+    pub(crate) mod clients;
     pub(crate) mod command_palette;
     pub(crate) mod composer;
     pub(crate) mod confirm;
-    pub(crate) mod devices;
-    pub(crate) mod devices_page;
     pub(crate) mod disconnected;
     pub(crate) mod extension_agent;
     pub(crate) mod floating;
@@ -53,6 +52,7 @@ mod views {
     pub(crate) mod remote_servers;
     pub(crate) mod server_menu;
     pub(crate) mod server_status;
+    pub(crate) mod servers_page;
     pub(crate) mod session_picker;
     pub(crate) mod settings;
     pub(crate) mod shortcut_hints;

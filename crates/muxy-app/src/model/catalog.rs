@@ -260,6 +260,11 @@ impl AppModel {
             self.state = previous;
             return false;
         }
+        if applied != LocalCatalog::Applied
+            && let Some(runtime) = self.servers.get_mut(server)
+        {
+            runtime.shown = None;
+        }
         if applied == LocalCatalog::Fresh || (first && kept.is_some()) {
             let kept =
                 kept.map(|kept| tr!("Your previous projects are kept in %@", kept).to_string());
@@ -274,7 +279,7 @@ impl AppModel {
     }
 
     /// A catalog this app can't take keeps the state as it was. For another
-    /// computer, the reason shows in the sidebar's Remote section instead.
+    /// computer, the reason shows in the sidebar's Servers section instead.
     fn server_failed(&mut self, server: ServerId, error: &AppError, cx: &mut Context<Self>) {
         // A replaced catalog has a new identity; keep what the server couldn't read in view.
         let cause = matches!(error, AppError::ServerChanged(_))
@@ -484,6 +489,11 @@ impl AppModel {
         opening: Opening,
         cx: &mut Context<Self>,
     ) -> Result<PaneId, String> {
+        if opening == Opening::Selected
+            && let Some(server) = self.state.project_server(project)
+        {
+            self.use_server(server, cx);
+        }
         let opened = self.transact(
             |state| {
                 let pane = match opening {

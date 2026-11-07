@@ -230,8 +230,13 @@ static COMMANDS: &[CommandDef] = &[
         .run(|model, _, cx| model.new_tab(cx)),
     row::<NewHomeTab>(ShortcutId::NewHomeTab, Label::Key(tr_key!("New Home Tab"))).run(
         |model, _, cx| {
-            let home = model.state.home().id;
+            let server = model.state.default_server();
             model.show_main_window(cx);
+            if !server.is_local() {
+                model.new_remote_home_tab(server, cx);
+                return;
+            }
+            let home = model.state.home().id;
             model.select_project(home, cx);
             model.new_tab_in(home, cx);
         },

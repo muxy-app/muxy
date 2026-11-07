@@ -90,11 +90,17 @@ impl AppModel {
             .collect()
     }
 
+    /// Lists the current project's terminals, the open picker's, and those
+    /// of every project on the default server, whose other clients' terminals
+    /// open here as tabs.
     pub(crate) fn refresh_existing_sessions(&mut self, cx: &mut Context<Self>) {
         let project = self.state.current_project().id;
         self.request_sessions(project, cx);
         if let Some(Overlay::Sessions(picker)) = &self.overlay {
             self.request_sessions(picker.project, cx);
+        }
+        for project in self.adoptable_projects() {
+            self.request_sessions(project, cx);
         }
         self.update_session_picker(cx);
     }
@@ -145,9 +151,12 @@ impl AppModel {
         listing.pending = false;
         match result {
             Ok(page) => {
-                listing.entries = page.sessions;
                 listing.revision = Some(page.revision);
                 listing.error = None;
+                self.adopt_sessions(project, &page.sessions, cx);
+                if let Some(listing) = self.existing_sessions.projects.get_mut(&project) {
+                    listing.entries = page.sessions;
+                }
             }
             Err(error) => {
                 listing.entries.clear();

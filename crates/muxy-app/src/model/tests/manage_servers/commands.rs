@@ -1,10 +1,10 @@
 use super::*;
 use std::sync::{Arc, Mutex};
 
-fn custom(command: &str) -> DeviceForm {
-    DeviceForm {
+fn custom(command: &str) -> ServerFields {
+    ServerFields {
         ssh_command: Some(command.into()),
-        ..DeviceForm::default()
+        ..ServerFields::default()
     }
 }
 
@@ -41,7 +41,7 @@ fn custom_probes_and_installation_use_the_same_target_without_app_credentials(
         });
     let path = boot.state_path.with_file_name("settings.toml");
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    let form = DeviceForm {
+    let form = ServerFields {
         host: "ignored".into(),
         user: "ignored".into(),
         port: "invalid".into(),
@@ -112,7 +112,7 @@ fn editing_a_custom_command_restarts_only_its_worker_and_keeps_its_projects(
         assert_eq!(model.connection(server), ConnectionState::Connecting);
         let home = connect_remote(model, server, vec![], &[], cx);
         work(&first);
-        let renamed = DeviceForm {
+        let renamed = ServerFields {
             name: "Renamed VM".into(),
             ..custom("vm ssh one")
         };

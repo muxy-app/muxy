@@ -56,7 +56,14 @@ impl AppState {
         project: ProjectId,
         title: &str,
     ) -> Result<TabId, AppError> {
-        let (project, tab) = if let Some(open) = self.settings_tab() {
+        let server = self.default_home().server_id;
+        let open = self.settings_tab().filter(|(project, tab)| {
+            self.project_server(*project) == Some(server)
+                || self
+                    .tab_windows()
+                    .any(|(_, detached, _)| detached.id == *tab)
+        });
+        let (project, tab) = if let Some(open) = open {
             for pane in &mut self.tab_mut(open.1)?.panes {
                 if pane.content == PaneContent::Settings {
                     title.clone_into(&mut pane.title);
@@ -67,7 +74,9 @@ impl AppState {
             let stale: Vec<_> = self
                 .projects
                 .iter()
-                .filter(|project| project.status() != ProjectStatus::Available)
+                .filter(|project| {
+                    project.status() != ProjectStatus::Available || project.server_id != server
+                })
                 .flat_map(|project| &project.tabs)
                 .flat_map(|tab| &tab.panes)
                 .filter(|pane| pane.content == PaneContent::Settings)
@@ -77,9 +86,13 @@ impl AppState {
                 self.remove_pane(pane)?;
             }
             let here = self.project(project).is_some_and(|project| {
-                project.server_id.is_local() && project.status() == ProjectStatus::Available
+                project.server_id == server && project.status() == ProjectStatus::Available
             });
-            let project = if here { project } else { self.home().id };
+            let project = if here {
+                project
+            } else {
+                self.default_home().id
+            };
             let tab = Tab::with_content(PaneContent::Settings, title);
             let id = tab.id;
             let near = self.window.selected_tab.get(&project).copied();

@@ -94,7 +94,7 @@ pub(crate) async fn prompt_server(
             name
         ),
         None => tr!(
-            "All running terminal sessions on this device will end. Saved terminal output and settings will remain."
+            "All running terminal sessions on this computer will end. Saved terminal output and settings will remain."
         ),
     };
     server_prompt(parent, &title, &label, &message, cx).await
@@ -137,7 +137,7 @@ pub(crate) async fn prompt_revoke(
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
     let title = tr!("Revoke %@?", device);
-    let message = tr!("The device disconnects now and must be paired again to reconnect.");
+    let message = tr!("The client disconnects now and must be paired again to reconnect.");
     server_prompt(parent, &title, &tr!("Revoke"), &message, cx).await
 }
 
@@ -227,7 +227,7 @@ pub(crate) async fn prompt_update(
         (false, Some(0)) => UpdateChoice::Schedule,
         _ => UpdateChoice::Later,
     };
-    if choice == UpdateChoice::EndSessions && !server_prompt(parent, &tr!("Update and End All Sessions?"), &tr!("Update and End Sessions"), &tr!("All terminal processes on this device will end, including sessions used by other clients. Terminal panes will close. App-only panes and settings will remain."), cx).await? {
+    if choice == UpdateChoice::EndSessions && !server_prompt(parent, &tr!("Update and End All Sessions?"), &tr!("Update and End Sessions"), &tr!("All terminal processes on this computer will end, including sessions used by other clients. Terminal panes will close. App-only panes and settings will remain."), cx).await? {
         return Ok(UpdateChoice::Later);
     }
     Ok(choice)
@@ -241,7 +241,7 @@ async fn prompt_install(
     cx: &mut AsyncApp,
 ) -> Result<UpdateChoice, String> {
     let message = tr!(
-        "Install Muxy %@ and restart the app? Running terminals will continue, and the server will update when all terminal sessions end. Restarting the server now ends all terminal sessions on this device, including sessions used by other clients.",
+        "Install Muxy %@ and restart the app? Running terminals will continue, and the server will update when all terminal sessions end. Restarting the server now ends all terminal sessions on this computer, including sessions used by other clients.",
         version
     );
     Ok(match install_prompt(parent, &message, cx).await? {
