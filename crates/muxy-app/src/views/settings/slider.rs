@@ -56,8 +56,13 @@ impl Slider {
         }
     }
 
+    /// The step nearest `value`, or an end of the range when it is nearer.
     fn snap(&self, value: f32) -> f32 {
-        ((value / self.step).round() * self.step).clamp(self.min, self.max)
+        if self.max - value < self.step / 2.0 {
+            return self.max;
+        }
+        let snapped = self.min + ((value - self.min) / self.step).round() * self.step;
+        snapped.clamp(self.min, self.max)
     }
 
     fn number(&self, value: f32) -> String {
@@ -177,6 +182,11 @@ impl SettingsView {
             .into_any_element()
     }
 
+    /// The slider being dragged, whose field shows its value until release.
+    pub(super) fn dragging(&self) -> Option<&'static str> {
+        self.slider.as_ref().map(|drag| drag.slider.id)
+    }
+
     fn dragged(&self, id: &str) -> Option<f32> {
         self.slider
             .as_ref()
@@ -232,31 +242,30 @@ impl SettingsView {
             Commit::Terminal => Some(Change::Terminal(spec.id, spec.text(value))),
             Commit::Field => Some(Change::Field(spec.id, spec.text(value))),
             Commit::Quick => {
-                let current = &self.snapshot.settings.quick_terminal;
-                let next = quick(current, spec.id, value);
-                (next != *current).then_some(Change::QuickTerminal(next))
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "Quick Terminal sliders stay within their small positive ranges"
+                )]
+                let value = value.round() as u16;
+                Some(Change::QuickNumber(spec.id, value))
             }
         }
     }
 }
 
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "Quick Terminal sliders stay within their small positive ranges"
-)]
-fn quick(
-    current: &muxy_app_core::settings::QuickTerminalSettings,
-    id: &str,
-    value: f32,
-) -> muxy_app_core::settings::QuickTerminalSettings {
-    let mut next = current.clone();
-    let value = value.round();
-    match id {
-        "quick-width" => next.width = value as u16,
-        "quick-height" => next.height = value as u16,
-        "quick-transparency" => next.transparency = value as u8,
-        _ => next.blur = value as u8,
+#[cfg(test)]
+mod tests {
+    use super::{Commit, Slider};
+
+    #[test]
+    fn values_snap_to_steps_from_the_minimum_and_reach_both_ends() {
+        let width = Slider::new("width", (640.0, 16384.0), 10.0, "", Commit::Field);
+        assert!((width.snap(16383.0) - 16384.0).abs() < f32::EPSILON);
+        assert!((width.snap(16376.0) - 16380.0).abs() < f32::EPSILON);
+        assert!((width.snap(0.0) - 640.0).abs() < f32::EPSILON);
+        assert!((width.snap(1203.0) - 1200.0).abs() < f32::EPSILON);
+        let height = Slider::new("line", (1.1, 2.0), 0.05, "", Commit::Field);
+        assert_eq!(height.text(height.snap(1.93)), "1.95");
     }
-    next
 }

@@ -30,35 +30,43 @@ pub(crate) struct Invocation {
     json: bool,
 }
 
+/// Options come before `--`; everything after it is a literal key or value,
+/// so a value may itself look like an option.
 pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
-    if arguments.is_empty()
-        || arguments.first().is_some_and(|word| word == "help")
-        || arguments
-            .iter()
-            .any(|word| word == "--help" || word == "-h")
-    {
-        return Ok(Command::Usage(help::CONFIG));
-    }
-    let mut words: Vec<&str> = arguments
+    let words: Vec<&str> = arguments
         .iter()
         .map(|word| {
             word.to_str()
                 .ok_or_else(|| invalid("arguments must be UTF-8"))
         })
         .collect::<io::Result<_>>()?;
-    let json = words.last() == Some(&"--json");
+    let (options, literal) = match words.iter().position(|word| *word == "--") {
+        Some(index) => (&words[..index], &words[index + 1..]),
+        None => (&words[..], &[][..]),
+    };
+    if words.is_empty()
+        || options.first() == Some(&"help")
+        || options
+            .iter()
+            .any(|word| *word == "--help" || *word == "-h")
+    {
+        return Ok(Command::Usage(help::CONFIG));
+    }
+    let mut options = options.to_vec();
+    let json = options.last() == Some(&"--json");
     if json {
-        words.pop();
+        options.pop();
     }
-    if words.get(1) == Some(&"--") {
-        words.remove(1);
-    }
-    let action = match words.as_slice() {
-        ["list"] => Action::List,
-        ["get", key] => Action::Get(key_argument(key)?),
-        ["set", key, value] => Action::Set(key_argument(key)?, (*value).to_owned()),
-        ["unset", key] => Action::Unset(key_argument(key)?),
-        ["reload"] => Action::Reload,
+    let Some((verb, rest)) = options.split_first() else {
+        return Err(invalid("unknown config command; run muxy config --help"));
+    };
+    let operands: Vec<&str> = rest.iter().chain(literal).copied().collect();
+    let action = match (*verb, operands.as_slice()) {
+        ("list", []) => Action::List,
+        ("get", [key]) => Action::Get(key_argument(key)?),
+        ("set", [key, value]) => Action::Set(key_argument(key)?, (*value).to_owned()),
+        ("unset", [key]) => Action::Unset(key_argument(key)?),
+        ("reload", []) => Action::Reload,
         _ => return Err(invalid("unknown config command; run muxy config --help")),
     };
     Ok(Command::Config(Invocation { action, json }))
@@ -180,6 +188,14 @@ mod tests {
         assert_eq!(
             action(&["set", "--", "terminal.font_size", "-1"]),
             (Action::Set("terminal.font_size".into(), "-1".into()), false)
+        );
+        assert_eq!(
+            action(&["set", "--json", "--", "ai.prompt", "--help"]),
+            (Action::Set("ai.prompt".into(), "--help".into()), true)
+        );
+        assert_eq!(
+            action(&["set", "ai.prompt", "--", "--json"]),
+            (Action::Set("ai.prompt".into(), "--json".into()), false)
         );
         assert_eq!(
             action(&["unset", "panes.new_pane_directory"]),

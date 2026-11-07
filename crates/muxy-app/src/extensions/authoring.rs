@@ -210,6 +210,7 @@ pub(crate) fn launch_line(
     executable: &Path,
     prompt: &str,
     muxy_directory: Option<&Path>,
+    profile: Option<&Path>,
 ) -> String {
     let (arguments, initial) = provider.interactive();
     let mut words = vec![shell_quote(&executable.to_string_lossy())];
@@ -235,7 +236,14 @@ pub(crate) fn launch_line(
             shell_quote(&directory.to_string_lossy())
         )
     });
-    format!("{}{path}{}", hint.unwrap_or_default(), words.join(" "))
+    let profile = profile.map_or_else(String::new, |profile| {
+        format!("MUXY_DIR={} ", shell_quote(&profile.to_string_lossy()))
+    });
+    format!(
+        "{}{profile}{path}{}",
+        hint.unwrap_or_default(),
+        words.join(" ")
+    )
 }
 
 /// Whether an agent will be able to run `muxy` once the terminal opens.
@@ -488,23 +496,23 @@ mod tests {
     fn every_provider_starts_interactively_with_or_without_its_prompt() {
         let executable = Path::new("/bin/agent");
         assert_eq!(
-            launch_line(provider("claude"), executable, "hi there", None),
+            launch_line(provider("claude"), executable, "hi there", None, None),
             "/bin/agent 'hi there'"
         );
         assert_eq!(
-            launch_line(provider("opencode"), executable, "hi", None),
+            launch_line(provider("opencode"), executable, "hi", None, None),
             "/bin/agent --prompt hi"
         );
         assert_eq!(
-            launch_line(provider("copilot"), executable, "hi", None),
+            launch_line(provider("copilot"), executable, "hi", None, None),
             "/bin/agent -i hi"
         );
         assert_eq!(
-            launch_line(provider("kiro"), executable, "hi", None),
+            launch_line(provider("kiro"), executable, "hi", None, None),
             "printf '%s\\n' 'Paste this into the agent: hi'; /bin/agent chat"
         );
         for provider in crate::ai::PROVIDERS {
-            let line = launch_line(*provider, executable, "hi", None);
+            let line = launch_line(*provider, executable, "hi", None, None);
             for headless in ["--print", "--tools=", "exec", "--no-interactive", " run"] {
                 assert!(!line.contains(headless), "{}: {line}", provider.id);
             }
@@ -518,9 +526,24 @@ mod tests {
                 provider("codex"),
                 Path::new("/bin/codex"),
                 "hi",
-                Some(Path::new("/Apps/Muxy Beta.app/Contents/MacOS"))
+                Some(Path::new("/Apps/Muxy Beta.app/Contents/MacOS")),
+                None
             ),
             "PATH='/Apps/Muxy Beta.app/Contents/MacOS':\"$PATH\" /bin/codex hi"
+        );
+    }
+
+    #[test]
+    fn a_settings_agent_works_on_the_apps_own_profile() {
+        assert_eq!(
+            launch_line(
+                provider("codex"),
+                Path::new("/bin/codex"),
+                "hi",
+                None,
+                Some(Path::new("/Users/me/Library/Application Support/Muxy 2"))
+            ),
+            "MUXY_DIR='/Users/me/Library/Application Support/Muxy 2' /bin/codex hi"
         );
     }
 

@@ -127,6 +127,7 @@ holds a dot: keymap.\"command.build\". Values are TOML (true, 14, 0.5,
 [\"a\", \"b\"]); anything else is text, so names need no quotes.
 A change is saved only if the app can start with it; set and unset then have
 a running desktop app apply it, and never start one. reload applies hand edits.
+Use -- before a key or value that starts with a dash.
 Optional settings appear in list once they are set. Remote servers are managed
 in Settings, and server settings with muxy settings.
 Text list lines: key = value, with the value in TOML.";

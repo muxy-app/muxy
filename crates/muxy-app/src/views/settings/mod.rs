@@ -446,6 +446,7 @@ impl SettingsView {
             )
         })) {
             if !self.dirty.contains(id)
+                && self.dragging() != Some(id)
                 && !self.errors.contains_key(id)
                 && !self.snapshot.pending_server_fields.contains(id)
             {

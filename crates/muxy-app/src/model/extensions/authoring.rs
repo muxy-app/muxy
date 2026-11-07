@@ -266,7 +266,12 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         let start = task.start(root);
-        let command = authoring::launch_line(provider, executable, &start.prompt, muxy_directory);
+        let profile = match task {
+            AgentTask::Settings { profile } => Some(profile.as_path()),
+            _ => None,
+        };
+        let command =
+            authoring::launch_line(provider, executable, &start.prompt, muxy_directory, profile);
         authoring::typed_safely(&command)?;
         let project = self
             .state

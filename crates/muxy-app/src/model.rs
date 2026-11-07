@@ -376,31 +376,41 @@ impl AppModel {
             Ok(terminal)
         });
         match result {
-            Ok(terminal) => {
-                let themes = crate::theme::Catalog::load(&self.path.with_file_name("themes"));
-                self.terminal = terminal;
-                self.themes = themes;
-                self.set_configuration_error(None);
-                for pane in self.grids.values() {
-                    let zoom = pane.view.read(cx).zoomed_font_size();
-                    pane.view.update(cx, |pane, cx| {
-                        pane.terminal = self.terminal.clone();
-                        pane.configured_font_size = self.terminal.font_size;
-                        if let Some(size) = zoom {
-                            pane.terminal.font_size = size;
-                        }
-                        cx.notify();
-                    });
-                }
-                self.refresh_theme(cx);
-            }
-            Err(error) => {
-                self.set_configuration_error(Some(
-                    tr!("Could not reload configuration: %@", error.to_string()).to_string(),
-                ));
-                cx.notify();
-            }
+            Ok(terminal) => self.adopt_terminal(terminal, cx),
+            Err(error) => self.configuration_failed(&error.to_string(), cx),
         }
+    }
+
+    pub(crate) fn configuration_failed(&mut self, error: &str, cx: &mut Context<Self>) {
+        self.set_configuration_error(Some(
+            tr!("Could not reload configuration: %@", error).to_string(),
+        ));
+        cx.notify();
+    }
+
+    /// Runs the terminals with `terminal`, already saved, and the themes
+    /// folder as it is now.
+    pub(crate) fn adopt_terminal(
+        &mut self,
+        terminal: muxy_app_core::settings::TerminalSettings,
+        cx: &mut Context<Self>,
+    ) {
+        let themes = crate::theme::Catalog::load(&self.path.with_file_name("themes"));
+        self.terminal = terminal;
+        self.themes = themes;
+        self.set_configuration_error(None);
+        for pane in self.grids.values() {
+            let zoom = pane.view.read(cx).zoomed_font_size();
+            pane.view.update(cx, |pane, cx| {
+                pane.terminal = self.terminal.clone();
+                pane.configured_font_size = self.terminal.font_size;
+                if let Some(size) = zoom {
+                    pane.terminal.font_size = size;
+                }
+                cx.notify();
+            });
+        }
+        self.refresh_theme(cx);
     }
 
     pub(crate) fn reload_themes(&mut self, cx: &mut Context<Self>) {
@@ -1226,7 +1236,8 @@ impl AppModel {
     /// Opens a terminal tab in `project` and shows it, switching the sidebar's
     /// workspace when it doesn't list the project.
     pub(crate) fn new_tab_in(&mut self, project: ProjectId, cx: &mut Context<Self>) {
-        self.open_new_tab(project, None, cx);
+        let directory = self.new_tab_directory(project, cx);
+        self.open_new_tab(project, directory.as_deref(), cx);
     }
 
     fn open_new_tab(

@@ -18,14 +18,15 @@ Muxy can still start with it, then has the running app apply it right away.
    settings do.
 3. Say what you will change, from what to what, and wait for a yes before
    changing more than the user asked for.
-4. Change it, then read it back:
+4. Note each setting's current value, then change it and read it back:
 
    ```bash
    muxy config set appearance.dark_theme "Catppuccin Mocha"
    muxy config get appearance.dark_theme
    ```
 
-5. Tell the user what changed, and how to undo it with `muxy config unset`.
+5. Tell the user what changed, from what to what. To undo a change, set the
+   value you noted back; `unset` returns a setting to its default instead.
 
 ## Commands
 

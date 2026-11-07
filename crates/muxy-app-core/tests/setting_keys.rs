@@ -12,6 +12,8 @@ fn keys_split_at_dots_outside_quotes_and_render_back() {
     let segments = parse_key(r#"keymap."command.build""#).expect("key");
     assert_eq!(segments, ["keymap", "command.build"]);
     assert_eq!(render_key(&segments), r#"keymap."command.build""#);
+    let odd = vec!["ai".to_owned(), r#"say "hi" \ now"#.to_owned()];
+    assert_eq!(parse_key(&render_key(&odd)).expect("round trip"), odd);
     for invalid in ["", "appearance.", ".theme", "a..b", r#"keymap."open"#] {
         assert!(parse_key(invalid).is_err(), "{invalid}");
     }

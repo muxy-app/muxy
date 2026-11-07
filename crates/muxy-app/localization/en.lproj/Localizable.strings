@@ -1831,6 +1831,7 @@
 "Text color" = "Text color";
 "Text to send. Write special keys as escapes, such as \\e for Escape or \\x01 for Control-A." = "Text to send. Write special keys as escapes, such as \\e for Escape or \\x01 for Control-A.";
 "That browser is no longer available" = "That browser is no longer available";
+"The %@ shortcut conflicts with Quick Terminal" = "The %@ shortcut conflicts with Quick Terminal";
 "The AI provider returned an empty commit message" = "The AI provider returned an empty commit message";
 "The AI provider returned an empty pull request title" = "The AI provider returned an empty pull request title";
 "The AI provider returned an invalid response. Update the prompt or try another provider." = "The AI provider returned an invalid response. Update the prompt or try another provider.";

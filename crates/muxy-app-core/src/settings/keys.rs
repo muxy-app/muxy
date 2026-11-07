@@ -170,8 +170,15 @@ pub fn parse_key(key: &str) -> Result<Vec<String>> {
     let mut segments = Vec::new();
     let mut segment = String::new();
     let mut quoted = false;
-    for character in key.trim().chars() {
+    let mut characters = key.trim().chars();
+    while let Some(character) = characters.next() {
         match character {
+            '\\' if quoted => {
+                let escaped = characters
+                    .next()
+                    .ok_or_else(|| Error::new(key, "ends inside an escape"))?;
+                segment.push(escaped);
+            }
             '"' => quoted = !quoted,
             '.' if !quoted => segments.push(std::mem::take(&mut segment)),
             character => segment.push(character),
@@ -199,7 +206,7 @@ pub fn render_key(segments: &[String]) -> String {
             {
                 segment.clone()
             } else {
-                format!("\"{segment}\"")
+                format!("\"{}\"", segment.replace('\\', "\\\\").replace('"', "\\\""))
             }
         })
         .collect::<Vec<_>>()

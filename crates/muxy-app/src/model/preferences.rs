@@ -14,6 +14,8 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>
 pub(crate) enum Change {
     Composer(ComposerToggle, bool),
     QuickTerminal(muxy_app_core::settings::QuickTerminalSettings),
+    /// One Quick Terminal number, such as `quick-width`, set on the saved settings.
+    QuickNumber(&'static str, u16),
     Theme(bool, String),
     Sidebar(bool),
     SidebarVibrancy(bool),
@@ -467,6 +469,13 @@ impl AppModel {
                 | Change::RemoveCommand(_)
         );
         match change {
+            Change::QuickNumber(id, value) => {
+                self.apply_quick_settings(
+                    quick_number(&self.settings.quick_terminal, id, value),
+                    cx,
+                )?;
+                return Ok(());
+            }
             Change::QuickTerminal(quick) => {
                 self.apply_quick_settings(quick, cx)?;
                 return Ok(());
@@ -729,6 +738,12 @@ impl AppModel {
             || self.appearance.light_theme != settings.appearance.light_theme
             || self.appearance.interface_size != settings.appearance.interface_size;
         let language_changed = self.appearance.language != settings.appearance.language;
+        if settings.appearance.remember_projects_without_tabs
+            && settings.appearance.projects_without_tabs_shown
+                != self.appearance.projects_without_tabs_shown
+        {
+            self.projects_without_tabs_shown = settings.appearance.projects_without_tabs_shown;
+        }
         self.appearance = settings.appearance.clone();
         self.settings = settings;
         self.sync_agents_panel(cx);
@@ -792,17 +807,30 @@ impl AppModel {
     }
 
     fn adopt_saved_settings(&mut self, cx: &mut Context<Self>) -> std::result::Result<(), String> {
-        self.reload_configuration(cx);
-        if let Some(error) = &self.configuration_error {
-            return Err(error.clone());
-        }
-        let mut loaded =
+        let loaded =
             muxy_app_core::settings::Settings::load(&self.path.with_file_name("settings.toml"))
                 .and_then(|loaded| {
-                    loaded.validate_command_shortcuts(&self.terminal)?;
-                    Ok(loaded)
+                    let terminal = muxy_app_core::settings::TerminalSettings::load_native(
+                        &self.path.with_file_name("terminal.toml"),
+                    )?;
+                    loaded.validate_command_shortcuts(&terminal)?;
+                    Ok((loaded, terminal))
                 })
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| error.to_string())
+                .and_then(|(loaded, terminal)| {
+                    Self::quick_keymap_conflict(&loaded.keymap, &loaded.quick_terminal)?;
+                    Ok((loaded, terminal))
+                });
+        let (mut loaded, terminal) = match loaded {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                self.configuration_failed(&error, cx);
+                return Err(error);
+            }
+        };
+        if self.terminal_preview.is_none() {
+            self.adopt_terminal(terminal, cx);
+        }
         loaded.servers.clone_from(&self.settings.servers);
         let mut current = self.settings.clone();
         current.appearance = self.appearance.clone();
@@ -1290,7 +1318,7 @@ fn change_id(change: &Change) -> &str {
         Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",
         Change::Terminal("dismiss-import-notes", _) => "terminal-import-notes",
         Change::Composer(toggle, _) => toggle.id(),
-        Change::Terminal(id, _) | Change::Field(id, _) => id,
+        Change::Terminal(id, _) | Change::Field(id, _) | Change::QuickNumber(id, _) => id,
         Change::ResetTerminal => "terminal-reset",
         Change::TerminalEdit(edit) => match edit {
             TerminalEdit::Fallbacks(_) => "font-fallbacks",
@@ -1326,4 +1354,23 @@ fn browser_settings(
         _ => {}
     }
     browser
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "Transparency and vibrancy stay between 0 and 100"
+)]
+fn quick_number(
+    current: &muxy_app_core::settings::QuickTerminalSettings,
+    id: &str,
+    value: u16,
+) -> muxy_app_core::settings::QuickTerminalSettings {
+    let mut next = current.clone();
+    match id {
+        "quick-width" => next.width = value,
+        "quick-height" => next.height = value,
+        "quick-transparency" => next.transparency = value.min(255) as u8,
+        _ => next.blur = value.min(255) as u8,
+    }
+    next
 }

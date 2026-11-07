@@ -307,6 +307,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
 
 impl SettingsView {
     pub(crate) fn show_quick_terminal(&mut self, cx: &mut Context<Self>) {
+        self.finish_slider(cx);
         self.category = Category::QuickTerminal;
         self.section = None;
         self.query.clear();

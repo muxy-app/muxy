@@ -592,6 +592,27 @@ impl AppModel {
         Ok(())
     }
 
+    /// Why `keymap` can't be used beside `quick`'s global shortcut, if it can't.
+    pub(super) fn quick_keymap_conflict(
+        keymap: &muxy_app_core::settings::Keymap,
+        quick: &muxy_app_core::settings::QuickTerminalSettings,
+    ) -> Result<(), String> {
+        let Some(shortcut) = quick.shortcut.key_combo().filter(|_| quick.enabled) else {
+            return Ok(());
+        };
+        match shortcut_conflicts(keymap)
+            .into_iter()
+            .find(|candidate| shortcut.conflicts_with(&candidate.combo))
+        {
+            Some(candidate) => Err(tr!(
+                "The %@ shortcut conflicts with Quick Terminal",
+                &candidate.label
+            )
+            .to_string()),
+            None => Ok(()),
+        }
+    }
+
     pub(super) fn validate_quick_conflict(
         &self,
         chord: &muxy_app_core::settings::KeyChord,
