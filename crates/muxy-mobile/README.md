@@ -228,6 +228,8 @@ Swift names are shown. Kotlin uses the same names without argument labels.
 | `terminal.sendInput(bytes:)` | — | yes |
 | `terminal.sendKey(key:modifiers:)` | — | yes |
 | `terminal.paste(text:)` | — | yes |
+| `terminal.upload(name:bytes:)` | `String` | yes |
+| `terminal.pastePaths(paths:)` | — | yes |
 | `terminal.click(button:row:column:modifiers:)` | — | yes |
 | `terminal.scroll(direction:row:column:)` | — | yes |
 | `terminal.resize(columns:rows:)` | — | yes |
@@ -674,6 +676,7 @@ Input goes to the session itself, so every client showing it sees the result.
 | Uses Insert, Delete, Shift-Tab, or F1–F12 | `sendKey` with `insert`, `delete`, `backTab`, or `function(number)` |
 | Holds Ctrl or Alt on the accessory bar | `sendKey(key: .character(text:), modifiers:)`. With Control, only the first character counts |
 | Pastes | `paste(text:)` |
+| Pastes an image or file | `upload(name:bytes:)`, then `pastePaths(paths:)` with the returned paths |
 
 ```swift
 try await SDK.run { try terminal.sendInput(bytes: Data("git status".utf8)) }
@@ -696,6 +699,14 @@ withContext(sdk) {
   the text as a paste when the program asks for that; otherwise pasted line
   breaks run as typed.
 - One call carries at most 1 MiB.
+- Programs on the computer can't read the phone's clipboard, so send a pasted
+  image with `upload` and paste its path, as the desktop does for other
+  computers. AI tools such as Claude Code and Codex attach a pasted image path.
+  The file lives in a private temporary folder on the computer, never in the
+  project. Servers from before uploads fail with `Unsupported`.
+- `pastePaths` quotes absolute paths for a shell, separates them with spaces,
+  and sends them together, marked as a paste when the program asks for that. A
+  path that isn't absolute fails with `Server`.
 - `resize(columns:rows:)` resizes the session for every client, and the
   desktop's pane reflows to match. Offer it as an explicit action, such as
   "Fit to phone".
@@ -948,6 +959,7 @@ try {
 | Device name | Up to 64 bytes |
 | Connect timeout | 4 s to connect per IP address tried, then 4 s for TLS; over SSH, 15 s for the bridge to start |
 | Input per call | 1 MiB |
+| Upload | 100 MiB per file |
 | Scrollback page | 1–500 rows |
 | File read or write | 5 MiB |
 

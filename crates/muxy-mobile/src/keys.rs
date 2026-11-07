@@ -1,5 +1,7 @@
 //! Keys an on-screen keyboard or accessory bar can send, encoded as a terminal expects.
 
+use std::path::PathBuf;
+
 use muxy_protocol::Modes;
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Enum)]
@@ -133,6 +135,17 @@ pub(crate) fn paste(text: &str, bracketed: bool) -> Vec<u8> {
     }
 }
 
+/// Absolute paths quoted for a shell and separated by spaces, as one paste.
+/// `None` when there are none, or one isn't absolute, holds a NUL byte, or is
+/// too long.
+pub(crate) fn paths(paths: &[String], modes: Modes) -> Option<Vec<u8>> {
+    if paths.is_empty() {
+        return None;
+    }
+    let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    muxy_client::input::paths(&paths, modes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,5 +202,35 @@ mod tests {
             paste("a\r\nb\n\x1b[201~rm\u{009b}201~", true),
             b"\x1b[200~a\rb\r[201~rm201~\x1b[201~"
         );
+    }
+
+    #[test]
+    fn pasted_paths_are_quoted_for_a_shell_and_bracketed_when_asked() {
+        let uploads = vec![
+            "/tmp/muxy-uploads-501/7/pasted-image.png".to_owned(),
+            "/tmp/muxy-uploads-501/7/it's here.jpg".to_owned(),
+        ];
+        assert_eq!(
+            paths(&uploads, modes(false)),
+            Some(
+                b"'/tmp/muxy-uploads-501/7/pasted-image.png' '/tmp/muxy-uploads-501/7/it'\\''s here.jpg'"
+                    .to_vec()
+            )
+        );
+        let bracketed = Modes {
+            bracketed_paste: true,
+            ..modes(false)
+        };
+        assert_eq!(
+            paths(&uploads[..1], bracketed),
+            Some(b"\x1b[200~'/tmp/muxy-uploads-501/7/pasted-image.png'\x1b[201~".to_vec())
+        );
+    }
+
+    #[test]
+    fn pasted_paths_must_be_absolute() {
+        assert_eq!(paths(&[], modes(false)), None);
+        assert_eq!(paths(&["relative.png".to_owned()], modes(false)), None);
+        assert_eq!(paths(&["/tmp/a\0b.png".to_owned()], modes(false)), None);
     }
 }

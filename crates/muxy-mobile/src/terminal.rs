@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use muxy_client::Client;
-use muxy_protocol::Size;
+use muxy_client::{Client, ClientError};
+use muxy_protocol::{ErrorCode, Size};
 
 use crate::MobileError;
 use crate::keys::{self, Key, Modifiers};
 use crate::mouse::{self, MouseButton, ScrollDirection};
-use crate::records::Screen;
+use crate::records::{Screen, text};
 use crate::scrollback::Scrollback;
 use crate::terminals::{Terminals, View};
 
@@ -66,6 +66,23 @@ impl Terminal {
     pub fn paste(&self, text: String) -> Result<(), MobileError> {
         let bracketed = self.view.lock().terminal.grid.modes.bracketed_paste;
         self.send_input(keys::paste(&text, bracketed))
+    }
+
+    /// Sends a file of up to 100 MiB, such as a pasted image, for this
+    /// session to keep on the server's computer, and returns its absolute
+    /// path there. Servers from before uploads fail with `Unsupported`.
+    pub fn upload(&self, name: String, bytes: Vec<u8>) -> Result<String, MobileError> {
+        let path = self.client.upload(self.view.session, &name, &bytes)?;
+        Ok(text(&path))
+    }
+
+    /// Pastes absolute paths, such as `upload`'s, quoted for a shell and
+    /// separated by spaces, which AI tools read as attached files.
+    pub fn paste_paths(&self, paths: Vec<String>) -> Result<(), MobileError> {
+        let modes = self.view.lock().terminal.grid.modes;
+        let bytes =
+            keys::paths(&paths, modes).ok_or(ClientError::Invalid(ErrorCode::BadRequest))?;
+        self.send_input(bytes)
     }
 
     /// Clicks at a cell: a press, then a release. The program sees it only
