@@ -705,7 +705,8 @@ withContext(sdk) {
   The file lives in a private temporary folder on the computer, never in the
   project. Servers from before uploads fail with `Unsupported`.
 - `pastePaths` quotes absolute paths for a shell, separates them with spaces,
-  and marks them as one paste. A path that isn't absolute fails with `Server`.
+  and sends them together, marked as a paste when the program asks for that. A
+  path that isn't absolute fails with `Server`.
 - `resize(columns:rows:)` resizes the session for every client, and the
   desktop's pane reflows to match. Offer it as an explicit action, such as
   "Fit to phone".
