@@ -2,6 +2,7 @@
 //!
 //! Server-owned settings and presentation code stay with their owners.
 
+pub mod agent;
 mod appearance;
 mod browser;
 mod chord;
@@ -11,6 +12,7 @@ mod config;
 mod error;
 mod ghostty;
 mod keymap;
+pub mod keys;
 mod paired;
 mod private_file;
 mod proxy;

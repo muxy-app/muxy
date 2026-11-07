@@ -43,9 +43,10 @@ section opens its file.
 | `themes/` | Your own themes |
 | `server.toml` | Server settings |
 
-- Restart the app after editing `settings.toml` by hand. If the file has an
-  error or an unknown key, the app won't open; see
-  [Troubleshooting](troubleshooting.md#the-app-doesnt-open).
+- After editing `settings.toml` by hand, run `muxy config reload` or restart
+  the app. If the file has an error or an unknown key, the app won't open; see
+  [Troubleshooting](troubleshooting.md#the-app-doesnt-open). `muxy config`
+  edits never save such a file.
 - **Welcome Tour** at the top of Settings replays the
   [welcome tour](../product/app-model.md#welcome-tour).
 - Hand edits to `terminal.toml` apply when Muxy or Settings becomes active. If
@@ -74,14 +75,16 @@ Use **Settings → Terminal** for:
 - Copy on select, clearing selection when typing or copying, mouse reporting,
   separate trackpad and mouse wheel speeds, and scrolling to live output.
 - Whether both, neither, left, or right Option keys act as Alt.
-- The working directory for new panes.
+- Whether new tabs and panes start in the focused pane's working directory
+  (**Keep working directory**, off by default) or in the project folder.
 - Key bindings the terminal handles while focused: record a key, then pick an
   action such as sending text. They win over app shortcuts. You can also turn
   off the built-in terminal bindings.
 
 Numeric controls use sliders, on/off options use switches, and fixed choices use
-dropdowns. Sliders preview changes while dragging and save when released or when
-Settings closes. Spacing and thickness offer a pixels/percent dropdown; changing
+dropdowns. Sliders keep their place while their value changes, and save once,
+when released or when Settings closes. Terminal sliders also preview in the
+terminals while dragging. Spacing and thickness offer a pixels/percent dropdown; changing
 units keeps the numeric adjustment within the supported range.
 
 **Reset terminal settings**, at the bottom of the section, returns everything
@@ -97,6 +100,33 @@ no effect. Any unsupported legacy options appear under **Imported settings**
 until you dismiss them.
 Older backups and 1.x imports are converted to native preferences too. Legacy blur
 and glass presets become native background vibrancy.
+
+## Change settings from the command line
+
+`muxy config` reads and changes every setting in `settings.toml` and
+`terminal.toml`, and has the running app apply the change. Keys are the files'
+own dotted paths; terminal keys start with `terminal.`.
+
+```bash
+muxy config list                         # every setting with its value
+muxy config get appearance.dark_theme
+muxy config set terminal.font_size 14
+muxy config unset terminal.font_size     # back to the default
+```
+
+A value that would stop the app from starting is refused, and the file stays
+as it was. Remote servers stay in **Settings → Devices**, and server settings use
+`muxy settings`. See [Muxy CLI](../features/muxy-cli.md#app-settings).
+
+## Ask an agent
+
+**Ask Agent…** at the top of Settings asks which coding agent to use, then opens
+a tab in Home with the agent running in the profile folder. It reads a
+`muxy-settings` skill that Muxy writes to `.claude/skills/` and `.agents/skills/`
+there, and changes settings with `muxy config`, so each change applies at once.
+Tell it what you want, such as "use a larger font and a dark theme". As with
+[extension agents](../extensions/agents.md), Muxy asks to install the `muxy`
+command first if it's missing.
 
 ## Themes
 

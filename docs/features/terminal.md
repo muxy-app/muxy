@@ -30,8 +30,9 @@ quit the app, and every app shows the same screen and history.
   → Show pane headers**.
 - Panes that aren't focused are dimmed, and the focused pane's tab is
   underlined.
-- New panes open in the project folder. Set **Settings → Terminal → New pane
-  directory** to open them in the current pane's folder instead.
+- New tabs and panes open in the project folder. Turn on **Settings → Terminal →
+  Keep working directory** to open them in the focused pane's folder instead. A
+  new tab in another project still opens in that project's folder.
 - Drag dividers to resize, or even them out with **Equalize Splits**
   (`Cmd+Ctrl+=`, or a pane's right-click menu). `Cmd`-drag a pane onto another
   pane to swap them, or onto an edge to dock it there.

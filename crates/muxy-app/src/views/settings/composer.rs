@@ -1,3 +1,4 @@
+use super::slider::{Commit, Slider};
 use super::{Category, SettingsEvent, SettingsView};
 use crate::model::preferences::{Change, ComposerToggle};
 use gpui::{AnyElement, Context, IntoElement};
@@ -32,13 +33,23 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             view.toggle(id, value, Change::Composer(toggle, !value), cx),
         ));
     }
-    for (id, label) in [
-        ("composer-font", tr_key!("Composer font")),
-        ("composer-line-height", tr_key!("Composer line height")),
-    ] {
-        if view.matches(Category::Composer, label) {
-            rows.push(view.row(id, label, view.field(id)));
-        }
+    if view.matches(Category::Composer, tr_key!("Composer font")) {
+        rows.push(view.row(
+            "composer-font",
+            tr_key!("Composer font"),
+            view.field("composer-font"),
+        ));
+    }
+    if view.matches(Category::Composer, tr_key!("Composer line height")) {
+        rows.push(view.row(
+            "composer-line-height",
+            tr_key!("Composer line height"),
+            view.slider(
+                Slider::new("composer-line-height", (1.1, 2.0), 0.05, "", Commit::Field),
+                view.snapshot.settings.composer.line_height,
+                cx,
+            ),
+        ));
     }
     rows.extend(image_rows(view, cx));
     rows

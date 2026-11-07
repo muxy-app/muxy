@@ -166,11 +166,14 @@ impl AppModel {
         else {
             return;
         };
+        let directory = self.new_tab_directory(project, cx);
         if self.edit_tab(
             |state| {
-                state
-                    .open_terminal_tab_adjacent(project, anchor, side)
-                    .map(|_| ())
+                state.open_terminal_tab_adjacent(project, anchor, side)?;
+                if let Some(pane) = state.window().active_pane {
+                    state.plan_creation(pane, directory.as_deref(), None);
+                }
+                Ok(())
             },
             cx,
         ) {

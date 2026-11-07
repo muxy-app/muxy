@@ -1061,3 +1061,110 @@ fn an_extension_sidebar_is_listed_chosen_and_falls_back_when_disabled(cx: &mut T
         assert_eq!(model.appearance.extension_sidebar, "workspace-nav");
     });
 }
+
+#[gpui::test]
+fn reloading_applies_settings_changed_on_disk_and_keeps_them_when_invalid(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::keys::Profile;
+    use muxy_app_core::settings::{NewPaneDirectory, Settings};
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = settings_tab(boot, cx);
+    view.update(cx, |model, cx| {
+        let profile = Profile::new(model.path.parent().expect("profile"));
+        profile
+            .set("panes.new_pane_directory", "current")
+            .expect("set");
+        profile
+            .set("clipboard.copy_on_select", "true")
+            .expect("set");
+        profile.set("terminal.font_size", "21").expect("set");
+        model.reload_settings(cx).expect("reload");
+        assert_eq!(
+            model.settings.panes.new_pane_directory,
+            NewPaneDirectory::Current
+        );
+        assert!(model.settings.clipboard.copy_on_select);
+        assert_eq!(model.terminal.font_size, 21.0);
+
+        let applied: Settings = model.settings.clone();
+        std::fs::write(
+            profile.settings_path(),
+            "[panes]\nnew_pane_directory = \"sideways\"\n",
+        )
+        .expect("write");
+        assert!(model.reload_settings(cx).is_err());
+        assert_eq!(model.settings, applied);
+    });
+}
+
+#[gpui::test]
+fn sliders_keep_their_place_while_dragging_and_save_once_on_release(cx: &mut TestAppContext) {
+    let (boot, _) = stub_boot(AppState::bootstrap().expect("state"));
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (model, settings) = settings_tab(boot, cx);
+    click_preference(settings, "settings-category-Composer");
+    let selector = "settings-slider-row-composer-line-height";
+    let row = settings.debug_bounds(selector).expect("line height slider");
+    let saved = || std::fs::read_to_string(&path).unwrap_or_default();
+    let before = saved();
+    let at = |x: f32| gpui::point(row.origin.x + px(x), row.center().y);
+    settings.simulate_event(gpui::MouseDownEvent {
+        position: at(2.0),
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    settings.run_until_parked();
+    for x in [60.0, 120.0, 180.0] {
+        settings.simulate_event(gpui::MouseMoveEvent {
+            position: at(x),
+            pressed_button: Some(gpui::MouseButton::Left),
+            ..Default::default()
+        });
+        settings.run_until_parked();
+        assert_eq!(
+            settings.debug_bounds(selector),
+            Some(row),
+            "the slider moved"
+        );
+        assert_eq!(saved(), before, "saved while dragging");
+    }
+    settings.simulate_event(gpui::MouseUpEvent {
+        position: at(180.0),
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    settings.run_until_parked();
+    let height = model.read_with(settings, |model, _| model.settings.composer.line_height);
+    assert!(height > 1.5, "{height}");
+    let reloaded = muxy_app_core::settings::Settings::load(&path).expect("saved");
+    assert_eq!(reloaded.composer.line_height, height);
+}
+
+#[gpui::test]
+fn reloading_keeps_a_cli_change_and_an_unsaved_field_of_the_same_section(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, settings) = settings_tab(boot, cx);
+    click_preference(settings, "settings-field-width");
+    settings.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-a 1 4 0 0"
+    } else {
+        "ctrl-a 1 4 0 0"
+    });
+    view.update(settings, |model, cx| {
+        assert_eq!(model.settings.window.default_size[0], 1200.0);
+        let profile =
+            muxy_app_core::settings::keys::Profile::new(model.path.parent().expect("profile"));
+        profile.set("window.close_behavior", "detach").expect("set");
+        model.reload_settings(cx).expect("reload");
+        assert_eq!(model.settings.window.default_size[0], 1400.0);
+        assert_eq!(
+            model.settings.window.close_behavior,
+            muxy_app_core::settings::CloseBehavior::Detach
+        );
+        let saved =
+            muxy_app_core::settings::Settings::load(&profile.settings_path()).expect("load");
+        assert_eq!(saved.window, model.settings.window);
+    });
+}

@@ -153,12 +153,29 @@ muxy browser read "$TAB"                           # title, URL and page text
   `muxy browser screenshot "$TAB" | base64 -D > page.png`.
 - Close only tabs you opened.
 
+## App settings
+
+`muxy config` reads and changes the desktop app's settings on this computer and
+has a running app apply them at once. Keys are dotted paths into
+`settings.toml`, or into `terminal.toml` after `terminal.`.
+
+```bash
+muxy config list                                  # every setting with its value
+muxy config get terminal.font_size
+muxy config set terminal.font_size 14
+muxy config unset terminal.font_size              # back to the default
+```
+
+- Change settings only when the user asks, and say what changed.
+- A rejected value leaves the files as they were; never edit them by hand.
+- Server settings, such as the default shell, use `muxy settings`.
+
 ## Other computers
 
 Put `--host user@computer` before a server-backed command, such as `project`,
 `session`, or `worktree`, to use another computer's server over SSH. Directories
 are then absolute paths on that computer.
 
-Folder-opening commands, `browser`, `session show`, and `install-skills` do
+Folder-opening commands, `browser`, `config`, `session show`, and `install-skills` do
 not support `--host`.
 `install-skills --dir DIR` always installs into a local directory.

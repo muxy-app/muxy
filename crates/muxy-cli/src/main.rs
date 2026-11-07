@@ -3,6 +3,7 @@
 mod args;
 mod browser;
 mod clipboard;
+mod config;
 mod extension;
 mod input;
 mod manage;
@@ -51,6 +52,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::Status(report) => status::run(&report)?,
         Command::Browser(invocation) => browser::run(*invocation)?,
         Command::Extension(invocation) => extension::run(*invocation)?,
+        Command::Config(invocation) => config::run(invocation)?,
         Command::InstallSkills(directories) => {
             let home = std::env::home_dir();
             let mut stdout = io::stdout().lock();
