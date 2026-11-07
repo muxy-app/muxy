@@ -36,7 +36,7 @@ const SEARCH_ORDER: [Category; 14] = [
     Category::Commands,
     Category::Browser,
     Category::Server,
-    Category::Devices,
+    Category::Servers,
     Category::Extensions,
     Category::Ai,
     Category::Backup,
@@ -213,7 +213,7 @@ impl SettingsView {
         self.results.editable = items.iter().any(|item| {
             !matches!(
                 item,
-                Item::Section(Category::About | Category::Devices | Category::Extensions)
+                Item::Section(Category::About | Category::Servers | Category::Extensions)
             )
         });
         if items.is_empty() {
@@ -329,19 +329,19 @@ impl SettingsView {
                     Vec::new()
                 }
             }
-            Category::Devices => {
+            Category::Servers => {
                 if self.matches(
-                    Category::Devices,
-                    tr_key!("Manage devices remote servers ssh pairing paired mobile phones computers port qr"),
+                    Category::Servers,
+                    tr_key!("Manage servers clients remote ssh pairing paired mobile phones computers port qr"),
                 ) {
                     vec![
                         muxy_ui::controls::button(
                             self.style(),
-                            "manage-devices",
-                            muxy_ui::controls::Button::secondary(&tr!("Manage Devices")),
-                            cx.listener(|view, _, _, cx| view.show_devices(cx)),
+                            "manage-servers",
+                            muxy_ui::controls::Button::secondary(&tr!("Manage Servers")),
+                            cx.listener(|view, _, _, cx| view.show_servers(cx)),
                         )
-                        .debug_selector(|| "settings-manage-devices".into())
+                        .debug_selector(|| "settings-manage-servers".into())
                         .into_any_element(),
                     ]
                 } else {

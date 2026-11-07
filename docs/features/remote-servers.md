@@ -25,25 +25,25 @@ On Linux hosts that end your processes when you log out, run
 
 ## In the desktop app
 
-1. Open the **Devices** section at the bottom of the sidebar and choose
+1. Open the **Servers** section at the bottom of the sidebar and choose
    **Add Server…**.
 2. Enter the SSH host (a host name, address, or `~/.ssh/config` alias), and
    optionally the user, port, and identity file.
 3. Choose **Test Connection**. If Muxy isn't installed there, the app offers to
    install the same version into `~/.local/bin`.
-4. Add projects with **Add Project → Remote**, which browses the server's
-   folders.
+4. Make it the [default server](#the-default-server), then add projects with
+   **Add Project → Folder…**, which browses its folders.
 
 - Passwords are asked when connecting and kept only in memory until you quit.
 - A dropped server reconnects on its own, waiting longer each time. It stops
   retrying when it needs you, for example for a password or a new host key.
-- Right-click a server in the **Devices** popover for its actions, or hover it
+- Right-click a server in the **Servers** popover for its actions, or hover it
   and use its pencil to edit it.
 - Put servers in a **Group** from **Add Server…** or **Edit…**, or with
-  **Move to Group** in their menu. The popover and **Add Project → Remote** list
+  **Move to Group** in their menu. The popover and **Settings → Servers** list
   them by group. In `settings.toml`, it is `group = "…"`.
-- **Manage Devices…** opens **Settings → Devices**. Under **Connects To** it has
-  every server by group:
+- **Manage Servers…** opens **Settings → Servers**. Under **Other Servers** it
+  has every server by group:
   - Tick servers' boxes, or **Select all**, to act on several; `Shift`-click a
     box to tick a range. The bar above the list connects, disconnects,
     regroups, or forgets the ticked servers, and so does right-clicking one.
@@ -53,23 +53,38 @@ On Linux hosts that end your processes when you log out, run
   disconnected until you connect it or open one of its projects.
 - **Forget** a server to remove it and its projects from this app. Nothing on
   the server changes.
-- The status bar shows the current project's server, with connect, restart, and
-  stop.
+- The status bar shows the default server, with connect, restart, and stop.
+
+### The default server
+
+The app works with one server at a time. Pick it in the status bar's server
+popover, or choose **Use as Default Server** in a server's menu. The sidebar
+then lists that server's projects, Home is its Home, and **Add Project** and
+**New Tab in Project…** browse its folders. Opening a folder from Finder or
+`muxy <folder>` switches back to this computer.
+
+Terminals that another client shows on the default server open here as tabs in
+their project, without taking focus. Terminals nobody shows, such as detached
+ones, stay in **Existing Terminals**. For example, with a Linux computer's
+server as the default on a Mac, a tab opened in the Linux app also shows up on
+the Mac. Closing or detaching one here leaves it running for the clients still
+showing it, and the app doesn't open it here again. It stays in **Existing
+Terminals** to open it again.
 
 ### Pair with another computer
 
 Pairing needs no SSH setup, only Muxy on both computers, macOS or Linux, which
 can reach each other on the network or through a VPN.
 
-1. On the other computer, open **Settings → Devices** (**Manage Devices…** in the
-   sidebar's **Devices** popover). Under **This Computer**, turn on **Allow
-   other devices**, choose **Show Pairing Code**, then **Copy Link**.
-2. Here, in the **Devices** popover or **Settings → Devices**, choose **Pair with
+1. On the other computer, open **Settings → Servers** (**Manage Servers…** in the
+   sidebar's **Servers** popover). Under **This Mac** or **This Computer**, turn on **Allow
+   clients**, choose **Show Pairing Code**, then **Copy Link**.
+2. Here, in the **Servers** popover or **Settings → Servers**, choose **Pair with
    Link…** and paste it.
 
 The paired computer works like any remote server, except that it can't be
-restarted from here. It is listed under **Paired with this computer** in the
-other computer's **Settings → Devices**, where **Revoke** disconnects it. If it was revoked or reset, paste a
+restarted from here. This computer is listed under **Clients** in the other
+computer's **Settings → Servers**, where **Revoke** disconnects it. If it was revoked or reset, paste a
 new link in its **Edit…** form to pair again.
 
 ### Custom SSH commands

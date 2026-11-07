@@ -11,7 +11,7 @@ use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, Quitting, ServerStatus};
 
-/// One remote server as the Remote section lists it.
+/// One remote server as the Servers section lists it.
 #[derive(Clone, Debug)]
 pub(crate) struct RemoteServer {
     pub(crate) entry: ServerEntry,
@@ -118,7 +118,7 @@ pub(crate) fn incompatible_guidance(name: &str, there: Option<&str>) -> String {
 
 /// What the server form submits.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct DeviceForm {
+pub(crate) struct ServerFields {
     pub(crate) name: String,
     /// A host or `~/.ssh/config` alias, or a whole destination when the user
     /// and port fields are empty.
@@ -135,7 +135,7 @@ pub(crate) struct DeviceForm {
     pub(crate) group: String,
 }
 
-impl DeviceForm {
+impl ServerFields {
     pub(crate) fn destination(&self) -> Result<String, String> {
         match &self.ssh_command {
             Some(command) => Ok(command.trim().to_owned()),
@@ -148,7 +148,7 @@ impl DeviceForm {
             .unwrap_or_else(|_| self.host.trim().to_owned())
     }
 
-    /// The settings entry for this form: the device `id`, or a new one.
+    /// The settings entry for this form: the server `id`, or a new one.
     fn entry(&self, id: Option<ServerId>) -> Result<ServerEntry, String> {
         let destination = self.destination()?;
         let name = match self.name.trim() {
@@ -307,7 +307,7 @@ impl AppModel {
     pub(crate) fn save_remote_server(
         &mut self,
         id: Option<ServerId>,
-        form: &DeviceForm,
+        form: &ServerFields,
         cx: &mut Context<Self>,
     ) -> Result<ServerId, String> {
         if self.quitting != Quitting::Idle {
@@ -362,6 +362,9 @@ impl AppModel {
             self.servers.remove(server);
         }
         if hidden {
+            if self.sync_default_server() {
+                self.save(cx);
+            }
             self.sync_visible(cx);
         }
         for entry in listed {
@@ -399,7 +402,7 @@ impl AppModel {
     pub(crate) fn test_remote_server(
         &mut self,
         id: Option<ServerId>,
-        form: &DeviceForm,
+        form: &ServerFields,
         cx: &mut Context<Self>,
     ) {
         self.run_server_probe(id, form, None, None, cx);
@@ -408,7 +411,7 @@ impl AppModel {
     pub(crate) fn trust_test_server(
         &mut self,
         id: Option<ServerId>,
-        form: &DeviceForm,
+        form: &ServerFields,
         cx: &mut Context<Self>,
     ) {
         let Ok(destination) = form.destination() else {
@@ -428,7 +431,7 @@ impl AppModel {
     pub(crate) fn install_test_server(
         &mut self,
         id: Option<ServerId>,
-        form: &DeviceForm,
+        form: &ServerFields,
         source: crate::remote_install::Source,
         cx: &mut Context<Self>,
     ) {
@@ -438,7 +441,7 @@ impl AppModel {
     fn run_server_probe(
         &mut self,
         id: Option<ServerId>,
-        form: &DeviceForm,
+        form: &ServerFields,
         install: Option<crate::remote_install::Source>,
         trusted_host: Option<String>,
         cx: &mut Context<Self>,
@@ -514,7 +517,7 @@ impl AppModel {
         &mut self,
         id: Option<ServerId>,
         entry: &ServerEntry,
-        form: &DeviceForm,
+        form: &ServerFields,
         trusted_host: Option<String>,
     ) -> Result<(SshTarget, Option<String>), String> {
         let target = super::servers::ssh_target(entry, self.servers.proxy.as_ref())
@@ -891,6 +894,7 @@ impl AppModel {
         if self.server_name(server).is_none() {
             return;
         }
+        self.use_server(server, cx);
         if let Some(home) = self.state.server_home(server).map(|home| home.id) {
             self.pending_remote = None;
             self.new_tab_in(home, cx);
@@ -911,7 +915,11 @@ impl AppModel {
         else {
             return;
         };
-        if self.overlay.is_some() || pending.asked.elapsed() > PATIENCE {
+        let elsewhere = self
+            .overlay
+            .as_ref()
+            .is_some_and(|overlay| !matches!(overlay, crate::views::overlays::Overlay::Onboarding));
+        if elsewhere || pending.asked.elapsed() > PATIENCE {
             self.pending_remote = None;
             return;
         }

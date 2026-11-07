@@ -50,7 +50,7 @@ pub(crate) struct SettingsTab {
     pub(crate) overlay_view: Entity<crate::views::cached::CachedView<Self>>,
     overlay_subscription: Option<Subscription>,
     active: bool,
-    devices_shown: bool,
+    servers_shown: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -68,11 +68,11 @@ impl SettingsTab {
             let view = root.view.read(cx);
             let theme = view.theme.clone();
             let metrics = view.metrics;
-            let devices_shown = view.devices_shown();
-            if root.devices_shown != devices_shown {
-                root.devices_shown = devices_shown;
+            let servers_shown = view.servers_shown();
+            if root.servers_shown != servers_shown {
+                root.servers_shown = servers_shown;
                 let _ = root.model.update(cx, |model, cx| {
-                    model.set_devices_page_open(devices_shown, cx);
+                    model.set_servers_page_open(servers_shown, cx);
                 });
             }
             if let Some(overlay) = &root.overlay {
@@ -134,7 +134,7 @@ impl SettingsTab {
             overlay_view: crate::views::cached::CachedView::new(|root, _, cx| root.overlay(cx), cx),
             overlay_subscription: None,
             active: false,
-            devices_shown: false,
+            servers_shown: false,
             _subscriptions: subscriptions,
         }
     }

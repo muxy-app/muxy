@@ -6,10 +6,12 @@ pub(crate) mod banners;
 pub(crate) mod browsers;
 pub(crate) mod capabilities;
 mod catalog;
+mod client_access;
 mod close_check;
 pub(crate) mod commands;
 mod composer;
 mod coverage;
+mod default_server;
 mod diagnostics;
 pub(crate) mod dialogs;
 pub(crate) mod extensions;
@@ -18,7 +20,6 @@ pub(crate) mod focus;
 pub(crate) mod git;
 mod language;
 mod links;
-mod mobile;
 pub(crate) mod onboarding;
 mod pairing;
 pub(crate) use pairing::PairingForm;
@@ -33,7 +34,7 @@ mod reconnect;
 pub(crate) mod remote_files;
 mod remote_servers;
 pub(crate) use remote_servers::{
-    ConnectionTest, DeviceForm, Install, PendingRemote, RemoteIntent, RemoteServer, by_group,
+    ConnectionTest, Install, PendingRemote, RemoteIntent, RemoteServer, ServerFields, by_group,
     join_destination, released_version, split_destination,
 };
 mod server_status;
@@ -159,7 +160,7 @@ pub(crate) struct AppModel {
     pub(crate) settings: muxy_app_core::settings::Settings,
     terminal: muxy_app_core::settings::TerminalSettings,
     server_preferences: preferences::ServerPreferences,
-    mobile: mobile::MobileAccess,
+    client_access: client_access::ClientAccess,
     /// The last Test Connection in Settings, with the destination it tried.
     server_probe: Option<(String, ConnectionTest)>,
     server_probe_generation: u64,
@@ -167,11 +168,11 @@ pub(crate) struct AppModel {
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) extensions_anchor: muxy_ui::popover::PopoverAnchor,
-    /// Servers selected on the Devices page, and where a ⇧-click range
+    /// Servers selected on the Servers page, and where a ⇧-click range
     /// starts.
     pub(crate) remote_selection: Vec<ServerId>,
     pub(crate) remote_selection_anchor: Option<ServerId>,
-    pub(crate) devices_page: crate::views::devices_page::DevicesPage,
+    pub(crate) servers_page: crate::views::servers_page::ServersPage,
     pub(crate) pending_remote: Option<PendingRemote>,
     pub(crate) pending_folders: Vec<PathBuf>,
     pub(crate) remote_links: remote_files::RemoteLinks,
@@ -301,21 +302,21 @@ impl AppModel {
                 );
             });
         }
-        if let Some(input) = self.devices_page.search_input() {
+        if let Some(input) = self.servers_page.search_input() {
             input.update(cx, |input, cx| {
                 input.set_style(
                     muxy_ui::text_input::InputStyle::compact(
                         &self.theme,
-                        &self.devices_page.metrics,
+                        &self.servers_page.metrics,
                     ),
                     cx,
                 );
             });
         }
-        if let Some(input) = self.devices_page.port_input() {
+        if let Some(input) = self.servers_page.port_input() {
             input.update(cx, |input, cx| {
                 input.set_style(
-                    muxy_ui::text_input::InputStyle::field(&self.theme, &self.devices_page.metrics),
+                    muxy_ui::text_input::InputStyle::field(&self.theme, &self.servers_page.metrics),
                     cx,
                 );
             });
@@ -361,7 +362,7 @@ impl AppModel {
         }
         self.metrics = metrics;
         self.agent_sessions.list.remeasure();
-        self.devices_page.set_metrics(metrics);
+        self.servers_page.set_metrics(metrics);
     }
 
     pub(crate) fn reload_configuration(&mut self, cx: &mut Context<Self>) {
@@ -459,6 +460,7 @@ impl AppModel {
     fn navigation_target_exists(&self, project: ProjectId, tab: TabId) -> bool {
         self.state.project(project).is_some_and(|project| {
             project.status() == ProjectStatus::Available
+                && self.project_listed(project)
                 && project.listed_tabs().any(|candidate| candidate.id == tab)
         })
     }
@@ -624,7 +626,7 @@ impl AppModel {
             settings: boot.settings,
             terminal: boot.terminal,
             server_preferences: preferences::ServerPreferences::default(),
-            mobile: mobile::MobileAccess::default(),
+            client_access: client_access::ClientAccess::default(),
             server_probe: None,
             server_probe_generation: 0,
             pairing: pairing::Pairing::default(),
@@ -633,7 +635,7 @@ impl AppModel {
             extensions_anchor: Rc::default(),
             remote_selection: Vec::new(),
             remote_selection_anchor: None,
-            devices_page: crate::views::devices_page::DevicesPage::new(metrics),
+            servers_page: crate::views::servers_page::ServersPage::new(metrics),
             pending_remote: None,
             pending_folders: Vec::new(),
             remote_links: remote_files::RemoteLinks::default(),
@@ -705,8 +707,9 @@ impl AppModel {
             _changes: changes,
             _quit: quit,
         };
-        if !model.project_shown(model.state.current_project()) {
-            let home = model.state.home().id;
+        model.sync_default_server();
+        if !model.project_listed(model.state.current_project()) {
+            let home = model.state.default_home().id;
             let _ = model.state.select_project(home);
         }
         model.sync_agents_panel(cx);
@@ -955,6 +958,9 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return;
         }
+        if let Some(server) = self.state.project_server(project) {
+            self.use_server(server, cx);
+        }
         if self.state.select_project(project).is_ok() {
             self.dismiss_overlay(cx);
             self.changed(cx);
@@ -1037,6 +1043,7 @@ impl AppModel {
         create: impl FnOnce(&mut AppState) -> Result<ProjectId, muxy_app_core::AppError>,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
+        self.use_server(server, cx);
         let mut added = None;
         if !self.edit_project(
             |state| {
@@ -1203,6 +1210,11 @@ impl AppModel {
             }
             tab_windows::Surface::Main => self.state.current_project().id,
         };
+        let server = self.state.default_server();
+        if self.state.project_server(project) != Some(server) && !server.is_local() {
+            self.new_remote_home_tab(server, cx);
+            return;
+        }
         self.new_tab_in(project, cx);
     }
 
@@ -1667,7 +1679,7 @@ impl AppModel {
         if self.quitting != Quitting::Idle || !self.preferences_before_quit(cx) {
             return;
         }
-        self.restore_device_access_before_quit(cx);
+        self.restore_client_access_before_quit(cx);
         self.quitting = Quitting::Preserve;
         if !self.flush_servers(cx) {
             self.quitting = Quitting::Idle;
@@ -1686,7 +1698,7 @@ impl AppModel {
             );
             return;
         }
-        self.restore_device_access_before_quit(cx);
+        self.restore_client_access_before_quit(cx);
         let mut sessions = self.state.session_references(local);
         sessions.extend(self.state.pending_discards(local));
         self.quitting = Quitting::EndAll;
@@ -1829,10 +1841,11 @@ impl AppModel {
     /// a server whose last pane closed hears an empty list.
     fn sync_references(&mut self, cx: &mut Context<Self>) {
         for server in self.servers.ids() {
+            let references = self.state.session_references(server);
+            self.note_shown_sessions(server, &references, cx);
             if !self.ready(server) {
                 continue;
             }
-            let references = self.state.session_references(server);
             if self
                 .servers
                 .get(server)
@@ -1917,22 +1930,19 @@ impl AppModel {
         }
     }
 
-    /// The project shown is always one the sidebar lists, never a removed
-    /// server's project or another computer's Home outside Remote Servers, so
-    /// new tabs never open somewhere the user can't see.
+    /// The project shown is always one the sidebar lists, on the default
+    /// server and never a removed server's, so new tabs never open somewhere
+    /// the user can't see.
     fn sync_visible(&mut self, cx: &mut Context<Self>) {
-        if self.state.remote_servers_selected() && !self.remote_servers_offered() {
-            let _ = self.state.select_workspace(None);
-        }
         if !self.project_listed(self.state.current_project()) {
-            let home = self.state.home().id;
+            let home = self.state.default_home().id;
             let _ = self.state.select_project(home);
             self.state.reveal_current_project();
         }
         self.sync_agent_sessions(cx);
         self.sync_composer(cx);
         self.sync_project_layouts(cx);
-        self.sync_devices_page(false, cx);
+        self.sync_servers_page(false, cx);
         self.sync_settings_tab(cx);
         self.sync_git(cx);
         self.sync_references(cx);
@@ -2420,7 +2430,7 @@ impl AppModel {
             self.read_server_settings(cx);
         }
         if server.is_local() {
-            self.sync_devices_page(true, cx);
+            self.sync_servers_page(true, cx);
             self.settle_restored_access(cx);
         }
         cx.notify();
@@ -2646,6 +2656,7 @@ impl AppModel {
                 self.discard_created(server, session, cx);
             } else {
                 self.send(server, Work::Detach(attachment.terminal.channel()), cx);
+                self.dismiss_session(server, session, cx);
             }
             return;
         }
@@ -2716,6 +2727,8 @@ impl AppModel {
             {
                 if created && !detached {
                     self.discard_created(server, session, cx);
+                } else {
+                    self.dismiss_session(server, session, cx);
                 }
                 return;
             }
@@ -3084,6 +3097,7 @@ pub(crate) mod tests {
     mod commands;
     mod composer;
     mod coverage;
+    mod default_server;
     mod detach;
     mod dialogs;
     mod extension_authoring;
@@ -3093,6 +3107,7 @@ pub(crate) mod tests {
     mod git;
     mod layout_drag;
     mod links;
+    mod manage_servers;
     mod new_tab;
     mod onboarding;
     mod preferences;
@@ -3102,7 +3117,6 @@ pub(crate) mod tests {
     mod projects;
     mod proxy;
     mod quick_terminal;
-    mod remote_devices;
     mod remote_parity;
     mod servers;
     mod session_names;

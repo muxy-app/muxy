@@ -55,14 +55,14 @@ workspaces, and project order stay in the app that made them.
 Every server has one Home project for the user's home folder. Quick Terminal
 and other one-off terminals live there. Home is always first in the sidebar. It
 can't be deleted, have worktrees, or join a workspace. A remote server's Home
-goes by the server's name and is listed only under **Remote Servers**.
+goes by the server's name.
 
 ## Workspaces
 
 A workspace is a named filter for the sidebar. A project can be in no
 workspace, one, or several, and a workspace can be empty. Deleting a workspace
-never touches its projects. **Remote Servers** is a fixed workspace, offered
-once a remote server has connected, that lists each remote server's Home.
+never touches its projects. Workspaces filter the default server's projects;
+the sidebar never lists another server's.
 
 ## Worktrees
 

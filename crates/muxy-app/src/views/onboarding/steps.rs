@@ -602,13 +602,13 @@ fn remote(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
                 point(
                     Icon::Network,
                     tr!("No SSH? Pair instead"),
-                    tr!("Another computer's Settings → Devices gives you a link to pair with."),
+                    tr!("Another computer's Settings → Servers gives you a link to pair with."),
                     model,
                 ),
                 point(
                     Icon::Tower,
                     tr!("Find them later"),
-                    tr!("The Devices section at the bottom of the sidebar manages every server."),
+                    tr!("The Servers section at the bottom of the sidebar manages every server."),
                     model,
                 ),
             ],
@@ -619,7 +619,7 @@ fn remote(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
 fn mobile(art_shown: bool, model: &AppModel, cx: &mut Context<AppModel>) -> Div {
     let m = model.metrics;
     let tour = model.onboarding.tour.as_ref();
-    let access = model.device_access();
+    let access = model.client_access();
     column(model)
         .gap(m.spacing7())
         .child(intro(
@@ -659,7 +659,7 @@ fn mobile(art_shown: bool, model: &AppModel, cx: &mut Context<AppModel>) -> Div 
                 .pairing
                 .as_ref()
                 .filter(|pairing| !art_shown || pairing.qr().is_none())
-                .map(|pairing| crate::views::devices::code(pairing.qr(), m)),
+                .map(|pairing| crate::views::clients::code(pairing.qr(), m)),
         )
 }
 
@@ -668,7 +668,7 @@ fn pairing_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
     let m = model.metrics;
     let theme = &model.theme;
     let tour = model.onboarding.tour.as_ref();
-    let access = model.device_access();
+    let access = model.client_access();
     let column = div().flex().flex_col().gap(m.spacing4());
     if access.pairing.is_some() {
         return column
@@ -690,7 +690,7 @@ fn pairing_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
     }
     let paired = tour.and_then(|tour| tour.pair.paired.clone());
     let wanted = tour.is_some_and(|tour| tour.pair.wanted);
-    let ready = model.mobile_available() && !access.busy && !wanted;
+    let ready = model.client_access_available() && !access.busy && !wanted;
     let label = if paired.is_some() {
         tr!("Pair Another Phone")
     } else {
@@ -715,12 +715,12 @@ fn pairing_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
                 .text_size(m.font_caption())
                 .line_height(m.scaled(14.0))
                 .text_color(theme.fg_muted)
-                .child(if model.mobile_available() {
+                .child(if model.client_access_available() {
                     tr!(
-                        "This turns on Allow other devices. A paired phone gets full terminal access; revoke it anytime in Settings → Devices."
+                        "This turns on Allow clients. A paired phone gets full terminal access; revoke it anytime in Settings → Servers."
                     )
                 } else {
-                    tr!("Connect to this computer's server to manage device access.")
+                    tr!("Connect to this computer's server to manage its clients.")
                 }),
         )
 }
@@ -786,7 +786,7 @@ fn store_code(
         .button_interaction(cx.listener(move |_, _, _, cx| cx.open_url(url)))
         .children(code.map(|code| {
             let side = units(code.size() + 2 * QUIET_ZONE) * STORE_QR_MODULE;
-            crate::views::devices::qr(code)
+            crate::views::clients::qr(code)
                 .flex_none()
                 .size(m.scaled(side))
         }))

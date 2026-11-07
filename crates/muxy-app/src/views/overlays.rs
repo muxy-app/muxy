@@ -27,7 +27,7 @@ pub(crate) enum Overlay {
     ProjectIcons(super::project_editor::icons::Icons),
     ProjectLogo(super::project_editor::logo::Cropper),
     Projects(Entity<super::project_picker::ProjectPicker>),
-    /// The popover above the sidebar's Remote section.
+    /// The popover above the sidebar's Servers section.
     RemoteServers,
     Agents,
     SessionProviders,

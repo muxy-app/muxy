@@ -207,67 +207,6 @@ fn add_project_search_excludes_saved_folders_before_limiting_results(cx: &mut Te
 }
 
 #[gpui::test]
-fn server_matches_keep_matching_folders_selectable_and_completable(cx: &mut TestAppContext) {
-    let root = tempfile::tempdir().expect("root");
-    let first = root.path().join("buildbox one");
-    let second = root.path().join("buildbox two");
-    for folder in [&first, &second] {
-        std::fs::create_dir(folder).expect("folder");
-    }
-    let server = ServerId::new();
-    let (mut boot, _requests, _remotes) = remote_boot(
-        AppState::bootstrap().expect("state"),
-        vec![servers::entry(server, "buildbox")],
-    );
-    boot.settings.projects.search_root = Some(root.path().into());
-    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(1200.0), px(800.0)));
-
-    open_new_tab(cx);
-    cx.simulate_input("buildbox");
-    load_folders(cx);
-    cx.simulate_keystrokes("tab");
-    load_folders(cx);
-    assert!(cx.debug_bounds("picker-row-search-0").is_some());
-    assert!(cx.debug_bounds("picker-row-search-1").is_some());
-    cx.simulate_keystrokes("down tab");
-    load_folders(cx);
-    cx.simulate_keystrokes("enter");
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| {
-        assert!(model.overlay.is_none());
-        assert!(model.pending_remote.is_none());
-        assert_eq!(model.state.projects().len(), 1);
-        assert_eq!(model.state.home().tabs.len(), 1);
-        let pane = model.active_pane().expect("home pane");
-        let mut saved = store::load(&model.path).expect("saved state");
-        assert_eq!(
-            saved.prepare_creation(pane, root.path()).0,
-            first.as_os_str().as_encoded_bytes()
-        );
-    });
-
-    open_new_tab(cx);
-    cx.simulate_input("buildbox");
-    load_folders(cx);
-    cx.simulate_keystrokes("down down");
-    cx.run_until_parked();
-    let add = cx
-        .debug_bounds("picker-footer-secondary-confirm")
-        .expect("Add Project");
-    cx.simulate_click(add.center(), Modifiers::none());
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| {
-        assert!(model.overlay.is_none());
-        assert!(model.pending_remote.is_none());
-        assert_eq!(model.state.projects().len(), 2);
-        assert_eq!(model.state.current_project().directory, second);
-        assert_eq!(model.state.current_project().tabs.len(), 1);
-    });
-}
-
-#[gpui::test]
 fn saved_local_paths_with_trailing_spaces_open_tabs_in_their_project(cx: &mut TestAppContext) {
     let root = tempfile::tempdir().expect("root");
     let folder = root.path().join("Saved ");
@@ -676,13 +615,13 @@ fn invalid_terminal_paths_never_create_folders_projects_or_tabs(cx: &mut TestApp
 }
 
 #[gpui::test]
-fn saved_remote_projects_open_tabs_and_servers_open_terminals_in_their_home(
+fn new_tab_in_project_browses_the_default_servers_folders_instead_of_this_computers(
     cx: &mut TestAppContext,
 ) {
     let root = tempfile::tempdir().expect("root");
     let server = ServerId::new();
     let project = ProjectId::new();
-    let (mut boot, requests, remotes) = remote_boot(
+    let (mut boot, _requests, _remotes) = remote_boot(
         AppState::bootstrap().expect("state"),
         vec![servers::entry(server, "buildbox")],
     );
@@ -690,56 +629,32 @@ fn saved_remote_projects_open_tabs_and_servers_open_terminals_in_their_home(
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1200.0), px(800.0)));
-    let home = view.update(cx, |model, cx| {
+    view.update(cx, |model, cx| {
         model.receive(local(1, Update::Connected(vec![])), cx);
         acknowledge_catalog(model, cx);
-        servers::connect_remote(model, server, vec![], &[(project, "api")], cx)
+        servers::connect_remote(model, server, vec![], &[(project, "api")], cx);
     });
-
     open_new_tab(cx);
-    cx.simulate_input("buildbox api");
-    cx.simulate_keystrokes("enter");
-    cx.run_until_parked();
-    let directory = view.update(cx, |model, cx| {
-        assert_eq!(model.state.current_project().id, project);
-        assert_eq!(model.state.current_project().tabs.len(), 1);
-        assert!(model.overlay.is_none());
-        let pane = model.active_pane().expect("project pane");
-        model.start_attach(pane, Size { cols: 80, rows: 24 }, cx);
-        model.state.current_project().directory.clone()
-    });
-    assert!(
-        remotes.borrow()[&server]
-            .try_iter()
-            .any(|(_, work)| matches!(work,
-                Work::Attach { project: owner, directory: attached, session: None, .. }
-                    if owner == project && attached == directory
-            ))
-    );
-
+    assert_eq!(picker_purpose(&view, cx), Some(Purpose::NewTab));
+    cx.simulate_keystrokes("escape");
+    view.update(cx, |model, cx| model.set_default_server(server, cx));
     open_new_tab(cx);
-    cx.simulate_input("buildbox");
-    secondary_confirm(cx);
-    view.update(cx, |model, cx| {
-        assert_eq!(model.state.current_project().id, home);
-        assert_eq!(model.state.current_project().tabs.len(), 1);
-        assert!(model.state.home().tabs.is_empty());
-        assert!(model.overlay.is_none());
-        let pane = model.active_pane().expect("remote home pane");
-        model.start_attach(pane, Size { cols: 80, rows: 24 }, cx);
+    view.read_with(cx, |model, _| {
+        assert!(
+            model
+                .pending_remote
+                .is_some_and(|pending| pending.server == server
+                    && pending.intent == RemoteIntent::Folders(Purpose::NewTab)),
+            "it browses buildbox once its extension connection is up"
+        );
+        assert!(
+            model
+                .state
+                .projects()
+                .iter()
+                .all(|project| project.tabs.is_empty())
+        );
     });
-    assert!(
-        remotes.borrow()[&server]
-            .try_iter()
-            .any(|(_, work)| matches!(work,
-                Work::Attach { project, session: None, .. } if project == home
-            ))
-    );
-    assert!(
-        !requests
-            .try_iter()
-            .any(|(_, work)| matches!(work, Work::Attach { .. }))
-    );
 }
 
 #[gpui::test]
@@ -825,7 +740,7 @@ fn sidebar_add_project_menu_and_remote_button_remain_separate_in_each_layout(
     let add_project = cx.debug_bounds("add-project").expect("add_project");
     cx.simulate_click(add_project.center(), Modifiers::none());
     cx.run_until_parked();
-    let local = cx.debug_bounds("menu-label-Local").expect("Local");
+    let local = cx.debug_bounds("menu-label-Folder…").expect("Local");
     cx.simulate_click(local.center(), Modifiers::none());
     cx.run_until_parked();
     cx.simulate_input(&root.path().to_string_lossy());
@@ -885,7 +800,7 @@ fn the_add_project_row_follows_the_project_list_and_opens_the_source_menu(cx: &m
         assert!(bounds.top() >= list.top() && bounds.bottom() <= list.bottom());
         window.simulate_click(bounds.center(), Modifiers::none());
         window.run_until_parked();
-        assert!(window.debug_bounds("menu-label-Local").is_some());
+        assert!(window.debug_bounds("menu-label-Folder…").is_some());
     }
 }
 
@@ -922,7 +837,7 @@ fn a_focused_sidebar_offers_add_project_in_its_filter_menu_instead_of_a_row(
             .expect("Add Project");
         window.simulate_click(add.center(), Modifiers::none());
         window.run_until_parked();
-        assert!(window.debug_bounds("menu-label-Local").is_some());
+        assert!(window.debug_bounds("menu-label-Folder…").is_some());
     }
 }
 
@@ -940,7 +855,7 @@ fn a_focused_collapsed_sidebar_keeps_its_add_project_row(cx: &mut TestAppContext
     let row = window.debug_bounds("add-project").expect("add project row");
     window.simulate_click(row.center(), Modifiers::none());
     window.run_until_parked();
-    assert!(window.debug_bounds("menu-label-Local").is_some());
+    assert!(window.debug_bounds("menu-label-Folder…").is_some());
 }
 
 #[gpui::test]
@@ -1158,41 +1073,6 @@ fn remote_paths_use_server_checks_and_only_adding_can_create_projects(cx: &mut T
 }
 
 #[gpui::test]
-fn a_server_target_connects_to_browse_on_enter_without_creating_a_terminal(
-    cx: &mut TestAppContext,
-) {
-    let root = tempfile::tempdir().expect("root");
-    let server = ServerId::new();
-    let (mut boot, _requests, _remotes) = remote_boot(
-        AppState::bootstrap().expect("state"),
-        vec![servers::entry(server, "buildbox")],
-    );
-    boot.settings.projects.search_root = Some(root.path().into());
-    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    open_new_tab(cx);
-    cx.simulate_input("buildbox");
-    cx.simulate_keystrokes("enter");
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| {
-        assert!(model.overlay.is_none());
-        assert!(
-            model
-                .pending_remote
-                .is_some_and(|pending| pending.server == server
-                    && pending.intent == RemoteIntent::Folders(Purpose::NewTab))
-        );
-        assert!(
-            model
-                .state
-                .projects()
-                .iter()
-                .all(|project| project.tabs.is_empty())
-        );
-    });
-}
-
-#[gpui::test]
 fn the_add_project_dropdown_is_available_without_saved_servers(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
@@ -1201,9 +1081,9 @@ fn the_add_project_dropdown_is_available_without_saved_servers(cx: &mut TestAppC
     let add_project = cx.debug_bounds("add-project").expect("Add Project");
     cx.simulate_click(add_project.center(), Modifiers::none());
     cx.run_until_parked();
-    assert!(cx.debug_bounds("menu-label-Local").is_some());
-    assert!(cx.debug_bounds("menu-label-Remote").is_some());
-    assert!(cx.debug_bounds("menu-shortcut-Local").is_some());
+    assert!(cx.debug_bounds("menu-label-Folder…").is_some());
+    assert!(cx.debug_bounds("menu-label-Remote").is_none());
+    assert!(cx.debug_bounds("menu-shortcut-Folder…").is_some());
     view.read_with(cx, |model, cx| {
         assert_eq!(
             crate::views::menu::Command::AddProject.shortcut(model, cx),
@@ -1214,65 +1094,6 @@ fn the_add_project_dropdown_is_available_without_saved_servers(cx: &mut TestAppC
             )
         );
     });
-    let remote = cx.debug_bounds("menu-label-Remote").expect("Remote");
-    cx.simulate_click(remote.center(), Modifiers::none());
-    cx.run_until_parked();
-    assert!(cx.debug_bounds("menu-label-Manage Devices…").is_some());
-}
-
-#[gpui::test]
-fn remote_projects_that_become_missing_cannot_open_tabs_from_stale_picker_rows(
-    cx: &mut TestAppContext,
-) {
-    let root = tempfile::tempdir().expect("root");
-    let server = ServerId::new();
-    let project = ProjectId::new();
-    let (mut boot, local_requests, remotes) = remote_boot(
-        AppState::bootstrap().expect("state"),
-        vec![servers::entry(server, "buildbox")],
-    );
-    boot.settings.projects.search_root = Some(root.path().into());
-    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        model.receive(local(1, Update::Connected(vec![])), cx);
-        acknowledge_catalog(model, cx);
-        servers::connect_remote(model, server, vec![], &[(project, "api")], cx);
-    });
-    open_new_tab(cx);
-    cx.simulate_input("buildbox api");
-    let (state, persisted) = view.update(cx, |model, cx| {
-        model
-            .state
-            .set_remote_project_status(project, ProjectStatus::Missing)
-            .expect("remote status");
-        model.sync_visible(cx);
-        cx.notify();
-        (
-            model.state.clone(),
-            std::fs::read(&model.path).expect("persisted state"),
-        )
-    });
-    cx.simulate_keystrokes("enter");
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| {
-        assert_eq!(model.state, state);
-        assert_eq!(
-            std::fs::read(&model.path).expect("persisted state"),
-            persisted
-        );
-        assert!(matches!(model.overlay, Some(Overlay::Projects(_))));
-    });
-    assert!(
-        !local_requests
-            .try_iter()
-            .any(|(_, work)| matches!(work, Work::Attach { .. }))
-    );
-    assert!(
-        !remotes.borrow()[&server]
-            .try_iter()
-            .any(|(_, work)| matches!(work, Work::Attach { .. }))
-    );
 }
 
 #[gpui::test]

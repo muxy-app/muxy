@@ -6,57 +6,71 @@ How people use Muxy: the apps, navigation, settings, and updates.
 
 | App | Connects to |
 | --- | --- |
-| Desktop app (macOS) | The server on the same computer, starting it if needed, and the servers of remote devices over SSH or after pairing with them. |
+| Desktop app (macOS) | The server on the same computer, starting it if needed, and the servers of other computers over SSH or after pairing with them. |
 | `muxy` terminal UI | The server on the same computer, starting it if needed, or with `--host`, the server on another computer over SSH. Ships with the desktop app and also on its own. |
 | Phone app | A paired computer's server, over the local network or a VPN, or any computer's server over SSH. |
 
-Every project knows which server it lives on, so the desktop app shows
-projects from several servers in one sidebar. Remote projects are marked with
-their server and path. There is no global "current server".
+Every project knows which server it lives on. The desktop app works with one
+**default server** at a time: this computer's until you pick another in the
+status bar's server popover, or with **Use as Default Server** in a server's
+menu. The sidebar lists only its projects, Home is its Home, and new projects
+and tabs go to it. Each app keeps its choice, and forgetting that server goes
+back to this computer's. Remote projects are marked with their server and
+path where they show outside the sidebar.
 
-The **Devices** section at the bottom of the sidebar shows each remote server's
-state. Its popover adds servers (host, user, port, key file, or a password that
-Muxy asks for and keeps only in memory) and manages them. **Pair with Link…**
-adds another computer from the link its **Settings → Devices** shows instead,
-with no SSH setup. A paired computer can't be restarted from here, and pairing again
-from its **Edit…** form recovers one that was revoked or reset. **Add Project →
-Remote** browses that server's folders. When a server lacks Muxy, a released
+Terminals another client shows on the default server, such as another
+desktop, the terminal UI, or a phone, open here too, as tabs in their project
+that don't take focus. So do the ones already showing elsewhere when you switch
+to it. Terminals nobody shows, such as detached ones, stay in **Existing
+Terminals**. Closing or detaching such a tab here leaves the terminal running
+in the clients still showing it, and the app doesn't open it here again.
+
+The **Servers** section at the bottom of the sidebar shows each remote server's
+state and ticks the default one. Its popover adds servers (host, user, port,
+key file, or a password that Muxy asks for and keeps only in memory) and
+manages them. **Pair with Link…** adds another computer from the link its
+**Settings → Servers** shows instead, with no SSH setup. A paired computer
+can't be restarted from here, and pairing again from its **Edit…** form
+recovers one that was revoked or reset. When a server lacks Muxy, a released
 app offers to install the same version there; when its version can't talk to
 the app, the section explains how to update it. Removing a server only forgets
 its projects in this app.
 
-**Manage Devices…** opens **Settings → Devices**, where everything about remote
-connections lives:
+**Manage Servers…** opens **Settings → Servers**, where everything about
+servers and their clients lives:
 
-- **This Computer** lets phones and other computers pair: it turns access on,
-  shows a pairing code and link, and lists paired devices to revoke. A code
-  that wasn't copied is withdrawn once the page leaves the screen; a copied link
-  stays valid until it is used or expires. `muxy mobile` does the same without
-  the desktop app.
-- **Connects To** lists every server by group, and connects, disconnects,
-  regroups, or removes several at once. Disconnecting leaves a server's
-  terminals running there.
+- **This Mac** (**This Computer** on Linux) lets phones and other computers
+  connect as clients: **Allow clients** turns access on, **Pair a client**
+  shows a pairing code and link, and **Clients** lists the paired ones to
+  revoke. A code that wasn't copied is withdrawn once the page leaves the
+  screen; a copied link stays valid until it is used or expires. `muxy mobile`
+  does the same without the desktop app.
+- **Other Servers** lists every remote server by group, and connects,
+  disconnects, regroups, or removes several at once. Disconnecting leaves a
+  server's terminals running there.
 
 **Add Project** (the row below the project list, or the sidebar's filter menu
-in **Focus Current Project**) offers **Local** (⌘O), **Remote**, and **Recently Removed**
-projects. ⌘O searches folders that aren't projects yet and completes typed paths
+in **Focus Current Project**) offers **Folder…** (⌘O) on the default server and
+its **Recently Removed** projects. ⌘O searches folders that aren't projects yet and completes typed paths
 with Tab; **Finder…** (**Browse…** on Linux) picks one in the system dialog
 instead. Enter adds the folder as a project with a terminal, or opens a terminal
 in the project it already is. Missing folders require an explicit creation
 confirmation.
 
-**New Tab in Project…** (⌘⇧N) lists saved projects and servers, then matching
-folders. Enter opens a terminal in the project, or at a folder in its
-computer's Home; ⌘Enter adds the folder as a project with a terminal. Selecting
-a server browses its folders; ⌘Enter opens a terminal in its Home, connecting
-first if needed. Clicking a server in the Devices popover offers **New Tab** too.
+**New Tab in Project…** (⌘⇧N) lists the default server's saved projects, then
+matching folders. Enter opens a terminal in the project, or at a folder in its
+computer's Home; ⌘Enter adds the folder as a project with a terminal. With
+another computer's server as the default, it browses that server's folders,
+connecting first if needed. Clicking a server in the Servers popover offers
+**New Tab** too, which makes it the default server first.
 
 Files and images dropped or pasted on a remote terminal, or sent from the
 composer, are copied to that computer and its path is pasted. Clicking a file
 path in a remote terminal offers a read-only copy here, or its path.
 
 Each app keeps its own layout: tabs, splits, workspaces, and project order.
-Projects and terminals are shared. Several `muxy` windows can open the same
+Projects and terminals are shared, and the default server's terminals open as
+tabs in every app that has it as its default. Several `muxy` windows can open the same
 terminal UI layout.
 
 ## Navigation
@@ -110,16 +124,20 @@ windows are on screen.
 ## Opening and restoring
 
 - The desktop app restores all projects, tabs, and window state on launch. It
-  never opens a tab by itself. Until the [welcome tour](#welcome-tour) is finished
+  never opens a tab by itself, except for terminals another client shows on
+  the default server, which open as tabs. Until the [welcome tour](#welcome-tour) is finished
   or skipped, it opens over them.
 - The terminal UI opens one shell in Home the first time, then restores its
   layout.
 - `muxy <folder>`, or on macOS dropping a folder on the Dock icon or using
-  **Open With**, opens the folder in the desktop app. It selects the folder's
-  project or adds one, then opens a new terminal tab there. Without the desktop
+  **Open With**, opens the folder in the desktop app. It makes this computer's
+  server the default, selects the folder's project or adds one, then opens a
+  new terminal tab there. Without the desktop
   app, or over SSH, `muxy <folder>` opens in the terminal UI.
 - **Existing Terminals** lists a project's terminals that this app isn't
   showing, and which app owns each one. Opening one adds it to your layout.
+  On the default server, the ones other clients show open as tabs by
+  themselves, so it lists the detached ones and those closed here.
 
 ## Welcome tour
 
@@ -134,7 +152,7 @@ phone app, and shortcuts.
   open the usual dialogs, and the tour returns when they close. **Install &
   Enable** installs and enables the ticked extensions, Files and Git by default,
   after listing what each one asks for. They finish even if the tour closes first.
-- **Pair a Phone** turns on **Allow other devices** if it is off and shows a
+- **Pair a Phone** turns on **Allow clients** if it is off and shows a
   pairing code in the tour. Leaving the step withdraws the code, and turns access
   back off if the tour turned it on and nothing paired.
 - Dragging the dimmed area, the art, or the tour's top bar moves the window.
@@ -176,8 +194,8 @@ A setup failure keeps the new worktree; a teardown failure stops removal.
 | You quit or detach | Terminals keep running. On macOS, only while Muxy is on under Background App Activity; otherwise macOS ends them and the next launch shows how to turn it on. |
 | **End All Sessions and Quit** | Every terminal on this computer ends and its panes close. Other panes stay. |
 
-The status bar shows the current project's server, with connect, restart, and
-stop.
+The status bar shows the default server. Its popover switches the app to
+another server, and connects, restarts, or stops the one shown.
 
 ## Proxy
 
@@ -191,7 +209,7 @@ proxy icon. Terminals get the proxy as `http_proxy`, `https_proxy`,
 
 ## Settings
 
-- Settings opens in a single tab, like Devices. Opening it again selects the
+- Settings opens in a single tab, on the default server. Opening it again selects the
   existing tab. It works while offline, and changes apply immediately.
 - App preferences live in `settings.toml`, terminal preferences in
   `terminal.toml`, and custom themes in `themes/`.

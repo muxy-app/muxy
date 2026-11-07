@@ -15,10 +15,10 @@ A phone connects in one of two ways:
 
 From the desktop app:
 
-1. Open **Settings → Devices** with **Manage Devices…** in the sidebar's
-   **Devices** popover. Under **This Computer**, turn on **Allow other
-   devices**.
-2. Under **Pair a device**, choose **Show Pairing Code**.
+1. Open **Settings → Servers** with **Manage Servers…** in the sidebar's
+   **Servers** popover. Under **This Mac** or **This Computer**, turn on **Allow
+   clients**.
+2. Under **Pair a client**, choose **Show Pairing Code**.
 3. Scan the code with the Muxy app.
 
 The desktop app's [welcome tour](../product/app-model.md#welcome-tour) can also
@@ -35,24 +35,27 @@ muxy mobile pair
 - The code lists your computer's addresses. If phones reach it by another name,
   such as a cloud server's public name, put it first:
   `muxy mobile pair --address devbox.example.com`.
-- Phones connect on port `7419` by default. Change it in **Settings → Devices**
+- Phones connect on port `7419` by default. Change it in **Settings → Servers**
   or with `muxy mobile enable --port <port>`.
 
 ## Manage phones
 
 | Task | Desktop | CLI |
 | --- | --- | --- |
-| See status and phones | **Settings → Devices** | `muxy mobile` |
+| See status and phones | **Clients** in **Settings → Servers** | `muxy mobile` |
 | Revoke a phone | **Revoke** next to it | `muxy mobile revoke <id>` |
-| Turn access off | **Allow other devices** off | `muxy mobile disable` |
+| Turn access off | **Allow clients** off | `muxy mobile disable` |
 
 Revoking a phone, or turning access off, disconnects it at once.
 
 ## What a phone can do
 
 A paired phone gets full terminal access: it can use projects, terminals, Git,
-and files. It can't manage device access, change server settings, stop the
+and files. It can't manage client access, change server settings, stop the
 server, or run programs with `exec`.
+
+Terminals opened on the phone show up as tabs in the desktop app while that
+server is its [default server](remote-servers.md#the-default-server).
 
 Other computers pair with the same code's link; see
 [Remote servers](remote-servers.md#pair-with-another-computer).

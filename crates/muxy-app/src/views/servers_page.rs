@@ -1,4 +1,4 @@
-//! Settings' Devices page: this computer's access for phones and other
+//! Settings' Servers page: this computer's access for phones and other
 //! computers, then every remote server by group, to select and act on one or
 //! many at once.
 
@@ -22,9 +22,9 @@ use super::remote_servers::{dot, status_color, status_label};
 use super::server_menu::{Action, Servers, connect_choice, live};
 use crate::model::{AppModel, RemoteServer, ServerStatus};
 
-/// What the Devices page keeps between frames. Its selection is the model's
+/// What the Servers page keeps between frames. Its selection is the model's
 /// `remote_selection`.
-pub(crate) struct DevicesPage {
+pub(crate) struct ServersPage {
     /// Drawn at Settings' content size, like the rest of Settings.
     pub(crate) metrics: Metrics,
     search: Option<(Entity<TextInput>, Subscription)>,
@@ -33,7 +33,7 @@ pub(crate) struct DevicesPage {
     list: ListState,
 }
 
-impl DevicesPage {
+impl ServersPage {
     pub(crate) fn new(metrics: Metrics) -> Self {
         Self {
             metrics: crate::views::settings::content_metrics(metrics),
@@ -98,10 +98,10 @@ fn shown<'a>(
 impl AppModel {
     /// The page's search and port fields, made once.
     pub(crate) fn ensure_servers_search(&mut self, cx: &mut Context<Self>) {
-        if self.devices_page.port.is_none() {
-            let style = InputStyle::field(&self.theme, &self.devices_page.metrics);
+        if self.servers_page.port.is_none() {
+            let style = InputStyle::field(&self.theme, &self.servers_page.metrics);
             let port = self
-                .device_access()
+                .client_access()
                 .state
                 .as_ref()
                 .map(|state| state.settings.port.to_string())
@@ -109,23 +109,23 @@ impl AppModel {
             let input = cx.new(|cx| {
                 TextInput::new(style, cx)
                     .with_accessible_label(tr_key!("Port"))
-                    .with_accessibility_id("settings-field-devices-port")
+                    .with_accessibility_id("settings-field-clients-port")
                     .with_text(port)
             });
             let subscription = cx.subscribe(&input, |model, input, event, cx| match event {
-                InputEvent::Changed => model.devices_page.port_edited = true,
+                InputEvent::Changed => model.servers_page.port_edited = true,
                 InputEvent::Submitted => {
                     let port = input.read(cx).text().to_owned();
-                    model.set_device_port(&port, cx);
+                    model.set_client_port(&port, cx);
                 }
                 InputEvent::Cancelled => {}
             });
-            self.devices_page.port = Some((input, subscription));
+            self.servers_page.port = Some((input, subscription));
         }
-        if self.devices_page.search.is_some() {
+        if self.servers_page.search.is_some() {
             return;
         }
-        let style = InputStyle::compact(&self.theme, &self.devices_page.metrics);
+        let style = InputStyle::compact(&self.theme, &self.servers_page.metrics);
         let input = cx.new(|cx| {
             TextInput::new(style, cx)
                 .with_placeholder_key(tr_key!("Search servers…"))
@@ -142,11 +142,11 @@ impl AppModel {
                 model.clear_servers_search(cx);
             }
         });
-        self.devices_page.search = Some((input, subscription));
+        self.servers_page.search = Some((input, subscription));
     }
 
     fn clear_servers_search(&mut self, cx: &mut Context<Self>) {
-        if let Some((input, _)) = &self.devices_page.search {
+        if let Some((input, _)) = &self.servers_page.search {
             input.update(cx, |input, cx| input.set_text("", cx));
         }
     }
@@ -154,27 +154,27 @@ impl AppModel {
     /// Shows the port the server reports, as the port field's text, unless
     /// the field holds an edit not saved yet. Once the server reports the
     /// field's port, as after saving it, the field is no longer edited.
-    pub(crate) fn show_device_port(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn show_client_port(&mut self, cx: &mut Context<Self>) {
         let Some(port) = self
-            .device_access()
+            .client_access()
             .state
             .as_ref()
             .map(|state| state.settings.port.to_string())
         else {
             return;
         };
-        let Some(input) = self.devices_page.port_input().cloned() else {
+        let Some(input) = self.servers_page.port_input().cloned() else {
             return;
         };
         if input.read(cx).text() == port {
-            self.devices_page.port_edited = false;
-        } else if !self.devices_page.port_edited {
+            self.servers_page.port_edited = false;
+        } else if !self.servers_page.port_edited {
             input.update(cx, |input, cx| input.set_text(port, cx));
         }
     }
 
     fn servers_query(&self, cx: &gpui::App) -> String {
-        self.devices_page
+        self.servers_page
             .search_input()
             .map(|input| input.read(cx).text().to_owned())
             .unwrap_or_default()
@@ -232,7 +232,7 @@ impl AppModel {
 /// How wide the page's content grows, so rows stay easy to scan.
 const CONTENT_WIDTH: f32 = 960.0;
 
-/// The Devices page, laid out like the Extensions manager.
+/// The Servers page, laid out like the Extensions manager.
 pub(crate) fn render(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let theme = &model.theme;
     let entity = cx.entity();
@@ -244,10 +244,10 @@ pub(crate) fn render(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
         .flex_col()
         .bg(theme.bg)
         .text_color(theme.fg)
-        .text_size(model.devices_page.metrics.font_body())
+        .text_size(model.servers_page.metrics.font_body())
         .child(column(header(model, cx), model).flex_none())
         .child(
-            list(model.devices_page.list.clone(), move |_, _, cx| {
+            list(model.servers_page.list.clone(), move |_, _, cx| {
                 entity.update(cx, |model, cx| body(model, cx))
             })
             .flex_1()
@@ -289,7 +289,7 @@ fn body(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     div()
         .w_full()
         .text_color(model.theme.fg)
-        .text_size(model.devices_page.metrics.font_body())
+        .text_size(model.servers_page.metrics.font_body())
         .child(column(
             sections(&selected, &shown, groups, model, cx),
             model,
@@ -300,7 +300,7 @@ fn body(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
 pub(super) fn style(model: &AppModel) -> Style<'_> {
     Style {
         theme: &model.theme,
-        metrics: &model.devices_page.metrics,
+        metrics: &model.servers_page.metrics,
     }
 }
 
@@ -311,12 +311,12 @@ fn column(content: impl IntoElement, model: &AppModel) -> gpui::Div {
     div()
         .flex()
         .justify_center()
-        .px(model.devices_page.metrics.scaled(32.0))
+        .px(model.servers_page.metrics.scaled(32.0))
         .child(
             div()
                 .flex_1()
                 .min_w(px(0.0))
-                .max_w(model.devices_page.metrics.scaled(CONTENT_WIDTH))
+                .max_w(model.servers_page.metrics.scaled(CONTENT_WIDTH))
                 .flex()
                 .flex_col()
                 .child(content),
@@ -342,8 +342,8 @@ fn icon_button(
                 SharedString::from(id),
                 tooltip,
                 icon,
-                model.devices_page.metrics.icon_sm(),
-                model.devices_page.metrics.control_small(),
+                model.servers_page.metrics.icon_sm(),
+                model.servers_page.metrics.control_small(),
                 theme.fg_muted,
                 theme.fg,
             )
@@ -357,7 +357,7 @@ fn icon_button(
 /// A short status label, in accent while connected, as Extensions marks one
 /// that is enabled.
 fn badge(server: &RemoteServer, model: &AppModel) -> gpui::Div {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let theme = &model.theme;
     let connected = server.status == ServerStatus::Connected;
     div()
@@ -384,7 +384,7 @@ pub(super) fn card(model: &AppModel) -> gpui::Div {
         .flex()
         .flex_col()
         .min_w(px(0.0))
-        .rounded(model.devices_page.metrics.radius_lg())
+        .rounded(model.servers_page.metrics.radius_lg())
         .bg(model.theme.surface)
         .border_1()
         .border_color(model.theme.border)
@@ -392,7 +392,7 @@ pub(super) fn card(model: &AppModel) -> gpui::Div {
 
 /// The icon, the title, Pair with Link, and Add Server.
 fn header(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let theme = &model.theme;
     div()
         .flex()
@@ -413,7 +413,7 @@ fn header(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
                     div()
                         .text_size(m.font_title())
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(accessibility::label("servers-heading", tr!("Devices"))),
+                        .child(accessibility::label("servers-heading", tr!("Servers"))),
                 ),
         )
         .child(
@@ -451,24 +451,24 @@ fn sections(
     model: &AppModel,
     cx: &Context<AppModel>,
 ) -> AnyElement {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let count: usize = shown.iter().map(|(_, members)| members.len()).sum();
     div()
         .flex()
         .flex_col()
         .gap(m.spacing7())
         .py(m.spacing7())
-        .child(super::devices::this_computer(model, cx))
+        .child(super::clients::this_computer(model, cx))
         .child(
             div()
                 .text_color(model.theme.fg_muted)
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(accessibility::label(
                     "servers-connects-to",
-                    tr!("Connects To"),
+                    tr!("Other Servers"),
                 )),
         )
-        .children(model.devices_page.search_input().map(|input| {
+        .children(model.servers_page.search_input().map(|input| {
             controls::search_field(style(model), "servers-search", input)
                 .debug_selector(|| "servers-search".into())
         }))
@@ -488,7 +488,7 @@ fn select_bar(
     model: &AppModel,
     cx: &Context<AppModel>,
 ) -> AnyElement {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let theme = &model.theme;
     let any = !selected.is_empty();
     let all = any && selected.len() >= shown;
@@ -590,7 +590,7 @@ fn select_bar(
 
 /// No servers yet, or none matching the search, as Extensions says so.
 fn empty_state(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let theme = &model.theme;
     let none = model.settings.servers.is_empty();
     let (title, description) = if none {
@@ -657,7 +657,7 @@ fn group_section(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>
     div()
         .flex()
         .flex_col()
-        .gap(model.devices_page.metrics.spacing4())
+        .gap(model.servers_page.metrics.spacing4())
         .child(heading(section, model, cx))
         .child(card(model).overflow_hidden().children(rows))
         .into_any_element()
@@ -665,7 +665,7 @@ fn group_section(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>
 
 /// A group's title, its count, Connect, and its menu.
 fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let theme = &model.theme;
     let group = section.group;
     let key = group.unwrap_or_default().to_owned();
@@ -771,7 +771,7 @@ fn row(
     model: &AppModel,
     cx: &Context<AppModel>,
 ) -> AnyElement {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let theme = &model.theme;
     let id = server.entry.id;
     let group = SharedString::from(format!("servers-row-{id}"));
@@ -835,7 +835,7 @@ fn row(
 
 /// A server's name and state, where it is, and why it failed.
 fn row_text(server: &RemoteServer, model: &AppModel) -> AnyElement {
-    let m = model.devices_page.metrics;
+    let m = model.servers_page.metrics;
     let theme = &model.theme;
     let error = match &server.install {
         Some(crate::model::Install::Failed(error)) => {
@@ -902,7 +902,7 @@ fn row_actions(
         .flex()
         .flex_none()
         .items_center()
-        .gap(model.devices_page.metrics.spacing1())
+        .gap(model.servers_page.metrics.spacing1())
         .opacity(0.0)
         .group_hover(group, |style| style.opacity(1.0))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

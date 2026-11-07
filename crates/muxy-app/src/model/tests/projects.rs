@@ -745,7 +745,7 @@ fn add_project_restores_a_recently_removed_project_with_a_terminal(cx: &mut Test
     let add_project = cx.debug_bounds("add-project").expect("add project");
     cx.simulate_click(add_project.center(), Modifiers::none());
     cx.run_until_parked();
-    assert!(cx.debug_bounds("menu-label-Local").is_some());
+    assert!(cx.debug_bounds("menu-label-Folder…").is_some());
     assert!(cx.debug_bounds("menu-label-Recently Removed").is_none());
     cx.simulate_keystrokes("escape");
     cx.run_until_parked();
@@ -782,7 +782,7 @@ fn add_project_restores_a_recently_removed_project_with_a_terminal(cx: &mut Test
         let Some(Overlay::Menu(menu)) = &model.overlay else {
             panic!("Add Project menu");
         };
-        assert_eq!(menu.items.len(), 2);
+        assert_eq!(menu.items.len(), 1, "only Folder…, the project is back");
         acknowledge_catalog(model, cx);
         assert!(model.state.removed_projects().is_empty());
     });

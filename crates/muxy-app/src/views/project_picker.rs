@@ -44,7 +44,6 @@ pub(crate) enum Purpose {
 pub(crate) enum PickerEvent {
     ConfirmTarget {
         target: Target,
-        secondary: bool,
     },
     Confirm {
         path: String,
@@ -418,11 +417,7 @@ impl ProjectPicker {
             row.disabled = true;
             items.push(PickerItem::Row(row));
         }
-        let targets = if self.session.input_mode() == InputMode::FolderSearch {
-            self.targets.items(self.session.search_query())
-        } else {
-            Vec::new()
-        };
+        let targets = self.target_items();
         let has_targets = !targets.is_empty();
         items.splice(..0, targets);
         let status = match self.session.load_state {
@@ -481,6 +476,22 @@ impl ProjectPicker {
         );
     }
 
+    /// Saved projects matching the query: while searching folders, or by name
+    /// on another computer, where typing is otherwise a path.
+    fn target_items(&self) -> Vec<PickerItem> {
+        let query = self.session.search_query();
+        let named = self.session.input_mode() == InputMode::FolderSearch
+            || (self.remote.is_some()
+                && !query.is_empty()
+                && !query.starts_with('~')
+                && !query.contains('/'));
+        if named {
+            self.targets.items(query)
+        } else {
+            Vec::new()
+        }
+    }
+
     fn footer_actions(&self, target: Option<Target>, disabled: bool) -> Vec<PickerAction> {
         let add = if self
             .session
@@ -492,9 +503,6 @@ impl ProjectPicker {
             self.session.top_right_action_title()
         };
         let titles = match (self.purpose, target) {
-            (_, Some(Target::Server(_))) => {
-                vec![tr_key!("Browse Folders…"), tr_key!("Terminal in Home")]
-            }
             (_, Some(Target::Project(_))) => vec![tr_key!("New Tab")],
             (Purpose::AddProject, None) => vec![add],
             (Purpose::NewTab, None) if self.session.is_existing_project() => {
@@ -531,10 +539,7 @@ impl ProjectPicker {
 
     fn activate(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(target) = self.targets.action(id) {
-            cx.emit(PickerEvent::ConfirmTarget {
-                target: *target,
-                secondary: false,
-            });
+            cx.emit(PickerEvent::ConfirmTarget { target: *target });
             return;
         }
         let index = id
@@ -613,10 +618,7 @@ impl ProjectPicker {
             .selected_row_id()
             .and_then(|id| self.targets.action(id))
         {
-            cx.emit(PickerEvent::ConfirmTarget {
-                target: *target,
-                secondary,
-            });
+            cx.emit(PickerEvent::ConfirmTarget { target: *target });
             return;
         }
         let Some(path) = self.session.confirmation_path() else {
@@ -714,6 +716,11 @@ impl AppModel {
                 return;
             }
         }
+        let server = self.state.default_server();
+        if !server.is_local() {
+            self.open_remote_folders(server, purpose, cx);
+            return;
+        }
         let root = self
             .settings
             .projects
@@ -727,7 +734,7 @@ impl AppModel {
         let paths = self.project_paths(ServerId::local());
         let targets = match purpose {
             Purpose::AddProject => Registry::default(),
-            Purpose::NewTab => targets::registry(self),
+            Purpose::NewTab => targets::registry(self, ServerId::local()),
         };
         let picker = cx.new(|cx| {
             ProjectPicker::new(
@@ -746,6 +753,7 @@ impl AppModel {
     }
 
     pub(crate) fn open_remote_project_picker(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        self.use_server(server, cx);
         self.open_remote_folders(server, Purpose::AddProject, cx);
     }
 
@@ -779,6 +787,10 @@ impl AppModel {
         self.pending_remote = None;
         let folders = RemoteFolders::through(client, name, project, &home);
         let paths = self.project_paths(server);
+        let targets = match purpose {
+            Purpose::AddProject => Registry::default(),
+            Purpose::NewTab => targets::registry(self, server),
+        };
         let picker = cx.new(|cx| {
             ProjectPicker::remote(
                 purpose,
@@ -789,6 +801,7 @@ impl AppModel {
                 cx,
             )
         });
+        picker.update(cx, |picker, _| picker.targets = targets);
         self.show_project_picker(server, picker, cx);
     }
 
@@ -821,8 +834,8 @@ impl AppModel {
         self.overlay_subscription =
             Some(
                 cx.subscribe(&picker, move |model, picker, event, cx| match event {
-                    PickerEvent::ConfirmTarget { target, secondary } => {
-                        model.confirm_project_target(&picker, *target, *secondary, cx);
+                    PickerEvent::ConfirmTarget { target } => {
+                        model.confirm_project_target(*target, cx);
                     }
                     PickerEvent::Confirm {
                         path,
@@ -866,28 +879,12 @@ impl AppModel {
         cx.notify();
     }
 
-    fn confirm_project_target(
-        &mut self,
-        picker: &Entity<ProjectPicker>,
-        target: Target,
-        secondary: bool,
-        cx: &mut Context<Self>,
-    ) {
+    fn confirm_project_target(&mut self, target: Target, cx: &mut Context<Self>) {
         if self.dialogs.is_open() {
             return;
         }
-        match target {
-            Target::Project(id) => self.open_tab_in_project(id, cx),
-            Target::Server(server) => {
-                let purpose = picker.read(cx).purpose;
-                self.dismiss_overlay(cx);
-                if secondary {
-                    self.new_remote_home_tab(server, cx);
-                } else {
-                    self.open_remote_folders(server, purpose, cx);
-                }
-            }
-        }
+        let Target::Project(id) = target;
+        self.open_tab_in_project(id, cx);
     }
 
     fn open_tab_in_project(&mut self, id: muxy_app_core::ProjectId, cx: &mut Context<Self>) {
@@ -1044,6 +1041,7 @@ impl AppModel {
         if self.dialogs.is_open() {
             return;
         }
+        self.use_server(server, cx);
         if let Some(id) = self.project_at(server, &path.to_string_lossy()) {
             self.open_tab_in_project(id, cx);
             return;
@@ -1155,6 +1153,7 @@ impl AppModel {
     }
 
     fn open_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
+        self.use_server(ServerId::local(), cx);
         let canonical = folder.canonicalize().ok();
         let existing = self
             .state

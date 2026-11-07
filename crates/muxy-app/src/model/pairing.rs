@@ -1,4 +1,4 @@
-//! Pairing with another computer from the link its Devices page shows.
+//! Pairing with another computer from the link its Servers page shows.
 //! The server's entry lives in `settings.toml` and its token for this
 //! computer in `paired-servers.toml`.
 
@@ -33,7 +33,7 @@ pub(crate) struct PairingForm {
 
 pub(crate) fn parse_link(link: &str) -> Result<PairingInvite, String> {
     PairingInvite::parse_link(link.trim()).map_err(|_| {
-        tr!("Paste the whole pairing link from the other computer's Settings → Devices.")
+        tr!("Paste the whole pairing link from the other computer's Settings → Servers.")
             .to_string()
     })
 }
@@ -47,7 +47,7 @@ fn pairing_failure(error: &ClientError) -> String {
         .to_string(),
         ClientError::Server(reply) => reply.message.clone(),
         ClientError::IdentityMismatch => tr!(
-            "The computer at this link isn't the one that made it. Copy the link again from its Settings → Devices."
+            "The computer at this link isn't the one that made it. Copy the link again from its Settings → Servers."
         )
         .to_string(),
         ClientError::Io(error) => tr!(

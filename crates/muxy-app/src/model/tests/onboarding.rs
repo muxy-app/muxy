@@ -617,7 +617,9 @@ fn wrote_access(requests: &std::sync::mpsc::Receiver<(u64, Work)>, enabled: bool
 fn opening_the_mobile_step_changes_nothing_on_the_server(cx: &mut TestAppContext) {
     let (view, cx, requests) = at_mobile(cx, access(false, Vec::new()));
     assert!(work(&requests).is_empty());
-    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_none()));
+    view.read_with(cx, |model, _| {
+        assert!(model.client_access.pairing.is_none());
+    });
 }
 
 #[gpui::test]
@@ -634,7 +636,9 @@ fn pairing_turns_access_on_then_shows_a_code(cx: &mut TestAppContext) {
             .any(|work| matches!(work, Work::StartPairing))
     );
     view.update(cx, |model, cx| model.receive_pairing(Ok(offer()), cx));
-    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_some()));
+    view.read_with(cx, |model, _| {
+        assert!(model.client_access.pairing.is_some());
+    });
 }
 
 #[gpui::test]
@@ -653,7 +657,9 @@ fn leaving_unpaired_withdraws_the_code_and_turns_access_back_off(cx: &mut TestAp
             .iter()
             .any(|work| matches!(work, Work::CancelPairing))
     );
-    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_none()));
+    view.read_with(cx, |model, _| {
+        assert!(model.client_access.pairing.is_none());
+    });
     view.update(cx, |model, cx| {
         model.receive_remote_access(Ok(access(true, Vec::new())), cx);
     });
@@ -690,7 +696,7 @@ fn the_phone_that_pairs_is_named_and_keeps_access_on(cx: &mut TestAppContext) {
     view.read_with(cx, |model, _| {
         let tour = model.onboarding.tour.as_ref().expect("tour");
         assert_eq!(tour.pair.paired.as_deref(), Some("Saeed's iPhone"));
-        assert!(model.mobile.pairing.is_none());
+        assert!(model.client_access.pairing.is_none());
     });
     view.update(cx, |model, cx| model.step_onboarding(true, cx));
     assert!(!wrote_access(&requests, false));
@@ -717,7 +723,9 @@ fn a_code_answered_after_leaving_the_step_is_thrown_away(cx: &mut TestAppContext
     work(&requests);
     view.update(cx, |model, cx| model.step_onboarding(true, cx));
     view.update(cx, |model, cx| model.receive_pairing(Ok(offer()), cx));
-    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_none()));
+    view.read_with(cx, |model, _| {
+        assert!(model.client_access.pairing.is_none());
+    });
     assert!(
         work(&requests)
             .iter()
@@ -864,17 +872,17 @@ fn a_refused_access_change_stops_and_shows_its_error(cx: &mut TestAppContext) {
     });
     assert!(!wrote_access(&requests, true));
     view.read_with(cx, |model, _| {
-        assert!(model.mobile.error.is_some());
-        assert!(!model.mobile.busy);
+        assert!(model.client_access.error.is_some());
+        assert!(!model.client_access.busy);
         let tour = model.onboarding.tour.as_ref().expect("tour");
         assert!(!tour.pair.wanted);
     });
 }
 
 #[gpui::test]
-fn leaving_withdraws_the_code_even_with_the_devices_page_open(cx: &mut TestAppContext) {
+fn leaving_withdraws_the_code_even_with_the_servers_page_open(cx: &mut TestAppContext) {
     let (view, cx, requests) = at_mobile(cx, access(true, Vec::new()));
-    view.update_in(cx, AppModel::show_devices_settings);
+    view.update_in(cx, AppModel::show_servers_settings);
     cx.run_until_parked();
     view.update(cx, |model, cx| {
         model.receive_remote_access(Ok(access(true, Vec::new())), cx);
@@ -889,7 +897,9 @@ fn leaving_withdraws_the_code_even_with_the_devices_page_open(cx: &mut TestAppCo
             .iter()
             .any(|work| matches!(work, Work::CancelPairing))
     );
-    view.read_with(cx, |model, _| assert!(model.mobile.pairing.is_none()));
+    view.read_with(cx, |model, _| {
+        assert!(model.client_access.pairing.is_none());
+    });
 }
 
 #[gpui::test]
@@ -913,7 +923,7 @@ fn turning_access_back_off_waits_for_a_lost_server_to_return(cx: &mut TestAppCon
     });
     cx.run_until_parked();
     view.update(cx, |model, cx| model.step_onboarding(true, cx));
-    view.read_with(cx, |model, _| assert!(model.mobile.restore_off));
+    view.read_with(cx, |model, _| assert!(model.client_access.restore_off));
     work(&requests);
     view.update(cx, |model, cx| {
         let server = ServerId::local();
@@ -932,11 +942,11 @@ fn turning_access_back_off_waits_for_a_lost_server_to_return(cx: &mut TestAppCon
         model.receive_remote_access(Ok(access(true, Vec::new())), cx);
     });
     assert!(wrote_access(&requests, false));
-    view.read_with(cx, |model, _| assert!(model.mobile.restore_off));
+    view.read_with(cx, |model, _| assert!(model.client_access.restore_off));
     view.update(cx, |model, cx| {
         model.receive_remote_access(Ok(access(false, Vec::new())), cx);
     });
-    view.read_with(cx, |model, _| assert!(!model.mobile.restore_off));
+    view.read_with(cx, |model, _| assert!(!model.client_access.restore_off));
 }
 
 #[gpui::test]
@@ -960,7 +970,7 @@ fn a_refused_turn_off_is_kept_and_retried_on_the_next_good_answer(cx: &mut TestA
         );
     });
     assert!(!wrote_access(&requests, false));
-    view.read_with(cx, |model, _| assert!(model.mobile.restore_off));
+    view.read_with(cx, |model, _| assert!(model.client_access.restore_off));
     view.update(cx, |model, cx| {
         model.receive_remote_access(Ok(access(true, Vec::new())), cx);
     });
