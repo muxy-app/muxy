@@ -27,7 +27,7 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    pub const ACTIONS: [ShortcutId; 65] = [
+    pub const ACTIONS: [ShortcutId; 66] = [
         ShortcutId::OpenSettings,
         ShortcutId::NewHomeTab,
         ShortcutId::NewTabInProject,
@@ -36,6 +36,7 @@ impl Keymap {
         ShortcutId::ToggleSidebar,
         ShortcutId::ToggleAgentsPanel,
         ShortcutId::ToggleAgentSessions,
+        ShortcutId::ToggleFloatingTerminals,
         ShortcutId::ToggleFullScreen,
         ShortcutId::ToggleThemePicker,
         ShortcutId::ToggleCommandPalette,

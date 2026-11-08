@@ -63,11 +63,13 @@ impl TabGeometry {
             .find(|entry| entry.tab == tab)
     }
 
-    /// The tab whose panes are under `position` in `window`.
+    /// The tab whose panes are under `position` in `window`: the one drawn
+    /// last, on top, where a floating tab covers another.
     pub(crate) fn at(&self, window: WindowId, position: Point<Pixels>) -> Option<Placement> {
         self.0
             .borrow()
             .iter()
+            .rev()
             .copied()
             .find(|entry| entry.window == window && entry.bounds.contains(&position))
     }
@@ -205,7 +207,9 @@ impl AppModel {
                         drag.project == self.state.current_project().id
                             && self.main_visible_tabs().contains(&drag.tab)
                     }
-                    Surface::Tab(id) => self.window_tab(id) == Some(drag.tab),
+                    Surface::Tab(id) => {
+                        self.window_tab(id) == Some(drag.tab) && self.tab_shown(drag.tab)
+                    }
                 };
                 !shown
                     || self.layout_drag.geometry.get(drag.tab) != Some(drag.geometry)
@@ -237,15 +241,18 @@ impl AppModel {
         if event.button != MouseButton::Left || !event.modifiers.platform || self.drag_blocked() {
             return;
         }
-        let surface = self.surface_of(window);
+        let placement = self
+            .layout_drag
+            .geometry
+            .at(window.window_handle().window_id(), event.position);
+        let surface = placement.map_or_else(
+            || self.surface_of(window),
+            |placement| self.tab_surface(placement.tab, window),
+        );
         self.enter_surface(surface);
         let Some(Placement {
             tab, bounds, scale, ..
-        }) = self
-            .layout_drag
-            .geometry
-            .at(window.window_handle().window_id(), event.position)
-            .filter(|placement| self.visible_tabs().contains(&placement.tab))
+        }) = placement.filter(|placement| self.visible_tabs().contains(&placement.tab))
         else {
             return;
         };
@@ -282,13 +289,14 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(tab) = self
-            .state
-            .pane_tab(pane)
-            .filter(|tab| self.visible_tabs().contains(tab))
-        else {
+        let Some(tab) = self.state.pane_tab(pane) else {
             return;
         };
+        let surface = self.tab_surface(tab, window);
+        self.enter_surface(surface);
+        if !self.visible_tabs().contains(&tab) {
+            return;
+        }
         let Some(geometry) = self.layout_drag.geometry.get(tab) else {
             return;
         };
@@ -306,7 +314,7 @@ impl AppModel {
         self.focus_active(window, cx);
         self.layout_drag.pane = Some(PaneDrag {
             window: window.window_handle().window_id(),
-            surface: self.surface_of(window),
+            surface,
             project,
             tab,
             pane,
@@ -341,7 +349,13 @@ impl AppModel {
         }
         drag.position = position;
         let (bounds, scale) = drag.geometry;
-        if drag.window != window.window_handle().window_id() || !target::within(position, bounds) {
+        let here = window.window_handle().window_id();
+        let covered = self
+            .layout_drag
+            .geometry
+            .at(here, position)
+            .is_some_and(|placement| placement.tab != drag.tab);
+        if drag.window != here || !target::within(position, bounds) || covered {
             let pane = drag.pane;
             self.set_drop_preview(None, cx);
             self.track_move(Moving::Pane(pane), window, position, cx);

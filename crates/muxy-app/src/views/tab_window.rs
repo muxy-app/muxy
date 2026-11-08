@@ -274,7 +274,7 @@ fn window_controls(
 }
 
 /// The tab's color, title and project.
-fn title(tab: &Tab, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+pub(crate) fn title(tab: &Tab, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let project = model
         .tab_project(tab.id)
@@ -319,7 +319,7 @@ fn title(tab: &Tab, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
-fn button(
+pub(crate) fn button(
     id: &'static str,
     icon: Icon,
     label: &SharedString,

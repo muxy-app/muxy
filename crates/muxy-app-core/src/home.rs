@@ -15,6 +15,7 @@ impl AppState {
             selected_tab: HashMap::new(),
             bounds: None,
             workspace: None,
+            floats_hidden: false,
         };
         Ok(Self {
             servers: BTreeMap::new(),

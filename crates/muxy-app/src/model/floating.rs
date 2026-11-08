@@ -1,6 +1,6 @@
 //! Panels that float freely over the window, side by side: the detached
-//! agents panel, the detached agent sessions panel, and detached extension
-//! panels. Clicking one brings it to the front.
+//! agents panel, the detached agent sessions panel, detached extension
+//! panels, and floating tabs. Clicking one brings it to the front.
 
 use gpui::{Context, Pixels, Point, Size, Window};
 use muxy_ui::floating::{Edges, FloatingDrag, FloatingFrame, FloatingStack, SizeLimits};
@@ -62,6 +62,11 @@ impl AppModel {
             members.push(PanelId::new(super::agent_sessions::PANEL));
         }
         members.extend(self.detached_webview_panels());
+        members.extend(
+            self.shown_floats()
+                .into_iter()
+                .map(super::tab_windows::floating::panel),
+        );
         self.floating.stack.sort(&mut members, |id| id);
         members
     }
@@ -124,12 +129,22 @@ impl AppModel {
                 Self::agent_sessions_limits(),
             ));
         }
+        if let Some(float) = super::tab_windows::floating::panel_float(id) {
+            return Some((
+                self.float_frame(float, window)?,
+                super::tab_windows::floating::float_limits(),
+            ));
+        }
         self.detached_webview_geometry(id, window)
     }
 
     fn set_floating_frame(&mut self, id: &PanelId, frame: FloatingFrame) {
         if id.as_str() == super::agent_sessions::PANEL {
             self.appearance.agent_sessions_frame = Some(frame.to_array());
+            return;
+        }
+        if let Some(float) = super::tab_windows::floating::panel_float(id) {
+            self.set_float_frame(float, frame);
             return;
         }
         self.set_detached_webview_frame(id, frame);
@@ -189,6 +204,8 @@ impl AppModel {
             {
                 self.save_appearance(cx);
             }
+        } else if super::tab_windows::floating::panel_float(&id).is_some() {
+            self.save(cx);
         } else {
             self.save_detached_webview_frame(&id, cx);
         }

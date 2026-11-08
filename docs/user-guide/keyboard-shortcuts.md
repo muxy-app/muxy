@@ -19,6 +19,7 @@ For the terminal UI, see [Terminal UI keys](../features/terminal-ui.md#keys).
 | Next / previous tab | `Cmd+]` / `Cmd+[`, or `Ctrl+Tab` / `Ctrl+Shift+Tab` |
 | Go to tab 1–9 | `Cmd+1`–`Cmd+9` |
 | Existing terminals | `Cmd+Opt+T` |
+| Show / hide floating terminals | `Cmd+Opt+F` |
 
 ## Projects and navigation
 

@@ -191,9 +191,13 @@ impl AppModel {
     /// Shows `overlay` in place of the open one, which closes through its
     /// [`OverlayView::on_close`].
     /// Opens `overlay` in the main window, bringing that window forward when
-    /// the user works in a tab window.
+    /// the user works in a tab window. A floating tab is in the main window
+    /// already and keeps the keyboard, so what the overlay runs acts on it.
     pub(crate) fn open_overlay(&mut self, overlay: Overlay, cx: &mut Context<Self>) {
-        if self.surface() != crate::model::tab_windows::Surface::Main {
+        if matches!(
+            self.surface(),
+            crate::model::tab_windows::Surface::Tab(id) if !self.is_float(id)
+        ) {
             self.raise_main_window(cx);
         }
         self.put_overlay(overlay, cx);

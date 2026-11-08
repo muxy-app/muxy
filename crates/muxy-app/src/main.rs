@@ -35,6 +35,7 @@ mod views {
     pub(crate) mod disconnected;
     pub(crate) mod extension_agent;
     pub(crate) mod floating;
+    pub(crate) mod floating_tab;
     pub(crate) mod font_picker;
     pub(crate) mod git;
     pub(crate) mod menu;
@@ -108,8 +109,8 @@ use views::workspace::{
     NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree, NextProject, NextPrompt,
     NextTab, OpenSettings, PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput,
     SelectProject, SelectTab, ShowAll, SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions,
-    ToggleAgentsPanel, ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar,
-    ToggleThemePicker, ToggleZoomPane, Zoom, bind_keys,
+    ToggleAgentsPanel, ToggleCommandPalette, ToggleComposer, ToggleFloatingTerminals,
+    ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleZoomPane, Zoom, bind_keys,
 };
 
 fn main() -> ExitCode {
@@ -351,6 +352,7 @@ fn menus() -> Vec<Menu> {
         menu_item(ToggleSidebar),
         menu_item(ToggleAgentsPanel),
         menu_item(ToggleAgentSessions),
+        menu_item(ToggleFloatingTerminals),
         menu_item(ToggleFullScreen),
         MenuItem::separator(),
         menu_item(ToggleThemePicker),
