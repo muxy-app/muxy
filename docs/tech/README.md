@@ -38,5 +38,3 @@ The big ideas:
 2. [Protocol](./protocol.md): how apps and the server talk, and the
    compatibility rules.
 3. [Mobile](./mobile.md): how phones pair and connect.
-4. [Decisions](./decisions.md): the key choices and why they were made.
-5. [Constraints](./constraints.md): supported platforms and hard-won lessons.
