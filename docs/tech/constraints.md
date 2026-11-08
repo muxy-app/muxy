@@ -20,9 +20,11 @@ in SwiftVM on Apple Silicon, with GNOME and KDE Plasma, each on Wayland and X11.
 This does not establish support for other distributions, x86_64 desktop builds,
 or hardware GPU drivers. SwiftVM uses Mesa's software Vulkan renderer, so its
 performance is not representative of a native GPU. It also tolerates GPU misuse
-that a hardware driver punishes, such as destroying an image that a frame on the
-GPU still samples, which froze the app on Intel GPUs. Check rendering changes
-with the Khronos validation layer: `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`.
+that a hardware driver can punish, such as destroying an image that a frame on
+the GPU still samples. Check rendering changes with the Khronos validation layer
+from Ubuntu's `vulkan-validationlayers` package: quit Muxy, start it from a
+terminal with `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation` set, and read the
+errors it prints.
 
 The system draws the window: frame, buttons, shadow, resizing and tiling. GNOME
 on Wayland draws no frame, so there the app shows its own buttons and the
