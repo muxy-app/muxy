@@ -29,6 +29,7 @@ muxy-core = { path = "../muxy-core" }
 serde = { version = "1", features = ["derive", "rc"] }
 signal-hook = "0.4"
 toml = "1.1"
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 
 
 [target.'cfg(target_os = "macos")'.dependencies]

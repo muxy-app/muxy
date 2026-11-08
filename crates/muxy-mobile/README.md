@@ -3,15 +3,16 @@
 How to build the Muxy phone apps on `muxy-mobile`, the Rust client library
 with generated Swift and Kotlin bindings. This guide explains behavior. For
 exact signatures, read the generated `muxy_mobile.swift` or `muxy_mobile.kt`.
-The Rust source is in `crates/muxy-mobile`, and
-`crates/muxy-mobile/tests/sdk.rs` runs the whole flow against a real server.
+The Rust source is in `crates/muxy-mobile`.
 
 ## How it works
 
 The app embeds the SDK, which connects directly to `muxy-server` on the user's
-computer over TLS 1.3. There is no cloud service: the phone reaches the
-computer on the same network, through a VPN such as Tailscale, or at an
-address added to the pairing code.
+computer over TLS 1.3. The phone reaches the computer on the same network,
+through a VPN such as Tailscale, or at an address added to the pairing code.
+The only service in between is the push relay at `muxy.app`, which forwards
+encrypted [push notifications](#push-notifications) and never sees what they
+say.
 
 1. The computer shows a QR code holding a pairing link.
 2. The app pairs with that link once and stores the returned
@@ -61,9 +62,10 @@ screen and sends input.
    paste.
 7. Scrollback, then taps and scrolling for programs that use the mouse.
 8. Agent activity.
-9. Git and files.
-10. Error states for every case in [Errors](#errors).
-11. If the app has an SSH client, [connecting over SSH](#connecting-over-ssh).
+9. Push notifications, and opening the pane they name.
+10. Git and files.
+11. Error states for every case in [Errors](#errors).
+12. If the app has an SSH client, [connecting over SSH](#connecting-over-ssh).
 
 ## Getting the SDK
 
@@ -215,11 +217,15 @@ Swift names are shown. Kotlin uses the same names without argument labels.
 | `connection.serverId()` | `String` | yes |
 | `connection.projects()` | `[Project]` | yes |
 | `connection.sessions(projectId:)` | `[Session]` | yes |
+| `connection.findSession(sessionId:)` | `Session?` | yes |
 | `connection.createSession(projectId:columns:rows:)` | `Session` | yes |
 | `connection.endSession(sessionId:)` | — | yes |
 | `connection.attach(sessionId:columns:rows:)` | `Terminal` | yes |
 | `connection.activity()` | `Activity` | yes |
 | `connection.acknowledgeActivity(eventIds:)` | — | yes |
+| `connection.supportsPushNotifications()` | `Bool` | no |
+| `connection.registerPush(platform:token:environment:)` | `PushRegistration` | yes |
+| `connection.unregisterPush()` | — | yes |
 | `connection.git(projectId:)` | `GitRepository` | no |
 | `connection.files(projectId:)` | `ProjectFiles` | no |
 | `connection.disconnect()` | — | no |
@@ -248,7 +254,7 @@ to the server can throw.
 | `ServerCredential` | `serverId`, `serverName`, `hosts`, `port`, `fingerprint` (32 bytes), `deviceId`, `token` (32 bytes) |
 | `PairingLink` | `hosts`, `port` |
 | `Project` | `id`, `name`, `directory`, `color`, `icon?`, `logo?`, `parentId?`, `isHome`, `isWorktree` |
-| `Session` | `id`, `projectId`, `directory`, `status`, `owner?`, `attached` |
+| `Session` | `id`, `projectId`, `directory`, `status`, `owner?`, `attached`, `title` |
 | `SessionStatus` | `starting`, `live`, `ended`, `unavailable` |
 | `ClientKind` | `desktop`, `tui`, `cli`, `mobile`, `other` |
 | `Screen` | `columns`, `rows`, `lines`, `cursor`, `title`, `directory`, `historyRows`, `applicationCursorKeys`, `bracketedPaste`, `mouseTracking`, `alternateScroll` |
@@ -268,6 +274,10 @@ to the server can throw.
 | `AgentState` | `unknown`, `idle`, `working`, `blocked` |
 | `ActivityEvent` | `id`, `sessionId`, `projectId`, `provider`, `timestamp` (Unix seconds), `kind` |
 | `ActivityKind` | `attention`, `completed` |
+| `PushPlatform` | `apns`, `fcm` |
+| `PushEnvironment` | `sandbox`, `production` |
+| `PushRegistration` | `status`, `key?` (32 bytes) |
+| `PushStatus` | `active`, `pending`, `refused`, `disabled`, `other` |
 | `GitRepository`, `ProjectFiles`, and what they return | see [Git and files](#git-and-files) |
 | `ConnectionEvent` | see [Events](#events) |
 | `ChannelWriter` | a protocol the app implements: `write(bytes:)` and `close()`; see [Connecting over SSH](#connecting-over-ssh) |
@@ -793,8 +803,226 @@ agent's state and recent notifications.
   means it finished.
 - `acknowledgeActivity(eventIds:)` marks events as seen on every client,
   including the desktop.
-- The phone learns about activity only while it's connected. There are no
-  push notifications.
+- While the app is away, the server tells the phone about `attention` and
+  `completed` events with [push notifications](#push-notifications).
+
+## Push notifications
+
+A paired server tells the phone when an agent needs attention or finishes,
+about 20 seconds after it happens, unless someone acknowledged the event by
+then or the phone is connected to that server. Notifications go through the
+relay at `muxy.app`, which holds the Apple and Google credentials. The relay
+is blind: the content is end-to-end encrypted between the server and the
+phone, and the phone never talks to `muxy.app`.
+
+- Each server the phone is paired with has its own registration and its own
+  32-byte key.
+- Only paired connections can register. Over SSH,
+  `supportsPushNotifications()` is `false` and `registerPush` fails with
+  `Server`.
+- A server can pause notifications for every phone, with
+  `muxy mobile push off` or the desktop's **Push notifications** setting.
+  Then `registerPush` answers `disabled`. The server keeps each phone's token
+  and key for 90 days, and turning notifications back on resumes those phones
+  with the same keys, without them reconnecting.
+- The computer can also reset one phone with `muxy mobile push reset`. It
+  forgets that phone's key, and the next `registerPush` returns a new one.
+- The contract the server, the relay, and the apps share is
+  [docs/push-notifications.md](https://github.com/muxy-app/muxy.app/blob/main/docs/push-notifications.md)
+  in the `muxy.app` repository.
+
+### Registering
+
+Call `registerPush` on every connect while notifications are on in the app,
+and again whenever the OS gives a new token. Skip it when
+`supportsPushNotifications()` is `false`. It can take up to 20 seconds,
+because the server checks the token with the relay first, so call it on the
+connection's queue after everything the user is waiting for.
+
+| Argument | iOS | Android |
+| --- | --- | --- |
+| `platform` | `apns` | `fcm` |
+| `token` | The device token bytes as lowercase hex | The FCM registration token |
+| `environment` | `sandbox` for Debug builds, `production` for TestFlight and App Store builds | `nil` |
+
+| `status` | Meaning | What to do |
+| --- | --- | --- |
+| `active` | The relay accepted the token | Keep `key` |
+| `pending` | The server couldn't reach the relay yet and keeps trying | Keep `key`; it already works |
+| `refused` | Apple or Google rejected the token | Keep `key`, get a fresh token, and check the APNs environment |
+| `disabled` | Notifications are paused on this server | Keep the stored key: it works again if the server turns them back on. There is no key in the reply |
+| `other` | A newer server's status | Keep `key` if there is one |
+
+- Store `key` with the server's credential, replacing the one kept before. It
+  stays the same while the server keeps the registration, including while
+  notifications are paused, so notifications already on their way still
+  decrypt. Replace it only when a reply carries a key.
+- A reply with a new key means the registration was recreated: after
+  `unregisterPush`, a reset on the computer, or 90 days of being paused.
+  Notifications sent with the old key show the fallback text.
+- On iOS the Notification Service Extension needs the keys too: keep them in a
+  keychain access group shared with the extension. On Android, keep them in the
+  Keystore-encrypted store the credentials use.
+- When the user turns notifications off for a server, call `unregisterPush()`
+  and delete its key. The server deletes the relay registration and forgets the
+  key. Revoking the phone on the computer does the same.
+
+```swift
+if connection.supportsPushNotifications(), let token = pushToken {
+    let registration = try await SDK.run {
+        try connection.registerPush(platform: .apns, token: token, environment: isDebug ? .sandbox : .production)
+    }
+    if let key = registration.key { pushKeys.store(key, for: credential.serverId) }
+}
+```
+
+```kotlin
+if (connection.supportsPushNotifications()) {
+    val registration = withContext(sdk) { connection.registerPush(PushPlatform.FCM, token, null) }
+    registration.key?.let { pushKeys.store(credential.serverId, it) }
+}
+```
+
+### What arrives
+
+The relay sends a visible notification with fallback text, "Muxy" and "An
+agent needs your attention" or "An agent finished working", plus the
+encrypted `payload`:
+
+- **iOS:** an alert with `mutable-content`, and
+  `muxy: {v: 1, kind, payload}` in `userInfo`. Ignore silent pushes with no
+  `muxy` key; they are the relay checking the token.
+- **Android:** a data-only message whose `data` has `muxy_v`, `kind`,
+  `payload`, `title`, `body`, and, when set, `collapse_id` and `thread_id`.
+  Post it with `collapse_id` as its tag and group it by `thread_id`.
+
+### Decrypting
+
+The SDK doesn't decrypt. The Notification Service Extension and the
+`FirebaseMessagingService` do it natively, with CryptoKit `AES.GCM` or
+`javax.crypto` `AES/GCM/NoPadding`.
+
+```
+bytes      = base64url_decode(payload)          no padding
+header     = bytes[0..9]                        0x01 ‖ key_id
+key_id     = bytes[1..9]                        first 8 bytes of SHA-256("muxy-push-key-id" ‖ key)
+nonce      = bytes[9..21]
+ciphertext = bytes[21..len-16]
+tag        = bytes[len-16..]
+aad        = header ‖ UTF-8(server_id)          server_id is the credential's serverId
+plaintext  = AES-256-GCM open(key, nonce, ciphertext, tag, aad)
+```
+
+1. If the first byte isn't `1`, show the fallback text.
+2. Find the key whose `key_id` matches, among the keys of every paired
+   server. Decrypt with that server's `serverId`, exactly as the credential
+   holds it.
+3. Read the plaintext as JSON. If `v` isn't `1`, or `server_id` isn't that
+   server's `serverId`, show the fallback text.
+4. Show `title` and `body`. Ignore fields you don't know.
+
+Show decrypted text only when decryption and authentication succeed with a
+key the phone holds. Otherwise show the fallback text, never the raw payload.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `v` | number | `1` |
+| `server_id` | string | The server's `serverId` |
+| `project_id` | string | The session's project when the notification was sent; a hint only |
+| `session_id` | number (u64) | The terminal session to open |
+| `event_id` | number (u64) | The activity event to acknowledge |
+| `kind` | string | `attention` or `completed` |
+| `title` | string | `"{provider} · {project name}"`, up to 120 characters |
+| `body` | string | `Needs your attention` or `Finished working`, up to 240 characters |
+| `ts` | number | Unix seconds when the event happened |
+
+Test vectors, which the server's tests check byte for byte:
+
+| Input | Value |
+| --- | --- |
+| `key` (hex) | `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f` |
+| `nonce` (hex) | `202122232425262728292a2b` |
+| `server_id` | `6b0c7e2a9f1d4c3b8a7e6d5c4b3a2910` |
+| `key_id` (hex) | `627df844ff14f4ed` |
+| `collapse_id` for `session_id` 42 | `usZ3J1QStv6L6omf` |
+| `thread_id` for `project_id` `0f3a5c7e9b1d2f4a6c8e0b2d4f6a8c1e` | `aJnt975IClwhFwRP` |
+
+The plaintext, 249 bytes:
+
+```json
+{"v":1,"server_id":"6b0c7e2a9f1d4c3b8a7e6d5c4b3a2910","project_id":"0f3a5c7e9b1d2f4a6c8e0b2d4f6a8c1e","session_id":42,"event_id":1731067200000123,"kind":"attention","title":"Claude Code · muxy-website","body":"Needs your attention","ts":1731067200}
+```
+
+The `payload`:
+
+```
+AWJ9-ET_FPTtICEiIyQlJicoKSorqRjQUlapNixpGTC4pGqrkLRr1r6x4lONW5Nec3Dsb21B7dZmtkQCvyKZW_Fsayyp0BPdvrgQDxG8DRV4L8ZVtLwE9ymm8db3vgneQoI_CAXn8QdlgZi-e_8t8E4ueqi9OjcfM-povICs79duzJiSehSztXaj8o1oJpdpe6ru5goG1UqtCt41hle_klo-Dy2U5OYJXrr2vqgKKtxb_ra_ubCaUg3w0QPlldusnpwIWMfKxtjhaYCgWQ7gLBPGV6bSmo4Bcxb1rSswP5mcjbzPte8f11CjunfsIcZmKTV0KnlIcQD_9AAR3n9Gr-LLzKEm-U6CvwQ4NQPD2UDfWA59eAGjg59TxG-3fQ
+```
+
+The same payload with the server id `other` must fail to authenticate.
+
+```swift
+func open(_ payload: String, key: SymmetricKey, serverId: String) throws -> Data {
+    let bytes = try base64URLDecoded(payload)
+    guard bytes.count > 37, bytes.first == 1 else { throw PushError.unreadable }
+    let header = bytes.prefix(9)
+    let box = try AES.GCM.SealedBox(
+        nonce: AES.GCM.Nonce(data: bytes[9..<21]),
+        ciphertext: bytes[21..<(bytes.count - 16)],
+        tag: bytes.suffix(16))
+    return try AES.GCM.open(box, using: key, authenticating: header + Data(serverId.utf8))
+}
+```
+
+```kotlin
+fun open(payload: String, key: ByteArray, serverId: String): ByteArray {
+    val bytes = Base64.decode(payload, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+    require(bytes.size > 37 && bytes[0] == 1.toByte())
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, bytes, 9, 12))
+    cipher.updateAAD(bytes.copyOfRange(0, 9) + serverId.toByteArray(Charsets.UTF_8))
+    return cipher.doFinal(bytes, 21, bytes.size - 21)
+}
+```
+
+### Opening the pane on tap
+
+A tap opens the terminal pane the event came from, whether the app was
+closed, in the background, or in the foreground. Decrypt the payload again
+when the user taps, and hold the target, `server_id`, `session_id`,
+`project_id`, and `event_id`, until navigation is ready. If it can't be
+decrypted, or `server_id` isn't a paired server, open the home screen.
+
+1. Push that server's project screen with its loading state, and connect.
+2. `findSession(sessionId:)` finds the session by id and returns it with the
+   project it belongs to now. `session_id` decides; `project_id` is only a
+   hint, because sessions can move between projects.
+3. If a terminal tab is already attached to that session, select it.
+   Otherwise open a tab and `attach` to the existing session. Never call
+   `createSession` for a notification. Key the route by `session_id`, since
+   tab ids are the app's own.
+4. If `findSession` returns `nil`, the terminal has ended. Open the
+   `project_id` project and say so.
+5. If the server can't be reached, stay on its screen with the usual
+   connection error, keep retrying, and open the pane once connected, until
+   the user navigates away.
+6. Once the pane is on screen, `acknowledgeActivity(eventIds: [eventId])`.
+   This clears the event on every client. Also remove delivered
+   notifications for that event or session.
+
+```swift
+func open(_ target: PushTarget, on connection: Connection) async throws {
+    guard let session = try await SDK.run({ try connection.findSession(sessionId: target.sessionId) }) else {
+        showProject(target.projectId, notice: "This terminal has ended.")
+        return
+    }
+    let tab = tabs.first { $0.sessionId == session.id }
+        ?? openTab(try await SDK.run { try connection.attach(sessionId: session.id, columns: columns, rows: rows) },
+                   projectId: session.projectId)
+    select(tab)
+    try await SDK.run { try connection.acknowledgeActivity(eventIds: [target.eventId]) }
+}
+```
 
 ## Git and files
 
@@ -954,6 +1182,7 @@ try {
 | Default port | 7419, which the user can change |
 | Network | Paired: IPv4, on the local network, through a VPN, or at an address added to the pairing code. Over SSH: wherever the app's SSH client reaches |
 | Pairing code | Single use, 5 minutes, replaced by a newer code |
+| `registerPush` | Answers within 20 s; `pending` if the relay is slow |
 | Addresses in a pairing code | Up to 8 |
 | Paired devices per computer | 64 |
 | Device name | Up to 64 bytes |
@@ -977,6 +1206,8 @@ try {
   its token at once.
 - Over SSH, the app acts as the SSH user, so the limits above for paired
   phones don't apply. Never weaken your SSH layer's host-key checks.
+- Push keys decrypt that server's notifications. Keep them as safe as the
+  credentials, and never log a key, a token, or a decrypted payload.
 - The desktop withdraws a pairing code that was shown but not copied once its
   Devices page leaves the screen. A copied link stays valid until it is used or
   expires. The CLI withdraws its code when `muxy mobile pair` exits.
@@ -1002,14 +1233,18 @@ target/debug/muxy mobile disable
   address in the pairing link.
 - For SSH, use any computer with Muxy installed and an SSH login. From a Mac,
   `muxy --host you@computer project list` checks that the bridge works there.
-- `cargo test -p muxy-mobile` pairs, connects, attaches, types, scrolls back,
-  sends taps and scrolling, works with Git and files, and revokes against a
-  real server. It also connects through a simulated SSH channel.
+- `cargo test -p muxy-mobile` tests the SDK's own conversions. The server's
+  tests cover pairing, push registration, and the payload format.
+- To test push notifications against a relay on this computer, start the
+  server with `MUXY_PUSH_RELAY=http://localhost:8000`, the relay's origin.
+  Plain `http://` works only for this computer; anything else needs `https://`.
+  Stop a server that is already running first, since it reads the variable
+  when it starts.
 
 ## Not in this version
 
 - Search
 - Mouse drags and inline images
-- Push notifications
+- Push notifications over SSH
 - Finding computers automatically; pairing always starts from the QR code
 - IPv6

@@ -190,3 +190,35 @@ fn moving_a_session_names_its_new_project_and_expects_its_reply() {
     });
     assert!(matches!(unexpected, Err(ClientError::UnexpectedReply(_))));
 }
+
+#[test]
+fn push_requests_carry_the_token_and_expect_their_replies() {
+    use muxy_protocol::{PushEnvironment, PushPlatform, PushRegistration, PushStatus, PushToken};
+
+    let fake = crate::fake::Fake::start();
+    let token = PushToken {
+        platform: PushPlatform::Apns,
+        token: "ab".repeat(32),
+        environment: Some(PushEnvironment::Sandbox),
+    };
+    let registration = PushRegistration {
+        status: PushStatus::Active,
+        key: Some([4; 32]),
+    };
+    let (request, registered) = fake
+        .answer(ReplyBody::PushRegistered(registration.clone()), |client| {
+            client.register_push(token.clone())
+        });
+    assert_eq!(request, RequestBody::RegisterPush(token));
+    assert_eq!(registered.ok(), Some(registration));
+    let (request, unregistered) = fake.answer(ReplyBody::PushUnregistered, Client::unregister_push);
+    assert_eq!(request, RequestBody::UnregisterPush);
+    assert!(unregistered.is_ok());
+    let invalid = fake.client.register_push(PushToken {
+        platform: PushPlatform::Fcm,
+        token: "short".into(),
+        environment: None,
+    });
+    assert!(matches!(invalid, Err(ClientError::Invalid(_))));
+    assert!(fake.answered().is_empty());
+}

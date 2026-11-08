@@ -14,15 +14,19 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use muxy_protocol::transport::tls::TlsIdentity;
 use muxy_protocol::{
     ClientId, DeviceCredential, DeviceId, DeviceKind, ErrorCode, ListenerStatus, MAX_DEVICES,
-    PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer, RemoteAccessSettings,
-    RemoteAccessState, ServerIdentity, Topic, UnreadableFile,
+    PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer, PushStatus,
+    RemoteAccessSettings, RemoteAccessState, ServerIdentity, Topic, UnreadableFile,
 };
 
 use crate::ServerError;
 use crate::notifier::Notifier;
+use crate::push::Credentials;
+pub(crate) use store::PushRecord;
 use store::{Device, Stored};
 
 const PAIRING_SECONDS: u64 = 5 * 60;
+/// How long phones' push registrations are kept while push notifications are off.
+pub(crate) const PUSH_KEPT_SECONDS: u64 = 90 * 24 * 60 * 60;
 const MAX_UNAUTHENTICATED: usize = 16;
 const AUTHENTICATION_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -39,6 +43,8 @@ pub struct RemoteAccess {
     unauthenticated: Arc<AtomicUsize>,
     notifier: Arc<Notifier>,
     unreadable: Option<UnreadableFile>,
+    /// Set as the server stops, so nothing saves after a newer server may run.
+    closed: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for RemoteAccess {
@@ -60,6 +66,15 @@ struct Offer {
     secret: [u8; 16],
     expires_at: u64,
     owner: ClientId,
+}
+
+/// What switching push notifications changed.
+#[derive(Debug, Default)]
+pub(crate) struct PushSwitch {
+    /// Relay registrations to delete, when they were switched off.
+    pub(crate) deleted: Vec<Credentials>,
+    /// Phones to register again, when they were switched on.
+    pub(crate) resumed: Vec<DeviceId>,
 }
 
 /// Holds one of the few slots for connections that have not authenticated yet.
@@ -113,7 +128,43 @@ impl RemoteAccess {
             unauthenticated: Arc::default(),
             notifier: Arc::default(),
             unreadable,
+            closed: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Stops saving. Every save happens under the state lock, so once this
+    /// returns, none is under way and none follows.
+    pub(crate) fn close(&self) {
+        let _state = self.lock();
+        self.closed.store(true, Ordering::Release);
+    }
+
+    /// Access that is on, with `phones` paired, each with the token `[7; 32]`.
+    #[cfg(test)]
+    pub(crate) fn with_phones(phones: &[DeviceId]) -> Self {
+        let remote = Self::memory();
+        {
+            let mut state = remote.lock();
+            state.stored.settings.enabled = true;
+            state.stored.devices = phones
+                .iter()
+                .map(|id| Device {
+                    id: *id,
+                    name: "Phone".into(),
+                    token_hash: hash(&[7; 32]),
+                    paired_at: 0,
+                    last_seen: None,
+                    kind: DeviceKind::Phone,
+                    push: None,
+                })
+                .collect();
+        }
+        remote
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_accepting(&self, enabled: bool) {
+        self.lock().stored.settings.enabled = enabled;
     }
 
     /// The saved state that couldn't be read when the server started.
@@ -161,8 +212,24 @@ impl RemoteAccess {
                     last_seen: device.last_seen,
                     connected: connected.contains(&device.id),
                     kind: device.kind,
+                    push: device.push.as_ref().map(|push| {
+                        if state.stored.push_notifications {
+                            push.status
+                        } else {
+                            PushStatus::Disabled
+                        }
+                    }),
                 })
                 .collect(),
+            push_notifications: state.stored.push_notifications,
+            push_kept_until: state
+                .stored
+                .devices
+                .iter()
+                .any(|device| device.push.is_some())
+                .then_some(state.stored.push_off_since)
+                .flatten()
+                .map(|since| since.saturating_add(PUSH_KEPT_SECONDS)),
         }
     }
 
@@ -309,6 +376,7 @@ impl RemoteAccess {
             paired_at: now,
             last_seen: Some(now),
             kind: store::StoredKind::from(request.kind).into(),
+            push: None,
         });
         if let Err(error) = self.save(&stored) {
             log::error!("pairing not saved: {error}");
@@ -374,18 +442,153 @@ impl RemoteAccess {
                 .any(|stored| stored.id == device)
     }
 
-    pub(crate) fn revoke(&self, device: DeviceId) -> Result<(), ServerError> {
+    /// Forgets the device, and hands back its push registration for deleting at the relay.
+    pub(crate) fn revoke(&self, device: DeviceId) -> Result<Option<PushRecord>, ServerError> {
         let mut state = self.lock();
         let mut stored = state.stored.clone();
-        stored.devices.retain(|stored| stored.id != device);
-        if stored.devices.len() == state.stored.devices.len() {
-            return Ok(());
+        let Some(index) = stored.devices.iter().position(|stored| stored.id == device) else {
+            return Ok(None);
+        };
+        let removed = stored.devices.remove(index);
+        self.save(&stored)?;
+        state.stored = stored;
+        drop(state);
+        self.changed();
+        Ok(removed.push)
+    }
+
+    /// Whether paired devices may connect, which push notifications need to be useful.
+    pub(crate) fn accepting(&self) -> bool {
+        self.lock().stored.settings.enabled
+    }
+
+    pub(crate) fn push_notifications(&self) -> bool {
+        self.lock().stored.push_notifications
+    }
+
+    /// Turns push notifications on or off for every phone. Off pauses them:
+    /// the relay registrations come back for deleting, and each phone's
+    /// token and key stay for `PUSH_KEPT_SECONDS`. On names the phones to
+    /// register again.
+    pub(crate) fn set_push_notifications(&self, on: bool) -> Result<PushSwitch, ServerError> {
+        let mut state = self.lock();
+        if state.stored.push_notifications == on {
+            return Ok(PushSwitch::default());
+        }
+        let mut stored = state.stored.clone();
+        stored.push_notifications = on;
+        stored.push_off_since = (!on).then(now);
+        let mut switch = PushSwitch::default();
+        for device in &mut stored.devices {
+            let Some(push) = &mut device.push else {
+                continue;
+            };
+            if on {
+                switch.resumed.push(device.id);
+            } else {
+                switch.deleted.extend(push.relay.take());
+                push.status = PushStatus::Pending;
+            }
         }
         self.save(&stored)?;
         state.stored = stored;
         drop(state);
         self.changed();
-        Ok(())
+        Ok(switch)
+    }
+
+    /// Forgets the phones' kept registrations once push notifications have
+    /// been off for `PUSH_KEPT_SECONDS`. Whether any were forgotten.
+    pub(crate) fn expire_paused_push(&self, now: u64) -> Result<bool, ServerError> {
+        let mut state = self.lock();
+        let expired = !state.stored.push_notifications
+            && state
+                .stored
+                .push_off_since
+                .is_some_and(|since| since.saturating_add(PUSH_KEPT_SECONDS) <= now)
+            && state
+                .stored
+                .devices
+                .iter()
+                .any(|device| device.push.is_some());
+        if !expired {
+            return Ok(false);
+        }
+        let mut stored = state.stored.clone();
+        for device in &mut stored.devices {
+            device.push = None;
+        }
+        self.save(&stored)?;
+        state.stored = stored;
+        drop(state);
+        self.changed();
+        Ok(true)
+    }
+
+    pub(crate) fn knows(&self, device: DeviceId) -> bool {
+        self.lock()
+            .stored
+            .devices
+            .iter()
+            .any(|stored| stored.id == device)
+    }
+
+    pub(crate) fn push_record(&self, device: DeviceId) -> Option<PushRecord> {
+        self.lock()
+            .stored
+            .devices
+            .iter()
+            .find(|stored| stored.id == device)
+            .and_then(|stored| stored.push.clone())
+    }
+
+    /// Every device's push registration.
+    pub(crate) fn push_records(&self) -> Vec<(DeviceId, PushRecord)> {
+        self.lock()
+            .stored
+            .devices
+            .iter()
+            .filter_map(|device| device.push.clone().map(|push| (device.id, push)))
+            .collect()
+    }
+
+    /// Replaces the device's push registration only while it is still
+    /// `expected`, so work based on an older one never overwrites a newer
+    /// one. `false` when it changed or the device is gone.
+    pub(crate) fn replace_push(
+        &self,
+        device: DeviceId,
+        expected: Option<&PushRecord>,
+        next: Option<PushRecord>,
+    ) -> Result<bool, ServerError> {
+        let mut state = self.lock();
+        let Some(index) = state
+            .stored
+            .devices
+            .iter()
+            .position(|stored| stored.id == device)
+        else {
+            return Ok(false);
+        };
+        let current = &state.stored.devices[index].push;
+        let registering = next.as_ref().is_some_and(|push| push.relay.is_some());
+        if current.as_ref() != expected || (registering && !state.stored.push_notifications) {
+            return Ok(false);
+        }
+        if *current == next {
+            return Ok(true);
+        }
+        let shown =
+            current.as_ref().map(|push| push.status) != next.as_ref().map(|push| push.status);
+        let mut stored = state.stored.clone();
+        stored.devices[index].push = next;
+        self.save(&stored)?;
+        state.stored = stored;
+        drop(state);
+        if shown {
+            self.changed();
+        }
+        Ok(true)
     }
 
     pub(crate) fn admit(&self) -> Option<Admission> {
@@ -405,6 +608,12 @@ impl RemoteAccess {
     }
 
     fn save(&self, stored: &Stored) -> Result<(), ServerError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ServerError::new(
+                ErrorCode::PersistenceFailed,
+                "the server is stopping",
+            ));
+        }
         match &self.store {
             Some(path) => store::save(path, stored).map_err(|error| {
                 ServerError::new(

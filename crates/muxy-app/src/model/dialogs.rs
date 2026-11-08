@@ -27,6 +27,9 @@ pub(crate) enum Question {
     /// Stopping the server, or restarting it.
     ServerControl(ServerId, bool),
     RevokeDevice(DeviceId),
+    /// Pausing push notifications for every phone.
+    PausePush,
+    ResetPush(DeviceId),
     ForgetServers(Vec<ServerId>),
     InstallServer(ServerId),
     /// Installing the server the form names.

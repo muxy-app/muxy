@@ -31,6 +31,8 @@ fn access(enabled: bool, pairing: Option<u64>, devices: Vec<PairedDevice>) -> Re
         },
         pairing_expires_at: pairing,
         devices,
+        push_notifications: true,
+        push_kept_until: None,
     }
 }
 
@@ -123,6 +125,127 @@ fn access_and_port_changes_go_to_the_server_or_say_why_not(cx: &mut TestAppConte
     view.read_with(cx, |model, _| {
         assert!(model.client_access().error.is_none());
     });
+}
+
+fn phone_with_push(push: muxy_protocol::PushStatus) -> PairedDevice {
+    PairedDevice {
+        id: muxy_protocol::DeviceId::from_u128(5),
+        name: "Phone".into(),
+        paired_at: 1,
+        last_seen: None,
+        connected: false,
+        kind: muxy_protocol::DeviceKind::Phone,
+        push: Some(push),
+    }
+}
+
+fn with_push(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
+    view.update(cx, |model, cx| {
+        model.servers.local.features = vec![muxy_protocol::Feature::PUSH_NOTIFICATIONS];
+        cx.notify();
+    });
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn the_push_switch_shows_for_servers_that_have_it_and_goes_to_the_server(cx: &mut TestAppContext) {
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
+    assert!(cx.debug_bounds("clients-push-row").is_none());
+    with_push(&view, cx);
+    assert!(cx.debug_bounds("clients-push-row").is_some());
+    view.update_in(cx, |model, window, cx| {
+        model.set_push_notifications(true, window.window_handle(), cx);
+    });
+    assert!(work(&requests).is_empty(), "push is already on");
+    view.update_in(cx, |model, window, cx| {
+        model.set_push_notifications(false, window.window_handle(), cx);
+    });
+    assert!(
+        !cx.has_pending_prompt(),
+        "no phone is affected, so nothing to confirm"
+    );
+    assert!(
+        work(&requests)
+            .iter()
+            .any(|work| matches!(work, Work::SetPushNotifications(false)))
+    );
+    view.update(cx, |model, cx| {
+        assert!(model.client_access.busy);
+        model.switch_push_notifications(true, cx);
+        assert!(model.client_access().error.is_some());
+        let mut off = access(true, None, Vec::new());
+        off.push_notifications = false;
+        model.receive_remote_access(Ok(off), cx);
+        assert!(!model.client_access.busy);
+    });
+}
+
+#[gpui::test]
+fn pausing_phones_that_get_notifications_asks_first_and_says_what_is_kept(cx: &mut TestAppContext) {
+    let phone = phone_with_push(muxy_protocol::PushStatus::Active);
+    let (view, cx, requests) = servers_tab(cx, access(true, None, vec![phone]));
+    with_push(&view, cx);
+    view.update_in(cx, |model, window, cx| {
+        model.set_push_notifications(false, window.window_handle(), cx);
+    });
+    cx.run_until_parked();
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("Cancel");
+    cx.run_until_parked();
+    assert!(work(&requests).is_empty(), "cancelling keeps push on");
+    view.update_in(cx, |model, window, cx| {
+        model.set_push_notifications(false, window.window_handle(), cx);
+    });
+    cx.run_until_parked();
+    cx.simulate_prompt_answer("Pause");
+    cx.run_until_parked();
+    assert!(
+        work(&requests)
+            .iter()
+            .any(|work| matches!(work, Work::SetPushNotifications(false)))
+    );
+    let mut paused = access(
+        true,
+        None,
+        vec![phone_with_push(muxy_protocol::PushStatus::Disabled)],
+    );
+    paused.push_notifications = false;
+    paused.push_kept_until = Some(1_000 + 90 * 86_400);
+    assert_eq!(
+        crate::views::clients::push_description(&paused, 1_000).to_string(),
+        "Off. Nothing is sent to muxy.app. Paused phones resume when you turn this on, for 90 more days."
+    );
+    view.update(cx, |model, cx| model.receive_remote_access(Ok(paused), cx));
+    view.update_in(cx, |model, window, cx| {
+        model.set_push_notifications(true, window.window_handle(), cx);
+    });
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt(), "turning push on never asks");
+    assert!(
+        work(&requests)
+            .iter()
+            .any(|work| matches!(work, Work::SetPushNotifications(true)))
+    );
+}
+
+#[gpui::test]
+fn resetting_a_phones_notifications_asks_and_goes_to_the_server(cx: &mut TestAppContext) {
+    let phone = phone_with_push(muxy_protocol::PushStatus::Active);
+    let id = phone.id;
+    let (view, cx, requests) = servers_tab(cx, access(true, None, vec![phone]));
+    with_push(&view, cx);
+    view.update_in(cx, |model, window, cx| {
+        model.confirm_reset_push(id, window.window_handle(), cx);
+    });
+    cx.run_until_parked();
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("Reset");
+    cx.run_until_parked();
+    assert!(
+        work(&requests)
+            .iter()
+            .any(|work| matches!(work, Work::ResetPush(device) if *device == id))
+    );
 }
 
 #[gpui::test]

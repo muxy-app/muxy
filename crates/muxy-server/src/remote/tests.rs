@@ -178,3 +178,12 @@ fn a_computer_keeps_its_kind_and_unknown_kinds_pair_as_phones() -> Result<(), Se
     assert_eq!(listed, [DeviceKind::Computer, DeviceKind::Phone]);
     Ok(())
 }
+
+#[test]
+fn nothing_is_saved_once_access_is_closed() -> Result<(), ServerError> {
+    let remote = enabled()?;
+    remote.close();
+    assert!(remote.set_push_notifications(false).is_err());
+    assert!(remote.push_notifications());
+    Ok(())
+}

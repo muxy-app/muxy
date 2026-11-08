@@ -47,10 +47,19 @@ pub(crate) const MOBILE: &str = "Usage: muxy mobile [action]
   disable                   Turn mobile access off
   pair [--address HOST]...  Show a pairing code and wait for the phone
   revoke <device>           Revoke a device by the start of its ID
+  push on|off               Turn push notifications to paired phones on or off
+  push reset <device>       Forget a phone's push registration and key
 
 Pairing codes list the server's own addresses. --address puts a DNS name or
 IPv4 address first, for a server that phones reach by another name, such as a
-cloud server's public name. Repeat it for more, up to 8 addresses in all.";
+cloud server's public name. Repeat it for more, up to 8 addresses in all.
+
+Push notifications reach a paired phone that turned them on in the Muxy app,
+through the muxy.app relay, which sees only encrypted content. Turning them off
+pauses every phone: muxy.app forgets them at once, and this computer keeps
+their registrations for 90 days, so turning them on again resumes those phones
+without reconnecting. Reset gives one phone a new key the next time it
+connects, without unpairing it.";
 pub(crate) const BROWSER: &str = "Usage: muxy browser <action>
   open [url] [--split] [--project PROJECT] [--worktree WORKTREE]
        [--profile PROFILE]          Open a tab and print its ID

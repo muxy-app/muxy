@@ -96,7 +96,7 @@ Everything lives in one profile folder:
 | `server.log` | Server log |
 | `server.sock` | The socket apps connect to |
 | `sessions/` | Projects, sessions, and saved terminal output |
-| `remote.json` | Mobile access settings and paired phones |
+| `remote.json` | Mobile access settings, paired phones, and their push notification registrations |
 | `settings.toml`, `terminal.toml`, `themes/` | Desktop app settings, see [Settings](../user-guide/settings.md) |
 | `tui-state.json` | Terminal UI layouts |
 

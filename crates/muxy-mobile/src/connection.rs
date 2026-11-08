@@ -9,6 +9,7 @@ use crate::MobileError;
 use crate::channel::BridgeChannel;
 use crate::files::ProjectFiles;
 use crate::git::GitRepository;
+use crate::push::{PushEnvironment, PushPlatform, PushRegistration};
 use crate::records::{Activity, Project, ServerCredential, Session, SessionStatus, text};
 use crate::terminal::Terminal;
 use crate::terminals::{Delivery, Terminals};
@@ -66,6 +67,8 @@ pub struct Connection {
     client: Client,
     terminals: Arc<Terminals>,
     titles: Arc<Titles>,
+    /// Paired rather than over SSH, so the server knows the phone.
+    paired: bool,
 }
 
 impl std::fmt::Debug for Connection {
@@ -111,7 +114,7 @@ impl Connection {
                 .try_into()
                 .map_err(|_| MobileError::InvalidCredential)?,
         };
-        Self::start(Client::connect_remote(&endpoint, device)?, listener)
+        Self::start(Client::connect_remote(&endpoint, device)?, listener, true)
     }
 
     /// Connects through an SSH exec channel that the app opened to run
@@ -128,7 +131,7 @@ impl Connection {
             Ok(_) | Err(ClientError::Server(_)) => {}
             Err(error) => return Err(error.into()),
         }
-        Self::start(client, listener)
+        Self::start(client, listener, false)
     }
 
     pub fn server_version(&self) -> String {
@@ -197,6 +200,72 @@ impl Connection {
         })
     }
 
+    /// The session with this id, under the project it belongs to now, for
+    /// opening a notification's pane. `None` when it is no longer running. A
+    /// session that moves between the two reads is looked up again.
+    pub fn find_session(&self, session_id: u64) -> Result<Option<Session>, MobileError> {
+        let id = session(session_id)?;
+        let running = |listed: &muxy_protocol::ProjectSession| {
+            listed.info.id == id
+                && matches!(
+                    listed.status,
+                    muxy_protocol::SessionStatus::Live | muxy_protocol::SessionStatus::Starting
+                )
+        };
+        for _ in 0..2 {
+            let Some(live) = self
+                .client
+                .list_sessions()?
+                .into_iter()
+                .find(|live| live.id == id)
+            else {
+                return Ok(None);
+            };
+            let page = self.client.all_project_sessions(live.project, running)?;
+            if let Some(listed) = page.sessions.first() {
+                let title =
+                    self.titles
+                        .listed(listed.info.id, listed.name.clone(), &listed.info.directory);
+                return Ok(Some(Session::listed(listed, title)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Whether this server takes `registerPush`: a paired connection to a
+    /// server new enough. Doesn't talk to the server.
+    pub fn supports_push_notifications(&self) -> bool {
+        self.paired
+            && self
+                .client
+                .supports(muxy_protocol::Feature::PUSH_NOTIFICATIONS)
+    }
+
+    /// Gives this phone's push token to the server, on every connect while
+    /// notifications are on and whenever the token changes. Keep the
+    /// returned key for this server. Can take up to 20 seconds.
+    pub fn register_push(
+        &self,
+        platform: PushPlatform,
+        token: String,
+        environment: Option<PushEnvironment>,
+    ) -> Result<PushRegistration, MobileError> {
+        self.require_pairing()?;
+        let token = crate::push::token(platform, token, environment);
+        if token.validate().is_err() {
+            return Err(MobileError::Server {
+                reason: "The push token isn't valid.".into(),
+            });
+        }
+        Ok(self.client.register_push(token)?.into())
+    }
+
+    /// Stops this server's notifications to the phone; the server forgets its key.
+    pub fn unregister_push(&self) -> Result<(), MobileError> {
+        self.require_pairing()?;
+        Ok(self.client.unregister_push()?)
+    }
+
     /// Ends the session for every client; its panes close everywhere.
     pub fn end_session(&self, session_id: u64) -> Result<(), MobileError> {
         Ok(self.client.end_session(session(session_id)?)?)
@@ -254,9 +323,20 @@ impl Connection {
 }
 
 impl Connection {
+    fn require_pairing(&self) -> Result<(), MobileError> {
+        if self.paired {
+            Ok(())
+        } else {
+            Err(MobileError::Server {
+                reason: "Push notifications need a paired connection, not SSH.".into(),
+            })
+        }
+    }
+
     fn start(
         client: Client,
         listener: Arc<dyn ConnectionListener>,
+        paired: bool,
     ) -> Result<Arc<Self>, MobileError> {
         let events = client.events().ok_or(MobileError::Disconnected)?;
         let terminals = Arc::<Terminals>::default();
@@ -279,6 +359,7 @@ impl Connection {
             client,
             terminals,
             titles,
+            paired,
         }))
     }
 }

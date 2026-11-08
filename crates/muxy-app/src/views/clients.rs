@@ -11,7 +11,9 @@ use gpui::{
     SharedString, StatefulInteractiveElement, Styled, canvas, div, point, px, size,
 };
 use muxy_app_core::qr::{QUIET_ZONE, QrCode};
-use muxy_protocol::{DeviceKind, ListenerStatus, PairedDevice, PairingOffer, RemoteAccessState};
+use muxy_protocol::{
+    DeviceKind, ListenerStatus, PairedDevice, PairingOffer, PushStatus, RemoteAccessState,
+};
 use muxy_ui::accessibility;
 use muxy_ui::controls;
 use muxy_ui::theme::Metrics;
@@ -98,6 +100,9 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
                 false,
                 model,
             ))
+            .when(model.push_notifications_available(), |card| {
+                card.child(push_row(state, model, cx))
+            })
             .child(stacked(
                 "clients-pair",
                 tr!("Pair a client"),
@@ -139,6 +144,46 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
         )
         .child(body)
         .into_any_element()
+}
+
+/// The server-wide switch for push notifications to paired phones, saying
+/// what it does in its current position.
+fn push_row(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+    let on = state.push_notifications;
+    row(
+        "clients-push",
+        tr!("Push notifications"),
+        Some(push_description(state, now())),
+        controls::toggle(
+            style(model),
+            "clients-push",
+            &tr!("Push notifications"),
+            on,
+            cx.listener(move |model, _, window, cx| {
+                model.set_push_notifications(!on, window.window_handle(), cx);
+            }),
+        )
+        .into_any_element(),
+        false,
+        model,
+    )
+}
+
+pub(crate) fn push_description(state: &RemoteAccessState, now: u64) -> SharedString {
+    if state.push_notifications {
+        return tr!(
+            "Paired phones that turn on notifications in the Muxy app hear when an agent needs attention or finishes. They go through the muxy.app relay, which sees only encrypted content."
+        );
+    }
+    match state.push_kept_until {
+        Some(until) => tr!(
+            "Off. Nothing is sent to muxy.app. Paused phones resume when you turn this on, for %lld more days.",
+            until.saturating_sub(now).div_ceil(86_400)
+        ),
+        None => tr!(
+            "Off. Nothing is sent to muxy.app, and phones can't turn notifications on for this computer."
+        ),
+    }
 }
 
 fn note(text: &str, error: bool, model: &AppModel) -> AnyElement {
@@ -368,10 +413,7 @@ fn clients(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
             ))
             .into_any_element();
     }
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now = now();
     let busy = model.client_access().busy;
     div()
         .min_w(px(0.0))
@@ -400,24 +442,62 @@ fn clients(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
                         .child(div().truncate().text_color(model.theme.fg_muted).child(
                             accessibility::label(
                                 SharedString::from(format!("clients-paired-state-{id}")),
-                                format!("{} · {}", kind(device.kind), presence(device, now)),
+                                notifications(device).map_or_else(
+                                    || format!("{} · {}", kind(device.kind), presence(device, now)),
+                                    |notifications| {
+                                        format!(
+                                            "{} · {} · {notifications}",
+                                            kind(device.kind),
+                                            presence(device, now)
+                                        )
+                                    },
+                                ),
                             ),
                         )),
                 )
                 .child(
-                    div().flex_none().child(controls::button(
-                        style(model),
-                        &format!("clients-revoke-{id}"),
-                        controls::Button::secondary(&tr!("Revoke"))
-                            .named(&tr!("Revoke %@", device.name.as_str()))
-                            .enabled(!busy),
-                        cx.listener(move |model, _, window, cx| {
-                            model.confirm_revoke(id, window.window_handle(), cx);
-                        }),
-                    )),
+                    div()
+                        .flex_none()
+                        .flex()
+                        .gap(model.servers_page.metrics.scaled(8.0))
+                        .when(
+                            device.push.is_some() && model.push_notifications_available(),
+                            |buttons| {
+                                buttons.child(controls::button(
+                                    style(model),
+                                    &format!("clients-reset-push-{id}"),
+                                    controls::Button::secondary(&tr!("Reset Notifications"))
+                                        .named(&tr!(
+                                            "Reset notifications for %@",
+                                            device.name.as_str()
+                                        ))
+                                        .enabled(!busy),
+                                    cx.listener(move |model, _, window, cx| {
+                                        model.confirm_reset_push(id, window.window_handle(), cx);
+                                    }),
+                                ))
+                            },
+                        )
+                        .child(controls::button(
+                            style(model),
+                            &format!("clients-revoke-{id}"),
+                            controls::Button::secondary(&tr!("Revoke"))
+                                .named(&tr!("Revoke %@", device.name.as_str()))
+                                .enabled(!busy),
+                            cx.listener(move |model, _, window, cx| {
+                                model.confirm_revoke(id, window.window_handle(), cx);
+                            }),
+                        )),
                 )
         }))
         .into_any_element()
+}
+
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn kind(kind: DeviceKind) -> SharedString {
@@ -425,6 +505,17 @@ fn kind(kind: DeviceKind) -> SharedString {
         DeviceKind::Computer => tr!("Desktop"),
         DeviceKind::Phone | DeviceKind::Unrecognized(_) => tr!("Phone"),
     }
+}
+
+/// Whether the phone gets push notifications, once it asked for them.
+fn notifications(device: &PairedDevice) -> Option<SharedString> {
+    Some(match device.push? {
+        PushStatus::Active => tr!("Notifications on"),
+        PushStatus::Pending => tr!("Notifications pending"),
+        PushStatus::Refused => tr!("Notifications refused"),
+        PushStatus::Disabled => tr!("Notifications paused"),
+        PushStatus::Unrecognized(_) => return None,
+    })
 }
 
 fn presence(device: &PairedDevice, now: u64) -> SharedString {

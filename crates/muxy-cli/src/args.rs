@@ -35,10 +35,24 @@ pub(crate) enum Command {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Mobile {
     Status,
-    Enable { port: Option<u16> },
+    Enable {
+        port: Option<u16>,
+    },
     Disable,
-    Pair { addresses: Vec<String> },
-    Revoke { device: String },
+    Pair {
+        addresses: Vec<String>,
+    },
+    Revoke {
+        device: String,
+    },
+    /// Turns push notifications to paired phones on or off.
+    Push {
+        on: bool,
+    },
+    /// Forgets one phone's push registration and key.
+    ResetPush {
+        device: String,
+    },
 }
 
 /// Reads the command, and the other computer whose server it uses when it
@@ -156,6 +170,14 @@ fn mobile(arguments: &[OsString]) -> io::Result<Mobile> {
         [Some("revoke"), Some(device)] if !device.is_empty() => Ok(Mobile::Revoke {
             device: (*device).to_owned(),
         }),
+        [Some("push"), Some("on")] => Ok(Mobile::Push { on: true }),
+        [Some("push"), Some("off")] => Ok(Mobile::Push { on: false }),
+        [Some("push"), Some("reset"), Some(device)] if !device.is_empty() => {
+            Ok(Mobile::ResetPush {
+                device: (*device).to_owned(),
+            })
+        }
+        [Some("push"), ..] => Err(invalid("usage: muxy mobile push on|off|reset <device>")),
         _ => Err(invalid("unknown mobile command; run muxy mobile --help")),
     }
 }
@@ -259,6 +281,38 @@ mod tests {
         assert_eq!(words(&["help", "status"])?.1, Command::Usage(help::STATUS));
         assert!(!names_folder(OsStr::new("status")));
         assert!(words(&["--host", "example", "status", "working"]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn push_notifications_turn_on_and_off_from_mobile() -> io::Result<()> {
+        assert_eq!(
+            words(&["mobile", "push", "on"])?.1,
+            Command::Mobile(Mobile::Push { on: true })
+        );
+        assert_eq!(
+            words(&["mobile", "push", "off"])?.1,
+            Command::Mobile(Mobile::Push { on: false })
+        );
+        assert!(matches!(
+            words(&["--host", "box", "mobile", "push", "off"])?,
+            (Some(_), Command::Mobile(Mobile::Push { on: false }))
+        ));
+        assert_eq!(
+            words(&["mobile", "push", "reset", "3f2a"])?.1,
+            Command::Mobile(Mobile::ResetPush {
+                device: "3f2a".into()
+            })
+        );
+        for args in [
+            vec!["mobile", "push"],
+            vec!["mobile", "push", "maybe"],
+            vec!["mobile", "push", "on", "now"],
+            vec!["mobile", "push", "reset"],
+            vec!["mobile", "push", "reset", ""],
+        ] {
+            assert!(words(&args).is_err(), "{args:?}");
+        }
         Ok(())
     }
 

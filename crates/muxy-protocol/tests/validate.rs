@@ -164,6 +164,52 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: RequestBody::RevokeDevice(_),
                 ..
             } => ("RevokeDevice", ChannelKind::Control),
+            Message::Request {
+                body:
+                    RequestBody::RegisterPush(muxy_protocol::PushToken {
+                        platform: muxy_protocol::PushPlatform::Apns,
+                        ..
+                    }),
+                ..
+            } => ("RegisterApnsPush", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::RegisterPush(_),
+                ..
+            } => ("RegisterFcmPush", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::UnregisterPush,
+                ..
+            } => ("UnregisterPush", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::SetPushNotifications(_),
+                ..
+            } => ("SetPushNotifications", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::ResetPush(_),
+                ..
+            } => ("ResetPush", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::PushRegistered(registration),
+                ..
+            } if registration.key.is_some() => ("PushRegistered", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::PushRegistered(_),
+                ..
+            } => ("PushDisabled", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::PushUnregistered,
+                ..
+            } => ("PushUnregistered", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::RemoteAccess(state),
+                ..
+            } if state.push_notifications => ("RemoteAccessWithPush", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::RemoteAccess(state),
+                ..
+            } if state.push_kept_until.is_some() => {
+                ("RemoteAccessPushPaused", ChannelKind::Control)
+            }
             Message::Reply {
                 body: ReplyBody::Authenticated,
                 ..
@@ -661,6 +707,16 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "Uploaded",
             "CancelPairing",
             "RevokeDevice",
+            "RegisterApnsPush",
+            "RegisterFcmPush",
+            "UnregisterPush",
+            "SetPushNotifications",
+            "ResetPush",
+            "RemoteAccessPushPaused",
+            "PushRegistered",
+            "PushDisabled",
+            "PushUnregistered",
+            "RemoteAccessWithPush",
             "Authenticated",
             "Paired",
             "RemoteAccess",

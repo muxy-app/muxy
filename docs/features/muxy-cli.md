@@ -57,7 +57,7 @@ muxy --help          # all commands; muxy <command> --help for details
 | `muxy status <state> [--app APP] [--msg TEXT]` | Tells the terminal what a script is doing (OSC 7501): `idle`, `working`, `done`, `blocked`, `error`, or `clear`. Needs no server. |
 | `muxy exec <project> -- <program> [args]` | Runs a program in the project folder, without a shell. |
 | `muxy git`, `muxy files` | Run raw server Git and file actions as JSON. Advanced; the JSON shape follows the protocol and may change. |
-| `muxy mobile` | Turns on phone access and pairs phones. See [Mobile](mobile.md). |
+| `muxy mobile` | Turns on phone access, pairs phones, and pauses or resumes push notifications with `muxy mobile push off\|on`, and resets one phone's with `muxy mobile push reset <id>`. See [Mobile](mobile.md). |
 | `muxy install-skills` | Installs the Muxy CLI skill for the AI agents found in your home folder. `--dir <path>` adds another skills folder. |
 | `muxy stdio` | Joins stdin and stdout to the server. Used by `--host` over SSH; you don't run it yourself. |
 

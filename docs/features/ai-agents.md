@@ -62,6 +62,11 @@ or finishes working.
 - Only one app notifies, so alerts are never doubled.
 - Turn notifications off in **System Settings → Notifications → Muxy**.
 
+Paired phones get [push notifications](mobile.md#push-notifications) for the
+same events while the Muxy app is away, about 20 seconds after they happen,
+unless someone has looked at the terminal by then. Tapping one opens the
+terminal on the phone.
+
 Alerts live in memory on the server, at most one per terminal. Restarting the
 server clears them.
 

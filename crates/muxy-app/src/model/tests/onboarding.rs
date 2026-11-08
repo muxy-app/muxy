@@ -555,6 +555,8 @@ fn access(enabled: bool, devices: Vec<PairedDevice>) -> RemoteAccessState {
         },
         pairing_expires_at: None,
         devices,
+        push_notifications: true,
+        push_kept_until: None,
     }
 }
 
@@ -566,6 +568,7 @@ fn phone(id: DeviceId) -> PairedDevice {
         last_seen: None,
         connected: true,
         kind: DeviceKind::Phone,
+        push: None,
     }
 }
 

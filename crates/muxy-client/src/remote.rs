@@ -6,13 +6,17 @@ use std::time::Duration;
 use muxy_protocol::transport::{ByteStream, tls};
 use muxy_protocol::{
     DeviceCredential, DeviceId, DeviceKind, ErrorCode, ErrorReply, Feature, PairRequest, Paired,
-    PairingInvite, PairingOffer, RemoteAccessSettings, RemoteAccessState, ReplyBody, RequestBody,
+    PairingInvite, PairingOffer, PushRegistration, PushToken, RemoteAccessSettings,
+    RemoteAccessState, ReplyBody, RequestBody,
 };
 
 use crate::{Client, ClientError};
 
 /// Budget for reaching and verifying one address of a server.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+/// The server asks the push relay, which checks the token with Apple or
+/// Google, before it answers; it answers `Pending` after about 12 s.
+const REGISTER_PUSH_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Where a paired server can be reached, and the certificate it must present.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -133,6 +137,36 @@ impl Client {
 
     pub fn revoke_device(&self, device: DeviceId) -> Result<RemoteAccessState, ClientError> {
         remote_access(self.request(RequestBody::RevokeDevice(device))?)
+    }
+
+    /// Gives a paired phone's push token to the server, which answers with
+    /// the key its notifications are encrypted with. Requires
+    /// `Feature::PUSH_NOTIFICATIONS`.
+    pub fn register_push(&self, token: PushToken) -> Result<PushRegistration, ClientError> {
+        token.validate().map_err(ClientError::Invalid)?;
+        match self.request_with_timeout(RequestBody::RegisterPush(token), REGISTER_PUSH_TIMEOUT)? {
+            ReplyBody::PushRegistered(registration) => Ok(registration),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
+    /// Stops the server's notifications to this phone.
+    pub fn unregister_push(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::UnregisterPush)? {
+            ReplyBody::PushUnregistered => Ok(()),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
+    /// The server-wide switch for push notifications. Off pauses every phone,
+    /// and on resumes the phones whose registrations are still kept.
+    pub fn set_push_notifications(&self, on: bool) -> Result<RemoteAccessState, ClientError> {
+        remote_access(self.request(RequestBody::SetPushNotifications(on))?)
+    }
+
+    /// Forgets one phone's push registration and key, without unpairing it.
+    pub fn reset_push(&self, device: DeviceId) -> Result<RemoteAccessState, ClientError> {
+        remote_access(self.request(RequestBody::ResetPush(device))?)
     }
 }
 

@@ -116,6 +116,12 @@ pub struct PairedDevice {
     #[cbor(default)]
     #[serde(default)]
     pub kind: DeviceKind,
+    /// Whether the phone gets push notifications, when it registered for them.
+    /// `Disabled` while they are off for every phone and its registration is kept.
+    #[n(6)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub push: Option<crate::PushStatus>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -131,6 +137,18 @@ pub struct RemoteAccessState {
     pub pairing_expires_at: Option<u64>,
     #[n(4)]
     pub devices: Vec<PairedDevice>,
+    /// The server-wide switch for push notifications. Older servers, without
+    /// `Feature::PUSH_NOTIFICATIONS`, send none.
+    #[n(5)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub push_notifications: bool,
+    /// Unix seconds. While push notifications are off, when the phones'
+    /// kept registrations are forgotten.
+    #[n(6)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub push_kept_until: Option<u64>,
 }
 
 impl RemoteAccessState {

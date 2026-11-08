@@ -189,6 +189,10 @@ fn validate_mouse(event: &MouseEvent) -> Result<(), ErrorCode> {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep request validation exhaustive in one place"
+)]
 fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
     match body {
         RequestBody::ClearScreen(channel) => {
@@ -262,7 +266,11 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         RequestBody::SetSessionName {
             name, replacing, ..
         } => validate_session_names(&[name, replacing]),
+        RequestBody::RegisterPush(token) => token.validate(),
         RequestBody::Authenticate(_)
+        | RequestBody::UnregisterPush
+        | RequestBody::SetPushNotifications(_)
+        | RequestBody::ResetPush(_)
         | RequestBody::ReadRemoteAccess
         | RequestBody::StartPairing
         | RequestBody::CancelPairing
@@ -394,7 +402,9 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         ReplyBody::Paired(paired) => paired.validate(),
         ReplyBody::RemoteAccess(state) => state.validate(),
         ReplyBody::Pairing(offer) => offer.invite.validate(),
+        ReplyBody::PushRegistered(registration) => registration.validate(),
         ReplyBody::Authenticated
+        | ReplyBody::PushUnregistered
         | ReplyBody::ExecCancelled
         | ReplyBody::ActivityAcknowledged
         | ReplyBody::InputWritten
