@@ -260,13 +260,29 @@ impl AppModel {
             return;
         }
         let hidden = !self.state.floats_hidden();
+        if hidden {
+            self.floating.front_float = self.key_float().or_else(|| {
+                self.floating
+                    .stack
+                    .iter()
+                    .filter_map(panel_float)
+                    .filter(|id| self.float_shown(*id))
+                    .last()
+            });
+        }
         self.state.set_floats_hidden(hidden);
         self.changed(cx);
         if hidden {
             return;
         }
         self.sync_floating_stack();
-        if let Some(id) = self.shown_floats().last().copied() {
+        let front = self
+            .floating
+            .front_float
+            .take()
+            .filter(|id| self.float_shown(*id))
+            .or_else(|| self.shown_floats().last().copied());
+        if let Some(id) = front {
             self.enter_float(id, cx);
         }
     }

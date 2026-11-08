@@ -469,3 +469,29 @@ fn selecting_the_shown_tab_from_a_float_gives_the_main_pane_the_keyboard(cx: &mu
         );
     });
 }
+
+#[gpui::test]
+fn showing_floats_again_gives_back_the_one_that_had_the_keyboard(cx: &mut TestAppContext) {
+    let (view, cx, _, _, main, _) = floated(cx);
+    view.update(cx, |model, cx| {
+        model.float_pane(main, FloatScope::Project, cx)
+    });
+    redraw(cx);
+    let first = view.read_with(cx, |model, _| float_of(model, main));
+    view.update(cx, |model, cx| {
+        assert_ne!(
+            model.state.floating_tabs().last().map(|(_, _, w)| w.id),
+            Some(first)
+        );
+        model.focus_pane(main, cx);
+        assert_eq!(model.key_float(), Some(first));
+        model.toggle_floats(cx);
+    });
+    redraw(cx);
+    view.update(cx, AppModel::toggle_floats);
+    redraw(cx);
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.key_float(), Some(first));
+        assert_eq!(model.floating.stack.frontmost(), Some(&panel(first)));
+    });
+}

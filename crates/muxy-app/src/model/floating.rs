@@ -16,6 +16,9 @@ pub(crate) struct Floating {
     pub(crate) stack: FloatingStack<PanelId>,
     /// The panel being moved or resized by the pointer.
     pub(crate) drag: Option<(PanelId, FloatingDrag)>,
+    /// The floating tab in front when floating tabs were hidden, which
+    /// takes the keyboard again when they show.
+    pub(crate) front_float: Option<muxy_app_core::TabWindowId>,
 }
 
 impl AppModel {
