@@ -19,7 +19,10 @@ The Linux desktop port is under development. It is tried on Ubuntu 24.04 ARM64
 in SwiftVM on Apple Silicon, with GNOME and KDE Plasma, each on Wayland and X11.
 This does not establish support for other distributions, x86_64 desktop builds,
 or hardware GPU drivers. SwiftVM uses Mesa's software Vulkan renderer, so its
-performance is not representative of a native GPU.
+performance is not representative of a native GPU. It also tolerates GPU misuse
+that a hardware driver punishes, such as destroying an image that a frame on the
+GPU still samples, which froze the app on Intel GPUs. Check rendering changes
+with the Khronos validation layer: `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`.
 
 The system draws the window: frame, buttons, shadow, resizing and tiling. GNOME
 on Wayland draws no frame, so there the app shows its own buttons and the
