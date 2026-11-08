@@ -820,9 +820,13 @@ phone, and the phone never talks to `muxy.app`.
 - Only paired connections can register. Over SSH,
   `supportsPushNotifications()` is `false` and `registerPush` fails with
   `Server`.
-- A server can switch notifications off for every phone, with
+- A server can pause notifications for every phone, with
   `muxy mobile push off` or the desktop's **Push notifications** setting.
-  Then `registerPush` answers `disabled`.
+  Then `registerPush` answers `disabled`. The server keeps each phone's token
+  and key for 90 days, and turning notifications back on resumes those phones
+  with the same keys, without them reconnecting.
+- The computer can also reset one phone with `muxy mobile push reset`. It
+  forgets that phone's key, and the next `registerPush` returns a new one.
 - The contract the server, the relay, and the apps share is
   [docs/push-notifications.md](https://github.com/muxy-app/muxy.app/blob/main/docs/push-notifications.md)
   in the `muxy.app` repository.
@@ -846,12 +850,16 @@ connection's queue after everything the user is waiting for.
 | `active` | The relay accepted the token | Keep `key` |
 | `pending` | The server couldn't reach the relay yet and keeps trying | Keep `key`; it already works |
 | `refused` | Apple or Google rejected the token | Keep `key`, get a fresh token, and check the APNs environment |
-| `disabled` | Notifications are off on this server | Delete this server's key; there is none |
+| `disabled` | Notifications are paused on this server | Keep the stored key: it works again if the server turns them back on. There is no key in the reply |
 | `other` | A newer server's status | Keep `key` if there is one |
 
 - Store `key` with the server's credential, replacing the one kept before. It
-  stays the same while the server keeps the registration, so notifications
-  already on their way still decrypt.
+  stays the same while the server keeps the registration, including while
+  notifications are paused, so notifications already on their way still
+  decrypt. Replace it only when a reply carries a key.
+- A reply with a new key means the registration was recreated: after
+  `unregisterPush`, a reset on the computer, or 90 days of being paused.
+  Notifications sent with the old key show the fallback text.
 - On iOS the Notification Service Extension needs the keys too: keep them in a
   keychain access group shared with the extension. On Android, keep them in the
   Keystore-encrypted store the credentials use.
@@ -864,14 +872,14 @@ if connection.supportsPushNotifications(), let token = pushToken {
     let registration = try await SDK.run {
         try connection.registerPush(platform: .apns, token: token, environment: isDebug ? .sandbox : .production)
     }
-    pushKeys.store(registration.key, for: credential.serverId)   // nil deletes it
+    if let key = registration.key { pushKeys.store(key, for: credential.serverId) }
 }
 ```
 
 ```kotlin
 if (connection.supportsPushNotifications()) {
     val registration = withContext(sdk) { connection.registerPush(PushPlatform.FCM, token, null) }
-    pushKeys.store(credential.serverId, registration.key)   // null deletes it
+    registration.key?.let { pushKeys.store(credential.serverId, it) }
 }
 ```
 

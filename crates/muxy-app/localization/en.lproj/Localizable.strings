@@ -1293,10 +1293,13 @@
 "Nothing to manage" = "Nothing to manage";
 "Notifications are turned off for Muxy in System Settings." = "Notifications are turned off for Muxy in System Settings.";
 "Notifications on" = "Notifications on";
+"Notifications paused" = "Notifications paused";
 "Notifications pending" = "Notifications pending";
 "Notifications refused" = "Notifications refused";
 "OK" = "OK";
 "Off" = "Off";
+"Off. Nothing is sent to muxy.app, and phones can't turn notifications on for this computer." = "Off. Nothing is sent to muxy.app, and phones can't turn notifications on for this computer.";
+"Off. Nothing is sent to muxy.app. Paused phones resume when you turn this on, for %lld more days." = "Off. Nothing is sent to muxy.app. Paused phones resume when you turn this on, for %lld more days.";
 "Older sessions" = "Older sessions";
 "On" = "On";
 "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN." = "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN.";
@@ -1357,6 +1360,8 @@
 "Pair with another computer, or add one you reach over SSH, to work with its projects here." = "Pair with another computer, or add one you reach over SSH, to work with its projects here.";
 "Pair your phone" = "Pair your phone";
 "Paired" = "Paired";
+"Paired phones stop getting notifications, and muxy.app forgets them. This computer keeps their registrations for 90 days, so turning this back on resumes them without reconnecting." = "Paired phones stop getting notifications, and muxy.app forgets them. This computer keeps their registrations for 90 days, so turning this back on resumes them without reconnecting.";
+"Paired phones that turn on notifications in the Muxy app hear when an agent needs attention or finishes. They go through the muxy.app relay, which sees only encrypted content." = "Paired phones that turn on notifications in the Muxy app hear when an agent needs attention or finishes. They go through the muxy.app relay, which sees only encrypted content.";
 "Paired with %@" = "Paired with %@";
 "Paired with the other computer." = "Paired with the other computer.";
 "Pairing Link" = "Pairing Link";
@@ -1375,6 +1380,8 @@
 "Paste the whole pairing link from the other computer's Settings → Servers." = "Paste the whole pairing link from the other computer's Settings → Servers.";
 "Paste this into the agent: %@" = "Paste this into the agent: %@";
 "Path template is required." = "Path template is required.";
+"Pause" = "Pause";
+"Pause Push Notifications?" = "Pause Push Notifications?";
 "Pencil" = "Pencil";
 "Pencil and Ruler" = "Pencil and Ruler";
 "Pending import must use the current backup format" = "Pending import must use the current backup format";
@@ -1550,10 +1557,13 @@
 "Reset" = "Reset";
 "Reset %@" = "Reset %@";
 "Reset Composer Size" = "Reset Composer Size";
+"Reset Notifications" = "Reset Notifications";
+"Reset Notifications for %@?" = "Reset Notifications for %@?";
 "Reset Terminal Settings?" = "Reset Terminal Settings?";
 "Reset Title" = "Reset Title";
 "Reset filters" = "Reset filters";
 "Reset font size" = "Reset font size";
+"Reset notifications for %@" = "Reset notifications for %@";
 "Reset terminal settings" = "Reset terminal settings";
 "Resolve merge conflicts first" = "Resolve merge conflicts first";
 "Restart" = "Restart";
@@ -1825,7 +1835,6 @@
 "Take your terminals with you" = "Take your terminals with you";
 "Teal" = "Teal";
 "Teardown hooks could not be loaded: %@\nContinuing will remove without hooks." = "Teardown hooks could not be loaded: %@\nContinuing will remove without hooks.";
-"Tell paired phones when an agent needs attention or finishes, through the muxy.app relay, which sees only encrypted content. Each phone turns them on in the Muxy app." = "Tell paired phones when an agent needs attention or finishes, through the muxy.app relay, which sees only encrypted content. Each phone turns them on in the Muxy app.";
 "Template" = "Template";
 "Templates must include {branch}. Relative paths start from the project folder." = "Templates must include {branch}. Relative paths start from the project folder.";
 "Terminal" = "Terminal";
@@ -1946,6 +1955,7 @@
 "This backup format is not supported by this version of Muxy" = "This backup format is not supported by this version of Muxy";
 "This branch already has a pull request" = "This branch already has a pull request";
 "This computer connected to remote servers over SSH." = "This computer connected to remote servers over SSH.";
+"This computer forgets the phone's notification key and stops notifying it. The phone stays paired, and gets a new key the next time it connects." = "This computer forgets the phone's notification key and stops notifying it. The phone stays paired, and gets a new key the next time it connects.";
 "This computer has no pairing for it. Pair again with a new link." = "This computer has no pairing for it. Pair again with a new link.";
 "This computer isn't listening for clients yet. Try again in a moment." = "This computer isn't listening for clients yet. Try again in a moment.";
 "This computer's server" = "This computer's server";

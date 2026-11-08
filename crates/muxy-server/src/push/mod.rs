@@ -181,10 +181,11 @@ impl Registry {
         token: PushToken,
         wait: Duration,
     ) -> Result<PushRegistration, ServerError> {
+        let token = normalized(token);
         if !self.remote.push_notifications() {
+            self.keep_paused_token(device, &token)?;
             return Ok(disabled());
         }
-        let token = normalized(token);
         let record = loop {
             let current = self.remote.push_record(device);
             let next = match &current {
@@ -245,13 +246,60 @@ impl Registry {
         }
     }
 
+    /// A paused phone's new token, so it is the one registered when
+    /// notifications come back on. A phone with nothing kept stays without.
+    fn keep_paused_token(&self, device: DeviceId, token: &PushToken) -> Result<(), ServerError> {
+        loop {
+            let Some(current) = self.remote.push_record(device) else {
+                return Ok(());
+            };
+            if current.token == *token {
+                return Ok(());
+            }
+            let next = PushRecord {
+                token: token.clone(),
+                status: PushStatus::Pending,
+                ..current.clone()
+            };
+            if self
+                .remote
+                .replace_push(device, Some(&current), Some(next))?
+            {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Off deletes the relay registrations and keeps each phone's token and
+    /// key; on registers those phones again with the same keys, so they need
+    /// not reconnect.
     pub(crate) fn set_push_notifications(
         &self,
         on: bool,
     ) -> Result<muxy_protocol::RemoteAccessState, ServerError> {
-        for credentials in self.remote.set_push_notifications(on)? {
+        let switch = self.remote.set_push_notifications(on)?;
+        for credentials in switch.deleted {
             self.push.delete(Some(credentials));
         }
+        for device in switch.resumed {
+            self.push.send(Command::Resync {
+                device,
+                reply: None,
+            });
+        }
+        Ok(self.remote_access_state())
+    }
+
+    /// Forgets one phone's push registration and key; it gets a new key when
+    /// it next registers.
+    pub(crate) fn reset_push(
+        &self,
+        device: DeviceId,
+    ) -> Result<muxy_protocol::RemoteAccessState, ServerError> {
+        if !self.remote.knows(device) {
+            return Err(ServerError::new(ErrorCode::BadRequest, "no such device"));
+        }
+        self.unregister_push(device)?;
         Ok(self.remote_access_state())
     }
 
@@ -401,6 +449,9 @@ impl Worker {
     }
 
     fn work(&mut self, registry: &Registry) {
+        if let Err(error) = registry.remote.expire_paused_push(unix_now()) {
+            log::error!("paused push registrations not forgotten: {error}");
+        }
         let now = Instant::now();
         for sync in take_due(&mut self.syncs, now, |sync| sync.due) {
             self.sync(registry, sync);

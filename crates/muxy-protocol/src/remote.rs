@@ -117,6 +117,7 @@ pub struct PairedDevice {
     #[serde(default)]
     pub kind: DeviceKind,
     /// Whether the phone gets push notifications, when it registered for them.
+    /// `Disabled` while they are off for every phone and its registration is kept.
     #[n(6)]
     #[cbor(default)]
     #[serde(default)]
@@ -142,6 +143,12 @@ pub struct RemoteAccessState {
     #[cbor(default)]
     #[serde(default)]
     pub push_notifications: bool,
+    /// Unix seconds. While push notifications are off, when the phones'
+    /// kept registrations are forgotten.
+    #[n(6)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub push_kept_until: Option<u64>,
 }
 
 impl RemoteAccessState {

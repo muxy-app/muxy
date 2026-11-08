@@ -53,6 +53,8 @@ pub(super) struct Stored {
     pub(super) identity: Option<TlsIdentity>,
     pub(super) devices: Vec<Device>,
     pub(super) push_notifications: bool,
+    /// Unix seconds when push notifications were switched off.
+    pub(super) push_off_since: Option<u64>,
 }
 
 impl Default for Stored {
@@ -62,6 +64,7 @@ impl Default for Stored {
             identity: None,
             devices: Vec::new(),
             push_notifications: true,
+            push_off_since: None,
         }
     }
 }
@@ -76,6 +79,8 @@ struct Document {
     /// Missing in files from before push notifications, which start on.
     #[serde(default = "on")]
     push_notifications: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    push_off_since: Option<u64>,
 }
 
 fn on() -> bool {
@@ -267,6 +272,9 @@ fn stored(document: Document) -> Option<Stored> {
         identity,
         devices,
         push_notifications: document.push_notifications,
+        push_off_since: document
+            .push_off_since
+            .filter(|_| !document.push_notifications),
     })
 }
 
@@ -300,6 +308,7 @@ pub(super) fn save(path: &Path, stored: &Stored) -> io::Result<()> {
             })
             .collect(),
         push_notifications: stored.push_notifications,
+        push_off_since: stored.push_off_since,
     };
     let bytes = serde_json::to_vec_pretty(&document)?;
     Ok(muxy_core::fs::write_atomic(path, &bytes, 0o600)?)
@@ -343,6 +352,7 @@ mod tests {
                 push: None,
             }],
             push_notifications: false,
+            push_off_since: Some(12),
         };
         save(&path, &stored)?;
         assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
@@ -354,6 +364,7 @@ mod tests {
         assert_eq!(loaded.devices[0].last_seen, Some(11));
         assert_eq!(loaded.devices[0].kind, DeviceKind::Computer);
         assert!(!loaded.push_notifications);
+        assert_eq!(loaded.push_off_since, Some(12));
         fs::remove_dir_all(directory)
     }
 

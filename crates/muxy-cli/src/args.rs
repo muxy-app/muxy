@@ -49,6 +49,10 @@ pub(crate) enum Mobile {
     Push {
         on: bool,
     },
+    /// Forgets one phone's push registration and key.
+    ResetPush {
+        device: String,
+    },
 }
 
 /// Reads the command, and the other computer whose server it uses when it
@@ -168,7 +172,12 @@ fn mobile(arguments: &[OsString]) -> io::Result<Mobile> {
         }),
         [Some("push"), Some("on")] => Ok(Mobile::Push { on: true }),
         [Some("push"), Some("off")] => Ok(Mobile::Push { on: false }),
-        [Some("push"), ..] => Err(invalid("usage: muxy mobile push on|off")),
+        [Some("push"), Some("reset"), Some(device)] if !device.is_empty() => {
+            Ok(Mobile::ResetPush {
+                device: (*device).to_owned(),
+            })
+        }
+        [Some("push"), ..] => Err(invalid("usage: muxy mobile push on|off|reset <device>")),
         _ => Err(invalid("unknown mobile command; run muxy mobile --help")),
     }
 }
@@ -289,10 +298,18 @@ mod tests {
             words(&["--host", "box", "mobile", "push", "off"])?,
             (Some(_), Command::Mobile(Mobile::Push { on: false }))
         ));
+        assert_eq!(
+            words(&["mobile", "push", "reset", "3f2a"])?.1,
+            Command::Mobile(Mobile::ResetPush {
+                device: "3f2a".into()
+            })
+        );
         for args in [
             vec!["mobile", "push"],
             vec!["mobile", "push", "maybe"],
             vec!["mobile", "push", "on", "now"],
+            vec!["mobile", "push", "reset"],
+            vec!["mobile", "push", "reset", ""],
         ] {
             assert!(words(&args).is_err(), "{args:?}");
         }

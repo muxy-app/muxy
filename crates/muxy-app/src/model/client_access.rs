@@ -150,9 +150,39 @@ impl AppModel {
             )
     }
 
-    /// Turns push notifications to paired phones on or off. Off forgets every
-    /// phone's registration. A refusal shows on the page.
-    pub(crate) fn set_push_notifications(&mut self, on: bool, cx: &mut Context<Self>) {
+    /// Turns push notifications to paired phones on or off. Pausing phones
+    /// that get them asks first, since they stop hearing about agents.
+    pub(crate) fn set_push_notifications(
+        &mut self,
+        on: bool,
+        window: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        let affected = self.client_access.state.as_ref().is_some_and(|state| {
+            state.push_notifications && state.devices.iter().any(|device| device.push.is_some())
+        });
+        if on || !affected {
+            self.switch_push_notifications(on, cx);
+            return;
+        }
+        let generation = self.servers.local.generation;
+        self.ask_once(
+            super::dialogs::Question::PausePush,
+            window,
+            async move |parent, cx| crate::views::confirm::prompt_pause_push(parent, cx).await,
+            move |model, response, cx| match response {
+                Ok(true) if generation == model.servers.local.generation => {
+                    model.switch_push_notifications(false, cx);
+                }
+                Err(error) => model.client_access.error = Some(error),
+                Ok(_) => {}
+            },
+            cx,
+        );
+    }
+
+    /// Sends the switch; a refusal shows on the page.
+    pub(crate) fn switch_push_notifications(&mut self, on: bool, cx: &mut Context<Self>) {
         let result = if !self.push_notifications_available() {
             Err(tr!("Connect to the server before changing client access").to_string())
         } else if self.client_access.busy {
@@ -174,6 +204,50 @@ impl AppModel {
             Ok(())
         };
         self.finish_access_change(result, cx);
+    }
+
+    /// Forgets one phone's notification key after asking; it stays paired.
+    pub(crate) fn confirm_reset_push(
+        &mut self,
+        device: DeviceId,
+        window: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = self.client_access.state.as_ref().and_then(|state| {
+            state
+                .devices
+                .iter()
+                .find(|paired| paired.id == device)
+                .map(|paired| paired.name.clone())
+        }) else {
+            return;
+        };
+        let generation = self.servers.local.generation;
+        self.ask_once(
+            super::dialogs::Question::ResetPush(device),
+            window,
+            async move |parent, cx| {
+                crate::views::confirm::prompt_reset_push(parent, &name, cx).await
+            },
+            move |model, response, cx| match response {
+                Ok(true)
+                    if generation == model.servers.local.generation
+                        && model.push_notifications_available() =>
+                {
+                    if model.client_access.busy {
+                        model.client_access.error = Some(
+                            tr!("Wait for the current client access change to finish").to_string(),
+                        );
+                    } else {
+                        model.client_access.busy =
+                            model.send(ServerId::local(), Work::ResetPush(device), cx);
+                    }
+                }
+                Err(error) => model.client_access.error = Some(error),
+                Ok(_) => {}
+            },
+            cx,
+        );
     }
 
     /// Moves client access to the typed port.

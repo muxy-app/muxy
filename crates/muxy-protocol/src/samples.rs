@@ -122,6 +122,7 @@ fn push_samples() -> Vec<Message> {
         }),
         RequestBody::UnregisterPush,
         RequestBody::SetPushNotifications(false),
+        RequestBody::ResetPush(device),
     ];
     let replies = [
         ReplyBody::PushRegistered(crate::PushRegistration {
@@ -151,6 +152,27 @@ fn push_samples() -> Vec<Message> {
                 push: Some(crate::PushStatus::Refused),
             }],
             push_notifications: true,
+            push_kept_until: None,
+        }),
+        ReplyBody::RemoteAccess(crate::RemoteAccessState {
+            revision: 9,
+            settings: crate::RemoteAccessSettings {
+                enabled: true,
+                port: crate::DEFAULT_REMOTE_PORT,
+            },
+            status: crate::ListenerStatus::Listening,
+            pairing_expires_at: None,
+            devices: vec![crate::PairedDevice {
+                id: device,
+                name: "Phone".into(),
+                paired_at: 100,
+                last_seen: Some(200),
+                connected: false,
+                kind: crate::DeviceKind::Phone,
+                push: Some(crate::PushStatus::Disabled),
+            }],
+            push_notifications: false,
+            push_kept_until: Some(7_776_300),
         }),
     ];
     requests
@@ -222,6 +244,7 @@ fn remote_samples() -> Vec<Message> {
                 push: None,
             }],
             push_notifications: false,
+            push_kept_until: None,
         }),
         ReplyBody::Pairing(crate::PairingOffer {
             invite: crate::PairingInvite {

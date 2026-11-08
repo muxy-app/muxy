@@ -233,10 +233,15 @@ pub enum RequestBody {
     /// Stops this server's notifications to the phone and forgets its key.
     #[n(49)]
     UnregisterPush,
-    /// Turns push notifications on or off for every phone. Turning them off
-    /// forgets every phone's registration.
+    /// Turns push notifications on or off for every phone. Off deletes every
+    /// registration at the relay but keeps each phone's token and key for a
+    /// while, so turning them on again resumes those phones.
     #[n(50)]
     SetPushNotifications(#[n(0)] bool),
+    /// Forgets one phone's push registration and key, without unpairing it.
+    /// The phone gets a new key when it next registers.
+    #[n(51)]
+    ResetPush(#[n(0)] crate::DeviceId),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

@@ -14,8 +14,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use muxy_protocol::transport::tls::TlsIdentity;
 use muxy_protocol::{
     ClientId, DeviceCredential, DeviceId, DeviceKind, ErrorCode, ListenerStatus, MAX_DEVICES,
-    PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer, RemoteAccessSettings,
-    RemoteAccessState, ServerIdentity, Topic, UnreadableFile,
+    PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer, PushStatus,
+    RemoteAccessSettings, RemoteAccessState, ServerIdentity, Topic, UnreadableFile,
 };
 
 use crate::ServerError;
@@ -25,6 +25,8 @@ pub(crate) use store::PushRecord;
 use store::{Device, Stored};
 
 const PAIRING_SECONDS: u64 = 5 * 60;
+/// How long phones' push registrations are kept while push notifications are off.
+pub(crate) const PUSH_KEPT_SECONDS: u64 = 90 * 24 * 60 * 60;
 const MAX_UNAUTHENTICATED: usize = 16;
 const AUTHENTICATION_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -64,6 +66,15 @@ struct Offer {
     secret: [u8; 16],
     expires_at: u64,
     owner: ClientId,
+}
+
+/// What switching push notifications changed.
+#[derive(Debug, Default)]
+pub(crate) struct PushSwitch {
+    /// Relay registrations to delete, when they were switched off.
+    pub(crate) deleted: Vec<Credentials>,
+    /// Phones to register again, when they were switched on.
+    pub(crate) resumed: Vec<DeviceId>,
 }
 
 /// Holds one of the few slots for connections that have not authenticated yet.
@@ -201,10 +212,24 @@ impl RemoteAccess {
                     last_seen: device.last_seen,
                     connected: connected.contains(&device.id),
                     kind: device.kind,
-                    push: device.push.as_ref().map(|push| push.status),
+                    push: device.push.as_ref().map(|push| {
+                        if state.stored.push_notifications {
+                            push.status
+                        } else {
+                            PushStatus::Disabled
+                        }
+                    }),
                 })
                 .collect(),
             push_notifications: state.stored.push_notifications,
+            push_kept_until: state
+                .stored
+                .devices
+                .iter()
+                .any(|device| device.push.is_some())
+                .then_some(state.stored.push_off_since)
+                .flatten()
+                .map(|since| since.saturating_add(PUSH_KEPT_SECONDS)),
         }
     }
 
@@ -441,34 +466,63 @@ impl RemoteAccess {
         self.lock().stored.push_notifications
     }
 
-    /// Turns push notifications on or off for every phone. Turning them off
-    /// forgets every registration; their relay credentials come back for deleting.
-    pub(crate) fn set_push_notifications(&self, on: bool) -> Result<Vec<Credentials>, ServerError> {
+    /// Turns push notifications on or off for every phone. Off pauses them:
+    /// the relay registrations come back for deleting, and each phone's
+    /// token and key stay for `PUSH_KEPT_SECONDS`. On names the phones to
+    /// register again.
+    pub(crate) fn set_push_notifications(&self, on: bool) -> Result<PushSwitch, ServerError> {
         let mut state = self.lock();
+        if state.stored.push_notifications == on {
+            return Ok(PushSwitch::default());
+        }
         let mut stored = state.stored.clone();
         stored.push_notifications = on;
-        let removed: Vec<_> = if on {
-            Vec::new()
-        } else {
-            stored
-                .devices
-                .iter_mut()
-                .filter_map(|device| device.push.take())
-                .collect()
-        };
-        let changed =
-            stored.push_notifications != state.stored.push_notifications || !removed.is_empty();
-        if !changed {
-            return Ok(Vec::new());
+        stored.push_off_since = (!on).then(now);
+        let mut switch = PushSwitch::default();
+        for device in &mut stored.devices {
+            let Some(push) = &mut device.push else {
+                continue;
+            };
+            if on {
+                switch.resumed.push(device.id);
+            } else {
+                switch.deleted.extend(push.relay.take());
+                push.status = PushStatus::Pending;
+            }
         }
         self.save(&stored)?;
         state.stored = stored;
         drop(state);
         self.changed();
-        Ok(removed
-            .into_iter()
-            .filter_map(|record| record.relay)
-            .collect())
+        Ok(switch)
+    }
+
+    /// Forgets the phones' kept registrations once push notifications have
+    /// been off for `PUSH_KEPT_SECONDS`. Whether any were forgotten.
+    pub(crate) fn expire_paused_push(&self, now: u64) -> Result<bool, ServerError> {
+        let mut state = self.lock();
+        let expired = !state.stored.push_notifications
+            && state
+                .stored
+                .push_off_since
+                .is_some_and(|since| since.saturating_add(PUSH_KEPT_SECONDS) <= now)
+            && state
+                .stored
+                .devices
+                .iter()
+                .any(|device| device.push.is_some());
+        if !expired {
+            return Ok(false);
+        }
+        let mut stored = state.stored.clone();
+        for device in &mut stored.devices {
+            device.push = None;
+        }
+        self.save(&stored)?;
+        state.stored = stored;
+        drop(state);
+        self.changed();
+        Ok(true)
     }
 
     pub(crate) fn knows(&self, device: DeviceId) -> bool {
@@ -517,7 +571,8 @@ impl RemoteAccess {
             return Ok(false);
         };
         let current = &state.stored.devices[index].push;
-        if current.as_ref() != expected || (next.is_some() && !state.stored.push_notifications) {
+        let registering = next.as_ref().is_some_and(|push| push.relay.is_some());
+        if current.as_ref() != expected || (registering && !state.stored.push_notifications) {
             return Ok(false);
         }
         if *current == next {

@@ -184,6 +184,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: RequestBody::SetPushNotifications(_),
                 ..
             } => ("SetPushNotifications", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::ResetPush(_),
+                ..
+            } => ("ResetPush", ChannelKind::Control),
             Message::Reply {
                 body: ReplyBody::PushRegistered(registration),
                 ..
@@ -200,6 +204,12 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: ReplyBody::RemoteAccess(state),
                 ..
             } if state.push_notifications => ("RemoteAccessWithPush", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::RemoteAccess(state),
+                ..
+            } if state.push_kept_until.is_some() => {
+                ("RemoteAccessPushPaused", ChannelKind::Control)
+            }
             Message::Reply {
                 body: ReplyBody::Authenticated,
                 ..
@@ -701,6 +711,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "RegisterFcmPush",
             "UnregisterPush",
             "SetPushNotifications",
+            "ResetPush",
+            "RemoteAccessPushPaused",
             "PushRegistered",
             "PushDisabled",
             "PushUnregistered",

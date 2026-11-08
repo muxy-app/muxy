@@ -270,6 +270,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         RequestBody::Authenticate(_)
         | RequestBody::UnregisterPush
         | RequestBody::SetPushNotifications(_)
+        | RequestBody::ResetPush(_)
         | RequestBody::ReadRemoteAccess
         | RequestBody::StartPairing
         | RequestBody::CancelPairing

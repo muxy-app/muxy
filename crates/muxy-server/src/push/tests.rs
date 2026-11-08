@@ -347,19 +347,27 @@ fn nothing_is_sent_for_an_event_handled_in_time_or_while_sending_is_off() {
 }
 
 #[test]
-fn turning_push_off_deletes_every_registration_and_disables_new_ones() {
+fn turning_push_off_pauses_phones_and_turning_it_on_resumes_them_with_their_keys() {
     let fixture = fixture(2);
-    fixture.register(0, apns("ab"));
-    fixture.register(1, apns("cd"));
-    let state = fixture.registry.set_push_notifications(false);
-    assert!(state.is_ok_and(|state| !state.push_notifications));
+    let first = fixture.register(0, apns("ab"));
+    let second = fixture.register(1, apns("cd"));
+    let Ok(off) = fixture.registry.set_push_notifications(false) else {
+        panic!("push could not be switched off");
+    };
+    assert!(!off.push_notifications);
+    assert!(
+        off.devices
+            .iter()
+            .all(|device| device.push == Some(PushStatus::Disabled))
+    );
+    assert!(off.push_kept_until.is_some_and(|until| until > unix_now()));
     assert!(eventually(|| {
         let calls = fixture.relay.calls();
         calls.contains(&Call::Delete(relay_id(1))) && calls.contains(&Call::Delete(relay_id(2)))
     }));
-    assert_eq!(fixture.status(0), None);
+    assert_eq!(fixture.status(0), Some(PushStatus::Pending));
     assert_eq!(
-        fixture.register(0, apns("ab")),
+        fixture.register(0, apns("ef")),
         PushRegistration {
             status: PushStatus::Disabled,
             key: None,
@@ -368,9 +376,68 @@ fn turning_push_off_deletes_every_registration_and_disables_new_ones() {
     fixture.blocked(1);
     settle();
     assert!(fixture.relay.sent().is_empty());
-    let on = fixture.registry.set_push_notifications(true);
-    assert!(on.is_ok_and(|state| state.push_notifications));
-    assert_eq!(fixture.register(0, apns("ab")).status, PushStatus::Active);
+    let calls = fixture.relay.calls().len();
+
+    let Ok(on) = fixture.registry.set_push_notifications(true) else {
+        panic!("push could not be switched on");
+    };
+    assert!(on.push_notifications);
+    assert_eq!(on.push_kept_until, None);
+    assert!(eventually(|| {
+        fixture.status(0) == Some(PushStatus::Active)
+            && fixture.status(1) == Some(PushStatus::Active)
+    }));
+    let registered: Vec<_> = fixture.relay.calls()[calls..].to_vec();
+    assert!(registered.contains(&Call::Register("ef".repeat(32))));
+    assert!(registered.contains(&Call::Register("cd".repeat(32))));
+    let key = |phone: usize| {
+        fixture
+            .registry
+            .remote
+            .push_record(fixture.phones[phone])
+            .map(|record| record.key)
+    };
+    assert_eq!(key(0), first.key);
+    assert_eq!(key(1), second.key);
+    fixture.blocked(2);
+    assert!(eventually(|| fixture.relay.sent().len() == 2));
+}
+
+#[test]
+fn registrations_kept_while_push_is_off_are_forgotten_after_ninety_days() {
+    let fixture = fixture(1);
+    fixture.register(0, apns("ab"));
+    assert!(fixture.registry.set_push_notifications(false).is_ok());
+    let remote = &fixture.registry.remote;
+    let Some(until) = fixture.registry.remote_access_state().push_kept_until else {
+        panic!("no expiry for the kept registration");
+    };
+    assert_eq!(remote.expire_paused_push(until - 1).ok(), Some(false));
+    assert!(fixture.status(0).is_some());
+    assert_eq!(remote.expire_paused_push(until).ok(), Some(true));
+    assert_eq!(fixture.status(0), None);
+    assert_eq!(fixture.registry.remote_access_state().push_kept_until, None);
+    assert!(fixture.registry.set_push_notifications(true).is_ok());
+    let fresh = fixture.register(0, apns("ab"));
+    assert_eq!(fresh.status, PushStatus::Active);
+}
+
+#[test]
+fn resetting_a_phone_forgets_its_key_but_keeps_it_paired() {
+    let fixture = fixture(1);
+    let first = fixture.register(0, apns("ab"));
+    let Ok(state) = fixture.registry.reset_push(fixture.phones[0]) else {
+        panic!("reset failed");
+    };
+    assert_eq!(state.devices.len(), 1);
+    assert_eq!(state.devices[0].push, None);
+    assert!(eventually(|| fixture
+        .relay
+        .calls()
+        .contains(&Call::Delete(relay_id(1)))));
+    let second = fixture.register(0, apns("ab"));
+    assert_ne!(second.key, first.key);
+    assert!(fixture.registry.reset_push(DeviceId::new()).is_err());
 }
 
 #[test]
@@ -464,27 +531,29 @@ fn a_busy_relay_is_retried_and_a_wrong_secret_waits_for_the_phone() {
 }
 
 #[test]
-fn starting_twice_keeps_one_worker_and_a_switched_off_server_saves_no_registration() {
+fn starting_twice_keeps_one_worker_and_a_switched_off_server_saves_no_relay_registration() {
     let fixture = fixture(1);
     fixture.registry.start_push();
     fixture.register(0, apns("ab"));
     assert_eq!(fixture.relay.calls().len(), 1);
     assert!(fixture.registry.set_push_notifications(false).is_ok());
-    let record = PushRecord {
-        token: apns("cd"),
-        key: [1; 32],
-        relay: None,
-        status: PushStatus::Pending,
+    let Some(paused) = fixture.registry.remote.push_record(fixture.phones[0]) else {
+        panic!("the registration was not kept");
+    };
+    let registered = PushRecord {
+        relay: credentials(9),
+        status: PushStatus::Active,
+        ..paused.clone()
     };
     assert_eq!(
         fixture
             .registry
             .remote
-            .replace_push(fixture.phones[0], None, Some(record))
+            .replace_push(fixture.phones[0], Some(&paused), Some(registered))
             .ok(),
         Some(false)
     );
-    assert_eq!(fixture.status(0), None);
+    assert_eq!(fixture.status(0), Some(PushStatus::Pending));
 }
 
 #[test]

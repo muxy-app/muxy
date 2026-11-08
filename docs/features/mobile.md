@@ -46,7 +46,8 @@ muxy mobile pair
 | See status and phones | **Clients** in **Settings → Servers** | `muxy mobile` |
 | Revoke a phone | **Revoke** next to it | `muxy mobile revoke <id>` |
 | Turn access off | **Allow clients** off | `muxy mobile disable` |
-| Turn push notifications on or off | **Push notifications** | `muxy mobile push on\|off` |
+| Pause or resume push notifications | **Push notifications** | `muxy mobile push off\|on` |
+| Reset a phone's notifications | **Reset Notifications** next to it | `muxy mobile push reset <id>` |
 
 Revoking a phone, or turning access off, disconnects it at once.
 
@@ -62,10 +63,18 @@ terminal.
 - Notifications go through `muxy.app`, which forwards them to Apple or Google.
   Their content is encrypted for your phone; the relay sees only that there is
   a notification.
-- They're on by default for every computer. Turn them off for all phones with
+- They're on by default for every computer. Pause them for all phones with
   **Push notifications** under **Settings → Servers → This Computer**, or
-  `muxy mobile push off`. Turning them off forgets every phone's registration.
-- `muxy mobile` shows whether each phone gets them.
+  `muxy mobile push off`:
+  - Nothing more is sent to `muxy.app`, which forgets the phones at once.
+  - This computer keeps each phone's registration for 90 days. Turning
+    notifications back on in that time resumes the phones without them
+    reconnecting. After that, each phone registers again when it next
+    connects.
+- **Reset Notifications**, or `muxy mobile push reset <id>`, gives one phone a
+  new notification key without unpairing it. Use it if you think a key leaked.
+- `muxy mobile` shows whether each phone gets them, is paused, or was refused
+  by Apple or Google.
 - Phones connected over SSH don't get them.
 
 ## What a phone can do

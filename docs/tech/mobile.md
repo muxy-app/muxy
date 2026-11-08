@@ -102,7 +102,13 @@ sequenceDiagram
   says otherwise. `MUXY_PUSH_RELAY` points it at another relay, such as one on
   this computer for testing.
 - `muxy mobile push off`, or the desktop's **Push notifications** setting,
-  turns them off for every phone and deletes every registration.
+  pauses them for every phone. The relay registrations are deleted at once, so
+  nothing more goes to muxy.app. Each phone's token and key stay in
+  `remote.json` for 90 days, and turning them back on registers those phones
+  again with the same keys, without them reconnecting.
+- `muxy mobile push reset <device>` forgets one phone's registration and key
+  without unpairing it; the phone gets a new key on its next connect. Revoking
+  a phone, or the phone turning notifications off, does the same.
 
 The full contract between the server, the relay, and the apps is
 [push-notifications.md](https://github.com/muxy-app/muxy.app/blob/main/docs/push-notifications.md)

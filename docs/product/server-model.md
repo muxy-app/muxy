@@ -107,4 +107,5 @@ sequenceDiagram
 - The server sends paired phones push notifications about agents through the
   relay at `muxy.app`, encrypted so the relay can't read them. The server
   sends them, not the desktop app, so they work on headless computers too.
-  They're on unless you turn them off for every phone.
+  They're on unless you pause them for every phone, which keeps the phones'
+  registrations for 90 days so they resume when you turn them back on.

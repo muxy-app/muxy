@@ -44,12 +44,79 @@ pub(crate) fn run(command: Mobile, client: &Client) -> Result {
         }
         Mobile::Pair { addresses } => pair(client, addresses),
         Mobile::Revoke { device } => revoke(client, &device),
-        Mobile::Push { on } => {
-            if !push {
-                return Err("this server can't send push notifications; update Muxy on it".into());
-            }
-            show(&client.set_push_notifications(on)?)
+        Mobile::Push { .. } | Mobile::ResetPush { .. } if !push => {
+            Err("this server can't send push notifications; update Muxy on it".into())
         }
+        Mobile::Push { on } => {
+            let state = client.set_push_notifications(on)?;
+            writeln!(io::stdout(), "{}", switched(&state, now()))?;
+            Ok(())
+        }
+        Mobile::ResetPush { device } => reset_push(client, &device),
+    }
+}
+
+/// What switching push notifications did, in a sentence or two.
+fn switched(state: &RemoteAccessState, now: u64) -> String {
+    let phones = state
+        .devices
+        .iter()
+        .filter(|device| device.push.is_some())
+        .count();
+    let counted = match phones {
+        1 => "1 phone".to_owned(),
+        count => format!("{count} phones"),
+    };
+    match (state.push_notifications, phones) {
+        (true, 0) => {
+            "Push notifications are on. Phones get them once they turn them on in the Muxy app."
+                .into()
+        }
+        (true, 1) => "Push notifications are on. 1 phone resumes now, without reconnecting.".into(),
+        (true, _) => {
+            format!("Push notifications are on. {counted} resume now, without reconnecting.")
+        }
+        (false, 0) => "Push notifications are off. Nothing is sent to muxy.app.".into(),
+        (false, _) => format!(
+            "Push notifications are off. Nothing is sent to muxy.app, which forgot {counted}. \
+             This computer keeps their registrations for {}, so `muxy mobile push on` resumes them.",
+            kept(state.push_kept_until, now)
+        ),
+    }
+}
+
+fn kept(until: Option<u64>, now: u64) -> String {
+    match until.map(|until| until.saturating_sub(now).div_ceil(86_400)) {
+        Some(1) => "1 more day".into(),
+        Some(days) => format!("{days} more days"),
+        None => "a while".into(),
+    }
+}
+
+fn reset_push(client: &Client, prefix: &str) -> Result {
+    let state = client.read_remote_access()?;
+    let matches: Vec<_> = state
+        .devices
+        .iter()
+        .filter(|device| device.id.to_string().starts_with(prefix))
+        .collect();
+    match matches.as_slice() {
+        [device] if device.push.is_none() => Err(format!(
+            "{} has no push registration to reset",
+            device.name.escape_debug()
+        )
+        .into()),
+        [device] => {
+            client.reset_push(device.id)?;
+            writeln!(
+                io::stdout(),
+                "Reset notifications for {}. It gets a new key the next time it connects; until then, this computer sends it nothing.",
+                device.name.escape_debug()
+            )?;
+            Ok(())
+        }
+        [] => Err(format!("no paired device starts with {prefix}").into()),
+        _ => Err(format!("more than one device starts with {prefix}; use more characters").into()),
     }
 }
 
@@ -72,12 +139,20 @@ fn print_state(state: &RemoteAccessState, push: bool) -> Result {
         )?,
     }
     if push {
-        let push = if state.push_notifications {
-            "on"
-        } else {
-            "off"
-        };
-        writeln!(stdout, "Push notifications: {push}")?;
+        let paused = state
+            .devices
+            .iter()
+            .filter(|device| device.push.is_some())
+            .count();
+        match (state.push_notifications, paused) {
+            (true, _) => writeln!(stdout, "Push notifications: on")?,
+            (false, 0) => writeln!(stdout, "Push notifications: off")?,
+            (false, _) => writeln!(
+                stdout,
+                "Push notifications: off; {paused} paused, kept for {}",
+                kept(state.push_kept_until, now())
+            )?,
+        }
     }
     if state.devices.is_empty() {
         writeln!(stdout, "No paired devices.")?;
@@ -203,7 +278,8 @@ fn push_label(status: PushStatus) -> &'static str {
         PushStatus::Active => "notifications on",
         PushStatus::Pending => "notifications pending",
         PushStatus::Refused => "notifications refused by Apple or Google",
-        PushStatus::Disabled | PushStatus::Unrecognized(_) => "notifications unknown",
+        PushStatus::Disabled => "notifications paused",
+        PushStatus::Unrecognized(_) => "notifications unknown",
     }
 }
 
@@ -221,4 +297,62 @@ fn now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+#[cfg(test)]
+mod tests {
+    use muxy_protocol::{
+        DeviceId, DeviceKind, ListenerStatus, PairedDevice, PushStatus, RemoteAccessSettings,
+        RemoteAccessState,
+    };
+
+    use super::switched;
+
+    fn state(on: bool, phones: usize, kept_until: Option<u64>) -> RemoteAccessState {
+        RemoteAccessState {
+            revision: 1,
+            settings: RemoteAccessSettings::default(),
+            status: ListenerStatus::Listening,
+            pairing_expires_at: None,
+            devices: (0..phones)
+                .map(|_| PairedDevice {
+                    id: DeviceId::new(),
+                    name: "Phone".into(),
+                    paired_at: 0,
+                    last_seen: None,
+                    connected: false,
+                    kind: DeviceKind::Phone,
+                    push: Some(if on {
+                        PushStatus::Active
+                    } else {
+                        PushStatus::Disabled
+                    }),
+                })
+                .collect(),
+            push_notifications: on,
+            push_kept_until: kept_until,
+        }
+    }
+
+    #[test]
+    fn switching_says_what_happens_to_the_phones() {
+        let day = 86_400;
+        assert_eq!(
+            switched(&state(false, 2, Some(90 * day)), 0),
+            "Push notifications are off. Nothing is sent to muxy.app, which forgot 2 phones. \
+             This computer keeps their registrations for 90 more days, so `muxy mobile push on` resumes them."
+        );
+        let one = switched(&state(false, 1, Some(day / 2)), 0);
+        assert!(
+            one.contains("forgot 1 phone.") && one.contains("for 1 more day,"),
+            "{one}"
+        );
+        assert_eq!(
+            switched(&state(true, 1, None), 0),
+            "Push notifications are on. 1 phone resumes now, without reconnecting."
+        );
+        assert!(switched(&state(true, 2, None), 0).contains("2 phones resume now"));
+        assert!(switched(&state(false, 0, None), 0).ends_with("Nothing is sent to muxy.app."));
+        assert!(switched(&state(true, 0, None), 0).contains("turn them on in the Muxy app"));
+    }
 }

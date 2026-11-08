@@ -393,6 +393,7 @@ pub(crate) enum Work {
     CancelPairing,
     RevokeDevice(muxy_protocol::DeviceId),
     SetPushNotifications(bool),
+    ResetPush(muxy_protocol::DeviceId),
     StopServer {
         restart: bool,
     },
@@ -488,6 +489,7 @@ impl Work {
             Self::CancelPairing => "CancelPairing",
             Self::RevokeDevice(..) => "RevokeDevice",
             Self::SetPushNotifications(..) => "SetPushNotifications",
+            Self::ResetPush(..) => "ResetPush",
             Self::StopServer { .. } => "StopServer",
             Self::PrepareUpdate { .. } => "PrepareUpdate",
             Self::CheckServerUpdate { .. } => "CheckServerUpdate",
@@ -979,6 +981,10 @@ fn schedule(
         })
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the failure of every kind of work exhaustive in one place"
+)]
 fn rejected(work: Work, error: ClientError) -> Update {
     match work {
         Work::WriteInput { completion, .. } => {
@@ -1030,7 +1036,8 @@ fn rejected(work: Work, error: ClientError) -> Update {
         | Work::WriteRemoteAccess(_)
         | Work::CancelPairing
         | Work::RevokeDevice(_)
-        | Work::SetPushNotifications(_) => Update::RemoteAccess(Err(error)),
+        | Work::SetPushNotifications(_)
+        | Work::ResetPush(_) => Update::RemoteAccess(Err(error)),
         Work::StartPairing => Update::Pairing(Err(error)),
         Work::StopServer { restart, .. } => Update::ServerStopped {
             restart,
@@ -1154,6 +1161,9 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
         }
         Work::SetPushNotifications(on) => {
             return Some(Update::RemoteAccess(client.set_push_notifications(on)));
+        }
+        Work::ResetPush(device) => {
+            return Some(Update::RemoteAccess(client.reset_push(device)));
         }
         Work::StopServer { restart } => {
             return Some(Update::ServerStopped {

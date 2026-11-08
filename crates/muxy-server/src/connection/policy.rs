@@ -24,7 +24,8 @@ pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(
         | RequestBody::StartPairingWithHosts(_)
         | RequestBody::CancelPairing
         | RequestBody::RevokeDevice(_)
-        | RequestBody::SetPushNotifications(_) => local_only(device),
+        | RequestBody::SetPushNotifications(_)
+        | RequestBody::ResetPush(_) => local_only(device),
         RequestBody::RegisterPush(_) | RequestBody::UnregisterPush => phone_only(device),
         RequestBody::StopServer
         | RequestBody::StopServerIfIdle
@@ -113,12 +114,13 @@ mod tests {
 
     use super::permit;
 
-    fn managing_access() -> [RequestBody; 4] {
+    fn managing_access() -> [RequestBody; 5] {
         [
             RequestBody::ReadRemoteAccess,
             RequestBody::StartPairing,
             RequestBody::RevokeDevice(DeviceId::new()),
             RequestBody::SetPushNotifications(false),
+            RequestBody::ResetPush(DeviceId::new()),
         ]
     }
 

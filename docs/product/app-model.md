@@ -41,9 +41,10 @@ servers and their clients lives:
 
 - **This Mac** (**This Computer** on Linux) lets phones and other computers
   connect as clients: **Allow clients** turns access on, **Pair a client**
-  shows a pairing code and link, **Push notifications** turns notifications
-  to paired phones on or off, and **Clients** lists the paired ones to
-  revoke. A code that wasn't copied is withdrawn once the page leaves the
+  shows a pairing code and link, **Push notifications** pauses or resumes
+  notifications to paired phones, asking first when phones would stop getting
+  them, and **Clients** lists the paired ones to revoke, or to reset a phone's
+  notifications. A code that wasn't copied is withdrawn once the page leaves the
   screen; a copied link stays valid until it is used or expires. `muxy mobile`
   does the same without the desktop app.
 - **Other Servers** lists every remote server by group, and connects,

@@ -44,7 +44,7 @@ Notifications are off until you allow them. When you turn them on for a paired c
 - The computer registers the token with the Muxy push relay at muxy.app, which uses Apple's push notification service to deliver notifications to your device. The relay stores the token encrypted, a hash of the secret your computer uses with it, and delivery timestamps and daily counts. It does not store your IP address or notification content.
 - Each notification's content, such as the agent and project name, is encrypted on your computer with a key only your computer and your device hold. The relay and Apple see only that a notification was sent, whether an agent needs attention or finished, and identifiers that mean nothing without the key.
 
-Turning notifications off for a computer, or revoking your device on it, deletes the registration. A computer's owner can also turn notifications off for every device. Notifications are not available over SSH.
+Turning notifications off for a computer, or revoking your device on it, deletes the registration. A computer's owner can also pause notifications for every device. Pausing deletes the registrations at the relay at once; the computer keeps your device's token and key for up to 90 days so it can resume them, then forgets them. Notifications are not available over SSH.
 
 ## What the app does not collect
 

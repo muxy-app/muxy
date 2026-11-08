@@ -497,6 +497,10 @@ fn ordered_request(
             connection.watch_remote_access();
             ReplyBody::RemoteAccess(registry.set_push_notifications(on)?)
         }
+        RequestBody::ResetPush(device) => {
+            connection.watch_remote_access();
+            ReplyBody::RemoteAccess(registry.reset_push(device)?)
+        }
         RequestBody::ListSessions => ReplyBody::Sessions(registry.list()),
         RequestBody::CreateSession {
             project,

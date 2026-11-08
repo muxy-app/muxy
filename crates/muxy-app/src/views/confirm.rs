@@ -141,6 +141,26 @@ pub(crate) async fn prompt_revoke(
     server_prompt(parent, &title, &tr!("Revoke"), &message, cx).await
 }
 
+pub(crate) async fn prompt_pause_push(parent: &Parent, cx: &mut AsyncApp) -> Result<bool, String> {
+    let title = tr!("Pause Push Notifications?");
+    let message = tr!(
+        "Paired phones stop getting notifications, and muxy.app forgets them. This computer keeps their registrations for 90 days, so turning this back on resumes them without reconnecting."
+    );
+    server_prompt(parent, &title, &tr!("Pause"), &message, cx).await
+}
+
+pub(crate) async fn prompt_reset_push(
+    parent: &Parent,
+    device: &str,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let title = tr!("Reset Notifications for %@?", device);
+    let message = tr!(
+        "This computer forgets the phone's notification key and stops notifying it. The phone stays paired, and gets a new key the next time it connects."
+    );
+    server_prompt(parent, &title, &tr!("Reset"), &message, cx).await
+}
+
 pub(crate) async fn prompt_reset_terminal(
     parent: &Parent,
     cx: &mut AsyncApp,

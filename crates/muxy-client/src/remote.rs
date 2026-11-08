@@ -158,9 +158,15 @@ impl Client {
         }
     }
 
-    /// The server-wide switch for push notifications; off forgets every phone's registration.
+    /// The server-wide switch for push notifications. Off pauses every phone,
+    /// and on resumes the phones whose registrations are still kept.
     pub fn set_push_notifications(&self, on: bool) -> Result<RemoteAccessState, ClientError> {
         remote_access(self.request(RequestBody::SetPushNotifications(on))?)
+    }
+
+    /// Forgets one phone's push registration and key, without unpairing it.
+    pub fn reset_push(&self, device: DeviceId) -> Result<RemoteAccessState, ClientError> {
+        remote_access(self.request(RequestBody::ResetPush(device))?)
     }
 }
 
