@@ -23,7 +23,7 @@ quit the app, and every app shows the same screen and history.
   the title, dimmed, the header shows the folder the terminal works in, such as
   `~/Projects/muxy`, unless the title already shows it. The focused pane, or
   the one under the pointer, shows buttons there to split it right or down,
-  detach it, maximize it, or close it.
+  float it, maximize it, or close it.
   Drag a pane by its title to move it, as with `Cmd`-drag.
   A terminal's header takes the background a full-screen app paints its screen
   in, so it blends with the app. Turn headers off with **Settings → Appearance
@@ -47,8 +47,8 @@ list.
 A terminal can float over the workspace in a panel of its own, like a small
 window inside Muxy.
 
-- **Float Pane** in a terminal's right-click menu, or in the command palette,
-  floats it. A pane alone in its tab takes its tab along. Only terminals float.
+- **Float Pane** in a terminal's pane header, its right-click menu, or the
+  command palette floats it. A pane alone in its tab takes its tab along. Only terminals float.
 - Drag the empty part of the pane headers along the panel's top to move it,
   and its edges or corners to resize it. With pane headers turned off, the
   panel has a bar of its own to drag. Clicking a panel brings it to the front.

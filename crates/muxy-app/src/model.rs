@@ -907,8 +907,12 @@ impl AppModel {
 
     pub(crate) fn focus_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         if let Some(id) = self.state.pane_window(pane) {
-            if self.quitting == Quitting::Idle && self.float_shown(id) {
+            if self.quitting == Quitting::Idle
+                && self.float_shown(id)
+                && self.key_float() != Some(id)
+            {
                 self.enter_surface(tab_windows::Surface::Tab(id));
+                cx.notify();
             }
             if self.quitting == Quitting::Idle
                 && self
@@ -927,8 +931,14 @@ impl AppModel {
                 .state
                 .pane_tab(pane)
                 .is_none_or(|tab| !self.tab_shown(tab))
-            || self.main_active_pane() == Some(pane)
         {
+            return;
+        }
+        if self.key_float().is_some() {
+            self.enter_surface(tab_windows::Surface::Main);
+            cx.notify();
+        }
+        if self.main_active_pane() == Some(pane) {
             return;
         }
         if self.state.focus_pane(pane).is_ok() {

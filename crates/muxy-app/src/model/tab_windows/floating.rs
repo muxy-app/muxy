@@ -287,9 +287,16 @@ impl AppModel {
 
     /// The user works in the main window now, unless a floating tab has the
     /// keyboard while an overlay it opened is up: its commands stay its own.
-    pub(crate) fn enter_main_unless_overlay(&mut self) {
-        if self.overlay.is_none() || self.key_float().is_none() {
-            self.enter_surface(Surface::Main);
+    /// Redraws when the keyboard leaves a floating tab, so the panes show
+    /// which one has it at once.
+    pub(crate) fn enter_main_unless_overlay(&mut self, cx: &mut Context<Self>) {
+        if self.overlay.is_some() && self.key_float().is_some() {
+            return;
+        }
+        let leaving = self.key_float().is_some();
+        self.enter_surface(Surface::Main);
+        if leaving {
+            cx.notify();
         }
     }
 

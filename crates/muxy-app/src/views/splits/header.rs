@@ -313,13 +313,15 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             perform: Perform::Active(|model, cx| model.split_pane(Direction::Down, cx)),
         },
     ];
-    if model.can_detach_terminal(pane.id) {
+    if !tab.floating() && matches!(pane.content, PaneContent::Terminal { .. }) {
         actions.push(Action {
-            name: "detach",
+            name: "float",
             icon: Icon::Overlap,
-            label: tr!("Detach Terminal"),
-            shortcut: Some(ShortcutId::DetachTerminal),
-            perform: Perform::Pane(AppModel::detach_terminal),
+            label: tr!("Float Pane"),
+            shortcut: None,
+            perform: Perform::Pane(|model, pane, cx| {
+                model.float_pane(pane, muxy_app_core::FloatScope::Project, cx);
+            }),
         });
     }
     if let Some(window) = tab.window.as_ref().filter(|window| window.is_floating()) {

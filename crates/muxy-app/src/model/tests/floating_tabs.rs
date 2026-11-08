@@ -364,3 +364,43 @@ fn a_press_just_inside_the_corner_resizes_the_float(cx: &mut TestAppContext) {
         "{before:?} -> {after:?}"
     );
 }
+
+#[gpui::test]
+fn the_pane_header_floats_a_terminal_in_place_of_detaching_it(cx: &mut TestAppContext) {
+    let (view, cx, _, _, main, _) = floated(cx);
+    let float = bounds(cx, format!("pane-float-{main}")).center();
+    cx.simulate_click(float, Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert!(model.pane_floats(main));
+        assert_eq!(model.key_float(), model.state.pane_window(main));
+        assert!(model.state.pane(main).is_some());
+    });
+}
+
+#[gpui::test]
+fn clicking_the_main_window_takes_the_keyboard_from_a_float_at_once(cx: &mut TestAppContext) {
+    let (view, cx, _, _, main, pane) = floated(cx);
+    let focused = |cx: &mut VisualTestContext, id: PaneId| {
+        view.read_with(cx, |model, cx| {
+            model
+                .terminal(&id)
+                .is_some_and(|terminal| terminal.view.read(cx).focused)
+        })
+    };
+    assert!(focused(cx, pane));
+    assert!(!focused(cx, main));
+    let header = bounds(cx, format!("pane-header-{main}"));
+    let below = point(
+        header.origin.x + px(40.0),
+        header.origin.y + header.size.height + px(30.0),
+    );
+    cx.simulate_click(below, Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.key_float(), None);
+        assert_eq!(model.active_pane(), Some(main));
+    });
+    assert!(focused(cx, main));
+    assert!(!focused(cx, pane));
+}

@@ -438,11 +438,11 @@ impl AppModel {
         let content = super::agent_sessions::panel_content(content, self, window, cx);
         let content = self.composer_content(content, window, cx);
         let workspace = action_handlers(cx)
-            .capture_any_mouse_down(cx.listener(|model, _, _, _| {
-                model.enter_main_unless_overlay();
+            .capture_any_mouse_down(cx.listener(|model, _, _, cx| {
+                model.enter_main_unless_overlay(cx);
             }))
             .capture_key_down(cx.listener(|model, event, window, cx| {
-                model.enter_main_unless_overlay();
+                model.enter_main_unless_overlay(cx);
                 model.cancel_drag_on_escape(event, window, cx);
             }))
             .track_focus(&self.focus)
