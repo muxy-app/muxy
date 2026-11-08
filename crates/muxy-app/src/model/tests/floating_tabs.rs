@@ -474,7 +474,7 @@ fn selecting_the_shown_tab_from_a_float_gives_the_main_pane_the_keyboard(cx: &mu
 fn showing_floats_again_gives_back_the_one_that_had_the_keyboard(cx: &mut TestAppContext) {
     let (view, cx, _, _, main, _) = floated(cx);
     view.update(cx, |model, cx| {
-        model.float_pane(main, FloatScope::Project, cx)
+        model.float_pane(main, FloatScope::Project, cx);
     });
     redraw(cx);
     let first = view.read_with(cx, |model, _| float_of(model, main));
