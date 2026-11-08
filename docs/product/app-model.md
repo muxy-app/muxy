@@ -115,6 +115,10 @@ to do that refuse the move.
   The command palette has **Move Tab to New Window**, **Move Pane to New Tab**,
   and **Move Pane to New Window** for the main window.
 - A terminal still starting can't change project until it has started.
+- A terminal can also float over the main window instead, over its own
+  project or over every project. A floating terminal is a tab outside the tab
+  bar, like a tab window drawn inside the main window, and its panes move the
+  same ways. See [Floating terminals](../features/terminal.md#floating-terminals).
 
 On Linux, panes and tabs move between windows through these menus, and a drag
 out of the main window opens a window of its own. Only macOS follows a drag

@@ -28,6 +28,11 @@ actions!(
         MoveTabToNewWindow,
         MovePaneToNewTab,
         MovePaneToNewWindow,
+        FloatPane,
+        DockFloatingTerminal,
+        ShowFloatingTerminalInAllProjects,
+        ShowFloatingTerminalInItsProject,
+        ToggleFloatingTerminals,
         InstallCommandLineTool,
         NewTab,
         ExistingTerminals,
@@ -299,11 +304,13 @@ impl AppModel {
         if coverage.modal() {
             self.split_resize.end();
         }
+        let key_float = self.key_float();
         let focused: Vec<_> = self
             .state
             .tab_windows()
+            .filter(|(_, _, window)| !window.is_floating() || key_float == Some(window.id))
             .filter_map(|(_, _, window)| window.active_pane())
-            .chain(self.main_active_pane())
+            .chain(self.main_active_pane().filter(|_| key_float.is_none()))
             .collect();
         for (id, pane) in &self.grids {
             if self.is_quick_terminal(*id) {
@@ -411,6 +418,8 @@ impl AppModel {
         self.sync_background_effects(window, cx);
         self.sync_toast(cx);
         self.sync_window_accessibility(window, cx);
+        let floats = super::floating_tab::cards(self, window, cx);
+        self.sync_float_focus(window, cx);
         let (actions, actions_width) = titlebar::actions(self, window, cx);
         #[cfg(target_os = "linux")]
         self.fit_sidebar_to_window(window, actions_width, cx);
@@ -429,11 +438,11 @@ impl AppModel {
         let content = super::agent_sessions::panel_content(content, self, window, cx);
         let content = self.composer_content(content, window, cx);
         let workspace = action_handlers(cx)
-            .capture_any_mouse_down(cx.listener(|model, _, _, _| {
-                model.enter_surface(Surface::Main);
+            .capture_any_mouse_down(cx.listener(|model, _, _, cx| {
+                model.enter_main_unless_overlay(cx);
             }))
             .capture_key_down(cx.listener(|model, event, window, cx| {
-                model.enter_surface(Surface::Main);
+                model.enter_main_unless_overlay(cx);
                 model.cancel_drag_on_escape(event, window, cx);
             }))
             .track_focus(&self.focus)
@@ -485,13 +494,13 @@ impl AppModel {
             .when(self.sidebar_resize.is_some(), |body| {
                 body.child(div().absolute().inset_0().cursor_ew_resize().occlude())
             })
+            .child(super::floating::layer(self, floats, window, cx))
             .child(super::splits::drag::track_pointer(cx))
             .child(super::splits::drag::overlay(self, window))
             .child(super::move_drag::overlay(self, window))
             .child(self.floating_composer(window, cx))
             .children(super::tips::toast(self, window, cx))
             .children(super::banners::render(self, window, cx))
-            .child(super::floating::layer(self, window, cx))
             .when(
                 self.settings_picker_open() && self.overlay.is_none(),
                 |body| {

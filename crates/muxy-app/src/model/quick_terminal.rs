@@ -156,7 +156,12 @@ impl AppModel {
         let mut panes: Vec<_> = self
             .main_visible_tabs()
             .into_iter()
-            .chain(self.state.tab_windows().map(|(_, tab, _)| tab.id))
+            .chain(
+                self.state
+                    .tab_windows()
+                    .filter(|(_, _, window)| !window.is_floating() || self.float_shown(window.id))
+                    .map(|(_, tab, _)| tab.id),
+            )
             .filter_map(|id| self.tab(id))
             .flat_map(muxy_app_core::Tab::visible_panes)
             .collect();

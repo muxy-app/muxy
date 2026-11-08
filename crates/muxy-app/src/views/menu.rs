@@ -60,6 +60,10 @@ pub(crate) enum Command {
     MovePaneToTab(muxy_app_core::PaneId, muxy_app_core::ProjectId),
     /// Moves a pane out of its tab into a window of its own.
     MovePaneToWindow(muxy_app_core::PaneId),
+    /// Floats a pane over the main window.
+    FloatPane(muxy_app_core::PaneId),
+    /// Changes which projects a floating tab shows over.
+    FloatScope(muxy_app_core::TabWindowId, muxy_app_core::FloatScope),
     /// Restarts the terminal with the app's proxy, or without it.
     RestartWithProxy(muxy_app_core::PaneId, bool),
     /// Opens the status bar's proxy popover.
@@ -685,6 +689,10 @@ impl AppModel {
                 self.move_pane_to_new_tab(pane, muxy_app_core::TabPlace::end(project), cx);
             }
             Command::MovePaneToWindow(pane) => self.move_pane_to_window(pane, None, None, cx),
+            Command::FloatPane(pane) => {
+                self.float_pane(pane, muxy_app_core::FloatScope::Project, cx);
+            }
+            Command::FloatScope(id, scope) => self.set_float_scope(id, scope, cx),
             Command::RestartWithProxy(pane, proxy) => self.restart_terminal(pane, proxy, cx),
             Command::ProxySettings => {
                 self.open_proxy_popover(window, cx);

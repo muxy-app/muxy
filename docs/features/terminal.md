@@ -23,7 +23,7 @@ quit the app, and every app shows the same screen and history.
   the title, dimmed, the header shows the folder the terminal works in, such as
   `~/Projects/muxy`, unless the title already shows it. The focused pane, or
   the one under the pointer, shows buttons there to split it right or down,
-  detach it, maximize it, or close it.
+  float it, maximize it, or close it.
   Drag a pane by its title to move it, as with `Cmd`-drag.
   A terminal's header takes the background a full-screen app paints its screen
   in, so it blends with the app. Turn headers off with **Settings → Appearance
@@ -41,6 +41,35 @@ quit the app, and every app shows the same screen and history.
 
 See [Keyboard shortcuts](../user-guide/keyboard-shortcuts.md) for the full
 list.
+
+## Floating terminals
+
+A terminal can float over the workspace in a panel of its own, like a small
+window inside Muxy.
+
+- **Float Pane** in a terminal's pane header, its right-click menu, or the
+  command palette floats it. A pane alone in its tab takes its tab along. Only terminals float.
+- Drag the empty part of the pane headers along the panel's top to move it,
+  and its edges or corners to resize it. With pane headers turned off, the
+  panel has a bar of its own to drag. Clicking a panel brings it to the front.
+  Muxy remembers where each one sits.
+- A floating terminal belongs to its project and starts out showing only while
+  that project is selected. The scope button in its pane header (a folder, or
+  a globe once it shows everywhere), **Show in All Projects** in its
+  right-click menu, or the command palette keeps it over every project
+  instead; **Show Only in** the project goes back.
+- Inside a floating panel, `Cmd+D` and `Cmd+Shift+D` split it, and its panes
+  move by their titles or with `Cmd`-drag into other tabs, onto the tab bar,
+  or into another project, as in a tab window. Terminal panes dragged onto it
+  dock there.
+- **Dock as Tab** in its pane header or right-click menu puts it back among its
+  project's tabs. **Move to New Window** gives it a window of its own, and
+  **Float Pane** floats a tab window's terminal back over the main window.
+- **Toggle Floating Terminals** (`Cmd+Opt+F`, or the View menu) hides every
+  floating terminal and shows them again. Hidden terminals keep running.
+  Clicking a notification for a hidden one shows it.
+- Floating terminals, where they sit, and whether they are hidden come back
+  after a restart.
 
 ## Closing and detaching
 

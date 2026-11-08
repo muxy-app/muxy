@@ -10,15 +10,17 @@ use muxy_ui::l10n::tr_key;
 use super::{
     AddProject, BrowserBack, BrowserCopyUrl, BrowserFocusAddress, BrowserForward, BrowserInspect,
     BrowserReload, BrowserZoomIn, BrowserZoomOut, BrowserZoomReset, CheckForUpdates, ClosePane,
-    CloseTab, DecreaseFontSize, DetachTerminal, EndAllSessionsAndQuit, EqualizeSplits,
-    ExistingTerminals, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight,
-    FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize,
-    MovePaneToNewTab, MovePaneToNewWindow, MoveTabToNewWindow, NavigateBack, NavigateForward,
-    NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree, NextProject, NextPrompt,
-    NextTab, OpenAbout, OpenConfiguration, OpenSettings, PreviousProject, PreviousPrompt,
-    PreviousTab, Quit, ScrollToBottom, SelectCommandOutput, ShowAll, ShowWelcomeTour, SplitDown,
-    SplitRight, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel, ToggleCommandPalette,
-    ToggleComposer, ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleZoomPane, Zoom,
+    CloseTab, DecreaseFontSize, DetachTerminal, DockFloatingTerminal, EndAllSessionsAndQuit,
+    EqualizeSplits, ExistingTerminals, Find, FindNext, FindPrevious, FloatPane, FocusPaneDown,
+    FocusPaneLeft, FocusPaneRight, FocusPaneUp, HideApp, HideOthers, IncreaseFontSize,
+    InstallCommandLineTool, Minimize, MovePaneToNewTab, MovePaneToNewWindow, MoveTabToNewWindow,
+    NavigateBack, NavigateForward, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree,
+    NextProject, NextPrompt, NextTab, OpenAbout, OpenConfiguration, OpenSettings, PreviousProject,
+    PreviousPrompt, PreviousTab, Quit, ScrollToBottom, SelectCommandOutput, ShowAll,
+    ShowFloatingTerminalInAllProjects, ShowFloatingTerminalInItsProject, ShowWelcomeTour,
+    SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel,
+    ToggleCommandPalette, ToggleComposer, ToggleFloatingTerminals, ToggleFullScreen, ToggleSidebar,
+    ToggleThemePicker, ToggleZoomPane, Zoom,
 };
 use crate::model::AppModel;
 use crate::model::browsers::BrowserAction;
@@ -179,7 +181,37 @@ fn pane_can_leave_window(model: &AppModel) -> bool {
         && model
             .active_tab()
             .and_then(|tab| model.tab(tab))
-            .is_some_and(|tab| !tab.detached() || tab.panes.len() >= 2)
+            .is_some_and(|tab| !tab.detached() || tab.floating() || tab.panes.len() >= 2)
+}
+
+fn can_float_pane(model: &AppModel) -> bool {
+    project_present(model)
+        && has_terminal(model)
+        && model
+            .active_pane()
+            .is_some_and(|pane| !model.pane_floats(pane))
+}
+
+fn has_floats(model: &AppModel) -> bool {
+    model.state.floating_tabs().next().is_some()
+}
+
+fn in_float(model: &AppModel) -> bool {
+    model.key_float().is_some()
+}
+
+fn float_in_project(model: &AppModel) -> bool {
+    model
+        .key_float()
+        .and_then(|id| model.float_scope(id))
+        .is_some_and(|scope| scope == muxy_app_core::FloatScope::Project)
+}
+
+fn float_in_all_projects(model: &AppModel) -> bool {
+    model
+        .key_float()
+        .and_then(|id| model.float_scope(id))
+        .is_some_and(|scope| scope == muxy_app_core::FloatScope::AllProjects)
 }
 
 fn has_split(model: &AppModel) -> bool {
@@ -478,6 +510,50 @@ static COMMANDS: &[CommandDef] = &[
             model.move_pane_to_window(pane, None, None, cx);
         }
     }),
+    unbound::<FloatPane>("float_pane", Label::Key(tr_key!("Float Pane")))
+        .keywords("Floating Terminal Panel Overlay Pop Out")
+        .available(can_float_pane)
+        .run(|model, _, cx| model.float_active_pane(cx)),
+    unbound::<DockFloatingTerminal>(
+        "dock_floating_terminal",
+        Label::Key(tr_key!("Dock Floating Terminal")),
+    )
+    .keywords("Floating Terminal Dock Tab Return")
+    .available(in_float)
+    .run(|model, _, cx| {
+        if let Some(id) = model.key_float() {
+            model.return_tab_window(id, None, cx);
+        }
+    }),
+    unbound::<ShowFloatingTerminalInAllProjects>(
+        "show_floating_terminal_in_all_projects",
+        Label::Key(tr_key!("Show Floating Terminal in All Projects")),
+    )
+    .keywords("Floating Terminal Global Everywhere Scope")
+    .available(float_in_project)
+    .run(|model, _, cx| {
+        if let Some(id) = model.key_float() {
+            model.set_float_scope(id, muxy_app_core::FloatScope::AllProjects, cx);
+        }
+    }),
+    unbound::<ShowFloatingTerminalInItsProject>(
+        "show_floating_terminal_in_its_project",
+        Label::Key(tr_key!("Show Floating Terminal Only in Its Project")),
+    )
+    .keywords("Floating Terminal Project Scope")
+    .available(float_in_all_projects)
+    .run(|model, _, cx| {
+        if let Some(id) = model.key_float() {
+            model.set_float_scope(id, muxy_app_core::FloatScope::Project, cx);
+        }
+    }),
+    row::<ToggleFloatingTerminals>(
+        ShortcutId::ToggleFloatingTerminals,
+        Label::Key(tr_key!("Toggle Floating Terminals")),
+    )
+    .keywords("Floating Terminals Show Hide")
+    .available(has_floats)
+    .run(|model, _, cx| model.toggle_floats(cx)),
     unbound::<CheckForUpdates>(
         "check_for_updates",
         Label::Key(tr_key!("Check for Updates…")),

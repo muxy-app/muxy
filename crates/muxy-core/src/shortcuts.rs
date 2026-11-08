@@ -126,6 +126,7 @@ pub enum ShortcutId {
     ToggleSidebar,
     ToggleAgentsPanel,
     ToggleAgentSessions,
+    ToggleFloatingTerminals,
     ToggleFullScreen,
     ToggleThemePicker,
     NavigateBack,
@@ -590,6 +591,12 @@ pub const ALL: &[Shortcut] = &[
         keys: &[],
         contexts: &[Some("WorkspaceTabs")],
         key_contexts: &[],
+    },
+    Shortcut {
+        id: "toggle_floating_terminals",
+        keys: platform_keys!(&["cmd-alt-f"], &["ctrl-shift-alt-f"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
     },
     Shortcut {
         id: "toggle_full_screen",

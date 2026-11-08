@@ -1050,3 +1050,12 @@ fn chosen_close_shortcuts_and_missing_files_are_left_alone() -> Result {
     assert!(!missing.exists());
     Ok(())
 }
+
+#[test]
+fn a_key_bound_before_floating_terminals_existed_keeps_its_command() -> Result {
+    let key: KeyChord = ShortcutId::ToggleFloatingTerminals.definition().keys[0].parse()?;
+    let keymap = Keymap::default().with_binding("new_tab", Some(key.clone()))?;
+    assert_eq!(keymap.chord(ShortcutId::NewTab), Some(&key));
+    assert_eq!(keymap.chord(ShortcutId::ToggleFloatingTerminals), None);
+    Ok(())
+}

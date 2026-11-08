@@ -108,6 +108,18 @@ pub(super) fn header(
                 {
                     model.begin_carry(carried, event.position, window, cx);
                 }
+                if let Some(float) = edges.floats {
+                    model.enter_float(float, cx);
+                    model.begin_floating_drag(
+                        &crate::model::tab_windows::floating::panel(float),
+                        None,
+                        event.position,
+                        window,
+                        cx,
+                    );
+                    window.prevent_default();
+                    cx.stop_propagation();
+                }
             }),
         )
         .when(edges.carries.is_some(), |header| {
@@ -301,20 +313,49 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             perform: Perform::Active(|model, cx| model.split_pane(Direction::Down, cx)),
         },
     ];
-    if model.can_detach_terminal(pane.id) {
+    if !tab.floating() && matches!(pane.content, PaneContent::Terminal { .. }) {
         actions.push(Action {
-            name: "detach",
+            name: "float",
             icon: Icon::Overlap,
-            label: tr!("Detach Terminal"),
-            shortcut: Some(ShortcutId::DetachTerminal),
-            perform: Perform::Pane(AppModel::detach_terminal),
+            label: tr!("Float Pane"),
+            shortcut: None,
+            perform: Perform::Pane(|model, pane, cx| {
+                model.float_pane(pane, muxy_app_core::FloatScope::Project, cx);
+            }),
+        });
+    }
+    if let Some(window) = tab.window.as_ref().filter(|window| window.is_floating()) {
+        let everywhere =
+            model.float_scope(window.id) == Some(muxy_app_core::FloatScope::AllProjects);
+        let project = model
+            .tab_project(tab.id)
+            .map(|project| model.project_title(project))
+            .unwrap_or_default();
+        actions.push(Action {
+            name: "float-scope",
+            icon: if everywhere {
+                Icon::Globe
+            } else {
+                Icon::Folder
+            },
+            label: if everywhere {
+                tr!("Show Only in %@", project.as_str())
+            } else {
+                tr!("Show in All Projects")
+            },
+            shortcut: None,
+            perform: Perform::Pane(AppModel::toggle_pane_float_scope),
         });
     }
     if tab.detached() {
         actions.push(Action {
             name: "return",
             icon: Icon::AppWindow,
-            label: tr!("Move to Main Window"),
+            label: if tab.floating() {
+                tr!("Dock as Tab")
+            } else {
+                tr!("Move to Main Window")
+            },
             shortcut: None,
             perform: Perform::Pane(AppModel::return_pane_window),
         });

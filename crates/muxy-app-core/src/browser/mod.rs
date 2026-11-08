@@ -239,6 +239,9 @@ impl AppState {
         focus: bool,
     ) -> Result<PaneId, AppError> {
         let tab = self.pane_tab_mut(pane)?;
+        if tab.floating() {
+            return Err(crate::tab_windows::only_terminals_float());
+        }
         let new = Pane {
             id: PaneId::new(),
             title: "New Tab".into(),

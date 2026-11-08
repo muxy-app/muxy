@@ -1,8 +1,9 @@
 use std::error::Error;
 
+use muxy_app_core::browser::BrowserPane;
 use muxy_app_core::{
-    AppState, Direction, PaneDrop, PaneId, ProjectId, ServerId, SessionMove, TabId, TabPlace,
-    WindowBounds,
+    AppState, Direction, FloatScope, PaneDrop, PaneId, ProjectId, ServerId, SessionMove, TabId,
+    TabPlace, WindowBounds,
 };
 use muxy_protocol::{CatalogPage, ProjectDescriptor, ServerIdentity, ServerPath, SessionId};
 
@@ -450,5 +451,164 @@ fn a_terminal_whose_move_never_reached_its_server_reattaches_and_moves_again() -
     settled.settle_session_move(ServerId::local(), session(9)?);
     let plan = muxy_app_core::restore::plan(&settled, ServerId::local(), &listed);
     assert_eq!(plan.close, [(pane, session(9)?)]);
+    Ok(())
+}
+
+fn floating_scope(state: &AppState, tab: TabId) -> Option<FloatScope> {
+    state
+        .floating_tabs()
+        .find(|(_, candidate, _)| candidate.id == tab)
+        .and_then(|(_, _, window)| window.floating())
+        .map(|floating| floating.scope)
+}
+
+#[test]
+fn a_floating_pane_leaves_its_tab_and_floats_after_a_restart() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let a = state.open_terminal_tab(home)?;
+    let first = first_pane(&state, a)?;
+    let second = state.split_pane(first, Direction::Right)?;
+    let window = state.float_pane(second, FloatScope::Project)?;
+    let (project, floating, saved) = state.tab_window(window).ok_or("window")?;
+    assert_eq!(project.id, home);
+    assert_eq!(floating.layout.leaves(), [second]);
+    assert_eq!(saved.active_pane(), Some(second));
+    assert!(floating.floating() && floating.detached());
+    assert_eq!(listed(&state, home), [a]);
+    assert_eq!(state.window().active_pane, Some(first));
+    state.set_float_frame(window, [10.0, 20.0, 400.0, 300.0])?;
+    state.set_float_scope(window, FloatScope::AllProjects)?;
+    let restored = reload(&state)?;
+    let (_, tab, saved) = restored.tab_window(window).ok_or("window")?;
+    let floating = saved.floating().ok_or("floating")?;
+    assert_eq!(floating.frame, Some([10.0, 20.0, 400.0, 300.0]));
+    assert_eq!(floating.scope, FloatScope::AllProjects);
+    assert_eq!(tab.layout.leaves(), [second]);
+    assert!(
+        state
+            .set_float_frame(window, [0.0, 0.0, 0.0, 10.0])
+            .is_err()
+    );
+    assert!(
+        state
+            .set_float_frame(window, [f32::NAN, 0.0, 10.0, 10.0])
+            .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn a_tab_alone_floats_whole_and_a_tab_window_floats_in_place() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let a = state.open_terminal_tab(home)?;
+    let b = state.open_terminal_tab(home)?;
+    let window = state.float_pane(first_pane(&state, b)?, FloatScope::Project)?;
+    assert_eq!(state.tab_window(window).map(|(_, tab, _)| tab.id), Some(b));
+    assert_eq!(listed(&state, home), [a]);
+    assert_eq!(
+        state.float_pane(first_pane(&state, b)?, FloatScope::AllProjects)?,
+        window
+    );
+    assert_eq!(floating_scope(&state, b), Some(FloatScope::Project));
+    let own = state.move_tab_to_window(a, Some(BOUNDS))?;
+    assert_eq!(state.float_tab(a, FloatScope::AllProjects)?, own);
+    assert_eq!(floating_scope(&state, a), Some(FloatScope::AllProjects));
+    assert_eq!(state.floating_tabs().count(), 2);
+    Ok(())
+}
+
+#[test]
+fn a_floating_tab_becomes_a_window_or_docks_back_as_a_tab() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let a = state.open_terminal_tab(home)?;
+    let b = state.open_terminal_tab(home)?;
+    let window = state.float_tab(b, FloatScope::Project)?;
+    assert_eq!(
+        state.move_pane_to_window(first_pane(&state, b)?, Some(BOUNDS))?,
+        window
+    );
+    let (_, _, saved) = state.tab_window(window).ok_or("window")?;
+    assert!(!saved.is_floating());
+    assert_eq!(saved.bounds, Some(BOUNDS));
+    state.float_tab(b, FloatScope::Project)?;
+    state.return_tab(window, TabPlace::end(home))?;
+    assert_eq!(listed(&state, home), [a, b]);
+    assert_eq!(state.floating_tabs().count(), 0);
+    assert_eq!(state.window().active_pane, Some(first_pane(&state, b)?));
+    Ok(())
+}
+
+#[test]
+fn panes_drag_between_a_floating_tab_and_other_projects() -> TestResult {
+    let (mut state, home, other) = two_projects()?;
+    let a = state.open_terminal_tab(home)?;
+    let b = state.open_terminal_tab(other)?;
+    let a_pane = first_pane(&state, a)?;
+    let floated = state.split_pane(a_pane, Direction::Right)?;
+    let window = state.float_pane(floated, FloatScope::AllProjects)?;
+    let b_pane = first_pane(&state, b)?;
+    state.set_pane_session(b_pane, Some(session(9)?))?;
+    let moves = state.move_pane_to(
+        b_pane,
+        PaneDrop::Dock {
+            anchor: floated,
+            edge: Direction::Down,
+            level: 0,
+        },
+    )?;
+    assert_eq!(moves.len(), 1);
+    assert_eq!(moves[0].project, home);
+    let (_, floating, saved) = state.tab_window(window).ok_or("window")?;
+    assert_eq!(floating.layout.leaves(), [floated, b_pane]);
+    assert_eq!(saved.active_pane(), Some(b_pane));
+    assert!(listed(&state, other).is_empty());
+    state.move_pane_to_new_tab(floated, TabPlace::end(other))?;
+    let (_, floating, _) = state.tab_window(window).ok_or("window")?;
+    assert_eq!(floating.layout.leaves(), [b_pane]);
+    assert_eq!(listed(&state, other).len(), 1);
+    reload(&state)?;
+    Ok(())
+}
+
+#[test]
+fn only_terminals_float() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let a = state.open_terminal_tab(home)?;
+    let terminal = first_pane(&state, a)?;
+    let (_, page) = state.open_browser(home, BrowserPane::new(None, None), true)?;
+    let page_tab = state.pane_tab(page).ok_or("tab")?;
+    assert!(state.float_pane(page, FloatScope::Project).is_err());
+    assert!(state.float_tab(page_tab, FloatScope::Project).is_err());
+    let floated = state.split_pane(terminal, Direction::Right)?;
+    state.float_pane(floated, FloatScope::Project)?;
+    let docked = PaneDrop::Dock {
+        anchor: floated,
+        edge: Direction::Right,
+        level: 0,
+    };
+    assert!(state.move_pane_to(page, docked).is_err());
+    assert!(state.move_pane_to(page, PaneDrop::Swap(floated)).is_err());
+    assert!(state.move_pane_to(floated, PaneDrop::Swap(page)).is_err());
+    assert!(
+        state
+            .split_browser(floated, BrowserPane::new(None, None), false)
+            .is_err()
+    );
+    assert_eq!(state.pane_tab(page), Some(page_tab));
+    Ok(())
+}
+
+#[test]
+fn floating_tabs_hide_together_and_stay_hidden_after_a_restart() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    assert!(!state.floats_hidden());
+    state.set_floats_hidden(true);
+    assert!(reload(&state)?.floats_hidden());
+    state.set_floats_hidden(false);
+    assert!(!reload(&state)?.floats_hidden());
     Ok(())
 }

@@ -487,7 +487,10 @@ impl AppModel {
     fn activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.window_active = window.is_window_active();
         if self.window_active {
-            self.enter_surface(tab_windows::Surface::Main);
+            let surface = self
+                .focused_float(window, cx)
+                .map_or(tab_windows::Surface::Main, tab_windows::Surface::Tab);
+            self.enter_surface(surface);
         }
         self.update_shortcut_hints(
             if self.window_active {
@@ -816,7 +819,10 @@ impl AppModel {
     /// Whether `tab` shows in some window: the main window, or its own.
     pub(crate) fn tab_shown(&self, tab: TabId) -> bool {
         self.main_visible_tabs().contains(&tab)
-            || self.tab(tab).is_some_and(muxy_app_core::Tab::detached)
+            || self
+                .tab(tab)
+                .and_then(|tab| tab.window.as_ref())
+                .is_some_and(|window| !window.is_floating() || self.float_shown(window.id))
     }
 
     pub(crate) fn visible_panes(&self) -> Vec<PaneId> {
@@ -902,6 +908,13 @@ impl AppModel {
     pub(crate) fn focus_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         if let Some(id) = self.state.pane_window(pane) {
             if self.quitting == Quitting::Idle
+                && self.float_shown(id)
+                && self.key_float() != Some(id)
+            {
+                self.enter_surface(tab_windows::Surface::Tab(id));
+                cx.notify();
+            }
+            if self.quitting == Quitting::Idle
                 && self
                     .state
                     .tab_window(id)
@@ -918,8 +931,14 @@ impl AppModel {
                 .state
                 .pane_tab(pane)
                 .is_none_or(|tab| !self.tab_shown(tab))
-            || self.main_active_pane() == Some(pane)
         {
+            return;
+        }
+        if self.key_float().is_some() {
+            self.enter_surface(tab_windows::Surface::Main);
+            cx.notify();
+        }
+        if self.main_active_pane() == Some(pane) {
             return;
         }
         if self.state.focus_pane(pane).is_ok() {
@@ -1320,6 +1339,11 @@ impl AppModel {
         {
             self.raise_pane_window(pane, cx);
             return;
+        }
+        if self.key_float().is_some() {
+            self.enter_surface(tab_windows::Surface::Main);
+            self.focus_owner.request_active_pane();
+            cx.notify();
         }
         if self.active_tab() == Some(tab) {
             return;
@@ -2040,6 +2064,7 @@ impl AppModel {
             self.create_terminal_view(id, cx);
         }
         self.ensure_visible(cx);
+        self.sync_floats();
         self.sync_tab_windows(cx);
     }
 
@@ -3145,6 +3170,7 @@ pub(crate) mod tests {
     mod extension_authoring;
     mod find;
     mod floating;
+    mod floating_tabs;
     mod focus;
     mod git;
     mod layout_drag;

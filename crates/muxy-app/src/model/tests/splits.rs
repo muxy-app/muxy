@@ -444,7 +444,7 @@ fn every_pane_has_a_header_whose_buttons_act_on_that_pane(cx: &mut TestAppContex
             "header",
             "split-right",
             "split-down",
-            "detach",
+            "float",
             "maximize",
             "close",
         ] {

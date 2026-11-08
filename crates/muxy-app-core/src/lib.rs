@@ -48,7 +48,7 @@ pub use project::{
 pub use set_aside::LocalCatalog;
 pub use state::AppState;
 pub use tab::{Tab, TabCloseScope, TabSide};
-pub use tab_windows::{PaneDrop, SessionMove, TabPlace, TabWindow};
+pub use tab_windows::{FloatScope, Floating, PaneDrop, SessionMove, TabPlace, TabWindow};
 pub use window::{WindowBounds, WindowState};
 pub use workspace::Workspace;
 

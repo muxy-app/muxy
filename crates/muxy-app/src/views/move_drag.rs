@@ -501,7 +501,7 @@ impl AppModel {
                 .state
                 .pane_tab(pane)
                 .and_then(|tab| self.tab(tab))
-                .is_some_and(|tab| !tab.detached() || tab.panes.len() > 1),
+                .is_some_and(|tab| !tab.detached() || tab.floating() || tab.panes.len() > 1),
             Moving::Window(_) => false,
         }
     }
@@ -514,7 +514,18 @@ impl AppModel {
         position: Point<Pixels>,
     ) -> Option<(Target, Option<Indicator>)> {
         let source = self.move_drag.gesture.as_ref()?.source;
-        if let Some(zone) = self.move_drag.zones.at(window, position) {
+        let over_float = self
+            .layout_drag
+            .geometry
+            .at(window, position)
+            .and_then(|placement| self.tab(placement.tab))
+            .is_some_and(muxy_app_core::Tab::floating);
+        if let Some(zone) = self
+            .move_drag
+            .zones
+            .at(window, position)
+            .filter(|_| !over_float)
+        {
             let (place, bounds, mark) = self.place_at(moving, zone, position)?;
             if !self.state.can_move_into(source, place.project) {
                 return Some((
@@ -547,7 +558,7 @@ impl AppModel {
             return None;
         }
         let project = self.tab_project(placement.tab)?.id;
-        if !self.state.can_move_into(source, project) {
+        if !self.state.can_move_into(source, project) || (tab.floating() && self.shows_page(pane)) {
             return Some((
                 Target::Refused,
                 Some(Indicator {
@@ -558,6 +569,19 @@ impl AppModel {
             ));
         }
         let (drop, bounds) = pane_drop(pane, &tab.layout, placement, position)?;
+        if let PaneDrop::Swap(anchor) = drop
+            && self.pane_floats(pane)
+            && self.shows_page(anchor)
+        {
+            return Some((
+                Target::Refused,
+                Some(Indicator {
+                    window,
+                    bounds,
+                    mark: Mark::Refused,
+                }),
+            ));
+        }
         Some((
             Target::Pane(drop),
             Some(Indicator {

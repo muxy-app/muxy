@@ -19,14 +19,17 @@ use super::{AppModel, Quitting};
 use crate::boot::Work;
 use crate::views::tab_window::TabWindowView;
 
+pub(crate) mod floating;
+
 /// What a pane header in a tab window makes room for and does: space for
-/// the window's controls at its ends, and moving the window when it sits on
-/// the window's top edge.
+/// the window's controls at its ends, and moving the window, or the floating
+/// tab, when it sits on its top edge.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct HeaderEdges {
     pub(crate) leading: Pixels,
     pub(crate) trailing: Pixels,
     pub(crate) carries: Option<TabWindowId>,
+    pub(crate) floats: Option<TabWindowId>,
 }
 
 /// The window the model works for: the main window, or a tab's own.
@@ -185,6 +188,12 @@ impl AppModel {
         if !top {
             return HeaderEdges::default();
         }
+        if window.is_floating() {
+            return HeaderEdges {
+                floats: Some(window.id),
+                ..HeaderEdges::default()
+            };
+        }
         let leading = if cfg!(target_os = "macos") && x < 0.001 {
             self.metrics.traffic_light_width()
         } else {
@@ -199,12 +208,13 @@ impl AppModel {
             leading,
             trailing,
             carries: Some(window.id),
+            floats: None,
         }
     }
 
     /// Whether every pane along a tab window's top edge has a header, which
-    /// then holds the window's controls and moves the window, so the window
-    /// needs no titlebar of its own.
+    /// then holds the window's controls and moves the window, so the window,
+    /// or the floating tab, needs no titlebar of its own.
     pub(crate) fn headers_on_top(&self, tab: &muxy_app_core::Tab) -> bool {
         self.appearance.pane_headers
             && tab.zoomed.is_none()
@@ -258,6 +268,7 @@ impl AppModel {
         let wanted: HashSet<_> = self
             .state
             .tab_windows()
+            .filter(|(_, _, window)| !window.is_floating())
             .map(|(_, _, window)| window.id)
             .collect();
         let gone: Vec<_> = self
@@ -306,7 +317,10 @@ impl AppModel {
         if !self.tab_windows.opening.remove(&id) || self.quitting != Quitting::Idle {
             return None;
         }
-        let (_, tab, saved) = self.state.tab_window(id)?;
+        let (_, tab, saved) = self
+            .state
+            .tab_window(id)
+            .filter(|(_, _, window)| !window.is_floating())?;
         let title = self.tab_window_title(tab.id, cx);
         let bounds = saved
             .bounds
@@ -345,7 +359,11 @@ impl AppModel {
                 return;
             }
         };
-        if self.state.tab_window(id).is_none() {
+        if self
+            .state
+            .tab_window(id)
+            .is_none_or(|(_, _, window)| window.is_floating())
+        {
             cx.defer(move |cx| {
                 let _ = handle.update(cx, |_, window, _| window.remove_window());
             });
@@ -468,6 +486,14 @@ impl AppModel {
             return false;
         };
         let _ = self.state.focus_pane(pane);
+        if self.is_float(id) {
+            self.reveal_float(id, cx);
+            let handle = self.window;
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_, window, _| window.activate_window());
+            });
+            return true;
+        }
         self.tab_windows.focus.insert(id);
         self.tab_windows.key = Some(id);
         if let Some(handle) = self.tab_windows.handle(id) {
@@ -592,6 +618,12 @@ impl AppModel {
             .is_some()
         {
             match self.state.pane_window(pane) {
+                Some(id) if self.is_float(id) => {
+                    if self.surface() != Surface::Main {
+                        self.raise_main_window(cx);
+                    }
+                    self.enter_float(id, cx);
+                }
                 Some(id) => {
                     self.tab_windows.focus.insert(id);
                     if self.surface() != Surface::Tab(id) {

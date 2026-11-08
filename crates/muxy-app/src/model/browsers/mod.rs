@@ -473,7 +473,10 @@ impl AppModel {
         }
         let profile = self.browser_profile(profile.as_deref())?.id().to_string();
         let browser = BrowserPane::new(url, Some(profile));
-        let anchor = split.then(|| self.shown_pane_of(project)).flatten();
+        let anchor = split
+            .then(|| self.shown_pane_of(project))
+            .flatten()
+            .filter(|pane| !self.pane_floats(*pane));
         let opened = self.transact(
             |state| match anchor {
                 Some(anchor) => state.split_browser(anchor, browser, select),
