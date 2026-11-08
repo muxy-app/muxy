@@ -1338,6 +1338,7 @@ pub(crate) fn project_tile(
     } else if let Some(image) = model.project_icons.image(project) {
         gpui::img(image)
             .size(size)
+            .rounded(m.radius_md() * scale)
             .object_fit(gpui::ObjectFit::Contain)
             .into_any_element()
     } else if project.home && project.server_id.is_local() {
