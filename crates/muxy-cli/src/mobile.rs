@@ -8,22 +8,24 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use muxy_app_core::qr::{QUIET_ZONE, QrCode};
 use muxy_client::{Client, ClientEvent};
-use muxy_protocol::{ListenerStatus, RemoteAccessSettings, RemoteAccessState};
+use muxy_protocol::{Feature, ListenerStatus, PushStatus, RemoteAccessSettings, RemoteAccessState};
 
 use crate::args::Mobile;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 
 pub(crate) fn run(command: Mobile, client: &Client) -> Result {
+    let push = client.supports(Feature::PUSH_NOTIFICATIONS);
+    let show = |state: &RemoteAccessState| print_state(state, push);
     match command {
-        Mobile::Status => print_state(&client.read_remote_access()?),
+        Mobile::Status => show(&client.read_remote_access()?),
         Mobile::Enable { port } => {
             let current = client.read_remote_access()?.settings;
             let state = client.write_remote_access(RemoteAccessSettings {
                 enabled: true,
                 port: port.unwrap_or(current.port),
             })?;
-            print_state(&state)?;
+            show(&state)?;
             match state.status {
                 ListenerStatus::Failed(message) => {
                     Err(format!("mobile access could not start: {message}").into())
@@ -35,17 +37,23 @@ pub(crate) fn run(command: Mobile, client: &Client) -> Result {
         }
         Mobile::Disable => {
             let current = client.read_remote_access()?.settings;
-            print_state(&client.write_remote_access(RemoteAccessSettings {
+            show(&client.write_remote_access(RemoteAccessSettings {
                 enabled: false,
                 ..current
             })?)
         }
         Mobile::Pair { addresses } => pair(client, addresses),
         Mobile::Revoke { device } => revoke(client, &device),
+        Mobile::Push { on } => {
+            if !push {
+                return Err("this server can't send push notifications; update Muxy on it".into());
+            }
+            show(&client.set_push_notifications(on)?)
+        }
     }
 }
 
-fn print_state(state: &RemoteAccessState) -> Result {
+fn print_state(state: &RemoteAccessState, push: bool) -> Result {
     let mut stdout = io::stdout().lock();
     match (&state.status, state.settings.enabled) {
         (ListenerStatus::Listening, _) => writeln!(
@@ -63,6 +71,14 @@ fn print_state(state: &RemoteAccessState) -> Result {
             "Mobile access: status unknown to this version of muxy"
         )?,
     }
+    if push {
+        let push = if state.push_notifications {
+            "on"
+        } else {
+            "off"
+        };
+        writeln!(stdout, "Push notifications: {push}")?;
+    }
     if state.devices.is_empty() {
         writeln!(stdout, "No paired devices.")?;
         return Ok(());
@@ -79,9 +95,13 @@ fn print_state(state: &RemoteAccessState) -> Result {
             )
         };
         let id = device.id.to_string();
+        let notifications = device
+            .push
+            .map(|status| format!("  {}", push_label(status)))
+            .unwrap_or_default();
         writeln!(
             stdout,
-            "  {}  {}  {seen}",
+            "  {}  {}  {seen}{notifications}",
             &id[..8],
             device.name.escape_debug()
         )?;
@@ -176,6 +196,15 @@ fn print_code(output: &mut impl Write, code: &QrCode) -> io::Result<()> {
         writeln!(output, "\x1b[0m")?;
     }
     Ok(())
+}
+
+fn push_label(status: PushStatus) -> &'static str {
+    match status {
+        PushStatus::Active => "notifications on",
+        PushStatus::Pending => "notifications pending",
+        PushStatus::Refused => "notifications refused by Apple or Google",
+        PushStatus::Disabled | PushStatus::Unrecognized(_) => "notifications unknown",
+    }
 }
 
 fn ago(seconds: u64) -> String {

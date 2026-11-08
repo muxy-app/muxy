@@ -1,8 +1,9 @@
 # Mobile
 
-The Muxy phone apps connect straight to the server on your computer. There is
-no cloud service and no account. A paired phone sees the same projects and
-terminals as your desktop.
+The Muxy phone apps connect straight to the server on your computer, with no
+account. A paired phone sees the same projects and terminals as your desktop.
+The one service involved is the relay at `muxy.app`, which delivers
+[push notifications](#push-notifications) without being able to read them.
 
 A phone connects in one of two ways:
 
@@ -45,8 +46,27 @@ muxy mobile pair
 | See status and phones | **Clients** in **Settings → Servers** | `muxy mobile` |
 | Revoke a phone | **Revoke** next to it | `muxy mobile revoke <id>` |
 | Turn access off | **Allow clients** off | `muxy mobile disable` |
+| Turn push notifications on or off | **Push notifications** | `muxy mobile push on\|off` |
 
 Revoking a phone, or turning access off, disconnects it at once.
+
+## Push notifications
+
+A paired phone can get a notification when an agent needs your attention or
+finishes working while you're away from the Muxy app. Tapping it opens that
+terminal.
+
+- Turn them on in the Muxy app, for each computer it is paired with.
+- The server waits about 20 seconds. If you look at the terminal on any device
+  in that time, or the Muxy app is open and connected, nothing is sent.
+- Notifications go through `muxy.app`, which forwards them to Apple or Google.
+  Their content is encrypted for your phone; the relay sees only that there is
+  a notification.
+- They're on by default for every computer. Turn them off for all phones with
+  **Push notifications** under **Settings → Servers → This Computer**, or
+  `muxy mobile push off`. Turning them off forgets every phone's registration.
+- `muxy mobile` shows whether each phone gets them.
+- Phones connected over SSH don't get them.
 
 ## What a phone can do
 
@@ -66,3 +86,7 @@ Other computers pair with the same code's link; see
 - On iOS, the Muxy app needs local network permission.
 - The phone and computer must reach each other: same network, a VPN, or an
   address added with `--address`.
+- No push notifications: check they're on in the Muxy app and on the computer
+  (`muxy mobile`). The computer must reach `https://muxy.app`, directly or
+  through the proxy in `HTTPS_PROXY`. "Refused by Apple or Google" means the
+  phone should get a new token: turn notifications off and on in the app.

@@ -102,8 +102,68 @@ impl Message {
         terminal_metadata_samples(&mut samples);
         samples.extend(activity_samples(session));
         samples.extend(remote_samples());
+        samples.extend(push_samples());
         samples
     }
+}
+
+fn push_samples() -> Vec<Message> {
+    let device = crate::DeviceId::from_u128(3);
+    let requests = [
+        RequestBody::RegisterPush(crate::PushToken {
+            platform: crate::PushPlatform::Apns,
+            token: "8f1c".repeat(16),
+            environment: Some(crate::PushEnvironment::Production),
+        }),
+        RequestBody::RegisterPush(crate::PushToken {
+            platform: crate::PushPlatform::Fcm,
+            token: "fcm-token:APA91b_".repeat(4),
+            environment: None,
+        }),
+        RequestBody::UnregisterPush,
+        RequestBody::SetPushNotifications(false),
+    ];
+    let replies = [
+        ReplyBody::PushRegistered(crate::PushRegistration {
+            status: crate::PushStatus::Active,
+            key: Some([9; crate::PUSH_KEY_BYTES]),
+        }),
+        ReplyBody::PushRegistered(crate::PushRegistration {
+            status: crate::PushStatus::Disabled,
+            key: None,
+        }),
+        ReplyBody::PushUnregistered,
+        ReplyBody::RemoteAccess(crate::RemoteAccessState {
+            revision: 8,
+            settings: crate::RemoteAccessSettings {
+                enabled: true,
+                port: crate::DEFAULT_REMOTE_PORT,
+            },
+            status: crate::ListenerStatus::Listening,
+            pairing_expires_at: None,
+            devices: vec![crate::PairedDevice {
+                id: device,
+                name: "Phone".into(),
+                paired_at: 100,
+                last_seen: Some(200),
+                connected: false,
+                kind: crate::DeviceKind::Phone,
+                push: Some(crate::PushStatus::Refused),
+            }],
+            push_notifications: true,
+        }),
+    ];
+    requests
+        .into_iter()
+        .map(|body| Message::Request {
+            id: RequestId(48),
+            body,
+        })
+        .chain(replies.into_iter().map(|body| Message::Reply {
+            id: RequestId(48),
+            body,
+        }))
+        .collect()
 }
 
 fn remote_samples() -> Vec<Message> {
@@ -159,7 +219,9 @@ fn remote_samples() -> Vec<Message> {
                 last_seen: Some(200),
                 connected: true,
                 kind: crate::DeviceKind::Computer,
+                push: None,
             }],
+            push_notifications: false,
         }),
         ReplyBody::Pairing(crate::PairingOffer {
             invite: crate::PairingInvite {

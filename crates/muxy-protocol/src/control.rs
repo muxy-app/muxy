@@ -225,6 +225,18 @@ pub enum RequestBody {
         #[n(1)]
         project: crate::ProjectId,
     },
+    /// The phone's push token, so this server can notify it through the
+    /// relay. Only paired phones may send it. Requires
+    /// `Feature::PUSH_NOTIFICATIONS`.
+    #[n(48)]
+    RegisterPush(#[n(0)] crate::PushToken),
+    /// Stops this server's notifications to the phone and forgets its key.
+    #[n(49)]
+    UnregisterPush,
+    /// Turns push notifications on or off for every phone. Turning them off
+    /// forgets every phone's registration.
+    #[n(50)]
+    SetPushNotifications(#[n(0)] bool),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -346,6 +358,10 @@ pub enum ReplyBody {
     SessionMetadataWatched,
     #[n(42)]
     SessionMoved,
+    #[n(43)]
+    PushRegistered(#[n(0)] crate::PushRegistration),
+    #[n(44)]
+    PushUnregistered,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

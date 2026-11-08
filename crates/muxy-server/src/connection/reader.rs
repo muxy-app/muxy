@@ -43,6 +43,7 @@ pub(super) fn run(
         git_watch: Arc::new(Mutex::new(None)),
         files_workers: WorkerPool::new("connection-files", 1, 16)?,
         files_readers: WorkerPool::new("connection-files-read", 4, 32)?,
+        push_workers: WorkerPool::new("connection-push", 1, 4)?,
         files_watch: Arc::new(Mutex::new(crate::files::watch::Subscriptions::default())),
         search_cache: Arc::new(Mutex::new(SearchCache::default())),
         last_channel: Arc::new(AtomicU32::new(0)),
@@ -151,6 +152,7 @@ struct Requests {
     git_readers: WorkerPool,
     files_workers: WorkerPool,
     files_readers: WorkerPool,
+    push_workers: WorkerPool,
     files_watch: Arc<Mutex<crate::files::watch::Subscriptions>>,
     git_watch: Arc<Mutex<Option<crate::watch::Subscription>>>,
     search_cache: Arc<Mutex<SearchCache>>,
@@ -260,6 +262,28 @@ impl Requests {
                         output.push_control(Message::Reply { id, body });
                     })
                     .map_err(|e| ServerError::new(ErrorCode::BadRequest, e.to_string()))?;
+                Ok(None)
+            }
+            RequestBody::RegisterPush(token) => {
+                let device = connection.device().ok_or_else(|| {
+                    ServerError::new(ErrorCode::Unauthorized, "not a paired phone")
+                })?;
+                let registry = Arc::clone(&self.registry);
+                let output = Arc::clone(connection);
+                self.push_workers
+                    .try_spawn(move || {
+                        if output.is_closed() {
+                            return;
+                        }
+                        let body =
+                            match registry.register_push(device, token, crate::push::REGISTER_WAIT)
+                            {
+                                Ok(registration) => ReplyBody::PushRegistered(registration),
+                                Err(error) => ReplyBody::Error(error.to_reply()),
+                            };
+                        output.push_control(Message::Reply { id, body });
+                    })
+                    .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
                 Ok(None)
             }
             body => {
@@ -413,6 +437,7 @@ fn ordered_request(
         }
         RequestBody::Upload(chunk) => ReplyBody::Uploaded(registry.upload(&chunk)?),
         RequestBody::Ping
+        | RequestBody::RegisterPush(_)
         | RequestBody::Exec(_)
         | RequestBody::CancelExec(_)
         | RequestBody::Git(_)
@@ -449,6 +474,17 @@ fn ordered_request(
         }
         RequestBody::RevokeDevice(device) => {
             ReplyBody::RemoteAccess(registry.revoke_device(device)?)
+        }
+        RequestBody::UnregisterPush => {
+            let device = connection
+                .device()
+                .ok_or_else(|| ServerError::new(ErrorCode::Unauthorized, "not a paired phone"))?;
+            registry.unregister_push(device)?;
+            ReplyBody::PushUnregistered
+        }
+        RequestBody::SetPushNotifications(on) => {
+            connection.watch_remote_access();
+            ReplyBody::RemoteAccess(registry.set_push_notifications(on)?)
         }
         RequestBody::ListSessions => ReplyBody::Sessions(registry.list()),
         RequestBody::CreateSession {

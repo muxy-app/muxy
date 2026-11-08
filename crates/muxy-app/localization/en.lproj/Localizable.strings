@@ -1292,6 +1292,9 @@
 "Nothing is staged. Stage changes first or include unstaged changes." = "Nothing is staged. Stage changes first or include unstaged changes.";
 "Nothing to manage" = "Nothing to manage";
 "Notifications are turned off for Muxy in System Settings." = "Notifications are turned off for Muxy in System Settings.";
+"Notifications on" = "Notifications on";
+"Notifications pending" = "Notifications pending";
+"Notifications refused" = "Notifications refused";
 "OK" = "OK";
 "Off" = "Off";
 "Older sessions" = "Older sessions";
@@ -1451,6 +1454,7 @@
 "Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI." = "Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI.";
 "Pull request: %@" = "Pull request: %@";
 "Push after committing" = "Push after committing";
+"Push notifications" = "Push notifications";
 "Pushing" = "Pushing";
 "Put the user and port either in the host or in their own fields" = "Put the user and port either in the host or in their own fields";
 "Pyramid" = "Pyramid";
@@ -1821,6 +1825,7 @@
 "Take your terminals with you" = "Take your terminals with you";
 "Teal" = "Teal";
 "Teardown hooks could not be loaded: %@\nContinuing will remove without hooks." = "Teardown hooks could not be loaded: %@\nContinuing will remove without hooks.";
+"Tell paired phones when an agent needs attention or finishes, through the muxy.app relay, which sees only encrypted content. Each phone turns them on in the Muxy app." = "Tell paired phones when an agent needs attention or finishes, through the muxy.app relay, which sees only encrypted content. Each phone turns them on in the Muxy app.";
 "Template" = "Template";
 "Templates must include {branch}. Relative paths start from the project folder." = "Templates must include {branch}. Relative paths start from the project folder.";
 "Terminal" = "Terminal";

@@ -141,6 +141,41 @@ impl AppModel {
         self.finish_access_change(result, cx);
     }
 
+    /// Whether this computer's server can send push notifications to paired phones.
+    pub(crate) fn push_notifications_available(&self) -> bool {
+        self.client_access_available()
+            && self.server_supports(
+                ServerId::local(),
+                muxy_protocol::Feature::PUSH_NOTIFICATIONS,
+            )
+    }
+
+    /// Turns push notifications to paired phones on or off. Off forgets every
+    /// phone's registration. A refusal shows on the page.
+    pub(crate) fn set_push_notifications(&mut self, on: bool, cx: &mut Context<Self>) {
+        let result = if !self.push_notifications_available() {
+            Err(tr!("Connect to the server before changing client access").to_string())
+        } else if self.client_access.busy {
+            Err(tr!("Wait for the current client access change to finish").to_string())
+        } else if self
+            .client_access
+            .state
+            .as_ref()
+            .is_some_and(|state| state.push_notifications != on)
+        {
+            self.client_access.busy =
+                self.send(ServerId::local(), Work::SetPushNotifications(on), cx);
+            if self.client_access.busy {
+                Ok(())
+            } else {
+                Err(tr!("Could not send the change to the server").to_string())
+            }
+        } else {
+            Ok(())
+        };
+        self.finish_access_change(result, cx);
+    }
+
     /// Moves client access to the typed port.
     pub(crate) fn set_client_port(&mut self, port: &str, cx: &mut Context<Self>) {
         let result = port

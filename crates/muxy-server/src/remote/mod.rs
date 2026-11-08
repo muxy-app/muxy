@@ -20,6 +20,8 @@ use muxy_protocol::{
 
 use crate::ServerError;
 use crate::notifier::Notifier;
+use crate::push::Credentials;
+pub(crate) use store::PushRecord;
 use store::{Device, Stored};
 
 const PAIRING_SECONDS: u64 = 5 * 60;
@@ -116,6 +118,34 @@ impl RemoteAccess {
         }
     }
 
+    /// Access that is on, with `phones` paired, each with the token `[7; 32]`.
+    #[cfg(test)]
+    pub(crate) fn with_phones(phones: &[DeviceId]) -> Self {
+        let remote = Self::memory();
+        {
+            let mut state = remote.lock();
+            state.stored.settings.enabled = true;
+            state.stored.devices = phones
+                .iter()
+                .map(|id| Device {
+                    id: *id,
+                    name: "Phone".into(),
+                    token_hash: hash(&[7; 32]),
+                    paired_at: 0,
+                    last_seen: None,
+                    kind: DeviceKind::Phone,
+                    push: None,
+                })
+                .collect();
+        }
+        remote
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_accepting(&self, enabled: bool) {
+        self.lock().stored.settings.enabled = enabled;
+    }
+
     /// The saved state that couldn't be read when the server started.
     pub(crate) fn unreadable(&self) -> Option<&UnreadableFile> {
         self.unreadable.as_ref()
@@ -161,8 +191,10 @@ impl RemoteAccess {
                     last_seen: device.last_seen,
                     connected: connected.contains(&device.id),
                     kind: device.kind,
+                    push: device.push.as_ref().map(|push| push.status),
                 })
                 .collect(),
+            push_notifications: state.stored.push_notifications,
         }
     }
 
@@ -309,6 +341,7 @@ impl RemoteAccess {
             paired_at: now,
             last_seen: Some(now),
             kind: store::StoredKind::from(request.kind).into(),
+            push: None,
         });
         if let Err(error) = self.save(&stored) {
             log::error!("pairing not saved: {error}");
@@ -374,18 +407,123 @@ impl RemoteAccess {
                 .any(|stored| stored.id == device)
     }
 
-    pub(crate) fn revoke(&self, device: DeviceId) -> Result<(), ServerError> {
+    /// Forgets the device, and hands back its push registration for deleting at the relay.
+    pub(crate) fn revoke(&self, device: DeviceId) -> Result<Option<PushRecord>, ServerError> {
         let mut state = self.lock();
         let mut stored = state.stored.clone();
-        stored.devices.retain(|stored| stored.id != device);
-        if stored.devices.len() == state.stored.devices.len() {
-            return Ok(());
+        let Some(index) = stored.devices.iter().position(|stored| stored.id == device) else {
+            return Ok(None);
+        };
+        let removed = stored.devices.remove(index);
+        self.save(&stored)?;
+        state.stored = stored;
+        drop(state);
+        self.changed();
+        Ok(removed.push)
+    }
+
+    /// Whether paired devices may connect, which push notifications need to be useful.
+    pub(crate) fn accepting(&self) -> bool {
+        self.lock().stored.settings.enabled
+    }
+
+    pub(crate) fn push_notifications(&self) -> bool {
+        self.lock().stored.push_notifications
+    }
+
+    /// Turns push notifications on or off for every phone. Turning them off
+    /// forgets every registration; their relay credentials come back for deleting.
+    pub(crate) fn set_push_notifications(&self, on: bool) -> Result<Vec<Credentials>, ServerError> {
+        let mut state = self.lock();
+        let mut stored = state.stored.clone();
+        stored.push_notifications = on;
+        let removed: Vec<_> = if on {
+            Vec::new()
+        } else {
+            stored
+                .devices
+                .iter_mut()
+                .filter_map(|device| device.push.take())
+                .collect()
+        };
+        let changed =
+            stored.push_notifications != state.stored.push_notifications || !removed.is_empty();
+        if !changed {
+            return Ok(Vec::new());
         }
         self.save(&stored)?;
         state.stored = stored;
         drop(state);
         self.changed();
-        Ok(())
+        Ok(removed
+            .into_iter()
+            .filter_map(|record| record.relay)
+            .collect())
+    }
+
+    pub(crate) fn knows(&self, device: DeviceId) -> bool {
+        self.lock()
+            .stored
+            .devices
+            .iter()
+            .any(|stored| stored.id == device)
+    }
+
+    pub(crate) fn push_record(&self, device: DeviceId) -> Option<PushRecord> {
+        self.lock()
+            .stored
+            .devices
+            .iter()
+            .find(|stored| stored.id == device)
+            .and_then(|stored| stored.push.clone())
+    }
+
+    /// Every device's push registration.
+    pub(crate) fn push_records(&self) -> Vec<(DeviceId, PushRecord)> {
+        self.lock()
+            .stored
+            .devices
+            .iter()
+            .filter_map(|device| device.push.clone().map(|push| (device.id, push)))
+            .collect()
+    }
+
+    /// Replaces the device's push registration only while it is still
+    /// `expected`, so work based on an older one never overwrites a newer
+    /// one. `false` when it changed or the device is gone.
+    pub(crate) fn replace_push(
+        &self,
+        device: DeviceId,
+        expected: Option<&PushRecord>,
+        next: Option<PushRecord>,
+    ) -> Result<bool, ServerError> {
+        let mut state = self.lock();
+        let Some(index) = state
+            .stored
+            .devices
+            .iter()
+            .position(|stored| stored.id == device)
+        else {
+            return Ok(false);
+        };
+        let current = &state.stored.devices[index].push;
+        if current.as_ref() != expected {
+            return Ok(false);
+        }
+        if *current == next {
+            return Ok(true);
+        }
+        let shown =
+            current.as_ref().map(|push| push.status) != next.as_ref().map(|push| push.status);
+        let mut stored = state.stored.clone();
+        stored.devices[index].push = next;
+        self.save(&stored)?;
+        state.stored = stored;
+        drop(state);
+        if shown {
+            self.changed();
+        }
+        Ok(true)
     }
 
     pub(crate) fn admit(&self) -> Option<Admission> {

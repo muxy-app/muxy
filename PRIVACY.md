@@ -1,7 +1,7 @@
 # Privacy Policy
 
 _Effective date: the date this document was first published at its public URL._
-_Last updated: October 10, 2026._
+_Last updated: November 8, 2026._
 
 Muxy ("the app") is a developer tool that lets your iPhone or iPad connect to Muxy running on your own computer, such as a Mac or a Linux server. It connects over your local network, a private VPN, an address you add to the pairing code, or SSH. This policy describes what data the app handles and what it does not.
 
@@ -10,7 +10,8 @@ Muxy ("the app") is a developer tool that lets your iPhone or iPad connect to Mu
 - No account, no sign-up, no email required.
 - No analytics, advertising, or third-party tracking SDKs.
 - The app communicates only with the computers you pair with or connect to over SSH.
-- All data stays on your devices.
+- If you turn on notifications, your computer delivers them through a Muxy relay that cannot read them.
+- All other data stays on your devices.
 
 ## What the app stores on your device
 
@@ -18,6 +19,7 @@ The app stores the following locally on your iOS device. None of it is transmitt
 
 - **Pairing credentials.** When you pair with a computer, it gives the app a credential: the computer's name, its addresses and port, the fingerprint of its security certificate, an ID for your device, and an access token. The credential is stored in the iOS Keychain (this device only) and is used to sign in to that computer. The computer keeps only a hash of the token.
 - **SSH connections.** If you connect over SSH, the connection details and credentials you choose to save are stored only on your device.
+- **Notification keys.** If you turn on notifications for a computer, that computer gives the app a key for decrypting its notifications. The keys are stored in the iOS Keychain, shared with the app's notification extension.
 - **Preferences.** Display settings such as the terminal font size.
 - **Diagnostic log (in memory only).** While the app is running, it keeps a short rolling log of connection events (timestamps, the address and port you are connecting to, and request identifiers) to help you troubleshoot connection problems. This log is held in memory, is cleared when the app exits, and is never sent anywhere. If a connection error occurs, the app shows the log so you can copy or share it yourself if you choose to.
 
@@ -32,7 +34,17 @@ The app connects directly to the computer you choose, in one of two ways:
 
 The app sends only what is needed to sign in, show terminal output, send your input, and perform the project, file, and version-control actions you start (such as staging, committing, pushing, pulling, switching branches, managing worktrees, or opening pull requests).
 
-The app does not contact any Muxy-operated server. It does not contact any third-party server. It does not perform background networking.
+The app does not contact any Muxy-operated server. It does not contact any third-party server, other than Apple's push notification service through iOS when you turn on notifications. It does not perform background networking.
+
+## Notifications
+
+Notifications are off until you allow them. When you turn them on for a paired computer:
+
+- iOS gives the app a push token from Apple, and the app sends it to that computer over the paired connection, with whether it is a development or App Store build.
+- The computer registers the token with the Muxy push relay at muxy.app, which uses Apple's push notification service to deliver notifications to your device. The relay stores the token encrypted, a hash of the secret your computer uses with it, and delivery timestamps and daily counts. It does not store your IP address or notification content.
+- Each notification's content, such as the agent and project name, is encrypted on your computer with a key only your computer and your device hold. The relay and Apple see only that a notification was sent, whether an agent needs attention or finished, and identifiers that mean nothing without the key.
+
+Turning notifications off for a computer, or revoking your device on it, deletes the registration. A computer's owner can also turn notifications off for every device. Notifications are not available over SSH.
 
 ## What the app does not collect
 
@@ -45,6 +57,7 @@ The app does not contact any Muxy-operated server. It does not contact any third
 ## Permissions
 
 - **Local Network.** Required by iOS so the app can reach a computer on your LAN.
+- **Notifications.** Optional. Used only to tell you when an agent on your computer needs your attention or finishes working.
 - **Camera.** Used only to scan a pairing code. Camera images are not stored or sent.
 
 ## Children

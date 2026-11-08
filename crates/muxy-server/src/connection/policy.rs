@@ -6,7 +6,8 @@ use crate::ServerError;
 /// end of a network connection. A paired device can already reach a shell, so
 /// these limits guard access management and the server's lifecycle, not data.
 /// A paired computer may do what a desktop app on this computer does, except
-/// manage which devices may connect.
+/// manage which devices may connect. Only a paired phone registers for push
+/// notifications, and only for itself, since the connection is its own.
 pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(), ServerError> {
     match body {
         RequestBody::Authenticate(_) | RequestBody::Pair(_) => Err(ServerError::new(
@@ -22,7 +23,9 @@ pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(
         | RequestBody::StartPairing
         | RequestBody::StartPairingWithHosts(_)
         | RequestBody::CancelPairing
-        | RequestBody::RevokeDevice(_) => local_only(device),
+        | RequestBody::RevokeDevice(_)
+        | RequestBody::SetPushNotifications(_) => local_only(device),
+        RequestBody::RegisterPush(_) | RequestBody::UnregisterPush => phone_only(device),
         RequestBody::StopServer
         | RequestBody::StopServerIfIdle
         | RequestBody::WriteServerSettings(_)
@@ -80,6 +83,17 @@ fn local_only(device: Option<DeviceKind>) -> Result<(), ServerError> {
     }
 }
 
+/// Paired phones, which push notifications reach through their device record.
+fn phone_only(device: Option<DeviceKind>) -> Result<(), ServerError> {
+    match device {
+        Some(DeviceKind::Phone) => Ok(()),
+        None | Some(DeviceKind::Computer | DeviceKind::Unrecognized(_)) => Err(ServerError::new(
+            ErrorCode::Unauthorized,
+            "push notifications are only for paired phones",
+        )),
+    }
+}
+
 /// Connections from this computer or from a paired computer.
 fn desktop_only(device: Option<DeviceKind>) -> Result<(), ServerError> {
     match device {
@@ -93,16 +107,44 @@ fn desktop_only(device: Option<DeviceKind>) -> Result<(), ServerError> {
 
 #[cfg(test)]
 mod tests {
-    use muxy_protocol::{ClientKind, DeviceId, DeviceKind, RequestBody};
+    use muxy_protocol::{
+        ClientKind, DeviceId, DeviceKind, PushEnvironment, PushPlatform, PushToken, RequestBody,
+    };
 
     use super::permit;
 
-    fn managing_access() -> [RequestBody; 3] {
+    fn managing_access() -> [RequestBody; 4] {
         [
             RequestBody::ReadRemoteAccess,
             RequestBody::StartPairing,
             RequestBody::RevokeDevice(DeviceId::new()),
+            RequestBody::SetPushNotifications(false),
         ]
+    }
+
+    fn push_registration() -> [RequestBody; 2] {
+        [
+            RequestBody::RegisterPush(PushToken {
+                platform: PushPlatform::Apns,
+                token: "a".repeat(64),
+                environment: Some(PushEnvironment::Production),
+            }),
+            RequestBody::UnregisterPush,
+        ]
+    }
+
+    #[test]
+    fn only_paired_phones_register_for_push_notifications() {
+        for body in push_registration() {
+            assert!(permit(Some(DeviceKind::Phone), &body).is_ok(), "{body:?}");
+            for device in [
+                None,
+                Some(DeviceKind::Computer),
+                Some(DeviceKind::Unrecognized(9)),
+            ] {
+                assert!(permit(device, &body).is_err(), "{device:?} {body:?}");
+            }
+        }
     }
 
     fn desktop_work() -> [RequestBody; 3] {

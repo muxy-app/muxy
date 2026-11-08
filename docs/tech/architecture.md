@@ -167,6 +167,8 @@ flowchart LR
 - Apps get agent status from the server. They never read terminal output
   themselves.
 - One desktop app delivers system notifications, so alerts are never doubled.
+- The server sends paired phones encrypted push notifications through the
+  `muxy.app` relay. See [Mobile](./mobile.md#push-notifications).
 
 ## Updates
 

@@ -37,6 +37,9 @@ impl Feature {
     pub const PAIRED_COMPUTERS: Self = Self(3);
     /// A session can move to another project with `MoveSession`.
     pub const SESSION_MOVE: Self = Self(4);
+    /// Paired phones can register for push notifications, and the server
+    /// has a switch for them.
+    pub const PUSH_NOTIFICATIONS: Self = Self(5);
 }
 
 /// Features this build's server supports.
@@ -45,4 +48,5 @@ pub const FEATURES: &[Feature] = &[
     Feature::SESSION_ENVIRONMENT,
     Feature::PAIRED_COMPUTERS,
     Feature::SESSION_MOVE,
+    Feature::PUSH_NOTIFICATIONS,
 ];

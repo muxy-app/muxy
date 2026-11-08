@@ -72,6 +72,8 @@ If `muxy --version` shows 1.x, Muxy 1.x's CLI comes first on your `PATH`.
 - Muxy doesn't notify for the pane you're looking at, or for detached
   terminals.
 - Recognition is best effort. `muxy activity list` shows what the server sees.
+- On a phone, see [Mobile troubleshooting](../features/mobile.md#troubleshooting).
+  A phone isn't notified while the Muxy app is open and connected.
 
 ## Git or AI actions are disabled
 

@@ -84,7 +84,7 @@ impl Connection {
         Self::with_state(notifier, ConnectionState::default())
     }
 
-    pub(super) fn for_device(notifier: Arc<Notifier>, device: DeviceId, kind: DeviceKind) -> Self {
+    pub(crate) fn for_device(notifier: Arc<Notifier>, device: DeviceId, kind: DeviceKind) -> Self {
         Self::with_state(notifier, ConnectionState::for_device(device, kind))
     }
 

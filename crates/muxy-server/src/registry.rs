@@ -61,6 +61,7 @@ pub struct Registry {
     completed: Arc<Condvar>,
     archive: Archive,
     pub(crate) remote: crate::RemoteAccess,
+    pub(crate) push: crate::push::Push,
 }
 
 impl Registry {
@@ -85,6 +86,7 @@ impl Registry {
             sessions: Sessions::default(),
             completed: Arc::default(),
             remote,
+            push: crate::push::Push::default(),
         }
     }
 
@@ -306,12 +308,15 @@ impl Registry {
     }
 
     pub fn remote_access_state(&self) -> muxy_protocol::RemoteAccessState {
-        let connected = self
-            .live_connections()
+        self.remote.state(&self.connected_devices())
+    }
+
+    /// Paired devices with a connection open now.
+    pub(crate) fn connected_devices(&self) -> HashSet<muxy_protocol::DeviceId> {
+        self.live_connections()
             .iter()
             .filter_map(|connection| connection.device())
-            .collect();
-        self.remote.state(&connected)
+            .collect()
     }
 
     pub(crate) fn write_remote_access(
@@ -329,7 +334,8 @@ impl Registry {
         &self,
         device: muxy_protocol::DeviceId,
     ) -> Result<muxy_protocol::RemoteAccessState, ServerError> {
-        self.remote.revoke(device)?;
+        let push = self.remote.revoke(device)?;
+        self.forget_push(push);
         self.close_devices(Some(device));
         Ok(self.remote_access_state())
     }

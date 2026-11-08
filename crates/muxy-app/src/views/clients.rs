@@ -11,7 +11,9 @@ use gpui::{
     SharedString, StatefulInteractiveElement, Styled, canvas, div, point, px, size,
 };
 use muxy_app_core::qr::{QUIET_ZONE, QrCode};
-use muxy_protocol::{DeviceKind, ListenerStatus, PairedDevice, PairingOffer, RemoteAccessState};
+use muxy_protocol::{
+    DeviceKind, ListenerStatus, PairedDevice, PairingOffer, PushStatus, RemoteAccessState,
+};
 use muxy_ui::accessibility;
 use muxy_ui::controls;
 use muxy_ui::theme::Metrics;
@@ -98,6 +100,9 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
                 false,
                 model,
             ))
+            .when(model.push_notifications_available(), |card| {
+                card.child(push_row(state, model, cx))
+            })
             .child(stacked(
                 "clients-pair",
                 tr!("Pair a client"),
@@ -139,6 +144,28 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
         )
         .child(body)
         .into_any_element()
+}
+
+/// The server-wide switch for push notifications to paired phones.
+fn push_row(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+    let on = state.push_notifications;
+    row(
+        "clients-push",
+        tr!("Push notifications"),
+        Some(tr!(
+            "Tell paired phones when an agent needs attention or finishes, through the muxy.app relay, which sees only encrypted content. Each phone turns them on in the Muxy app."
+        )),
+        controls::toggle(
+            style(model),
+            "clients-push",
+            &tr!("Push notifications"),
+            on,
+            cx.listener(move |model, _, _, cx| model.set_push_notifications(!on, cx)),
+        )
+        .into_any_element(),
+        false,
+        model,
+    )
 }
 
 fn note(text: &str, error: bool, model: &AppModel) -> AnyElement {
@@ -400,7 +427,16 @@ fn clients(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
                         .child(div().truncate().text_color(model.theme.fg_muted).child(
                             accessibility::label(
                                 SharedString::from(format!("clients-paired-state-{id}")),
-                                format!("{} · {}", kind(device.kind), presence(device, now)),
+                                notifications(device).map_or_else(
+                                    || format!("{} · {}", kind(device.kind), presence(device, now)),
+                                    |notifications| {
+                                        format!(
+                                            "{} · {} · {notifications}",
+                                            kind(device.kind),
+                                            presence(device, now)
+                                        )
+                                    },
+                                ),
                             ),
                         )),
                 )
@@ -425,6 +461,16 @@ fn kind(kind: DeviceKind) -> SharedString {
         DeviceKind::Computer => tr!("Desktop"),
         DeviceKind::Phone | DeviceKind::Unrecognized(_) => tr!("Phone"),
     }
+}
+
+/// Whether the phone gets push notifications, once it asked for them.
+fn notifications(device: &PairedDevice) -> Option<SharedString> {
+    Some(match device.push? {
+        PushStatus::Active => tr!("Notifications on"),
+        PushStatus::Pending => tr!("Notifications pending"),
+        PushStatus::Refused => tr!("Notifications refused"),
+        PushStatus::Disabled | PushStatus::Unrecognized(_) => return None,
+    })
 }
 
 fn presence(device: &PairedDevice, now: u64) -> SharedString {

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use muxy_protocol::{
@@ -36,11 +36,24 @@ impl State {
     }
 }
 
+/// Told about each new event, outside the activity lock.
+type Observer = Box<dyn Fn(&ActivityEvent) + Send + Sync>;
+
 /// Live agent state and at most one unread indicator event per session, held only in memory.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct Activity {
     state: Mutex<State>,
     notifier: Arc<Notifier>,
+    observer: OnceLock<Observer>,
+}
+
+impl std::fmt::Debug for Activity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Activity")
+            .field("state", &self.state)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Activity {
@@ -48,7 +61,25 @@ impl Activity {
         Self {
             state: Mutex::default(),
             notifier,
+            observer: OnceLock::new(),
         }
+    }
+
+    /// Installs the one observer of new events.
+    pub(crate) fn observe(&self, observer: impl Fn(&ActivityEvent) + Send + Sync + 'static) {
+        if self.observer.set(Box::new(observer)).is_err() {
+            log::warn!("activity already has an observer");
+        }
+    }
+
+    /// The event while it is still unread: not acknowledged, replaced by a
+    /// newer one for its session, or gone with the session.
+    pub(crate) fn event(&self, id: u64) -> Option<ActivityEvent> {
+        lock(&self.state)
+            .events
+            .iter()
+            .find(|event| event.id == id)
+            .cloned()
     }
 
     pub(crate) fn open(directory: &Path, notifier: Arc<Notifier>) -> io::Result<Self> {
@@ -72,6 +103,7 @@ impl Activity {
                 ..State::default()
             }),
             notifier,
+            observer: OnceLock::new(),
         })
     }
 
@@ -113,33 +145,34 @@ impl Activity {
         } else {
             None
         };
-        if let Some(kind) = kind {
+        let created = kind.map(|kind| {
             state.retain_events(|event| event.session != activity.session);
             state.next_id += 1;
-            let id = state.next_id;
-            state.events.insert(
-                0,
-                ActivityEvent {
-                    id,
-                    session: activity.session,
-                    project: activity.project,
-                    provider: activity.provider,
-                    timestamp: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs(),
-                    kind,
-                    read: false,
-                },
-            );
+            let event = ActivityEvent {
+                id: state.next_id,
+                session: activity.session,
+                project: activity.project,
+                provider: activity.provider,
+                timestamp: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                kind,
+                read: false,
+            };
+            state.events.insert(0, event.clone());
             if state.events.len() > ACTIVITY_HISTORY_LIMIT
                 && let Some(expired) = state.events.pop()
             {
                 state.claimed.remove(&expired.id);
             }
-        }
+            event
+        });
         state.agents.insert(activity.session, activity);
         self.changed(state);
+        if let (Some(event), Some(observer)) = (created, self.observer.get()) {
+            observer(&event);
+        }
     }
 
     pub(crate) fn clear_agent(&self, session: SessionId) {
@@ -255,6 +288,37 @@ mod tests {
         assert!(activity.snapshot().events.is_empty());
         assert!(lock(&activity.state).claimed.is_empty());
         assert!(activity.revision() > revision);
+    }
+
+    #[test]
+    fn the_observer_hears_each_new_event_once_and_events_stay_readable_until_gone() {
+        let activity = Activity::default();
+        let (sender, events) = std::sync::mpsc::channel();
+        activity.observe(move |event| {
+            let _ = sender.send(event.clone());
+        });
+        activity.update(agent(AgentState::Working), false);
+        activity.update(agent(AgentState::Blocked), false);
+        activity.update(agent(AgentState::Blocked), false);
+        let attention = events.try_recv().ok();
+        assert_eq!(
+            attention.as_ref().map(|event| event.kind),
+            Some(ActivityKind::Attention)
+        );
+        assert!(events.try_recv().is_err());
+        let Some(attention) = attention else { return };
+        assert_eq!(activity.event(attention.id), Some(attention.clone()));
+        activity.update(agent(AgentState::Working), false);
+        activity.update(agent(AgentState::Idle), true);
+        let completed = events.try_recv().ok();
+        assert_eq!(
+            completed.as_ref().map(|event| event.kind),
+            Some(ActivityKind::Completed)
+        );
+        assert_eq!(activity.event(attention.id), None);
+        let Some(completed) = completed else { return };
+        activity.acknowledge(&[completed.id]);
+        assert_eq!(activity.event(completed.id), None);
     }
 
     #[test]

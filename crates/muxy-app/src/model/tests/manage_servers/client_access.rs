@@ -31,6 +31,7 @@ fn access(enabled: bool, pairing: Option<u64>, devices: Vec<PairedDevice>) -> Re
         },
         pairing_expires_at: pairing,
         devices,
+        push_notifications: true,
     }
 }
 
@@ -122,6 +123,35 @@ fn access_and_port_changes_go_to_the_server_or_say_why_not(cx: &mut TestAppConte
     )));
     view.read_with(cx, |model, _| {
         assert!(model.client_access().error.is_none());
+    });
+}
+
+#[gpui::test]
+fn the_push_switch_shows_for_servers_that_have_it_and_goes_to_the_server(cx: &mut TestAppContext) {
+    let (view, cx, requests) = servers_tab(cx, access(true, None, Vec::new()));
+    assert!(cx.debug_bounds("clients-push-row").is_none());
+    view.update(cx, |model, cx| {
+        model.servers.local.features = vec![muxy_protocol::Feature::PUSH_NOTIFICATIONS];
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("clients-push-row").is_some());
+    view.update(cx, |model, cx| model.set_push_notifications(true, cx));
+    assert!(work(&requests).is_empty(), "push is already on");
+    view.update(cx, |model, cx| model.set_push_notifications(false, cx));
+    assert!(
+        work(&requests)
+            .iter()
+            .any(|work| matches!(work, Work::SetPushNotifications(false)))
+    );
+    view.update(cx, |model, cx| {
+        assert!(model.client_access.busy);
+        model.set_push_notifications(true, cx);
+        assert!(model.client_access().error.is_some());
+        let mut off = access(true, None, Vec::new());
+        off.push_notifications = false;
+        model.receive_remote_access(Ok(off), cx);
+        assert!(!model.client_access.busy);
     });
 }
 

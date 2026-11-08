@@ -18,6 +18,7 @@ mod files;
 mod git;
 mod keys;
 mod mouse;
+mod push;
 mod records;
 mod scrollback;
 mod terminal;
@@ -39,6 +40,7 @@ pub use git::{
 };
 pub use keys::{Key, Modifiers};
 pub use mouse::{MouseButton, ScrollDirection};
+pub use push::{PushEnvironment, PushPlatform, PushRegistration, PushStatus};
 pub use records::{
     Activity, ActivityEvent, ActivityKind, Agent, AgentState, ClientKind, Cursor, CursorShape,
     Line, PairingLink, Project, Screen, ServerCredential, Session, SessionStatus, Span, Style,

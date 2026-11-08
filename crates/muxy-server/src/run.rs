@@ -258,6 +258,7 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     remote.attach(&registry);
     let retention = retention::Retention::start(Arc::clone(&registry))?;
     registry.resume_remote_access();
+    registry.start_push();
     let stopping = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let requested_stop = Arc::clone(&stopping);
     let requested_socket = Arc::clone(&socket);
