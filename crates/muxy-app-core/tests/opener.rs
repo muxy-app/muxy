@@ -64,6 +64,17 @@ fn local_targets_preserve_locations_and_decode_only_local_file_uris() {
     for text in ["src/main.rs:12:3", "/project/src/main.rs:12:3"] {
         assert_eq!(resolve(text), Some(request().target));
     }
+    for text in ["src/main.rs:12-20", "src/main.rs:12-12"] {
+        assert_eq!(
+            resolve(text),
+            Some(Target::File(FileLocation {
+                path: "/project/src/main.rs".into(),
+                line: Some(12),
+                column: None
+            })),
+            "{text}"
+        );
+    }
     assert!(matches!(
         resolve("name:12"),
         Some(Target::File(FileLocation { line: None, .. }))
@@ -91,6 +102,11 @@ fn local_targets_preserve_locations_and_decode_only_local_file_uris() {
         "file:///bad%GG",
         "https://host/file",
         "src/main.rs:0",
+        "src/main.rs:20-12",
+        "src/main.rs:0-5",
+        "src/main.rs:12-",
+        "src/main.rs:-12",
+        "src/main.rs:12-20:3",
         "src/main.rs:4294967296",
         "missing",
     ] {
