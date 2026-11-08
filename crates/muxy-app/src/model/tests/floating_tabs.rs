@@ -404,3 +404,67 @@ fn clicking_the_main_window_takes_the_keyboard_from_a_float_at_once(cx: &mut Tes
     assert!(focused(cx, main));
     assert!(!focused(cx, pane));
 }
+
+#[gpui::test]
+fn showing_floats_again_puts_the_one_with_the_keyboard_in_front(cx: &mut TestAppContext) {
+    let (view, cx, _, _, main, pane) = floated(cx);
+    view.update(cx, |model, cx| {
+        model.float_pane(main, FloatScope::Project, cx);
+    });
+    redraw(cx);
+    view.update(cx, |model, cx| {
+        model.toggle_floats(cx);
+        model.toggle_floats(cx);
+        let key = model.key_float().expect("a float has the keyboard");
+        assert_eq!(model.floating.stack.frontmost(), Some(&panel(key)));
+        assert!(model.float_shown(float_of(model, pane)));
+    });
+    redraw(cx);
+    view.read_with(cx, |model, _| {
+        let key = model.key_float().expect("a float has the keyboard");
+        assert_eq!(model.floating.stack.frontmost(), Some(&panel(key)));
+    });
+}
+
+#[gpui::test]
+fn floating_a_tab_windows_terminal_shows_it_over_its_own_project(cx: &mut TestAppContext) {
+    let (view, cx, home, other, _, pane) = floated(cx);
+    view.update(cx, |model, cx| {
+        model.move_pane_to_window(pane, None, None, cx);
+    });
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        model.select_project(other, cx);
+        let id = model.state.pane_window(pane).expect("window");
+        model.enter_surface(Surface::Tab(id));
+        model.float_pane(pane, FloatScope::Project, cx);
+        assert_eq!(model.state.current_project().id, home);
+        assert!(model.float_shown(id));
+        assert_eq!(model.key_float(), Some(id));
+    });
+}
+
+#[gpui::test]
+fn selecting_the_shown_tab_from_a_float_gives_the_main_pane_the_keyboard(cx: &mut TestAppContext) {
+    let (view, cx, _, _, main, pane) = floated(cx);
+    let tab = view.read_with(cx, |model, _| model.state.pane_tab(main).expect("tab"));
+    view.update(cx, |model, cx| {
+        assert!(model.key_float().is_some());
+        model.select_tab(tab, cx);
+        assert_eq!(model.key_float(), None);
+    });
+    redraw(cx);
+    view.read_with(cx, |model, cx| {
+        assert_eq!(model.active_pane(), Some(main));
+        assert!(
+            model
+                .terminal(&main)
+                .is_some_and(|t| t.view.read(cx).focused)
+        );
+        assert!(
+            !model
+                .terminal(&pane)
+                .is_some_and(|t| t.view.read(cx).focused)
+        );
+    });
+}

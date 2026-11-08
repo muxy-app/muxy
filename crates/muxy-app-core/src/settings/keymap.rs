@@ -371,7 +371,7 @@ const RETIRED: [&str; 9] = [
 ];
 
 /// Built-in defaults that give way to a key a user binding already has.
-const YIELDING: [ShortcutId; 57] = [
+const YIELDING: [ShortcutId; 58] = [
     ShortcutId::OpenSettings,
     ShortcutId::NewHomeTab,
     ShortcutId::NewTabInProject,
@@ -379,6 +379,7 @@ const YIELDING: [ShortcutId; 57] = [
     ShortcutId::SwitchWorktree,
     ShortcutId::ToggleSidebar,
     ShortcutId::ToggleAgentsPanel,
+    ShortcutId::ToggleFloatingTerminals,
     ShortcutId::ToggleFullScreen,
     ShortcutId::ToggleThemePicker,
     ShortcutId::ToggleCommandPalette,

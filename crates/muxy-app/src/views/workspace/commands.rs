@@ -181,7 +181,7 @@ fn pane_can_leave_window(model: &AppModel) -> bool {
         && model
             .active_tab()
             .and_then(|tab| model.tab(tab))
-            .is_some_and(|tab| !tab.detached() || tab.panes.len() >= 2)
+            .is_some_and(|tab| !tab.detached() || tab.floating() || tab.panes.len() >= 2)
 }
 
 fn can_float_pane(model: &AppModel) -> bool {

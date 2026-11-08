@@ -1342,6 +1342,8 @@ impl AppModel {
         }
         if self.key_float().is_some() {
             self.enter_surface(tab_windows::Surface::Main);
+            self.focus_owner.request_active_pane();
+            cx.notify();
         }
         if self.active_tab() == Some(tab) {
             return;

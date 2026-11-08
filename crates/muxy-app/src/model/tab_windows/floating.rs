@@ -95,7 +95,7 @@ impl AppModel {
                 tab.panes.iter().any(|pane| {
                     self.grids
                         .get(&pane.id)
-                        .is_some_and(|view| view.view.read(cx).focus.is_focused(window))
+                        .is_some_and(|view| view.view.read(cx).focus.contains_focused(window, cx))
                 })
             })
         })
@@ -184,7 +184,7 @@ impl AppModel {
             if from_window {
                 self.raise_main_window(cx);
             }
-            self.enter_float(id, cx);
+            self.reveal_float(id, cx);
         }
     }
 
@@ -265,6 +265,7 @@ impl AppModel {
         if hidden {
             return;
         }
+        self.sync_floating_stack();
         if let Some(id) = self.shown_floats().last().copied() {
             self.enter_float(id, cx);
         }
