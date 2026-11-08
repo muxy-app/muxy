@@ -412,7 +412,7 @@ fn showing_floats_again_puts_the_one_with_the_keyboard_in_front(cx: &mut TestApp
         model.float_pane(main, FloatScope::Project, cx);
     });
     redraw(cx);
-    view.update(cx, |model, cx| model.toggle_floats(cx));
+    view.update(cx, AppModel::toggle_floats);
     redraw(cx);
     view.update(cx, |model, cx| {
         model.toggle_floats(cx);
