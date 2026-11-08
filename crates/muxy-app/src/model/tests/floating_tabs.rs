@@ -412,8 +412,9 @@ fn showing_floats_again_puts_the_one_with_the_keyboard_in_front(cx: &mut TestApp
         model.float_pane(main, FloatScope::Project, cx);
     });
     redraw(cx);
+    view.update(cx, |model, cx| model.toggle_floats(cx));
+    redraw(cx);
     view.update(cx, |model, cx| {
-        model.toggle_floats(cx);
         model.toggle_floats(cx);
         let key = model.key_float().expect("a float has the keyboard");
         assert_eq!(model.floating.stack.frontmost(), Some(&panel(key)));
