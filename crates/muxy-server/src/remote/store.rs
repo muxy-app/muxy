@@ -92,8 +92,9 @@ struct DocumentDevice {
     /// Missing in files from before computers could pair.
     #[serde(default)]
     kind: StoredKind,
+    /// Read on its own, so an entry this build can't use loses only itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    push: Option<DocumentPush>,
+    push: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -161,15 +162,16 @@ impl DocumentPush {
             (None, None) => None,
             _ => return None,
         };
+        let status = match (self.status.as_str(), &relay) {
+            ("active", Some(_)) => PushStatus::Active,
+            ("refused", _) => PushStatus::Refused,
+            _ => PushStatus::Pending,
+        };
         Some(PushRecord {
             token,
             key: hex::decode_vec(&self.key)?.try_into().ok()?,
             relay,
-            status: match self.status.as_str() {
-                "active" => PushStatus::Active,
-                "refused" => PushStatus::Refused,
-                _ => PushStatus::Pending,
-            },
+            status,
         })
     }
 }
@@ -253,7 +255,10 @@ fn stored(document: Document) -> Option<Stored> {
                 paired_at: device.paired_at,
                 last_seen: device.last_seen,
                 kind: device.kind.into(),
-                push: device.push.and_then(DocumentPush::record),
+                push: device
+                    .push
+                    .and_then(|push| serde_json::from_value::<DocumentPush>(push).ok())
+                    .and_then(DocumentPush::record),
             })
         })
         .collect::<Option<Vec<_>>>()?;
@@ -287,7 +292,11 @@ pub(super) fn save(path: &Path, stored: &Stored) -> io::Result<()> {
                 paired_at: device.paired_at,
                 last_seen: device.last_seen,
                 kind: device.kind.into(),
-                push: device.push.as_ref().and_then(DocumentPush::from_record),
+                push: device
+                    .push
+                    .as_ref()
+                    .and_then(DocumentPush::from_record)
+                    .and_then(|push| serde_json::to_value(push).ok()),
             })
             .collect(),
         push_notifications: stored.push_notifications,
@@ -412,11 +421,43 @@ mod tests {
                 ..Stored::default()
             },
         )?;
-        let text = fs::read_to_string(&path)?.replace("\"apns\"", "\"carrier-pigeon\"");
-        fs::write(&path, text)?;
+        let saved = fs::read_to_string(&path)?;
+        let key = format!("\"key\": \"{}\",", "03".repeat(32));
+        assert!(saved.contains(&key));
+        for broken in [
+            saved.replace("\"apns\"", "\"carrier-pigeon\""),
+            saved.replace(&key, ""),
+            saved.replace(&key, "\"key\": 7,"),
+        ] {
+            fs::write(&path, broken)?;
+            let loaded = load(&path)?;
+            assert_eq!(loaded.devices.len(), 1);
+            assert_eq!(loaded.devices[0].push, None);
+        }
+        fs::remove_dir_all(directory)
+    }
+
+    #[test]
+    fn an_active_registration_without_relay_credentials_is_registered_again() -> io::Result<()> {
+        let directory = directory()?;
+        let path = directory.join("remote.json");
+        let record = PushRecord {
+            relay: None,
+            status: PushStatus::Active,
+            ..push_record()
+        };
+        save(
+            &path,
+            &Stored {
+                devices: vec![phone(Some(record))],
+                ..Stored::default()
+            },
+        )?;
         let loaded = load(&path)?;
-        assert_eq!(loaded.devices.len(), 1);
-        assert_eq!(loaded.devices[0].push, None);
+        assert_eq!(
+            loaded.devices[0].push.as_ref().map(|push| push.status),
+            Some(PushStatus::Pending)
+        );
         fs::remove_dir_all(directory)
     }
 

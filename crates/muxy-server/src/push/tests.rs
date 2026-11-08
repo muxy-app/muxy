@@ -464,6 +464,30 @@ fn a_busy_relay_is_retried_and_a_wrong_secret_waits_for_the_phone() {
 }
 
 #[test]
+fn starting_twice_keeps_one_worker_and_a_switched_off_server_saves_no_registration() {
+    let fixture = fixture(1);
+    fixture.registry.start_push();
+    fixture.register(0, apns("ab"));
+    assert_eq!(fixture.relay.calls().len(), 1);
+    assert!(fixture.registry.set_push_notifications(false).is_ok());
+    let record = PushRecord {
+        token: apns("cd"),
+        key: [1; 32],
+        relay: None,
+        status: PushStatus::Pending,
+    };
+    assert_eq!(
+        fixture
+            .registry
+            .remote
+            .replace_push(fixture.phones[0], None, Some(record))
+            .ok(),
+        Some(false)
+    );
+    assert_eq!(fixture.status(0), None);
+}
+
+#[test]
 fn backoff_doubles_to_a_limit_and_follows_the_relay() {
     let first = Duration::from_secs(5);
     assert_eq!(backoff(first, 0, None), first);

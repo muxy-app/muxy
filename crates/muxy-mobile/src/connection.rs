@@ -201,28 +201,35 @@ impl Connection {
     }
 
     /// The session with this id, under the project it belongs to now, for
-    /// opening a notification's pane. `None` when it is no longer running.
+    /// opening a notification's pane. `None` when it is no longer running. A
+    /// session that moves between the two reads is looked up again.
     pub fn find_session(&self, session_id: u64) -> Result<Option<Session>, MobileError> {
         let id = session(session_id)?;
-        let Some(live) = self
-            .client
-            .list_sessions()?
-            .into_iter()
-            .find(|live| live.id == id)
-        else {
-            return Ok(None);
+        let running = |listed: &muxy_protocol::ProjectSession| {
+            listed.info.id == id
+                && matches!(
+                    listed.status,
+                    muxy_protocol::SessionStatus::Live | muxy_protocol::SessionStatus::Starting
+                )
         };
-        Ok(self
-            .client
-            .all_project_sessions(live.project, |listed| listed.info.id == id)?
-            .sessions
-            .first()
-            .map(|listed| {
+        for _ in 0..2 {
+            let Some(live) = self
+                .client
+                .list_sessions()?
+                .into_iter()
+                .find(|live| live.id == id)
+            else {
+                return Ok(None);
+            };
+            let page = self.client.all_project_sessions(live.project, running)?;
+            if let Some(listed) = page.sessions.first() {
                 let title =
                     self.titles
                         .listed(listed.info.id, listed.name.clone(), &listed.info.directory);
-                Session::listed(listed, title)
-            }))
+                return Ok(Some(Session::listed(listed, title)));
+            }
+        }
+        Ok(None)
     }
 
     /// Whether this server takes `registerPush`: a paired connection to a

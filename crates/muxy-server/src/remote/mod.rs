@@ -41,6 +41,8 @@ pub struct RemoteAccess {
     unauthenticated: Arc<AtomicUsize>,
     notifier: Arc<Notifier>,
     unreadable: Option<UnreadableFile>,
+    /// Set as the server stops, so nothing saves after a newer server may run.
+    closed: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for RemoteAccess {
@@ -115,7 +117,15 @@ impl RemoteAccess {
             unauthenticated: Arc::default(),
             notifier: Arc::default(),
             unreadable,
+            closed: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Stops saving. Every save happens under the state lock, so once this
+    /// returns, none is under way and none follows.
+    pub(crate) fn close(&self) {
+        let _state = self.lock();
+        self.closed.store(true, Ordering::Release);
     }
 
     /// Access that is on, with `phones` paired, each with the token `[7; 32]`.
@@ -507,7 +517,7 @@ impl RemoteAccess {
             return Ok(false);
         };
         let current = &state.stored.devices[index].push;
-        if current.as_ref() != expected {
+        if current.as_ref() != expected || (next.is_some() && !state.stored.push_notifications) {
             return Ok(false);
         }
         if *current == next {
@@ -543,6 +553,12 @@ impl RemoteAccess {
     }
 
     fn save(&self, stored: &Stored) -> Result<(), ServerError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ServerError::new(
+                ErrorCode::PersistenceFailed,
+                "the server is stopping",
+            ));
+        }
         match &self.store {
             Some(path) => store::save(path, stored).map_err(|error| {
                 ServerError::new(

@@ -311,6 +311,11 @@ impl Registry {
         self.remote.state(&self.connected_devices())
     }
 
+    /// Stops saving device access, before the server lets a newer one start.
+    pub fn close_remote_access(&self) {
+        self.remote.close();
+    }
+
     /// Paired devices with a connection open now.
     pub(crate) fn connected_devices(&self) -> HashSet<muxy_protocol::DeviceId> {
         self.live_connections()

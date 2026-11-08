@@ -256,9 +256,9 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
     let remote = Arc::new(RemoteListener::new(connections.clone())?);
     let registry = bootstrap_registry(args, settings, sender, &directory, legacy, &remote)?;
     remote.attach(&registry);
+    registry.start_push();
     let retention = retention::Retention::start(Arc::clone(&registry))?;
     registry.resume_remote_access();
-    registry.start_push();
     let stopping = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let requested_stop = Arc::clone(&stopping);
     let requested_socket = Arc::clone(&socket);
@@ -312,6 +312,7 @@ pub(crate) fn run(args: &Args) -> io::Result<()> {
         Err(_) => Ok(()),
     };
     log::info!("server stopped");
+    registry.close_remote_access();
     socket.remove()?;
     result
         .and(requests_result)

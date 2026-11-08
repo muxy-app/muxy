@@ -7,7 +7,6 @@
 mod payload;
 mod relay;
 
-use std::collections::HashSet;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::thread;
@@ -132,6 +131,15 @@ impl Registry {
     /// Starts the push thread, which then hears about every new activity
     /// event and retries registrations left pending.
     pub fn start_push(self: &Arc<Self>) {
+        let mut commands = self
+            .push
+            .commands
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if commands.is_some() {
+            log::warn!("push notifications already started");
+            return;
+        }
         let (sender, receiver) = mpsc::channel();
         let worker = Worker {
             registry: Arc::downgrade(self),
@@ -162,11 +170,7 @@ impl Registry {
                 });
             }
         }
-        *self
-            .push
-            .commands
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(sender);
+        *commands = Some(sender);
     }
 
     /// Keeps the phone's token and answers with its key, registering with
@@ -404,12 +408,11 @@ impl Worker {
         for deletion in take_due(&mut self.deletes, now, |deletion| deletion.due) {
             self.delete(deletion);
         }
-        let connected = registry.connected_devices();
         for pending in take_due(&mut self.events, now, |pending| pending.due) {
-            self.expand(registry, pending.event, &connected);
+            self.expand(registry, pending.event);
         }
         for delivery in take_due(&mut self.deliveries, now, |delivery| delivery.due) {
-            self.deliver(registry, delivery, &connected);
+            self.deliver(registry, delivery);
         }
     }
 
@@ -523,10 +526,11 @@ impl Worker {
     }
 
     /// The event outlived the grace period: one delivery per registered phone.
-    fn expand(&mut self, registry: &Registry, event: u64, connected: &HashSet<DeviceId>) {
+    fn expand(&mut self, registry: &Registry, event: u64) {
         if registry.activity.event(event).is_none() || !sending(registry) {
             return;
         }
+        let connected = registry.connected_devices();
         let now = Instant::now();
         for (device, record) in registry.remote.push_records() {
             if record.status != PushStatus::Refused && !connected.contains(&device) {
@@ -540,11 +544,12 @@ impl Worker {
         }
     }
 
-    fn deliver(&mut self, registry: &Registry, delivery: Delivery, connected: &HashSet<DeviceId>) {
+    /// Checks every rule again right before the call, since earlier calls take time.
+    fn deliver(&mut self, registry: &Registry, delivery: Delivery) {
         let Some(event) = registry.activity.event(delivery.event) else {
             return;
         };
-        if !sending(registry) || connected.contains(&delivery.device) {
+        if !sending(registry) || registry.connected_devices().contains(&delivery.device) {
             return;
         }
         let Some(record) = registry.remote.push_record(delivery.device) else {

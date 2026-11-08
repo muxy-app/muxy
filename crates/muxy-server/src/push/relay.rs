@@ -148,11 +148,20 @@ impl HttpRelay {
         Self::new(base)
     }
 
+    /// A plain-HTTP relay is on this computer, and is reached directly so the
+    /// secret never crosses a network, not even to a proxy.
     pub(crate) fn new(base: Option<String>) -> Self {
+        let local = base
+            .as_deref()
+            .is_some_and(|base| base.starts_with("http://"));
         let config = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .max_redirects(0)
-            .proxy(ureq::Proxy::try_from_env())
+            .proxy(if local {
+                None
+            } else {
+                ureq::Proxy::try_from_env()
+            })
             .timeout_connect(Some(Duration::from_secs(5)))
             .timeout_global(Some(Duration::from_secs(15)))
             .user_agent(format!("muxy-server/{}", env!("CARGO_PKG_VERSION")))

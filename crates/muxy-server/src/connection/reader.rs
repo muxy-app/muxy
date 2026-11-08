@@ -286,6 +286,23 @@ impl Requests {
                     .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
                 Ok(None)
             }
+            RequestBody::UnregisterPush => {
+                let device = connection.device().ok_or_else(|| {
+                    ServerError::new(ErrorCode::Unauthorized, "not a paired phone")
+                })?;
+                let registry = Arc::clone(&self.registry);
+                let output = Arc::clone(connection);
+                self.push_workers
+                    .try_spawn(move || {
+                        let body = match registry.unregister_push(device) {
+                            Ok(()) => ReplyBody::PushUnregistered,
+                            Err(error) => ReplyBody::Error(error.to_reply()),
+                        };
+                        output.push_control(Message::Reply { id, body });
+                    })
+                    .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
+                Ok(None)
+            }
             body => {
                 let registry = Arc::clone(&self.registry);
                 let output = Arc::clone(connection);
@@ -438,6 +455,7 @@ fn ordered_request(
         RequestBody::Upload(chunk) => ReplyBody::Uploaded(registry.upload(&chunk)?),
         RequestBody::Ping
         | RequestBody::RegisterPush(_)
+        | RequestBody::UnregisterPush
         | RequestBody::Exec(_)
         | RequestBody::CancelExec(_)
         | RequestBody::Git(_)
@@ -474,13 +492,6 @@ fn ordered_request(
         }
         RequestBody::RevokeDevice(device) => {
             ReplyBody::RemoteAccess(registry.revoke_device(device)?)
-        }
-        RequestBody::UnregisterPush => {
-            let device = connection
-                .device()
-                .ok_or_else(|| ServerError::new(ErrorCode::Unauthorized, "not a paired phone"))?;
-            registry.unregister_push(device)?;
-            ReplyBody::PushUnregistered
         }
         RequestBody::SetPushNotifications(on) => {
             connection.watch_remote_access();
