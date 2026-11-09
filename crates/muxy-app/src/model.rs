@@ -463,6 +463,7 @@ impl AppModel {
         }) && self.state.select_tab(project, tab).is_ok()
         {
             self.navigation.commit(index);
+            self.reveal_server(self.state.current_project().server_id, cx);
             self.changed(cx);
             self.focus_owner.request_active_pane();
             self.connect_on_demand(self.state.current_project().server_id, cx);
@@ -1132,10 +1133,25 @@ impl AppModel {
                 .record((self.state.current_project().id, tab));
         }
         self.replay_projects(cx);
+        self.connect_for_project_edits(cx);
         self.sync_visible(cx);
         self.focus_owner.request_active_pane();
         cx.notify();
         true
+    }
+
+    /// Another computer's server that an edit waits for connects, so the
+    /// edit doesn't wait for the user to open one of its projects.
+    fn connect_for_project_edits(&mut self, cx: &mut Context<Self>) {
+        let waiting: Vec<_> = self
+            .servers
+            .ids()
+            .into_iter()
+            .filter(|server| !server.is_local() && !self.state.project_intents(*server).is_empty())
+            .collect();
+        for server in waiting {
+            self.connect_on_demand(server, cx);
+        }
     }
 
     /// Adds the projects, tabs, and workspaces Muxy 1.x had to the running

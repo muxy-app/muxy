@@ -70,7 +70,8 @@ confirmation.
 
 **New Tab in Project…** (⌘⇧N) lists every server's saved projects, each marked
 with its server, and the other computers' servers, then matching folders on the
-current project's server. Enter opens a terminal in the project, or at a folder
+current project's server, or on this computer while that server isn't
+connected. Enter opens a terminal in the project, or at a folder
 in its computer's Home; ⌘Enter adds the folder as a project with a terminal.
 On another computer's server it browses that server's folders, connecting
 first if needed. A server in the list browses its folders, or with ⌘Enter opens

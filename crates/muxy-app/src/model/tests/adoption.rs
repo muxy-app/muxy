@@ -395,6 +395,47 @@ fn each_server_counts_its_own_projects_without_tabs(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn editing_a_disconnected_servers_project_connects_it(cx: &mut TestAppContext) {
+    let (remote, api) = (ServerId::new(), ProjectId::new());
+    let (view, cx, _requests, remotes, _home) = two_servers(remote, api, cx);
+    view.update(cx, |model, cx| {
+        model.disconnect_remote_servers(&[remote], cx);
+        let _ = work(&remotes.borrow()[&remote]);
+        assert!(model.edit_project(|state| state.rename_project(api, "web"), cx));
+        assert!(
+            work(&remotes.borrow()[&remote])
+                .iter()
+                .any(|work| matches!(work, Work::Connect)),
+            "the rename waits for it, so it connects"
+        );
+    });
+}
+
+#[gpui::test]
+fn settings_and_going_back_expand_the_server_they_open_on(cx: &mut TestAppContext) {
+    let (remote, api) = (ServerId::new(), ProjectId::new());
+    let (view, cx, _requests, _remotes, _home) = two_servers(remote, api, cx);
+    view.update(cx, |model, cx| {
+        model.new_tab_in(api, cx);
+        model.toggle_server_group(ServerId::local(), cx);
+        assert!(!model.server_expanded(ServerId::local()));
+    });
+    view.update_in(cx, AppModel::open_settings);
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        assert!(
+            model.server_expanded(ServerId::local()),
+            "Settings expands it"
+        );
+        model.toggle_server_group(remote, cx);
+        assert!(!model.server_expanded(remote));
+        model.navigate(false, cx);
+        assert_eq!(model.state.current_project().id, api);
+        assert!(model.server_expanded(remote), "going back expands it");
+    });
+}
+
+#[gpui::test]
 fn the_agents_panel_shows_every_servers_agents(cx: &mut TestAppContext) {
     let (remote, api) = (ServerId::new(), ProjectId::new());
     let (view, cx, _requests, _remotes, _home) = two_servers(remote, api, cx);

@@ -270,6 +270,7 @@ impl Appearance {
         if let Some(current) = current.as_table() {
             for (key, value) in current {
                 if key != "tab_focused_expanded"
+                    && key != "sidebar_servers_expanded"
                     && key != "hidden_worktrees"
                     && previous_values.get(key) != Some(value)
                 {
@@ -307,6 +308,20 @@ impl Appearance {
             target.insert(
                 "tab_focused_expanded".into(),
                 toml::Value::try_from(&saved.tab_focused_expanded)?,
+            );
+            for (server, expanded) in &self.sidebar_servers_expanded {
+                if previous.sidebar_servers_expanded.get(server) != Some(expanded) {
+                    saved.sidebar_servers_expanded.insert(*server, *expanded);
+                }
+            }
+            for server in previous.sidebar_servers_expanded.keys() {
+                if !self.sidebar_servers_expanded.contains_key(server) {
+                    saved.sidebar_servers_expanded.remove(server);
+                }
+            }
+            target.insert(
+                "sidebar_servers_expanded".into(),
+                toml::Value::try_from(&saved.sidebar_servers_expanded)?,
             );
             Ok(saved)
         })

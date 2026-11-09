@@ -213,6 +213,13 @@ impl AppModel {
                 return false;
             }
         }
+        if let Some(server) = self
+            .state
+            .settings_tab()
+            .and_then(|(project, _)| self.state.project_server(project))
+        {
+            self.reveal_server(server, cx);
+        }
         self.dismiss_overlay(cx);
         self.changed(cx);
         self.ensure_settings_tab(window, cx);

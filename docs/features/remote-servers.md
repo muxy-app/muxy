@@ -37,8 +37,9 @@ On Linux hosts that end your processes when you log out, run
 - Servers start disconnected each time Muxy opens, and their projects show
   what was last known. Opening one of a server's projects or tabs, expanding it
   in the sidebar before its projects are known, or **Connect** in its menu
-  connects it. A server you add or pair connects right away. Its terminals
-  that have nothing to show yet say it is disconnected, with **Connect**.
+  connects it. So does renaming or removing one of its projects, which waits
+  for it. A server you add or pair connects right away. Its terminals that
+  have nothing to show yet say it is disconnected, with **Connect**.
 - Passwords are asked when connecting and kept only in memory until you quit.
 - A connected server that drops reconnects on its own, waiting longer each time. It stops
   retrying when it needs you, for example for a password or a new host key.

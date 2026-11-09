@@ -615,6 +615,36 @@ fn invalid_terminal_paths_never_create_folders_projects_or_tabs(cx: &mut TestApp
 }
 
 #[gpui::test]
+fn new_tab_in_project_offers_every_project_while_the_current_server_is_disconnected(
+    cx: &mut TestAppContext,
+) {
+    let root = tempfile::tempdir().expect("root");
+    let server = ServerId::new();
+    let project = ProjectId::new();
+    let (mut boot, _requests, _remotes) = remote_boot(
+        AppState::bootstrap().expect("state"),
+        vec![servers::entry(server, "buildbox")],
+    );
+    boot.settings.projects.search_root = Some(root.path().into());
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.receive(local(1, Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        servers::connect_remote(model, server, vec![], &[(project, "api")], cx);
+        model.select_project(project, cx);
+        model.disconnect_remote_servers(&[server], cx);
+    });
+    open_new_tab(cx);
+    assert_eq!(picker_purpose(&view, cx), Some(Purpose::NewTab));
+    view.read_with(cx, |model, _| {
+        assert!(model.pending_remote.is_none(), "nothing waits for buildbox");
+        assert_eq!(model.status_of(server), ServerStatus::Disconnected);
+    });
+}
+
+#[gpui::test]
 fn new_tab_in_project_browses_the_current_projects_server(cx: &mut TestAppContext) {
     let root = tempfile::tempdir().expect("root");
     let server = ServerId::new();

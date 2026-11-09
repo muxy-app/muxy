@@ -715,7 +715,8 @@ impl AppModel {
     }
 
     /// New Tab in Project: every server's projects, then folders on the
-    /// current project's server.
+    /// current project's server, or on this computer while that server isn't
+    /// connected, so the projects never wait for it.
     pub(crate) fn open_new_tab_picker(
         &mut self,
         window: &mut gpui::Window,
@@ -742,7 +743,9 @@ impl AppModel {
                 return;
             }
         }
-        if self.server_name(server).is_some() {
+        let browses = purpose == Purpose::AddProject
+            || self.status_of(server) == crate::model::ServerStatus::Connected;
+        if self.server_name(server).is_some() && browses {
             self.open_remote_folders(server, purpose, cx);
             return;
         }
