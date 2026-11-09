@@ -9,10 +9,10 @@ workspaces, and project order are kept by each app.
 - Add one with **Add Project** below the project list or in the sidebar's filter
   menu when focused on one project, **File → Open Project…**, or `Cmd+O`. Type to search folders, type a
   path, or choose **Finder…** (**Browse…** on Linux) to pick a folder in the
-  system dialog. It adds the project to the
-  [default server](remote-servers.md#the-default-server). On another computer's
-  server, browse its folders or type a path there instead; Finder and Browse
-  only reach this computer.
+  system dialog. Each server's **Add Project** adds to that server, and
+  `Cmd+O` to the current project's. On another computer's server, browse its
+  folders or type a path there instead; Finder and Browse only reach this
+  computer.
 - `muxy <folder>` in a shell opens a terminal in that folder's project in the
   desktop app, adding the project if needed. On macOS, so does dropping a folder
   on the Dock icon or using **Open With**.
@@ -22,8 +22,8 @@ workspaces, and project order are kept by each app.
   `public`, `static`, `app`, `src/app`, `src/assets`, and `assets`. It supports
   SVG, ICO, PNG, JPEG, WebP, GIF, and ICNS up to 5 MiB each, including projects on
   remote servers.
-  Icons refresh when you return to Muxy; unreadable images fall back to the
-  usual project tile. Home keeps its built-in icon.
+  Icons refresh when you return to Muxy, and a remote project's when its server
+  connects again; unreadable images fall back to the usual project tile. Home keeps its built-in icon.
 - **Remove Project…** removes it from every app and ends its terminals. Files
   stay on disk.
 - **Add Project → Recently Removed** brings back one of the last 10 removed

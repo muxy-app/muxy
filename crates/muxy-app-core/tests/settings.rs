@@ -74,6 +74,29 @@ fn project_sort_modes_preserve_legacy_name_settings_and_unrelated_preferences() 
 }
 
 #[test]
+fn sidebar_servers_start_with_this_computer_expanded_and_keep_each_choice() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "[appearance]\ntips_visible = false\n")?;
+    let mut appearance = Appearance::load(&path)?;
+    let remote = ServerId::new();
+    assert!(appearance.server_expanded(ServerId::local()));
+    assert!(!appearance.server_expanded(remote));
+
+    let previous = appearance.clone();
+    appearance
+        .sidebar_servers_expanded
+        .insert(ServerId::local(), false);
+    appearance.sidebar_servers_expanded.insert(remote, true);
+    appearance = appearance.save_changes(&previous, &path)?;
+    let saved = Appearance::load(&path)?;
+    assert_eq!(saved, appearance);
+    assert!(!saved.server_expanded(ServerId::local()));
+    assert!(saved.server_expanded(remote));
+    assert!(!saved.tips_visible);
+    Ok(())
+}
+
+#[test]
 fn agents_panel_visibility_preserves_saved_choices_and_older_settings() -> Result {
     let fixture = Fixture::new()?;
     for (source, visible) in [

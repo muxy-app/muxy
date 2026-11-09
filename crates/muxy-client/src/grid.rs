@@ -72,6 +72,10 @@ impl RunGrid {
         self.modes = frame.modes;
     }
 
+    /// Takes the new size until the server's next frame, which always
+    /// replaces the whole screen. The screen keeps its rows meanwhile, ending
+    /// at the cursor's like the server's terminal and cut to its width, so it
+    /// never goes blank.
     pub fn resize(&mut self, size: Size) {
         self.graphics = muxy_protocol::Graphics::default();
         self.links.rows.clear();
@@ -80,7 +84,28 @@ impl RunGrid {
         self.prompt_state.pending = false;
         self.prompt_state.rows.clear();
         self.size = size;
-        self.rows = blank_rows(size.rows);
+        let height = usize::from(size.rows);
+        let dropped = (usize::from(self.cursor.row) + 1)
+            .saturating_sub(height)
+            .min(self.rows.len());
+        self.rows.drain(..dropped);
+        self.rows.resize_with(height, Vec::new);
+        for row in &mut self.rows {
+            let fitting = row
+                .iter()
+                .scan(0_u16, |used, run| {
+                    *used = used.saturating_add(run.width);
+                    Some(*used <= size.cols)
+                })
+                .take_while(|fits| *fits)
+                .count();
+            row.truncate(fitting);
+        }
+        self.cursor.row = self
+            .cursor
+            .row
+            .saturating_sub(u16::try_from(dropped).unwrap_or(u16::MAX));
+        self.cursor.col = self.cursor.col.min(size.cols.saturating_sub(1));
         self.history.clear();
         self.history_cursor = None;
         self.history_fresh = false;
@@ -430,6 +455,33 @@ mod tests {
         assert_eq!(grid.rows.len(), 5);
         assert_eq!(grid.row_text(1), "");
         assert_eq!(grid.row_text(4), "fifth");
+    }
+
+    #[test]
+    fn resizing_keeps_the_screen_ending_at_the_cursor_until_the_next_frame() {
+        let mut grid = RunGrid::from_snapshot(&snapshot());
+        grid.resize(Size { cols: 6, rows: 2 });
+        assert_eq!(grid.size, Size { cols: 6, rows: 2 });
+        assert_eq!(grid.rows, vec![vec![], vec![run("third")]]);
+        assert_eq!(grid.cursor.row, 1);
+        grid.resize(Size { cols: 4, rows: 2 });
+        assert_eq!(
+            grid.rows,
+            vec![vec![], vec![]],
+            "no run runs past the width"
+        );
+        assert_eq!(grid.cursor.col, 3);
+        grid.apply(&frame(1, true, vec![row(1, "third")]));
+        grid.resize(Size { cols: 6, rows: 2 });
+        assert_eq!(grid.rows, vec![vec![], vec![run("third")]]);
+        assert_eq!(grid.cursor.row, 0);
+        grid.cursor.row = 1;
+        grid.resize(Size { cols: 6, rows: 4 });
+        assert_eq!(grid.rows, vec![vec![], vec![run("third")], vec![], vec![]]);
+        assert_eq!(grid.cursor.row, 1);
+        grid.apply(&frame(2, true, vec![row(0, "fresh")]));
+        assert_eq!(grid.row_text(0), "fresh");
+        assert_eq!(grid.row_text(1), "");
     }
 
     #[test]

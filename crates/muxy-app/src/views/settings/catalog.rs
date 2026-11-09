@@ -423,6 +423,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
+        id: "sidebar-servers",
+        label: tr_key!("Show other servers in the sidebar"),
+        description: tr_key!(
+            "List other computers' servers and their projects under this computer's. When off, the sidebar shows only this computer's projects; the Servers button still manages the others."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "auto-expand-worktrees",
         label: tr_key!("Expand worktrees when switching projects"),
         description: tr_key!("Reveal worktrees when selecting a project in Project Focused."),
@@ -871,8 +880,10 @@ pub(super) const SETTINGS: &[Setting] = &[
     Setting {
         id: "server",
         label: tr_key!("This computer's server"),
-        description: tr_key!("Manage the local server that keeps your terminal sessions running."),
-        category: Category::Server,
+        description: tr_key!(
+            "The server that keeps this computer's terminals running. Restarting or stopping it ends all of them."
+        ),
+        category: Category::Servers,
         section: tr_key!("Connection"),
     },
     Setting {
@@ -881,7 +892,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!(
             "macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings."
         ),
-        category: Category::Server,
+        category: Category::Servers,
         section: tr_key!("Connection"),
     },
     Setting {
@@ -890,7 +901,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!(
             "Shell for new sessions. Leave empty to use $SHELL, falling back to /bin/zsh."
         ),
-        category: Category::Server,
+        category: Category::Servers,
         section: tr_key!("Sessions"),
     },
     Setting {
@@ -899,7 +910,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!(
             "Retained terminal history, from 0 to 65536 MiB. Saved-history changes take effect at the next server start."
         ),
-        category: Category::Server,
+        category: Category::Servers,
         section: tr_key!("Sessions"),
     },
     Setting {
@@ -908,26 +919,8 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!(
             "Enable working-directory tracking and prompt navigation in new sessions."
         ),
-        category: Category::Server,
+        category: Category::Servers,
         section: tr_key!("Sessions"),
-    },
-    Setting {
-        id: "Stop Server",
-        label: tr_key!("Stop Server"),
-        description: tr_key!(
-            "End all sessions on this computer and stop the server. A confirmation is required."
-        ),
-        category: Category::Server,
-        section: tr_key!("Server control"),
-    },
-    Setting {
-        id: "Restart Server",
-        label: tr_key!("Restart Server"),
-        description: tr_key!(
-            "End all sessions and start the server again. Saved terminal records are preserved."
-        ),
-        category: Category::Server,
-        section: tr_key!("Server control"),
     },
 ];
 
@@ -961,6 +954,7 @@ pub(super) fn search_aliases(id: &str) -> &'static str {
         "interface-size" => "zoom density",
         "extension-sidebar" => "custom replace",
         "usage-ping" => "telemetry analytics tracking statistics",
+        "server" => "stop restart connect local mac computer",
         _ => "",
     }
 }

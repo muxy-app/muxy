@@ -1,3 +1,4 @@
+mod adoption;
 pub(crate) mod agent_sessions;
 pub(crate) mod agents_panel;
 pub(crate) mod ai;
@@ -11,7 +12,6 @@ mod close_check;
 pub(crate) mod commands;
 mod composer;
 mod coverage;
-mod default_server;
 mod diagnostics;
 pub(crate) mod dialogs;
 pub(crate) mod extensions;
@@ -37,6 +37,7 @@ pub(crate) use remote_servers::{
     ConnectionTest, Install, PendingRemote, RemoteIntent, RemoteServer, ServerFields, by_group,
     join_destination, released_version, split_destination,
 };
+mod server_groups;
 mod server_status;
 mod servers;
 pub(crate) use server_status::ServerStatus;
@@ -721,11 +722,11 @@ impl AppModel {
             _changes: changes,
             _quit: quit,
         };
-        model.sync_default_server();
         if !model.project_listed(model.state.current_project()) {
-            let home = model.state.default_home().id;
+            let home = model.state.home().id;
             let _ = model.state.select_project(home);
         }
+        model.reveal_restored_server(cx);
         model.sync_agents_panel(cx);
         model.ensure_servers_search(cx);
         model.bind_extension_keys(cx);
@@ -752,7 +753,7 @@ impl AppModel {
         model.start_usage_ping(cx);
         model.start_tips(window, cx);
         model.sync_ssh_proxy(cx);
-        model.start_servers(cx);
+        model.start_servers();
         if stopped_in_background {
             model.explain_background_stop(cx);
         }
@@ -1004,10 +1005,8 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return;
         }
-        if let Some(server) = self.state.project_server(project) {
-            self.use_server(server, cx);
-        }
         if self.state.select_project(project).is_ok() {
+            self.reveal_server(self.state.current_project().server_id, cx);
             self.dismiss_overlay(cx);
             self.changed(cx);
             self.focus_owner.request_active_pane();
@@ -1089,7 +1088,6 @@ impl AppModel {
         create: impl FnOnce(&mut AppState) -> Result<ProjectId, muxy_app_core::AppError>,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
-        self.use_server(server, cx);
         let mut added = None;
         if !self.edit_project(
             |state| {
@@ -1105,6 +1103,7 @@ impl AppModel {
             return None;
         }
         let project = added?;
+        self.reveal_server(server, cx);
         self.hide_new_project_worktrees(project, cx);
         if initial_terminal && self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
@@ -1258,11 +1257,6 @@ impl AppModel {
         if surface != tab_windows::Surface::Main {
             self.raise_main_window(cx);
         }
-        let server = self.state.default_server();
-        if self.state.project_server(project) != Some(server) && !server.is_local() {
-            self.new_remote_home_tab(server, cx);
-            return;
-        }
         self.open_new_tab(project, directory.as_deref(), cx);
     }
 
@@ -1293,6 +1287,7 @@ impl AppModel {
             Err(error) => self.fail(error.to_string(), cx),
         }
         let server = self.state.current_project().server_id;
+        self.reveal_server(server, cx);
         if self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
         }
@@ -1324,6 +1319,7 @@ impl AppModel {
             return false;
         }
         self.changed(cx);
+        self.reveal_server(server, cx);
         self.focus_owner.request_active_pane();
         if self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
@@ -1996,12 +1992,11 @@ impl AppModel {
         }
     }
 
-    /// The project shown is always one the sidebar lists, on the default
-    /// server and never a removed server's, so new tabs never open somewhere
-    /// the user can't see.
+    /// The project shown is always one the sidebar lists, never a removed
+    /// server's, so new tabs never open somewhere the user can't see.
     fn sync_visible(&mut self, cx: &mut Context<Self>) {
         if !self.project_listed(self.state.current_project()) {
-            let home = self.state.default_home().id;
+            let home = self.state.home().id;
             let _ = self.state.select_project(home);
             self.state.reveal_current_project();
         }
@@ -3156,6 +3151,7 @@ pub(crate) mod tests {
     mod webviews;
     use muxy_protocol::ExitReason;
     mod activity;
+    mod adoption;
     mod agent_sessions;
     mod agents_panel;
     mod ai;
@@ -3164,7 +3160,6 @@ pub(crate) mod tests {
     mod commands;
     mod composer;
     mod coverage;
-    mod default_server;
     mod detach;
     mod dialogs;
     mod extension_authoring;

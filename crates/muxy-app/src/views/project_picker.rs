@@ -44,6 +44,7 @@ pub(crate) enum Purpose {
 pub(crate) enum PickerEvent {
     ConfirmTarget {
         target: Target,
+        secondary: bool,
     },
     Confirm {
         path: String,
@@ -503,6 +504,9 @@ impl ProjectPicker {
             self.session.top_right_action_title()
         };
         let titles = match (self.purpose, target) {
+            (_, Some(Target::Server(_))) => {
+                vec![tr_key!("Browse Folders…"), tr_key!("Terminal in Home")]
+            }
             (_, Some(Target::Project(_))) => vec![tr_key!("New Tab")],
             (Purpose::AddProject, None) => vec![add],
             (Purpose::NewTab, None) if self.session.is_existing_project() => {
@@ -539,7 +543,10 @@ impl ProjectPicker {
 
     fn activate(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(target) = self.targets.action(id) {
-            cx.emit(PickerEvent::ConfirmTarget { target: *target });
+            cx.emit(PickerEvent::ConfirmTarget {
+                target: *target,
+                secondary: false,
+            });
             return;
         }
         let index = id
@@ -618,7 +625,10 @@ impl ProjectPicker {
             .selected_row_id()
             .and_then(|id| self.targets.action(id))
         {
-            cx.emit(PickerEvent::ConfirmTarget { target: *target });
+            cx.emit(PickerEvent::ConfirmTarget {
+                target: *target,
+                secondary,
+            });
             return;
         }
         let Some(path) = self.session.confirmation_path() else {
@@ -684,24 +694,40 @@ impl Drop for ProjectPicker {
 }
 
 impl AppModel {
+    /// Add Project's folders on the current project's server.
     pub(crate) fn open_project_picker(
         &mut self,
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        self.toggle_project_picker(Purpose::AddProject, window, cx);
+        let server = self.state.current_project().server_id;
+        self.toggle_project_picker(server, Purpose::AddProject, window, cx);
     }
 
+    /// Add Project's folders on `server`.
+    pub(crate) fn open_project_picker_on(
+        &mut self,
+        server: ServerId,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_project_picker(server, Purpose::AddProject, window, cx);
+    }
+
+    /// New Tab in Project: every server's projects, then folders on the
+    /// current project's server.
     pub(crate) fn open_new_tab_picker(
         &mut self,
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        self.toggle_project_picker(Purpose::NewTab, window, cx);
+        let server = self.state.current_project().server_id;
+        self.toggle_project_picker(server, Purpose::NewTab, window, cx);
     }
 
     fn toggle_project_picker(
         &mut self,
+        server: ServerId,
         purpose: Purpose,
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
@@ -716,8 +742,7 @@ impl AppModel {
                 return;
             }
         }
-        let server = self.state.default_server();
-        if !server.is_local() {
+        if self.server_name(server).is_some() {
             self.open_remote_folders(server, purpose, cx);
             return;
         }
@@ -734,7 +759,7 @@ impl AppModel {
         let paths = self.project_paths(ServerId::local());
         let targets = match purpose {
             Purpose::AddProject => Registry::default(),
-            Purpose::NewTab => targets::registry(self, ServerId::local()),
+            Purpose::NewTab => targets::registry(self),
         };
         let picker = cx.new(|cx| {
             ProjectPicker::new(
@@ -753,7 +778,6 @@ impl AppModel {
     }
 
     pub(crate) fn open_remote_project_picker(&mut self, server: ServerId, cx: &mut Context<Self>) {
-        self.use_server(server, cx);
         self.open_remote_folders(server, Purpose::AddProject, cx);
     }
 
@@ -789,7 +813,7 @@ impl AppModel {
         let paths = self.project_paths(server);
         let targets = match purpose {
             Purpose::AddProject => Registry::default(),
-            Purpose::NewTab => targets::registry(self, server),
+            Purpose::NewTab => targets::registry(self),
         };
         let picker = cx.new(|cx| {
             ProjectPicker::remote(
@@ -834,8 +858,8 @@ impl AppModel {
         self.overlay_subscription =
             Some(
                 cx.subscribe(&picker, move |model, picker, event, cx| match event {
-                    PickerEvent::ConfirmTarget { target } => {
-                        model.confirm_project_target(*target, cx);
+                    PickerEvent::ConfirmTarget { target, secondary } => {
+                        model.confirm_project_target(&picker, *target, *secondary, cx);
                     }
                     PickerEvent::Confirm {
                         path,
@@ -879,12 +903,28 @@ impl AppModel {
         cx.notify();
     }
 
-    fn confirm_project_target(&mut self, target: Target, cx: &mut Context<Self>) {
+    fn confirm_project_target(
+        &mut self,
+        picker: &Entity<ProjectPicker>,
+        target: Target,
+        secondary: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self.dialogs.is_open() {
             return;
         }
-        let Target::Project(id) = target;
-        self.open_tab_in_project(id, cx);
+        match target {
+            Target::Project(id) => self.open_tab_in_project(id, cx),
+            Target::Server(server) => {
+                let purpose = picker.read(cx).purpose();
+                self.dismiss_overlay(cx);
+                if secondary {
+                    self.new_remote_home_tab(server, cx);
+                } else {
+                    self.open_remote_folders(server, purpose, cx);
+                }
+            }
+        }
     }
 
     fn open_tab_in_project(&mut self, id: muxy_app_core::ProjectId, cx: &mut Context<Self>) {
@@ -1041,7 +1081,6 @@ impl AppModel {
         if self.dialogs.is_open() {
             return;
         }
-        self.use_server(server, cx);
         if let Some(id) = self.project_at(server, &path.to_string_lossy()) {
             self.open_tab_in_project(id, cx);
             return;
@@ -1153,7 +1192,6 @@ impl AppModel {
     }
 
     fn open_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
-        self.use_server(ServerId::local(), cx);
         let canonical = folder.canonicalize().ok();
         let existing = self
             .state

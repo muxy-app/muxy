@@ -40,9 +40,10 @@ fn open_with_sidebar(
 
 fn listed(model: &AppModel) -> Vec<ProjectId> {
     model
-        .tab_sidebar_projects()
+        .tab_sidebar_groups()
         .0
         .iter()
+        .flat_map(|group| &group.projects)
         .map(|project| project.id)
         .collect()
 }
@@ -61,7 +62,7 @@ fn projects_without_tabs_wait_behind_a_toggle_even_when_current(cx: &mut TestApp
         assert_eq!(model.state.current_project().id, current);
         assert_eq!(listed(model), [with_tab]);
         assert_eq!(
-            model.tab_sidebar_projects().1,
+            model.tab_sidebar_groups().1,
             3,
             "Home, current, and idle are hidden"
         );
@@ -77,7 +78,7 @@ fn projects_without_tabs_wait_behind_a_toggle_even_when_current(cx: &mut TestApp
     assert!(row(cx, format!("tab-project-{idle}")).is_some());
     view.read_with(cx, |model, _| {
         assert_eq!(listed(model).len(), 4);
-        assert_eq!(model.tab_sidebar_projects().1, 3);
+        assert_eq!(model.tab_sidebar_groups().1, 3);
     });
 
     let toggle = cx
@@ -92,7 +93,7 @@ fn projects_without_tabs_wait_behind_a_toggle_even_when_current(cx: &mut TestApp
             listed(model).is_empty(),
             "a terminal tab without an agent does not count"
         );
-        assert_eq!(model.tab_sidebar_projects().1, 4);
+        assert_eq!(model.tab_sidebar_groups().1, 4);
     });
 }
 
@@ -110,6 +111,20 @@ fn closing_the_last_tab_hides_the_current_project_at_once(cx: &mut TestAppContex
         assert_eq!(model.state.current_project().id, with_tab);
         assert!(listed(model).is_empty());
     });
+}
+
+#[gpui::test]
+fn projects_are_not_indented_under_their_servers_heading(cx: &mut TestAppContext) {
+    let (state, [with_tab, ..], _) = three_projects();
+    let (view, cx) = open(state, AppLayout::TabFocused, cx);
+    let title = row(cx, format!("tab-project-title-{with_tab}")).expect("project title");
+    let chevron = row(cx, format!("tab-project-toggle-{with_tab}")).expect("chevron");
+    let heading = cx
+        .debug_bounds("sidebar-server-local")
+        .expect("this computer's heading");
+    let metrics = view.read_with(cx, |model, _| model.metrics);
+    assert_eq!(heading.left() + metrics.spacing4(), title.left());
+    assert_eq!(heading.right(), chevron.right());
 }
 
 #[gpui::test]
@@ -203,6 +218,9 @@ fn project_rows_line_up_with_the_header_and_focus_from_their_menu(cx: &mut TestA
         assert_eq!(model.state.current_project().id, with_tab);
         assert_eq!(listed(model), [with_tab]);
     });
+    cx.simulate_resize(size(px(1201.0), px(800.0)));
+    cx.run_until_parked();
+    let header = row(cx, format!("tab-project-{with_tab}")).expect("project header");
     cx.simulate_mouse_down(header.center(), gpui::MouseButton::Right, Modifiers::none());
     cx.run_until_parked();
     let show = cx

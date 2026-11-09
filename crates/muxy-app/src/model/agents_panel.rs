@@ -140,7 +140,7 @@ impl AgentsPanel {
 }
 
 impl AppModel {
-    /// The agents in the default server's projects, which the sidebar lists.
+    /// The agents in the projects the sidebar lists, on every server.
     pub(crate) fn running_agents(&self) -> Vec<RunningAgent> {
         type Index<'a> = (
             std::collections::HashMap<SessionId, &'a muxy_protocol::AgentActivity>,

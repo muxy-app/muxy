@@ -341,12 +341,14 @@ impl AppModel {
             self.servers.passwords.forget(server);
         }
         self.sync_servers(cx);
+        self.connect_on_demand(server, cx);
         Ok(server)
     }
 
     /// Matches the running servers to the list in settings, which also takes
-    /// in hand edits made since launch. A new server, or one reached in a new
-    /// way, gets a worker and connects. One no longer listed stops, and its
+    /// in hand edits made since launch. A new server gets a worker and stays
+    /// disconnected; one reached in a new way gets a new worker and connects
+    /// again if it was connected. One no longer listed stops, and its
     /// projects stay hidden until it returns.
     pub(super) fn sync_servers(&mut self, cx: &mut Context<Self>) {
         let listed = self.settings.servers.clone();
@@ -362,24 +364,23 @@ impl AppModel {
             self.servers.remove(server);
         }
         if hidden {
-            if self.sync_default_server() {
-                self.save(cx);
-            }
             self.sync_visible(cx);
         }
         for entry in listed {
             let target = self.servers.target(&entry).ok();
             let Some(runtime) = self.servers.get(entry.id) else {
                 self.servers.restart(&entry);
-                self.connect_server(entry.id, cx);
                 continue;
             };
             if runtime.target == target {
                 continue;
             }
+            let connected = runtime.connection != ConnectionState::Disconnected;
             self.disconnect(entry.id, cx);
             self.servers.restart(&entry);
-            self.connect_server(entry.id, cx);
+            if connected {
+                self.connect_server(entry.id, cx);
+            }
         }
         self.sync_preferences(cx);
         cx.notify();
@@ -894,7 +895,7 @@ impl AppModel {
         if self.server_name(server).is_none() {
             return;
         }
-        self.use_server(server, cx);
+        self.reveal_server(server, cx);
         if let Some(home) = self.state.server_home(server).map(|home| home.id) {
             self.pending_remote = None;
             self.new_tab_in(home, cx);

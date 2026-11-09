@@ -491,9 +491,9 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> Result<PaneId, String> {
         if opening == Opening::Selected
-            && let Some(server) = self.available_project_server(project)
+            && let Some(server) = self.state.project_server(project)
         {
-            self.use_server(server, cx);
+            self.reveal_server(server, cx);
         }
         let opened = self.transact(
             |state| {

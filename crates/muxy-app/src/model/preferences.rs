@@ -35,6 +35,7 @@ pub(crate) enum Change {
     PaneHeaders(bool),
     Tips(bool),
     RememberProjectsWithoutTabs(bool),
+    SidebarServers(bool),
     ConfirmProcess(bool),
     UsagePing(bool),
     CloseBehavior(muxy_app_core::settings::CloseBehavior),
@@ -610,6 +611,10 @@ impl AppModel {
                 settings.appearance.remember_projects_without_tabs = value;
                 settings.appearance.projects_without_tabs_shown =
                     value && self.projects_without_tabs_shown;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::SidebarServers(value) => {
+                settings.appearance.sidebar_remote_servers = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
             Change::ConfirmProcess(value) => {
@@ -1314,6 +1319,7 @@ fn change_id(change: &Change) -> &str {
         Change::PaneHeaders(_) => "pane-headers",
         Change::Tips(_) => "tips",
         Change::RememberProjectsWithoutTabs(_) => "remember-projects-without-tabs",
+        Change::SidebarServers(_) => "sidebar-servers",
         Change::ConfirmProcess(_) => "confirm-process",
         Change::UsagePing(_) => "usage-ping",
         Change::CloseBehavior(_) => "close-behavior",

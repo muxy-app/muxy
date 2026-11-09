@@ -26,7 +26,7 @@ pub(super) struct Results {
 }
 
 /// The order of search results, which keeps related settings together.
-const SEARCH_ORDER: [Category; 14] = [
+const SEARCH_ORDER: [Category; 13] = [
     Category::General,
     Category::QuickTerminal,
     Category::Composer,
@@ -35,7 +35,6 @@ const SEARCH_ORDER: [Category; 14] = [
     Category::Keyboard,
     Category::Commands,
     Category::Browser,
-    Category::Server,
     Category::Servers,
     Category::Extensions,
     Category::Ai,
@@ -210,12 +209,9 @@ impl SettingsView {
                 items.push(Item::Section(category));
             }
         }
-        self.results.editable = items.iter().any(|item| {
-            !matches!(
-                item,
-                Item::Section(Category::About | Category::Servers | Category::Extensions)
-            )
-        });
+        self.results.editable = items
+            .iter()
+            .any(|item| !matches!(item, Item::Section(Category::About | Category::Extensions)));
         if items.is_empty() {
             items.push(Item::Empty);
         }
@@ -328,7 +324,6 @@ impl SettingsView {
             Category::Backup => super::backup::rows(self, cx),
             Category::About => super::about::rows(self, cx),
             Category::Terminal => terminal::rows(self, window, cx),
-            Category::Server => server::rows(self, cx),
             Category::Keyboard | Category::Commands => Vec::new(),
             Category::Extensions => {
                 if self.matches(
@@ -349,11 +344,14 @@ impl SettingsView {
                 }
             }
             Category::Servers => {
-                if self.matches(
+                let mut rows = server::rows(self, cx);
+                if self.query.is_empty() {
+                    rows.extend(self.servers.clone().map(IntoElement::into_any_element));
+                } else if self.matches(
                     Category::Servers,
                     tr_key!("Manage servers clients remote ssh pairing paired mobile phones computers port qr"),
                 ) {
-                    vec![
+                    rows.push(
                         muxy_ui::controls::button(
                             self.style(),
                             "manage-servers",
@@ -362,10 +360,9 @@ impl SettingsView {
                         )
                         .debug_selector(|| "settings-manage-servers".into())
                         .into_any_element(),
-                    ]
-                } else {
-                    Vec::new()
+                    );
                 }
+                rows
             }
             Category::QuickTerminal => super::quick_terminal::rows(self, cx),
         }

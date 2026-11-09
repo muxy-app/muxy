@@ -51,7 +51,8 @@ pub(super) fn page(
     }
 }
 
-/// Connects `server` as its worker would, with its catalog. Returns its Home.
+/// Connects `server`, which starts disconnected, as its worker would, with
+/// its catalog. Returns its Home.
 pub(super) fn connect_remote(
     model: &mut AppModel,
     server: ServerId,
@@ -60,9 +61,15 @@ pub(super) fn connect_remote(
     cx: &mut Context<AppModel>,
 ) -> ProjectId {
     let home = ProjectId::new();
-    model.receive((server, 1, Update::Connected(sessions)), cx);
+    model.connect_on_demand(server, cx);
+    let generation = model.generation(server);
+    model.receive((server, generation, Update::Connected(sessions)), cx);
     model.receive(
-        (server, 1, Update::Catalog(Ok(page(2, home, projects)))),
+        (
+            server,
+            generation,
+            Update::Catalog(Ok(page(2, home, projects))),
+        ),
         cx,
     );
     assert_eq!(

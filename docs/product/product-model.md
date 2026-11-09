@@ -61,8 +61,8 @@ goes by the server's name.
 
 A workspace is a named filter for the sidebar. A project can be in no
 workspace, one, or several, and a workspace can be empty. Deleting a workspace
-never touches its projects. Workspaces filter the default server's projects;
-the sidebar never lists another server's.
+never touches its projects. Workspaces filter the projects of every server,
+under each server's heading in the sidebar.
 
 ## Worktrees
 

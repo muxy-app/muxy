@@ -130,14 +130,14 @@ pub(crate) fn dot(color: Hsla, model: &AppModel) -> gpui::Div {
         .bg(color)
 }
 
-/// How much a server not connected asks for attention: a failure most, then
-/// one on its way, then one simply offline.
+/// How much a server asks for attention: a failure most, then one on its
+/// way. Servers rest disconnected until used, so that asks for none.
 fn attention(server: &RemoteServer) -> usize {
     match server.status {
         ServerStatus::Connected => 0,
-        ServerStatus::Disconnected if server.error.is_none() => 1,
-        ServerStatus::Connecting | ServerStatus::Restarting | ServerStatus::Stopping => 2,
-        ServerStatus::Disconnected => 3,
+        ServerStatus::Disconnected if server.error.is_none() => 0,
+        ServerStatus::Connecting | ServerStatus::Restarting | ServerStatus::Stopping => 1,
+        ServerStatus::Disconnected => 2,
     }
 }
 
@@ -248,9 +248,6 @@ fn server_row(server: &RemoteServer, model: &AppModel, cx: &mut Context<AppModel
                         .truncate()
                         .child(server.entry.name.clone()),
                 )
-                .when(id == model.default_server(), |row| {
-                    row.aria_selected(true).child(default_mark(id, model))
-                })
                 .child(
                     div()
                         .relative()
@@ -304,18 +301,6 @@ fn server_row(server: &RemoteServer, model: &AppModel, cx: &mut Context<AppModel
                     hint,
                 ))
         }))
-}
-
-/// The tick beside the server the app works with.
-fn default_mark(id: ServerId, model: &AppModel) -> gpui::Div {
-    div()
-        .debug_selector(move || format!("remote-server-default-{id}"))
-        .flex_none()
-        .child(IconGlyph::new(
-            Icon::Check,
-            model.metrics.icon_sm(),
-            model.theme.accent,
-        ))
 }
 
 /// Edit…, shown in place of the status while the row is hovered.

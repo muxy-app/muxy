@@ -129,6 +129,11 @@ pub struct Appearance {
     pub project_recent: Vec<crate::ProjectId>,
     pub hidden_worktrees: std::collections::BTreeSet<crate::ProjectId>,
     pub tab_focused_expanded: std::collections::BTreeMap<crate::ProjectId, bool>,
+    /// Servers whose sidebar group was expanded or collapsed by hand; the
+    /// others follow `server_expanded`'s default.
+    pub sidebar_servers_expanded: std::collections::BTreeMap<crate::ServerId, bool>,
+    /// The sidebar lists other computers' servers under this computer's.
+    pub sidebar_remote_servers: bool,
     pub remember_projects_without_tabs: bool,
     /// Kept only while `remember_projects_without_tabs` is on.
     pub projects_without_tabs_shown: bool,
@@ -185,6 +190,8 @@ impl Default for Appearance {
             project_recent: Vec::new(),
             hidden_worktrees: std::collections::BTreeSet::new(),
             tab_focused_expanded: std::collections::BTreeMap::new(),
+            sidebar_servers_expanded: std::collections::BTreeMap::new(),
+            sidebar_remote_servers: true,
             remember_projects_without_tabs: false,
             projects_without_tabs_shown: false,
             sidebar_focus: false,
@@ -225,6 +232,15 @@ impl Appearance {
     pub fn agents_panel_colors_apply(&self) -> bool {
         self.agents_panel_icon == AgentsPanelIcon::Agent
             && self.agents_panel_density == AgentsPanelDensity::Normal
+    }
+
+    /// Whether the sidebar lists `server`'s projects under its heading: this
+    /// computer's until collapsed, another computer's once expanded.
+    pub fn server_expanded(&self, server: crate::ServerId) -> bool {
+        self.sidebar_servers_expanded
+            .get(&server)
+            .copied()
+            .unwrap_or_else(|| server.is_local())
     }
 
     pub fn theme(&self, dark: bool) -> &str {

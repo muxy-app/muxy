@@ -379,7 +379,7 @@ pub fn import_shell(
         .trim_start_matches("shell:");
     if !is_executable(Path::new(shell)) {
         report.attention.push(format!(
-            "Shell command {command} (choose Default shell in Settings → Server)"
+            "Shell command {command} (choose Default shell in Settings → Servers)"
         ));
         return Ok(None);
     }

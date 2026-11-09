@@ -186,6 +186,20 @@ pub(super) fn rows(
             ),
         ));
     }
+    if category == Category::Appearance
+        && pane.matches(category, tr_key!("Show other servers in the sidebar"))
+    {
+        rows.push(pane.row(
+            "sidebar-servers",
+            tr_key!("Show other servers in the sidebar"),
+            pane.toggle(
+                "sidebar-servers",
+                appearance.sidebar_remote_servers,
+                Change::SidebarServers(!appearance.sidebar_remote_servers),
+                cx,
+            ),
+        ));
+    }
     for (toggle, label, value) in [
         (
             WorktreeToggle::AutoExpand,

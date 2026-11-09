@@ -258,7 +258,7 @@ impl AppModel {
         if let Some(tour) = &mut self.onboarding.tour {
             tour.known_projects = Some(known);
         }
-        self.open_project_picker(window, cx);
+        self.open_project_picker_on(ServerId::local(), window, cx);
     }
 
     /// Adds a server from the tour, to confirm it once it appears.

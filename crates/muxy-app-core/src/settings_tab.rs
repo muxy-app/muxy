@@ -1,5 +1,6 @@
 use crate::{
-    AppError, AppState, PaneContent, PaneId, Project, ProjectId, ProjectStatus, Tab, TabId,
+    AppError, AppState, PaneContent, PaneId, Project, ProjectId, ProjectStatus, ServerId, Tab,
+    TabId,
 };
 
 impl AppState {
@@ -56,9 +57,8 @@ impl AppState {
         project: ProjectId,
         title: &str,
     ) -> Result<TabId, AppError> {
-        let server = self.default_home().server_id;
         let open = self.settings_tab().filter(|(project, tab)| {
-            self.project_server(*project) == Some(server)
+            self.project_server(*project) == Some(ServerId::local())
                 || self
                     .tab_windows()
                     .any(|(_, detached, _)| detached.id == *tab)
@@ -75,7 +75,7 @@ impl AppState {
                 .projects
                 .iter()
                 .filter(|project| {
-                    project.status() != ProjectStatus::Available || project.server_id != server
+                    project.status() != ProjectStatus::Available || !project.server_id.is_local()
                 })
                 .flat_map(|project| &project.tabs)
                 .flat_map(|tab| &tab.panes)
@@ -86,13 +86,9 @@ impl AppState {
                 self.remove_pane(pane)?;
             }
             let here = self.project(project).is_some_and(|project| {
-                project.server_id == server && project.status() == ProjectStatus::Available
+                project.server_id.is_local() && project.status() == ProjectStatus::Available
             });
-            let project = if here {
-                project
-            } else {
-                self.default_home().id
-            };
+            let project = if here { project } else { self.home().id };
             let tab = Tab::with_content(PaneContent::Settings, title);
             let id = tab.id;
             let near = self.window.selected_tab.get(&project).copied();

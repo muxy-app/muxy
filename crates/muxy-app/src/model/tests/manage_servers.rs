@@ -51,6 +51,12 @@ fn remote_devices_are_added_edited_and_forgotten_in_settings_and_the_runtime(
     let (other_home, other_api) = (ProjectId::new(), ProjectId::new());
     let device = view.update(cx, |model, cx| {
         connect_local(model, cx);
+        assert_eq!(
+            model.connection(other),
+            ConnectionState::Disconnected,
+            "a listed server waits to be connected"
+        );
+        model.connect_server(other, cx);
         model.receive((other, 1, Update::Connected(vec![])), cx);
         let catalog = page(3, other_home, &[(other_api, "api")]);
         model.receive((other, 1, Update::Catalog(Ok(catalog))), cx);
@@ -148,6 +154,8 @@ fn the_status_bar_shows_and_restarts_the_current_projects_server(cx: &mut TestAp
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
         connect_local(model, cx);
+        let api = ProjectId::new();
+        connect_remote(model, remote, vec![], &[(api, "api")], cx);
         model.receive(
             (
                 remote,
@@ -156,8 +164,6 @@ fn the_status_bar_shows_and_restarts_the_current_projects_server(cx: &mut TestAp
             ),
             cx,
         );
-        let api = ProjectId::new();
-        connect_remote(model, remote, vec![], &[(api, "api")], cx);
         assert_eq!(model.status_server(), ServerId::local());
         model.select_project(api, cx);
         assert_eq!(model.status_server(), remote);
@@ -219,12 +225,21 @@ fn saving_a_device_also_takes_in_devices_edited_by_hand(cx: &mut TestAppContext)
         let saved = model
             .save_remote_server(None, &form("y", "dev@y"), cx)
             .expect("added");
-        assert_eq!(model.connection(by_hand.id), ConnectionState::Connecting);
+        assert_eq!(
+            model.connection(by_hand.id),
+            ConnectionState::Disconnected,
+            "a server edited in by hand waits to be connected"
+        );
+        assert_eq!(
+            model.connection(saved),
+            ConnectionState::Connecting,
+            "the one added here connects"
+        );
         saved
     });
     let worker = remotes.borrow_mut().remove(&by_hand.id).expect("worker");
     assert!(
-        worker
+        !worker
             .try_iter()
             .any(|(_, work)| matches!(work, Work::Connect))
     );
@@ -426,11 +441,7 @@ fn a_remote_home_tab_waits_for_the_password_and_opens_once_connected(cx: &mut Te
         let current = model.state.current_project();
         assert_eq!((current.id, current.tabs.len()), (home, 1));
         assert!(model.project_listed(current));
-        assert_eq!(
-            model.default_server(),
-            remote,
-            "a Home tab there switches to it"
-        );
+        assert!(model.server_expanded(remote), "a Home tab there expands it");
 
         let later = muxy_protocol::CatalogPage {
             revision: 2,
@@ -443,7 +454,7 @@ fn a_remote_home_tab_waits_for_the_password_and_opens_once_connected(cx: &mut Te
         model
             .forget_remote_servers(&[remote], cx)
             .expect("forgotten");
-        assert_eq!(model.default_server(), ServerId::local());
+        assert_eq!(model.state.current_project().id, model.state.home().id);
         assert!(model.project_listed(model.state.current_project()));
     });
 }

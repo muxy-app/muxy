@@ -94,7 +94,7 @@ fn a_server_removed_from_the_popover_menu_takes_only_its_projects(cx: &mut TestA
     });
     press(cx, "remote-servers-section".into());
     right_click(cx, format!("remote-server-{devbox}"));
-    press(cx, "menu-item-6".into());
+    press(cx, "menu-item-5".into());
     cx.simulate_prompt_answer("Forget");
     cx.run_until_parked();
     assert_eq!(groups(&path), [in_group("api", "Production")]);
@@ -164,7 +164,7 @@ fn group_headings_rename_and_delete_and_rows_start_new_groups(cx: &mut TestAppCo
 
     press(cx, "remote-servers-section".into());
     right_click(cx, format!("remote-server-{devbox}"));
-    open_submenu(cx, "menu-item-5".into());
+    open_submenu(cx, "menu-item-4".into());
     press(cx, "menu-item-1-2".into());
     cx.simulate_keystrokes("enter");
     cx.run_until_parked();

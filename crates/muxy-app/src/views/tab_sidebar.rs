@@ -112,16 +112,25 @@ impl AppModel {
         })
     }
 
-    pub(crate) fn tab_sidebar_projects(&self) -> (Vec<&Project>, usize) {
+    /// The sidebar's servers with the projects it shows under each, leaving
+    /// out projects without tabs unless they are shown, and how many it left
+    /// out.
+    pub(crate) fn tab_sidebar_groups(&self) -> (Vec<super::sidebar::ServerGroup<'_>>, usize) {
         let listed = |project: &&Project| {
             self.appearance.sidebar_focus || self.sidebar_tabs(project).next().is_some()
         };
-        let mut projects = self.sidebar_projects();
-        let without_tabs = projects.iter().filter(|project| !listed(project)).count();
+        let mut groups = self.sidebar_groups();
+        let without_tabs = groups
+            .iter()
+            .flat_map(|group| &group.projects)
+            .filter(|project| !listed(project))
+            .count();
         if !self.projects_without_tabs_shown {
-            projects.retain(listed);
+            for group in &mut groups {
+                group.projects.retain(listed);
+            }
         }
-        (projects, without_tabs)
+        (groups, without_tabs)
     }
 
     pub(crate) fn toggle_projects_without_tabs(&mut self, cx: &mut Context<Self>) {
@@ -174,15 +183,30 @@ pub(super) fn contents(
         .flex_col()
         .pt(model.metrics.spacing5())
         .pb(model.metrics.spacing3());
-    let (projects, without_tabs) = model.tab_sidebar_projects();
-    for project in projects {
-        rows = rows.child(project_group(project, &numbers, targets.clone(), model, cx));
+    let (groups, without_tabs) = model.tab_sidebar_groups();
+    for (position, group) in groups.into_iter().enumerate() {
+        if group.heading {
+            rows = rows.child(
+                div()
+                    .px(model.metrics.spacing3())
+                    .when(position > 0, |heading| heading.pt(model.metrics.spacing3()))
+                    .child(super::sidebar::server_heading(
+                        group.server,
+                        super::sidebar::HeadingRows::Tabs,
+                        model,
+                        cx,
+                    )),
+            );
+        }
+        for project in group.projects {
+            rows = rows.child(project_group(project, &numbers, targets.clone(), model, cx));
+        }
+        if group.heading && model.server_expanded(group.server) && !model.appearance.sidebar_focus {
+            rows = rows.child(add_project_button(group.server, model, cx));
+        }
     }
     if without_tabs > 0 {
         rows = rows.child(projects_without_tabs_toggle(without_tabs, model, cx));
-    }
-    if !model.appearance.sidebar_focus {
-        rows = rows.child(add_project_button(model, cx));
     }
     div()
         .debug_selector(|| "tab-sidebar".into())
@@ -210,15 +234,24 @@ pub(super) fn contents(
         .into_any_element()
 }
 
-fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+fn add_project_button(
+    server: muxy_app_core::ServerId,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
+    let id = SharedString::from(if server.is_local() {
+        "tab-add-project".to_owned()
+    } else {
+        format!("tab-add-project-{server}")
+    });
     div()
-        .id("tab-add-project")
+        .id(id.clone())
         .role(Role::Button)
-        .accessibility_id("tab-add-project")
+        .accessibility_id(id.clone())
         .aria_label(tr!("Add Project"))
-        .debug_selector(|| "tab-add-project".into())
+        .debug_selector(move || id.to_string())
         .mx(m.spacing3())
         .my(m.spacing1())
         .pl(m.spacing4())
@@ -234,9 +267,11 @@ fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
         .text_color(theme.fg_muted)
         .hover(|style| style.bg(theme.hover).text_color(theme.fg))
         .focus(|style| style.bg(theme.hover).text_color(theme.fg))
-        .button_interaction(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
-            model.choose_project_source(event.position(), window, cx);
-        }))
+        .button_interaction(
+            cx.listener(move |model, event: &gpui::ClickEvent, window, cx| {
+                model.choose_project_source(server, event.position(), window, cx);
+            }),
+        )
         .child(IconGlyph::new(Icon::Plus, m.font_body(), theme.fg_muted))
         .child(tr!("Add Project"))
         .into_any_element()
@@ -568,7 +603,6 @@ fn project_accessory(
         .flex_none()
         .items_center()
         .gap(m.spacing3())
-        .children(super::sidebar::remote_marker(project, model))
         .when(project.parent_id.is_some() && !has_activity, |row| {
             row.child(IconGlyph::new(
                 Icon::GitBranch,

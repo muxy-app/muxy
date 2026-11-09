@@ -269,6 +269,7 @@ impl AppModel {
             return Err(error.to_string());
         }
         self.sync_servers(cx);
+        self.connect_on_demand(server, cx);
         Ok(server)
     }
 

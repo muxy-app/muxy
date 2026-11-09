@@ -18,7 +18,7 @@ flowchart LR
   start it yourself.
 - It keeps running until you stop it, even with no app open.
 - Stopping or restarting it ends every terminal. Saved screens and history are
-  kept. Use the status bar, **Settings → Server**, or
+  kept. Use the status bar, **Settings → Servers**, or
   `muxy server stop --force`.
 - Muxy never restarts it on its own while terminals are running. After an
   update, the desktop app replaces this computer's server once no terminals are
@@ -48,7 +48,7 @@ flowchart LR
 ## Settings
 
 Server settings apply to everyone using that server. Change them in
-**Settings → Server**, with `muxy settings set`, or in `server.toml`:
+**Settings → Servers**, with `muxy settings set`, or in `server.toml`:
 
 | Setting | `server.toml` key | Default |
 | --- | --- | --- |

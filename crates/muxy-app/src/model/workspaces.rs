@@ -78,15 +78,14 @@ impl AppModel {
         if self.state.is_listed(self.state.current_project()) {
             return;
         }
-        let server = self.state.default_server();
+        let server = self.state.current_project().server_id;
         let target = self
             .listed_parents()
             .into_iter()
             .find(|project| !project.home && project.status() == ProjectStatus::Available)
             .map(|project| self.preferred_worktree(project.id))
-            .or_else(|| self.state.server_home(server).map(|home| home.id));
-        if let Some(target) = target {
-            self.select_project(target, cx);
-        }
+            .or_else(|| self.state.server_home(server).map(|home| home.id))
+            .unwrap_or(self.state.home().id);
+        self.select_project(target, cx);
     }
 }

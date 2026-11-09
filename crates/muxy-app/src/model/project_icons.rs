@@ -112,7 +112,11 @@ impl AppModel {
                     connection: (!project.server_id.is_local())
                         .then(|| self.extensions.connection_install(project.server_id))
                         .flatten(),
-                    revision: self.project_icons.revision,
+                    revision: if project.server_id.is_local() {
+                        self.project_icons.revision
+                    } else {
+                        0
+                    },
                 };
                 if self
                     .project_icons

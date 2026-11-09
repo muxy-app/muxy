@@ -107,6 +107,43 @@ fn the_page_shows_access_and_its_port(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_page_holds_this_computers_server_and_pairs_only_once_clients_are_allowed(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx, _) = servers_tab(cx, access(false, None, Vec::new()));
+    for selector in ["settings-row-server", "clients-access-row", "servers-add"] {
+        assert!(
+            cx.debug_bounds(selector).is_some(),
+            "{selector} is on screen"
+        );
+    }
+    for selector in [
+        "clients-status-row",
+        "clients-pair-row",
+        "clients-paired-row",
+    ] {
+        assert!(
+            cx.debug_bounds(selector).is_none(),
+            "{selector} waits until clients are allowed"
+        );
+    }
+    view.update(cx, |model, cx| {
+        model.receive_remote_access(Ok(access(true, None, Vec::new())), cx);
+    });
+    cx.run_until_parked();
+    for selector in [
+        "clients-status-row",
+        "clients-pair-row",
+        "clients-paired-row",
+    ] {
+        assert!(
+            cx.debug_bounds(selector).is_some(),
+            "{selector} is on screen"
+        );
+    }
+}
+
+#[gpui::test]
 fn access_and_port_changes_go_to_the_server_or_say_why_not(cx: &mut TestAppContext) {
     let (view, cx, requests) = servers_tab(cx, access(false, None, Vec::new()));
     view.update(cx, |model, cx| model.set_client_port("80", cx));

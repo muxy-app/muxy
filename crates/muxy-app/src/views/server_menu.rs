@@ -21,8 +21,6 @@ pub(crate) enum Servers {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Action {
-    /// Switches the whole app to the server.
-    UseAsDefault,
     NewTab,
     AddProject,
     /// Connects the servers that are offline.
@@ -132,16 +130,10 @@ fn move_items(groups: &[&str], servers: Servers, members: &[&RemoteServer]) -> V
 }
 
 /// One server's menu.
-fn single_server_items(
-    server: &RemoteServer,
-    groups: &[&str],
-    controls: bool,
-    default: bool,
-) -> Vec<Item> {
+fn single_server_items(server: &RemoteServer, groups: &[&str], controls: bool) -> Vec<Item> {
     let servers = Servers::One(server.entry.id);
     let mut items = vec![
-        item(tr!("Use as Default Server"), servers, Action::UseAsDefault).checked_if(default),
-        item(tr!("New Tab"), servers, Action::NewTab).separated(),
+        item(tr!("New Tab"), servers, Action::NewTab),
         item(tr!("Add Project…"), servers, Action::AddProject),
     ];
     items.extend(
@@ -260,12 +252,7 @@ impl AppModel {
         let groups = self.settings.server_groups();
         let items = match members.as_slice() {
             [] => return,
-            [server] => single_server_items(
-                server,
-                &groups,
-                self.control_enabled(server.entry.id),
-                server.entry.id == self.default_server(),
-            ),
+            [server] => single_server_items(server, &groups, self.control_enabled(server.entry.id)),
             several => {
                 let mut items = connection_items(servers, several);
                 items.push(Item::submenu(
@@ -351,8 +338,7 @@ impl AppModel {
         };
         let leaves = matches!(
             action,
-            Action::UseAsDefault
-                | Action::NewTab
+            Action::NewTab
                 | Action::AddProject
                 | Action::Restart
                 | Action::Stop
@@ -371,7 +357,6 @@ impl AppModel {
             _ => None,
         };
         match action {
-            Action::UseAsDefault => self.set_default_server(first, cx),
             Action::NewTab => self.new_remote_home_tab(first, cx),
             Action::AddProject => self.open_remote_project_picker(first, cx),
             Action::Connect => {

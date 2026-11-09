@@ -62,7 +62,6 @@ pub(crate) enum Category {
     Keyboard,
     Commands,
     Browser,
-    Server,
     Servers,
     Extensions,
     Backup,
@@ -70,7 +69,7 @@ pub(crate) enum Category {
 }
 
 impl Category {
-    pub(crate) const ALL: [Self; 14] = [
+    pub(crate) const ALL: [Self; 13] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
@@ -79,7 +78,6 @@ impl Category {
         Self::Commands,
         Self::Terminal,
         Self::Browser,
-        Self::Server,
         Self::Servers,
         Self::Extensions,
         Self::Ai,
@@ -99,7 +97,6 @@ impl Category {
             Self::Keyboard => tr_key!("Keyboard"),
             Self::Commands => tr_key!("Commands"),
             Self::Browser => tr_key!("Browser"),
-            Self::Server => tr_key!("Server"),
             Self::Servers => tr_key!("Servers"),
             Self::Extensions => tr_key!("Extensions"),
             Self::Backup => tr_key!("Backup & Restore"),
@@ -571,6 +568,7 @@ impl SettingsView {
         self.query.clear();
         self.results.reset();
         self.search.update(cx, |input, cx| input.set_text("", cx));
+        cx.emit(SettingsEvent::ReadServer);
         cx.notify();
     }
 
@@ -612,7 +610,7 @@ impl SettingsView {
     /// The file behind this category's settings.
     fn configuration_file(&self) -> &'static str {
         match self.category {
-            Category::Server => "server.toml",
+            Category::Servers => "server.toml",
             Category::Terminal => "terminal.toml",
             _ => "settings.toml",
         }

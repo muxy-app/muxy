@@ -1,13 +1,13 @@
-//! The Servers page's This Computer section: whether phones and other
-//! computers may reach this computer's server, the code that pairs one, and
-//! the clients paired with it.
+//! The Servers page's Clients section: whether phones and other computers
+//! may reach this computer's server, the code that pairs one, and the
+//! clients paired with it.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Role,
+    AnyElement, Bounds, Context, InteractiveElement, IntoElement, ParentElement, Role,
     SharedString, StatefulInteractiveElement, Styled, canvas, div, point, px, size,
 };
 use muxy_app_core::qr::{QUIET_ZONE, QrCode};
@@ -49,10 +49,11 @@ impl Pairing {
     }
 }
 
-/// The section's title and its card, or why it can't show yet.
+/// The section's title and its card, or why it can't show yet. Until
+/// clients are allowed, the card holds only the switch and the clients
+/// already paired.
 pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let m = model.servers_page.metrics;
-    let theme = &model.theme;
     let access = model.client_access();
     let body = if !model.client_access_available() {
         note(
@@ -81,7 +82,7 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
                 true,
                 model,
             ))
-            .child(row(
+            .when(state.settings.enabled, |card| card.child(row(
                 "clients-port",
                 tr!("Port"),
                 Some(tr!("From 1024 to 65535. Press Return to save.")),
@@ -91,32 +92,33 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
                 ),
                 false,
                 model,
-            ))
-            .child(row(
+            )))
+            .when(state.settings.enabled, |card| card.child(row(
                 "clients-status",
                 tr!("Status"),
                 None,
                 status(state, model),
                 false,
                 model,
-            ))
-            .when(model.push_notifications_available(), |card| {
-                card.child(push_row(state, model, cx))
-            })
-            .child(stacked(
+            )))
+            .when(
+                state.settings.enabled && model.push_notifications_available(),
+                |card| card.child(push_row(state, model, cx)),
+            )
+            .when(state.settings.enabled, |card| card.child(stacked(
                 "clients-pair",
                 tr!("Pair a client"),
                 tr!("Show a one-time code to scan with the Muxy phone app, or a link to paste on another computer."),
                 pairing(state, model, cx),
                 model,
-            ))
-            .child(stacked(
+            )))
+            .when(state.settings.enabled || !state.devices.is_empty(), |card| card.child(stacked(
                 "clients-paired",
                 tr!("Clients"),
                 tr!("Phones and other computers paired with this server. Revoking one disconnects it immediately."),
                 clients(state, model, cx),
                 model,
-            ))
+            )))
             .into_any_element()
     } else {
         note(&tr!("Loading clients…"), false, model)
@@ -127,15 +129,11 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
         .flex()
         .flex_col()
         .gap(m.spacing4())
-        .child(
-            div()
-                .text_color(theme.fg_muted)
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(accessibility::label(
-                    "clients-this-computer-heading",
-                    model.server_label(muxy_app_core::ServerId::local()),
-                )),
-        )
+        .child(muxy_ui::form::section_heading(
+            style(model),
+            "clients-this-computer-heading",
+            &tr!("Clients"),
+        ))
         .children(
             access
                 .error

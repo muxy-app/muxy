@@ -16,7 +16,7 @@ use gpui::{
     px,
 };
 use muxy_app_core::{
-    Project, ProjectId, ProjectStatus,
+    Project, ProjectId, ProjectStatus, ServerId,
     settings::{AppLayout, ProjectOrder, SidebarCollapsedStyle},
 };
 
@@ -87,11 +87,14 @@ pub(crate) fn register_commands(
                         || model.project_title(project),
                         |parent| format!("{} / {}", parent.name, project.name),
                     );
-                projects.register(
-                    Command::new(id.to_string(), title, handler)
-                        .keywords(project.directory.to_string_lossy())
-                        .disabled(project.status() == ProjectStatus::Missing),
-                );
+                let command = Command::new(id.to_string(), title, handler)
+                    .keywords(project.directory.to_string_lossy())
+                    .disabled(project.status() == ProjectStatus::Missing);
+                projects.register(if project.server_id.is_local() {
+                    command
+                } else {
+                    command.badge(model.server_label(project.server_id))
+                });
             }
             projects
         })
@@ -355,17 +358,18 @@ fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
-/// The row after the last project, in the list's own layout.
-fn add_project_row(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+/// The row after a server's last project, in the list's own layout.
+fn add_project_row(server: ServerId, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
     let wide = model.appearance.sidebar_expanded;
+    let id = add_project_id(server);
     div()
-        .id("add-project")
+        .id(id.clone())
         .role(Role::Button)
-        .accessibility_id("add-project")
+        .accessibility_id(id.clone())
         .aria_label(tr!("Add Project"))
-        .debug_selector(|| "add-project".into())
+        .debug_selector(move || id.to_string())
         .flex()
         .flex_none()
         .items_center()
@@ -386,9 +390,11 @@ fn add_project_row(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                     &model.theme,
                 ))
         })
-        .button_interaction(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
-            model.choose_project_source(event.position(), window, cx);
-        }))
+        .button_interaction(
+            cx.listener(move |model, event: &gpui::ClickEvent, window, cx| {
+                model.choose_project_source(server, event.position(), window, cx);
+            }),
+        )
         .child(
             div()
                 .flex()
@@ -481,32 +487,33 @@ impl AppModel {
 
     pub(crate) fn choose_project_source(
         &mut self,
+        server: ServerId,
         position: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let items = self.project_source_items();
+        let items = self.project_source_items(server);
         self.open_menu(items, position, window, cx);
     }
 
-    /// Add Project's choices: a folder on the default server, then projects
-    /// removed from it that can come back.
-    fn project_source_items(&self) -> Vec<Item> {
-        let mut items = vec![Item::action(tr!("Folder…"), Command::AddProject)];
-        let removed = self.restorable_projects();
+    /// Add Project's choices: a folder on `server`, then projects removed
+    /// from it that can come back.
+    fn project_source_items(&self, server: ServerId) -> Vec<Item> {
+        let mut items = vec![Item::action(tr!("Folder…"), Command::AddProject(server))];
+        let removed = self.restorable_projects(server);
         if !removed.is_empty() {
             items.push(Item::submenu(tr!("Recently Removed"), removed).separated());
         }
         items
     }
 
-    fn restorable_projects(&self) -> Vec<Item> {
+    fn restorable_projects(&self, server: ServerId) -> Vec<Item> {
         self.state
             .removed_projects()
             .iter()
             .enumerate()
             .filter(|(_, removed)| {
-                removed.server_id == self.state.default_server()
+                removed.server_id == server
                     && self.state.server_home(removed.server_id).is_some()
                     && !self.state.projects().iter().any(|project| {
                         project.server_id == removed.server_id
@@ -616,14 +623,26 @@ impl AppModel {
         )
     }
 
-    /// Top-level projects the workspace filter lists, in sidebar order.
+    /// Top-level projects the workspace filter lists under the expanded
+    /// servers, in sidebar order.
     pub(crate) fn listed_parents(&self) -> Vec<&Project> {
+        self.sidebar_servers()
+            .into_iter()
+            .filter(|server| self.server_expanded(*server))
+            .flat_map(|server| self.listed_parents_on(server))
+            .collect()
+    }
+
+    /// Top-level projects the workspace filter lists on `server`, in sidebar
+    /// order.
+    fn listed_parents_on(&self, server: ServerId) -> Vec<&Project> {
         let mut parents: Vec<_> = self
             .state
             .projects()
             .iter()
             .filter(|project| {
-                project.parent_id.is_none()
+                project.server_id == server
+                    && project.parent_id.is_none()
                     && self.state.is_listed(project)
                     && self.project_listed(project)
             })
@@ -674,24 +693,213 @@ impl AppModel {
         }
     }
 
+    /// The projects the sidebar shows, with their worktrees, in its order.
     pub(crate) fn sidebar_projects(&self) -> Vec<&Project> {
-        let active = self.state.current_project();
-        let focused = active.parent_id.unwrap_or(active.id);
-        self.listed_parents()
+        self.sidebar_groups()
             .into_iter()
-            .filter(|project| !self.appearance.sidebar_focus || project.id == focused)
-            .flat_map(|parent| {
-                let children = if self.appearance.layout != AppLayout::ProjectFocused
-                    && self.worktrees_visible(parent.id)
-                {
-                    self.worktree_children(parent.id)
+            .flat_map(|group| group.projects)
+            .collect()
+    }
+
+    /// The sidebar's servers, each with the projects it shows under its
+    /// heading: none while collapsed. Focus Current Project shows only that
+    /// project, under no heading.
+    pub(crate) fn sidebar_groups(&self) -> Vec<ServerGroup<'_>> {
+        let active = self.state.current_project();
+        if self.appearance.sidebar_focus {
+            let focused = active.parent_id.unwrap_or(active.id);
+            let projects = self
+                .listed_parents_on(active.server_id)
+                .into_iter()
+                .filter(|project| project.id == focused)
+                .flat_map(|parent| self.with_worktrees(parent))
+                .collect();
+            return vec![ServerGroup {
+                server: active.server_id,
+                heading: false,
+                projects,
+            }];
+        }
+        self.sidebar_servers()
+            .into_iter()
+            .map(|server| ServerGroup {
+                server,
+                heading: true,
+                projects: if self.server_expanded(server) {
+                    self.listed_parents_on(server)
+                        .into_iter()
+                        .flat_map(|parent| self.with_worktrees(parent))
+                        .collect()
                 } else {
                     Vec::new()
-                };
-                std::iter::once(parent).chain(children)
+                },
             })
             .collect()
     }
+
+    fn with_worktrees<'a>(&'a self, parent: &'a Project) -> Vec<&'a Project> {
+        let children = if self.appearance.layout != AppLayout::ProjectFocused
+            && self.worktrees_visible(parent.id)
+        {
+            self.worktree_children(parent.id)
+        } else {
+            Vec::new()
+        };
+        std::iter::once(parent).chain(children).collect()
+    }
+}
+
+/// One server in the sidebar and the projects it shows.
+pub(crate) struct ServerGroup<'a> {
+    pub(crate) server: ServerId,
+    /// Whether the server's heading shows above its projects.
+    pub(crate) heading: bool,
+    pub(crate) projects: Vec<&'a Project>,
+}
+
+/// The Add Project row of `server`'s group. This computer's keeps the
+/// plain name.
+fn add_project_id(server: ServerId) -> SharedString {
+    if server.is_local() {
+        "add-project".into()
+    } else {
+        format!("add-project-{server}").into()
+    }
+}
+
+/// Which sidebar a server heading lines up with.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum HeadingRows {
+    /// Project rows, whose tiles start the heading's name.
+    Projects,
+    /// The tab layouts' project headers: the name starts where theirs do,
+    /// and the dot sits where their disclosure does.
+    Tabs,
+}
+
+/// A server's heading in the sidebar: its name and how it is doing, which
+/// expands or collapses its projects when clicked. Collapsed to icons, it is
+/// a dot.
+pub(super) fn server_heading(
+    server: ServerId,
+    rows: HeadingRows,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    let m = model.metrics;
+    let theme = &model.theme;
+    let wide = model.appearance.sidebar_expanded;
+    let expanded = model.server_expanded(server);
+    let name = SharedString::from(model.server_label(server));
+    let (color, status) = server_state(server, model);
+    let id = SharedString::from(format!("sidebar-server-{server}"));
+    let selector = if server.is_local() {
+        SharedString::from("sidebar-server-local")
+    } else {
+        id.clone()
+    };
+    let group = id.clone();
+    div()
+        .id(id.clone())
+        .role(Role::Button)
+        .accessibility_id(id)
+        .aria_label(name.clone())
+        .aria_description(status.clone())
+        .aria_expanded(expanded)
+        .debug_selector(move || selector.to_string())
+        .group(group.clone())
+        .flex()
+        .flex_none()
+        .items_center()
+        .cursor_pointer()
+        .when(!wide, |row| {
+            row.tooltip(muxy_ui::components::tooltip(
+                format!("{name} · {status}"),
+                theme,
+            ))
+        })
+        .button_interaction(cx.listener(move |model, _, _, cx| {
+            model.toggle_server_group(server, cx);
+        }))
+        .when(wide, |row| {
+            row.h(m.control_small())
+                .gap(m.spacing2())
+                .map(|row| match rows {
+                    HeadingRows::Projects => row.px(m.spacing2()),
+                    HeadingRows::Tabs => row.pl(m.spacing4()),
+                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .truncate()
+                        .text_size(m.font_caption())
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme.fg_muted)
+                        .group_hover(group, |style| style.text_color(theme.fg))
+                        .child(name),
+                )
+                .child(match rows {
+                    HeadingRows::Projects => super::remote_servers::dot(color, model),
+                    HeadingRows::Tabs => div()
+                        .flex()
+                        .flex_none()
+                        .justify_center()
+                        .w(m.control_small())
+                        .child(super::remote_servers::dot(color, model)),
+                })
+        })
+        .when(!wide, |row| {
+            row.justify_center()
+                .w(collapsed_item_size(model))
+                .h(m.control_small())
+                .child(super::remote_servers::dot(color, model))
+        })
+        .into_any_element()
+}
+
+/// The color of a server's dot and what it says.
+fn server_state(server: ServerId, model: &AppModel) -> (Hsla, SharedString) {
+    if let Some(remote) = model
+        .remote_servers()
+        .into_iter()
+        .find(|remote| remote.entry.id == server)
+    {
+        return (
+            super::remote_servers::status_color(&remote, model),
+            super::remote_servers::status_label(&remote),
+        );
+    }
+    let status = model.status_of(server);
+    let color = match status {
+        crate::model::ServerStatus::Connected => model.theme.accent,
+        crate::model::ServerStatus::Disconnected => model.theme.danger,
+        _ => model.theme.warning,
+    };
+    (color, muxy_ui::l10n::translate(status.label()))
+}
+
+/// What an expanded server with nothing to list yet is doing.
+fn server_note(server: ServerId, model: &AppModel) -> Option<AnyElement> {
+    if server.is_local()
+        || !model.appearance.sidebar_expanded
+        || model.state.server_home(server).is_some()
+    {
+        return None;
+    }
+    let m = model.metrics;
+    let (_, status) = server_state(server, model);
+    let id = format!("sidebar-server-note-{server}");
+    Some(
+        div()
+            .debug_selector(move || id.clone())
+            .px(m.spacing2())
+            .text_size(m.font_footnote())
+            .text_color(model.theme.fg_dim)
+            .truncate()
+            .child(status)
+            .into_any_element(),
+    )
 }
 
 fn header(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
@@ -819,7 +1027,13 @@ fn filter_items(model: &AppModel) -> Vec<Item> {
         .separated(),
     );
     if focused {
-        items.push(Item::submenu(tr!("Add Project"), model.project_source_items()).separated());
+        items.push(
+            Item::submenu(
+                tr!("Add Project"),
+                model.project_source_items(model.state.current_project().server_id),
+            )
+            .separated(),
+        );
     }
     items.push(Item::action(tr!("New Workspace…"), Command::NewWorkspace(None)).separated());
     if let Some(id) = active {
@@ -905,7 +1119,9 @@ impl DraggedProject {
         {
             return;
         }
-        let target = target.filter(|target| *target != self.id);
+        let server = model.state.project_server(self.id);
+        let target = target
+            .filter(|target| *target != self.id && model.state.project_server(*target) == server);
         if self.last_target.replace(target) != target
             && let Some(target) = target
         {
@@ -931,17 +1147,7 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let targets = Rc::new(RefCell::new(ProjectRows::default()));
     let measured = targets.clone();
     let moving = targets.clone();
-    let projects = model.sidebar_projects();
-    let shortcuts = model.navigation_projects();
-    let ids: Vec<_> = projects
-        .iter()
-        .map(|project| {
-            (!project.home
-                && project.parent_id.is_none()
-                && project.status() == ProjectStatus::Available)
-                .then_some(project.id)
-        })
-        .collect();
+    let (rows, ids) = grouped_rows(model, cx);
     div()
         .id("projects-scroll")
         .role(Role::Tree)
@@ -982,13 +1188,7 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                 .pt(if wide { m.spacing5() } else { m.spacing2() })
                 .pb(m.spacing3())
                 .when(!wide, Styled::items_center)
-                .children(projects.iter().enumerate().map(|(index, project)| {
-                    let shortcut = shortcuts.iter().take(9).position(|id| *id == project.id);
-                    worktrees::group(project, index, shortcut, model, cx)
-                }))
-                .when(!model.appearance.sidebar_focus || !wide, |list| {
-                    list.child(add_project_row(model, cx))
-                })
+                .children(rows)
                 .on_children_prepainted(move |bounds, _, _| {
                     measured.borrow_mut().0 = ids
                         .iter()
@@ -998,6 +1198,62 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                 }),
         )
         .into_any_element()
+}
+
+/// Each server's heading, its projects, and its Add Project row, with the
+/// project a row can be dragged onto, if any.
+fn grouped_rows(
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> (Vec<AnyElement>, Vec<Option<ProjectId>>) {
+    let m = model.metrics;
+    let wide = model.appearance.sidebar_expanded;
+    let shortcuts = model.navigation_projects();
+    let mut rows = Vec::new();
+    let mut ids = Vec::new();
+    let mut index = 0;
+    for (position, group) in model.sidebar_groups().into_iter().enumerate() {
+        let expanded = !group.heading || model.server_expanded(group.server);
+        if group.heading {
+            rows.push(
+                div()
+                    .when(position > 0, |heading| heading.pt(m.spacing3()))
+                    .child(server_heading(
+                        group.server,
+                        HeadingRows::Projects,
+                        model,
+                        cx,
+                    ))
+                    .into_any_element(),
+            );
+            ids.push(None);
+        }
+        for project in group.projects {
+            let shortcut = shortcuts.iter().take(9).position(|id| *id == project.id);
+            rows.push(worktrees::group(project, index, shortcut, model, cx));
+            ids.push(
+                (!project.home
+                    && project.parent_id.is_none()
+                    && project.status() == ProjectStatus::Available)
+                    .then_some(project.id),
+            );
+            index += 1;
+        }
+        if !expanded {
+            continue;
+        }
+        if group.heading
+            && let Some(note) = server_note(group.server, model)
+        {
+            rows.push(note);
+            ids.push(None);
+        }
+        if !model.appearance.sidebar_focus || !wide {
+            rows.push(add_project_row(group.server, model, cx));
+            ids.push(None);
+        }
+    }
+    (rows, ids)
 }
 
 #[allow(
@@ -1131,7 +1387,6 @@ fn project_row(
                     .child(name),
             )
         })
-        .when(wide, |row| row.children(remote_marker(project, model)))
         .when(dimmed, |row| {
             row.child(
                 div()
@@ -1257,7 +1512,7 @@ pub(super) fn project_description(
 }
 
 pub(super) fn remote_description(project: &Project, model: &AppModel) -> Option<SharedString> {
-    if project.home || project.server_id == model.state.default_server() {
+    if project.home || project.server_id.is_local() {
         return None;
     }
     model
@@ -1271,30 +1526,6 @@ pub(super) fn tile_size(model: &AppModel) -> Pixels {
     } else {
         model.metrics.icon_xxl()
     }
-}
-
-/// Marks another computer's project, naming it in a tooltip.
-pub(super) fn remote_marker(project: &Project, model: &AppModel) -> Option<AnyElement> {
-    let tooltip = remote_description(project, model)?;
-    let id = project.id;
-    let m = model.metrics;
-    Some(
-        div()
-            .id(SharedString::from(format!("project-remote-{id}")))
-            .debug_selector(move || format!("project-remote-{id}"))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .size(m.scaled(18.0))
-            .tooltip(muxy_ui::components::tooltip(tooltip, &model.theme))
-            .child(IconGlyph::new(
-                Icon::Network,
-                m.font_caption(),
-                model.theme.fg_muted,
-            ))
-            .into_any_element(),
-    )
 }
 
 pub(crate) fn project_color(project: &Project, model: &AppModel) -> gpui::Rgba {

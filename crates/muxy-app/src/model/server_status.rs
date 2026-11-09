@@ -28,9 +28,9 @@ impl ServerStatus {
 }
 
 impl AppModel {
-    /// The default server, which the status bar shows.
+    /// The server of the project on screen, which the status bar shows.
     pub(crate) fn status_server(&self) -> ServerId {
-        self.default_server()
+        self.state.current_project().server_id
     }
 
     /// A server's name: settings name another computer's.
