@@ -1694,6 +1694,8 @@
 "Server" = "Server";
 "Server %@" = "Server %@";
 "Server %@ · Update %@ pending. It will restart when all terminal sessions end. Restart Server applies it now and ends running sessions." = "Server %@ · Update %@ pending. It will restart when all terminal sessions end. Restart Server applies it now and ends running sessions.";
+"Server Actions" = "Server Actions";
+"Server Actions for %@" = "Server Actions for %@";
 "Server Rack" = "Server Rack";
 "Server disconnected" = "Server disconnected";
 "Server disconnected. App preferences still work. Connect to edit server settings." = "Server disconnected. App preferences still work. Connect to edit server settings.";

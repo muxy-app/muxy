@@ -63,7 +63,10 @@ impl AppModel {
     }
 
     pub(crate) fn server_connect_enabled(&self) -> bool {
-        let server = self.status_server();
+        self.connect_enabled(self.status_server())
+    }
+
+    pub(crate) fn connect_enabled(&self, server: ServerId) -> bool {
         self.server_actions_enabled(server)
             && self.connection(server) == ConnectionState::Disconnected
     }
