@@ -1,47 +1,77 @@
-pub(crate) const ROOT: &str = "Muxy - terminal client and server management
+mod commands;
+mod discovery;
 
-Usage: muxy [--host DESTINATION] [COMMAND]
+pub(crate) use discovery::{alias, children, detail, flags, known, requested, takes_value};
 
-  (no command)  Open the terminal UI; Ctrl-B ? shows help
-  <folder>      Open a new terminal in a folder's project in the desktop app;
-                without it or over SSH, show the project in the terminal UI
-  server        Start, inspect or stop the server
-  project       List, add, edit or delete server projects
-  session       Create terminals, send input, read output and end sessions
-  worktree      List, create, register or remove Git worktree projects
-  settings      Read or update server settings
-  config        Read or change the desktop app's settings
-  activity      Read or acknowledge agent activity
-  git           Run a server Git action using JSON
-  files         Run a server file action using JSON
-  exec          Execute a program in a server project
-  mobile        Enable access, pair phones and revoke devices
-  browser       Drive browser tabs in the desktop app on this computer
-  extension     Load, reload and publish extensions in the desktop app
-  status        Tell the terminal what a script is doing (OSC 7501)
-  install-skills
-                Install the muxy-cli skill for AI coding agents
-  stdio         Connect stdin/stdout to the server; used over SSH
-  --help | --version | --build-info
+pub(crate) const ROOT: &str = "Muxy - persistent terminals from your shell
 
-Run muxy <command> --help or muxy help <command> for usage. Management
-commands accept --json.
-Commands connect directly to the server, starting it if needed, except server
-status/stop, which never start it, and status, which needs no server. --host
-uses the server on another computer over SSH (user@host, an ssh_config alias or
-ssh://user@host:port); Muxy must be installed there, and directories are
-absolute paths on that computer.
-MUXY_DIR selects the local profile, which also keeps the terminal UI layouts
-for other computers. No desktop app is required, except by browser and extension commands.
-config edits this computer's app settings files and never starts the server or the app.
-Tabs, panes and workspaces belong to UI clients.
-Project selectors accept an exact ID, unique name or directory path.
-Inside a Muxy terminal, session commands default to that terminal.
-Use ./NAME to open a folder named like a command.
-Use -- before literal arguments that start with a dash, or before the command
-of session create.";
+Usage: muxy [--host DESTINATION] <command> [options]
 
-pub(crate) const MOBILE: &str = "Usage: muxy mobile [action]
+Common commands:
+  ls              List live sessions (session list)
+  new             Create a persistent terminal (session create)
+  send            Send text or stdin to a terminal (session send)
+  send-key        Press one or more keys (session send-keys)
+  capture         Read a terminal's screen (session read-screen)
+  wait            Wait for text or a session to exit (session wait)
+
+Resources:
+  project         List, inspect, add, edit and delete projects
+  session         Inspect, name, control and read terminal sessions
+  worktree        Create, register and remove Git worktree projects
+  activity        Read or acknowledge agent activity
+
+Server and automation:
+  server          Start, inspect or stop the server
+  settings        Read or update server settings
+  exec            Execute a program in a project, without a shell
+  git / files     Run advanced server actions using protocol JSON
+  mobile          Enable phone access, pair devices and manage notifications
+  status          Report program status to this terminal (OSC 7501)
+  stdio           Bridge stdin/stdout to the server; used over SSH
+
+Desktop app:
+  browser         Open and automate browser tabs
+  extension       Load, inspect, reload and publish extensions
+  config          Read or change this computer's app settings
+
+Utilities:
+  help [command]  Show help; add a subcommand for its specific usage
+  completion      Generate Bash, Zsh or Fish shell completions
+  install-skills  Install the CLI guide for AI coding agents
+  version         Print the CLI version (also --version)
+
+Options:
+  --host DEST     Use a server over SSH; must come before the command
+  -h, --help      Show help without connecting to a server
+  -V, --version   Print the CLI version
+  --build-info    Print build information as JSON
+
+Examples:
+  muxy project add ~/code/app --name app
+  muxy new app -- 'npm run dev'
+  muxy ls --project app
+  muxy help session send
+  muxy --host devbox project list --json
+
+Output and targeting:
+  Terminals get readable tables; pipes keep the original text formats.
+  Use --json for structured output, or list --quiet for project/session IDs.
+  Project selectors accept an ID, unique name or directory.
+  Inside a Muxy terminal, session commands default to that terminal.
+  Use -- before literal arguments starting with a dash.
+
+Without a command, muxy opens the terminal UI. muxy <folder> opens a project;
+use ./NAME for a folder named like a command. Tabs and layouts belong to apps.
+Commands start their server if needed, except server status/stop. --host takes
+user@host, an SSH alias or ssh://user@host:port; remote paths must be absolute.
+MUXY_DIR selects the local profile. NO_COLOR disables help and table colors.";
+
+pub(crate) const MOBILE: &str = "Manage phone access and push notifications.
+
+Usage: muxy mobile [command]
+
+Commands:
   (no action)               Mobile access status and paired devices
   enable [--port N]         Let phones connect; --port changes the port (7419)
   disable                   Turn mobile access off
@@ -60,7 +90,11 @@ pauses every phone: muxy.app forgets them at once, and this computer keeps
 their registrations for 90 days, so turning them on again resumes those phones
 without reconnecting. Reset gives one phone a new key the next time it
 connects, without unpairing it.";
-pub(crate) const BROWSER: &str = "Usage: muxy browser <action>
+pub(crate) const BROWSER: &str = "Automate browser tabs in the local desktop app.
+
+Usage: muxy browser <command>
+
+Commands:
   open [url] [--split] [--project PROJECT] [--worktree WORKTREE]
        [--profile PROFILE]          Open a tab and print its ID
   list [--project PROJECT] [--worktree WORKTREE] [--json]
@@ -102,8 +136,13 @@ Use the tab ID that open or list prints. Page actions print their result as
 JSON. Waits give up after --timeout-ms or ms (default 5000, 10000 for
 wait-for-navigation; maximum 60000).
 MUXY_CLI_TIMEOUT sets how many seconds the app has to answer (default 10).
-Text list columns: tab-id, title, url, profile, active (tab-separated).";
-pub(crate) const EXTENSION: &str = "Usage: muxy extension <command>
+Piped list columns: tab-id, title, url, profile, active (tab-separated).
+Terminals show a table. Run muxy help browser <command> for specific usage.";
+pub(crate) const EXTENSION: &str = "Manage extensions in the local desktop app.
+
+Usage: muxy extension <command>
+
+Commands:
   list [--json]                     Extensions, their state and folders
   status <name> [--json]            One extension, its load errors and recent log
   logs <name> [--lines N]           Recent log lines (default 100)
@@ -122,8 +161,13 @@ Use -- before a name or folder that starts with a dash.
 MUXY_CLI_TIMEOUT sets how many seconds the app has to answer (default 10).
 Load, reload, enable, disable, unload and validate get 30 more, and publish 15
 minutes more.
-Text list columns: name, version, state, source, folder (tab-separated).";
-pub(crate) const CONFIG: &str = "Usage: muxy config <command>
+Piped list columns: name, version, state, source, folder (tab-separated).
+Terminals show a table. Run muxy help extension <command> for specific usage.";
+pub(crate) const CONFIG: &str = "Read and change this computer's desktop app settings.
+
+Usage: muxy config <command>
+
+Commands:
   list [--json]                     Every app setting with its current value
   get <key> [--json]                One setting, or a whole table of them
   set <key> <value> [--json]        Change a setting and apply it
@@ -139,7 +183,7 @@ a running desktop app apply it, and never start one. reload applies hand edits.
 Use -- before a key or value that starts with a dash.
 Optional settings appear in list once they are set. Remote servers are managed
 in Settings, and server settings with muxy settings.
-Text list lines: key = value, with the value in TOML.";
+Piped list lines: key = value, with the value in TOML. Terminals show a table.";
 pub(crate) const INSTALL_SKILLS: &str = "Usage: muxy install-skills [--dir DIR]...
 Installs the muxy-cli skill, which teaches AI coding agents to use this command,
 into each agent folder that exists: ~/.claude/skills, ~/.codex/skills and
@@ -159,10 +203,25 @@ Tells the terminal what a script is doing (OSC 7501). It needs no server, so it
 also works over SSH. Muxy clears working and blocked when the program that
 reported them exits, and shows only reports without --id; clear removes a
 record and the parts beneath it.";
-pub(crate) const SERVER: &str = "Usage: muxy server start|status|stop [--json]
-  stop [--force]  Stop only if idle; --force ends all running terminals.";
-pub(crate) const PROJECT: &str = "Usage: muxy project <action> [--json]
-  list
+pub(crate) const SERVER: &str = "Manage the background terminal server.
+
+Usage: muxy server <command> [--json]
+
+Commands:
+  start           Start if needed, then show build information
+  status          Show build information; never starts the server
+  stop [--force]  Stop only if idle; --force ends all running terminals
+
+Examples:
+  muxy server status
+  muxy --host devbox server status --json";
+pub(crate) const PROJECT: &str = "Manage projects on the server.
+
+Usage: muxy project <command> [--json]
+
+Commands:
+  list [--quiet]                 List projects; --quiet (-q) prints IDs only
+  inspect <project>              Show project details
   add <directory> [--name NAME] [--create] [--reuse]
   rename <project> <name>
   set-color <project> <#RRGGBB>
@@ -172,12 +231,24 @@ pub(crate) const PROJECT: &str = "Usage: muxy project <action> [--json]
 
 Add creates a distinct project even when its directory is already registered;
 --reuse prints the existing one instead. --create makes the directory first.
-Text list columns: id, name, directory (tab-separated).";
-pub(crate) const SESSION: &str = "Usage: muxy session <action> [--json]
-  list [--project PROJECT] [--all]  Live sessions; --all includes saved/ended ones
+Piped list columns: id, name, directory (tab-separated). Terminals show a table.
+
+Examples:
+  muxy project add ~/code/app --name app
+  muxy project inspect app
+  muxy project list --quiet";
+pub(crate) const SESSION: &str = "Manage persistent terminal sessions.
+
+Usage: muxy session <command> [--json]
+
+Commands:
+  list [--project PROJECT] [--all] [--quiet]
+                                   Live sessions; --all includes saved/ended ones
+  inspect [id]                     Show session details, including its name
+  rename [id] <name>               Name a session for every connected app
   create [project] [--directory PATH] [--cols N] [--rows N] [-- COMMAND...]
-  send [id] <text>                 Send literal text without pressing Return
-  send-keys [id] <key>             Enter, Tab, Escape, Backspace, Ctrl+C/D/Z
+  send [id] <text> | --stdin       Send text or piped bytes without adding Return
+  send-keys [id] <key>...          Enter, Tab, Escape, Backspace, Ctrl+C/D/Z
   read-screen [id] [--lines N] [--saved]
   history [id] [--before CURSOR] [--limit N] [--saved]
   search [id] <text> [--ignore-case] [--before CURSOR] [--limit N] [--saved]
@@ -203,10 +274,23 @@ checkpoint instead and also works after it ends. They never close UI panes.
 Ended sessions and their saved output are automatically removed after 7 days.
 Read-screen returns the last N visible rows (default 50), not scrollback.
 History/search return one page as JSON, with next for --before; 0 starts paging.
-Text list columns: id, project-id, status, attached, directory.
-JSON session IDs and pagination cursors are strings to preserve all 64 bits.";
-pub(crate) const WORKTREE: &str = "Usage: muxy worktree <action> [--json]
-  list <project>
+Piped list columns: id, project-id, status, attached, directory.
+Terminals also show names. --quiet (-q) prints only IDs and cannot use --json.
+--stdin sends at most 1 MiB, verbatim; oversized input sends nothing.
+JSON session IDs and pagination cursors are strings to preserve all 64 bits.
+
+Examples:
+  muxy session create app -- 'npm run dev'
+  muxy session rename 42 dev-server
+  printf 'npm test\\n' | muxy session send 42 --stdin
+  muxy session send-keys 42 Ctrl+C Enter
+  muxy help session wait";
+pub(crate) const WORKTREE: &str = "Manage Git worktree projects.
+
+Usage: muxy worktree <command> [--json]
+
+Commands:
+  list <project> [--quiet]        --quiet (-q) prints registered project IDs only
   create <project> <name> [--branch NAME] [--base REF | --existing]
          [--directory PATH] [--hooks]
   checkout-pr <project> <number> [--name NAME] [--directory PATH] [--hooks]
@@ -219,11 +303,13 @@ Settings. --hooks runs the setup or teardown commands from .muxy/worktree.json
 and the per-machine worktree.json, printing each one; without it none run.
 Remove deletes the worktree directory and its project, ending its terminals,
 and refuses uncommitted changes unless --force is given.
-Text list columns: project-id, branch, directory (tab-separated).";
+Piped list columns: project-id, branch, directory (tab-separated).
+Terminals show a table. --quiet omits unregistered worktrees.";
 const SETTINGS: &str = "Usage: muxy settings get [--json]
        muxy settings set <key> <value> [--json]
 Keys: default-shell (absolute path or 'default'), history-budget-bytes (integer),
-      shell-integration (true/false). Get returns JSON; paths are UTF-8 strings.";
+      shell-integration (true/false). Paths are UTF-8 strings.
+Get shows labeled fields in a terminal, JSON when piped or with --json.";
 const ACTIVITY: &str = "Usage: muxy activity list [--json]
        muxy activity ack <event-id>... [--json]
 Text list columns: session-id, project-id, provider, state, event-id, event
@@ -247,11 +333,30 @@ For shell syntax, explicitly use /bin/sh -c '...'. Timeout defaults to 30000ms
 (maximum 300000ms). Text mode forwards stdout/stderr. JSON mode returns the
 complete result. A failed, timed-out, cancelled or truncated run exits nonzero.";
 
+pub(crate) const COMPLETION: &str = "Usage: muxy completion <bash|zsh|fish>
+
+Generate command and option completions without connecting to a server.
+
+Examples:
+  eval \"$(muxy completion bash)\"
+  source <(muxy completion zsh)     # run compinit first
+  muxy completion fish > ~/.config/fish/completions/muxy.fish";
+const STDIO: &str = "Usage: muxy stdio [--no-start]
+
+Bridge stdin/stdout to the server for remote clients.
+--no-start refuses to start a missing server.";
+const VERSION: &str = "Usage: muxy version
+
+Print this CLI's version without connecting to a server.";
+
 pub(crate) fn topic(group: &str) -> Option<&'static str> {
     Some(match group {
+        "completion" => COMPLETION,
+        "stdio" => STDIO,
+        "version" => VERSION,
+        "session" | "ls" | "new" | "send" | "send-key" | "capture" | "wait" => SESSION,
         "server" => SERVER,
         "project" => PROJECT,
-        "session" => SESSION,
         "worktree" => WORKTREE,
         "settings" => SETTINGS,
         "config" => CONFIG,

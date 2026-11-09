@@ -92,7 +92,7 @@ pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
     if invocation.json {
         writeln!(stdout, "{reply}")?;
     } else {
-        write!(stdout, "{}", text(invocation.verb, &reply))?;
+        write!(stdout, "{}", display_text(invocation.verb, &reply))?;
     }
     let problems = problem_count(invocation.verb, &reply);
     if problems > 0 {
@@ -219,6 +219,47 @@ fn list_row(extension: &Value) -> String {
         source(extension),
         string(extension, "path"),
     )
+}
+
+fn display_text(verb: &str, reply: &Value) -> String {
+    let display = crate::output::Display::stdout();
+    if !display.terminal || !matches!(verb, "extension.list" | "extension.status") {
+        return text(verb, reply);
+    }
+    let extensions: Vec<_> = if verb == "extension.status" {
+        vec![reply]
+    } else {
+        reply
+            .get("extensions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .collect()
+    };
+    let rows: Vec<_> = extensions
+        .iter()
+        .map(|extension| {
+            vec![
+                string(extension, "name").into(),
+                string(extension, "version").into(),
+                state(extension).into(),
+                source(extension).into(),
+                string(extension, "path").into(),
+            ]
+        })
+        .collect();
+    let mut output = display.table(
+        &["name", "version", "state", "source", "folder"],
+        &rows,
+        "No extensions loaded.",
+    );
+    for error in strings(reply, "load_errors") {
+        let _ = writeln!(output, "load error: {}", crate::output::cell(&json!(error)));
+    }
+    for line in strings(reply, "log") {
+        let _ = writeln!(output, "{line}");
+    }
+    output
 }
 
 fn text(verb: &str, reply: &Value) -> String {
