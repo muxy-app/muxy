@@ -267,6 +267,68 @@ impl AppModel {
         cx.notify();
     }
 
+    /// A server's menu from its sidebar heading. Another computer's is the
+    /// one the Servers popover opens; this computer's has its projects and
+    /// its server's controls.
+    pub(crate) fn open_sidebar_server_menu(
+        &mut self,
+        server: ServerId,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !server.is_local() {
+            self.open_server_menu(server, false, position, window, cx);
+            return;
+        }
+        let items = self.local_server_items();
+        self.open_menu(items, position, window, cx);
+        cx.notify();
+    }
+
+    fn local_server_items(&self) -> Vec<Item> {
+        let server = ServerId::local();
+        let servers = Servers::One(server);
+        let mut items = Vec::new();
+        if let Some(home) = self.state.server_home(server) {
+            items.push(Item::action(
+                tr!("New Tab"),
+                Command::NewProjectTab(home.id),
+            ));
+        }
+        items.push(Item::action(
+            tr!("Add Project…"),
+            Command::AddProject(server),
+        ));
+        let enabled = |item: Item, enabled: bool| if enabled { item } else { item.disabled() };
+        if matches!(
+            self.status_of(server),
+            ServerStatus::Disconnected | ServerStatus::Connecting
+        ) {
+            items.push(
+                enabled(
+                    item(tr!("Connect"), servers, Action::Connect),
+                    self.connect_enabled(server),
+                )
+                .separated(),
+            );
+        } else {
+            let control = self.control_enabled(server);
+            items.push(
+                enabled(
+                    item(tr!("Restart Server…"), servers, Action::Restart),
+                    control,
+                )
+                .separated(),
+            );
+            items.push(enabled(
+                item(tr!("Stop Server…"), servers, Action::Stop),
+                control,
+            ));
+        }
+        items
+    }
+
     /// Move to Group's choices for `servers`, as a menu of its own.
     pub(crate) fn open_move_menu(
         &mut self,
@@ -359,6 +421,11 @@ impl AppModel {
         match action {
             Action::NewTab => self.new_remote_home_tab(first, cx),
             Action::AddProject => self.open_remote_project_picker(first, cx),
+            Action::Connect if first.is_local() => {
+                if self.connect_enabled(first) {
+                    self.connect_server(first, cx);
+                }
+            }
             Action::Connect => {
                 let offline: Vec<_> = ids
                     .into_iter()

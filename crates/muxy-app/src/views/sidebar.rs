@@ -26,7 +26,7 @@ use super::{
     tab_activity, tab_sidebar,
 };
 use muxy_ui::accessibility::hidden_button;
-use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph};
+use muxy_ui::components::{ButtonInteraction, IconButton, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::{contrasting_foreground, parse_hex};
 use muxy_ui::tr;
@@ -773,13 +773,13 @@ pub(super) enum HeadingRows {
     /// Project rows, whose tiles start the heading's name.
     Projects,
     /// The tab layouts' project headers: the name starts where theirs do,
-    /// and the dot sits where their disclosure does.
+    /// and the menu button sits where their disclosure does.
     Tabs,
 }
 
-/// A server's heading in the sidebar: its name and how it is doing, which
-/// expands or collapses its projects when clicked. Collapsed to icons, it is
-/// a dot.
+/// A server's heading in the sidebar: its name, which expands or collapses
+/// its projects when clicked, and a button for the server's menu, which a
+/// right click opens too. Collapsed to icons, it is a short rule.
 pub(super) fn server_heading(
     server: ServerId,
     rows: HeadingRows,
@@ -791,7 +791,7 @@ pub(super) fn server_heading(
     let wide = model.appearance.sidebar_expanded;
     let expanded = model.server_expanded(server);
     let name = SharedString::from(model.server_label(server));
-    let (color, status) = server_state(server, model);
+    let status = server_status_label(server, model);
     let id = SharedString::from(format!("sidebar-server-{server}"));
     let selector = if server.is_local() {
         SharedString::from("sidebar-server-local")
@@ -821,11 +821,18 @@ pub(super) fn server_heading(
         .button_interaction(cx.listener(move |model, _, _, cx| {
             model.toggle_server_group(server, cx);
         }))
+        .on_mouse_down(
+            gpui::MouseButton::Right,
+            cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                model.open_sidebar_server_menu(server, event.position, window, cx);
+            }),
+        )
         .when(wide, |row| {
             row.h(m.control_small())
                 .gap(m.spacing2())
                 .map(|row| match rows {
-                    HeadingRows::Projects => row.px(m.spacing2()),
+                    HeadingRows::Projects => row.pl(m.spacing2()),
                     HeadingRows::Tabs => row.pl(m.spacing4()),
                 })
                 .child(
@@ -837,46 +844,73 @@ pub(super) fn server_heading(
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(theme.fg_muted)
                         .group_hover(group, |style| style.text_color(theme.fg))
-                        .child(name),
+                        .child(name.clone()),
                 )
-                .child(match rows {
-                    HeadingRows::Projects => super::remote_servers::dot(color, model),
-                    HeadingRows::Tabs => div()
-                        .flex()
-                        .flex_none()
-                        .justify_center()
-                        .w(m.control_small())
-                        .child(super::remote_servers::dot(color, model)),
-                })
+                .child(server_menu_button(server, &name, model, cx))
         })
         .when(!wide, |row| {
             row.justify_center()
                 .w(collapsed_item_size(model))
                 .h(m.control_small())
-                .child(super::remote_servers::dot(color, model))
+                .child(
+                    div()
+                        .w(m.scaled(12.0))
+                        .h(px(1.0))
+                        .flex_none()
+                        .bg(theme.border),
+                )
         })
         .into_any_element()
 }
 
-/// The color of a server's dot and what it says.
-fn server_state(server: ServerId, model: &AppModel) -> (Hsla, SharedString) {
+/// The ellipsis at the end of a server's heading, which opens its menu.
+fn server_menu_button(
+    server: ServerId,
+    name: &SharedString,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    let theme = &model.theme;
+    let m = model.metrics;
+    let id = format!("sidebar-server-menu-{server}");
+    div()
+        .debug_selector({
+            let id = id.clone();
+            move || id.clone()
+        })
+        .flex_none()
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(
+            IconButton::new(
+                SharedString::from(id),
+                tr!("Server Actions"),
+                Icon::Ellipsis,
+                m.icon_xs(),
+                m.control_small(),
+                theme.fg_dim,
+                theme.fg,
+            )
+            .named(tr!("Server Actions for %@", name.as_ref()))
+            .tooltip(theme)
+            .on_click(cx.listener(move |model, _, window, cx| {
+                cx.stop_propagation();
+                let position = window.mouse_position();
+                model.open_sidebar_server_menu(server, position, window, cx);
+            })),
+        )
+        .into_any_element()
+}
+
+/// What a server's heading says about how it is doing.
+fn server_status_label(server: ServerId, model: &AppModel) -> SharedString {
     if let Some(remote) = model
         .remote_servers()
         .into_iter()
         .find(|remote| remote.entry.id == server)
     {
-        return (
-            super::remote_servers::status_color(&remote, model),
-            super::remote_servers::status_label(&remote),
-        );
+        return super::remote_servers::status_label(&remote);
     }
-    let status = model.status_of(server);
-    let color = match status {
-        crate::model::ServerStatus::Connected => model.theme.accent,
-        crate::model::ServerStatus::Disconnected => model.theme.danger,
-        _ => model.theme.warning,
-    };
-    (color, muxy_ui::l10n::translate(status.label()))
+    muxy_ui::l10n::translate(model.status_of(server).label())
 }
 
 /// What an expanded server with nothing to list yet is doing.
@@ -888,7 +922,7 @@ fn server_note(server: ServerId, model: &AppModel) -> Option<AnyElement> {
         return None;
     }
     let m = model.metrics;
-    let (_, status) = server_state(server, model);
+    let status = server_status_label(server, model);
     let id = format!("sidebar-server-note-{server}");
     Some(
         div()
