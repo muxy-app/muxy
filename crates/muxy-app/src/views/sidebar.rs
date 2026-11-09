@@ -26,7 +26,7 @@ use super::{
     tab_activity, tab_sidebar,
 };
 use muxy_ui::accessibility::hidden_button;
-use muxy_ui::components::{ButtonInteraction, IconButton, IconGlyph, SymbolGlyph};
+use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::{contrasting_foreground, parse_hex};
 use muxy_ui::tr;
@@ -863,7 +863,9 @@ pub(super) fn server_heading(
         .into_any_element()
 }
 
-/// The ellipsis at the end of a server's heading, which opens its menu.
+/// The ellipsis at the end of a server's heading, which opens its menu. It
+/// takes keyboard focus of its own, apart from the heading's, and opens the
+/// menu under itself when activated from the keyboard.
 fn server_menu_button(
     server: ServerId,
     name: &SharedString,
@@ -872,31 +874,47 @@ fn server_menu_button(
 ) -> AnyElement {
     let theme = &model.theme;
     let m = model.metrics;
-    let id = format!("sidebar-server-menu-{server}");
+    let id = SharedString::from(format!("sidebar-server-menu-{server}"));
+    let group = id.clone();
+    let bounds = Rc::new(Cell::new(None::<Bounds<Pixels>>));
+    let anchor = bounds.clone();
     div()
-        .debug_selector({
-            let id = id.clone();
-            move || id.clone()
-        })
+        .id(id.clone())
+        .role(Role::Button)
+        .accessibility_id(id.clone())
+        .aria_label(tr!("Server Actions for %@", name.as_ref()))
+        .debug_selector(move || id.to_string())
+        .group(group.clone())
+        .relative()
+        .flex()
         .flex_none()
+        .items_center()
+        .justify_center()
+        .size(m.control_small())
+        .rounded(m.radius_sm())
+        .cursor_pointer()
+        .focus(|style| style.bg(theme.hover))
+        .tooltip(muxy_ui::components::tooltip(tr!("Server Actions"), theme))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(
-            IconButton::new(
-                SharedString::from(id),
-                tr!("Server Actions"),
-                Icon::Ellipsis,
-                m.icon_xs(),
-                m.control_small(),
-                theme.fg_dim,
-                theme.fg,
-            )
-            .named(tr!("Server Actions for %@", name.as_ref()))
-            .tooltip(theme)
-            .on_click(cx.listener(move |model, _, window, cx| {
+        .button_interaction(
+            cx.listener(move |model, event: &gpui::ClickEvent, window, cx| {
                 cx.stop_propagation();
-                let position = window.mouse_position();
+                let position = match event {
+                    gpui::ClickEvent::Mouse(_) => None,
+                    gpui::ClickEvent::Keyboard(_) => anchor.get().map(|b| b.bottom_left()),
+                }
+                .unwrap_or_else(|| window.mouse_position());
                 model.open_sidebar_server_menu(server, position, window, cx);
-            })),
+            }),
+        )
+        .child(
+            canvas(move |b, _, _| bounds.set(Some(b)), |_, (), _, _| {})
+                .absolute()
+                .size_full(),
+        )
+        .child(
+            IconGlyph::new(Icon::Ellipsis, m.icon_xs(), theme.fg_dim)
+                .hover_in_group(group, theme.fg),
         )
         .into_any_element()
 }

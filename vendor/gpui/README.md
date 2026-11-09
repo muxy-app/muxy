@@ -1,6 +1,6 @@
-> **Muxy fork.** This repository holds the published `gpui` crate source with
-> patches Muxy needs. `main` is the crates.io release plus Muxy commits on top;
-> upgrading means importing the next release and rebasing those commits.
+> **Vendored in Muxy.** This is gpui 0.2.2 with Muxy's changes, edited in
+> place. `vendor/README.md` in the Muxy repository says where it came from and
+> lists the changes Muxy relies on.
 > Upstream: https://github.com/zed-industries/zed (crates/gpui).
 
 # Welcome to GPUI!

@@ -37,6 +37,8 @@ explains each change made before the copy. It has diverged too far from
 upstream to rebase onto, so it keeps no `upstream-*.patch`. `Cargo.lock` is
 left out, and an empty `[workspace]` table in its `Cargo.toml` keeps it out of
 Muxy's workspace, so `cargo test` runs its own tests from `vendor/gpui`.
+`Cargo.toml` is edited by hand; `Cargo.toml.orig` and `.cargo_vcs_info.json`
+are upstream's packaging files, kept for reference only.
 
 Muxy relies on these changes:
 
