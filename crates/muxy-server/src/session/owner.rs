@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::{self, Write};
@@ -108,6 +111,7 @@ struct Owner {
     prompts: Vec<u16>,
     frame_state: Option<(muxy_protocol::Cursor, muxy_protocol::Modes)>,
     next_tick: Option<Instant>,
+    tick_deferred: bool,
     synchronized_since: Option<Instant>,
     output_state: OutputState,
     archive: Archive,
@@ -199,6 +203,7 @@ pub(crate) fn start(
                 prompts: Vec::new(),
                 frame_state: None,
                 next_tick: None,
+                tick_deferred: false,
                 synchronized_since: None,
                 output_state: OutputState::Open,
                 archive,
@@ -429,6 +434,9 @@ impl Owner {
             self.synchronized_since.get_or_insert_with(Instant::now);
         } else {
             self.synchronized_since = None;
+            if self.tick_deferred {
+                self.next_tick = Some(Instant::now());
+            }
         }
         let answers = self.terminal.take_pty_output();
         if !answers.is_empty() {
@@ -628,15 +636,19 @@ impl Owner {
     }
 
     fn tick(&mut self) -> Result<(), Fault> {
-        self.next_tick = None;
+        let now = Instant::now();
         if self.terminal.synchronized_output()? {
-            let since = self.synchronized_since.get_or_insert_with(Instant::now);
-            if since.elapsed() < SYNC_TIMEOUT {
+            let since = self.synchronized_since.get_or_insert(now);
+            if now.duration_since(*since) < SYNC_TIMEOUT {
+                self.tick_deferred = true;
+                self.next_tick = Some(*since + SYNC_TIMEOUT);
                 return Ok(());
             }
             self.terminal.end_synchronized_output()?;
         }
+        self.tick_deferred = false;
         self.synchronized_since = None;
+        self.next_tick = Some(now + TICK);
         self.update_metadata();
         let modes = self.terminal.input_modes()?;
         if modes != self.input_modes {
@@ -655,6 +667,9 @@ impl Owner {
         } else if self.compress_pending {
             self.terminal.compress_idle()?;
             self.compress_pending = false;
+        }
+        if !self.has_pending_work() {
+            self.next_tick = None;
         }
         Ok(())
     }
