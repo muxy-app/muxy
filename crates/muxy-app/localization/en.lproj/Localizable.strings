@@ -27,6 +27,7 @@
 "%@ is also bound to command: %@" = "%@ is also bound to command: %@";
 "%@ is an unrelated link; move it before installing Muxy." = "%@ is an unrelated link; move it before installing Muxy.";
 "%@ is checked out in another worktree, so this one stays on its branch." = "%@ is checked out in another worktree, so this one stays on its branch.";
+"%@ is disconnected" = "%@ is disconnected";
 "%@ is larger than 100 MiB, the most Muxy sends to %@." = "%@ is larger than 100 MiB, the most Muxy sends to %@.";
 "%@ is no longer available. Try again." = "%@ is no longer available. Try again.";
 "%@ is not installed" = "%@ is not installed";
@@ -553,6 +554,7 @@
 "Connect to this computer's server to copy its pairing link." = "Connect to this computer's server to copy its pairing link.";
 "Connect to this computer's server to manage its clients." = "Connect to this computer's server to manage its clients.";
 "Connected" = "Connected";
+"Connecting to %@…" = "Connecting to %@…";
 "Connecting…" = "Connecting…";
 "Connection" = "Connection";
 "Connection lost. Its terminals keep running." = "Connection lost. Its terminals keep running.";

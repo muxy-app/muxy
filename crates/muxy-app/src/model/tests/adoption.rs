@@ -338,6 +338,63 @@ fn hiding_other_servers_leaves_only_this_computer_in_the_sidebar(cx: &mut TestAp
 }
 
 #[gpui::test]
+fn a_disconnected_servers_empty_terminal_offers_connect(cx: &mut TestAppContext) {
+    let (remote, api) = (ServerId::new(), ProjectId::new());
+    let (view, cx, _requests, remotes, _home) = two_servers(remote, api, cx);
+    let pane = view.update(cx, |model, cx| {
+        model.new_tab_in(api, cx);
+        model.disconnect_remote_servers(&[remote], cx);
+        model.active_pane().expect("pane")
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds(format!("pane-offline-{pane}").leak())
+            .is_some()
+    );
+    let _ = work(&remotes.borrow()[&remote]);
+    let connect = cx
+        .debug_bounds(format!("pane-connect-{pane}").leak())
+        .expect("Connect");
+    cx.simulate_click(connect.center(), Modifiers::none());
+    cx.run_until_parked();
+    assert!(
+        work(&remotes.borrow()[&remote])
+            .iter()
+            .any(|work| matches!(work, Work::Connect))
+    );
+    assert_eq!(
+        view.read_with(cx, |model, _| model.status_of(remote)),
+        ServerStatus::Connecting
+    );
+}
+
+#[gpui::test]
+fn each_server_counts_its_own_projects_without_tabs(cx: &mut TestAppContext) {
+    let (remote, api) = (ServerId::new(), ProjectId::new());
+    let (view, cx, _requests, _remotes, _home) = two_servers(remote, api, cx);
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.set_layout(muxy_app_core::settings::AppLayout::TabFocused, cx);
+        model.toggle_server_group(remote, cx);
+        let counts: Vec<_> = model
+            .tab_sidebar_groups()
+            .iter()
+            .map(|(group, count)| (group.server, *count))
+            .collect();
+        assert_eq!(counts, [(ServerId::local(), 1), (remote, 2)]);
+    });
+    cx.run_until_parked();
+    assert!(
+        cx.debug_bounds("tab-sidebar-projects-without-tabs")
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds(format!("tab-sidebar-projects-without-tabs-{remote}").leak())
+            .is_some()
+    );
+}
+
+#[gpui::test]
 fn the_agents_panel_shows_every_servers_agents(cx: &mut TestAppContext) {
     let (remote, api) = (ServerId::new(), ProjectId::new());
     let (view, cx, _requests, _remotes, _home) = two_servers(remote, api, cx);

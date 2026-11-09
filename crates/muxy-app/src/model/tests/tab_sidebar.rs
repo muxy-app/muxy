@@ -41,11 +41,18 @@ fn open_with_sidebar(
 fn listed(model: &AppModel) -> Vec<ProjectId> {
     model
         .tab_sidebar_groups()
-        .0
         .iter()
-        .flat_map(|group| &group.projects)
+        .flat_map(|(group, _)| &group.projects)
         .map(|project| project.id)
         .collect()
+}
+
+fn without_tabs(model: &AppModel) -> usize {
+    model
+        .tab_sidebar_groups()
+        .iter()
+        .map(|(_, count)| count)
+        .sum()
 }
 
 fn row(cx: &mut VisualTestContext, selector: String) -> Option<gpui::Bounds<gpui::Pixels>> {
@@ -61,11 +68,7 @@ fn projects_without_tabs_wait_behind_a_toggle_even_when_current(cx: &mut TestApp
         assert!(model.state.home().tabs.is_empty());
         assert_eq!(model.state.current_project().id, current);
         assert_eq!(listed(model), [with_tab]);
-        assert_eq!(
-            model.tab_sidebar_groups().1,
-            3,
-            "Home, current, and idle are hidden"
-        );
+        assert_eq!(without_tabs(model), 3, "Home, current, and idle are hidden");
         assert!(!listed(model).contains(&home));
     });
     assert!(row(cx, format!("tab-project-{idle}")).is_none());
@@ -78,7 +81,7 @@ fn projects_without_tabs_wait_behind_a_toggle_even_when_current(cx: &mut TestApp
     assert!(row(cx, format!("tab-project-{idle}")).is_some());
     view.read_with(cx, |model, _| {
         assert_eq!(listed(model).len(), 4);
-        assert_eq!(model.tab_sidebar_groups().1, 3);
+        assert_eq!(without_tabs(model), 3);
     });
 
     let toggle = cx
@@ -93,7 +96,7 @@ fn projects_without_tabs_wait_behind_a_toggle_even_when_current(cx: &mut TestApp
             listed(model).is_empty(),
             "a terminal tab without an agent does not count"
         );
-        assert_eq!(model.tab_sidebar_groups().1, 4);
+        assert_eq!(without_tabs(model), 4);
     });
 }
 

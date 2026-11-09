@@ -113,24 +113,26 @@ impl AppModel {
     }
 
     /// The sidebar's servers with the projects it shows under each, leaving
-    /// out projects without tabs unless they are shown, and how many it left
-    /// out.
-    pub(crate) fn tab_sidebar_groups(&self) -> (Vec<super::sidebar::ServerGroup<'_>>, usize) {
+    /// out projects without tabs unless they are shown, and how many each
+    /// has without tabs.
+    pub(crate) fn tab_sidebar_groups(&self) -> Vec<(super::sidebar::ServerGroup<'_>, usize)> {
         let listed = |project: &&Project| {
             self.appearance.sidebar_focus || self.sidebar_tabs(project).next().is_some()
         };
-        let mut groups = self.sidebar_groups();
-        let without_tabs = groups
-            .iter()
-            .flat_map(|group| &group.projects)
-            .filter(|project| !listed(project))
-            .count();
-        if !self.projects_without_tabs_shown {
-            for group in &mut groups {
-                group.projects.retain(listed);
-            }
-        }
-        (groups, without_tabs)
+        self.sidebar_groups()
+            .into_iter()
+            .map(|mut group| {
+                let without_tabs = group
+                    .projects
+                    .iter()
+                    .filter(|project| !listed(project))
+                    .count();
+                if !self.projects_without_tabs_shown {
+                    group.projects.retain(listed);
+                }
+                (group, without_tabs)
+            })
+            .collect()
     }
 
     pub(crate) fn toggle_projects_without_tabs(&mut self, cx: &mut Context<Self>) {
@@ -183,8 +185,7 @@ pub(super) fn contents(
         .flex_col()
         .pt(model.metrics.spacing5())
         .pb(model.metrics.spacing3());
-    let (groups, without_tabs) = model.tab_sidebar_groups();
-    for (position, group) in groups.into_iter().enumerate() {
+    for (position, (group, without_tabs)) in model.tab_sidebar_groups().into_iter().enumerate() {
         if group.heading {
             rows = rows.child(
                 div()
@@ -201,12 +202,17 @@ pub(super) fn contents(
         for project in group.projects {
             rows = rows.child(project_group(project, &numbers, targets.clone(), model, cx));
         }
+        if without_tabs > 0 {
+            rows = rows.child(projects_without_tabs_toggle(
+                group.server,
+                without_tabs,
+                model,
+                cx,
+            ));
+        }
         if group.heading && model.server_expanded(group.server) && !model.appearance.sidebar_focus {
             rows = rows.child(add_project_button(group.server, model, cx));
         }
-    }
-    if without_tabs > 0 {
-        rows = rows.child(projects_without_tabs_toggle(without_tabs, model, cx));
     }
     div()
         .debug_selector(|| "tab-sidebar".into())
@@ -277,7 +283,10 @@ fn add_project_button(
         .into_any_element()
 }
 
+/// The projects of `server`'s group that have no tabs, shown or hidden
+/// together with every other group's.
 fn projects_without_tabs_toggle(
+    server: muxy_app_core::ServerId,
     count: usize,
     model: &AppModel,
     cx: &mut Context<AppModel>,
@@ -292,6 +301,11 @@ fn projects_without_tabs_toggle(
     } else {
         tr!("%lld more projects", count)
     };
+    let id = SharedString::from(if server.is_local() {
+        "tab-sidebar-projects-without-tabs".to_owned()
+    } else {
+        format!("tab-sidebar-projects-without-tabs-{server}")
+    });
     div()
         .my(m.spacing1())
         .h(row_height(model))
@@ -301,12 +315,12 @@ fn projects_without_tabs_toggle(
         .justify_center()
         .child(
             div()
-                .id("tab-sidebar-projects-without-tabs")
+                .id(id.clone())
                 .role(Role::Button)
-                .accessibility_id("tab-sidebar-projects-without-tabs")
+                .accessibility_id(id.clone())
                 .aria_label(label.clone())
                 .aria_expanded(shown)
-                .debug_selector(|| "tab-sidebar-projects-without-tabs".into())
+                .debug_selector(move || id.to_string())
                 .cursor_pointer()
                 .text_size(m.font_footnote())
                 .text_color(theme.fg_dim)
