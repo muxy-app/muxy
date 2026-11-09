@@ -30,22 +30,32 @@ pkg-config Ghostty needs both patches.
 
 ## gpui
 
-gpui comes from the [muxy-app/gpui](https://github.com/muxy-app/gpui) fork,
-tracking its `main` branch in the root `Cargo.toml`. `Cargo.lock` records the
-exact commit. The fork starts from gpui 0.2.2 on crates.io. Muxy relies on these changes on top of it:
+gpui is gpui 0.2.2 from crates.io with Muxy's changes, edited here directly.
+It came from the [muxy-app/gpui](https://github.com/muxy-app/gpui) fork,
+copied at commit `35acfec`. The fork is no longer updated; its `git log`
+explains each change made before the copy. It has diverged too far from
+upstream to rebase onto, so it keeps no `upstream-*.patch`. `Cargo.lock` is
+left out, and an empty `[workspace]` table in its `Cargo.toml` keeps it out of
+Muxy's workspace, so `cargo test` runs its own tests from `vendor/gpui`.
+
+Muxy relies on these changes:
 
 - Keep presenting frames only during high-rate input.
 - Use memoryless storage for the path MSAA texture on Apple GPUs.
 - Fix ownership of oversized images in the Metal atlas.
 - Size Metal frame buffers to the current rendering work.
 - Release path textures when frames stop drawing paths.
+- Keep atlas textures alive until the GPU is done with them.
 - Read copied files from the Linux clipboard.
 - Give X11 windows their raw handles.
 - Release the window lock before resigning a spurious key window on macOS.
 - Composite translucent layers with "over" alpha on macOS.
 - Truncate text from its full runs, and measure it again once its width is
   known.
-- Publish an accessibility tree through AccessKit.
+- Publish an accessibility tree through AccessKit, and roll its nodes back
+  with a failed prepaint.
 - Move a window's traffic lights after it opens on macOS.
-
-`git log` in the fork lists each change.
+- Accept file URL and path text drops, and keep panels from becoming the main
+  window on macOS.
+- Hand an app the keystroke gpui would dispatch for a native key event.
+- Hide a pressed element's tooltip until the mouse leaves it.

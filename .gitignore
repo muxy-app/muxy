@@ -10,3 +10,5 @@
 __pycache__/
 .env.release
 .muxy/
+/vendor/*/target
+/vendor/*/Cargo.lock
