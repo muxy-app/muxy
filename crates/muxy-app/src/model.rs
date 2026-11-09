@@ -1120,6 +1120,7 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return false;
         }
+        let waiting = self.waiting_project_edits();
         match self.transact(edit, cx) {
             Ok(Some(())) => {}
             Ok(None) => return false,
@@ -1133,21 +1134,37 @@ impl AppModel {
                 .record((self.state.current_project().id, tab));
         }
         self.replay_projects(cx);
-        self.connect_for_project_edits(cx);
+        self.connect_for_project_edits(&waiting, cx);
         self.sync_visible(cx);
         self.focus_owner.request_active_pane();
         cx.notify();
         true
     }
 
-    /// Another computer's server that an edit waits for connects, so the
-    /// edit doesn't wait for the user to open one of its projects.
-    fn connect_for_project_edits(&mut self, cx: &mut Context<Self>) {
+    /// How many project edits each server has waiting.
+    fn waiting_project_edits(&self) -> Vec<(ServerId, usize)> {
+        self.servers
+            .ids()
+            .into_iter()
+            .map(|server| (server, self.state.project_intents(server).len()))
+            .collect()
+    }
+
+    /// Another computer's server that the edit just made waits for connects,
+    /// so the edit doesn't wait for the user to open one of its projects.
+    /// Servers with only older edits waiting stay as they are.
+    fn connect_for_project_edits(&mut self, before: &[(ServerId, usize)], cx: &mut Context<Self>) {
         let waiting: Vec<_> = self
             .servers
             .ids()
             .into_iter()
-            .filter(|server| !server.is_local() && !self.state.project_intents(*server).is_empty())
+            .filter(|server| {
+                let earlier = before
+                    .iter()
+                    .find_map(|(listed, count)| (listed == server).then_some(*count))
+                    .unwrap_or(0);
+                !server.is_local() && self.state.project_intents(*server).len() > earlier
+            })
             .collect();
         for server in waiting {
             self.connect_on_demand(server, cx);
@@ -1363,8 +1380,12 @@ impl AppModel {
         let Some(project) = self.tab_project(tab).map(|project| project.id) else {
             return;
         };
+        let elsewhere = self.state.current_project().id != project;
         match self.state.select_tab(project, tab) {
             Ok(()) => {
+                if elsewhere {
+                    self.reveal_server(self.state.current_project().server_id, cx);
+                }
                 self.changed(cx);
                 self.focus_owner.request_active_pane();
                 self.connect_on_demand(self.state.current_project().server_id, cx);

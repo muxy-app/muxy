@@ -1647,6 +1647,7 @@
 "Search commands…" = "Search commands…";
 "Search engine" = "Search engine";
 "Search extensions…" = "Search extensions…";
+"Search folders on %@ or enter a path…" = "Search folders on %@ or enter a path…";
 "Search folders or enter a path…" = "Search folders or enter a path…";
 "Search fonts…" = "Search fonts…";
 "Search languages…" = "Search languages…";
@@ -1654,6 +1655,7 @@
 "Search options…" = "Search options…";
 "Search or enter address" = "Search or enter address";
 "Search projects, folders or enter a path…" = "Search projects, folders or enter a path…";
+"Search projects, or folders on %@…" = "Search projects, or folders on %@…";
 "Search providers…" = "Search providers…";
 "Search servers…" = "Search servers…";
 "Search sessions…" = "Search sessions…";

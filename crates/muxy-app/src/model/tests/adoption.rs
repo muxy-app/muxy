@@ -408,6 +408,50 @@ fn editing_a_disconnected_servers_project_connects_it(cx: &mut TestAppContext) {
                 .any(|work| matches!(work, Work::Connect)),
             "the rename waits for it, so it connects"
         );
+        model.disconnect_remote_servers(&[remote], cx);
+        let _ = work(&remotes.borrow()[&remote]);
+        assert!(model.edit_project(|_| Ok(()), cx));
+        assert!(
+            !work(&remotes.borrow()[&remote])
+                .iter()
+                .any(|work| matches!(work, Work::Connect)),
+            "an edit that adds nothing for it leaves it disconnected"
+        );
+    });
+}
+
+#[gpui::test]
+fn selecting_a_tab_of_another_project_expands_its_server(cx: &mut TestAppContext) {
+    let (remote, api) = (ServerId::new(), ProjectId::new());
+    let (view, cx, _requests, _remotes, _home) = two_servers(remote, api, cx);
+    view.update(cx, |model, cx| {
+        model.new_tab_in(api, cx);
+        let first = model.active_tab().expect("tab");
+        model.new_tab_in(api, cx);
+        model.new_tab_in(model.state.home().id, cx);
+        model.toggle_server_group(remote, cx);
+        model.select_tab(first, cx);
+        assert_eq!(model.state.current_project().id, api);
+        assert!(
+            model.server_expanded(remote),
+            "another project's tab expands it"
+        );
+
+        model.toggle_server_group(remote, cx);
+        let second = model
+            .state
+            .project(api)
+            .expect("api")
+            .tabs
+            .iter()
+            .map(|tab| tab.id)
+            .find(|tab| *tab != first)
+            .expect("second tab");
+        model.select_tab(second, cx);
+        assert!(
+            !model.server_expanded(remote),
+            "a tab of the same project keeps the choice"
+        );
     });
 }
 

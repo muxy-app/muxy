@@ -145,12 +145,11 @@ impl ProjectPicker {
         metrics: Metrics,
         cx: &mut Context<Self>,
     ) -> Self {
-        let placeholder = match (&remote, purpose) {
-            (Some(folders), _) => tr!("Enter a path on %@…", &folders.name),
-            (None, Purpose::AddProject) => tr!("Search folders or enter a path…"),
-            (None, Purpose::NewTab) => tr!("Search projects, folders or enter a path…"),
-        }
-        .to_string();
+        let placeholder = placeholder(
+            purpose,
+            remote.as_ref().map(|folders| folders.name.as_str()),
+            None,
+        );
         let picker = cx.new(|cx| {
             Picker::new(
                 PickerConfig {
@@ -218,6 +217,14 @@ impl ProjectPicker {
         });
         project_picker.reload(cx);
         project_picker
+    }
+
+    /// Names this computer in the field, so its folders aren't taken for
+    /// another computer's.
+    pub(crate) fn name_computer(&self, computer: &str, cx: &mut Context<Self>) {
+        let text = placeholder(self.purpose, None, Some(computer));
+        self.picker
+            .update(cx, |picker, cx| picker.set_placeholder(text, cx));
     }
 
     pub(crate) fn purpose(&self) -> Purpose {
@@ -775,7 +782,14 @@ impl AppModel {
                 cx,
             )
         });
-        picker.update(cx, |picker, _| picker.targets = targets);
+        let computer =
+            (!self.settings.servers.is_empty()).then(|| self.server_label(ServerId::local()));
+        picker.update(cx, |picker, cx| {
+            picker.targets = targets;
+            if let Some(computer) = &computer {
+                picker.name_computer(computer, cx);
+            }
+        });
         picker.focus_handle(cx).focus(window);
         self.show_project_picker(ServerId::local(), picker, cx);
     }
@@ -1356,6 +1370,23 @@ async fn folder_prompt(
     std::future::ready(Ok(CHOSEN_FOLDER.take())).await
 }
 
+/// What the field asks for: a path on another computer, or a search here,
+/// naming this computer while other computers' pickers name theirs.
+fn placeholder(purpose: Purpose, remote: Option<&str>, computer: Option<&str>) -> String {
+    match (remote, computer, purpose) {
+        (Some(remote), ..) => tr!("Enter a path on %@…", remote),
+        (None, Some(computer), Purpose::AddProject) => {
+            tr!("Search folders on %@ or enter a path…", computer)
+        }
+        (None, Some(computer), Purpose::NewTab) => {
+            tr!("Search projects, or folders on %@…", computer)
+        }
+        (None, None, Purpose::AddProject) => tr!("Search folders or enter a path…"),
+        (None, None, Purpose::NewTab) => tr!("Search projects, folders or enter a path…"),
+    }
+    .to_string()
+}
+
 pub(crate) fn display_path(path: &Path) -> String {
     if let Some(home) = std::env::home_dir()
         && let Ok(relative) = path.strip_prefix(home)
@@ -1373,6 +1404,26 @@ pub(crate) fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_field_names_the_computer_whose_folders_it_searches() {
+        assert_eq!(
+            placeholder(Purpose::NewTab, Some("devbox"), Some("This Mac")),
+            "Enter a path on devbox…"
+        );
+        assert_eq!(
+            placeholder(Purpose::NewTab, None, Some("This Mac")),
+            "Search projects, or folders on This Mac…"
+        );
+        assert_eq!(
+            placeholder(Purpose::AddProject, None, Some("This Computer")),
+            "Search folders on This Computer or enter a path…"
+        );
+        assert_eq!(
+            placeholder(Purpose::AddProject, None, None),
+            "Search folders or enter a path…"
+        );
+    }
 
     #[test]
     fn confirmation_shortcut_hints_follow_active_aliases_and_overrides() {
