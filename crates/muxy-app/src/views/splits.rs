@@ -710,7 +710,70 @@ fn pane_content(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
     let Some(pane) = model.grids.get(&id) else {
         return div().size_full().into_any_element();
     };
-    pane.element()
+    let offline = model.state.pane_server(id).filter(|server| {
+        !server.is_local()
+            && model.status_of(*server) != crate::model::ServerStatus::Connected
+            && pane.view.read(cx).displayed_grid().is_none()
+    });
+    let Some(server) = offline else {
+        return pane.element();
+    };
+    div()
+        .relative()
+        .size_full()
+        .child(pane.element())
+        .child(offline_notice(id, server, model, cx))
+        .into_any_element()
+}
+
+/// A terminal of another computer's server that has nothing to show yet: the
+/// server isn't connected, and Connect connects it.
+fn offline_notice(
+    id: muxy_app_core::PaneId,
+    server: muxy_app_core::ServerId,
+    model: &AppModel,
+    cx: &Context<AppModel>,
+) -> AnyElement {
+    let m = model.metrics;
+    let theme = &model.theme;
+    let name = model.server_label(server);
+    let connecting = model.status_of(server) != crate::model::ServerStatus::Disconnected;
+    let text = if connecting {
+        tr!("Connecting to %@…", &name)
+    } else {
+        tr!("%@ is disconnected", &name)
+    };
+    div()
+        .debug_selector(move || format!("pane-offline-{id}"))
+        .absolute()
+        .inset_0()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(m.spacing4())
+        .text_size(m.font_body())
+        .text_color(theme.fg_muted)
+        .child(muxy_ui::accessibility::label(
+            SharedString::from(format!("pane-offline-text-{id}")),
+            text,
+        ))
+        .when(!connecting, |notice| {
+            notice.child(
+                div()
+                    .debug_selector(move || format!("pane-connect-{id}"))
+                    .child(muxy_ui::controls::button(
+                        muxy_ui::controls::Style { theme, metrics: &m },
+                        &format!("pane-connect-{id}"),
+                        muxy_ui::controls::Button::secondary(&tr!("Connect")),
+                        cx.listener(move |model, _, _, cx| {
+                            model.connect_server(server, cx);
+                            cx.notify();
+                        }),
+                    )),
+            )
+        })
+        .into_any_element()
 }
 
 #[cfg(test)]

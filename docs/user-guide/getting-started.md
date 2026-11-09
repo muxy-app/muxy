@@ -122,7 +122,7 @@ Debian packages and AppImages do not use the in-app updater.
 
 ### Remove
 
-Stop the local server in **Settings → Server**, then quit Muxy. Stopping the
+Stop the local server in **Settings → Servers**, then quit Muxy. Stopping the
 server ends its running terminals. Removal keeps your settings, projects and
 saved session data.
 

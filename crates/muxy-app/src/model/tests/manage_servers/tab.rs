@@ -16,7 +16,7 @@ pub(super) fn tab_window(
     let path = boot.state_path.with_file_name("settings.toml");
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(1200.0), px(900.0)));
+    cx.simulate_resize(size(px(1200.0), px(1600.0)));
     view.update(cx, connect_local);
     (view, cx, path, remotes)
 }
@@ -148,7 +148,7 @@ fn right_click_acts_on_the_server_or_the_selection_without_changing_it(cx: &mut 
         assert!(matches!(model.overlay, Some(Overlay::Menu(_))));
         assert_eq!(model.remote_selection, [api], "right-click selects nothing");
     });
-    press(cx, "menu-item-6".into());
+    press(cx, "menu-item-5".into());
     cx.simulate_prompt_answer("Forget");
     cx.run_until_parked();
     assert_eq!(
@@ -251,31 +251,21 @@ fn disconnecting_a_connecting_server_tells_its_worker(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn settings_open_on_the_default_server_and_move_when_it_changes(cx: &mut TestAppContext) {
+fn settings_open_on_this_computer_from_another_computers_project(cx: &mut TestAppContext) {
     let remote = ServerId::new();
     let (view, cx, _, _) = tab_window(vec![grouped(remote, "box", None)], cx);
     let project = ProjectId::new();
     view.update(cx, |model, cx| {
         connect_remote(model, remote, vec![], &[(project, "api")], cx);
         model.select_project(project, cx);
-        assert_eq!(model.default_server(), remote);
     });
     open_tab(&view, cx);
     view.read_with(cx, |model, _| {
         let (owner, _) = model.state.settings_tab().expect("tab");
-        assert_eq!(owner, project, "it opens where the window is");
-    });
-    view.update(cx, |model, cx| {
-        model.set_default_server(ServerId::local(), cx);
+        assert_eq!(owner, model.state.home().id);
     });
     open_tab(&view, cx);
     view.read_with(cx, |model, _| {
-        let (owner, _) = model.state.settings_tab().expect("tab");
-        assert_eq!(
-            owner,
-            model.state.home().id,
-            "it follows the default server"
-        );
         let tabs = model
             .state
             .projects()
@@ -287,6 +277,6 @@ fn settings_open_on_the_default_server_and_move_when_it_changes(cx: &mut TestApp
                     .any(|pane| model.state.is_settings_pane(pane.id))
             })
             .count();
-        assert_eq!(tabs, 1, "the hidden one is closed");
+        assert_eq!(tabs, 1, "opening it again selects it");
     });
 }

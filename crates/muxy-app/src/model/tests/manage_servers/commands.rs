@@ -109,7 +109,11 @@ fn editing_a_custom_command_restarts_only_its_worker_and_keeps_its_projects(
     let first = remotes.borrow_mut().remove(&server).expect("worker");
     view.update(cx, |model, cx| {
         connect_local(model, cx);
-        assert_eq!(model.connection(server), ConnectionState::Connecting);
+        assert_eq!(
+            model.connection(server),
+            ConnectionState::Disconnected,
+            "servers start disconnected"
+        );
         let home = connect_remote(model, server, vec![], &[], cx);
         work(&first);
         let renamed = ServerFields {

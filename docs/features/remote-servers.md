@@ -3,8 +3,8 @@
 Muxy can work with projects on other computers over SSH, or by
 [pairing](#pair-with-another-computer) with them. Each computer runs its
 own `muxy-server`, so remote terminals keep running when you disconnect, just
-like local ones. Remote projects sit in the same sidebar as local ones, marked
-with their server.
+like local ones. Remote projects sit in the same sidebar as local ones, under
+their server's heading.
 
 ```mermaid
 flowchart LR
@@ -31,11 +31,17 @@ On Linux hosts that end your processes when you log out, run
    optionally the user, port, and identity file.
 3. Choose **Test Connection**. If Muxy isn't installed there, the app offers to
    install the same version into `~/.local/bin`.
-4. Make it the [default server](#the-default-server), then add projects with
-   **Add Project → Folder…**, which browses its folders.
+4. Expand it in the sidebar, then add projects with its **Add Project →
+   Folder…**, which browses its folders.
 
+- Servers start disconnected each time Muxy opens, and their projects show
+  what was last known. Opening one of a server's projects or tabs, expanding it
+  in the sidebar before its projects are known, or **Connect** in its menu
+  connects it. So does renaming or removing one of its projects, which waits
+  for it. A server you add or pair connects right away. Its terminals that
+  have nothing to show yet say it is disconnected, with **Connect**.
 - Passwords are asked when connecting and kept only in memory until you quit.
-- A dropped server reconnects on its own, waiting longer each time. It stops
+- A connected server that drops reconnects on its own, waiting longer each time. It stops
   retrying when it needs you, for example for a password or a new host key.
 - Right-click a server in the **Servers** popover for its actions, or hover it
   and use its pencil to edit it.
@@ -53,23 +59,35 @@ On Linux hosts that end your processes when you log out, run
   disconnected until you connect it or open one of its projects.
 - **Forget** a server to remove it and its projects from this app. Nothing on
   the server changes.
-- The status bar shows the default server, with connect, restart, and stop.
+- The status bar shows the current project's server, with connect, restart,
+  and stop.
 
-### The default server
+### In the sidebar
 
-The app works with one server at a time. Pick it in the status bar's server
-popover, or choose **Use as Default Server** in a server's menu. The sidebar
-then lists that server's projects, Home is its Home, and **Add Project** and
-**New Tab in Project…** browse its folders. Opening a folder from Finder or
-`muxy <folder>` switches back to this computer.
+The sidebar lists every server under its own heading: **This Mac** (**This
+Computer** on Linux) first, then the others in the Servers popover's order.
+Each heading shows how its server is doing, and clicking it expands or
+collapses that server's Home, projects, and **Add Project** row. This computer
+starts expanded and the others collapsed, and the app remembers each choice,
+also after a restart. Opening something on a collapsed server, such as from
+**New Tab in Project…**, expands it, and expanding a server that hasn't listed
+its projects yet connects to it. Workspaces filter the projects under every
+heading, and **Focus Current Project** shows only the current project, without
+headings. To list only this computer's projects, turn off **Settings →
+Appearance → Show other servers in the sidebar**; the Servers button still
+manages the others, and **New Tab in Project…** still offers their projects.
 
-Terminals that another client shows on the default server open here as tabs in
-their project, without taking focus. Terminals nobody shows, such as detached
-ones, stay in **Existing Terminals**. For example, with a Linux computer's
-server as the default on a Mac, a tab opened in the Linux app also shows up on
-the Mac. Closing or detaching one here leaves it running for the clients still
-showing it, and the app doesn't open it here again. It stays in **Existing
-Terminals** to open it again.
+Nothing switches the app between servers. **Add Project** adds to its own
+server; ⌘O and **New Tab in Project…** browse the current project's server, and
+the latter also offers every server's projects and the other servers by name.
+
+Terminals that another client, such as a phone or the terminal UI, shows on
+this computer's server open here as tabs in their project, without taking
+focus. Terminals other clients show on another computer's server, and those
+nobody shows, such as detached ones, stay in **Existing Terminals**. Closing or
+detaching one here leaves it running for the clients still showing it, and the
+app doesn't open it here again. It stays in **Existing Terminals** to open it
+again.
 
 ### Pair with another computer
 
@@ -77,7 +95,7 @@ Pairing needs no SSH setup, only Muxy on both computers, macOS or Linux, which
 can reach each other on the network or through a VPN.
 
 1. On the other computer, open **Settings → Servers** (**Manage Servers…** in the
-   sidebar's **Servers** popover). Under **This Mac** or **This Computer**, turn on **Allow
+   sidebar's **Servers** popover). Under **Clients**, turn on **Allow
    clients**, choose **Show Pairing Code**, then **Copy Link**.
 2. Here, in the **Servers** popover or **Settings → Servers**, choose **Pair with
    Link…** and paste it.

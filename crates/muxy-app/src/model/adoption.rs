@@ -1,6 +1,5 @@
-//! The server the app works with. The sidebar lists its projects, new
-//! projects and tabs go to it, and terminals other clients start there open
-//! here as tabs.
+//! Terminals other clients start on this computer's server, such as a phone
+//! or the terminal UI, open here as background tabs in their project.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -11,79 +10,11 @@ use muxy_protocol::{ProjectSession, SessionId, SessionStatus};
 use super::{AppModel, Quitting};
 
 impl AppModel {
-    pub(crate) fn default_server(&self) -> ServerId {
-        self.state.default_server()
-    }
-
-    /// A default server no longer in settings, removed by hand, gives way to
-    /// this computer's. Returns whether it did.
-    pub(super) fn sync_default_server(&mut self) -> bool {
-        let server = self.state.default_server();
-        if server.is_local() || self.settings.server(server).is_some() {
-            return false;
-        }
-        self.state.set_default_server(ServerId::local())
-    }
-
-    /// Switches the whole app to `server`: the sidebar lists its projects and
-    /// the window shows its Home once its catalog is known, connecting first
-    /// when it is offline.
-    pub(crate) fn set_default_server(&mut self, server: ServerId, cx: &mut Context<Self>) {
-        if !server.is_local() && self.settings.server(server).is_none() {
-            return;
-        }
-        if server == self.state.default_server() {
-            self.connect_on_demand(server, cx);
-            return;
-        }
-        match self.transact(
-            |state| -> Result<(), std::convert::Infallible> {
-                state.set_default_server(server);
-                Ok(())
-            },
-            cx,
-        ) {
-            Ok(Some(())) => {}
-            Ok(None) | Err(_) => return,
-        }
-        if self
-            .pending_remote
-            .is_some_and(|pending| pending.server != server)
-        {
-            self.pending_remote = None;
-        }
-        if server.is_local() {
-            if self.connection(server) == super::ConnectionState::Disconnected {
-                self.connect(cx);
-            }
-        } else {
-            self.connect_on_demand(server, cx);
-        }
-        self.changed(cx);
-    }
-
-    /// The server of `project` when it can open a terminal, so failing work
-    /// never switches the app.
-    pub(crate) fn available_project_server(&self, project: ProjectId) -> Option<ServerId> {
-        self.state
-            .project(project)
-            .filter(|project| project.status() == ProjectStatus::Available)
-            .map(|project| project.server_id)
-    }
-
-    /// Work aimed at another server than the default one switches the app
-    /// to it first, so what it opens is listed.
-    pub(crate) fn use_server(&mut self, server: ServerId, cx: &mut Context<Self>) {
-        if server != self.state.default_server() {
-            self.set_default_server(server, cx);
-        }
-    }
-
-    /// The default server's listed projects whose terminals other clients
-    /// show, once that server has shown, on this connection, that its
-    /// projects are the ones the app knows.
+    /// This computer's listed projects whose terminals other clients show,
+    /// once its server has shown, on this connection, that its projects are
+    /// the ones the app knows.
     pub(crate) fn adoptable_projects(&self) -> Vec<ProjectId> {
-        let server = self.state.default_server();
+        let server = ServerId::local();
         if !self.adopting(server) {
             return Vec::new();
         }
@@ -121,7 +52,7 @@ impl AppModel {
         if !self.adoptable_projects().contains(&project) {
             return;
         }
-        let server = self.state.default_server();
+        let server = ServerId::local();
         let shown: HashSet<_> = self.state.session_references(server).into_iter().collect();
         let dismissed = self.state.dismissed_sessions(server);
         let others: Vec<_> = sessions
@@ -179,15 +110,18 @@ impl AppModel {
         }
     }
 
-    /// Remembers the sessions on `server` that this app stopped showing
-    /// since it last looked, so they aren't opened here again. The first
-    /// look only notes what is shown.
+    /// Remembers the sessions on this computer's server that this app
+    /// stopped showing since it last looked, so they aren't opened here
+    /// again. The first look only notes what is shown.
     pub(super) fn note_shown_sessions(
         &mut self,
         server: ServerId,
         shown: &[SessionId],
         cx: &mut Context<Self>,
     ) {
+        if !server.is_local() {
+            return;
+        }
         let Some(runtime) = self.servers.get_mut(server) else {
             return;
         };
@@ -203,14 +137,15 @@ impl AppModel {
         }
     }
 
-    /// A session left running when its pane went away before it attached.
+    /// A session on this computer's server left running when its pane went
+    /// away before it attached.
     pub(super) fn dismiss_session(
         &mut self,
         server: ServerId,
         session: SessionId,
         cx: &mut Context<Self>,
     ) {
-        if self.state.dismiss_sessions(server, [session]) {
+        if server.is_local() && self.state.dismiss_sessions(server, [session]) {
             self.save(cx);
         }
     }

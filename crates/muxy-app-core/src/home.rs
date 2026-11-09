@@ -28,7 +28,6 @@ impl AppState {
             workspaces: Vec::new(),
             removed_projects: Vec::new(),
             window,
-            default_server: ServerId::local(),
             set_aside: None,
             session_moves: Vec::new(),
         })
@@ -71,7 +70,7 @@ impl AppState {
         }
         self.refresh_project_statuses();
         if self.project(self.window.current_project).is_none() {
-            self.window.current_project = self.default_home().id;
+            self.window.current_project = self.home().id;
         }
         self.window.selected_tab.retain(|project, tab| {
             self.projects

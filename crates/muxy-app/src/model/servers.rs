@@ -251,16 +251,13 @@ impl Servers {
 }
 
 impl AppModel {
-    /// Connects every server listed in settings, each on its own worker, so
-    /// SSH never blocks the window.
-    /// Servers that log in with a password wait until one of their projects
-    /// is opened or they are connected by hand, so launching never asks.
-    pub(super) fn start_servers(&mut self, cx: &mut Context<Self>) {
+    /// Gives every server listed in settings its own worker, so SSH never
+    /// blocks the window. Each stays disconnected until the user connects
+    /// it, opens one of its projects or tabs, or expands it in the sidebar
+    /// before its projects are known.
+    pub(super) fn start_servers(&mut self) {
         for entry in self.settings.servers.clone() {
             self.servers.add(&entry, 0);
-            if !entry.password_login {
-                self.connect_server(entry.id, cx);
-            }
         }
     }
 
@@ -361,10 +358,10 @@ impl AppModel {
             .and_then(|runtime| runtime.error.as_deref())
     }
 
-    /// Projects the sidebar and Switch Project list: shown ones on the
-    /// default server.
+    /// Projects the sidebar and Switch Project list: those of this computer
+    /// and of the servers in settings.
     pub(crate) fn project_listed(&self, project: &Project) -> bool {
-        self.project_shown(project) && project.server_id == self.state.default_server()
+        self.project_shown(project)
     }
 
     /// The name settings give another computer's server.

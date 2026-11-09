@@ -1,14 +1,10 @@
-use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, Toggled, Window, canvas,
-    div, px,
+    ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
-use muxy_app_core::ServerId;
 use muxy_ui::accessibility;
-use muxy_ui::components::{ButtonInteraction, IconGlyph};
+use muxy_ui::components::ButtonInteraction;
 use muxy_ui::controls::{self, Style};
-use muxy_ui::icon::Icon;
 use muxy_ui::l10n::translate;
 use muxy_ui::popover;
 use muxy_ui::tr;
@@ -195,80 +191,8 @@ fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyE
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 )),
         )
-        .child(picker(model, cx))
-        .child(popover::divider(theme, m))
         .child(content);
     panel.child(actions(model, cx)).into_any_element()
-}
-
-/// Every server the app can work with, the default one ticked. Picking one
-/// switches the whole app to it.
-fn picker(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
-    let servers = std::iter::once(ServerId::local()).chain(model.listed_servers());
-    div()
-        .id("server-picker")
-        .role(Role::RadioGroup)
-        .accessibility_id("server-picker")
-        .aria_label(tr!("Default server"))
-        .debug_selector(|| "server-picker".into())
-        .flex()
-        .flex_col()
-        .gap(model.metrics.scaled(popover::ROW_GAP))
-        .px(model.metrics.spacing2())
-        .py(model.metrics.spacing2())
-        .children(servers.map(|server| choice(server, model, cx)))
-}
-
-fn choice(server: ServerId, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let m = model.metrics;
-    let theme = &model.theme;
-    let id = format!("server-choice-{server}");
-    let selected = server == model.default_server();
-    let status = model.status_of(server);
-    let name = model.server_label(server);
-    let state = model
-        .remote_servers()
-        .into_iter()
-        .find(|remote| remote.entry.id == server)
-        .map_or_else(
-            || translate(status.label()),
-            |remote| super::remote_servers::status_label(&remote),
-        );
-    popover::row(theme, m, SharedString::from(id.clone()), true, false)
-        .role(Role::RadioButton)
-        .accessibility_id(SharedString::from(id.clone()))
-        .aria_label(name.clone())
-        .aria_description(state.clone())
-        .aria_toggled(if selected {
-            Toggled::True
-        } else {
-            Toggled::False
-        })
-        .debug_selector(move || id.clone())
-        .when(selected, |row| row.bg(theme.hover))
-        .focus(|style| style.bg(theme.hover))
-        .button_interaction(cx.listener(move |model, _, _, cx| {
-            model.set_default_server(server, cx);
-        }))
-        .child(
-            div()
-                .size(m.scaled(6.0))
-                .flex_none()
-                .rounded_full()
-                .bg(status_color(status, model)),
-        )
-        .child(div().flex_1().min_w(px(0.0)).truncate().child(name))
-        .child(
-            div()
-                .flex_none()
-                .text_size(m.font_footnote())
-                .text_color(theme.fg_muted)
-                .child(state),
-        )
-        .child(div().flex_none().w(m.icon_sm()).when(selected, |slot| {
-            slot.child(IconGlyph::new(Icon::Check, m.icon_sm(), theme.accent))
-        }))
-        .into_any_element()
 }
 
 fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {

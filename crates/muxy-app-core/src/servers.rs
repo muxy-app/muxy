@@ -45,43 +45,6 @@ impl AppState {
         self.placed_pane(pane).map(|placed| placed.server)
     }
 
-    /// The server the app works with. A server no longer listed leaves
-    /// this computer's in its place when it is forgotten.
-    pub fn default_server(&self) -> ServerId {
-        self.default_server
-    }
-
-    /// The default server's Home, or this computer's until that server's
-    /// catalog has been applied.
-    pub fn default_home(&self) -> &Project {
-        self.server_home(self.default_server)
-            .unwrap_or_else(|| self.home())
-    }
-
-    /// Makes `server` the one the app works with, and shows its Home unless
-    /// the window already shows one of its projects. Returns whether the
-    /// default changed.
-    pub fn set_default_server(&mut self, server: ServerId) -> bool {
-        if self.default_server == server {
-            return false;
-        }
-        self.default_server = server;
-        self.show_default_home();
-        true
-    }
-
-    /// Moves the window to the default server's Home when it shows another
-    /// server's project and that Home is known.
-    pub fn show_default_home(&mut self) -> bool {
-        if self.current_project().server_id == self.default_server {
-            return false;
-        }
-        let Some(home) = self.server_home(self.default_server).map(|home| home.id) else {
-            return false;
-        };
-        self.select_project(home).is_ok()
-    }
-
     /// Sessions this app stopped showing on `server` while they kept running.
     pub fn dismissed_sessions(&self, server: ServerId) -> BTreeSet<SessionId> {
         self.servers
@@ -260,17 +223,14 @@ impl AppState {
                 "this computer's server cannot be forgotten".into(),
             ));
         }
-        if self.default_server == server {
-            self.default_server = ServerId::local();
-        }
         self.remove_remote_projects(server);
         self.servers.remove(&server);
         Ok(())
     }
 
     /// Removes a remote server's projects with their tabs, workspace
-    /// memberships, and window references. The window moves to the default
-    /// server's Home if it showed one of them.
+    /// memberships, and window references. The window moves to this
+    /// computer's Home if it showed one of them.
     pub(crate) fn remove_remote_projects(&mut self, server: ServerId) {
         if server.is_local() {
             return;
@@ -300,7 +260,7 @@ impl AppState {
             .retain(|pane, _| !panes.contains(pane));
         self.retain_workspace_members();
         if projects.contains(&self.window.current_project) {
-            self.window.current_project = self.default_home().id;
+            self.window.current_project = self.home().id;
             self.window.active_pane = None;
             self.focus_selected_tab();
         }

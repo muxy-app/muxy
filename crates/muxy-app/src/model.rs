@@ -1,3 +1,4 @@
+mod adoption;
 pub(crate) mod agent_sessions;
 pub(crate) mod agents_panel;
 pub(crate) mod ai;
@@ -11,7 +12,6 @@ mod close_check;
 pub(crate) mod commands;
 mod composer;
 mod coverage;
-mod default_server;
 mod diagnostics;
 pub(crate) mod dialogs;
 pub(crate) mod extensions;
@@ -37,6 +37,7 @@ pub(crate) use remote_servers::{
     ConnectionTest, Install, PendingRemote, RemoteIntent, RemoteServer, ServerFields, by_group,
     join_destination, released_version, split_destination,
 };
+mod server_groups;
 mod server_status;
 mod servers;
 pub(crate) use server_status::ServerStatus;
@@ -462,6 +463,7 @@ impl AppModel {
         }) && self.state.select_tab(project, tab).is_ok()
         {
             self.navigation.commit(index);
+            self.reveal_server(self.state.current_project().server_id, cx);
             self.changed(cx);
             self.focus_owner.request_active_pane();
             self.connect_on_demand(self.state.current_project().server_id, cx);
@@ -721,11 +723,11 @@ impl AppModel {
             _changes: changes,
             _quit: quit,
         };
-        model.sync_default_server();
         if !model.project_listed(model.state.current_project()) {
-            let home = model.state.default_home().id;
+            let home = model.state.home().id;
             let _ = model.state.select_project(home);
         }
+        model.reveal_restored_server(cx);
         model.sync_agents_panel(cx);
         model.ensure_servers_search(cx);
         model.bind_extension_keys(cx);
@@ -752,7 +754,7 @@ impl AppModel {
         model.start_usage_ping(cx);
         model.start_tips(window, cx);
         model.sync_ssh_proxy(cx);
-        model.start_servers(cx);
+        model.start_servers();
         if stopped_in_background {
             model.explain_background_stop(cx);
         }
@@ -1004,10 +1006,8 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return;
         }
-        if let Some(server) = self.state.project_server(project) {
-            self.use_server(server, cx);
-        }
         if self.state.select_project(project).is_ok() {
+            self.reveal_server(self.state.current_project().server_id, cx);
             self.dismiss_overlay(cx);
             self.changed(cx);
             self.focus_owner.request_active_pane();
@@ -1089,7 +1089,6 @@ impl AppModel {
         create: impl FnOnce(&mut AppState) -> Result<ProjectId, muxy_app_core::AppError>,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
-        self.use_server(server, cx);
         let mut added = None;
         if !self.edit_project(
             |state| {
@@ -1105,6 +1104,7 @@ impl AppModel {
             return None;
         }
         let project = added?;
+        self.reveal_server(server, cx);
         self.hide_new_project_worktrees(project, cx);
         if initial_terminal && self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
@@ -1120,6 +1120,7 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return false;
         }
+        let waiting = self.waiting_project_edits();
         match self.transact(edit, cx) {
             Ok(Some(())) => {}
             Ok(None) => return false,
@@ -1133,10 +1134,41 @@ impl AppModel {
                 .record((self.state.current_project().id, tab));
         }
         self.replay_projects(cx);
+        self.connect_for_project_edits(&waiting, cx);
         self.sync_visible(cx);
         self.focus_owner.request_active_pane();
         cx.notify();
         true
+    }
+
+    /// How many project edits each server has waiting.
+    fn waiting_project_edits(&self) -> Vec<(ServerId, usize)> {
+        self.servers
+            .ids()
+            .into_iter()
+            .map(|server| (server, self.state.project_intents(server).len()))
+            .collect()
+    }
+
+    /// Another computer's server that the edit just made waits for connects,
+    /// so the edit doesn't wait for the user to open one of its projects.
+    /// Servers with only older edits waiting stay as they are.
+    fn connect_for_project_edits(&mut self, before: &[(ServerId, usize)], cx: &mut Context<Self>) {
+        let waiting: Vec<_> = self
+            .servers
+            .ids()
+            .into_iter()
+            .filter(|server| {
+                let earlier = before
+                    .iter()
+                    .find_map(|(listed, count)| (listed == server).then_some(*count))
+                    .unwrap_or(0);
+                !server.is_local() && self.state.project_intents(*server).len() > earlier
+            })
+            .collect();
+        for server in waiting {
+            self.connect_on_demand(server, cx);
+        }
     }
 
     /// Adds the projects, tabs, and workspaces Muxy 1.x had to the running
@@ -1258,11 +1290,6 @@ impl AppModel {
         if surface != tab_windows::Surface::Main {
             self.raise_main_window(cx);
         }
-        let server = self.state.default_server();
-        if self.state.project_server(project) != Some(server) && !server.is_local() {
-            self.new_remote_home_tab(server, cx);
-            return;
-        }
         self.open_new_tab(project, directory.as_deref(), cx);
     }
 
@@ -1293,6 +1320,7 @@ impl AppModel {
             Err(error) => self.fail(error.to_string(), cx),
         }
         let server = self.state.current_project().server_id;
+        self.reveal_server(server, cx);
         if self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
         }
@@ -1324,6 +1352,7 @@ impl AppModel {
             return false;
         }
         self.changed(cx);
+        self.reveal_server(server, cx);
         self.focus_owner.request_active_pane();
         if self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
@@ -1351,8 +1380,12 @@ impl AppModel {
         let Some(project) = self.tab_project(tab).map(|project| project.id) else {
             return;
         };
+        let elsewhere = self.state.current_project().id != project;
         match self.state.select_tab(project, tab) {
             Ok(()) => {
+                if elsewhere {
+                    self.reveal_server(self.state.current_project().server_id, cx);
+                }
                 self.changed(cx);
                 self.focus_owner.request_active_pane();
                 self.connect_on_demand(self.state.current_project().server_id, cx);
@@ -1996,12 +2029,11 @@ impl AppModel {
         }
     }
 
-    /// The project shown is always one the sidebar lists, on the default
-    /// server and never a removed server's, so new tabs never open somewhere
-    /// the user can't see.
+    /// The project shown is always one the sidebar lists, never a removed
+    /// server's, so new tabs never open somewhere the user can't see.
     fn sync_visible(&mut self, cx: &mut Context<Self>) {
         if !self.project_listed(self.state.current_project()) {
-            let home = self.state.default_home().id;
+            let home = self.state.home().id;
             let _ = self.state.select_project(home);
             self.state.reveal_current_project();
         }
@@ -3156,6 +3188,7 @@ pub(crate) mod tests {
     mod webviews;
     use muxy_protocol::ExitReason;
     mod activity;
+    mod adoption;
     mod agent_sessions;
     mod agents_panel;
     mod ai;
@@ -3164,7 +3197,6 @@ pub(crate) mod tests {
     mod commands;
     mod composer;
     mod coverage;
-    mod default_server;
     mod detach;
     mod dialogs;
     mod extension_authoring;

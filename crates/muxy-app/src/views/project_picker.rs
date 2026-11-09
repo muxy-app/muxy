@@ -44,6 +44,7 @@ pub(crate) enum Purpose {
 pub(crate) enum PickerEvent {
     ConfirmTarget {
         target: Target,
+        secondary: bool,
     },
     Confirm {
         path: String,
@@ -144,12 +145,11 @@ impl ProjectPicker {
         metrics: Metrics,
         cx: &mut Context<Self>,
     ) -> Self {
-        let placeholder = match (&remote, purpose) {
-            (Some(folders), _) => tr!("Enter a path on %@…", &folders.name),
-            (None, Purpose::AddProject) => tr!("Search folders or enter a path…"),
-            (None, Purpose::NewTab) => tr!("Search projects, folders or enter a path…"),
-        }
-        .to_string();
+        let placeholder = placeholder(
+            purpose,
+            remote.as_ref().map(|folders| folders.name.as_str()),
+            None,
+        );
         let picker = cx.new(|cx| {
             Picker::new(
                 PickerConfig {
@@ -217,6 +217,14 @@ impl ProjectPicker {
         });
         project_picker.reload(cx);
         project_picker
+    }
+
+    /// Names this computer in the field, so its folders aren't taken for
+    /// another computer's.
+    pub(crate) fn name_computer(&self, computer: &str, cx: &mut Context<Self>) {
+        let text = placeholder(self.purpose, None, Some(computer));
+        self.picker
+            .update(cx, |picker, cx| picker.set_placeholder(text, cx));
     }
 
     pub(crate) fn purpose(&self) -> Purpose {
@@ -503,6 +511,9 @@ impl ProjectPicker {
             self.session.top_right_action_title()
         };
         let titles = match (self.purpose, target) {
+            (_, Some(Target::Server(_))) => {
+                vec![tr_key!("Browse Folders…"), tr_key!("Terminal in Home")]
+            }
             (_, Some(Target::Project(_))) => vec![tr_key!("New Tab")],
             (Purpose::AddProject, None) => vec![add],
             (Purpose::NewTab, None) if self.session.is_existing_project() => {
@@ -539,7 +550,10 @@ impl ProjectPicker {
 
     fn activate(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(target) = self.targets.action(id) {
-            cx.emit(PickerEvent::ConfirmTarget { target: *target });
+            cx.emit(PickerEvent::ConfirmTarget {
+                target: *target,
+                secondary: false,
+            });
             return;
         }
         let index = id
@@ -618,7 +632,10 @@ impl ProjectPicker {
             .selected_row_id()
             .and_then(|id| self.targets.action(id))
         {
-            cx.emit(PickerEvent::ConfirmTarget { target: *target });
+            cx.emit(PickerEvent::ConfirmTarget {
+                target: *target,
+                secondary,
+            });
             return;
         }
         let Some(path) = self.session.confirmation_path() else {
@@ -684,24 +701,41 @@ impl Drop for ProjectPicker {
 }
 
 impl AppModel {
+    /// Add Project's folders on the current project's server.
     pub(crate) fn open_project_picker(
         &mut self,
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        self.toggle_project_picker(Purpose::AddProject, window, cx);
+        let server = self.state.current_project().server_id;
+        self.toggle_project_picker(server, Purpose::AddProject, window, cx);
     }
 
+    /// Add Project's folders on `server`.
+    pub(crate) fn open_project_picker_on(
+        &mut self,
+        server: ServerId,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_project_picker(server, Purpose::AddProject, window, cx);
+    }
+
+    /// New Tab in Project: every server's projects, then folders on the
+    /// current project's server, or on this computer while that server isn't
+    /// connected, so the projects never wait for it.
     pub(crate) fn open_new_tab_picker(
         &mut self,
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        self.toggle_project_picker(Purpose::NewTab, window, cx);
+        let server = self.state.current_project().server_id;
+        self.toggle_project_picker(server, Purpose::NewTab, window, cx);
     }
 
     fn toggle_project_picker(
         &mut self,
+        server: ServerId,
         purpose: Purpose,
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
@@ -716,8 +750,9 @@ impl AppModel {
                 return;
             }
         }
-        let server = self.state.default_server();
-        if !server.is_local() {
+        let browses = purpose == Purpose::AddProject
+            || self.status_of(server) == crate::model::ServerStatus::Connected;
+        if self.server_name(server).is_some() && browses {
             self.open_remote_folders(server, purpose, cx);
             return;
         }
@@ -734,7 +769,7 @@ impl AppModel {
         let paths = self.project_paths(ServerId::local());
         let targets = match purpose {
             Purpose::AddProject => Registry::default(),
-            Purpose::NewTab => targets::registry(self, ServerId::local()),
+            Purpose::NewTab => targets::registry(self),
         };
         let picker = cx.new(|cx| {
             ProjectPicker::new(
@@ -747,13 +782,19 @@ impl AppModel {
                 cx,
             )
         });
-        picker.update(cx, |picker, _| picker.targets = targets);
+        let computer =
+            (!self.settings.servers.is_empty()).then(|| self.server_label(ServerId::local()));
+        picker.update(cx, |picker, cx| {
+            picker.targets = targets;
+            if let Some(computer) = &computer {
+                picker.name_computer(computer, cx);
+            }
+        });
         picker.focus_handle(cx).focus(window);
         self.show_project_picker(ServerId::local(), picker, cx);
     }
 
     pub(crate) fn open_remote_project_picker(&mut self, server: ServerId, cx: &mut Context<Self>) {
-        self.use_server(server, cx);
         self.open_remote_folders(server, Purpose::AddProject, cx);
     }
 
@@ -789,7 +830,7 @@ impl AppModel {
         let paths = self.project_paths(server);
         let targets = match purpose {
             Purpose::AddProject => Registry::default(),
-            Purpose::NewTab => targets::registry(self, server),
+            Purpose::NewTab => targets::registry(self),
         };
         let picker = cx.new(|cx| {
             ProjectPicker::remote(
@@ -834,8 +875,8 @@ impl AppModel {
         self.overlay_subscription =
             Some(
                 cx.subscribe(&picker, move |model, picker, event, cx| match event {
-                    PickerEvent::ConfirmTarget { target } => {
-                        model.confirm_project_target(*target, cx);
+                    PickerEvent::ConfirmTarget { target, secondary } => {
+                        model.confirm_project_target(&picker, *target, *secondary, cx);
                     }
                     PickerEvent::Confirm {
                         path,
@@ -879,12 +920,28 @@ impl AppModel {
         cx.notify();
     }
 
-    fn confirm_project_target(&mut self, target: Target, cx: &mut Context<Self>) {
+    fn confirm_project_target(
+        &mut self,
+        picker: &Entity<ProjectPicker>,
+        target: Target,
+        secondary: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self.dialogs.is_open() {
             return;
         }
-        let Target::Project(id) = target;
-        self.open_tab_in_project(id, cx);
+        match target {
+            Target::Project(id) => self.open_tab_in_project(id, cx),
+            Target::Server(server) => {
+                let purpose = picker.read(cx).purpose();
+                self.dismiss_overlay(cx);
+                if secondary {
+                    self.new_remote_home_tab(server, cx);
+                } else {
+                    self.open_remote_folders(server, purpose, cx);
+                }
+            }
+        }
     }
 
     fn open_tab_in_project(&mut self, id: muxy_app_core::ProjectId, cx: &mut Context<Self>) {
@@ -1041,7 +1098,6 @@ impl AppModel {
         if self.dialogs.is_open() {
             return;
         }
-        self.use_server(server, cx);
         if let Some(id) = self.project_at(server, &path.to_string_lossy()) {
             self.open_tab_in_project(id, cx);
             return;
@@ -1153,7 +1209,6 @@ impl AppModel {
     }
 
     fn open_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
-        self.use_server(ServerId::local(), cx);
         let canonical = folder.canonicalize().ok();
         let existing = self
             .state
@@ -1315,6 +1370,23 @@ async fn folder_prompt(
     std::future::ready(Ok(CHOSEN_FOLDER.take())).await
 }
 
+/// What the field asks for: a path on another computer, or a search here,
+/// naming this computer while other computers' pickers name theirs.
+fn placeholder(purpose: Purpose, remote: Option<&str>, computer: Option<&str>) -> String {
+    match (remote, computer, purpose) {
+        (Some(remote), ..) => tr!("Enter a path on %@…", remote),
+        (None, Some(computer), Purpose::AddProject) => {
+            tr!("Search folders on %@ or enter a path…", computer)
+        }
+        (None, Some(computer), Purpose::NewTab) => {
+            tr!("Search projects, or folders on %@…", computer)
+        }
+        (None, None, Purpose::AddProject) => tr!("Search folders or enter a path…"),
+        (None, None, Purpose::NewTab) => tr!("Search projects, folders or enter a path…"),
+    }
+    .to_string()
+}
+
 pub(crate) fn display_path(path: &Path) -> String {
     if let Some(home) = std::env::home_dir()
         && let Ok(relative) = path.strip_prefix(home)
@@ -1332,6 +1404,26 @@ pub(crate) fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_field_names_the_computer_whose_folders_it_searches() {
+        assert_eq!(
+            placeholder(Purpose::NewTab, Some("devbox"), Some("This Mac")),
+            "Enter a path on devbox…"
+        );
+        assert_eq!(
+            placeholder(Purpose::NewTab, None, Some("This Mac")),
+            "Search projects, or folders on This Mac…"
+        );
+        assert_eq!(
+            placeholder(Purpose::AddProject, None, Some("This Computer")),
+            "Search folders on This Computer or enter a path…"
+        );
+        assert_eq!(
+            placeholder(Purpose::AddProject, None, None),
+            "Search folders or enter a path…"
+        );
+    }
 
     #[test]
     fn confirmation_shortcut_hints_follow_active_aliases_and_overrides() {

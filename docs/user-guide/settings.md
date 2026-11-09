@@ -20,8 +20,7 @@ On macOS, choose **About Muxy** (or **About Muxy Beta**) from the app menu to op
 | Commands | Your own commands, each run in a new tab, with optional shortcuts |
 | Terminal | Fonts, spacing, transparency, vibrancy, colors, cursor, padding, selection, scrolling, Option keys, key bindings |
 | Browser | The [built-in browser](../features/browser.md): terminal links, search engine, home page, profiles, import |
-| Server | This computer's [server](../features/server.md#settings): shell, history, shell integration, stop and restart |
-| Servers | [Remote servers](../features/remote-servers.md), and the [phones](../features/mobile.md) and computers paired as clients |
+| Servers | This computer's [server](../features/server.md#settings): connect, restart and stop, shell, history, and shell integration; the [phones](../features/mobile.md) and computers paired as clients; and [remote servers](../features/remote-servers.md) |
 | Extensions | Installed extensions and the marketplace |
 | AI | Tools and prompts for [Git](../features/git.md) actions |
 | Backup & Restore | Export, restore, and import from 1.x |
@@ -91,7 +90,7 @@ units keeps the numeric adjustment within the supported range.
 on it, including key bindings, to its default after you confirm.
 
 Themes remain in **Settings → Appearance**. Shell and history limits remain
-in **Settings → Server**. Quick Terminal opacity combines with terminal opacity.
+in **Settings → Servers**. Quick Terminal opacity combines with terminal opacity.
 
 On the first launch without `terminal.toml`, Muxy imports the supported values
 from its old `ghostty.conf`, including included files and custom terminal key

@@ -84,7 +84,8 @@ pub(crate) enum Command {
     ProjectLogo(muxy_app_core::ProjectId),
     RemoveProjectLogo(muxy_app_core::ProjectId),
     RemoveProject(muxy_app_core::ProjectId),
-    AddProject,
+    /// Add Project's folders on a server.
+    AddProject(muxy_app_core::ServerId),
     RestoreRemovedProject(usize),
     /// A row of a remote server's menu, from the Servers popover or page.
     RemoteServers(super::server_menu::Servers, super::server_menu::Action),
@@ -739,8 +740,8 @@ impl AppModel {
                 self.edit_project(|state| state.set_project_logo(id, None), cx);
             }
             Command::RemoveProject(id) => self.confirm_remove_project(id, cx),
-            Command::AddProject => {
-                self.open_project_picker(window, cx);
+            Command::AddProject(server) => {
+                self.open_project_picker_on(server, window, cx);
                 return;
             }
             Command::RestoreRemovedProject(index) => {

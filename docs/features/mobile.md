@@ -17,7 +17,7 @@ A phone connects in one of two ways:
 From the desktop app:
 
 1. Open **Settings → Servers** with **Manage Servers…** in the sidebar's
-   **Servers** popover. Under **This Mac** or **This Computer**, turn on **Allow
+   **Servers** popover. Under **Clients**, turn on **Allow
    clients**.
 2. Under **Pair a client**, choose **Show Pairing Code**.
 3. Scan the code with the Muxy app.
@@ -64,7 +64,8 @@ terminal.
   Their content is encrypted for your phone; the relay sees only that there is
   a notification.
 - They're on by default for every computer. Pause them for all phones with
-  **Push notifications** under **Settings → Servers → This Computer**, or
+  **Push notifications** under **Settings → Servers → Clients**, shown while
+  **Allow clients** is on, or
   `muxy mobile push off`:
   - Nothing more is sent to `muxy.app`, which forgets the phones at once.
   - This computer keeps each phone's registration for 90 days. Turning
@@ -83,8 +84,8 @@ A paired phone gets full terminal access: it can use projects, terminals, Git,
 and files. It can't manage client access, change server settings, stop the
 server, or run programs with `exec`.
 
-Terminals opened on the phone show up as tabs in the desktop app while that
-server is its [default server](remote-servers.md#the-default-server).
+Terminals opened on the phone show up as tabs in the desktop app on the same
+computer.
 
 Other computers pair with the same code's link; see
 [Remote servers](remote-servers.md#pair-with-another-computer).

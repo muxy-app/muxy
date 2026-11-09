@@ -38,11 +38,6 @@ impl Category {
             ],
             Self::Keyboard => &[tr_key!("Shortcuts")],
             Self::Terminal => super::terminal::SECTIONS,
-            Self::Server => &[
-                tr_key!("Connection"),
-                tr_key!("Sessions"),
-                tr_key!("Server control"),
-            ],
             Self::Servers | Self::Extensions | Self::Commands | Self::About => &[],
             Self::Backup => &[
                 tr_key!("Backup & Restore"),
@@ -77,7 +72,7 @@ impl SettingsView {
         self.results.reset();
         self.search.update(cx, |search, cx| search.set_text("", cx));
         self.focus.focus(window);
-        if category == Category::Server {
+        if category == Category::Servers {
             cx.emit(SettingsEvent::ReadServer);
         }
         if category == Category::Extensions {
@@ -300,7 +295,7 @@ impl SettingsView {
                     .text_size(self.layout_metrics.scaled(14.0))
                     .text_color(self.theme.accent)
                     .bg(self.theme.accent_soft)
-                    .child(if self.category == Category::Server {
+                    .child(if self.category == Category::Servers {
                         if cfg!(target_os = "macos") {
                             tr!("This Mac")
                         } else {
@@ -424,18 +419,6 @@ impl SettingsView {
                     content.pt(self.layout_metrics.scaled(32.0))
                 })
                 .child(extensions.clone())
-                .into_any_element();
-        }
-        if self.category == Category::Servers
-            && self.query.is_empty()
-            && let Some(servers) = &self.servers
-        {
-            return div()
-                .w_full()
-                .min_w_0()
-                .min_h_0()
-                .h_full()
-                .child(servers.clone())
                 .into_any_element();
         }
         let view = cx.entity();

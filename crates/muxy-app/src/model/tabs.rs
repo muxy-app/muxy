@@ -29,9 +29,6 @@ impl AppModel {
         }: OpenTerminal<'_>,
         cx: &mut Context<Self>,
     ) -> Result<Option<(TabId, PaneId)>, String> {
-        if let Some(server) = self.available_project_server(project) {
-            self.use_server(server, cx);
-        }
         let opened = self.transact(
             |state| {
                 let tab = state
@@ -60,6 +57,7 @@ impl AppModel {
             self.changed(cx);
             self.focus_owner.request_active_pane();
             let server = self.state.current_project().server_id;
+            self.reveal_server(server, cx);
             if self.connection(server) == ConnectionState::Disconnected {
                 self.connect_server(server, cx);
             }

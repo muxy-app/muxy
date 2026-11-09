@@ -27,13 +27,9 @@ impl AppState {
         self.window.workspace.and_then(|id| self.workspace(id))
     }
 
-    /// Whether the sidebar lists `project`: only the default server's
-    /// projects are listed, and the active workspace lists that server's Home
-    /// and its members, with worktrees following their parent.
+    /// Whether the sidebar lists `project`: the active workspace lists every
+    /// server's Home and its members, with worktrees following their parent.
     pub fn is_listed(&self, project: &Project) -> bool {
-        if project.server_id != self.default_server {
-            return false;
-        }
         let root = project.parent_id.unwrap_or(project.id);
         self.active_workspace()
             .is_none_or(|workspace| project.home || workspace.projects.contains(&root))
@@ -109,11 +105,10 @@ impl AppState {
     }
 
     /// Keeps the current project listed by switching to a workspace that
-    /// contains it, or to all projects. A project of another server than the
-    /// default one is never listed, whichever workspace is active.
+    /// contains it, or to all projects.
     pub fn reveal_current_project(&mut self) {
         let current = self.current_project();
-        if self.is_listed(current) || current.server_id != self.default_server {
+        if self.is_listed(current) {
             return;
         }
         let root = current.parent_id.unwrap_or(current.id);

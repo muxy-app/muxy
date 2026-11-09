@@ -27,6 +27,7 @@
 "%@ is also bound to command: %@" = "%@ is also bound to command: %@";
 "%@ is an unrelated link; move it before installing Muxy." = "%@ is an unrelated link; move it before installing Muxy.";
 "%@ is checked out in another worktree, so this one stays on its branch." = "%@ is checked out in another worktree, so this one stays on its branch.";
+"%@ is disconnected" = "%@ is disconnected";
 "%@ is larger than 100 MiB, the most Muxy sends to %@." = "%@ is larger than 100 MiB, the most Muxy sends to %@.";
 "%@ is no longer available. Try again." = "%@ is no longer available. Try again.";
 "%@ is not installed" = "%@ is not installed";
@@ -332,6 +333,7 @@
 "Bring your servers in" = "Bring your servers in";
 "Broadcast to Split Panes" = "Broadcast to Split Panes";
 "Browse" = "Browse";
+"Browse Folders…" = "Browse Folders…";
 "Browse and open your project's files beside your terminals." = "Browse and open your project's files beside your terminals.";
 "Browse extensions" = "Browse extensions";
 "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it." = "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it.";
@@ -552,6 +554,7 @@
 "Connect to this computer's server to copy its pairing link." = "Connect to this computer's server to copy its pairing link.";
 "Connect to this computer's server to manage its clients." = "Connect to this computer's server to manage its clients.";
 "Connected" = "Connected";
+"Connecting to %@…" = "Connecting to %@…";
 "Connecting…" = "Connecting…";
 "Connection" = "Connection";
 "Connection lost. Its terminals keep running." = "Connection lost. Its terminals keep running.";
@@ -696,7 +699,6 @@
 "Decrease font size" = "Decrease font size";
 "Default" = "Default";
 "Default application" = "Default application";
-"Default server" = "Default server";
 "Default shell (executable path)" = "Default shell (executable path)";
 "Default terminal text size. Individual panes can still be zoomed independently." = "Default terminal text size. Individual panes can still be zoomed independently.";
 "Default window height" = "Default window height";
@@ -777,8 +779,6 @@
 "Enabled" = "Enabled";
 "Enabling…" = "Enabling…";
 "End All Sessions and Quit" = "End All Sessions and Quit";
-"End all sessions and start the server again. Saved terminal records are preserved." = "End all sessions and start the server again. Saved terminal records are preserved.";
-"End all sessions on this computer and stop the server. A confirmation is required." = "End all sessions on this computer and stop the server. A confirmation is required.";
 "English" = "English";
 "English is built in. Additional languages can be provided by enabled extensions." = "English is built in. Additional languages can be provided by enabled extensions.";
 "Enter a branch name." = "Enter a branch name.";
@@ -1078,6 +1078,7 @@
 "List Rectangle" = "List Rectangle";
 "List agents under a heading naming their project." = "List agents under a heading naming their project.";
 "List each agent and open its pane, or each project and worktree running agents and open it." = "List each agent and open its pane, or each project and worktree running agents and open it.";
+"List other computers' servers and their projects under this computer's. When off, the sidebar shows only this computer's projects; the Servers button still manages the others." = "List other computers' servers and their projects under this computer's. When off, the sidebar shows only this computer's projects; the Servers button still manages the others.";
 "List the current worktree first, then the most recently used. Off, the project comes first, then its worktrees." = "List the current worktree first, then the most recently used. Off, the project comes first, then its worktrees.";
 "Listening on port %lld" = "Listening on port %lld";
 "Little to set up" = "Little to set up";
@@ -1085,7 +1086,6 @@
 "Load client access first" = "Load client access first";
 "Load more" = "Load more";
 "Load server settings first" = "Load server settings first";
-"Load this computer's server settings to edit them." = "Load this computer's server settings to edit them.";
 "Loading branches…" = "Loading branches…";
 "Loading clients…" = "Loading clients…";
 "Loading extensions…" = "Loading extensions…";
@@ -1096,6 +1096,7 @@
 "Loading settings" = "Loading settings";
 "Loading setup commands…" = "Loading setup commands…";
 "Loading terminals…" = "Loading terminals…";
+"Loading this computer's server settings…" = "Loading this computer's server settings…";
 "Loading…" = "Loading…";
 "Local" = "Local";
 "Location" = "Location";
@@ -1120,7 +1121,6 @@
 "Manage extensions marketplace installed unpacked" = "Manage extensions marketplace installed unpacked";
 "Manage scheduled update…" = "Manage scheduled update…";
 "Manage servers clients remote ssh pairing paired mobile phones computers port qr" = "Manage servers clients remote ssh pairing paired mobile phones computers port qr";
-"Manage the local server that keeps your terminal sessions running." = "Manage the local server that keeps your terminal sessions running.";
 "Manual Order" = "Manual Order";
 "Mark each agent with the color of the project it runs in." = "Mark each agent with the color of the project it runs in.";
 "Maximize" = "Maximize";
@@ -1509,7 +1509,6 @@
 "Refresh the pull request status before trying again." = "Refresh the pull request status before trying again.";
 "Regex" = "Regex";
 "Reload" = "Reload";
-"Reload settings" = "Reload settings";
 "Reload terminal settings" = "Reload terminal settings";
 "Reloaded" = "Reloaded";
 "Reloading…" = "Reloading…";
@@ -1567,7 +1566,6 @@
 "Reset terminal settings" = "Reset terminal settings";
 "Resolve merge conflicts first" = "Resolve merge conflicts first";
 "Restart" = "Restart";
-"Restart Server" = "Restart Server";
 "Restart Server?" = "Restart Server?";
 "Restart Server…" = "Restart Server…";
 "Restart Terminal?" = "Restart Terminal?";
@@ -1649,6 +1647,7 @@
 "Search commands…" = "Search commands…";
 "Search engine" = "Search engine";
 "Search extensions…" = "Search extensions…";
+"Search folders on %@ or enter a path…" = "Search folders on %@ or enter a path…";
 "Search folders or enter a path…" = "Search folders or enter a path…";
 "Search fonts…" = "Search fonts…";
 "Search languages…" = "Search languages…";
@@ -1656,6 +1655,7 @@
 "Search options…" = "Search options…";
 "Search or enter address" = "Search or enter address";
 "Search projects, folders or enter a path…" = "Search projects, folders or enter a path…";
+"Search projects, or folders on %@…" = "Search projects, or folders on %@…";
 "Search providers…" = "Search providers…";
 "Search servers…" = "Search servers…";
 "Search sessions…" = "Search sessions…";
@@ -1695,7 +1695,6 @@
 "Server %@" = "Server %@";
 "Server %@ · Update %@ pending. It will restart when all terminal sessions end. Restart Server applies it now and ends running sessions." = "Server %@ · Update %@ pending. It will restart when all terminal sessions end. Restart Server applies it now and ends running sessions.";
 "Server Rack" = "Server Rack";
-"Server control" = "Server control";
 "Server disconnected" = "Server disconnected";
 "Server disconnected. App preferences still work. Connect to edit server settings." = "Server disconnected. App preferences still work. Connect to edit server settings.";
 "Server has not finished stopping. Use Connect after shutdown completes." = "Server has not finished stopping. Use Connect after shutdown completes.";
@@ -1750,6 +1749,7 @@
 "Show in All Projects" = "Show in All Projects";
 "Show in File Manager" = "Show in File Manager";
 "Show or hide the sidebar" = "Show or hide the sidebar";
+"Show other servers in the sidebar" = "Show other servers in the sidebar";
 "Show pane headers" = "Show pane headers";
 "Show project colors" = "Show project colors";
 "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed." = "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed.";
@@ -1807,7 +1807,6 @@
 "Stays open when it loses focus" = "Stays open when it loses focus";
 "Still connecting to %@. Try again in a moment." = "Still connecting to %@. Try again in a moment.";
 "Stop" = "Stop";
-"Stop Server" = "Stop Server";
 "Stop Server?" = "Stop Server?";
 "Stop Server…" = "Stop Server…";
 "Stop server…" = "Stop server…";
@@ -1924,6 +1923,7 @@
 "The server sent something other than the file." = "The server sent something other than the file.";
 "The server started with a fresh project list" = "The server started with a fresh project list";
 "The server starts by itself when an app needs it." = "The server starts by itself when an app needs it.";
+"The server that keeps this computer's terminals running. Restarting or stopping it ends all of them." = "The server that keeps this computer's terminals running. Restarting or stopping it ends all of them.";
 "The server took too long to check or create the folder." = "The server took too long to check or create the folder.";
 "The server update could not finish." = "The server update could not finish.";
 "The server version does not match the signed app" = "The server version does not match the signed app";
@@ -2076,7 +2076,6 @@
 "Use a translucent macOS background while the sidebar is expanded." = "Use a translucent macOS background while the sidebar is expanded.";
 "Use an absolute folder path of at most 4096 bytes, without NUL characters." = "Use an absolute folder path of at most 4096 bytes, without NUL characters.";
 "Use an absolute shell path and a history budget between 0 and 65536 MiB" = "Use an absolute shell path and a history budget between 0 and 65536 MiB";
-"Use as Default Server" = "Use as Default Server";
 "Use both Option keys, neither, or just one as the terminal Alt modifier." = "Use both Option keys, neither, or just one as the terminal Alt modifier.";
 "Use bright ANSI colors for bold text in the first eight palette colors." = "Use bright ANSI colors for bold text in the first eight palette colors.";
 "Use existing branch" = "Use existing branch";

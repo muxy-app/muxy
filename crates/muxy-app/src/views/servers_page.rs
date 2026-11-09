@@ -1,12 +1,13 @@
-//! Settings' Servers page: this computer's access for phones and other
-//! computers, then every remote server by group, to select and act on one or
-//! many at once.
+//! The part of Settings' Servers page that the app draws, under this
+//! computer's server settings: its access for phones and other computers,
+//! then every remote server by group, to select and act on one or many at
+//! once.
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, ClickEvent, Context, Entity, FontWeight, InteractiveElement,
-    IntoElement, ListAlignment, ListState, MouseButton, ParentElement, Role, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, list, px,
+    IntoElement, MouseButton, ParentElement, Role, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, Window, div, px,
 };
 use muxy_app_core::ServerId;
 use muxy_ui::accessibility;
@@ -30,7 +31,6 @@ pub(crate) struct ServersPage {
     search: Option<(Entity<TextInput>, Subscription)>,
     port: Option<(Entity<TextInput>, Subscription)>,
     port_edited: bool,
-    list: ListState,
 }
 
 impl ServersPage {
@@ -40,13 +40,11 @@ impl ServersPage {
             search: None,
             port: None,
             port_edited: false,
-            list: ListState::new(1, ListAlignment::Top, px(0.0)),
         }
     }
 
     pub(crate) fn set_metrics(&mut self, metrics: Metrics) {
         self.metrics = crate::views::settings::content_metrics(metrics);
-        muxy_ui::scrollbar::remeasure_list(&self.list);
     }
 
     pub(crate) fn search_input(&self) -> Option<&Entity<TextInput>> {
@@ -229,37 +227,9 @@ impl AppModel {
     }
 }
 
-/// How wide the page's content grows, so rows stay easy to scan.
-const CONTENT_WIDTH: f32 = 960.0;
-
-/// The Servers page, laid out like the Extensions manager.
+/// Clients, then Other Servers, as Settings' Servers page shows them below
+/// this computer's server settings.
 pub(crate) fn render(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
-    let theme = &model.theme;
-    let entity = cx.entity();
-    div()
-        .id("servers-tab")
-        .debug_selector(|| "servers-tab".into())
-        .size_full()
-        .flex()
-        .flex_col()
-        .bg(theme.bg)
-        .text_color(theme.fg)
-        .text_size(model.servers_page.metrics.font_body())
-        .child(column(header(model, cx), model).flex_none())
-        .child(
-            list(model.servers_page.list.clone(), move |_, _, cx| {
-                entity.update(cx, |model, cx| body(model, cx))
-            })
-            .flex_1()
-            .min_h(px(0.0)),
-        )
-        .into_any_element()
-}
-
-/// Everything under the header, as the list's only item. A list lays its
-/// item out on its own at the page's width, as Settings does, so wrapped
-/// descriptions never keep a width measured for the surrounding layout.
-fn body(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let servers = model.remote_servers();
     let shown = shown(&servers, &model.servers_query(cx));
     let everyone = crate::model::by_group(&servers, |server| &server.entry);
@@ -287,13 +257,13 @@ fn body(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
         })
         .collect();
     div()
+        .id("servers-tab")
+        .debug_selector(|| "servers-tab".into())
         .w_full()
+        .min_w(px(0.0))
         .text_color(model.theme.fg)
         .text_size(model.servers_page.metrics.font_body())
-        .child(column(
-            sections(&selected, &shown, groups, model, cx),
-            model,
-        ))
+        .child(sections(&selected, &shown, groups, model, cx))
         .into_any_element()
 }
 
@@ -302,25 +272,6 @@ pub(super) fn style(model: &AppModel) -> Style<'_> {
         theme: &model.theme,
         metrics: &model.servers_page.metrics,
     }
-}
-
-/// `content` in a centered column no wider than `CONTENT_WIDTH`. Widths come
-/// from flexing and stretching, never percentages, which can resolve against
-/// a parent still being measured and leave the column shrunk to its text.
-fn column(content: impl IntoElement, model: &AppModel) -> gpui::Div {
-    div()
-        .flex()
-        .justify_center()
-        .px(model.servers_page.metrics.scaled(32.0))
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.0))
-                .max_w(model.servers_page.metrics.scaled(CONTENT_WIDTH))
-                .flex()
-                .flex_col()
-                .child(content),
-        )
 }
 
 fn icon_button(
@@ -390,8 +341,9 @@ pub(super) fn card(model: &AppModel) -> gpui::Div {
         .border_color(model.theme.border)
 }
 
-/// The icon, the title, Pair with Link, and Add Server.
-fn header(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+/// Other Servers' heading, like Settings' section headings, with Pair with
+/// Link and Add Server.
+fn other_servers_heading(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let m = model.servers_page.metrics;
     let theme = &model.theme;
     div()
@@ -399,22 +351,19 @@ fn header(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
         .flex_wrap()
         .items_center()
         .justify_between()
-        .gap(m.spacing6())
-        .py(m.spacing7())
+        .gap(m.spacing4())
+        .pt(m.spacing8())
+        .pb(m.spacing4())
         .border_b_1()
         .border_color(theme.border)
         .child(
             div()
-                .flex()
-                .items_center()
-                .gap(m.spacing4())
-                .child(IconGlyph::new(Icon::Network, m.icon_md(), theme.fg_muted))
-                .child(
-                    div()
-                        .text_size(m.font_title())
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(accessibility::label("servers-heading", tr!("Servers"))),
-                ),
+                .font_family(".SystemUIFontMonospaced")
+                .text_color(theme.fg_muted)
+                .child(accessibility::label(
+                    "servers-connects-to",
+                    tr!("Other Servers"),
+                )),
         )
         .child(
             div()
@@ -456,18 +405,10 @@ fn sections(
     div()
         .flex()
         .flex_col()
-        .gap(m.spacing7())
-        .py(m.spacing7())
+        .gap(m.spacing6())
+        .pb(m.spacing7())
         .child(super::clients::this_computer(model, cx))
-        .child(
-            div()
-                .text_color(model.theme.fg_muted)
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(accessibility::label(
-                    "servers-connects-to",
-                    tr!("Other Servers"),
-                )),
-        )
+        .child(other_servers_heading(model, cx))
         .children(model.servers_page.search_input().map(|input| {
             controls::search_field(style(model), "servers-search", input)
                 .debug_selector(|| "servers-search".into())
