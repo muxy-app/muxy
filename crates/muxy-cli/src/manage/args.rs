@@ -835,6 +835,38 @@ mod tests {
     }
 
     #[test]
+    fn help_option_values_match_the_parser() {
+        for group in [
+            "server", "project", "session", "worktree", "settings", "activity", "git", "files",
+            "exec",
+        ] {
+            let mut verbs = help::children(group);
+            if verbs.is_empty() {
+                verbs.push(String::new());
+            }
+            for verb in verbs {
+                let path = if verb.is_empty() {
+                    group.to_owned()
+                } else {
+                    format!("{group} {verb}")
+                };
+                let (values, flags) = options(group, &verb);
+                let documented = help::flags(&path);
+                for flag in values.iter().chain(flags) {
+                    assert!(documented.iter().any(|name| name == flag), "{path} {flag}");
+                }
+                for flag in documented {
+                    assert_eq!(
+                        help::takes_value(&path, &flag),
+                        values.contains(&flag.as_str()),
+                        "{path} {flag}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn inspection_renaming_stdin_and_multiple_keys_parse() -> io::Result<()> {
         assert_eq!(
             action(&["project", "inspect", "App"])?,

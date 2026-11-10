@@ -92,7 +92,11 @@ pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
     if invocation.json {
         writeln!(stdout, "{reply}")?;
     } else {
-        write!(stdout, "{}", display_text(invocation.verb, &reply))?;
+        write!(
+            stdout,
+            "{}",
+            display_text(invocation.verb, &reply, crate::output::Display::stdout())
+        )?;
     }
     let problems = problem_count(invocation.verb, &reply);
     if problems > 0 {
@@ -221,8 +225,7 @@ fn list_row(extension: &Value) -> String {
     )
 }
 
-fn display_text(verb: &str, reply: &Value) -> String {
-    let display = crate::output::Display::stdout();
+fn display_text(verb: &str, reply: &Value, display: crate::output::Display) -> String {
     if !display.terminal || !matches!(verb, "extension.list" | "extension.status") {
         return text(verb, reply);
     }
@@ -257,7 +260,7 @@ fn display_text(verb: &str, reply: &Value) -> String {
         let _ = writeln!(output, "load error: {}", crate::output::cell(&json!(error)));
     }
     for line in strings(reply, "log") {
-        let _ = writeln!(output, "{line}");
+        let _ = writeln!(output, "{}", crate::output::cell(&json!(line)));
     }
     output
 }
@@ -481,6 +484,26 @@ mod tests {
             problem_count("extension.validate", &json!({"problems": ["a", "b"]})),
             2
         );
+    }
+
+    #[test]
+    fn formatted_logs_escape_controls_without_changing_raw_output() {
+        let line = "\u{1b}[2Jstatus\tchanged\r\nnext";
+        let reply = json!({"name": "hello", "log": [line], "lines": [line]});
+        let mut display = crate::output::Display::stdout();
+        display.terminal = true;
+        for verb in ["extension.list", "extension.status"] {
+            let output = display_text(verb, &reply, display);
+            assert!(!output.contains(line), "{verb}: {output:?}");
+            assert!(output.ends_with("\\u{1b}[2Jstatus\\tchanged\\r\\nnext\n"));
+        }
+        let raw = format!("{line}\n");
+        assert_eq!(display_text("extension.logs", &reply, display), raw);
+        display.terminal = false;
+        for verb in ["extension.list", "extension.status", "extension.logs"] {
+            assert_eq!(display_text(verb, &reply, display), text(verb, &reply));
+        }
+        assert!(display_text("extension.status", &reply, display).ends_with(&raw));
     }
 
     #[test]
