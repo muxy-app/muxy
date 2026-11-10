@@ -410,6 +410,13 @@ impl Scroll {
         rows * cell_height
     }
 
+    /// Whether the view sits less than a row above the bottom. It shows no
+    /// row of history there, only a copy of the screen that looks live and
+    /// that new output never reaches.
+    pub(crate) fn rests_at_bottom(&self) -> bool {
+        self.view.is_some() && self.wanted < 1.0
+    }
+
     /// How far above the bottom the view was asked to be.
     pub(crate) fn requested_rows(&self) -> f64 {
         self.wanted + self.elastic

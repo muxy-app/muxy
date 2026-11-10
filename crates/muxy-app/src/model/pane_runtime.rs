@@ -85,11 +85,13 @@ impl AppModel {
         self.pane_runtime.retain(|_, runtime| !runtime.is_default());
     }
 
-    /// Keeps a hidden pane's screen, and its scroll position if it was scrolled.
+    /// Keeps a hidden pane's screen, and its scroll position if it showed
+    /// history. A view left less than a row above the bottom is dropped, as
+    /// the pane would have returned to the bottom had it stayed in view.
     pub(super) fn keep_hidden_screen(&mut self, pane: PaneId, grid: RunGrid, scroll: Scroll) {
         self.edit_pane_runtime(pane, |runtime| {
             runtime.snapshot = Some(grid);
-            if scroll.view.is_some() {
+            if scroll.view.is_some() && !scroll.rests_at_bottom() {
                 runtime.scroll = Some(scroll);
             }
         });
