@@ -155,7 +155,12 @@ fn equalize_splits_evens_resized_panes_from_the_shortcut_and_the_terminal_menu(
     view.read_with(cx, |model, _| assert_even_and_saved(model));
 }
 
-fn scroll_first_pane(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<AppModel>) {
+fn scroll_first_pane(
+    model: &mut AppModel,
+    panes: &[PaneId],
+    rows: f32,
+    cx: &mut Context<AppModel>,
+) {
     let scrolled = model.terminal(&panes[0]).expect("terminal").view.clone();
     scrolled.update(cx, |pane, cx| {
         pane.set_viewport(attachment().terminal.grid.size, cx);
@@ -174,7 +179,7 @@ fn scroll_first_pane(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<Ap
             })
             .collect();
         grid.history_total = 10;
-        pane.scroll_rows(4.0, cx);
+        pane.scroll_rows(rows, cx);
     });
 }
 
@@ -191,7 +196,7 @@ fn a_hidden_tab_comes_back_scrolled_where_it_was_left(cx: &mut TestAppContext) {
                 .expect("row")
                 .to_vec()
         };
-        scroll_first_pane(model, &panes, cx);
+        scroll_first_pane(model, &panes, 4.0, cx);
         let left = top_row(model, panes[0], cx);
         assert_eq!(left[0].text, "6");
         model.new_tab(cx);
@@ -206,6 +211,24 @@ fn a_hidden_tab_comes_back_scrolled_where_it_was_left(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_tab_hidden_just_above_the_bottom_comes_back_at_the_bottom(cx: &mut TestAppContext) {
+    let (state, first_tab, panes) = split_state();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        scroll_first_pane(model, &panes, 0.25, cx);
+        let pane = model.terminal(&panes[0]).expect("terminal").view.read(cx);
+        assert!(pane.scroll.view.is_some());
+        model.new_tab(cx);
+        assert!(!model.has_saved_scroll());
+        model.select_tab(first_tab, cx);
+        attach_panes(model, &panes, cx);
+        let pane = model.terminal(&panes[0]).expect("terminal").view.read(cx);
+        assert!(pane.scroll.view.is_none());
+    });
+}
+
+#[gpui::test]
 fn scroll_on_output_notices_output_attached_while_the_tab_was_hidden_again(
     cx: &mut TestAppContext,
 ) {
@@ -213,7 +236,7 @@ fn scroll_on_output_notices_output_attached_while_the_tab_was_hidden_again(
     let (boot, _requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        scroll_first_pane(model, &panes, cx);
+        scroll_first_pane(model, &panes, 4.0, cx);
         model.terminal.options.scroll_on_output = true;
         model.new_tab(cx);
         let (_, session) = model.state.pane_session(panes[0]).expect("session");
