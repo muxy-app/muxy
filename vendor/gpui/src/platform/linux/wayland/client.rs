@@ -1,6 +1,7 @@
 use std::{
     cell::{RefCell, RefMut},
     hash::Hash,
+    ops::Range,
     os::fd::{AsRawFd, BorrowedFd},
     path::PathBuf,
     rc::{Rc, Weak},
@@ -190,6 +191,40 @@ pub struct Output {
     pub bounds: Bounds<DevicePixels>,
 }
 
+struct Preedit {
+    text: String,
+    /// Caret or clause, in UTF-16 code units of `text`.
+    selection_utf16: Option<Range<usize>>,
+}
+
+/// text-input-v3 reports the composing cursor as byte offsets. A negative
+/// offset hides it. The input handler wants the same span in UTF-16 code units.
+fn preedit_selection_utf16(text: &str, cursor_begin: i32, cursor_end: i32) -> Option<Range<usize>> {
+    if cursor_begin < 0 || cursor_end < 0 {
+        return None;
+    }
+    let start = char_boundary(text, cursor_begin as usize);
+    let end = char_boundary(text, cursor_end as usize);
+    let (start, end) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
+    Some(utf16_offset(text, start)..utf16_offset(text, end))
+}
+
+fn char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
+fn utf16_offset(text: &str, byte: usize) -> usize {
+    text[..byte].encode_utf16().count()
+}
+
 pub(crate) struct WaylandClientState {
     serial_tracker: SerialTracker,
     globals: Globals,
@@ -202,7 +237,7 @@ pub(crate) struct WaylandClientState {
     primary_selection: Option<zwp_primary_selection_device_v1::ZwpPrimarySelectionDeviceV1>,
     text_input: Option<zwp_text_input_v3::ZwpTextInputV3>,
     pre_edit_text: Option<String>,
-    ime_pre_edit: Option<String>,
+    ime_pre_edit: Option<Preedit>,
     composing: bool,
     // Surface to Window mapping
     windows: HashMap<ObjectId, WaylandWindowStatePtr>,
@@ -1317,7 +1352,10 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                                     let pre_edit =
                                         state.pre_edit_text.clone().unwrap_or(String::default());
                                     drop(state);
-                                    focused_window.handle_ime(ImeInput::SetMarkedText(pre_edit));
+                                    focused_window.handle_ime(ImeInput::SetMarkedText {
+                                        text: pre_edit,
+                                        selection_utf16: None,
+                                    });
                                     state = client.borrow_mut();
                                 }
 
@@ -1337,8 +1375,10 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                                         focused_window.handle_ime(ImeInput::InsertText(pre_edit));
                                     }
                                     if let Some(current_key) = new_pre_edit {
-                                        focused_window
-                                            .handle_ime(ImeInput::SetMarkedText(current_key));
+                                        focused_window.handle_ime(ImeInput::SetMarkedText {
+                                            text: current_key,
+                                            selection_utf16: None,
+                                        });
                                     }
                                     compose.feed(keysym);
                                     state = client.borrow_mut();
@@ -1453,9 +1493,16 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for WaylandClientStatePtr {
                     }
                 }
             }
-            zwp_text_input_v3::Event::PreeditString { text, .. } => {
-                state.composing = true;
-                state.ime_pre_edit = text;
+            zwp_text_input_v3::Event::PreeditString {
+                text,
+                cursor_begin,
+                cursor_end,
+            } => {
+                state.composing = text.as_ref().is_some_and(|text| !text.is_empty());
+                state.ime_pre_edit = text.map(|text| Preedit {
+                    selection_utf16: preedit_selection_utf16(&text, cursor_begin, cursor_end),
+                    text,
+                });
             }
             zwp_text_input_v3::Event::Done { serial } => {
                 let last_serial = state.serial_tracker.get(SerialKind::InputMethod);
@@ -1464,9 +1511,12 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for WaylandClientStatePtr {
                     return;
                 };
 
-                if let Some(text) = state.ime_pre_edit.take() {
+                if let Some(preedit) = state.ime_pre_edit.take() {
                     drop(state);
-                    window.handle_ime(ImeInput::SetMarkedText(text));
+                    window.handle_ime(ImeInput::SetMarkedText {
+                        text: preedit.text,
+                        selection_utf16: preedit.selection_utf16,
+                    });
                     if let Some(area) = window.get_ime_area() {
                         text_input.set_cursor_rectangle(
                             area.origin.x.0 as i32,
@@ -2155,5 +2205,19 @@ impl Dispatch<zwp_primary_selection_source_v1::ZwpPrimarySelectionSourceV1, ()>
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preedit_selection_utf16;
+
+    #[test]
+    fn preedit_cursor_bytes_become_utf16_units_of_the_composing_text() {
+        assert_eq!(preedit_selection_utf16("ni", 2, 2), Some(2..2));
+        assert_eq!(preedit_selection_utf16("你", 3, 3), Some(1..1));
+        assert_eq!(preedit_selection_utf16("你", 0, 3), Some(0..1));
+        assert_eq!(preedit_selection_utf16("你好", 3, 6), Some(1..2));
+        assert_eq!(preedit_selection_utf16("你", -1, -1), None);
     }
 }

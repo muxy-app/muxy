@@ -67,3 +67,6 @@ Muxy relies on these changes:
   window on macOS.
 - Hand an app the keystroke gpui would dispatch for a native key event.
 - Hide a pressed element's tooltip until the mouse leaves it.
+- Place an IME composition caret from the Wayland preedit cursor and the X11
+  preedit caret, counted in UTF-16 units of the composing text, and anchor the
+  candidate window to that caret.

@@ -2161,6 +2161,34 @@ mod gpui_regression_tests {
     }
 
     #[gpui::test]
+    fn composition_selection_stays_on_the_inserted_text(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx, "hello");
+        cx.update(|window, cx| {
+            input.update(cx, |input, cx| {
+                input.replace_and_mark_text_in_range(None, "n", Some(1..1), window, cx);
+                assert_eq!(input.text(), "hellon");
+                assert_eq!(input.marked_range, Some(5..6));
+                assert_eq!(input.selected_range, 6..6);
+
+                input.replace_and_mark_text_in_range(None, "ni", Some(2..2), window, cx);
+                assert_eq!(input.text(), "helloni");
+                assert_eq!(input.marked_range, Some(5..7));
+                assert_eq!(input.selected_range, 7..7);
+            });
+        });
+
+        let (input, cx) = open(cx, "привет");
+        cx.update(|window, cx| {
+            input.update(cx, |input, cx| {
+                input.replace_and_mark_text_in_range(None, "你", Some(1..1), window, cx);
+                assert_eq!(input.text(), "привет你");
+                assert_eq!(input.marked_range, Some(12..15));
+                assert_eq!(input.selected_range, 15..15);
+            });
+        });
+    }
+
+    #[gpui::test]
     fn canceled_ime_does_not_corrupt_the_next_composition_undo(cx: &mut TestAppContext) {
         let (input, cx) = open(cx, "ab");
         mark(&input, cx, "x");

@@ -342,9 +342,15 @@ impl EntityInputHandler for TextInput {
         }
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|range_utf16| self.range_from_utf16(range_utf16))
-            .map(|new_range| new_range.start + range.start..new_range.end + range.end)
-            .unwrap_or_else(|| range.start + new_text.len()..range.start + new_text.len());
+            .map(|range_utf16| {
+                let start = utf8_offset_in(new_text, range_utf16.start);
+                let end = utf8_offset_in(new_text, range_utf16.end);
+                range.start + start..range.start + end
+            })
+            .unwrap_or_else(|| {
+                let cursor = range.start + new_text.len();
+                cursor..cursor
+            });
 
         cx.notify();
     }
@@ -672,6 +678,20 @@ impl Render for InputExample {
                 )
             }))
     }
+}
+
+/// `offset` is a UTF-16 index into `text`, not into the rest of the field.
+fn utf8_offset_in(text: &str, offset: usize) -> usize {
+    let mut utf8_offset = 0;
+    let mut utf16_count = 0;
+    for ch in text.chars() {
+        if utf16_count >= offset {
+            break;
+        }
+        utf16_count += ch.len_utf16();
+        utf8_offset += ch.len_utf8();
+    }
+    utf8_offset
 }
 
 fn main() {
