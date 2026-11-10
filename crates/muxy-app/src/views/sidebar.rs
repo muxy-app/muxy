@@ -779,7 +779,7 @@ pub(super) enum HeadingRows {
 
 /// A server's heading in the sidebar: its name, which expands or collapses
 /// its projects when clicked, and a button for the server's menu, which a
-/// right click opens too. Collapsed to icons, it is a short rule.
+/// right click opens too. The sidebar collapsed to icons shows none.
 pub(super) fn server_heading(
     server: ServerId,
     rows: HeadingRows,
@@ -788,7 +788,6 @@ pub(super) fn server_heading(
 ) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
-    let wide = model.appearance.sidebar_expanded;
     let expanded = model.server_expanded(server);
     let name = SharedString::from(model.server_label(server));
     let status = server_status_label(server, model);
@@ -812,11 +811,11 @@ pub(super) fn server_heading(
         .flex_none()
         .items_center()
         .cursor_pointer()
-        .when(!wide, |row| {
-            row.tooltip(muxy_ui::components::tooltip(
-                format!("{name} · {status}"),
-                theme,
-            ))
+        .h(m.control_small())
+        .gap(m.spacing2())
+        .map(|row| match rows {
+            HeadingRows::Projects => row.pl(m.spacing2()),
+            HeadingRows::Tabs => row.pl(m.spacing4()),
         })
         .button_interaction(cx.listener(move |model, _, _, cx| {
             model.toggle_server_group(server, cx);
@@ -828,38 +827,18 @@ pub(super) fn server_heading(
                 model.open_sidebar_server_menu(server, event.position, window, cx);
             }),
         )
-        .when(wide, |row| {
-            row.h(m.control_small())
-                .gap(m.spacing2())
-                .map(|row| match rows {
-                    HeadingRows::Projects => row.pl(m.spacing2()),
-                    HeadingRows::Tabs => row.pl(m.spacing4()),
-                })
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .truncate()
-                        .text_size(m.font_caption())
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme.fg_muted)
-                        .group_hover(group, |style| style.text_color(theme.fg))
-                        .child(name.clone()),
-                )
-                .child(server_menu_button(server, &name, model, cx))
-        })
-        .when(!wide, |row| {
-            row.justify_center()
-                .w(collapsed_item_size(model))
-                .h(m.control_small())
-                .child(
-                    div()
-                        .w(m.scaled(12.0))
-                        .h(px(1.0))
-                        .flex_none()
-                        .bg(theme.border),
-                )
-        })
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .truncate()
+                .text_size(m.font_caption())
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.fg_muted)
+                .group_hover(group, |style| style.text_color(theme.fg))
+                .child(name.clone()),
+        )
+        .child(server_menu_button(server, &name, model, cx))
         .into_any_element()
 }
 
@@ -1266,7 +1245,9 @@ fn grouped_rows(
     let mut index = 0;
     for (position, group) in model.sidebar_groups().into_iter().enumerate() {
         let expanded = !group.heading || model.server_expanded(group.server);
-        if group.heading {
+        // Collapsed to icons, the sidebar shows no headings: a rule per
+        // server only reads as clutter between the tiles.
+        if group.heading && wide {
             rows.push(
                 div()
                     .when(position > 0, |heading| heading.pt(m.spacing3()))

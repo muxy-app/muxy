@@ -75,12 +75,23 @@ type TwoServers<'a> = (
     ProjectId,
 );
 
-/// A window with this computer's server and `remote`'s, which has `api`.
+/// A window with this computer's server and `remote`'s, which has `api`,
+/// and the sidebar expanded to show their headings.
 fn two_servers(remote: ServerId, api: ProjectId, cx: &mut TestAppContext) -> TwoServers<'_> {
-    let (boot, requests, remotes) = remote_boot(
+    two_servers_in(true, remote, api, cx)
+}
+
+fn two_servers_in(
+    sidebar_expanded: bool,
+    remote: ServerId,
+    api: ProjectId,
+    cx: &mut TestAppContext,
+) -> TwoServers<'_> {
+    let (mut boot, requests, remotes) = remote_boot(
         AppState::bootstrap().expect("state"),
         vec![entry(remote, "devbox")],
     );
+    boot.settings.appearance.sidebar_expanded = sidebar_expanded;
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     cx.simulate_resize(size(px(1200.0), px(800.0)));
@@ -597,4 +608,23 @@ fn new_tab_opens_in_the_current_project_on_any_server(cx: &mut TestAppContext) {
         assert_eq!(model.state.project(api).expect("api").tabs.len(), 1);
         assert!(model.state.home().tabs.is_empty(), "no local terminal");
     });
+}
+
+#[gpui::test]
+fn the_sidebar_collapsed_to_icons_shows_no_server_headings(cx: &mut TestAppContext) {
+    let (remote, api) = (ServerId::new(), ProjectId::new());
+    let (view, cx, _requests, _remotes, _home) = two_servers_in(false, remote, api, cx);
+    view.update(cx, |model, cx| model.toggle_server_group(remote, cx));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("sidebar-server-local").is_none());
+    assert!(
+        cx.debug_bounds(format!("sidebar-server-{remote}").leak())
+            .is_none()
+    );
+    assert!(cx.debug_bounds("add-project").is_some());
+    assert!(
+        cx.debug_bounds(format!("add-project-{remote}").leak())
+            .is_some(),
+        "an expanded server's projects still show"
+    );
 }
