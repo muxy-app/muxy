@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use base64::Engine as _;
-use image::RgbaImage;
+use image::{DynamicImage, RgbaImage};
 use muxy_protocol::MAX_GRAPHICS_FRAMES;
 
 use film::Film;
@@ -88,6 +88,13 @@ pub(crate) struct Picture {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) rgba: Vec<u8>,
+}
+
+/// An image's size in pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Size {
+    width: u32,
+    height: u32,
 }
 
 /// Cells a picture is stretched over; a missing side keeps the aspect ratio.
@@ -335,7 +342,7 @@ fn decoded_image(engine: &Terminal<'static, 'static>, film: &Film) -> Option<u32
 pub(crate) fn decode_image(mut reader: image::ImageReader<Cursor<&[u8]>>) -> Option<RgbaImage> {
     reader.limits(decode_limits());
     let decoded = reader.decode().ok()?;
-    let size = fitted(decoded.width(), decoded.height());
+    let size = fitted(decoded.width(), decoded.height(), PICTURE_BUDGET);
     if size == (decoded.width(), decoded.height()) {
         return Some(decoded.into_rgba8());
     }
@@ -353,22 +360,22 @@ fn decode_limits() -> image::Limits {
 
 /// Shrinks `picture` to the picture budget, keeping its aspect ratio.
 fn fit(picture: RgbaImage) -> RgbaImage {
-    let (width, height) = fitted(picture.width(), picture.height());
+    let (width, height) = fitted(picture.width(), picture.height(), PICTURE_BUDGET);
     if (width, height) == picture.dimensions() {
         return picture;
     }
     image::imageops::thumbnail(&picture, width, height)
 }
 
-/// The size a `width` by `height` picture takes within the picture budget.
+/// The size a `width` by `height` picture takes within `bytes` of RGBA.
 #[allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
-fn fitted(width: u32, height: u32) -> (u32, u32) {
+fn fitted(width: u32, height: u32, bytes: usize) -> (u32, u32) {
     let pixels = u64::from(width) * u64::from(height);
-    let budget = (PICTURE_BUDGET / 4) as u64;
+    let budget = (bytes / 4) as u64;
     if pixels <= budget {
         return (width, height);
     }
@@ -429,7 +436,8 @@ impl Cache {
     }
 
     /// Lists placements from the render state, which also places images shown with placeholder cells.
-    /// When the images on screen pass what one screen lists, the newest are kept.
+    /// When the images on screen pass what one screen lists, the newest are kept, and only
+    /// they are converted. One image larger than a whole screen's share is scaled down to it.
     pub(crate) fn snapshot(
         &mut self,
         engine: &Terminal<'static, 'static>,
@@ -440,10 +448,10 @@ impl Cache {
         let stored = storage.generation()?;
         let snapshot = render.update(engine)?;
         let mut iter = self.placements.update(&snapshot)?;
-        let mut placements = Vec::new();
-        let mut visible = BTreeSet::new();
+        let mut found = Vec::new();
+        let mut sizes = BTreeMap::new();
         while let Some(placement) = iter.next() {
-            if placements.len() >= MAX_GRAPHICS_PLACEMENTS {
+            if found.len() >= MAX_GRAPHICS_PLACEMENTS {
                 break;
             }
             if !matches!(placement.protocol(), Ok(ImageProtocol::Kitty)) {
@@ -453,59 +461,61 @@ impl Cache {
             let Some(image) = storage.image(id) else {
                 continue;
             };
-            visible.insert(id);
-            let Some(cached) = cached(&mut self.images, id, &image, stored, self.films)? else {
-                continue;
+            let full = Size {
+                width: image.width()?,
+                height: image.height()?,
             };
             let size = [placement.pixel_width()?, placement.pixel_height()?];
             // Placeholder rows round their slice of the image, which can pass its edge.
-            let x = placement.source_x()?.min(cached.width);
-            let y = placement.source_y()?.min(cached.height);
+            let x = placement.source_x()?.min(full.width);
+            let y = placement.source_y()?.min(full.height);
             let source = [
                 x,
                 y,
-                placement.source_width()?.min(cached.width - x),
-                placement.source_height()?.min(cached.height - y),
+                placement.source_width()?.min(full.width - x),
+                placement.source_height()?.min(full.height - y),
             ];
             if size.contains(&0) || source[2] == 0 || source[3] == 0 {
                 continue;
             }
-            placements.push(GraphicPlacement {
-                image: id,
-                id: placement.kitty_placement_id()?.unwrap_or_default(),
-                column: placement.viewport_col()?,
-                row: placement.viewport_row()?,
-                offset: [placement.cell_offset_x()?, placement.cell_offset_y()?],
-                size,
-                source,
-                z: placement.z()?,
-            });
+            sizes.insert(id, (image.generation()?, full));
+            found.push((
+                full,
+                GraphicPlacement {
+                    image: id,
+                    id: placement.kitty_placement_id()?.unwrap_or_default(),
+                    column: placement.viewport_col()?,
+                    row: placement.viewport_row()?,
+                    offset: [placement.cell_offset_x()?, placement.cell_offset_y()?],
+                    size,
+                    source,
+                    z: placement.z()?,
+                },
+            ));
         }
-        self.images.retain(|id, _| visible.contains(id));
-        let mut newest: Vec<&GraphicImage> = placements
-            .iter()
-            .map(|placement| placement.image)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .filter_map(|id| self.images.get(&id))
-            .map(|cached| &cached.image)
-            .collect();
-        newest.sort_by_key(|image| std::cmp::Reverse(image.generation));
-        let mut total = 0;
+        let listed = within_screen(&sizes);
+        self.images.retain(|id, _| listed.contains(id));
         let mut images = Vec::new();
-        for image in newest {
-            if total + image.rgba.len() > MAX_GRAPHICS_BYTES {
+        for &id in &listed {
+            let Some(image) = storage.image(id) else {
                 continue;
+            };
+            if let Some(cached) = cached(&mut self.images, id, &image, stored, self.films)? {
+                images.push(cached.clone());
             }
-            total += image.rgba.len();
-            images.push(image.clone());
         }
         images.sort_by_key(|image| image.id);
-        placements.retain(|placement| {
-            images
-                .binary_search_by_key(&placement.image, |image| image.id)
-                .is_ok()
-        });
+        let mut placements: Vec<GraphicPlacement> = found
+            .into_iter()
+            .filter_map(|(full, mut placement)| {
+                let image = images
+                    .binary_search_by_key(&placement.image, |image| image.id)
+                    .ok()
+                    .map(|index| &images[index])?;
+                placement.source = scaled_source(placement.source, full, image);
+                Some(placement)
+            })
+            .collect();
         placements.sort_by_key(|p| (p.z, p.image, p.id));
         Ok(Graphics {
             cell,
@@ -577,12 +587,17 @@ fn cached<'a>(
         let kept = images
             .get(&id)
             .filter(|cached| cached.image.generation == generation)
-            .map(|cached| cached.image.rgba.clone());
-        let Some(rgba) = kept.map_or_else(|| rgba(image), |kept| Ok(Some(kept)))? else {
+            .map(|cached| Stored {
+                width: cached.image.width,
+                height: cached.image.height,
+                rgba: cached.image.rgba.clone(),
+            });
+        let Some(kept) = kept.map_or_else(|| stored_pixels(image), |kept| Ok(Some(kept)))? else {
             images.remove(&id);
             return Ok(None);
         };
-        let (frames, playback) = if films {
+        let whole = kept.width == image.width()? && kept.height == image.height()?;
+        let (frames, playback) = if films && whole {
             animation(image)?
         } else {
             (Vec::new(), Playback::default())
@@ -593,9 +608,9 @@ fn cached<'a>(
                 image: GraphicImage {
                     id,
                     generation,
-                    width: image.width()?,
-                    height: image.height()?,
-                    rgba,
+                    width: kept.width,
+                    height: kept.height,
+                    rgba: kept.rgba,
                     frames,
                     playback,
                 },
@@ -690,16 +705,121 @@ fn fingerprint(data: &[u8]) -> u64 {
     hash
 }
 
-fn rgba(image: &graphics::Image<'_>) -> Result<Option<Arc<[u8]>>> {
+/// An image's pixels as a screen lists them: RGBA, scaled down to fit a
+/// whole screen's share when larger.
+struct Stored {
+    width: u32,
+    height: u32,
+    rgba: Arc<[u8]>,
+}
+
+fn stored_pixels(image: &graphics::Image<'_>) -> Result<Option<Stored>> {
     let Some(data) = image.data()? else {
         return Ok(None);
     };
-    Ok(pixels(
-        image.format()?,
-        image.width()?,
-        image.height()?,
-        data,
-    ))
+    let (format, width, height) = (image.format()?, image.width()?, image.height()?);
+    let (fit_width, fit_height) = fitted(width, height, MAX_GRAPHICS_BYTES);
+    if (fit_width, fit_height) == (width, height) {
+        return Ok(pixels(format, width, height, data).map(|rgba| Stored {
+            width,
+            height,
+            rgba,
+        }));
+    }
+    Ok(
+        shrunk(format, width, height, data, fit_width, fit_height).map(|image| Stored {
+            width: image.width(),
+            height: image.height(),
+            rgba: image.into_raw().into(),
+        }),
+    )
+}
+
+/// Scales pixels in `format` straight to RGBA of the given size, without a
+/// full-size RGBA copy first.
+fn shrunk(
+    format: ImageFormat,
+    width: u32,
+    height: u32,
+    data: &[u8],
+    to_width: u32,
+    to_height: u32,
+) -> Option<RgbaImage> {
+    fn scale<P: image::Pixel<Subpixel = u8> + 'static>(
+        width: u32,
+        height: u32,
+        data: &[u8],
+        to_width: u32,
+        to_height: u32,
+    ) -> Option<image::ImageBuffer<P, Vec<u8>>> {
+        let source = image::ImageBuffer::<P, &[u8]>::from_raw(width, height, data)?;
+        Some(image::imageops::thumbnail(&source, to_width, to_height))
+    }
+    let image = match format {
+        ImageFormat::Rgba => {
+            DynamicImage::ImageRgba8(scale(width, height, data, to_width, to_height)?)
+        }
+        ImageFormat::Rgb => {
+            DynamicImage::ImageRgb8(scale(width, height, data, to_width, to_height)?)
+        }
+        ImageFormat::Gray => {
+            DynamicImage::ImageLuma8(scale(width, height, data, to_width, to_height)?)
+        }
+        ImageFormat::GrayAlpha => {
+            DynamicImage::ImageLumaA8(scale(width, height, data, to_width, to_height)?)
+        }
+        _ => return None,
+    };
+    Some(image.into_rgba8())
+}
+
+/// The images to list, newest first, while their pixels fit one screen.
+fn within_screen(sizes: &BTreeMap<u32, (u64, Size)>) -> BTreeSet<u32> {
+    let mut newest: Vec<_> = sizes.iter().collect();
+    newest.sort_by_key(|(_, (generation, _))| std::cmp::Reverse(*generation));
+    let mut total = 0;
+    let mut listed = BTreeSet::new();
+    for (&id, (_, size)) in newest {
+        let (width, height) = fitted(size.width, size.height, MAX_GRAPHICS_BYTES);
+        let bytes = width as usize * height as usize * 4;
+        if total + bytes > MAX_GRAPHICS_BYTES {
+            continue;
+        }
+        total += bytes;
+        listed.insert(id);
+    }
+    listed
+}
+
+/// The part of `image` a placement shows, given as a part of the image at
+/// its `full` size, for an image that was scaled down.
+fn scaled_source(source: [u32; 4], full: Size, image: &GraphicImage) -> [u32; 4] {
+    if (image.width, image.height) == (full.width, full.height) {
+        return source;
+    }
+    let [x, y, width, height] = source;
+    let (x, x_end) = scaled_span(x, width, full.width, image.width);
+    let (y, y_end) = scaled_span(y, height, full.height, image.height);
+    [x, y, x_end - x, y_end - y]
+}
+
+/// A span starting at `start` of `length` along a side `from` long, on a side
+/// `to` long: at least one pixel, inside the side.
+#[allow(clippy::cast_possible_truncation)]
+fn scaled_span(start: u32, length: u32, from: u32, to: u32) -> (u32, u32) {
+    let scale = |value: u32, up: bool| {
+        let product = u64::from(value) * u64::from(to);
+        let divisor = u64::from(from.max(1));
+        let scaled = if up {
+            product.div_ceil(divisor)
+        } else {
+            product / divisor
+        };
+        scaled.min(u64::from(to)) as u32
+    };
+    let begin = scale(start, false).min(to.saturating_sub(1));
+    let end = scale(start + length, true).max(begin + 1);
+    (begin, end)
 }
 
 fn pixels(format: ImageFormat, width: u32, height: u32, data: &[u8]) -> Option<Arc<[u8]>> {
@@ -708,23 +828,27 @@ fn pixels(format: ImageFormat, width: u32, height: u32, data: &[u8]) -> Option<A
         .and_then(|n| n.checked_mul(4))
         .and_then(|n| usize::try_from(n).ok())
         .filter(|n| *n <= MAX_GRAPHICS_BYTES)?;
-    match format {
-        ImageFormat::Rgba if data.len() == len => Some(data.into()),
-        ImageFormat::Rgb if data.len() == len / 4 * 3 => Some(
-            data.chunks_exact(3)
-                .flat_map(|rgb| [rgb[0], rgb[1], rgb[2], 255])
-                .collect(),
-        ),
-        ImageFormat::Gray if data.len() == len / 4 => Some(
-            data.iter()
-                .flat_map(|&gray| [gray, gray, gray, 255])
-                .collect(),
-        ),
-        ImageFormat::GrayAlpha if data.len() == len / 2 => Some(
-            data.chunks_exact(2)
-                .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
-                .collect(),
-        ),
-        _ => None,
+    let channels = match format {
+        ImageFormat::Rgba => 4,
+        ImageFormat::Rgb => 3,
+        ImageFormat::GrayAlpha => 2,
+        ImageFormat::Gray => 1,
+        _ => return None,
+    };
+    if data.len() != len / 4 * channels {
+        return None;
     }
+    if channels == 4 {
+        return Some(data.into());
+    }
+    let mut rgba = vec![255; len];
+    for (to, from) in rgba.chunks_exact_mut(4).zip(data.chunks_exact(channels)) {
+        match *from {
+            [red, green, blue] => to[..3].copy_from_slice(&[red, green, blue]),
+            [gray, alpha] => to.copy_from_slice(&[gray, gray, gray, alpha]),
+            [gray] => to[..3].fill(gray),
+            _ => {}
+        }
+    }
+    Some(rgba.into())
 }

@@ -13,7 +13,7 @@ use crate::references::{References, SharedReferences};
 use crate::{AttachmentId, ServerError, SessionCommand, SessionHandle};
 
 use super::outbox::Outbox;
-use super::state::ConnectionState;
+use super::state::{ConnectionState, ImageDelivery};
 
 struct Attachment {
     handle: SessionHandle,
@@ -189,13 +189,17 @@ impl Connection {
     }
 
     pub(super) fn defer_images(&self) {
-        self.lock().state.defer_images = true;
+        self.lock().state.images = ImageDelivery::Defer;
+    }
+
+    pub(super) fn stream_images(&self) {
+        self.lock().state.images = ImageDelivery::Stream;
     }
 
     /// Leaves image pixels out of a live screen read with its history, for
     /// an app that reads them itself.
     pub(super) fn defer_page(&self, page: &mut muxy_protocol::HistoryPage) {
-        if self.lock().state.defer_images
+        if self.lock().state.images == ImageDelivery::Defer
             && let Some(screen) = &mut page.screen
         {
             screen.graphics.defer_pixels();
@@ -346,13 +350,16 @@ impl Connection {
         process: Option<ForegroundProcess>,
     ) -> bool {
         let mut inner = self.lock();
-        if inner.state.defer_images {
+        if inner.state.images == ImageDelivery::Defer {
             snapshot.graphics.defer_pixels();
         }
         let Some(attachment) = inner.attachments.get_mut(&channel) else {
             return false;
         };
         if let Some(id) = attachment.waiting.take() {
+            if inner.state.images == ImageDelivery::Stream {
+                inner.outbox.send_once(channel, &mut snapshot.graphics);
+            }
             inner.outbox.push_control(Message::Reply {
                 id,
                 body: ReplyBody::Attached {
@@ -497,7 +504,8 @@ impl Connection {
             if inner.closed {
                 return None;
             }
-            if let Some(next) = inner.outbox.next_channel() {
+            let images = inner.state.images;
+            if let Some(next) = inner.outbox.next_channel(images) {
                 return Some(next);
             }
             inner = self
@@ -552,7 +560,7 @@ fn session_state(message: &Message) -> Option<SessionId> {
 impl Inner {
     /// Leaves image pixels out of `frame` for an app that reads them itself.
     fn defer(&self, frame: &mut ScreenFrame) {
-        if self.state.defer_images
+        if self.state.images == ImageDelivery::Defer
             && let Some(graphics) = &mut frame.graphics
         {
             graphics.defer_pixels();

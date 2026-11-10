@@ -425,6 +425,18 @@ impl Client {
         }
     }
 
+    /// Asks the server to send each image's pixels on show once per channel,
+    /// with the screen that first lists them, so images that change quickly
+    /// arrive without a request each. The app reads other frames, and any it
+    /// lost, with [`Self::image_frames`]. Servers from before this answer
+    /// `Unsupported`.
+    pub fn stream_images(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::StreamImages)? {
+            ReplyBody::ImagesStreamed => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     /// The pixels of frames of an image on the channel's screen, by their
     /// keys: those the server still has and one reply holds, in the order
     /// asked. A still image answers with the pixels it has now, whose key

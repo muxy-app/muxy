@@ -47,7 +47,9 @@ pub struct GraphicImage {
     #[n(3)]
     pub height: u32,
     /// The pixels of the frame on show. Empty for an app that asked with
-    /// `RequestBody::DeferImages`; it reads them with `ImageFrames`.
+    /// `RequestBody::DeferImages`, which reads them with `ImageFrames`, and
+    /// for one that asked with `RequestBody::StreamImages` once it was sent
+    /// them.
     #[n(4)]
     #[cbor(with = "crate::wire::cbor::bytes")]
     pub rgba: Arc<[u8]>,
@@ -71,6 +73,11 @@ impl GraphicImage {
         still
             .into_iter()
             .chain(self.frames.iter().map(|frame| frame.key))
+    }
+
+    /// The key of the frame on show, whose pixels `rgba` holds.
+    pub fn shown_key(&self) -> Option<u64> {
+        self.frame_keys().nth(self.playback.frame as usize)
     }
 }
 
@@ -167,6 +174,24 @@ impl Graphics {
     pub fn defer_pixels(&mut self) {
         for image in &mut self.images {
             image.rgba = Arc::default();
+        }
+    }
+
+    /// Takes the pixels `older` holds for the frames on show this lists
+    /// without them, as a connection that streams images is sent each once.
+    pub fn keep_pixels(&mut self, older: &Self) {
+        for image in &mut self.images {
+            if !image.rgba.is_empty() {
+                continue;
+            }
+            let Some(key) = image.shown_key() else {
+                continue;
+            };
+            if let Some(kept) = older.images.iter().find(|kept| {
+                kept.id == image.id && !kept.rgba.is_empty() && kept.shown_key() == Some(key)
+            }) {
+                image.rgba = kept.rgba.clone();
+            }
         }
     }
 

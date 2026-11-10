@@ -54,6 +54,7 @@ pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(
         | RequestBody::HistoryPage { .. }
         | RequestBody::SavedHistoryPage { .. }
         | RequestBody::DeferImages
+        | RequestBody::StreamImages
         | RequestBody::ImageFrames { .. }
         | RequestBody::Search { .. }
         | RequestBody::SetTerminalColors(_)

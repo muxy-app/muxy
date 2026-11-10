@@ -281,6 +281,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         | RequestBody::SetPushNotifications(_)
         | RequestBody::ResetPush(_)
         | RequestBody::DeferImages
+        | RequestBody::StreamImages
         | RequestBody::ReadRemoteAccess
         | RequestBody::StartPairing
         | RequestBody::CancelPairing
@@ -417,6 +418,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         ReplyBody::Authenticated
         | ReplyBody::PushUnregistered
         | ReplyBody::ImagesDeferred
+        | ReplyBody::ImagesStreamed
         | ReplyBody::ExecCancelled
         | ReplyBody::ActivityAcknowledged
         | ReplyBody::InputWritten

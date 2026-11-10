@@ -157,7 +157,11 @@ Themes are in **Settings → Appearance**. See
   reads only regular files. As in Kitty and Ghostty, it deletes a temporary
   file or shared memory once it has read the image. Kitty's PNG format also
   accepts JPEG, GIF, WebP, BMP, TIFF and ICO files. Pictures over about a
-  million pixels are scaled down to fit.
+  million pixels are scaled down to fit. Raw pixels sent with the Kitty
+  protocol show at full size up to about two million pixels, and larger ones
+  are scaled down to that. Programs that replace their image many times a
+  second, such as `mpv --vo=kitty` or remote desktop viewers, play smoothly:
+  each picture stays until the next is ready.
 - Animated images play in the desktop app: animations a program sends with
   the Kitty graphics protocol, and animated GIFs shown as iTerm2 inline images
   or through Kitty's PNG format. A GIF sent through Kitty's PNG format plays
