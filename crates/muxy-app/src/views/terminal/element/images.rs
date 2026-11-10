@@ -19,6 +19,9 @@ pub(crate) struct Textures {
     /// Frames asked of the server. One it no longer had stays here, so it
     /// isn't asked for again.
     asked: BTreeSet<FrameKey>,
+    /// Frames whose request failed. They stay in `asked` until `retry`, so
+    /// a repaint doesn't ask for them again at once.
+    failed: BTreeSet<FrameKey>,
     /// Requests the server hasn't answered yet.
     requests: usize,
     /// The frame each image last drew, kept on screen while the pixels of a
@@ -54,6 +57,7 @@ struct Player {
 impl Textures {
     pub(crate) fn drain(&mut self) -> impl Iterator<Item = Arc<RenderImage>> {
         self.asked.clear();
+        self.failed.clear();
         self.requests = 0;
         self.drawn.clear();
         self.players.clear();
@@ -72,8 +76,15 @@ impl Textures {
         self.retired.drain(..)
     }
 
+    /// Lets the frames of failed requests be asked for again.
+    pub(crate) fn retry(&mut self) {
+        for key in std::mem::take(&mut self.failed) {
+            self.asked.remove(&key);
+        }
+    }
+
     /// Takes the answer to a request for the frames `keys` of `image`, or
-    /// `None` when the request failed. Returns whether to ask again later.
+    /// `None` when the request failed. Returns whether to `retry` later.
     ///
     /// A still image answers with the pixels it has now. When they are newer
     /// than the ones asked for, they are drawn until the screen lists them.
@@ -85,9 +96,7 @@ impl Textures {
     ) -> bool {
         self.requests = self.requests.saturating_sub(1);
         let Some(frames) = frames else {
-            for key in keys {
-                self.asked.remove(&(image, *key));
-            }
+            self.failed.extend(keys.iter().map(|key| (image, *key)));
             return true;
         };
         // A reply too small for every frame leaves the rest to ask for again.
@@ -126,6 +135,7 @@ impl Textures {
             .flat_map(|image| image.frame_keys().map(|key| (image.id, key)))
             .collect();
         self.asked.retain(|key| listed.contains(key));
+        self.failed.retain(|key| listed.contains(key));
         self.players.retain(|id, _| {
             graphics
                 .images
@@ -574,15 +584,18 @@ mod tests {
         let wanted = prepare(&mut textures, &graphics, start).wanted;
         assert_eq!(wanted.len(), MAX_REQUESTS);
         assert!(prepare(&mut textures, &graphics, start).wanted.is_empty());
-        // A request that failed is made again; an answered one frees its place.
+        // A request that failed waits for the retry; an answered one frees its place.
         assert!(textures.receive(1, &[1], None));
         assert!(!textures.receive(2, &[1], Some(vec![frame(1)])));
-        let again: Vec<u32> = prepare(&mut textures, &graphics, start)
-            .wanted
-            .iter()
-            .map(|(image, _)| *image)
-            .collect();
-        assert_eq!(again, [1, 5]);
+        let images = |prepared: Prepared| -> Vec<u32> {
+            prepared.wanted.iter().map(|(image, _)| *image).collect()
+        };
+        assert_eq!(images(prepare(&mut textures, &graphics, start)), [5, 6]);
+        assert!(prepare(&mut textures, &graphics, start).wanted.is_empty());
+        assert!(!textures.receive(3, &[1], Some(vec![frame(1)])));
+        assert!(prepare(&mut textures, &graphics, start).wanted.is_empty());
+        textures.retry();
+        assert_eq!(images(prepare(&mut textures, &graphics, start)), [1]);
         // A pane that can't reach the server asks for nothing.
         let mut idle = Textures::default();
         let prepared = idle.prepare(&graphics, Point::default(), CELL, start, false);

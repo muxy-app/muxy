@@ -524,13 +524,16 @@ impl TerminalPane {
         cx: &mut Context<Self>,
     ) {
         if !self.images.receive(image, keys, frames) {
-            self.image_retry = None;
             cx.notify();
+            return;
+        }
+        if self.image_retry.is_some() {
             return;
         }
         self.image_retry = Some(cx.spawn(async move |pane, cx| {
             cx.background_executor().timer(IMAGE_RETRY).await;
             let _ = pane.update(cx, |pane, cx| {
+                pane.images.retry();
                 pane.image_retry = None;
                 cx.notify();
             });
