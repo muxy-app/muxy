@@ -311,6 +311,10 @@ impl Default for RemoteLinks {
     }
 }
 
+/// How many wider stretches of a row another computer's server is asked
+/// about: each one is a request to it.
+const REMOTE_LINK_TRIES: usize = 32;
+
 impl AppModel {
     /// Another computer's files, once its second connection is open. Asks
     /// for that connection when it isn't.
@@ -478,13 +482,14 @@ impl AppModel {
         let Ok(files) = self.remote_files(context.server, cx) else {
             return;
         };
-        let text = candidate.text.clone();
+        let mut wanted = candidate.clone();
+        wanted.wider.truncate(REMOTE_LINK_TRIES);
         let resolved = cx
             .background_executor()
-            .spawn(async move { files.resolve(&text, &context.directory) });
+            .spawn(async move { wanted.resolve(|text| files.resolve(text, &context.directory)) });
         cx.spawn(async move |_, cx| {
-            let target = resolved.await;
-            let _ = view.update(cx, |pane, cx| pane.link_resolved(&candidate, target, cx));
+            let found = resolved.await;
+            let _ = view.update(cx, |pane, cx| pane.link_resolved(&candidate, found, cx));
         })
         .detach();
     }

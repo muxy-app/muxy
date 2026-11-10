@@ -1033,27 +1033,24 @@ fn link_highlight(
     let Some(grid) = view.displayed_grid() else {
         return;
     };
-    if view.link_hover.target.is_some()
-        && let Some(link) = &view.link_hover.candidate
-        && isize::try_from(index)
+    if view.link_hover.target.is_some() {
+        let row = isize::try_from(index)
             .ok()
-            .and_then(|index| index.checked_sub(isize::try_from(grid.history.len()).ok()?))
-            == Some(link.row)
-    {
-        painting.decorations.push((
-            Bounds::new(
-                position
-                    + point(
-                        cell.width * f32::from(link.columns.start),
-                        cell.height - px(2.0),
-                    ),
-                size(
-                    cell.width * f32::from(link.columns.end - link.columns.start),
-                    px(1.0),
+            .and_then(|index| index.checked_sub(isize::try_from(grid.history.len()).ok()?));
+        for (_, columns) in view
+            .link_hover
+            .spans
+            .iter()
+            .filter(|(span, _)| Some(*span) == row)
+        {
+            painting.decorations.push((
+                Bounds::new(
+                    position + point(cell.width * f32::from(columns.start), cell.height - px(2.0)),
+                    size(cell.width * f32::from(columns.end - columns.start), px(1.0)),
                 ),
-            ),
-            rgb(palette.foreground).into(),
-        ));
+                rgb(palette.foreground).into(),
+            ));
+        }
     }
 }
 
