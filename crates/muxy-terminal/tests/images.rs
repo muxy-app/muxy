@@ -569,6 +569,80 @@ fn the_newest_images_are_listed_when_they_do_not_all_fit() -> Result {
     Ok(())
 }
 
+/// Sends one Kitty command whose pixels go in chunks, as programs send large images.
+fn send_chunked(terminal: &mut Terminal, keys: &str, pixels: &[u8]) {
+    let encoded = STANDARD.encode(pixels);
+    let chunks: Vec<&[u8]> = encoded.as_bytes().chunks(4096).collect();
+    for (index, chunk) in chunks.iter().enumerate() {
+        let first = if index == 0 { keys } else { "" };
+        let more = u8::from(index + 1 < chunks.len());
+        terminal.feed(format!("\x1b_G{first}q=2,m={more};").as_bytes());
+        terminal.feed(chunk);
+        terminal.feed(b"\x1b\\");
+    }
+}
+
+#[test]
+fn kitty_images_larger_than_a_screen_are_scaled_to_fit_it() -> Result {
+    let (width, height) = (2000_u32, 1500_u32);
+    let mut terminal = terminal()?;
+    let rgb = [10_u8, 20, 30].repeat((width * height) as usize);
+    send_chunked(
+        &mut terminal,
+        &format!("a=T,f=24,s={width},v={height},x=1000,y=750,w=1000,h=750,c=8,r=3,C=1,"),
+        &rgb,
+    );
+    let graphics = terminal.graphics()?;
+    assert_eq!(graphics.validate(), Ok(()));
+    let image = &graphics.images[0];
+    assert!(image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES);
+    assert!(image.width < width && image.height < height);
+    assert_eq!(image.width * 3, image.height * 4);
+    assert!(
+        image
+            .rgba
+            .chunks_exact(4)
+            .all(|pixel| pixel == [10, 20, 30, 255])
+    );
+    let placement = &graphics.placements[0];
+    assert_eq!(
+        placement.size,
+        [8 * u32::from(CELL.width), 3 * u32::from(CELL.height)]
+    );
+    assert_eq!(
+        placement.source,
+        [
+            image.width / 2,
+            image.height / 2,
+            image.width / 2,
+            image.height / 2
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn frames_streamed_as_new_images_show_the_newest_whole() -> Result {
+    let (width, height) = (1800_u32, 1100_u32);
+    let mut terminal = terminal()?;
+    for shade in [40_u8, 80, 120] {
+        terminal.feed(b"\x1b[1;1H");
+        let rgb = [shade, shade, shade].repeat((width * height) as usize);
+        send_chunked(
+            &mut terminal,
+            &format!("a=T,f=24,s={width},v={height},C=1,"),
+            &rgb,
+        );
+    }
+    let graphics = terminal.graphics()?;
+    assert_eq!(graphics.images.len(), 1);
+    let image = &graphics.images[0];
+    assert_eq!((image.width, image.height), (width, height));
+    assert_eq!(&image.rgba[..4], [120, 120, 120, 255]);
+    assert_eq!(graphics.placements.len(), 1);
+    Ok(())
+}
+
 #[test]
 fn large_animations_show_together_and_a_saved_screen_keeps_them() -> Result {
     // Two animations of 44 frames, about 26 MB each.

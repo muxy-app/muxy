@@ -2159,6 +2159,9 @@ impl AppModel {
             PaneEvent::ImageFrames { image, keys } => {
                 model.fetch_image_frames(id, *image, keys.clone(), cx);
             }
+            PaneEvent::Ack(channel, seq) => {
+                model.send_channel(id, Work::Ack(*channel, *seq), cx);
+            }
             PaneEvent::Search(request) => model.search(id, request.clone(), cx),
             PaneEvent::Viewport(size) => model.viewport(id, *size, cx),
             PaneEvent::Input(channel, bytes) => {

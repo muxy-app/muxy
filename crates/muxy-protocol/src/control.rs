@@ -261,6 +261,14 @@ pub enum RequestBody {
         #[n(2)]
         keys: Vec<u64>,
     },
+    /// From now on, a screen sent on this connection carries an image's
+    /// pixels only the first time it lists that image's frame on show; later
+    /// screens leave them out. Pixels go out when the screen does, so an app
+    /// that falls behind gets only the newest images. Frames of animations
+    /// not on show are read with `ImageFrames`, as is any frame the app lost.
+    /// Saved screens still carry pixels. Older servers reply `Unsupported`.
+    #[n(54)]
+    StreamImages,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -390,6 +398,8 @@ pub enum ReplyBody {
     ImagesDeferred,
     #[n(46)]
     ImageFrames(#[n(0)] Vec<crate::ImageFrame>),
+    #[n(47)]
+    ImagesStreamed,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

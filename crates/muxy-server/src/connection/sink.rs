@@ -254,6 +254,65 @@ mod tests {
     }
 
     #[test]
+    fn a_connection_that_streams_images_is_sent_each_one_once() -> TestResult {
+        let image = |generation| muxy_protocol::GraphicImage {
+            id: 1,
+            generation,
+            width: 1,
+            height: 1,
+            rgba: vec![255; 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        };
+        let graphics = |generation| muxy_protocol::Graphics {
+            images: vec![image(generation)],
+            ..muxy_protocol::Graphics::default()
+        };
+        let (connection, _commands, mut sink) = attached()?;
+        connection.stream_images();
+        let mut snapshot = snapshot()?;
+        snapshot.graphics = graphics(1);
+        let frame = ScreenFrame {
+            size: snapshot.size,
+            graphics: Some(graphics(1)),
+            seq: 1,
+            reset: false,
+            rows: Vec::new(),
+            cursor: snapshot.cursor,
+            modes: snapshot.modes,
+        };
+        assert!(sink.send(AttachmentEvent::Snapshot {
+            snapshot,
+            process: None,
+        }));
+        let Some((
+            CONTROL,
+            Message::Reply {
+                body: ReplyBody::Attached { snapshot, .. },
+                ..
+            },
+        )) = connection.next()
+        else {
+            return Err("no attach reply".into());
+        };
+        assert_eq!(snapshot.graphics.images[0], image(1));
+        let mut changed = frame.clone();
+        changed.seq = 2;
+        changed.graphics = Some(graphics(2));
+        for (frame, pixels) in [(frame, false), (changed, true)] {
+            let seq = frame.seq;
+            assert!(sink.send(AttachmentEvent::Frame(frame)));
+            let Some((CHANNEL, Message::Frame(sent))) = connection.next() else {
+                return Err("no frame".into());
+            };
+            let sent = sent.graphics.ok_or("no graphics")?;
+            assert_eq!(!sent.images[0].rgba.is_empty(), pixels, "frame {seq}");
+            assert_eq!(sent.validate(), Ok(()));
+            connection.ack(CHANNEL, seq);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn a_session_that_goes_away_fails_the_pending_attach_once() -> TestResult {
         for ended in [false, true] {
             let (connection, _commands, mut sink) = attached()?;

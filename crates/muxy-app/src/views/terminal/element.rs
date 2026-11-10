@@ -165,6 +165,7 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                             cx.drop_image(image, Some(window));
                         }
                         pane.animate_images(prepared.next, cx);
+                        TerminalPane::convert_images(prepared.conversions, cx);
                         for (image, keys) in prepared.wanted {
                             cx.emit(super::pane::PaneEvent::ImageFrames { image, keys });
                         }

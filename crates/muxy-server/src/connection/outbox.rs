@@ -1,9 +1,11 @@
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::sync::Arc;
 
-use muxy_protocol::{CONTROL, ChannelId, Message, MetadataEvent, ScreenFrame};
+use muxy_protocol::{CONTROL, ChannelId, Graphics, Message, MetadataEvent, ScreenFrame};
 
 use super::merge::merge;
+use super::state::ImageDelivery;
 
 /// What a connection has yet to write. Control messages go first, folded by
 /// their coalesce key; then each channel's metadata; then each channel's
@@ -16,6 +18,9 @@ pub(super) struct Outbox {
     /// Whether each open channel may send its next frame.
     credit: HashMap<ChannelId, bool>,
     sent: HashMap<ChannelId, u64>,
+    /// The image frames, by image and key, whose pixels each channel was
+    /// sent and still lists.
+    pixels: HashMap<ChannelId, BTreeSet<(u32, u64)>>,
 }
 
 impl Outbox {
@@ -38,6 +43,7 @@ impl Outbox {
 
     pub(super) fn open(&mut self, channel: ChannelId) {
         self.credit.insert(channel, true);
+        self.pixels.remove(&channel);
     }
 
     pub(super) fn push_frame(&mut self, channel: ChannelId, frame: ScreenFrame) -> bool {
@@ -53,9 +59,11 @@ impl Outbox {
         true
     }
 
-    /// Replaces whatever frame was waiting, as a resize's frame redraws everything.
+    /// Replaces whatever frame was waiting, as a resize's frame redraws
+    /// everything. The app forgets its images on a resize, so they go out again.
     pub(super) fn replace_frame(&mut self, channel: ChannelId, frame: ScreenFrame) {
         self.frames.insert(channel, frame);
+        self.pixels.remove(&channel);
     }
 
     /// A newer event of the same kind replaces the waiting one.
@@ -90,7 +98,7 @@ impl Outbox {
         self.control.pop_front().map(|message| (CONTROL, message))
     }
 
-    pub(super) fn next_channel(&mut self) -> Option<(ChannelId, Message)> {
+    pub(super) fn next_channel(&mut self, images: ImageDelivery) -> Option<(ChannelId, Message)> {
         if let Some(channel) = self.metadata.keys().next().copied()
             && let Some(pending) = self.metadata.get_mut(&channel)
         {
@@ -105,14 +113,41 @@ impl Outbox {
             .keys()
             .find(|channel| self.credit.get(channel) == Some(&true))
             .copied()?;
-        let frame = self.frames.remove(&channel)?;
+        let mut frame = self.frames.remove(&channel)?;
+        if images == ImageDelivery::Stream
+            && let Some(graphics) = &mut frame.graphics
+        {
+            self.send_once(channel, graphics);
+        }
         self.credit.insert(channel, false);
         self.sent.insert(channel, frame.seq);
         Some((channel, Message::Frame(frame)))
     }
 
+    /// Leaves out the pixels `channel` was already sent for the frame each
+    /// image shows, and remembers those it is sent now. Decided as the
+    /// screen goes out, so frames that merge while waiting keep their pixels.
+    pub(super) fn send_once(&mut self, channel: ChannelId, graphics: &mut Graphics) {
+        let sent = self.pixels.entry(channel).or_default();
+        let mut listed = BTreeSet::new();
+        for image in &mut graphics.images {
+            let Some(key) = image.shown_key() else {
+                continue;
+            };
+            let frame = (image.id, key);
+            if sent.contains(&frame) {
+                image.rgba = Arc::default();
+            } else if image.rgba.is_empty() {
+                continue;
+            }
+            listed.insert(frame);
+        }
+        *sent = listed;
+    }
+
     pub(super) fn close_channel(&mut self, channel: ChannelId) {
         self.frames.remove(&channel);
+        self.pixels.remove(&channel);
         self.metadata.remove(&channel);
         self.credit.remove(&channel);
         self.sent.remove(&channel);
@@ -121,6 +156,7 @@ impl Outbox {
     /// Drops every channel's output; control messages still go out.
     pub(super) fn close_channels(&mut self) {
         self.frames.clear();
+        self.pixels.clear();
         self.metadata.clear();
         self.credit.clear();
         self.sent.clear();
@@ -285,17 +321,17 @@ mod tests {
         outbox.open(ChannelId(2));
         outbox.push_frame(ChannelId(1), frame(1, 0));
         assert_eq!(
-            outbox.next_channel(),
+            outbox.next_channel(ImageDelivery::Send),
             Some((ChannelId(1), Message::Frame(frame(1, 0))))
         );
         outbox.push_frame(ChannelId(1), frame(2, 1));
         outbox.push_frame(ChannelId(1), frame(4, 2));
         outbox.push_frame(ChannelId(2), frame(1, 0));
         assert_eq!(
-            outbox.next_channel(),
+            outbox.next_channel(ImageDelivery::Send),
             Some((ChannelId(2), Message::Frame(frame(1, 0))))
         );
-        assert_eq!(outbox.next_channel(), None);
+        assert_eq!(outbox.next_channel(ImageDelivery::Send), None);
         assert!(!outbox.ack(ChannelId(1), 0));
         assert!(!outbox.ack(ChannelId(1), 5));
         assert!(outbox.ack(ChannelId(1), 1));
@@ -305,7 +341,7 @@ mod tests {
             runs: vec![],
         });
         assert_eq!(
-            outbox.next_channel(),
+            outbox.next_channel(ImageDelivery::Send),
             Some((ChannelId(1), Message::Frame(merged)))
         );
         assert!(!outbox.ack(ChannelId(1), 1));
@@ -318,7 +354,7 @@ mod tests {
         assert!(!outbox.push_metadata(channel, MetadataEvent::Bell));
         outbox.open(channel);
         outbox.push_frame(channel, frame(1, 0));
-        outbox.next_channel();
+        outbox.next_channel(ImageDelivery::Send);
         for index in 0..1000 {
             outbox.push_metadata(channel, MetadataEvent::Title(index.to_string()));
             outbox.push_metadata(channel, MetadataEvent::Bell);
@@ -330,13 +366,107 @@ mod tests {
             MetadataEvent::ClipboardWrite("999".into()),
         ] {
             assert_eq!(
-                outbox.next_channel(),
+                outbox.next_channel(ImageDelivery::Send),
                 Some((channel, Message::Metadata(event)))
             );
         }
         outbox.push_metadata(channel, MetadataEvent::Bell);
         outbox.close_channel(channel);
         assert!(!outbox.push_metadata(channel, MetadataEvent::Bell));
-        assert_eq!(outbox.next_channel(), None);
+        assert_eq!(outbox.next_channel(ImageDelivery::Send), None);
+    }
+
+    fn image(id: u32, generation: u64) -> muxy_protocol::GraphicImage {
+        muxy_protocol::GraphicImage {
+            id,
+            generation,
+            width: 1,
+            height: 1,
+            rgba: vec![255; 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        }
+    }
+
+    fn with_images(seq: u64, images: &[muxy_protocol::GraphicImage]) -> ScreenFrame {
+        ScreenFrame {
+            graphics: Some(Graphics {
+                images: images.to_vec(),
+                ..Graphics::default()
+            }),
+            ..frame(seq, 0)
+        }
+    }
+
+    /// The images of the next frame on `channel`, each with whether it carries pixels.
+    fn sent_images(outbox: &mut Outbox, channel: ChannelId) -> Vec<(u32, bool)> {
+        let Some((sent, Message::Frame(frame))) = outbox.next_channel(ImageDelivery::Stream) else {
+            panic!("no frame");
+        };
+        assert_eq!(sent, channel);
+        assert!(outbox.ack(channel, frame.seq));
+        frame
+            .graphics
+            .map(|graphics| {
+                graphics
+                    .images
+                    .iter()
+                    .map(|image| (image.id, !image.rgba.is_empty()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn streamed_pixels_go_out_once_per_channel_and_frame_on_show() {
+        let (one, two) = (ChannelId(1), ChannelId(2));
+        let mut outbox = Outbox::default();
+        outbox.open(one);
+        outbox.open(two);
+        outbox.push_frame(one, with_images(1, &[image(1, 1)]));
+        assert_eq!(sent_images(&mut outbox, one), [(1, true)]);
+        outbox.push_frame(one, with_images(2, &[image(1, 1), image(2, 1)]));
+        assert_eq!(sent_images(&mut outbox, one), [(1, false), (2, true)]);
+        outbox.push_frame(two, with_images(1, &[image(1, 1)]));
+        assert_eq!(sent_images(&mut outbox, two), [(1, true)]);
+
+        outbox.push_frame(one, with_images(3, &[image(1, 2)]));
+        assert_eq!(sent_images(&mut outbox, one), [(1, true)]);
+        outbox.push_frame(one, with_images(4, &[image(2, 1)]));
+        assert_eq!(sent_images(&mut outbox, one), [(2, true)]);
+
+        outbox.open(one);
+        outbox.push_frame(one, with_images(5, &[image(2, 1)]));
+        assert_eq!(sent_images(&mut outbox, one), [(2, true)]);
+    }
+
+    #[test]
+    fn streamed_pixels_survive_frames_that_merge_while_waiting() {
+        let channel = ChannelId(1);
+        let mut outbox = Outbox::default();
+        outbox.open(channel);
+        outbox.push_frame(channel, with_images(1, &[image(1, 1)]));
+        let Some((_, Message::Frame(first))) = outbox.next_channel(ImageDelivery::Stream) else {
+            panic!("no frame");
+        };
+        outbox.push_frame(channel, with_images(2, &[image(2, 1)]));
+        outbox.push_frame(channel, with_images(3, &[image(3, 1)]));
+        outbox.push_frame(channel, frame(4, 1));
+        assert!(outbox.ack(channel, first.seq));
+        assert_eq!(sent_images(&mut outbox, channel), [(3, true)]);
+    }
+
+    #[test]
+    fn other_deliveries_leave_pixels_as_they_are() {
+        let channel = ChannelId(1);
+        let mut outbox = Outbox::default();
+        outbox.open(channel);
+        for seq in [1, 2] {
+            outbox.push_frame(channel, with_images(seq, &[image(1, 1)]));
+            let Some((_, Message::Frame(frame))) = outbox.next_channel(ImageDelivery::Send) else {
+                panic!("no frame");
+            };
+            assert!(!frame.graphics.expect("graphics").images[0].rgba.is_empty());
+            assert!(outbox.ack(channel, seq));
+        }
     }
 }

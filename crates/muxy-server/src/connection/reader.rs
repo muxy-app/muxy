@@ -547,6 +547,10 @@ fn ordered_request(
             connection.defer_images();
             ReplyBody::ImagesDeferred
         }
+        RequestBody::StreamImages => {
+            connection.stream_images();
+            ReplyBody::ImagesStreamed
+        }
         RequestBody::ImageFrames {
             channel,
             image,

@@ -346,6 +346,14 @@ fn image_samples(channel: ChannelId) -> Vec<Message> {
             body: ReplyBody::ImagesDeferred,
         },
         Message::Request {
+            id: RequestId(10),
+            body: RequestBody::StreamImages,
+        },
+        Message::Reply {
+            id: RequestId(10),
+            body: ReplyBody::ImagesStreamed,
+        },
+        Message::Request {
             id: RequestId(9),
             body: RequestBody::ImageFrames {
                 channel,

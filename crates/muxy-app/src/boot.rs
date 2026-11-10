@@ -875,9 +875,14 @@ fn connect(
         Target::Paired { .. } => target.connect()?,
     };
     client.identify(muxy_protocol::ClientKind::Desktop)?;
-    // An older server refuses and keeps sending image pixels with its screens.
-    match client.defer_images() {
-        Ok(()) | Err(ClientError::Server(_)) => {}
+    // Older servers refuse streaming, so the app reads the pixels itself; the
+    // oldest refuse that too and keep sending pixels with every screen.
+    match client.stream_images() {
+        Ok(()) => {}
+        Err(ClientError::Server(_)) => match client.defer_images() {
+            Ok(()) | Err(ClientError::Server(_)) => {}
+            Err(error) => return Err(error),
+        },
         Err(error) => return Err(error),
     }
     if let Target::Local(socket) = target {

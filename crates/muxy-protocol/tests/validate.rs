@@ -197,6 +197,14 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("ImagesDeferred", ChannelKind::Control),
             Message::Request {
+                body: RequestBody::StreamImages,
+                ..
+            } => ("StreamImages", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ImagesStreamed,
+                ..
+            } => ("ImagesStreamed", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::ImageFrames { .. },
                 ..
             } => ("ImageFramesRequest", ChannelKind::Control),
@@ -737,6 +745,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "PushUnregistered",
             "DeferImages",
             "ImagesDeferred",
+            "StreamImages",
+            "ImagesStreamed",
             "ImageFramesRequest",
             "ImageFramesReply",
             "FrameWithImages",

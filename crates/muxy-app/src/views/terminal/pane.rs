@@ -49,6 +49,8 @@ pub(crate) enum PaneEvent {
         image: u32,
         keys: Vec<u64>,
     },
+    /// A frame is applied, its images ready to draw.
+    Ack(ChannelId, u64),
     Search(find::SearchRequest),
 }
 
@@ -136,6 +138,8 @@ pub(crate) struct TerminalPane {
     image_animation: Option<(std::time::Instant, Task<()>)>,
     /// Repaints to ask again for frames a failed request didn't bring.
     image_retry: Option<Task<()>>,
+    /// The frame to acknowledge once textures of the pixels it brought are made.
+    unacked: Option<(ChannelId, u64)>,
     pub(crate) rows: std::cell::RefCell<element::Rows>,
     pub(crate) shades: element::shade::Textures,
     pub(crate) grid: Option<Screen>,
@@ -281,6 +285,7 @@ impl TerminalPane {
             images: element::images::Textures::default(),
             image_animation: None,
             image_retry: None,
+            unacked: None,
             rows: std::cell::RefCell::default(),
             shades: element::shade::Textures::default(),
             copy_on_select: false,
@@ -471,6 +476,8 @@ impl TerminalPane {
         }
         let output_changed = !frame.rows.is_empty() || terminal.grid.cursor != frame.cursor;
         let seq = terminal.apply(frame);
+        let conversions = self.images.convert(&terminal.grid.graphics);
+        let channel = terminal.channel();
         if output_changed && self.terminal.options.scroll_on_output {
             self.scroll.bottom();
         }
@@ -483,7 +490,38 @@ impl TerminalPane {
         }
         self.validate_selection();
         cx.notify();
-        Some(seq)
+        if conversions.is_empty() {
+            return Some(seq);
+        }
+        self.unacked = Some((channel, seq));
+        Self::convert_images(conversions, cx);
+        None
+    }
+
+    /// Makes textures of pixels that came with the screen on a background
+    /// thread. A frame that brought them is acknowledged once they are all
+    /// made, so the server sends no newer screens than the pane can draw.
+    pub(crate) fn convert_images(
+        conversions: Vec<element::images::Conversion>,
+        cx: &mut Context<Self>,
+    ) {
+        for conversion in conversions {
+            let made = cx
+                .background_executor()
+                .spawn(async move { conversion.run() });
+            cx.spawn(async move |pane, cx| {
+                let converted = made.await;
+                let _ = pane.update(cx, |pane, cx| {
+                    if pane.images.converted(converted)
+                        && let Some((channel, seq)) = pane.unacked.take()
+                    {
+                        cx.emit(PaneEvent::Ack(channel, seq));
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
     }
 
     pub(crate) fn scroll_rows(&mut self, delta: f32, cx: &mut Context<Self>) {
@@ -2011,6 +2049,7 @@ mod tests {
     mod autoscroll;
     mod bindings;
     mod header;
+    mod images;
     mod links;
     mod scrollbar;
     mod server_input;

@@ -44,7 +44,9 @@ impl RunGrid {
 
     pub fn apply(&mut self, frame: &ScreenFrame) {
         if let Some(graphics) = &frame.graphics {
-            self.graphics = graphics.clone();
+            let mut graphics = graphics.clone();
+            graphics.keep_pixels(&self.graphics);
+            self.graphics = graphics;
         }
         self.links.frame_seq = frame.seq;
         self.prompt_state.frame_seq = frame.seq;
