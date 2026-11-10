@@ -175,7 +175,7 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
     let mut size = 0;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
-        let name = entry.name().trim_end_matches('/').to_owned();
+        let name = entry.name()?.trim_end_matches('/').to_owned();
         if !safe_name(&name)
             || !seen.insert(name.clone())
             || entry

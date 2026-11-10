@@ -315,10 +315,8 @@ fn extract(data: &[u8], directory: &Path) -> Result<()> {
     let mut total = 0_u64;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
-        if entry.name().starts_with('/')
-            || entry.name().contains('\\')
-            || entry.name().contains(':')
-        {
+        let name = entry.name().map_err(|error| error.to_string())?;
+        if name.starts_with('/') || name.contains('\\') || name.contains(':') {
             return Err(tr!("unsafe path in extension archive").into());
         }
         if entry.is_symlink() {
