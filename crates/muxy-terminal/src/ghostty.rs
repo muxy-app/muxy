@@ -51,10 +51,13 @@ impl TerminalSnapshot {
     /// Renders the copy, so converting history never blocks the live terminal.
     pub fn archive(&self) -> Result<TerminalArchive, TerminalError> {
         let failed = |error| TerminalError::wrap(TerminalStep::Snapshot, error);
-        let mut decoder = libghostty_vt::snapshot::Decoder::new_buf(&self.bytes)
-            .map_err(failed)?
-            .ready()
+        let mut decoder = libghostty_vt::snapshot::Decoder::new_buf(&self.bytes).map_err(failed)?;
+        // A snapshot doesn't carry the image limit of the terminal that wrote
+        // it, and an image over the decoder's own limit is dropped.
+        decoder
+            .set_kitty_image_storage_limit(crate::graphics::STORAGE_LIMIT as u64)
             .map_err(failed)?;
+        let mut decoder = decoder.ready().map_err(failed)?;
         // Restored pages are counted uncompressed, so the live budget would drop older rows.
         decoder
             .terminal_mut()
@@ -70,6 +73,7 @@ impl TerminalSnapshot {
             Rc::default(),
         )?;
         terminal.cell = self.cell;
+        terminal.graphics_cache.stills_only();
         let graphics = terminal.graphics()?;
         let rows = terminal.screen()?;
         let cursor = terminal.cursor()?;
@@ -344,7 +348,10 @@ impl Terminal {
             ..
         } = self;
         inline_images.feed(bytes, |piece| match piece {
-            Piece::Text(text) => engine.vt_write(text),
+            Piece::Text(text) => {
+                engine.vt_write(text);
+                crate::graphics::attach_films(engine);
+            }
             Piece::Sixel { params, data } => {
                 crate::graphics::show_sixel(engine, *cell, params, data);
             }
@@ -435,6 +442,18 @@ impl Terminal {
     pub fn graphics(&mut self) -> Result<crate::Graphics, TerminalError> {
         self.graphics_cache
             .snapshot(&self.engine, &mut self.render, self.cell)
+            .map_err(|error| TerminalError::wrap(TerminalStep::Render, error))
+    }
+
+    /// The pixels of frames of an image in the last `graphics`, by their
+    /// keys: as many as one reply holds, in the order asked.
+    pub fn image_frames(
+        &self,
+        image: u32,
+        keys: &[u64],
+    ) -> Result<Vec<muxy_protocol::ImageFrame>, TerminalError> {
+        self.graphics_cache
+            .frames(&self.engine, image, keys)
             .map_err(|error| TerminalError::wrap(TerminalStep::Render, error))
     }
 

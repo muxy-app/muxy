@@ -57,6 +57,11 @@ pub enum SessionCommand {
         max_rows: u16,
         reply: Sender<Result<HistoryPage, ServerError>>,
     },
+    ImageFrames {
+        image: u32,
+        keys: Vec<u64>,
+        reply: Sender<Result<Vec<muxy_protocol::ImageFrame>, ServerError>>,
+    },
     End,
     Search {
         query: String,

@@ -242,6 +242,25 @@ pub enum RequestBody {
     /// The phone gets a new key when it next registers.
     #[n(51)]
     ResetPush(#[n(0)] crate::DeviceId),
+    /// From now on, screens sent on this connection list images without
+    /// their pixels. The app reads the ones it draws with `ImageFrames`.
+    /// Saved screens still carry pixels.
+    #[n(52)]
+    DeferImages,
+    /// Reads the pixels of frames of an image on the channel's screen, by
+    /// their keys. The reply holds the frames it found that fit one message,
+    /// in the order asked; the app asks again for the rest. A still image
+    /// answers with the pixels it has now, whose key may be newer than the
+    /// one asked for.
+    #[n(53)]
+    ImageFrames {
+        #[n(0)]
+        channel: ChannelId,
+        #[n(1)]
+        image: u32,
+        #[n(2)]
+        keys: Vec<u64>,
+    },
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -367,6 +386,10 @@ pub enum ReplyBody {
     PushRegistered(#[n(0)] crate::PushRegistration),
     #[n(44)]
     PushUnregistered,
+    #[n(45)]
+    ImagesDeferred,
+    #[n(46)]
+    ImageFrames(#[n(0)] Vec<crate::ImageFrame>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

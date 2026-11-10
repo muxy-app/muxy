@@ -437,6 +437,12 @@ pub(crate) enum Work {
         channel: Option<ChannelId>,
         request: HistoryRequest,
     },
+    ImageFrames {
+        pane: PaneId,
+        channel: ChannelId,
+        image: u32,
+        keys: Vec<u64>,
+    },
     EndAll(Vec<SessionId>),
     Flush,
     Completed(Box<Option<Update>>),
@@ -500,6 +506,7 @@ impl Work {
             Self::CheckClose { .. } => "CheckClose",
             Self::ReadSaved { .. } => "ReadSaved",
             Self::History { .. } => "History",
+            Self::ImageFrames { .. } => "ImageFrames",
             Self::EndAll(..) => "EndAll",
             Self::Flush => "Flush",
             Self::Completed(..) => "Completed",
@@ -616,6 +623,12 @@ pub(crate) enum Update {
         pane: PaneId,
         request: HistoryRequest,
         result: Result<HistoryPage, ClientError>,
+    },
+    ImageFrames {
+        pane: PaneId,
+        image: u32,
+        keys: Vec<u64>,
+        result: Result<Vec<muxy_protocol::ImageFrame>, ClientError>,
     },
     EndedAll(Result<(), ClientError>),
     Flushed,
@@ -862,6 +875,11 @@ fn connect(
         Target::Paired { .. } => target.connect()?,
     };
     client.identify(muxy_protocol::ClientKind::Desktop)?;
+    // An older server refuses and keeps sending image pixels with its screens.
+    match client.defer_images() {
+        Ok(()) | Err(ClientError::Server(_)) => {}
+        Err(error) => return Err(error),
+    }
     if let Target::Local(socket) = target {
         let profile = socket
             .parent()
@@ -1060,6 +1078,14 @@ fn rejected(work: Work, error: ClientError) -> Update {
             request,
             result: Err(error),
         },
+        Work::ImageFrames {
+            pane, image, keys, ..
+        } => Update::ImageFrames {
+            pane,
+            image,
+            keys,
+            result: Err(error),
+        },
         Work::Search { pane, request, .. } => Update::Search {
             pane,
             request,
@@ -1230,6 +1256,19 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             request,
         } => {
             return Some(history(client, pane, session, channel, request));
+        }
+        Work::ImageFrames {
+            pane,
+            channel,
+            image,
+            keys,
+        } => {
+            return Some(Update::ImageFrames {
+                pane,
+                image,
+                result: client.image_frames(channel, image, keys.clone()),
+                keys,
+            });
         }
         Work::References(sessions) => {
             let result = client.sync_session_references(sessions);

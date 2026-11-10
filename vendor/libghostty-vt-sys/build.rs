@@ -109,6 +109,7 @@ fn main() {
     println!("cargo:rerun-if-changed=patch.rs");
     println!("cargo:rerun-if-changed=patches/clear-screen.patch");
     println!("cargo:rerun-if-changed=patches/kitty-image-file.patch");
+    println!("cargo:rerun-if-changed=patches/kitty-animation-frames.patch");
 
     // An explicit source override should stay authoritative even when the
     // pkg-config feature is enabled, so local Ghostty checkouts remain easy to
@@ -370,13 +371,25 @@ fn try_pkg_config(link_mode: LinkMode, target: &str) -> bool {
         Err(_) => return false,
     };
 
-    assert!(
-        lib.include_paths.iter().any(|path| {
-            std::fs::read_to_string(path.join("ghostty/vt/terminal.h"))
-                .is_ok_and(|header| header.contains("ghostty_terminal_clear_screen("))
-        }),
-        "Muxy requires libghostty-vt with patches/clear-screen.patch applied"
-    );
+    for (header, call, patch) in [
+        (
+            "ghostty/vt/terminal.h",
+            "ghostty_terminal_clear_screen(",
+            "clear-screen.patch",
+        ),
+        (
+            "ghostty/vt/kitty_graphics.h",
+            "ghostty_kitty_graphics_image_frame(",
+            "kitty-animation-frames.patch",
+        ),
+    ] {
+        assert!(
+            lib.include_paths.iter().any(|path| {
+                std::fs::read_to_string(path.join(header)).is_ok_and(|text| text.contains(call))
+            }),
+            "Muxy requires libghostty-vt with patches/{patch} applied"
+        );
+    }
     if let LinkMode::Static = link_mode {
         emit_static_pkg_config_metadata(&lib, target);
     }

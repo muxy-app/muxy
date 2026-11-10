@@ -720,6 +720,7 @@ mod tests {
                         width: 1,
                         height: 2,
                         rgba: Arc::from([1, 2, 3, 4, 5, 6, 7, 8].as_slice()),
+                        ..GraphicImage::default()
                     }],
                     placements: vec![GraphicPlacement {
                         image: 7,

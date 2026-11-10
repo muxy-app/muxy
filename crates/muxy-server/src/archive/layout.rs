@@ -151,6 +151,7 @@ impl From<StoredGraphics> for Graphics {
     }
 }
 
+/// A saved screen keeps the frame an animation was showing, as a still image.
 impl From<&GraphicImage> for StoredImage {
     fn from(image: &GraphicImage) -> Self {
         let GraphicImage {
@@ -159,6 +160,8 @@ impl From<&GraphicImage> for StoredImage {
             width,
             height,
             rgba,
+            frames: _,
+            playback: _,
         } = image;
         Self {
             id: *id,
@@ -178,6 +181,7 @@ impl From<StoredImage> for GraphicImage {
             width: image.width,
             height: image.height,
             rgba: image.rgba,
+            ..Self::default()
         }
     }
 }

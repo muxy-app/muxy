@@ -1,11 +1,10 @@
 //! Reads iTerm2 inline image files (`OSC 1337 ; File=`).
 
-use std::io::Cursor;
-
 use base64::Engine as _;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 
-use super::{Picture, Placement};
+use super::Placement;
+use super::film::Film;
 
 const BASE64: GeneralPurpose = GeneralPurpose::new(
     &base64::alphabet::STANDARD,
@@ -25,7 +24,7 @@ enum Length {
 /// An inline image and how iTerm2 asks to size it.
 #[derive(Debug)]
 pub(crate) struct File {
-    pub(crate) picture: Picture,
+    pub(crate) film: Film,
     width: Length,
     height: Length,
     preserve_aspect_ratio: bool,
@@ -66,7 +65,7 @@ pub(crate) fn parse(file: &[u8]) -> Option<File> {
         .collect();
     let bytes = BASE64.decode(payload).ok()?;
     Some(File {
-        picture: picture(&bytes)?,
+        film: super::film::decode(&bytes)?,
         width,
         height,
         preserve_aspect_ratio,
@@ -85,9 +84,7 @@ impl File {
         if let (Some(w), Some(h), true) = (width, height, self.preserve_aspect_ratio) {
             let box_width = u64::from(w) * u64::from(cell.width);
             let box_height = u64::from(h) * u64::from(cell.height);
-            if u64::from(self.picture.width) * box_height
-                >= u64::from(self.picture.height) * box_width
-            {
+            if u64::from(self.film.width) * box_height >= u64::from(self.film.height) * box_width {
                 height = None;
             } else {
                 width = None;
@@ -123,18 +120,6 @@ fn cells(length: Length, cell: u16, terminal: u16) -> Option<u32> {
     (cells > 0).then_some(cells.min(MAX_CELLS))
 }
 
-fn picture(bytes: &[u8]) -> Option<Picture> {
-    let reader = image::ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()?;
-    let decoded = super::decode_image(reader)?;
-    Some(Picture {
-        width: decoded.width(),
-        height: decoded.height(),
-        rgba: decoded.into_raw(),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,10 +137,10 @@ mod tests {
                 .map_or(Length::Auto, |value| length(value.as_bytes()))
         };
         File {
-            picture: Picture {
+            film: Film {
                 width,
                 height,
-                rgba: Vec::new(),
+                frames: Vec::new(),
             },
             width: parse_length("width="),
             height: parse_length("height="),
@@ -196,7 +181,7 @@ mod tests {
         let parsed = parse(format!("inline=1;doNotMoveCursor=1:{png}").as_bytes());
         let parsed = parsed
             .as_ref()
-            .map(|file| (&file.picture.rgba[..], file.move_cursor));
+            .map(|file| (&file.film.frames[0].rgba[..], file.move_cursor));
         assert_eq!(parsed, Some((&[0, 255, 0, 255][..], false)));
         assert!(parse(format!("name=YQ==:{png}").as_bytes()).is_none());
         assert!(parse(b"inline=1:not an image").is_none());

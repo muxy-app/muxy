@@ -188,6 +188,22 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: RequestBody::ResetPush(_),
                 ..
             } => ("ResetPush", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::DeferImages,
+                ..
+            } => ("DeferImages", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ImagesDeferred,
+                ..
+            } => ("ImagesDeferred", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::ImageFrames { .. },
+                ..
+            } => ("ImageFramesRequest", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ImageFrames(_),
+                ..
+            } => ("ImageFramesReply", ChannelKind::Control),
             Message::Reply {
                 body: ReplyBody::PushRegistered(registration),
                 ..
@@ -560,6 +576,9 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ChannelKind::Session,
             ),
             Message::Mouse(_) => ("Mouse", ChannelKind::Session),
+            Message::Frame(frame) if frame.graphics.is_some() => {
+                ("FrameWithImages", ChannelKind::Session)
+            }
             Message::Frame(_) => ("Frame", ChannelKind::Session),
             Message::Metadata(MetadataEvent::History { .. }) => {
                 ("HistoryMetadata", ChannelKind::Session)
@@ -716,6 +735,11 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "PushRegistered",
             "PushDisabled",
             "PushUnregistered",
+            "DeferImages",
+            "ImagesDeferred",
+            "ImageFramesRequest",
+            "ImageFramesReply",
+            "FrameWithImages",
             "RemoteAccessWithPush",
             "Authenticated",
             "Paired",
@@ -1096,6 +1120,7 @@ fn graphics_reject_overflow_truncation_missing_images_and_invalid_crops() {
             width: 1,
             height: 1,
             rgba: vec![255; 4].into(),
+            ..GraphicImage::default()
         }],
         placements: vec![GraphicPlacement {
             image: 1,
@@ -1122,4 +1147,69 @@ fn graphics_reject_overflow_truncation_missing_images_and_invalid_crops() {
     graphics.placements[0].source[0] = 0;
     graphics.placements[0].image = 2;
     assert!(graphics.validate().is_err());
+}
+
+#[test]
+fn graphics_accept_deferred_pixels_and_check_animation_frames() {
+    use muxy_protocol::{GraphicFrame, GraphicImage, Graphics, MAX_GRAPHICS_FRAMES};
+    let frame = |key| GraphicFrame { key, gap: 40 };
+    let mut graphics = Graphics {
+        images: vec![GraphicImage {
+            id: 1,
+            generation: 9,
+            width: 2,
+            height: 2,
+            frames: vec![frame(1), frame(2)],
+            ..GraphicImage::default()
+        }],
+        ..Graphics::default()
+    };
+    assert!(graphics.validate().is_ok());
+    assert_eq!(graphics.images[0].frame_keys().collect::<Vec<_>>(), [1, 2]);
+    graphics.images[0].playback.frame = 2;
+    assert!(graphics.validate().is_err());
+    graphics.images[0].playback.frame = 1;
+    graphics.images[0].frames = vec![frame(1); MAX_GRAPHICS_FRAMES + 1];
+    assert!(graphics.validate().is_err());
+    graphics.images[0].frames.clear();
+    assert!(graphics.validate().is_err());
+    graphics.images[0].playback.frame = 0;
+    assert_eq!(graphics.images[0].frame_keys().collect::<Vec<_>>(), [9]);
+    graphics.images[0].width = 4096;
+    graphics.images[0].height = 4096;
+    assert!(graphics.validate().is_err());
+}
+
+#[test]
+fn image_frame_requests_and_replies_are_bounded() {
+    use muxy_protocol::{ImageFrame, MAX_GRAPHICS_BYTES, MAX_GRAPHICS_FRAMES};
+    let ask = |channel, keys| {
+        request(RequestBody::ImageFrames {
+            channel,
+            image: 1,
+            keys,
+        })
+        .validate()
+    };
+    assert!(ask(ChannelId(1), vec![7]).is_ok());
+    assert_eq!(ask(CONTROL, vec![7]), Err(ErrorCode::UnknownChannel));
+    assert_eq!(ask(ChannelId(1), Vec::new()), Err(ErrorCode::BadRequest));
+    assert_eq!(
+        ask(ChannelId(1), vec![7; MAX_GRAPHICS_FRAMES + 1]),
+        Err(ErrorCode::BadRequest)
+    );
+    let frame = |width: u32, height: u32, bytes: usize| ImageFrame {
+        key: 7,
+        width,
+        height,
+        rgba: vec![0; bytes].into(),
+    };
+    let answer = |frames| reply(ReplyBody::ImageFrames(frames)).validate();
+    assert!(answer(Vec::new()).is_ok());
+    assert!(answer(vec![frame(1, 2, 8), frame(1, 1, 4)]).is_ok());
+    assert!(answer(vec![frame(1, 2, 4)]).is_err());
+    assert!(answer(vec![frame(0, 0, 0)]).is_err());
+    let half = MAX_GRAPHICS_BYTES / 2 + 4;
+    let side = u32::try_from(half / 4).unwrap_or_default();
+    assert!(answer(vec![frame(side, 1, half), frame(side, 1, half)]).is_err());
 }

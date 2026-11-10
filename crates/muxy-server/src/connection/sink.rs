@@ -159,6 +159,101 @@ mod tests {
     }
 
     #[test]
+    fn a_connection_that_defers_images_gets_screens_without_their_pixels() -> TestResult {
+        let image = muxy_protocol::GraphicImage {
+            id: 1,
+            generation: 1,
+            width: 1,
+            height: 1,
+            rgba: vec![255; 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        };
+        let graphics = muxy_protocol::Graphics {
+            images: vec![image.clone()],
+            ..muxy_protocol::Graphics::default()
+        };
+        let listed = muxy_protocol::GraphicImage {
+            rgba: Arc::default(),
+            ..image
+        };
+        for defers in [false, true] {
+            let (connection, _commands, mut sink) = attached()?;
+            if defers {
+                connection.defer_images();
+            }
+            let mut snapshot = snapshot()?;
+            snapshot.graphics = graphics.clone();
+            let frame = ScreenFrame {
+                size: snapshot.size,
+                graphics: Some(graphics.clone()),
+                seq: 1,
+                reset: false,
+                rows: Vec::new(),
+                cursor: snapshot.cursor,
+                modes: snapshot.modes,
+            };
+            assert!(sink.send(AttachmentEvent::Snapshot {
+                snapshot,
+                process: None,
+            }));
+            let resized = frame.clone();
+            assert!(sink.send(AttachmentEvent::Frame(frame)));
+            let expected = if defers { &listed } else { &graphics.images[0] };
+            let Some((
+                CONTROL,
+                Message::Reply {
+                    body: ReplyBody::Attached { snapshot, .. },
+                    ..
+                },
+            )) = connection.next()
+            else {
+                return Err("no attach reply".into());
+            };
+            assert_eq!(&snapshot.graphics.images[0], expected, "defers: {defers}");
+            let Some((CHANNEL, Message::Frame(frame))) = connection.next() else {
+                return Err("no frame".into());
+            };
+            let sent = frame.graphics.ok_or("no graphics")?;
+            assert_eq!(&sent.images[0], expected, "defers: {defers}");
+            assert_eq!(sent.validate(), Ok(()));
+
+            // Two frames that merge while the app is busy, then a screen read with history.
+            for seq in [2, 3] {
+                assert!(sink.send(AttachmentEvent::Frame(ScreenFrame {
+                    seq,
+                    graphics: (seq == 2).then(|| graphics.clone()),
+                    ..resized.clone()
+                })));
+            }
+            connection.ack(CHANNEL, 1);
+            let Some((CHANNEL, Message::Frame(merged))) = connection.next() else {
+                return Err("no merged frame".into());
+            };
+            assert_eq!(merged.seq, 3);
+            let merged = merged.graphics.ok_or("no merged graphics")?;
+            assert_eq!(&merged.images[0], expected, "defers: {defers}");
+            let mut page = muxy_protocol::HistoryPage {
+                prompts: Vec::new(),
+                rows: Vec::new(),
+                next: None,
+                total_rows: 0,
+                screen: Some(muxy_protocol::SavedScreen {
+                    graphics: graphics.clone(),
+                    size: resized.size,
+                    rows: Vec::new(),
+                    cursor: resized.cursor,
+                    reason: None,
+                }),
+                links: None,
+            };
+            connection.defer_page(&mut page);
+            let screen = page.screen.ok_or("no screen")?;
+            assert_eq!(&screen.graphics.images[0], expected, "defers: {defers}");
+        }
+        Ok(())
+    }
+
+    #[test]
     fn a_session_that_goes_away_fails_the_pending_attach_once() -> TestResult {
         for ended in [false, true] {
             let (connection, _commands, mut sink) = attached()?;

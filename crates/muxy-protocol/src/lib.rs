@@ -48,7 +48,9 @@ pub use version::{CURRENT, FEATURES, Feature, SUPPORTED, V1, V2, Version};
 
 mod graphics;
 pub use graphics::{
-    CellSize, GraphicImage, GraphicPlacement, Graphics, MAX_GRAPHICS_BYTES, MAX_GRAPHICS_PLACEMENTS,
+    CellSize, GraphicFrame, GraphicImage, GraphicPlacement, Graphics, ImageFrame,
+    MAX_GRAPHICS_BYTES, MAX_GRAPHICS_FRAMES, MAX_GRAPHICS_PLACEMENTS, Playback, PlaybackState,
+    validate_image_frames,
 };
 
 mod project;

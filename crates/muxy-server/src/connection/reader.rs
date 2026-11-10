@@ -543,6 +543,15 @@ fn ordered_request(
             before,
             max_rows,
         } => ReplyBody::HistoryPage(registry.saved_history_page(session, before, max_rows)?),
+        RequestBody::DeferImages => {
+            connection.defer_images();
+            ReplyBody::ImagesDeferred
+        }
+        RequestBody::ImageFrames {
+            channel,
+            image,
+            keys,
+        } => image_frames(connection, channel, image, keys)?,
 
         RequestBody::Search {
             source,
@@ -645,13 +654,31 @@ fn live_history(
         max_rows,
         reply,
     })?;
-    let page = page.recv_timeout(Duration::from_secs(5)).map_err(|_| {
+    let mut page = page.recv_timeout(Duration::from_secs(5)).map_err(|_| {
         ServerError::new(
             ErrorCode::HistoryUnavailable,
             "history request did not complete",
         )
     })??;
+    connection.defer_page(&mut page);
     Ok(ReplyBody::HistoryPage(page))
+}
+
+fn image_frames(
+    connection: &Arc<Connection>,
+    channel: ChannelId,
+    image: u32,
+    keys: Vec<u64>,
+) -> Result<ReplyBody, ServerError> {
+    let handle = connection
+        .handle(channel)
+        .ok_or_else(|| ServerError::new(ErrorCode::UnknownChannel, "unknown channel"))?;
+    let (reply, frames) = mpsc::channel();
+    handle.send(SessionCommand::ImageFrames { image, keys, reply })?;
+    let frames = frames
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|_| ServerError::new(ErrorCode::BadRequest, "image request did not complete"))??;
+    Ok(ReplyBody::ImageFrames(frames))
 }
 
 fn live_search(

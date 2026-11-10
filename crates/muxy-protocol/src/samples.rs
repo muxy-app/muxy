@@ -1,10 +1,10 @@
 use std::num::NonZeroU64;
 
 use crate::{
-    AttachSnapshot, ChannelId, Color, Cursor, ErrorCode, ErrorReply, ExitReason, HistoryCursor,
-    HistoryPage, InputModes, Message, MetadataEvent, Modes, Modifiers, MouseAction, MouseButton,
-    MouseEvent, ReplyBody, RequestBody, RequestId, Row, Run, ScreenFrame, SearchMatch, SearchPage,
-    SearchSource, ServerPath, SessionId, Size, Style, TerminalColors, V2,
+    AttachSnapshot, ChannelId, Color, Cursor, CursorShape, ErrorCode, ErrorReply, ExitReason,
+    HistoryCursor, HistoryPage, InputModes, Message, MetadataEvent, Modes, Modifiers, MouseAction,
+    MouseButton, MouseEvent, ReplyBody, RequestBody, RequestId, Row, Run, ScreenFrame, SearchMatch,
+    SearchPage, SearchSource, ServerPath, SessionId, Size, Style, TerminalColors, V2,
 };
 
 impl Message {
@@ -95,6 +95,7 @@ impl Message {
         samples.extend(input_samples().into_iter().chain(terminal_input_samples()));
         samples.extend(acknowledged_input_samples());
         samples.extend(search_samples(session, channel));
+        samples.extend(image_samples(channel));
         samples.extend(color_samples());
         samples.extend(settings_samples());
         samples.extend(project_samples());
@@ -306,6 +307,78 @@ fn search_samples(session: SessionId, channel: ChannelId) -> Vec<Message> {
     ]
 }
 
+fn image_samples(channel: ChannelId) -> Vec<Message> {
+    let frame = |key| crate::GraphicFrame { key, gap: 40 };
+    let pixels: std::sync::Arc<[u8]> = vec![0, 255, 0, 255].into();
+    let graphics = crate::Graphics {
+        images: vec![crate::GraphicImage {
+            id: 7,
+            generation: 3,
+            width: 1,
+            height: 1,
+            rgba: pixels.clone(),
+            frames: vec![frame(11), frame(12)],
+            playback: crate::Playback {
+                state: crate::PlaybackState::Running,
+                frame: 1,
+                loops: 0,
+            },
+        }],
+        placements: vec![crate::GraphicPlacement {
+            image: 7,
+            id: 0,
+            column: 0,
+            row: 0,
+            offset: [0, 0],
+            size: [8, 16],
+            source: [0, 0, 1, 1],
+            z: 0,
+        }],
+        ..crate::Graphics::default()
+    };
+    vec![
+        Message::Request {
+            id: RequestId(8),
+            body: RequestBody::DeferImages,
+        },
+        Message::Reply {
+            id: RequestId(8),
+            body: ReplyBody::ImagesDeferred,
+        },
+        Message::Request {
+            id: RequestId(9),
+            body: RequestBody::ImageFrames {
+                channel,
+                image: 7,
+                keys: vec![11, 12],
+            },
+        },
+        Message::Reply {
+            id: RequestId(9),
+            body: ReplyBody::ImageFrames(vec![crate::ImageFrame {
+                key: 11,
+                width: 1,
+                height: 1,
+                rgba: pixels,
+            }]),
+        },
+        Message::Frame(ScreenFrame {
+            size: Size { cols: 80, rows: 24 },
+            graphics: Some(graphics),
+            seq: 2,
+            reset: false,
+            rows: Vec::new(),
+            cursor: Cursor {
+                shape: CursorShape::default(),
+                row: 0,
+                col: 0,
+                visible: true,
+            },
+            modes: Modes::default(),
+        }),
+    ]
+}
+
 fn history_samples(mut snapshot: AttachSnapshot) -> Vec<Message> {
     snapshot.history.clone_from(&snapshot.rows);
     snapshot.history_total = 2;
@@ -376,7 +449,7 @@ fn color_samples() -> [Message; 4] {
         cursor: [0xc3, 0x70, 0xd3],
         ansi: [[0x12, 0x34, 0x56]; 16],
         palette: std::collections::BTreeMap::from([(196, [0xab, 0xcd, 0xef])]),
-        cursor_style: Some(crate::CursorShape::Bar),
+        cursor_style: Some(CursorShape::Bar),
         cursor_blink: Some(false),
     };
     [
@@ -516,7 +589,7 @@ fn hello_sample() -> Message {
 
 fn sample_cursor() -> Cursor {
     Cursor {
-        shape: crate::CursorShape::default(),
+        shape: CursorShape::default(),
         row: 0,
         col: 3,
         visible: true,

@@ -1,22 +1,30 @@
 pub use muxy_protocol::{
-    CellSize, GraphicImage, GraphicPlacement, Graphics, MAX_GRAPHICS_BYTES, MAX_GRAPHICS_PLACEMENTS,
+    CellSize, GraphicFrame, GraphicImage, GraphicPlacement, Graphics, ImageFrame,
+    MAX_GRAPHICS_BYTES, MAX_GRAPHICS_PLACEMENTS, Playback, PlaybackState,
 };
 
+mod film;
 mod iterm;
 mod sixel;
 mod stream;
 
 pub(crate) use stream::{Interceptor, Piece};
 
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
 use std::path::Path;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use base64::Engine as _;
 use image::RgbaImage;
+use muxy_protocol::MAX_GRAPHICS_FRAMES;
 
-use libghostty_vt::kitty::graphics::{self, DecodePng, DecodedImage, ImageFormat};
+use film::Film;
+use libghostty_vt::kitty::graphics::{
+    self, AnimationState, DecodePng, DecodedImage, ImageFormat, PlacementIterator,
+};
 use libghostty_vt::render::{ImageIterator, ImageProtocol};
 use libghostty_vt::terminal::{
     ConformanceLevel, DeviceAttributeFeature, DeviceAttributes, DeviceType,
@@ -36,10 +44,24 @@ const MAX_SIDE: u32 = 8192;
 /// Memory a decoder may use for one image before it is shrunk to fit.
 const MAX_DECODE_BYTES: u64 = 64 * 1024 * 1024;
 /// Each picture is shrunk to at most this, so two large pictures fit together
-/// in libghostty's image storage and in one frame.
+/// in one screen's list of images.
 const PICTURE_BUDGET: usize = MAX_GRAPHICS_BYTES / 2;
 /// Base64 bytes per Kitty command when showing a converted image.
 const KITTY_CHUNK: usize = 4096;
+/// Animations of the largest size that fit a terminal's image storage
+/// together. One more makes libghostty drop the oldest image.
+const STORED_FILMS: usize = 4;
+/// libghostty keeps every frame of an animation in its image storage.
+pub(crate) const STORAGE_LIMIT: usize = MAX_GRAPHICS_BYTES + STORED_FILMS * film::FILM_BUDGET;
+/// Image numbers for the animations Muxy converts start here, out of the
+/// way of the small numbers programs pick.
+const FIRST_FILM_NUMBER: u32 = 1 << 31;
+
+thread_local! {
+    /// Animations decoded for libghostty during the write in progress on
+    /// this thread. libghostty takes only a first frame from its decoder.
+    static DECODED_FILMS: RefCell<Vec<Film>> = const { RefCell::new(Vec::new()) };
+}
 /// IND: moves the cursor down a row, scrolling at the bottom, in its column.
 const INDEX: &[u8] = b"\x1bD";
 
@@ -77,8 +99,18 @@ pub(crate) struct Placement {
 
 #[derive(Debug)]
 pub(crate) struct Cache {
-    images: BTreeMap<u32, GraphicImage>,
+    images: BTreeMap<u32, Cached>,
     placements: ImageIterator<'static>,
+    /// Whether an animation lists its frames. A saved screen keeps only the
+    /// frame on show, so it doesn't read the others.
+    films: bool,
+}
+
+#[derive(Debug)]
+struct Cached {
+    image: GraphicImage,
+    /// The storage generation the image was read at.
+    storage: u64,
 }
 
 /// Must run before this process makes any other libghostty call.
@@ -92,7 +124,7 @@ pub(crate) fn install_png_decoder() -> Result<()> {
 }
 
 pub(crate) fn configure(engine: &mut Terminal<'_, '_>) -> Result<()> {
-    engine.set_kitty_image_storage_limit(MAX_GRAPHICS_BYTES as u64)?;
+    engine.set_kitty_image_storage_limit(STORAGE_LIMIT as u64)?;
     // libghostty reads only regular files outside /proc, /sys and /dev, and
     // refuses FIFOs before opening them (libghostty-vt-sys
     // patches/kitty-image-file.patch). It deletes temporary files only inside a
@@ -136,7 +168,7 @@ pub(crate) fn show_sixel(
     let Some((picture, placement)) = within_budget(picture, cell) else {
         return;
     };
-    show(engine, &picture, &placement, false);
+    show(engine, &Film::still(picture), &placement, false);
     engine.vt_write(&INDEX.repeat(down as usize));
 }
 
@@ -173,38 +205,82 @@ pub(crate) fn show_iterm(engine: &mut Terminal<'static, 'static>, cell: CellSize
         return;
     };
     let placement = file.placement(columns, rows, cell);
-    show(engine, &file.picture, &placement, file.move_cursor);
+    show(engine, &file.film, &placement, file.move_cursor);
 }
 
-/// Stores `picture` with Kitty commands and places it at the cursor.
+/// Stores `film` with Kitty commands and places it at the cursor. An
+/// animation plays without end, as in iTerm2.
 fn show(
     engine: &mut Terminal<'static, 'static>,
-    picture: &Picture,
+    film: &Film,
     placement: &Placement,
     move_cursor: bool,
 ) {
-    let encoded = base64::engine::general_purpose::STANDARD.encode(&picture.rgba);
+    let Some(first) = film.frames.first() else {
+        return;
+    };
+    let columns = placement
+        .columns
+        .map(|columns| format!("c={columns},"))
+        .unwrap_or_default();
+    let rows = placement
+        .rows
+        .map(|rows| format!("r={rows},"))
+        .unwrap_or_default();
+    let target = format!("I={}", film_number());
+    let number = if film.animated() {
+        format!("{target},")
+    } else {
+        String::new()
+    };
+    let keys = format!(
+        "a=T,f=32,s={},v={},C={},{columns}{rows}{number}",
+        film.width,
+        film.height,
+        u8::from(!move_cursor)
+    );
+    transmit(engine, &keys, &first.rgba);
+    animate(engine, &target, film);
+}
+
+/// A number no other converted animation has, so the commands that add its
+/// frames can name it, and reach nothing if its first frame was refused.
+fn film_number() -> u32 {
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    FIRST_FILM_NUMBER | NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Adds the frames after the first to the image `target` names, then plays
+/// them.
+fn animate(engine: &mut Terminal<'static, 'static>, target: &str, film: &Film) {
+    let Some((first, rest)) = film.frames.split_first() else {
+        return;
+    };
+    if rest.is_empty() {
+        return;
+    }
+    for frame in rest {
+        let keys = format!(
+            "a=f,{target},f=32,s={},v={},z={},",
+            film.width, film.height, frame.gap
+        );
+        transmit(engine, &keys, &frame.rgba);
+    }
+    let play = format!("\x1b_Ga=a,{target},r=1,z={},s=3,v=1,q=2\x1b\\", first.gap);
+    engine.vt_write(play.as_bytes());
+}
+
+/// Writes one Kitty command that carries `pixels`, in chunks. `keys` ends
+/// with a comma.
+fn transmit(engine: &mut Terminal<'static, 'static>, keys: &str, pixels: &[u8]) {
+    let encoded = base64::engine::general_purpose::STANDARD.encode(pixels);
     let chunks = encoded.as_bytes().chunks(KITTY_CHUNK);
     let last = chunks.len().saturating_sub(1);
-    let mut command = Vec::with_capacity(KITTY_CHUNK + 128);
+    let mut command = Vec::with_capacity(KITTY_CHUNK + keys.len() + 32);
     for (index, chunk) in chunks.enumerate() {
         command.clear();
         command.extend_from_slice(b"\x1b_G");
         if index == 0 {
-            let columns = placement
-                .columns
-                .map(|columns| format!("c={columns},"))
-                .unwrap_or_default();
-            let rows = placement
-                .rows
-                .map(|rows| format!("r={rows},"))
-                .unwrap_or_default();
-            let keys = format!(
-                "a=T,f=32,s={},v={},C={},{columns}{rows}",
-                picture.width,
-                picture.height,
-                u8::from(!move_cursor)
-            );
             command.extend_from_slice(keys.as_bytes());
         }
         command.extend_from_slice(format!("q=2,m={};", u8::from(index < last)).as_bytes());
@@ -214,21 +290,65 @@ fn show(
     }
 }
 
+/// Gives the animations libghostty's decoder met during the last write to
+/// the images they belong to. The decoder isn't told which image it works
+/// for, so the image is found by its first frame, and only once it is placed:
+/// an animation sent now and placed by a later command stays a still image.
+pub(crate) fn attach_films(engine: &mut Terminal<'static, 'static>) {
+    for film in DECODED_FILMS.take() {
+        if let Some(id) = decoded_image(engine, &film) {
+            animate(engine, &format!("i={id}"), &film);
+        }
+    }
+}
+
+/// The newest placed still image holding the first frame of `film`.
+fn decoded_image(engine: &Terminal<'static, 'static>, film: &Film) -> Option<u32> {
+    let first = film.frames.first()?.rgba.as_slice();
+    let storage = engine.kitty_graphics().ok()?;
+    let mut iterator = PlacementIterator::new().ok()?;
+    let mut placements = iterator.update(&storage).ok()?;
+    let mut newest: Option<(u64, u32)> = None;
+    while let Some(placement) = placements.next() {
+        let id = placement.image_id().ok()?;
+        let Some(image) = storage.image(id) else {
+            continue;
+        };
+        if image.width().ok()? != film.width
+            || image.height().ok()? != film.height
+            || image.frame_count().ok()? != 1
+            || image.data().ok()? != Some(first)
+        {
+            continue;
+        }
+        let generation = image.generation().ok()?;
+        if newest.is_none_or(|(found, _)| generation > found) {
+            newest = Some((generation, id));
+        }
+    }
+    newest.map(|(_, id)| id)
+}
+
 /// Decodes an image file, shrinking a picture over the picture budget to fit
 /// it, so large screenshots still show. The picture is shrunk in its decoded
 /// pixel format, so only the shrunk copy is ever converted to RGBA.
 pub(crate) fn decode_image(mut reader: image::ImageReader<Cursor<&[u8]>>) -> Option<RgbaImage> {
-    let mut limits = image::Limits::default();
-    limits.max_alloc = Some(MAX_DECODE_BYTES);
-    limits.max_image_width = Some(MAX_SIDE);
-    limits.max_image_height = Some(MAX_SIDE);
-    reader.limits(limits);
+    reader.limits(decode_limits());
     let decoded = reader.decode().ok()?;
     let size = fitted(decoded.width(), decoded.height());
     if size == (decoded.width(), decoded.height()) {
         return Some(decoded.into_rgba8());
     }
     Some(decoded.thumbnail_exact(size.0, size.1).into_rgba8())
+}
+
+/// What a decoder may allocate and the largest picture it reads.
+fn decode_limits() -> image::Limits {
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
+    limits
 }
 
 /// Shrinks `picture` to the picture budget, keeping its aspect ratio.
@@ -261,6 +381,8 @@ fn fitted(width: u32, height: u32) -> (u32, u32) {
 
 /// Decodes Kitty `f=100` images. Kitty defines only PNG; as in some other
 /// terminals, any format the server can read is accepted, found from the data.
+/// libghostty takes the first frame; an animation's other frames wait in
+/// `DECODED_FILMS` for `attach_films`.
 struct PngDecoder;
 
 impl DecodePng for PngDecoder {
@@ -269,17 +391,25 @@ impl DecodePng for PngDecoder {
         alloc: &'alloc Allocator<'_>,
         data: &[u8],
     ) -> Option<DecodedImage<'alloc>> {
-        let reader = image::ImageReader::new(Cursor::new(data))
-            .with_guessed_format()
-            .ok()?;
-        let decoded = decode_image(reader)?;
-        let mut bytes = Bytes::new_with_alloc(alloc, decoded.len()).ok()?;
-        bytes.copy_from_slice(decoded.as_raw());
-        Some(DecodedImage {
-            width: decoded.width(),
-            height: decoded.height(),
+        let film = film::decode(data)?;
+        let first = &film.frames.first()?.rgba;
+        let mut bytes = Bytes::new_with_alloc(alloc, first.len()).ok()?;
+        bytes.copy_from_slice(first);
+        let decoded = DecodedImage {
+            width: film.width,
+            height: film.height,
             data: bytes,
-        })
+        };
+        if film.animated() {
+            DECODED_FILMS.with_borrow_mut(|films| {
+                let mut held = film.bytes() + films.iter().map(Film::bytes).sum::<usize>();
+                while held > film::FILM_BUDGET && !films.is_empty() {
+                    held -= films.remove(0).bytes();
+                }
+                films.push(film);
+            });
+        }
+        Some(decoded)
     }
 }
 
@@ -288,10 +418,18 @@ impl Cache {
         Ok(Self {
             images: BTreeMap::new(),
             placements: ImageIterator::new()?,
+            films: true,
         })
     }
 
+    /// Lists every image as a still one from now on.
+    pub(crate) fn stills_only(&mut self) {
+        self.films = false;
+        self.images.clear();
+    }
+
     /// Lists placements from the render state, which also places images shown with placeholder cells.
+    /// When the images on screen pass what one screen lists, the newest are kept.
     pub(crate) fn snapshot(
         &mut self,
         engine: &Terminal<'static, 'static>,
@@ -299,17 +437,13 @@ impl Cache {
         cell: CellSize,
     ) -> Result<Graphics> {
         let storage = engine.kitty_graphics()?;
+        let stored = storage.generation()?;
         let snapshot = render.update(engine)?;
         let mut iter = self.placements.update(&snapshot)?;
-        let mut result = Graphics {
-            cell,
-            ..Graphics::default()
-        };
-        let mut used = std::collections::BTreeSet::new();
-        let mut visible = std::collections::BTreeSet::new();
-        let mut total = 0;
+        let mut placements = Vec::new();
+        let mut visible = BTreeSet::new();
         while let Some(placement) = iter.next() {
-            if result.placements.len() >= MAX_GRAPHICS_PLACEMENTS {
+            if placements.len() >= MAX_GRAPHICS_PLACEMENTS {
                 break;
             }
             if !matches!(placement.protocol(), Ok(ImageProtocol::Kitty)) {
@@ -319,39 +453,12 @@ impl Cache {
             let Some(image) = storage.image(id) else {
                 continue;
             };
-            let generation = image.generation()?;
             visible.insert(id);
-            if !used.contains(&id) {
-                if self
-                    .images
-                    .get(&id)
-                    .is_none_or(|cached| cached.generation != generation)
-                {
-                    let Some(rgba) = rgba(&image)? else {
-                        continue;
-                    };
-                    self.images.insert(
-                        id,
-                        GraphicImage {
-                            id,
-                            generation,
-                            width: image.width()?,
-                            height: image.height()?,
-                            rgba,
-                        },
-                    );
-                }
-                let cached = &self.images[&id];
-                if total + cached.rgba.len() > MAX_GRAPHICS_BYTES {
-                    continue;
-                }
-                total += cached.rgba.len();
-                result.images.push(cached.clone());
-                used.insert(id);
-            }
+            let Some(cached) = cached(&mut self.images, id, &image, stored, self.films)? else {
+                continue;
+            };
             let size = [placement.pixel_width()?, placement.pixel_height()?];
             // Placeholder rows round their slice of the image, which can pass its edge.
-            let cached = &self.images[&id];
             let x = placement.source_x()?.min(cached.width);
             let y = placement.source_y()?.min(cached.height);
             let source = [
@@ -363,7 +470,7 @@ impl Cache {
             if size.contains(&0) || source[2] == 0 || source[3] == 0 {
                 continue;
             }
-            result.placements.push(GraphicPlacement {
+            placements.push(GraphicPlacement {
                 image: id,
                 id: placement.kitty_placement_id()?.unwrap_or_default(),
                 column: placement.viewport_col()?,
@@ -375,25 +482,233 @@ impl Cache {
             });
         }
         self.images.retain(|id, _| visible.contains(id));
-        result.placements.sort_by_key(|p| (p.z, p.image, p.id));
-        result.images.sort_by_key(|image| image.id);
-        Ok(result)
+        let mut newest: Vec<&GraphicImage> = placements
+            .iter()
+            .map(|placement| placement.image)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .filter_map(|id| self.images.get(&id))
+            .map(|cached| &cached.image)
+            .collect();
+        newest.sort_by_key(|image| std::cmp::Reverse(image.generation));
+        let mut total = 0;
+        let mut images = Vec::new();
+        for image in newest {
+            if total + image.rgba.len() > MAX_GRAPHICS_BYTES {
+                continue;
+            }
+            total += image.rgba.len();
+            images.push(image.clone());
+        }
+        images.sort_by_key(|image| image.id);
+        placements.retain(|placement| {
+            images
+                .binary_search_by_key(&placement.image, |image| image.id)
+                .is_ok()
+        });
+        placements.sort_by_key(|p| (p.z, p.image, p.id));
+        Ok(Graphics {
+            cell,
+            images,
+            placements,
+        })
+    }
+
+    /// The pixels of the frames of an image on screen that `keys` name, in
+    /// that order, as far as one reply holds them. Frames that are gone are
+    /// left out. A still image has one frame, and answers with the pixels it
+    /// has now under their key, so an app that asks late still gets a picture.
+    pub(crate) fn frames(
+        &self,
+        engine: &Terminal<'static, 'static>,
+        id: u32,
+        keys: &[u64],
+    ) -> Result<Vec<ImageFrame>> {
+        let Some(cached) = self.images.get(&id).map(|cached| &cached.image) else {
+            return Ok(Vec::new());
+        };
+        let storage = engine.kitty_graphics()?;
+        let mut frames = Vec::new();
+        let mut total = 0;
+        if cached.frames.is_empty() {
+            return Ok(vec![ImageFrame {
+                key: cached.generation,
+                width: cached.width,
+                height: cached.height,
+                rgba: cached.rgba.clone(),
+            }]);
+        }
+        let Some(image) = storage.image(id) else {
+            return Ok(Vec::new());
+        };
+        for &key in keys {
+            let Some(rgba) = frame_pixels(&image, cached, key)? else {
+                continue;
+            };
+            if !frames.is_empty() && total + rgba.len() > MAX_GRAPHICS_BYTES {
+                break;
+            }
+            total += rgba.len();
+            frames.push(ImageFrame {
+                key,
+                width: cached.width,
+                height: cached.height,
+                rgba,
+            });
+        }
+        Ok(frames)
     }
 }
 
-fn rgba(image: &graphics::Image<'_>) -> Result<Option<Arc<[u8]>>> {
-    let Some(len) = u64::from(image.width()?)
-        .checked_mul(u64::from(image.height()?))
-        .and_then(|n| n.checked_mul(4))
-        .and_then(|n| usize::try_from(n).ok())
-        .filter(|n| *n <= MAX_GRAPHICS_BYTES)
-    else {
+/// The image as the screen lists it, read again when the storage changed.
+/// `None` for an image whose pixels can't be shown.
+fn cached<'a>(
+    images: &'a mut BTreeMap<u32, Cached>,
+    id: u32,
+    image: &graphics::Image<'_>,
+    stored: u64,
+    films: bool,
+) -> Result<Option<&'a GraphicImage>> {
+    if images
+        .get(&id)
+        .is_none_or(|cached| cached.storage != stored)
+    {
+        let generation = image.generation()?;
+        let kept = images
+            .get(&id)
+            .filter(|cached| cached.image.generation == generation)
+            .map(|cached| cached.image.rgba.clone());
+        let Some(rgba) = kept.map_or_else(|| rgba(image), |kept| Ok(Some(kept)))? else {
+            images.remove(&id);
+            return Ok(None);
+        };
+        let (frames, playback) = if films {
+            animation(image)?
+        } else {
+            (Vec::new(), Playback::default())
+        };
+        images.insert(
+            id,
+            Cached {
+                image: GraphicImage {
+                    id,
+                    generation,
+                    width: image.width()?,
+                    height: image.height()?,
+                    rgba,
+                    frames,
+                    playback,
+                },
+                storage: stored,
+            },
+        );
+    }
+    Ok(images.get(&id).map(|cached| &cached.image))
+}
+
+/// The frames of an animated image and how it plays. A still image has no
+/// frames.
+fn animation(image: &graphics::Image<'_>) -> Result<(Vec<GraphicFrame>, Playback)> {
+    let count = image.frame_count()?;
+    if count < 2 {
+        return Ok((Vec::new(), Playback::default()));
+    }
+    let mut frames = Vec::new();
+    for number in (1..=count).take(MAX_GRAPHICS_FRAMES) {
+        let Some(frame) = image.frame(number)? else {
+            break;
+        };
+        frames.push(GraphicFrame {
+            key: fingerprint(frame.data),
+            gap: frame.gap_ms,
+        });
+    }
+    if frames.len() < 2 {
+        return Ok((Vec::new(), Playback::default()));
+    }
+    let state = match image.animation_state()? {
+        AnimationState::Running => PlaybackState::Running,
+        AnimationState::Loading => PlaybackState::Loading,
+        _ => PlaybackState::Stopped,
+    };
+    let shown = image.current_frame()?.saturating_sub(1);
+    let playback = Playback {
+        state,
+        frame: if (shown as usize) < frames.len() {
+            shown
+        } else {
+            0
+        },
+        loops: image.loops()?,
+    };
+    Ok((frames, playback))
+}
+
+/// The pixels of the frame `key` names, unless they changed since the image
+/// was listed.
+fn frame_pixels(
+    image: &graphics::Image<'_>,
+    listed: &GraphicImage,
+    key: u64,
+) -> Result<Option<Arc<[u8]>>> {
+    let Some(index) = listed.frames.iter().position(|frame| frame.key == key) else {
         return Ok(None);
     };
+    let Ok(number) = u32::try_from(index + 1) else {
+        return Ok(None);
+    };
+    let Some(frame) = image.frame(number)? else {
+        return Ok(None);
+    };
+    if fingerprint(frame.data) != key {
+        return Ok(None);
+    }
+    // Only the first frame can be in a format other than RGBA.
+    let format = if index == 0 {
+        image.format()?
+    } else {
+        ImageFormat::Rgba
+    };
+    Ok(pixels(format, listed.width, listed.height, frame.data))
+}
+
+/// Tells frames apart by their pixels, so a frame keeps its key until a
+/// program changes it. Not for untrusted comparisons.
+fn fingerprint(data: &[u8]) -> u64 {
+    const MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;
+    let mix = |hash: u64, word: u64| (hash.rotate_left(5) ^ word).wrapping_mul(MULTIPLIER);
+    let mut words = data.chunks_exact(8);
+    let mut hash = mix(0, data.len() as u64);
+    for word in &mut words {
+        let mut bytes = [0; 8];
+        bytes.copy_from_slice(word);
+        hash = mix(hash, u64::from_le_bytes(bytes));
+    }
+    for &byte in words.remainder() {
+        hash = mix(hash, u64::from(byte));
+    }
+    hash
+}
+
+fn rgba(image: &graphics::Image<'_>) -> Result<Option<Arc<[u8]>>> {
     let Some(data) = image.data()? else {
         return Ok(None);
     };
-    Ok(match image.format()? {
+    Ok(pixels(
+        image.format()?,
+        image.width()?,
+        image.height()?,
+        data,
+    ))
+}
+
+fn pixels(format: ImageFormat, width: u32, height: u32, data: &[u8]) -> Option<Arc<[u8]>> {
+    let len = u64::from(width)
+        .checked_mul(u64::from(height))
+        .and_then(|n| n.checked_mul(4))
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|n| *n <= MAX_GRAPHICS_BYTES)?;
+    match format {
         ImageFormat::Rgba if data.len() == len => Some(data.into()),
         ImageFormat::Rgb if data.len() == len / 4 * 3 => Some(
             data.chunks_exact(3)
@@ -411,5 +726,5 @@ fn rgba(image: &graphics::Image<'_>) -> Result<Option<Arc<[u8]>>> {
                 .collect(),
         ),
         _ => None,
-    })
+    }
 }

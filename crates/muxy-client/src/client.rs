@@ -414,6 +414,37 @@ impl Client {
         }
     }
 
+    /// Asks the server to leave image pixels out of the screens it sends from
+    /// now on. The app then reads the frames it draws with
+    /// [`Self::image_frames`]. Servers from before this answer `Unsupported`
+    /// and keep sending pixels.
+    pub fn defer_images(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::DeferImages)? {
+            ReplyBody::ImagesDeferred => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
+    /// The pixels of frames of an image on the channel's screen, by their
+    /// keys: those the server still has and one reply holds, in the order
+    /// asked. A still image answers with the pixels it has now, whose key
+    /// may be newer than the one asked for.
+    pub fn image_frames(
+        &self,
+        channel: ChannelId,
+        image: u32,
+        keys: Vec<u64>,
+    ) -> Result<Vec<muxy_protocol::ImageFrame>, ClientError> {
+        match self.request(RequestBody::ImageFrames {
+            channel,
+            image,
+            keys,
+        })? {
+            ReplyBody::ImageFrames(frames) => Ok(frames),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     pub fn detach(&self, channel: ChannelId) -> Result<(), ClientError> {
         match self.request(RequestBody::Detach(channel))? {
             ReplyBody::Detached => Ok(()),

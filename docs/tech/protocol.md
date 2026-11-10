@@ -44,6 +44,14 @@ sequenceDiagram
 - Frames carry only the visible rows that changed. A resize sends the whole
   screen.
 - History is never pushed. Apps page through it and search it on request.
+- Image pixels are read on request. An app that draws images asks the server
+  to leave pixels out of its screens. A screen then lists each image's frames
+  by key, with the time each one shows. The app reads the frames it lacks,
+  keeps them while it shows the terminal, and plays animations itself. Moving
+  an image or playing an animation sends no pixels. Apps that draw no images
+  ask the same and read nothing. An app that doesn't ask, such as an older
+  build, gets the pixels of the frame on show with every screen that changes
+  an image. Saved screens always carry their pixels.
 
 ## Flow control
 

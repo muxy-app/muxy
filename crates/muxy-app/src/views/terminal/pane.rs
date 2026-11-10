@@ -44,10 +44,20 @@ pub(crate) enum PaneEvent {
     HeaderBackground,
     Bell,
     History(HistoryRequest),
+    /// Frames of an image on screen whose pixels the pane doesn't have yet.
+    ImageFrames {
+        image: u32,
+        keys: Vec<u64>,
+    },
     Search(find::SearchRequest),
 }
 
 gpui::actions!(terminal, [CloseFind]);
+
+/// An animation never repaints sooner than this after its last frame.
+const SHORTEST_IMAGE_FRAME: Duration = Duration::from_millis(8);
+/// How long a pane waits before it asks again for frames it couldn't read.
+const IMAGE_RETRY: Duration = Duration::from_secs(1);
 
 pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>) {
     registry.register(
@@ -118,6 +128,10 @@ pub(crate) struct TerminalPane {
     pub(crate) render_count: usize,
     pub(crate) sent_cell_size: Option<(ChannelId, muxy_protocol::CellSize)>,
     pub(crate) images: element::images::Textures,
+    /// Repaints when an animation's next frame is due.
+    image_animation: Option<(std::time::Instant, Task<()>)>,
+    /// Repaints to ask again for frames a failed request didn't bring.
+    image_retry: Option<Task<()>>,
     pub(crate) rows: std::cell::RefCell<element::Rows>,
     pub(crate) shades: element::shade::Textures,
     pub(crate) grid: Option<Screen>,
@@ -260,6 +274,8 @@ impl TerminalPane {
             grid: None,
             sent_cell_size: None,
             images: element::images::Textures::default(),
+            image_animation: None,
+            image_retry: None,
             rows: std::cell::RefCell::default(),
             shades: element::shade::Textures::default(),
             copy_on_select: false,
@@ -349,6 +365,9 @@ impl TerminalPane {
         self.scroll.reset();
         self.saved_history = None;
         self.state = state;
+        if state == PaneState::Disconnected {
+            self.images.reset();
+        }
         self.cursor_blink.reset();
         self.restart_find(cx);
         self.validate_selection();
@@ -495,6 +514,57 @@ impl TerminalPane {
             self.validate_selection();
             cx.notify();
         }
+    }
+
+    pub(crate) fn receive_image_frames(
+        &mut self,
+        image: u32,
+        keys: &[u64],
+        frames: Option<Vec<muxy_protocol::ImageFrame>>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.images.receive(image, keys, frames) {
+            self.image_retry = None;
+            cx.notify();
+            return;
+        }
+        self.image_retry = Some(cx.spawn(async move |pane, cx| {
+            cx.background_executor().timer(IMAGE_RETRY).await;
+            let _ = pane.update(cx, |pane, cx| {
+                pane.image_retry = None;
+                cx.notify();
+            });
+        }));
+    }
+
+    /// Repaints once `next` comes, when an animation shows its next frame.
+    pub(crate) fn animate_images(
+        &mut self,
+        next: Option<std::time::Instant>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(due) = next else {
+            self.image_animation = None;
+            return;
+        };
+        if self
+            .image_animation
+            .as_ref()
+            .is_some_and(|(scheduled, _)| *scheduled == due)
+        {
+            return;
+        }
+        let wait = due
+            .saturating_duration_since(cx.background_executor().now())
+            .max(SHORTEST_IMAGE_FRAME);
+        let task = cx.spawn(async move |pane, cx| {
+            cx.background_executor().timer(wait).await;
+            let _ = pane.update(cx, |pane, cx| {
+                pane.image_animation = None;
+                cx.notify();
+            });
+        });
+        self.image_animation = Some((due, task));
     }
 
     pub(crate) fn request_history(&mut self, request: HistoryRequest, cx: &mut Context<Self>) {

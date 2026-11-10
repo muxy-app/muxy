@@ -352,6 +352,16 @@ impl Owner {
                 Wake::Event(OwnerEvent::Command(SessionCommand::Detach(id))) => {
                     self.attachments.remove(&id);
                 }
+                Wake::Event(OwnerEvent::Command(SessionCommand::ImageFrames {
+                    image,
+                    keys,
+                    reply,
+                })) => {
+                    let frames = self.terminal.image_frames(image, &keys).map_err(|error| {
+                        ServerError::new(ErrorCode::BadRequest, format!("image frames: {error}"))
+                    });
+                    let _ = reply.send(frames);
+                }
                 Wake::Event(OwnerEvent::Command(SessionCommand::Search {
                     query,
                     ignore_case,

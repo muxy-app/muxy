@@ -348,6 +348,11 @@ impl Core {
         client
             .identify(muxy_protocol::ClientKind::Tui)
             .map_err(|error| error.to_string())?;
+        // The terminal UI draws no images, so it never reads their pixels.
+        match client.defer_images() {
+            Ok(()) | Err(ClientError::Server(_)) => {}
+            Err(error) => return Err(error.to_string()),
+        }
         let mut catalog = client.catalog().map_err(|error| error.to_string())?;
         self.load_layout(&catalog)?;
         self.store_mut()?
