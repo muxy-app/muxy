@@ -54,6 +54,10 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
             ".xal/sessions/project/xal.jsonl",
             json!({"type":"meta","meta":{"id":"xal-1","cwd":project}}),
         ),
+        (
+            ".cursor/chats/bucket/cursor-1/meta.json",
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"title":"Fix regression","cwd":project}),
+        ),
     ];
     for (path, record) in examples {
         fixture(home.path(), path, &[record])?;
@@ -75,10 +79,53 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
             json!({"type":"session_meta","payload":{"id":"subagent-1","cwd":project,"source":{"subagent":{}}}}),
         ],
     )?;
+    fs::write(
+        home.path().join(".cursor/chats/bucket/cursor-1/store.db"),
+        [],
+    )?;
+    fixture(
+        home.path(),
+        ".cursor/chats/bucket/cursor-sub/meta.json",
+        &[
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"isSubagent":true,"title":"child","cwd":project}),
+        ],
+    )?;
+    fs::write(
+        home.path().join(".cursor/chats/bucket/cursor-sub/store.db"),
+        [],
+    )?;
+    fixture(
+        home.path(),
+        ".cursor/chats/bucket/cursor-empty/meta.json",
+        &[
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":false,"title":"empty","cwd":project}),
+        ],
+    )?;
+    fs::write(
+        home.path()
+            .join(".cursor/chats/bucket/cursor-empty/store.db"),
+        [],
+    )?;
+    fixture(
+        home.path(),
+        ".cursor/chats/bucket/cursor-nostore/meta.json",
+        &[
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"title":"missing","cwd":project}),
+        ],
+    )?;
     let roots = Roots::from_home(home.path());
     let mut catalog = Catalog::default();
     let listing = catalog.scan(&roots, &project);
-    assert_eq!(listing.sessions.len(), 7);
+    assert_eq!(listing.sessions.len(), 8);
+    assert_eq!(
+        listing
+            .sessions
+            .iter()
+            .filter(|session| session.provider == AgentProvider::Cursor)
+            .map(|session| (session.id.as_str(), session.title.as_str()))
+            .collect::<Vec<_>>(),
+        [("cursor-1", "Fix regression")]
+    );
     assert!(listing.warnings.is_empty());
     for provider in PROVIDERS
         .into_iter()
@@ -209,6 +256,7 @@ fn resume_commands_never_interpolate_transcript_text_or_paths() {
         (AgentProvider::Pi, "pi --session"),
         (AgentProvider::OhMyPi, "omp --resume"),
         (AgentProvider::Xal, "xal resume"),
+        (AgentProvider::Cursor, "cursor-agent --resume"),
     ] {
         session.provider = provider;
         assert_eq!(

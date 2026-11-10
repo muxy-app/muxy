@@ -22,6 +22,7 @@ struct Metadata {
     title: Option<String>,
     prompt: Option<String>,
     child: bool,
+    reject: bool,
 }
 
 pub(super) fn read(
@@ -67,6 +68,12 @@ pub(super) fn read(
                 metadata.visit(provider, &value, true);
             }
             line.clear();
+        }
+    }
+    if provider == AgentProvider::Cursor {
+        cursor_identity(path, &mut metadata);
+        if metadata.reject {
+            return Ok(None);
         }
     }
     let Some(id) = metadata.id.filter(|id| valid_id(id)) else {
@@ -168,8 +175,34 @@ impl Metadata {
                     }
                 }
             }
+            AgentProvider::Cursor => {
+                if value.get("schemaVersion").is_some() || value.get("hasConversation").is_some() {
+                    self.reject |=
+                        value["hasConversation"] != true || !value["createdAtMs"].is_number();
+                    self.child |= value["isSubagent"] == true;
+                    if self.directory.is_none() {
+                        self.directory = value["cwd"].as_str().map(PathBuf::from);
+                    }
+                    if self.title.is_none() {
+                        self.title = text(&value["title"]);
+                    }
+                }
+            }
             _ => {}
         }
+    }
+}
+
+fn cursor_identity(path: &Path, metadata: &mut Metadata) {
+    if !path.with_file_name("store.db").is_file() {
+        metadata.reject = true;
+        return;
+    }
+    if metadata.id.is_none() {
+        metadata.id = path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .map(|name| name.to_string_lossy().into_owned());
     }
 }
 
