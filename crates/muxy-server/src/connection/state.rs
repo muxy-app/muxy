@@ -37,6 +37,8 @@ pub(super) struct ConnectionState {
     pub(super) device: Option<(DeviceId, DeviceKind)>,
     pub(super) watches: Watches,
     pub(super) colors: Option<TerminalColors>,
+    /// The app reads image pixels itself, so screens leave them out.
+    pub(super) defer_images: bool,
     pub(super) session_colors: HashMap<SessionId, TerminalColors>,
 }
 

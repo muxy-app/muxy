@@ -158,3 +158,11 @@ Themes are in **Settings → Appearance**. See
   file or shared memory once it has read the image. Kitty's PNG format also
   accepts JPEG, GIF, WebP, BMP, TIFF and ICO files. Pictures over about a
   million pixels are scaled down to fit.
+- Animated images play in the desktop app: animations a program sends with
+  the Kitty graphics protocol, and animated GIFs shown as iTerm2 inline images
+  or through Kitty's PNG format. A GIF sent through Kitty's PNG format plays
+  when the same command sends and shows it; one sent first and placed later
+  shows its first frame. GIFs play without end. A GIF whose frames pass about
+  32 MB is scaled down to fit, and a very long one loses its last frames. A
+  terminal keeps about 136 MB of images; past that, the oldest ones go, as in
+  Kitty and Ghostty. A saved screen keeps the frame that was showing.

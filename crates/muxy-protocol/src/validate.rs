@@ -260,6 +260,15 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
             validate_page_size(*max_rows)
         }
         RequestBody::SavedHistoryPage { max_rows, .. } => validate_page_size(*max_rows),
+        RequestBody::ImageFrames { channel, keys, .. } => {
+            if *channel == crate::CONTROL {
+                return Err(ErrorCode::UnknownChannel);
+            }
+            if keys.is_empty() || keys.len() > crate::MAX_GRAPHICS_FRAMES {
+                return Err(ErrorCode::BadRequest);
+            }
+            Ok(())
+        }
         RequestBody::Pair(request) => request.validate(),
         RequestBody::WriteRemoteAccess(settings) => settings.validate(),
         RequestBody::StartPairingWithHosts(hosts) => crate::validate_pairing_hosts(hosts),
@@ -271,6 +280,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         | RequestBody::UnregisterPush
         | RequestBody::SetPushNotifications(_)
         | RequestBody::ResetPush(_)
+        | RequestBody::DeferImages
         | RequestBody::ReadRemoteAccess
         | RequestBody::StartPairing
         | RequestBody::CancelPairing
@@ -381,6 +391,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
                 snapshot.history.len() + usize::from(snapshot.size.rows),
             )
         }
+        ReplyBody::ImageFrames(frames) => crate::validate_image_frames(frames),
         ReplyBody::HistoryPage(page) => {
             validate_history(&page.rows, page.next, page.total_rows, 500)?;
             if let Some(screen) = &page.screen {
@@ -405,6 +416,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         ReplyBody::PushRegistered(registration) => registration.validate(),
         ReplyBody::Authenticated
         | ReplyBody::PushUnregistered
+        | ReplyBody::ImagesDeferred
         | ReplyBody::ExecCancelled
         | ReplyBody::ActivityAcknowledged
         | ReplyBody::InputWritten

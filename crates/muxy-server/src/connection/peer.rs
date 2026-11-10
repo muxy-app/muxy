@@ -188,6 +188,20 @@ impl Connection {
         self.lock().state.watches.metadata = true;
     }
 
+    pub(super) fn defer_images(&self) {
+        self.lock().state.defer_images = true;
+    }
+
+    /// Leaves image pixels out of a live screen read with its history, for
+    /// an app that reads them itself.
+    pub(super) fn defer_page(&self, page: &mut muxy_protocol::HistoryPage) {
+        if self.lock().state.defer_images
+            && let Some(screen) = &mut page.screen
+        {
+            screen.graphics.defer_pixels();
+        }
+    }
+
     pub(crate) fn participation(&self, session: SessionId) -> Option<(u64, SessionClient)> {
         let inner = self.lock();
         if inner.closed {
@@ -328,10 +342,13 @@ impl Connection {
     pub(super) fn snapshot(
         &self,
         channel: ChannelId,
-        snapshot: AttachSnapshot,
+        mut snapshot: AttachSnapshot,
         process: Option<ForegroundProcess>,
     ) -> bool {
         let mut inner = self.lock();
+        if inner.state.defer_images {
+            snapshot.graphics.defer_pixels();
+        }
         let Some(attachment) = inner.attachments.get_mut(&channel) else {
             return false;
         };
@@ -381,8 +398,9 @@ impl Connection {
         Ok(())
     }
 
-    pub(super) fn resized(&self, channel: ChannelId, frame: ScreenFrame) -> bool {
+    pub(super) fn resized(&self, channel: ChannelId, mut frame: ScreenFrame) -> bool {
         let mut inner = self.lock();
+        inner.defer(&mut frame);
         let Some(attachment) = inner.attachments.get_mut(&channel) else {
             return false;
         };
@@ -444,8 +462,9 @@ impl Connection {
         self.ready.notify_one();
     }
 
-    pub(super) fn push_frame(&self, channel: ChannelId, frame: ScreenFrame) -> bool {
+    pub(super) fn push_frame(&self, channel: ChannelId, mut frame: ScreenFrame) -> bool {
         let mut inner = self.lock();
+        inner.defer(&mut frame);
         if inner.closed || !inner.outbox.push_frame(channel, frame) {
             return false;
         }
@@ -531,6 +550,15 @@ fn session_state(message: &Message) -> Option<SessionId> {
 }
 
 impl Inner {
+    /// Leaves image pixels out of `frame` for an app that reads them itself.
+    fn defer(&self, frame: &mut ScreenFrame) {
+        if self.state.defer_images
+            && let Some(graphics) = &mut frame.graphics
+        {
+            graphics.defer_pixels();
+        }
+    }
+
     /// Sends each matching attached session the colors it should use now.
     fn apply_colors(&self, matches: impl Fn(SessionId) -> bool) {
         for attachment in self.attachments.values() {

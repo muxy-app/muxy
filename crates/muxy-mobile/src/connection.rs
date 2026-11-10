@@ -352,6 +352,9 @@ impl Connection {
             .map_err(|error| MobileError::Unreachable {
                 reason: error.to_string(),
             })?;
+        // Phones draw no images, so they never read their pixels. An older
+        // server refuses and keeps sending them.
+        let _ = client.defer_images();
         if client.watch_session_metadata().is_ok() {
             titles.watching();
         }

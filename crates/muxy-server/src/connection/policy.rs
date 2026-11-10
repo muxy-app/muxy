@@ -53,6 +53,8 @@ pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(
         | RequestBody::DiscardSession(_)
         | RequestBody::HistoryPage { .. }
         | RequestBody::SavedHistoryPage { .. }
+        | RequestBody::DeferImages
+        | RequestBody::ImageFrames { .. }
         | RequestBody::Search { .. }
         | RequestBody::SetTerminalColors(_)
         | RequestBody::SetSessionColors { .. }

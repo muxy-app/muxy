@@ -41,9 +41,16 @@ pub(crate) fn run(invocation: Invocation, host: Option<SshTarget>) -> Result {
         Target::Local { .. } => Paths::Local,
         Target::Ssh { .. } => Paths::Remote,
     };
-    let result = match client.identify(muxy_protocol::ClientKind::Cli) {
-        Ok(_) => execute(invocation, &client, paths),
-        Err(error) => Err(error.into()),
+    // Commands draw no images, so they never read their pixels. An older
+    // server refuses and keeps sending them.
+    let result = match client
+        .identify(muxy_protocol::ClientKind::Cli)
+        .map(|_| client.defer_images())
+    {
+        Ok(Ok(()) | Err(muxy_client::ClientError::Server(_))) => {
+            execute(invocation, &client, paths)
+        }
+        Ok(Err(error)) | Err(error) => Err(error.into()),
     };
     client.disconnect();
     result.map_err(|error| target.explain(error))

@@ -2156,6 +2156,9 @@ impl AppModel {
                 }
             }
             PaneEvent::History(request) => model.fetch_history(id, *request, cx),
+            PaneEvent::ImageFrames { image, keys } => {
+                model.fetch_image_frames(id, *image, keys.clone(), cx);
+            }
             PaneEvent::Search(request) => model.search(id, request.clone(), cx),
             PaneEvent::Viewport(size) => model.viewport(id, *size, cx),
             PaneEvent::Input(channel, bytes) => {
@@ -2413,6 +2416,37 @@ impl AppModel {
         }
     }
 
+    fn fetch_image_frames(
+        &mut self,
+        pane: PaneId,
+        image: u32,
+        keys: Vec<u64>,
+        cx: &mut Context<Self>,
+    ) {
+        let attached = self
+            .attachment(pane, cx)
+            .filter(|(server, _)| self.quitting == Quitting::Idle && self.ready(*server));
+        let Some((server, channel)) = attached else {
+            // The pane counts its requests, so one that isn't sent still fails.
+            if let Some(pane) = self.terminal(&pane) {
+                pane.view.update(cx, |pane, cx| {
+                    pane.receive_image_frames(image, &keys, None, cx);
+                });
+            }
+            return;
+        };
+        self.send(
+            server,
+            Work::ImageFrames {
+                pane,
+                channel,
+                image,
+                keys,
+            },
+            cx,
+        );
+    }
+
     fn fetch_history(
         &mut self,
         pane: PaneId,
@@ -2661,6 +2695,18 @@ impl AppModel {
                 if let Some(pane) = self.terminal(&pane) {
                     pane.view
                         .update(cx, |pane, cx| pane.receive_history(request, result, cx));
+                }
+            }
+            Update::ImageFrames {
+                pane,
+                image,
+                keys,
+                result,
+            } => {
+                if let Some(pane) = self.terminal(&pane) {
+                    pane.view.update(cx, |pane, cx| {
+                        pane.receive_image_frames(image, &keys, result.ok(), cx);
+                    });
                 }
             }
             Update::ReferencesSynced(Err(muxy_client::ClientError::Disconnected)) => {

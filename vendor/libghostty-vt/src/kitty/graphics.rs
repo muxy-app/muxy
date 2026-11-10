@@ -104,6 +104,10 @@
 //! [Knowing what changed](#knowing-what-changed) above), new frames appear
 //! without any extra work.
 //!
+//! To play an animation somewhere else instead, such as in another process,
+//! read every stored frame with [`Image::frame`] and the playback state with
+//! [`Image::animation_state`], [`Image::current_frame`] and [`Image::loops`].
+//!
 //! The tick also tells you when the next frame is due. Use that time to
 //! schedule a single redraw instead of calling the tick in a loop:
 //!
@@ -1003,6 +1007,121 @@ impl<'t> Image<'t> {
         // SAFETY: We trust libghostty to return valid results
         Ok(Some(unsafe { std::slice::from_raw_parts(ptr, len) }))
     }
+
+    /// The number of frames the image has, including the root frame (the
+    /// image's own pixels).
+    ///
+    /// It is 1 for an image with no animation frames. Read each frame with
+    /// [`Image::frame`].
+    pub fn frame_count(&self) -> Result<u32> {
+        self.get(ffi::KittyGraphicsImageData::FRAME_COUNT)
+    }
+    /// Playback state of the image's animation.
+    ///
+    /// It is [`AnimationState::Stopped`] for an image with no animation
+    /// state.
+    pub fn animation_state(&self) -> Result<AnimationState> {
+        self.get::<ffi::KittyAnimationState::Type>(ffi::KittyGraphicsImageData::ANIMATION_STATE)
+            .and_then(|v| v.try_into().map_err(|_| Error::InvalidValue))
+    }
+    /// The number of the frame currently displayed, which is the frame
+    /// [`Image::data`] returns.
+    ///
+    /// Frames are numbered from 1, the root frame. It is 1 for an image with
+    /// no animation state.
+    pub fn current_frame(&self) -> Result<u32> {
+        self.get(ffi::KittyGraphicsImageData::CURRENT_FRAME)
+    }
+    /// The number of loops the animation plays before it stops on its last
+    /// frame (0 = loop forever).
+    ///
+    /// It is 0 for an image with no animation state.
+    pub fn loops(&self) -> Result<u32> {
+        self.get(ffi::KittyGraphicsImageData::LOOPS)
+    }
+
+    /// Get one frame of the image: its pixels and how long it is displayed.
+    ///
+    /// The terminal stores every frame of an animated image, not only the one
+    /// currently displayed. Use this to read them all, for example to play
+    /// the animation somewhere else. Frames are numbered from 1 to
+    /// [`Image::frame_count`]. Frame 1 is the root frame, which is the
+    /// image's own pixels, so it exists for images with no animation too.
+    ///
+    /// This doesn't change the image. The frame that is displayed stays the
+    /// one [`Image::current_frame`] reports.
+    ///
+    /// Returns `None` if the image has no frame with that number, if the
+    /// frame's pixels are pending, or if Kitty graphics are disabled at build
+    /// time.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use libghostty_vt::{Terminal, kitty::graphics::AnimationState};
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut terminal = Terminal::new(80, 24)?;
+    /// terminal.set_kitty_image_storage_limit(64 * 1024 * 1024)?;
+    ///
+    /// // Send a red 1x1 RGBA image with ID 1, add a blue second frame that
+    /// // shows for 100 ms, make the first frame show for 50 ms, and start
+    /// // playing on a loop.
+    /// terminal.vt_write(
+    ///     b"\x1b_Ga=T,f=32,i=1,s=1,v=1,q=2;/wAA/w==\x1b\\\
+    ///       \x1b_Ga=f,f=32,i=1,s=1,v=1,z=100,q=2;AAD//w==\x1b\\\
+    ///       \x1b_Ga=a,i=1,r=1,z=50,q=2\x1b\\\
+    ///       \x1b_Ga=a,i=1,s=3,q=2\x1b\\",
+    /// );
+    ///
+    /// let graphics = terminal.kitty_graphics()?;
+    /// let image = graphics.image(1).ok_or("no such image")?;
+    /// # assert_eq!(image.frame_count()?, 2);
+    /// # assert_eq!(image.animation_state()?, AnimationState::Running);
+    /// println!(
+    ///     "{:?}, on frame {} of {}",
+    ///     image.animation_state()?,
+    ///     image.current_frame()?,
+    ///     image.frame_count()?,
+    /// );
+    ///
+    /// for number in 1..=image.frame_count()? {
+    ///     let frame = image.frame(number)?.ok_or("pixels still loading")?;
+    ///     println!(
+    ///         "  frame {number}: pixel=({},{},{}) shows for {} ms",
+    ///         frame.data[0], frame.data[1], frame.data[2], frame.gap_ms,
+    ///     );
+    /// #   let expected: (&[u8], u32) = match number {
+    /// #       1 => (&[255, 0, 0, 255], 50),
+    /// #       _ => (&[0, 0, 255, 255], 100),
+    /// #   };
+    /// #   assert_eq!((frame.data, frame.gap_ms), expected);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn frame(&self, number: u32) -> Result<Option<Frame<'t>>> {
+        let mut frame = MaybeUninit::<ffi::KittyImageFrame>::zeroed();
+        // SAFETY: The image is live for `'t`, and `frame` is a valid,
+        // non-NULL out-pointer, which is only written on success.
+        let result = unsafe {
+            ffi::ghostty_kitty_graphics_image_frame(self.inner.as_raw(), number, frame.as_mut_ptr())
+        };
+        let Some(frame) = from_optional_result_uninit(result, frame)? else {
+            return Ok(None);
+        };
+        let data = if frame.data.is_null() {
+            &[]
+        } else {
+            // SAFETY: We trust libghostty to return valid results, which
+            // stay valid until the terminal is next mutated.
+            unsafe { std::slice::from_raw_parts(frame.data, frame.data_len) }
+        };
+        Ok(Some(Frame {
+            data,
+            gap_ms: frame.gap_ms,
+        }))
+    }
 }
 
 impl<'alloc> PlacementIterator<'alloc> {
@@ -1433,6 +1552,44 @@ pub enum Compression {
     ZlibDeflate = ffi::KittyImageCompression::ZLIB_DEFLATE,
 }
 
+/// Playback state of an animated Kitty graphics image, read with
+/// [`Image::animation_state`].
+///
+/// A program sets it with the `s` key of an animation control command (a=a).
+/// Every image starts stopped.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, int_enum::IntEnum)]
+#[non_exhaustive]
+#[repr(i32)]
+pub enum AnimationState {
+    /// Not playing. The displayed frame only changes when the program picks
+    /// another one (s=1).
+    #[default]
+    Stopped = ffi::KittyAnimationState::STOPPED,
+    /// Playing, but waiting on the last frame for more frames to arrive
+    /// instead of looping (s=2).
+    Loading = ffi::KittyAnimationState::LOADING,
+    /// Playing on a loop (s=3).
+    Running = ffi::KittyAnimationState::RUNNING,
+}
+
+/// One frame of a Kitty graphics image, returned by [`Image::frame`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Frame<'t> {
+    /// The frame's pixels, valid as long as the underlying terminal is not
+    /// mutated.
+    ///
+    /// The pixels are fully decoded and uncompressed. The root frame
+    /// (frame 1) is in the format reported by [`Image::format`], so it is
+    /// width * height * bytes-per-pixel long. Every other frame is RGBA, so
+    /// it is width * height * 4 bytes long.
+    pub data: &'t [u8],
+    /// How long the frame is displayed before the next one, in milliseconds.
+    ///
+    /// A frame with a gap of 0 is skipped during playback. The root frame of
+    /// an image with no animation state has a gap of 0.
+    pub gap_ms: u32,
+}
+
 // libghostty's decoder hook is process-global, so the decoder has to be too:
 // a terminal on any thread may call it. Decoding takes `&mut self`, hence the
 // mutex rather than the logger's read-write lock.
@@ -1672,7 +1829,8 @@ pub struct DecodedImage<'alloc> {
 
 #[cfg(all(test, not(miri)))]
 mod animation_tests {
-    use crate::Terminal;
+    use super::{AnimationState, Frame};
+    use crate::{Terminal, ffi};
 
     const RED: [u8; 4] = [255, 0, 0, 255];
     const BLUE: [u8; 4] = [0, 0, 255, 255];
@@ -1752,6 +1910,103 @@ mod animation_tests {
         terminal.vt_write(b"\x1b_Ga=a,i=1,s=1,q=2\x1b\\");
         assert_eq!(tick(&mut terminal, 6000), None);
         assert_eq!(image(&terminal), (RED, g2));
+    }
+
+    #[test]
+    fn reads_every_stored_frame_and_the_playback_state() {
+        let mut terminal = Terminal::new(20, 5).unwrap();
+        terminal.resize(20, 5, 10, 20).unwrap();
+
+        // A red 1x1 image, a blue second frame shown for 100 ms, 50 ms for
+        // the root frame, then playing on a loop.
+        terminal.vt_write(b"\x1b_Ga=T,i=1,f=32,s=1,v=1,q=2;/wAA/w==\x1b\\");
+        terminal.vt_write(b"\x1b_Ga=f,i=1,f=32,s=1,v=1,z=100,q=2;AAD//w==\x1b\\");
+        terminal.vt_write(b"\x1b_Ga=a,i=1,r=1,z=50,q=2\x1b\\");
+        terminal.vt_write(b"\x1b_Ga=a,i=1,s=3,v=1,q=2\x1b\\");
+
+        {
+            let graphics = terminal.kitty_graphics().unwrap();
+            let image = graphics.image(1).unwrap();
+            assert_eq!(image.frame_count().unwrap(), 2);
+            assert_eq!(
+                image.frame(1).unwrap(),
+                Some(Frame {
+                    data: &RED,
+                    gap_ms: 50
+                })
+            );
+            assert_eq!(
+                image.frame(2).unwrap(),
+                Some(Frame {
+                    data: &BLUE,
+                    gap_ms: 100
+                })
+            );
+            assert_eq!(image.frame(3).unwrap(), None);
+            assert_eq!(image.frame(0).unwrap(), None);
+            assert_eq!(image.animation_state().unwrap(), AnimationState::Running);
+            assert_eq!(image.current_frame().unwrap(), 1);
+            assert_eq!(image.loops().unwrap(), 0);
+        }
+
+        // Show the second frame, wait for more frames instead of looping
+        // (s=2), and play two loops (v=3, which the protocol stores as 2).
+        terminal.vt_write(b"\x1b_Ga=a,i=1,s=2,c=2,v=3,q=2\x1b\\");
+        let graphics = terminal.kitty_graphics().unwrap();
+        let image = graphics.image(1).unwrap();
+        assert_eq!(image.animation_state().unwrap(), AnimationState::Loading);
+        assert_eq!(image.current_frame().unwrap(), 2);
+        assert_eq!(image.loops().unwrap(), 2);
+        // Reading frames doesn't change which one is displayed.
+        assert_eq!(image.frame(1).unwrap().unwrap().data, RED);
+        assert_eq!(image.data().unwrap(), Some(&BLUE[..]));
+        assert_eq!(image.frame_count().unwrap(), 2);
+    }
+
+    #[test]
+    fn image_without_animation_is_one_stopped_frame() {
+        let mut terminal = Terminal::new(20, 5).unwrap();
+        terminal.resize(20, 5, 10, 20).unwrap();
+        terminal.vt_write(b"\x1b_Ga=T,i=1,f=32,s=1,v=1,q=2;/wAA/w==\x1b\\");
+
+        let graphics = terminal.kitty_graphics().unwrap();
+        let image = graphics.image(1).unwrap();
+        assert_eq!(image.frame_count().unwrap(), 1);
+        assert_eq!(image.animation_state().unwrap(), AnimationState::Stopped);
+        assert_eq!(image.current_frame().unwrap(), 1);
+        assert_eq!(image.loops().unwrap(), 0);
+        assert_eq!(
+            image.frame(1).unwrap(),
+            Some(Frame {
+                data: &RED,
+                gap_ms: 0
+            })
+        );
+        assert_eq!(image.frame(2).unwrap(), None);
+    }
+
+    #[test]
+    fn frame_rejects_null_arguments() {
+        let mut terminal = Terminal::new(20, 5).unwrap();
+        terminal.resize(20, 5, 10, 20).unwrap();
+        terminal.vt_write(b"\x1b_Ga=T,i=1,f=32,s=1,v=1,q=2;/wAA/w==\x1b\\");
+        let graphics = terminal.kitty_graphics().unwrap();
+        let image = graphics.image(1).unwrap();
+
+        let mut frame = ffi::KittyImageFrame::default();
+        // SAFETY: A NULL image or out-pointer is rejected before it is used.
+        let (null_image, null_out) = unsafe {
+            (
+                ffi::ghostty_kitty_graphics_image_frame(std::ptr::null(), 1, &raw mut frame),
+                ffi::ghostty_kitty_graphics_image_frame(
+                    image.inner.as_raw(),
+                    1,
+                    std::ptr::null_mut(),
+                ),
+            )
+        };
+        assert_eq!(null_image, ffi::Result::INVALID_VALUE);
+        assert_eq!(null_out, ffi::Result::INVALID_VALUE);
     }
 }
 

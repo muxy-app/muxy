@@ -2095,6 +2095,18 @@ pub mod KittyImageCompression {
     pub const ZLIB_DEFLATE: Type = 1;
     pub const MAX_VALUE: Type = 2147483647;
 }
+pub mod KittyAnimationState {
+    #[doc = " Playback state of an animated Kitty graphics image.\n\n A program sets it with the `s` key of an animation control command\n (a=a). Every image starts stopped.\n"]
+    pub type Type = ::std::os::raw::c_int;
+    #[doc = " Not playing. The displayed frame only changes when the program\n  picks another one (s=1)."]
+    pub const STOPPED: Type = 0;
+    #[doc = " Playing, but waiting on the last frame for more frames to arrive\n  instead of looping (s=2)."]
+    pub const LOADING: Type = 1;
+    #[doc = " Playing on a loop (s=3)."]
+    pub const RUNNING: Type = 2;
+    #[doc = " Playing on a loop (s=3)."]
+    pub const MAX_VALUE: Type = 2147483647;
+}
 pub mod KittyGraphicsImageData {
     #[doc = " Queryable data kinds for ghostty_kitty_graphics_image_get().\n"]
     pub type Type = ::std::os::raw::c_int;
@@ -2118,8 +2130,47 @@ pub mod KittyGraphicsImageData {
     pub const DATA_LEN: Type = 8;
     #[doc = " A value that changes whenever this image's pixels may have changed:\n when a program sends the image or replaces it, and when an animation\n moves to a new frame. Use it as part of your texture cache key. If\n it matches the texture you have, you don't need to read the pixels\n again. The render state reports the same value for each of its\n entries as GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_GENERATION.\n\n Don't use the image's size or data length to detect changes instead.\n A program can send new pixels of the same size under the same ID.\n\n A value is never reused, not even by another image, another screen,\n or another terminal. It is never 0 for a stored image, so you can\n use 0 to mean \"no texture yet\".\n\n One case doesn't change this value. When a program finishes sending\n an image whose pixels were still on the way, the image keeps its\n value, and GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR starts returning the\n pixels. GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION changes when that\n happens, so read DATA_PTR again then.\n\n Output type: uint64_t *"]
     pub const GENERATION: Type = 9;
-    #[doc = " A value that changes whenever this image's pixels may have changed:\n when a program sends the image or replaces it, and when an animation\n moves to a new frame. Use it as part of your texture cache key. If\n it matches the texture you have, you don't need to read the pixels\n again. The render state reports the same value for each of its\n entries as GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_GENERATION.\n\n Don't use the image's size or data length to detect changes instead.\n A program can send new pixels of the same size under the same ID.\n\n A value is never reused, not even by another image, another screen,\n or another terminal. It is never 0 for a stored image, so you can\n use 0 to mean \"no texture yet\".\n\n One case doesn't change this value. When a program finishes sending\n an image whose pixels were still on the way, the image keeps its\n value, and GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR starts returning the\n pixels. GHOSTTY_KITTY_GRAPHICS_DATA_GENERATION changes when that\n happens, so read DATA_PTR again then.\n\n Output type: uint64_t *"]
+    #[doc = " The number of frames the image has, including the root frame (the\n image's own pixels). 1 for an image with no animation frames. Read\n each frame with ghostty_kitty_graphics_image_frame().\n\n Output type: uint32_t *"]
+    pub const FRAME_COUNT: Type = 10;
+    #[doc = " Playback state of the image's animation.\n GHOSTTY_KITTY_ANIMATION_STATE_STOPPED for an image with no\n animation state.\n\n Output type: GhosttyKittyAnimationState *"]
+    pub const ANIMATION_STATE: Type = 11;
+    #[doc = " The number of the frame currently displayed, which is the frame\n GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR returns. Frames are numbered from\n 1, the root frame. 1 for an image with no animation state.\n\n Output type: uint32_t *"]
+    pub const CURRENT_FRAME: Type = 12;
+    #[doc = " The number of loops the animation plays before it stops on its\n last frame (0 = loop forever). 0 for an image with no animation\n state.\n\n Output type: uint32_t *"]
+    pub const LOOPS: Type = 13;
+    #[doc = " The number of loops the animation plays before it stops on its\n last frame (0 = loop forever). 0 for an image with no animation\n state.\n\n Output type: uint32_t *"]
     pub const MAX_VALUE: Type = 2147483647;
+}
+#[doc = " One frame of a Kitty graphics image, filled in by\n ghostty_kitty_graphics_image_frame().\n"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct KittyImageFrame {
+    #[doc = " Borrowed pointer to the frame's pixels. Valid as long as the\n  underlying terminal is not mutated. The pixels are fully decoded\n  and uncompressed. The root frame (frame 1) is in the format\n  reported by GHOSTTY_KITTY_IMAGE_DATA_FORMAT. Every other frame is\n  RGBA."]
+    pub data: *const u8,
+    #[doc = " Length of the pixels in bytes. For the root frame this is\n  width * height * bytes-per-pixel for the image's format. For\n  every other frame it is width * height * 4."]
+    pub data_len: usize,
+    #[doc = " How long the frame is displayed before the next one, in\n  milliseconds. A frame with a gap of 0 is skipped during playback.\n  The root frame of an image with no animation state has a gap of\n  0."]
+    pub gap_ms: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of KittyImageFrame"][::std::mem::size_of::<KittyImageFrame>() - 24usize];
+    ["Alignment of KittyImageFrame"][::std::mem::align_of::<KittyImageFrame>() - 8usize];
+    ["Offset of field: KittyImageFrame::data"]
+        [::std::mem::offset_of!(KittyImageFrame, data) - 0usize];
+    ["Offset of field: KittyImageFrame::data_len"]
+        [::std::mem::offset_of!(KittyImageFrame, data_len) - 8usize];
+    ["Offset of field: KittyImageFrame::gap_ms"]
+        [::std::mem::offset_of!(KittyImageFrame, gap_ms) - 16usize];
+};
+impl Default for KittyImageFrame {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
 }
 #[doc = " The geometry of a storage placement, filled in by\n ghostty_kitty_graphics_placement_render_info().\n\n It holds the results of ghostty_kitty_graphics_placement_pixel_size(),\n ghostty_kitty_graphics_placement_grid_size(),\n ghostty_kitty_graphics_placement_viewport_pos() and\n ghostty_kitty_graphics_placement_source_rect(), so you can get all of\n them in one call. That helps most when each call is expensive, such\n as through FFI or Cgo.\n\n This is for inspecting the storage. To draw, use the render state's\n image list, which gives the same values for every image on screen.\n See \"Drawing Images\" in the @ref kitty_graphics documentation.\n\n Later versions may add fields to the end of this struct. Set `size`\n with GHOSTTY_INIT_SIZED before each call, so the library knows which\n fields you have:\n\n GhosttyKittyGraphicsPlacementRenderInfo info =\n     GHOSTTY_INIT_SIZED(GhosttyKittyGraphicsPlacementRenderInfo);\n ghostty_kitty_graphics_placement_render_info(iter, image, terminal, &info);\n"]
 #[repr(C)]
@@ -2220,6 +2271,14 @@ unsafe extern "C" {
         keys: *const KittyGraphicsImageData::Type,
         values: *mut *mut ::std::os::raw::c_void,
         out_written: *mut usize,
+    ) -> Result::Type;
+}
+unsafe extern "C" {
+    #[doc = " Get one frame of a Kitty graphics image: its pixels and how long it\n is displayed.\n\n The terminal stores every frame of an animated image, not only the\n one currently displayed. Use this to read them all, for example to\n play the animation somewhere else. Frames are numbered from 1 to\n GHOSTTY_KITTY_IMAGE_DATA_FRAME_COUNT. Frame 1 is the root frame,\n which is the image's own pixels, so it exists for images with no\n animation too.\n\n This doesn't change the image. The frame that is displayed stays the\n one GHOSTTY_KITTY_IMAGE_DATA_CURRENT_FRAME reports.\n\n             returns GHOSTTY_SUCCESS.\n         no frame with that number, if the frame's pixels are pending,\n         or if Kitty graphics are disabled at build time.\n         GHOSTTY_INVALID_VALUE if `image` or `out` is NULL.\n"]
+    pub fn ghostty_kitty_graphics_image_frame(
+        image: KittyGraphicsImage,
+        number: u32,
+        out: *mut KittyImageFrame,
     ) -> Result::Type;
 }
 unsafe extern "C" {

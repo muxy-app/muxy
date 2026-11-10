@@ -413,6 +413,32 @@ impl<'alloc, 'r> Decoder<'alloc, 'r> {
         Ok(self)
     }
 
+    /// Kitty graphics image storage limit, in bytes, applied to each restored
+    /// screen.
+    ///
+    /// This value is available in every non-failed decoder state.
+    pub fn kitty_image_storage_limit(&self) -> Result<u64> {
+        self.get(Data::KITTY_IMAGE_STORAGE_LIMIT)
+    }
+
+    /// Set the Kitty graphics image storage limit, in bytes, for each
+    /// restored screen.
+    ///
+    /// A snapshot does not record the limit of the terminal that wrote it,
+    /// so the decoder always applies this one. Images are restored oldest
+    /// first, and an image that does not fit evicts older images, exactly as
+    /// a live transmission would. An image larger than the whole limit is
+    /// dropped with its placements. Zero disables Kitty graphics on the
+    /// restored terminal.
+    ///
+    /// The default is the storage limit of a new terminal. Set this before
+    /// [`Self::ready`] or [`Self::decode`]; changing the limit of the
+    /// restored terminal afterwards does not bring dropped images back.
+    pub fn set_kitty_image_storage_limit(&mut self, limit: u64) -> Result<&mut Self> {
+        self.set(Opt::KITTY_IMAGE_STORAGE_LIMIT, &limit)?;
+        Ok(self)
+    }
+
     /// Number of snapshot source bytes consumed so far.
     ///
     /// At FINISH this identifies the first byte after the snapshot. Trailing
