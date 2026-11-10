@@ -203,6 +203,7 @@ impl TerminalPane {
             .reveal
             .end_drag(now.duration_since(self.scrollbar.epoch));
         self.reveal_scrollbar(cx);
+        self.settle_scroll(cx);
         cx.notify();
         true
     }

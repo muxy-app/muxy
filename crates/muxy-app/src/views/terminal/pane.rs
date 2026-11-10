@@ -58,6 +58,10 @@ gpui::actions!(terminal, [CloseFind]);
 const SHORTEST_IMAGE_FRAME: Duration = Duration::from_millis(8);
 /// How long a pane waits before it asks again for frames it couldn't read.
 const IMAGE_RETRY: Duration = Duration::from_secs(1);
+/// How long scrolling has to pause before a view left less than a row above
+/// the bottom returns to it. Longer than the gap between the events of one
+/// scroll gesture, so the view never moves under a scroll still going on.
+const SCROLL_SETTLE: Duration = Duration::from_millis(200);
 
 pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>) {
     registry.register(
@@ -146,6 +150,7 @@ pub(crate) struct TerminalPane {
     selecting: Option<(Selection, usize)>,
     selection_pointer: Option<gpui::Point<gpui::Pixels>>,
     selection_scroll: Option<Task<()>>,
+    scroll_settle: Option<Task<()>>,
     pub(crate) input_modes: InputModes,
     input_modes_reported: bool,
     pub(crate) composition: super::ime::Composition,
@@ -289,6 +294,7 @@ impl TerminalPane {
             selecting: None,
             selection_pointer: None,
             selection_scroll: None,
+            scroll_settle: None,
             input_modes: InputModes::default(),
             input_modes_reported: false,
             composition: super::ime::Composition::default(),
@@ -496,6 +502,7 @@ impl TerminalPane {
             }
             self.validate_selection();
             self.reveal_scrollbar(cx);
+            self.settle_scroll(cx);
             cx.notify();
         }
     }
@@ -512,8 +519,44 @@ impl TerminalPane {
                 self.restart_find(cx);
             }
             self.validate_selection();
+            self.settle_scroll(cx);
             cx.notify();
         }
+    }
+
+    /// Returns the view to the bottom once scrolling stops less than a row
+    /// above it. A stray scroll of a few pixels would otherwise leave a copy
+    /// of the screen that looks live while new output stays out of sight.
+    /// The view stays while a drag is under way, or while it holds a
+    /// selection the screen would lose.
+    pub(super) fn settle_scroll(&mut self, cx: &mut Context<Self>) {
+        if !self.scroll.rests_at_bottom() {
+            self.scroll_settle = None;
+            return;
+        }
+        self.scroll_settle = Some(cx.spawn(async move |pane, cx| {
+            cx.background_executor().timer(SCROLL_SETTLE).await;
+            let _ = pane.update(cx, |pane, cx| {
+                pane.scroll_settle = None;
+                if pane.scroll.rests_at_bottom()
+                    && pane.selecting.is_none()
+                    && !pane.scrollbar_dragging()
+                    && pane.screen_keeps_selection()
+                {
+                    pane.scroll_to_bottom(cx);
+                }
+            });
+        }));
+    }
+
+    /// Whether the selection, if any, covers the same text on the screen as
+    /// it does in the scrolled view.
+    fn screen_keeps_selection(&self) -> bool {
+        self.selection.is_none_or(|selection| {
+            self.grid
+                .as_deref()
+                .is_some_and(|grid| selection.rows(grid) == self.selection_rows)
+        })
     }
 
     pub(crate) fn receive_image_frames(
@@ -1467,6 +1510,7 @@ impl TerminalPane {
             cx,
         );
         self.stop_selecting();
+        self.settle_scroll(cx);
         if completed_selection
             && self
                 .terminal
@@ -1970,6 +2014,7 @@ mod tests {
     mod links;
     mod scrollbar;
     mod server_input;
+    mod settle;
 
     use super::*;
     use gpui::{AppContext, TestAppContext, point, size};
