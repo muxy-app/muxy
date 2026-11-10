@@ -92,7 +92,11 @@ pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
     if invocation.json {
         writeln!(stdout, "{reply}")?;
     } else {
-        write!(stdout, "{}", text(invocation.verb, &reply))?;
+        write!(
+            stdout,
+            "{}",
+            display_text(invocation.verb, &reply, crate::output::Display::stdout())
+        )?;
     }
     let problems = problem_count(invocation.verb, &reply);
     if problems > 0 {
@@ -219,6 +223,46 @@ fn list_row(extension: &Value) -> String {
         source(extension),
         string(extension, "path"),
     )
+}
+
+fn display_text(verb: &str, reply: &Value, display: crate::output::Display) -> String {
+    if !display.terminal || !matches!(verb, "extension.list" | "extension.status") {
+        return text(verb, reply);
+    }
+    let extensions: Vec<_> = if verb == "extension.status" {
+        vec![reply]
+    } else {
+        reply
+            .get("extensions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .collect()
+    };
+    let rows: Vec<_> = extensions
+        .iter()
+        .map(|extension| {
+            vec![
+                string(extension, "name").into(),
+                string(extension, "version").into(),
+                state(extension).into(),
+                source(extension).into(),
+                string(extension, "path").into(),
+            ]
+        })
+        .collect();
+    let mut output = display.table(
+        &["name", "version", "state", "source", "folder"],
+        &rows,
+        "No extensions loaded.",
+    );
+    for error in strings(reply, "load_errors") {
+        let _ = writeln!(output, "load error: {}", crate::output::cell(&json!(error)));
+    }
+    for line in strings(reply, "log") {
+        let _ = writeln!(output, "{}", crate::output::cell(&json!(line)));
+    }
+    output
 }
 
 fn text(verb: &str, reply: &Value) -> String {
@@ -440,6 +484,26 @@ mod tests {
             problem_count("extension.validate", &json!({"problems": ["a", "b"]})),
             2
         );
+    }
+
+    #[test]
+    fn formatted_logs_escape_controls_without_changing_raw_output() {
+        let line = "\u{1b}[2Jstatus\tchanged\r\nnext";
+        let reply = json!({"name": "hello", "log": [line], "lines": [line]});
+        let mut display = crate::output::Display::stdout();
+        display.terminal = true;
+        for verb in ["extension.list", "extension.status"] {
+            let output = display_text(verb, &reply, display);
+            assert!(!output.contains(line), "{verb}: {output:?}");
+            assert!(output.ends_with("\\u{1b}[2Jstatus\\tchanged\\r\\nnext\n"));
+        }
+        let raw = format!("{line}\n");
+        assert_eq!(display_text("extension.logs", &reply, display), raw);
+        display.terminal = false;
+        for verb in ["extension.list", "extension.status", "extension.logs"] {
+            assert_eq!(display_text(verb, &reply, display), text(verb, &reply));
+        }
+        assert!(display_text("extension.status", &reply, display).ends_with(&raw));
     }
 
     #[test]

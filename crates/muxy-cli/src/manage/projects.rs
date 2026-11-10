@@ -70,6 +70,20 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
                 .map(record)
                 .collect::<Vec<_>>(),
             &["id", "name", "directory"],
+            "No projects. Add one with muxy project add <directory>.",
+        ),
+        Project::Inspect(selector) => output.inspect(
+            &record(&resolve(client, &selector, paths)?),
+            &[
+                "id",
+                "name",
+                "directory",
+                "home",
+                "parent_id",
+                "kind",
+                "color",
+                "icon",
+            ],
         ),
         Project::Add {
             directory,
@@ -223,6 +237,7 @@ pub(super) fn worktree(
             output.list(
                 &worktrees.iter().map(worktree_record).collect::<Vec<_>>(),
                 &["project_id", "branch", "directory"],
+                "No worktrees.",
             )
         }
         Worktree::Create {

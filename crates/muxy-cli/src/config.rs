@@ -84,6 +84,20 @@ pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
                     .map(|(key, value)| Ok((key.clone(), serde_json::to_value(value)?)))
                     .collect::<Result<_, serde_json::Error>>()?;
                 writeln!(stdout, "{}", Value::Object(object))?;
+            } else if crate::output::Display::stdout().terminal {
+                let rows: Vec<_> = entries
+                    .iter()
+                    .map(|(key, value)| vec![key.clone(), value.to_string()])
+                    .collect();
+                write!(
+                    stdout,
+                    "{}",
+                    crate::output::Display::stdout().table(
+                        &["key", "value"],
+                        &rows,
+                        "No settings."
+                    )
+                )?;
             } else {
                 for (key, value) in &entries {
                     writeln!(stdout, "{key} = {value}")?;

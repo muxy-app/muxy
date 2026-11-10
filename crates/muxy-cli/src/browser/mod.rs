@@ -96,12 +96,35 @@ fn print(output: Output, reply: Value) -> Result<(), Box<dyn Error>> {
             other => writeln!(stdout, "{other}")?,
         },
         Output::Tabs => {
-            for tab in reply.as_array().ok_or(INVALID_REPLY)? {
-                let row: Vec<_> = ["tabId", "title", "url", "profile", "active"]
-                    .iter()
-                    .map(|key| cell(&tab[key]))
-                    .collect();
-                writeln!(stdout, "{}", row.join("\t"))?;
+            let display = crate::output::Display::stdout();
+            let columns = ["tabId", "title", "url", "profile", "active"];
+            let rows: Vec<Vec<_>> = reply
+                .as_array()
+                .ok_or(INVALID_REPLY)?
+                .iter()
+                .map(|tab| {
+                    columns
+                        .iter()
+                        .map(|key| {
+                            if display.terminal {
+                                crate::output::cell(&tab[key])
+                            } else {
+                                cell(&tab[key])
+                            }
+                        })
+                        .collect()
+                })
+                .collect();
+            if display.terminal {
+                write!(
+                    stdout,
+                    "{}",
+                    display.table(&columns, &rows, "No browser tabs.")
+                )?;
+            } else {
+                for row in rows {
+                    writeln!(stdout, "{}", row.join("\t"))?;
+                }
             }
         }
         Output::Page => writeln!(

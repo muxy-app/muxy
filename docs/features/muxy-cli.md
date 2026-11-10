@@ -24,14 +24,24 @@ Make sure `~/.local/bin` is on your `PATH`.
 muxy                 # open the terminal UI
 muxy .               # open this folder in the desktop app or the terminal UI
 muxy project list    # list projects
-muxy --help          # all commands; muxy <command> --help for details
+muxy ls              # list live terminal sessions
+muxy --help          # grouped command overview
+muxy help session send  # help for one subcommand
 ```
 
 - Commands start the server they use if it isn't running, including a remote
   one with `--host`. `muxy server status` and `muxy server stop` never start
   it.
 - Management commands take `--json` for machine-readable output, except
-  `muxy mobile`.
+  `muxy mobile`. Existing JSON shapes are unchanged.
+- On a terminal, lists have headers and aligned columns, or labeled records
+  when the terminal is too narrow. Empty lists explain what is missing.
+  Piped output keeps the original formats: TSV lists, JSON server/settings
+  output, and bare IDs from creation commands. Terminal captures and program
+  output remain unformatted. `NO_COLOR=1` disables help and table colors.
+- `project list`, `session list`, and `worktree list` accept `--quiet` (`-q`)
+  for one ID per line. Worktree lists omit unregistered worktrees in this mode.
+  `--quiet` cannot be combined with `--json`.
 - Ending or discarding a session and deleting a project or worktree need
   `--yes`.
 - A project can be named by its ID, its name if unique, or its folder.
@@ -46,8 +56,8 @@ muxy --help          # all commands; muxy <command> --help for details
 | `muxy` | Opens the [terminal UI](terminal-ui.md). |
 | `muxy <folder>` | Opens a new terminal in the folder's project in the desktop app, adding the project if needed. Over SSH, or without the desktop app, opens it in the terminal UI. |
 | `muxy server start\|status\|stop` | Starts, inspects, or stops the server. `stop` refuses while terminals run; add `--force` to end them. |
-| `muxy project list\|add\|rename\|set-color\|set-icon\|delete` | Manages projects. Deleting ends its terminals but keeps files on disk. |
-| `muxy session list\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard\|show` | Creates terminals, sends input, reads output, waits for text or exit, and shows a terminal in the desktop app. |
+| `muxy project list\|inspect\|add\|rename\|set-color\|set-icon\|delete` | Manages projects. Deleting ends its terminals but keeps files on disk. |
+| `muxy session list\|inspect\|rename\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard\|show` | Creates and names terminals, inspects live or saved sessions, sends input, reads output, waits for text or exit, and shows a terminal in the desktop app. |
 | `muxy worktree list\|create\|checkout-pr\|register\|remove` | Manages Git worktree projects, including checking out pull requests. |
 | `muxy settings get\|set` | Reads or changes [server settings](server.md#settings). |
 | `muxy config list\|get\|set\|unset\|reload` | Reads or changes the desktop app's settings on this computer and applies them to the running app. See [App settings](#app-settings). |
@@ -60,6 +70,36 @@ muxy --help          # all commands; muxy <command> --help for details
 | `muxy mobile` | Turns on phone access, pairs phones, and pauses or resumes push notifications with `muxy mobile push off\|on`, and resets one phone's with `muxy mobile push reset <id>`. See [Mobile](mobile.md). |
 | `muxy install-skills` | Installs the Muxy CLI skill for the AI agents found in your home folder. `--dir <path>` adds another skills folder. |
 | `muxy stdio` | Joins stdin and stdout to the server. Used by `--host` over SSH; you don't run it yourself. |
+
+## Short commands and shell completion
+
+These aliases accept exactly the same arguments as their longer forms:
+
+| Alias | Full command |
+| --- | --- |
+| `muxy ls` | `muxy session list` |
+| `muxy new` | `muxy session create` |
+| `muxy send` | `muxy session send` |
+| `muxy send-key` | `muxy session send-keys` |
+| `muxy capture` | `muxy session read-screen` |
+| `muxy wait` | `muxy session wait` |
+
+`muxy help session create` and `muxy session create --help` show the same
+command-specific usage. Running a management group without a subcommand
+shows its help. Help, version and completions never connect to a server.
+Use `./ls`, for example, to open a folder named like an alias.
+
+Generate completions for command names, nested subcommands and options:
+
+```bash
+eval "$(muxy completion bash)"  # Bash
+source <(muxy completion zsh)   # Zsh, after autoload -Uz compinit; compinit
+muxy completion fish > ~/.config/fish/completions/muxy.fish
+```
+
+Add the appropriate eval or source line to your shell startup file. Completions use
+this installed CLI's command catalog, not a running server, and do not fetch
+live project or session IDs.
 
 ## Extension commands
 
@@ -115,8 +155,12 @@ muxy session read-screen "$id" --lines 20
 muxy session end "$id" --yes
 ```
 
-- `send` types text without pressing Return. `send-keys` sends `Enter`, `Tab`,
-  `Escape`, `Backspace`, `Ctrl+C`, `Ctrl+D`, or `Ctrl+Z`.
+- `send` types text without pressing Return. `send --stdin` reads piped or
+  redirected input verbatim, including newlines; it accepts up to 1 MiB and
+  sends nothing if input exceeds that limit. It cannot also take a text argument.
+- `send-keys` sends one or more keys in order: `Enter`, `Tab`, `Escape`,
+  `Backspace`, `Ctrl+C`, `Ctrl+D`, or `Ctrl+Z`. All keys are validated before
+  any input is sent.
 - `read-screen` returns the last visible rows. `history` and `search` page
   through scrollback as JSON.
 - `--saved` reads a session's last saved screen, even after it ended.
@@ -133,6 +177,24 @@ muxy session end "$id" --yes
 - `create` can take a `--directory` and a command to run after `--`.
 - `wait --text <text>` waits for text on the screen, and `wait --exit` for the
   shell to exit. Both give up after 30 seconds by default.
+
+### Inspect and name sessions
+
+```bash
+muxy project inspect my-app
+muxy session inspect "$id" --json
+muxy session rename "$id" dev-server
+muxy ls --project my-app --quiet
+printf 'npm test\n' | muxy send "$id" --stdin
+muxy send-key "$id" Ctrl+C Enter
+```
+
+Inspection includes a session's name, status, project, directory and owner,
+including saved sessions. Renaming uses the server's shared name, so every
+connected app sees it. Names must be nonempty, trimmed, at most 256 bytes and
+contain no control characters. Existing session commands continue to target
+numeric IDs; renaming does not change the ID. Older servers without session
+naming report that the operation is unsupported.
 
 ## Browser control
 

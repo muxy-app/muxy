@@ -11,8 +11,15 @@ keep running after your command returns, and the user can open them in the
 desktop app or the terminal UI from **Existing Terminals**, or you can show
 one to them with `muxy session show`.
 
-Run `muxy --help` and `muxy <command> --help` for every option. Add `--json`
-to any management command for machine-readable output.
+Run `muxy --help` for command groups and `muxy help session create` (or
+`muxy session create --help`) for one command. Add `--json` to management
+commands for machine-readable output. Pipes keep their original text formats;
+terminals get formatted tables. Project/session/worktree lists accept
+`--quiet` (`-q`) for IDs only; do not combine it with `--json`.
+
+Short aliases: `ls` = `session list`, `new` = `session create`, `send` =
+`session send`, `send-key` = `session send-keys`, `capture` =
+`session read-screen`, and `wait` = `session wait`.
 
 ## When to use it
 
@@ -76,8 +83,10 @@ After a terminal ends, add `--saved` to read its last saved output.
 
 ## Send input deliberately
 
-`send` types text without pressing Return; `send-keys` presses one key
-(Enter, Tab, Escape, Backspace, Ctrl+C, Ctrl+D, Ctrl+Z).
+`send` types text without pressing Return; `send-keys` presses one or more
+keys in order (Enter, Tab, Escape, Backspace, Ctrl+C, Ctrl+D, Ctrl+Z).
+`send --stdin` sends piped or redirected bytes verbatim, including newlines,
+up to 1 MiB. Larger input sends nothing; no text argument is allowed with it.
 
 ```bash
 muxy session send-keys "$WEB" Ctrl+C
@@ -88,6 +97,18 @@ muxy session send-keys "$WEB" Enter
 
 You are typing into a live terminal. Read the screen first if you are unsure
 what is running.
+
+## Inspect and name terminals
+
+```bash
+muxy project inspect MyProject --json
+muxy session inspect "$WEB" --json
+muxy session rename "$WEB" dev-server
+muxy session list --project MyProject --quiet
+```
+
+Inspection works for live and saved sessions. Renaming updates the shared name
+shown in every app; IDs stay unchanged and remain the targets for commands.
 
 ## End terminals you started
 
