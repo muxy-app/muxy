@@ -89,7 +89,9 @@ impl Terminal {
     }
 
     /// Clicks at a cell: a press, then a release. The program sees it only
-    /// while `Screen::mouse_tracking` is on.
+    /// while `Screen::mouse_tracking` is on. A click that takes the phone's
+    /// size back from the desktop isn't sent, since it was aimed at the
+    /// desktop's layout.
     pub fn click(
         &self,
         button: MouseButton,
@@ -97,7 +99,9 @@ impl Terminal {
         column: u16,
         modifiers: Modifiers,
     ) -> Result<(), MobileError> {
-        self.reclaim_size();
+        if self.reclaim_size() {
+            return Ok(());
+        }
         for event in mouse::click(button, row, column, modifiers) {
             self.client.send_mouse(self.view.channel, event)?;
         }
@@ -106,13 +110,16 @@ impl Terminal {
 
     /// Turns the mouse wheel one step at a cell. The program sees it only
     /// while `Screen::mouse_tracking` or `Screen::alternate_scroll` is on.
+    /// Like `click`, a step that takes the phone's size back isn't sent.
     pub fn scroll(
         &self,
         direction: ScrollDirection,
         row: u16,
         column: u16,
     ) -> Result<(), MobileError> {
-        self.reclaim_size();
+        if self.reclaim_size() {
+            return Ok(());
+        }
         let event = mouse::scroll(direction, row, column);
         Ok(self.client.send_mouse(self.view.channel, event)?)
     }
@@ -132,14 +139,17 @@ impl Terminal {
         Ok(())
     }
 
-    /// Gives up the claim when the server refuses it, so input still goes through.
-    fn reclaim_size(&self) {
-        let size = self.view.lock().reclaim();
-        if let Some(size) = size
-            && self.client.resize(self.view.channel, size).is_err()
-        {
-            self.view.lock().claimed = None;
+    /// Returns whether the session is taking the phone's size back. Gives
+    /// up the claim when the server refuses it, so input still goes through.
+    fn reclaim_size(&self) -> bool {
+        let Some(size) = self.view.lock().reclaim() else {
+            return false;
+        };
+        if self.client.resize(self.view.channel, size).is_ok() {
+            return true;
         }
+        self.view.lock().claimed = None;
+        false
     }
 
     /// Stops receiving this terminal; the session keeps running.

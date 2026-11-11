@@ -723,12 +723,13 @@ withContext(sdk) {
   "Fit to phone".
 - Whoever works in the session last gets their size. When the user focuses
   the desktop's pane, or types, clicks, scrolls, or moves the pointer over it,
-  the desktop
-  takes back its size. After that, `sendInput`, `sendKey`, `paste`,
-  `pastePaths`, `click`, and `scroll` first resize the session back to the
-  phone's size, but only if the phone had set it, through `resize` or an
-  `attach` that took the phone's size. A session the phone has always shown
-  at the desktop's size keeps it.
+  the desktop takes back its size. After that, `sendInput`, `sendKey`,
+  `paste`, `pastePaths`, `click`, and `scroll` first resize the session back
+  to the phone's size, but only if the phone had set it, through `resize` or
+  an `attach` that took the phone's size. A session the phone has always
+  shown at the desktop's size keeps it. A `click` or `scroll` that takes the
+  size back isn't sent, since it was aimed at the desktop's layout; read
+  `screen()` again and the next tap lands where the user sees it.
 
 ## Scrollback
 
