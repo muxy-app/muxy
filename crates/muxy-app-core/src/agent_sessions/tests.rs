@@ -20,6 +20,27 @@ fn fixture(home: &Path, relative: &str, records: &[serde_json::Value]) -> std::i
 }
 
 #[test]
+fn cursor_meta_without_a_trailing_newline_is_a_session() -> Result {
+    let home = tempfile::tempdir()?;
+    let project = home.path().join("project");
+    fs::create_dir_all(&project)?;
+    let path = home
+        .path()
+        .join(".cursor/chats/bucket/cursor-plain/meta.json");
+    fs::create_dir_all(path.parent().unwrap())?;
+    let record = json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"title":"Plain","cwd":&project});
+    fs::write(&path, record.to_string())?;
+    fs::write(path.with_file_name("store.db"), [])?;
+    let roots = Roots::from_home(home.path());
+    let listing = Catalog::default().scan(&roots, &project);
+    assert!(listing.warnings.is_empty());
+    assert_eq!(listing.sessions.len(), 1);
+    assert_eq!(listing.sessions[0].id, "cursor-plain");
+    assert_eq!(listing.sessions[0].title, "Plain");
+    Ok(())
+}
+
+#[test]
 fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     let home = tempfile::tempdir()?;
     let project = home.path().join("project");
