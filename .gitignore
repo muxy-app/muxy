@@ -12,3 +12,4 @@ __pycache__/
 .muxy/
 /vendor/*/target
 /vendor/*/Cargo.lock
+/scripts/mux-bench/
