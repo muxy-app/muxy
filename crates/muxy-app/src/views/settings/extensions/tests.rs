@@ -489,4 +489,17 @@ fn always_allowing_needs_a_second_yes_and_can_be_stopped(cx: &mut TestAppContext
     pump_until(cx, |cx| trusted(cx));
     view.update(cx, |view, cx| view.set_trusted("runner", false, cx));
     pump_until(cx, |cx| !trusted(cx));
+    let refused = model.update(cx, |model, cx| {
+        model.set_extension_trusted("gone", true, cx)
+    });
+    let result = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let saved = result.clone();
+    cx.spawn(async move |_| *saved.borrow_mut() = Some(refused.await))
+        .detach();
+    pump_until(cx, |_| result.borrow().is_some());
+    assert_eq!(
+        result.take(),
+        Some(Err("extension is not installed".to_owned()))
+    );
+    assert!(!model.read_with(cx, |model, _| model.extension_trusted("gone")));
 }

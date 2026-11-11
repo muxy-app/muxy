@@ -427,9 +427,11 @@ impl AppModel {
         }
     }
 
-    /// Applies the user's choice once it arrives. A remembered choice is saved
-    /// only while the call is still live. `confirming_trust` is set when the
-    /// answer comes from the second question before trusting the extension.
+    /// Applies the user's choice once it arrives. A remembered choice is saved,
+    /// and the call runs, only while the call is live and its prompt is still
+    /// on screen, so an answer racing the timeout does neither.
+    /// `confirming_trust` is set when the answer comes from the second question
+    /// before trusting the extension.
     fn await_consent(
         &mut self,
         id: u64,
@@ -444,10 +446,17 @@ impl AppModel {
         cx.spawn(async move |model, cx| {
             let choice = choice(receiver.recv().await.unwrap_or(ConsentResponse::Cancel));
             let unconfirmed_trust = choice == Choice::Trust && !confirming_trust;
-            let live = model
-                .update(cx, |model, cx| model.call_live(&call, cx))
+            let current = model
+                .update(cx, |model, cx| {
+                    model.call_live(&call, cx)
+                        && model
+                            .extensions
+                            .sheet
+                            .as_ref()
+                            .is_some_and(|sheet| sheet.id == id)
+                })
                 .unwrap_or(false);
-            let remembered = if live && choice.remembers() && !unconfirmed_trust {
+            let remembered = if current && choice.remembers() && !unconfirmed_trust {
                 let owner = call.owner.clone();
                 let rule = request.clone();
                 local
@@ -508,7 +517,7 @@ impl AppModel {
                                     None,
                                 ),
                             }
-                            if choice.allows() && live && !unconfirmed_trust {
+                            if choice.allows() && live && answered {
                                 let mut call = call;
                                 call.approved = true;
                                 model.dispatch_extension(call, window, cx);

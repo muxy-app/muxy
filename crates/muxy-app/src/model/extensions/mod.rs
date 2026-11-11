@@ -451,6 +451,9 @@ impl AppModel {
         let owner = owner.to_owned();
         self.change_extensions(
             move |state| {
+                if trusted && !state.registry.extensions.contains_key(&owner) {
+                    return Err(tr!("extension is not installed").to_string());
+                }
                 state
                     .grants
                     .as_mut()
