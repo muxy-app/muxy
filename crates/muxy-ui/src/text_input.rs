@@ -489,6 +489,15 @@ impl Layout {
     }
 }
 
+struct ImeLayout {
+    content: SharedString,
+    width: Pixels,
+    font: gpui::Font,
+    font_size: Pixels,
+    line_height: Pixels,
+    layout: Layout,
+}
+
 fn wrap_index(line: &WrappedLine, boundary: WrapBoundary) -> usize {
     line.unwrapped_layout
         .runs
@@ -527,6 +536,13 @@ pub struct TextInput {
     marked_range: Option<Range<usize>>,
     last_layout: Option<Layout>,
     last_content: Size<Pixels>,
+    /// Font the field was last painted with, so an IME rectangle can be
+    /// measured before the next frame.
+    shaped_font: Option<gpui::Font>,
+    shaped_font_size: Pixels,
+    shaped_line_height: Pixels,
+    /// Shaped text reused while the candidate window probes each offset.
+    ime_layout: Option<ImeLayout>,
     is_selecting: bool,
     multiline: bool,
     scroll: Point<Pixels>,
@@ -571,6 +587,10 @@ impl TextInput {
             marked_range: None,
             last_layout: None,
             last_content: size(px(0.0), px(0.0)),
+            shaped_font: None,
+            shaped_font_size: px(0.0),
+            shaped_line_height: px(0.0),
+            ime_layout: None,
             is_selecting: false,
             multiline: false,
             scroll: point(px(0.0), px(0.0)),
@@ -692,6 +712,99 @@ impl TextInput {
 
     pub fn selected_text(&self) -> &str {
         &self.content[self.selected_range.clone()]
+    }
+
+    fn bounds_from_layout(
+        &self,
+        layout: &Layout,
+        range: Range<usize>,
+        field: Bounds<Pixels>,
+    ) -> Bounds<Pixels> {
+        let start = layout.position_for_offset(range.start);
+        let end = layout.position_for_offset(range.end);
+        let origin = point(field.left() - self.scroll.x, field.top() - self.scroll.y);
+        Bounds::from_corners(
+            point(origin.x + start.x, origin.y + start.y),
+            point(origin.x + end.x, origin.y + end.y + layout.line_height),
+        )
+    }
+
+    fn scroll_caret_into_view(
+        &mut self,
+        caret: Point<Pixels>,
+        line_height: Pixels,
+        field: Bounds<Pixels>,
+        mut content: Size<Pixels>,
+    ) {
+        let mut scroll = self.scroll;
+        if caret.x < scroll.x {
+            scroll.x = caret.x;
+        } else if caret.x + px(3.0) > scroll.x + field.size.width {
+            scroll.x = caret.x + px(3.0) - field.size.width;
+        }
+        if caret.y < scroll.y {
+            scroll.y = caret.y;
+        } else if caret.y + line_height > scroll.y + field.size.height {
+            scroll.y = caret.y + line_height - field.size.height;
+        }
+        content.width += px(2.0);
+        self.scroll = clamp_scroll(scroll, content, field.size);
+    }
+
+    fn ensure_ime_layout(&mut self, field: Bounds<Pixels>, window: &mut Window) -> bool {
+        let Some(font) = self.shaped_font.clone() else {
+            return false;
+        };
+        let width = field.size.width;
+        if let Some(cached) = &self.ime_layout
+            && cached.content == self.content
+            && cached.width == width
+            && cached.font == font
+            && cached.font_size == self.shaped_font_size
+            && cached.line_height == self.shaped_line_height
+        {
+            return true;
+        }
+        let text = self.content.clone();
+        let shaped = window
+            .text_system()
+            .shape_text(
+                text.clone(),
+                self.shaped_font_size,
+                &[TextRun {
+                    len: text.len(),
+                    font: font.clone(),
+                    color: self.style.text,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                }],
+                self.multiline.then_some(width),
+                None,
+            )
+            .unwrap_or_default();
+        let ranges = line_ranges(&text);
+        let lines: Vec<WrappedLine> = shaped.into_iter().collect();
+        let rows: Vec<usize> = lines
+            .iter()
+            .map(|line| 1 + line.wrap_boundaries().len())
+            .collect();
+        let line_height = self.shaped_line_height;
+        self.ime_layout = Some(ImeLayout {
+            content: text,
+            width,
+            font,
+            font_size: self.shaped_font_size,
+            line_height,
+            layout: Layout {
+                lines,
+                ranges,
+                rows,
+                line_height,
+                bounds: field,
+            },
+        });
+        true
     }
 
     pub fn cursor_offset(&self) -> usize {
@@ -1439,7 +1552,7 @@ impl EntityInputHandler for TextInput {
         &mut self,
         range_utf16: Option<Range<usize>>,
         new_text: &str,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let range = range_utf16
@@ -1451,6 +1564,7 @@ impl EntityInputHandler for TextInput {
         let committing = self.marked_range.is_some();
         let coalescing = self.coalesce_next;
         self.apply_edit(range, new_text, committing, coalescing, cx);
+        window.invalidate_character_coordinates();
     }
 
     fn replace_and_mark_text_in_range(
@@ -1458,7 +1572,7 @@ impl EntityInputHandler for TextInput {
         range_utf16: Option<Range<usize>>,
         new_text: &str,
         new_selected_range_utf16: Option<Range<usize>>,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let range = range_utf16
@@ -1496,23 +1610,48 @@ impl EntityInputHandler for TextInput {
         self.follow_caret = true;
         cx.emit(InputEvent::Changed);
         cx.notify();
+        window.invalidate_character_coordinates();
     }
 
     fn bounds_for_range(
         &mut self,
         range_utf16: Range<usize>,
         bounds: Bounds<Pixels>,
-        _: &mut Window,
+        window: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let layout = self.last_layout.as_ref()?;
         let range = self.range_from_utf16(&range_utf16);
-        let start = layout.position_for_offset(range.start);
-        let end = layout.position_for_offset(range.end);
+        if !self.ensure_ime_layout(bounds, window) {
+            let layout = self.last_layout.as_ref()?;
+            return Some(self.bounds_from_layout(layout, range, bounds));
+        }
+        let caret = selection_cursor(&self.selected_range, self.selection_reversed);
+        if self.follow_caret && range.start == caret && range.end == caret {
+            let line_height = self.shaped_line_height;
+            let position = self
+                .ime_layout
+                .as_ref()
+                .map(|cached| cached.layout.position_for_offset(caret));
+            let content = self
+                .ime_layout
+                .as_ref()
+                .map(|cached| cached.layout.content_size());
+            if let (Some(position), Some(content)) = (position, content) {
+                self.scroll_caret_into_view(position, line_height, bounds, content);
+            }
+        }
+        let (start, end, line_height) = {
+            let layout = &self.ime_layout.as_ref()?.layout;
+            (
+                layout.position_for_offset(range.start),
+                layout.position_for_offset(range.end),
+                layout.line_height,
+            )
+        };
         let origin = point(bounds.left() - self.scroll.x, bounds.top() - self.scroll.y);
         Some(Bounds::from_corners(
             point(origin.x + start.x, origin.y + start.y),
-            point(origin.x + end.x, origin.y + end.y + layout.line_height),
+            point(origin.x + end.x, origin.y + end.y + line_height),
         ))
     }
 
@@ -1654,6 +1793,9 @@ struct PrepaintState {
     scrollbar: Option<PaintQuad>,
     scroll: Point<Pixels>,
     content: Size<Pixels>,
+    shaped_font: gpui::Font,
+    shaped_font_size: Pixels,
+    shaped_line_height: Pixels,
 }
 
 impl IntoElement for TextElement {
@@ -1745,16 +1887,17 @@ impl Element for TextElement {
             input_style.text
         };
 
+        let shaped_font = if shows_placeholder {
+            input
+                .placeholder_font_family
+                .clone()
+                .map_or_else(|| text_style.font(), gpui::font)
+        } else {
+            text_style.font()
+        };
         let run = TextRun {
             len: display_text.len(),
-            font: if shows_placeholder {
-                input
-                    .placeholder_font_family
-                    .clone()
-                    .map_or_else(|| text_style.font(), gpui::font)
-            } else {
-                text_style.font()
-            },
+            font: shaped_font.clone(),
             color,
             background_color: None,
             underline: None,
@@ -1935,6 +2078,9 @@ impl Element for TextElement {
             scrollbar,
             scroll,
             content,
+            shaped_font,
+            shaped_font_size: font_size,
+            shaped_line_height: line_height,
         }
     }
 
@@ -2040,6 +2186,9 @@ impl Element for TextElement {
         self.input.update(cx, |input, _| {
             input.last_layout = Some(layout);
             input.last_content = content;
+            input.shaped_font = Some(prepaint.shaped_font.clone());
+            input.shaped_font_size = prepaint.shaped_font_size;
+            input.shaped_line_height = prepaint.shaped_line_height;
             input.scroll = scroll;
             input.follow_caret = false;
         });

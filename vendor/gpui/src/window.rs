@@ -2073,18 +2073,46 @@ impl Window {
         self.invalidator.set_dirty(false);
         self.requested_autoscroll = None;
 
-        // Restore the previously-used input handler.
+        // Put the active handler back in the hole left when it was installed,
+        // so a cached subtree reuses that slot instead of a different field.
         if let Some(input_handler) = self.platform_window.take_input_handler() {
-            self.rendered_frame.input_handlers.push(Some(input_handler));
+            if let Some(slot) = self
+                .rendered_frame
+                .input_handlers
+                .iter_mut()
+                .rev()
+                .find(|slot| slot.is_none())
+            {
+                *slot = Some(input_handler);
+            } else {
+                self.rendered_frame.input_handlers.push(Some(input_handler));
+            }
         }
         self.draw_roots(cx);
         self.dirty_views.clear();
         self.next_frame.window_active = self.active.get();
 
-        // Register requested input handler with the platform window.
-        if let Some(input_handler) = self.next_frame.input_handlers.pop() {
-            self.platform_window
-                .set_input_handler(input_handler.unwrap());
+        // A cached field can restore the previous input handler after the newly
+        // focused one was recorded. Keep the handler for the current focus, and
+        // move the candidate window there.
+        let focused = self.focus;
+        let mut input_handler = self.next_frame.input_handlers.iter_mut().rev().find_map(|slot| {
+            let matches = slot
+                .as_ref()
+                .is_some_and(|handler| handler.focus_id() == focused);
+            if matches { slot.take() } else { None }
+        });
+        if input_handler.is_none() {
+            input_handler = self.next_frame.input_handlers.iter_mut().rev().find_map(|slot| {
+                let untagged = slot.as_ref().is_some_and(|handler| handler.focus_id().is_none());
+                if untagged { slot.take() } else { None }
+            });
+        }
+        if let Some(mut input_handler) = input_handler {
+            if let Some(bounds) = input_handler.selected_bounds(self, cx) {
+                self.platform_window.update_ime_position(bounds);
+            }
+            self.platform_window.set_input_handler(input_handler);
         }
 
         self.layout_engine.as_mut().unwrap().clear();
@@ -3589,9 +3617,10 @@ impl Window {
 
         if focus_handle.is_focused(self) {
             let cx = self.to_async(cx);
-            self.next_frame
-                .input_handlers
-                .push(Some(PlatformInputHandler::new(cx, Box::new(input_handler))));
+            self.next_frame.input_handlers.push(Some(
+                PlatformInputHandler::new(cx, Box::new(input_handler))
+                    .with_focus(focus_handle.id),
+            ));
         }
     }
 

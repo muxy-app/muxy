@@ -191,6 +191,7 @@ pub struct Output {
     pub bounds: Bounds<DevicePixels>,
 }
 
+#[derive(Clone, PartialEq, Eq)]
 struct Preedit {
     text: String,
     /// Caret or clause, in UTF-16 code units of `text`.
@@ -225,6 +226,64 @@ fn utf16_offset(text: &str, byte: usize) -> usize {
     text[..byte].encode_utf16().count()
 }
 
+/// Cursor rectangle in the integer coordinates text-input-v3 sends.
+/// Truncating sub-pixel positions keeps a 0.5px layout shift from committing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ImeCursorRectangle {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+impl From<Bounds<Pixels>> for ImeCursorRectangle {
+    fn from(bounds: Bounds<Pixels>) -> Self {
+        Self {
+            x: bounds.origin.x.0 as i32,
+            y: bounds.origin.y.0 as i32,
+            width: bounds.size.width.0 as i32,
+            height: bounds.size.height.0 as i32,
+        }
+    }
+}
+
+fn set_ime_cursor_rectangle(
+    text_input: &zwp_text_input_v3::ZwpTextInputV3,
+    rectangle: ImeCursorRectangle,
+) {
+    text_input.set_cursor_rectangle(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
+}
+
+fn update_ime_cursor_rectangle(
+    text_input: &zwp_text_input_v3::ZwpTextInputV3,
+    last: &mut Option<ImeCursorRectangle>,
+    bounds: Bounds<Pixels>,
+) {
+    let rectangle = ImeCursorRectangle::from(bounds);
+    if *last == Some(rectangle) {
+        return;
+    }
+    *last = Some(rectangle);
+    set_ime_cursor_rectangle(text_input, rectangle);
+    text_input.commit();
+}
+
+/// `should_commit` is true when this `done` acknowledges the commit the
+/// compositor has already seen. A mismatched serial only stores the rectangle
+/// for the next commit.
+fn set_ime_cursor_rectangle_after_done(
+    text_input: &zwp_text_input_v3::ZwpTextInputV3,
+    last: &mut Option<ImeCursorRectangle>,
+    bounds: Bounds<Pixels>,
+    should_commit: bool,
+) {
+    if should_commit {
+        update_ime_cursor_rectangle(text_input, last, bounds);
+    } else {
+        set_ime_cursor_rectangle(text_input, ImeCursorRectangle::from(bounds));
+    }
+}
+
 pub(crate) struct WaylandClientState {
     serial_tracker: SerialTracker,
     globals: Globals,
@@ -237,7 +296,15 @@ pub(crate) struct WaylandClientState {
     primary_selection: Option<zwp_primary_selection_device_v1::ZwpPrimarySelectionDeviceV1>,
     text_input: Option<zwp_text_input_v3::ZwpTextInputV3>,
     pre_edit_text: Option<String>,
+    /// Last preedit applied, so an echo of the same composition does not commit again.
+    last_ime_preedit: Option<Preedit>,
+    /// Last cursor rectangle sent to the compositor. Equal integer coordinates
+    /// are not committed again; KWin replays the preedit on every commit.
+    last_ime_cursor_rectangle: Option<ImeCursorRectangle>,
     ime_pre_edit: Option<Preedit>,
+    /// A `preedit_string` arrived since the last `done`. A bare `done` is only
+    /// the acknowledgement of a cursor rectangle.
+    preedit_dirty: bool,
     composing: bool,
     // Surface to Window mapping
     windows: HashMap<ObjectId, WaylandWindowStatePtr>,
@@ -331,21 +398,22 @@ impl WaylandClientStatePtr {
             return;
         };
 
+        state.last_ime_cursor_rectangle = None;
+        state.last_ime_preedit = None;
         text_input.enable();
         text_input.set_content_type(ContentHint::None, ContentPurpose::Normal);
+        let mut cursor_rectangle = None;
         if let Some(window) = state.keyboard_focused_window.clone() {
             drop(state);
             if let Some(area) = window.get_ime_area() {
-                text_input.set_cursor_rectangle(
-                    area.origin.x.0 as i32,
-                    area.origin.y.0 as i32,
-                    area.size.width.0 as i32,
-                    area.size.height.0 as i32,
-                );
+                let area = ImeCursorRectangle::from(area);
+                set_ime_cursor_rectangle(&text_input, area);
+                cursor_rectangle = Some(area);
             }
             state = client.borrow_mut();
         }
         text_input.commit();
+        state.last_ime_cursor_rectangle = cursor_rectangle;
         state.text_input = Some(text_input);
     }
 
@@ -362,18 +430,19 @@ impl WaylandClientStatePtr {
     pub fn update_ime_position(&self, bounds: Bounds<Pixels>) {
         let client = self.get_client();
         let mut state = client.borrow_mut();
-        if state.composing || state.text_input.is_none() || state.pre_edit_text.is_some() {
+        // A dead-key compose sequence draws its own preedit.
+        if state.pre_edit_text.is_some() {
             return;
         }
-
-        let text_input = state.text_input.as_ref().unwrap();
-        text_input.set_cursor_rectangle(
-            bounds.origin.x.0 as i32,
-            bounds.origin.y.0 as i32,
-            bounds.size.width.0 as i32,
-            bounds.size.height.0 as i32,
-        );
-        text_input.commit();
+        let WaylandClientState {
+            text_input,
+            last_ime_cursor_rectangle,
+            ..
+        } = &mut *state;
+        let Some(text_input) = text_input.as_ref() else {
+            return;
+        };
+        update_ime_cursor_rectangle(text_input, last_ime_cursor_rectangle, bounds);
     }
 
     pub fn handle_keyboard_layout_change(&self) {
@@ -597,7 +666,10 @@ impl WaylandClient {
             primary_selection,
             text_input: None,
             pre_edit_text: None,
+            last_ime_preedit: None,
+            last_ime_cursor_rectangle: None,
             ime_pre_edit: None,
+            preedit_dirty: false,
             composing: false,
             outputs: HashMap::default(),
             in_progress_outputs,
@@ -1499,6 +1571,7 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for WaylandClientStatePtr {
                 cursor_end,
             } => {
                 state.composing = text.as_ref().is_some_and(|text| !text.is_empty());
+                state.preedit_dirty = true;
                 state.ime_pre_edit = text.map(|text| Preedit {
                     selection_utf16: preedit_selection_utf16(&text, cursor_begin, cursor_end),
                     text,
@@ -1507,29 +1580,41 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for WaylandClientStatePtr {
             zwp_text_input_v3::Event::Done { serial } => {
                 let last_serial = state.serial_tracker.get(SerialKind::InputMethod);
                 state.serial_tracker.update(SerialKind::InputMethod, serial);
+                if !state.preedit_dirty {
+                    return;
+                }
+                state.preedit_dirty = false;
                 let Some(window) = state.keyboard_focused_window.clone() else {
                     return;
                 };
 
                 if let Some(preedit) = state.ime_pre_edit.take() {
+                    // The compositor repeats `done` after a cursor-rectangle
+                    // commit. Applying that echo again replays the preedit,
+                    // but the rectangle still has to follow the focused field.
+                    let repeat = state.last_ime_preedit.as_ref() == Some(&preedit);
+                    if !repeat {
+                        state.last_ime_preedit = Some(preedit.clone());
+                    }
                     drop(state);
-                    window.handle_ime(ImeInput::SetMarkedText {
-                        text: preedit.text,
-                        selection_utf16: preedit.selection_utf16,
-                    });
+                    if !repeat {
+                        window.handle_ime(ImeInput::SetMarkedText {
+                            text: preedit.text,
+                            selection_utf16: preedit.selection_utf16,
+                        });
+                    }
                     if let Some(area) = window.get_ime_area() {
-                        text_input.set_cursor_rectangle(
-                            area.origin.x.0 as i32,
-                            area.origin.y.0 as i32,
-                            area.size.width.0 as i32,
-                            area.size.height.0 as i32,
+                        let mut state = client.borrow_mut();
+                        set_ime_cursor_rectangle_after_done(
+                            text_input,
+                            &mut state.last_ime_cursor_rectangle,
+                            area,
+                            last_serial == serial,
                         );
-                        if last_serial == serial {
-                            text_input.commit();
-                        }
                     }
                 } else {
                     state.composing = false;
+                    state.last_ime_preedit = None;
                     drop(state);
                     window.handle_ime(ImeInput::DeleteText);
                 }

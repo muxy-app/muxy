@@ -672,13 +672,7 @@ impl WaylandWindowStatePtr {
         let mut bounds: Option<Bounds<Pixels>> = None;
         if let Some(mut input_handler) = state.input_handler.take() {
             drop(state);
-            let range = input_handler
-                .selected_text_range(true)
-                .map(|selection| selection.range)
-                .or_else(|| input_handler.marked_text_range());
-            if let Some(range) = range {
-                bounds = input_handler.bounds_for_range(range);
-            }
+            bounds = input_handler.ime_candidate_bounds();
             self.state.borrow_mut().input_handler = Some(input_handler);
         }
         bounds

@@ -83,7 +83,7 @@ impl EntityInputHandler for TerminalPane {
         &mut self,
         range: Option<Range<usize>>,
         text: &str,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let mut composition = std::mem::take(&mut self.composition);
@@ -95,6 +95,7 @@ impl EntityInputHandler for TerminalPane {
         self.send_text(&composition.text, cx);
         if had_composition {
             cx.notify();
+            window.invalidate_character_coordinates();
         }
     }
 
@@ -103,7 +104,7 @@ impl EntityInputHandler for TerminalPane {
         range: Option<Range<usize>>,
         text: &str,
         selection: Option<Range<usize>>,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.state != PaneState::Live {
@@ -118,16 +119,25 @@ impl EntityInputHandler for TerminalPane {
         });
         self.scroll_to_bottom(cx);
         cx.notify();
+        window.invalidate_character_coordinates();
     }
 
     fn bounds_for_range(
         &mut self,
-        _: Range<usize>,
+        range: Range<usize>,
         _: Bounds<Pixels>,
-        _: &mut Window,
+        window: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        self.composition_bounds()
+        let mut bounds = self.composition_bounds()?;
+        let text = self.composition.text.clone();
+        let start = utf8_offset(&text, range.start);
+        let end = utf8_offset(&text, range.end).max(start);
+        let prefix = self.composition_width(&text[..start], window);
+        let slice = self.composition_width(&text[start..end], window);
+        bounds.origin.x += prefix;
+        bounds.size.width = if slice > px(0.0) { slice } else { px(1.0) };
+        Some(bounds)
     }
 
     fn character_index_for_point(
@@ -143,6 +153,42 @@ impl EntityInputHandler for TerminalPane {
 }
 
 impl TerminalPane {
+    fn composition_width(&self, text: &str, window: &mut Window) -> Pixels {
+        if text.is_empty() {
+            return px(0.0);
+        }
+        let mut base_font = font(
+            self.terminal
+                .font_families
+                .first()
+                .map_or_else(|| "Menlo".into(), |family| muxy_ui::font::family(family)),
+        );
+        base_font.fallbacks = Some(gpui::FontFallbacks::from_fonts(
+            self.terminal
+                .font_families
+                .iter()
+                .skip(1)
+                .map(|family| muxy_ui::font::family(family).into())
+                .collect(),
+        ));
+        window
+            .text_system()
+            .shape_line(
+                text.to_owned().into(),
+                px(self.terminal.font_size),
+                &[TextRun {
+                    len: text.len(),
+                    font: base_font,
+                    color: rgb(self.palette.foreground).into(),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                }],
+                None,
+            )
+            .width
+    }
+
     fn composition_bounds(&self) -> Option<Bounds<Pixels>> {
         let (bounds, cell) = self.geometry?;
         let grid = self.grid.as_ref()?;
@@ -195,8 +241,19 @@ pub(super) fn paint(view: &Entity<TerminalPane>, window: &mut Window, cx: &mut A
         None,
     );
     bounds.size.width = line.width.max(bounds.size.width);
+    let caret = utf8_offset(&pane.composition.text, pane.composition.selection.end);
+    let caret_text = pane.composition.text[..caret].to_owned();
+    let caret_x = pane.composition_width(&caret_text, window);
+    drop(pane);
     window.paint_quad(fill(bounds, background));
     let _ = line.paint(bounds.origin, bounds.size.height, window, cx);
+    window.paint_quad(fill(
+        Bounds::new(
+            point(bounds.left() + caret_x, bounds.top()),
+            size(px(1.5), bounds.size.height),
+        ),
+        foreground,
+    ));
     window.paint_quad(fill(
         Bounds::new(
             point(bounds.left(), bounds.bottom() - px(1.0)),

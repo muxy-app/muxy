@@ -41,7 +41,7 @@ use crate::{
     ForegroundExecutor, GlyphId, GpuSpecs, ImageSource, Keymap, LineLayout, Pixels, PlatformInput,
     Point, RenderGlyphParams, RenderImage, RenderImageParams, RenderSvgParams, Scene, ShapedGlyph,
     ShapedRun, SharedString, Size, SvgRenderer, SvgSize, SystemWindowTab, Task, TaskLabel, Window,
-    WindowControlArea, hash, point, px, size,
+    WindowControlArea, hash, point, px, size, FocusId,
 };
 use anyhow::Result;
 use async_task::Runnable;
@@ -876,6 +876,7 @@ impl From<TileId> for etagere::AllocId {
 pub(crate) struct PlatformInputHandler {
     cx: AsyncWindowContext,
     handler: Box<dyn InputHandler>,
+    focus: Option<FocusId>,
 }
 
 #[cfg_attr(
@@ -887,7 +888,20 @@ pub(crate) struct PlatformInputHandler {
 )]
 impl PlatformInputHandler {
     pub fn new(cx: AsyncWindowContext, handler: Box<dyn InputHandler>) -> Self {
-        Self { cx, handler }
+        Self {
+            cx,
+            handler,
+            focus: None,
+        }
+    }
+
+    pub fn with_focus(mut self, focus: FocusId) -> Self {
+        self.focus = Some(focus);
+        self
+    }
+
+    pub fn focus_id(&self) -> Option<FocusId> {
+        self.focus
     }
 
     fn selected_text_range(&mut self, ignore_disabled_input: bool) -> Option<UTF16Selection> {
@@ -978,16 +992,19 @@ impl PlatformInputHandler {
     }
 
     pub fn selected_bounds(&mut self, window: &mut Window, cx: &mut App) -> Option<Bounds<Pixels>> {
+        let marked_range = self.handler.marked_text_range(window, cx);
         let selection = self.handler.selected_text_range(true, window, cx)?;
-        self.handler.bounds_for_range(
-            if selection.reversed {
-                selection.range.start..selection.range.start
-            } else {
-                selection.range.end..selection.range.end
-            },
-            window,
-            cx,
-        )
+        compute_ime_candidate_bounds(marked_range, &selection, |range| {
+            self.handler.bounds_for_range(range, window, cx)
+        })
+    }
+
+    /// Rectangle for the IME candidate window. During composition this is the
+    /// start of the visual line that contains the caret, inside the marked text.
+    pub fn ime_candidate_bounds(&mut self) -> Option<Bounds<Pixels>> {
+        let marked_range = self.marked_text_range();
+        let selection = self.selected_text_range(true)?;
+        compute_ime_candidate_bounds(marked_range, &selection, |range| self.bounds_for_range(range))
     }
 
     #[allow(unused)]
@@ -996,6 +1013,40 @@ impl PlatformInputHandler {
             .update(|window, cx| self.handler.character_index_for_point(point, window, cx))
             .ok()
             .flatten()
+    }
+}
+
+/// Where the candidate window should sit.
+///
+/// A composition anchors at the start of the caret's visual line inside the
+/// marked text, so a wrapped preedit follows the current line. Otherwise the
+/// anchor is the caret.
+pub fn compute_ime_candidate_bounds(
+    marked_range: Option<Range<usize>>,
+    selection: &UTF16Selection,
+    mut bounds_for_range: impl FnMut(Range<usize>) -> Option<Bounds<Pixels>>,
+) -> Option<Bounds<Pixels>> {
+    if let Some(marked_range) = marked_range {
+        let mut line_start = marked_range.start;
+        let caret = selection.range.end;
+        if let Some(caret_bounds) = bounds_for_range(caret..caret) {
+            for index in (marked_range.start..caret).rev() {
+                if let Some(bounds) = bounds_for_range(index..index)
+                    && (bounds.origin.y - caret_bounds.origin.y).abs() > px(0.1)
+                {
+                    line_start = index + 1;
+                    break;
+                }
+            }
+        }
+        bounds_for_range(line_start..line_start)
+    } else {
+        let offset = if selection.reversed {
+            selection.range.start
+        } else {
+            selection.range.end
+        };
+        bounds_for_range(offset..offset)
     }
 }
 
@@ -1884,5 +1935,50 @@ impl From<String> for ClipboardString {
             text: value,
             metadata: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod ime_candidate_bounds_tests {
+    use super::{UTF16Selection, compute_ime_candidate_bounds};
+    use crate::{Bounds, Pixels, point, px, size};
+    use std::ops::Range;
+
+    fn selection(range: Range<usize>) -> UTF16Selection {
+        UTF16Selection {
+            range,
+            reversed: false,
+        }
+    }
+
+    fn at(index: usize, y: f32) -> Bounds<Pixels> {
+        Bounds::new(point(px(index as f32), px(y)), size(px(0.), px(16.)))
+    }
+
+    #[test]
+    fn wrapped_preedit_anchors_at_the_caret_line() {
+        let bounds = compute_ime_candidate_bounds(Some(2..8), &selection(8..8), |range| {
+            let y = if range.start >= 5 { 20. } else { 0. };
+            Some(at(range.start, y))
+        })
+        .unwrap();
+        assert_eq!(bounds.origin, point(px(5.), px(20.)));
+    }
+
+    #[test]
+    fn single_line_preedit_anchors_at_the_marked_start() {
+        let bounds = compute_ime_candidate_bounds(Some(2..8), &selection(8..8), |range| {
+            Some(at(range.start, 0.))
+        })
+        .unwrap();
+        assert_eq!(bounds.origin, point(px(2.), px(0.)));
+    }
+
+    #[test]
+    fn caret_is_the_anchor_without_a_composition() {
+        let bounds =
+            compute_ime_candidate_bounds(None, &selection(4..4), |range| Some(at(range.start, 0.)))
+                .unwrap();
+        assert_eq!(bounds.origin, point(px(4.), px(0.)));
     }
 }
