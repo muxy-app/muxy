@@ -50,7 +50,10 @@ impl Terminal {
         Scrollback::take(&self.client, self.view.channel, max_rows).map(Arc::new)
     }
 
+    /// Takes back the size this phone gave the session first, if the
+    /// desktop resized it since.
     pub fn send_input(&self, bytes: Vec<u8>) -> Result<(), MobileError> {
+        self.reclaim_size();
         Ok(self.client.send_input(self.view.channel, &bytes)?)
     }
 
@@ -94,6 +97,7 @@ impl Terminal {
         column: u16,
         modifiers: Modifiers,
     ) -> Result<(), MobileError> {
+        self.reclaim_size();
         for event in mouse::click(button, row, column, modifiers) {
             self.client.send_mouse(self.view.channel, event)?;
         }
@@ -108,11 +112,14 @@ impl Terminal {
         row: u16,
         column: u16,
     ) -> Result<(), MobileError> {
+        self.reclaim_size();
         let event = mouse::scroll(direction, row, column);
         Ok(self.client.send_mouse(self.view.channel, event)?)
     }
 
     /// Resizes the session for every client viewing it, not just this device.
+    /// Typing, tapping, or scrolling here takes this size back after the
+    /// desktop resizes the session.
     pub fn resize(&self, columns: u16, rows: u16) -> Result<(), MobileError> {
         let size = Size {
             cols: columns,
@@ -120,7 +127,19 @@ impl Terminal {
         };
         // Resize first so the server's full redraw lands on a grid of the new size.
         self.view.lock().terminal.grid.resize(size);
-        Ok(self.client.resize(self.view.channel, size)?)
+        self.client.resize(self.view.channel, size)?;
+        self.view.lock().claim(size);
+        Ok(())
+    }
+
+    /// Gives up the claim when the server refuses it, so input still goes through.
+    fn reclaim_size(&self) {
+        let size = self.view.lock().reclaim();
+        if let Some(size) = size
+            && self.client.resize(self.view.channel, size).is_err()
+        {
+            self.view.lock().claimed = None;
+        }
     }
 
     /// Stops receiving this terminal; the session keeps running.

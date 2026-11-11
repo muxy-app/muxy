@@ -5,7 +5,9 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use muxy_client::{AttachedTerminal, Attachment};
-use muxy_protocol::{ChannelId, InputModes, MetadataEvent, ScreenFrame, ServerPath, SessionId};
+use muxy_protocol::{
+    ChannelId, InputModes, MetadataEvent, ScreenFrame, ServerPath, SessionId, Size,
+};
 
 #[derive(Default)]
 pub(crate) struct Terminals {
@@ -32,6 +34,10 @@ pub(crate) struct Content {
     pub(crate) title: String,
     pub(crate) directory: ServerPath,
     pub(crate) input: InputModes,
+    /// The size this phone gave the session, to take back when the user
+    /// works here again after another client, such as the desktop, resized
+    /// it. None while the phone has never set the size.
+    pub(crate) claimed: Option<Size>,
 }
 
 pub(crate) enum Delivery {
@@ -82,6 +88,7 @@ impl Terminals {
                 title: attachment.title,
                 directory: attachment.directory,
                 input: InputModes::default(),
+                claimed: None,
             }),
         });
         state.views.insert(channel, Arc::clone(&view));
@@ -144,6 +151,29 @@ impl View {
 }
 
 impl Content {
+    /// Keeps the size the server gave the session at the phone's request,
+    /// to take back later.
+    pub(crate) fn claim(&mut self, size: Size) {
+        self.claimed = Some(size);
+    }
+
+    /// Claims `size` if attaching gave the session the phone's size.
+    pub(crate) fn claim_if_shown(&mut self, size: Size) {
+        if self.terminal.grid.size == size {
+            self.claim(size);
+        }
+    }
+
+    /// The phone's size to ask the server for again, if another client
+    /// resized the session since the phone set it.
+    pub(crate) fn reclaim(&mut self) -> Option<Size> {
+        let size = self
+            .claimed
+            .filter(|size| *size != self.terminal.grid.size)?;
+        self.terminal.grid.resize(size);
+        Some(size)
+    }
+
     /// Returns the sequence number to acknowledge.
     fn frame(&mut self, frame: &ScreenFrame) -> u64 {
         if self.terminal.grid.size != frame.size {
@@ -246,6 +276,34 @@ mod tests {
             assert_eq!(view.lock().terminal.grid.size, size);
             assert_eq!(view.lock().terminal.grid.rows.len(), usize::from(size.rows));
         }
+    }
+
+    #[test]
+    fn the_phone_takes_back_only_a_size_it_set() {
+        let terminals = Terminals::default();
+        let channel = ChannelId(1);
+        let session = SessionId::new(7).unwrap();
+        let (tag, attached) = terminals.start_attach();
+        terminals.attached(tag, session, attachment(channel));
+        let view = attached.try_recv().expect("view");
+        let phone = Size { cols: 4, rows: 1 };
+        let desktop = Size { cols: 20, rows: 4 };
+
+        // Showing the desktop's size it never changed, the phone keeps it.
+        terminals.frame(channel, resized(desktop));
+        assert_eq!(view.lock().reclaim(), None);
+
+        view.lock().claim_if_shown(phone);
+        assert_eq!(view.lock().reclaim(), None);
+        terminals.frame(channel, resized(phone));
+        view.lock().claim_if_shown(phone);
+        assert_eq!(view.lock().reclaim(), None);
+
+        // The desktop took the session over, so the phone asks once.
+        terminals.frame(channel, resized(desktop));
+        assert_eq!(view.lock().reclaim(), Some(phone));
+        assert_eq!(view.lock().terminal.grid.size, phone);
+        assert_eq!(view.lock().reclaim(), None);
     }
 
     #[test]

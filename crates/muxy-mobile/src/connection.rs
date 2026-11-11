@@ -289,6 +289,7 @@ impl Connection {
             return Err(error.into());
         }
         let view = attached.recv().map_err(|_| MobileError::Disconnected)?;
+        view.lock().claim_if_shown(size);
         Ok(Arc::new(Terminal {
             client: self.client.clone(),
             view,

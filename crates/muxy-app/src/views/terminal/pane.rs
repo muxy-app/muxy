@@ -182,6 +182,10 @@ pub(crate) struct TerminalPane {
     /// A pane header sits above the terminal, so only its bottom is rounded.
     pub(crate) below_header: bool,
     viewport: Option<Size>,
+    /// The attached session's size on its server, as its latest frame said.
+    /// It differs from `viewport` after another client, such as a phone,
+    /// resized the session.
+    session_size: Option<Size>,
     pub(crate) palette: Palette,
     header_background: Option<u32>,
     pub(crate) background_opacity: f32,
@@ -325,6 +329,7 @@ impl TerminalPane {
             corner_radius: px(0.0),
             below_header: false,
             viewport: None,
+            session_size: None,
             palette,
             header_background: None,
             background_opacity: 1.0,
@@ -414,6 +419,7 @@ impl TerminalPane {
     ) -> Option<Size> {
         let live = &attachment.terminal.grid;
         let resized = self.viewport.filter(|size| *size != live.size);
+        self.session_size = Some(resized.unwrap_or(live.size));
         self.reset_input();
         self.clear_selection();
         let history = if resized.is_none() && self.keeps_scroll(live) {
@@ -476,6 +482,7 @@ impl TerminalPane {
         }
         let output_changed = !frame.rows.is_empty() || terminal.grid.cursor != frame.cursor;
         let seq = terminal.apply(frame);
+        self.session_size = Some(frame.size);
         let conversions = self.images.convert(&terminal.grid.graphics);
         let channel = terminal.channel();
         if output_changed && self.terminal.options.scroll_on_output {
@@ -992,22 +999,43 @@ impl TerminalPane {
         }
         self.viewport = Some(size);
         if self.attachment().is_some() {
-            self.scroll.reset();
-            self.saved_history = None;
-        } else {
-            self.scroll.resized(usize::from(size.rows));
-            self.saved_history = None;
-            self.prepare_saved_history(cx);
+            self.resize_session(size, cx);
+            return;
         }
-        if self.attachment().is_some()
-            && let Some(grid) = &mut self.grid
-        {
+        self.scroll.resized(usize::from(size.rows));
+        self.saved_history = None;
+        self.prepare_saved_history(cx);
+        self.validate_selection();
+        cx.emit(PaneEvent::Viewport(size));
+        self.restart_find(cx);
+        cx.notify();
+    }
+
+    /// Asks the server to give the attached session this size, showing the
+    /// screen at it until the server's redraw arrives.
+    fn resize_session(&mut self, size: Size, cx: &mut Context<Self>) {
+        self.session_size = Some(size);
+        self.scroll.reset();
+        self.saved_history = None;
+        if let Some(grid) = &mut self.grid {
             grid.resize(size);
         }
         self.validate_selection();
         cx.emit(PaneEvent::Viewport(size));
         self.restart_find(cx);
         cx.notify();
+    }
+
+    /// Takes the session back to this pane's size once the user works in the
+    /// pane again after another client, such as a phone, resized it.
+    fn reclaim_size(&mut self, cx: &mut Context<Self>) {
+        if self.state == PaneState::Live
+            && self.attachment().is_some()
+            && let Some(viewport) = self.viewport
+            && self.session_size.is_some_and(|size| size != viewport)
+        {
+            self.resize_session(viewport, cx);
+        }
     }
 
     pub(crate) fn displayed_grid(&self) -> Option<&RunGrid> {
@@ -1081,7 +1109,9 @@ impl TerminalPane {
         if self.state != PaneState::Live {
             return;
         }
-        if !active {
+        if active {
+            self.reclaim_size(cx);
+        } else {
             self.composition = super::ime::Composition::default();
             if let Some(channel) = self.channel() {
                 for event in self.keyboard.release_all() {
@@ -1193,6 +1223,7 @@ impl TerminalPane {
     }
 
     fn mouse_wheel(&mut self, event: &gpui::ScrollWheelEvent, cx: &mut Context<Self>) {
+        self.reclaim_size(cx);
         let (rows, multiplier) = match event.delta {
             gpui::ScrollDelta::Pixels(delta) => (
                 f32::from(delta.y) / self.cell_height.max(1.0),
@@ -1313,6 +1344,7 @@ impl TerminalPane {
     ) {
         self.focus.focus(window);
         cx.emit(PaneEvent::Focused);
+        self.reclaim_size(cx);
         if event.button == MouseButton::Left && self.press_scrollbar(event.position, cx) {
             self.stop_selecting();
             cx.stop_propagation();
@@ -1376,6 +1408,12 @@ impl TerminalPane {
         if !self.native_visible {
             self.stop_selecting();
             return;
+        }
+        if self
+            .geometry
+            .is_some_and(|(bounds, _)| bounds.contains(&event.position))
+        {
+            self.reclaim_size(cx);
         }
         if self.scrollbar_dragging() {
             if event.pressed_button == Some(MouseButton::Left) {
@@ -1678,6 +1716,7 @@ impl TerminalPane {
             return None;
         }
         let channel = self.channel()?;
+        self.reclaim_size(cx);
         if self.terminal.options.scroll_on_keystroke
             && (self.scroll.view.is_some() || self.scroll.elastic != 0.0)
         {
@@ -2053,6 +2092,7 @@ mod tests {
     mod links;
     mod scrollbar;
     mod server_input;
+    mod session_size;
     mod settle;
 
     use super::*;
