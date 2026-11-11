@@ -353,7 +353,7 @@ impl Request {
             Choice::AllowAndRemember => (self.pattern.as_str(), Consent::Allow),
             Choice::DenyAndRemember => (self.pattern.as_str(), Consent::Deny),
             Choice::Block => (ANY, Consent::Blocked),
-            Choice::Allow | Choice::Cancel => return None,
+            Choice::Allow | Choice::Cancel | Choice::Trust => return None,
         };
         Some(Rule {
             gate: self.gate,
@@ -407,13 +407,23 @@ pub enum Choice {
     Cancel,
     DenyAndRemember,
     Block,
+    /// Allows every gated action of the extension from now on.
+    Trust,
 }
 
 impl Choice {
     pub fn allows(self) -> bool {
-        matches!(self, Self::AllowAndRemember | Self::Allow)
+        matches!(self, Self::AllowAndRemember | Self::Allow | Self::Trust)
+    }
+
+    /// Whether the choice is saved for later requests.
+    pub fn remembers(self) -> bool {
+        !matches!(self, Self::Allow | Self::Cancel)
     }
 }
+
+/// How the audit log names the trust that allowed a request.
+pub const TRUSTED: &str = "trusted";
 
 /// Remembered consent rules, keyed `owner:gate:pattern`.
 #[derive(Clone, Debug)]
@@ -424,6 +434,10 @@ pub struct Grants {
 
 fn key(owner: &str, gate: Gate, pattern: &str) -> String {
     format!("{owner}:{}:{pattern}", gate.name())
+}
+
+fn trust_key(owner: &str) -> String {
+    format!("{owner}:{TRUSTED}")
 }
 
 /// Rewrites keys saved before gated verbs were grouped (`files:files.write`).
@@ -475,8 +489,27 @@ impl Grants {
     }
 
     pub fn decision(&self, owner: &str, request: &Request) -> Consent {
+        if self.trusted(owner) {
+            return Consent::Allow;
+        }
         self.rule(owner, request)
             .map_or(Consent::Ask, |rule| rule.consent)
+    }
+
+    /// Whether the extension may do every gated action without asking. Trust
+    /// outranks its saved rules, which apply again once trust is removed.
+    pub fn trusted(&self, owner: &str) -> bool {
+        self.rules.get(&trust_key(owner)) == Some(&Consent::Allow)
+    }
+
+    pub fn set_trusted(&mut self, owner: &str, trusted: bool) -> Result<(), String> {
+        let mut rules = self.rules.clone();
+        if trusted {
+            rules.insert(trust_key(owner), Consent::Allow);
+        } else {
+            rules.remove(&trust_key(owner));
+        }
+        self.save(rules)
     }
 
     /// An extension's remembered rules.
@@ -509,6 +542,9 @@ impl Grants {
         request: &Request,
         choice: Choice,
     ) -> Result<(), String> {
+        if choice == Choice::Trust {
+            return self.set_trusted(owner, true);
+        }
         let Some(rule) = request.rule(choice) else {
             return Ok(());
         };

@@ -434,6 +434,33 @@ impl AppModel {
             .map_or_else(|_| Vec::new(), |grants| grants.rules(owner))
     }
 
+    /// Whether every gated action of the extension is allowed without asking.
+    pub(crate) fn extension_trusted(&self, owner: &str) -> bool {
+        self.extensions
+            .grants
+            .as_ref()
+            .is_ok_and(|grants| grants.trusted(owner))
+    }
+
+    pub(crate) fn set_extension_trusted(
+        &mut self,
+        owner: &str,
+        trusted: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<Result<(), String>> {
+        let owner = owner.to_owned();
+        self.change_extensions(
+            move |state| {
+                state
+                    .grants
+                    .as_mut()
+                    .map_err(|error| error.clone())?
+                    .set_trusted(&owner, trusted)
+            },
+            cx,
+        )
+    }
+
     pub(crate) fn remove_extension_rule(
         &mut self,
         owner: &str,

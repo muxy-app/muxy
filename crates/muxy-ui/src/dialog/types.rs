@@ -15,6 +15,9 @@ pub enum ConsentResponse {
     Cancel,
     DenyAndRemember,
     Block,
+    /// The user asked to allow everything from the extension; the caller
+    /// confirms before saving it.
+    Trust,
 }
 
 /// A labelled native alert, confirmation, or text prompt.
