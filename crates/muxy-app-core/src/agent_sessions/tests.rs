@@ -7,6 +7,34 @@ use super::*;
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
+fn cursor_side_files(home: &Path, project: &Path) -> Result {
+    fs::write(home.join(".cursor/chats/bucket/cursor-1/store.db"), [])?;
+    for (id, record) in [
+        (
+            "cursor-sub",
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"isSubagent":true,"title":"child","cwd":project}),
+        ),
+        (
+            "cursor-empty",
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":false,"title":"empty","cwd":project}),
+        ),
+        (
+            "cursor-nostore",
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"title":"missing","cwd":project}),
+        ),
+    ] {
+        fixture(
+            home,
+            &format!(".cursor/chats/bucket/{id}/meta.json"),
+            &[record],
+        )?;
+        if id != "cursor-nostore" {
+            fs::write(home.join(format!(".cursor/chats/bucket/{id}/store.db")), [])?;
+        }
+    }
+    Ok(())
+}
+
 fn fixture(home: &Path, relative: &str, records: &[serde_json::Value]) -> std::io::Result<PathBuf> {
     let path = home.join(relative);
     if let Some(parent) = path.parent() {
@@ -83,6 +111,7 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     for (path, record) in examples {
         fixture(home.path(), path, &[record])?;
     }
+    cursor_side_files(home.path(), &project)?;
     fixture(
         home.path(),
         ".claude/projects/worktree/child.jsonl",
@@ -98,40 +127,6 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
         ".codex/sessions/2026/01/01/child.jsonl",
         &[
             json!({"type":"session_meta","payload":{"id":"subagent-1","cwd":project,"source":{"subagent":{}}}}),
-        ],
-    )?;
-    fs::write(
-        home.path().join(".cursor/chats/bucket/cursor-1/store.db"),
-        [],
-    )?;
-    fixture(
-        home.path(),
-        ".cursor/chats/bucket/cursor-sub/meta.json",
-        &[
-            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"isSubagent":true,"title":"child","cwd":project}),
-        ],
-    )?;
-    fs::write(
-        home.path().join(".cursor/chats/bucket/cursor-sub/store.db"),
-        [],
-    )?;
-    fixture(
-        home.path(),
-        ".cursor/chats/bucket/cursor-empty/meta.json",
-        &[
-            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":false,"title":"empty","cwd":project}),
-        ],
-    )?;
-    fs::write(
-        home.path()
-            .join(".cursor/chats/bucket/cursor-empty/store.db"),
-        [],
-    )?;
-    fixture(
-        home.path(),
-        ".cursor/chats/bucket/cursor-nostore/meta.json",
-        &[
-            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"title":"missing","cwd":project}),
         ],
     )?;
     let roots = Roots::from_home(home.path());

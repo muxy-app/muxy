@@ -45,10 +45,10 @@ pub(super) fn read(
         consumed += line.len() as u64;
         *budget = budget.saturating_sub(line.len() as u64);
         let ended = line.last() == Some(&b'\n');
-        if ended || (!saw_newline && consumed == length) {
-            if let Some(value) = json_record(&line) {
-                metadata.visit(provider, &value, false);
-            }
+        if (ended || (!saw_newline && consumed == length))
+            && let Some(value) = json_record(&line)
+        {
+            metadata.visit(provider, &value, false);
         }
         saw_newline |= ended;
         line.clear();
