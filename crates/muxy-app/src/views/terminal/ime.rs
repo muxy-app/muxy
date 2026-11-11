@@ -204,47 +204,49 @@ impl TerminalPane {
 }
 
 pub(super) fn paint(view: &Entity<TerminalPane>, window: &mut Window, cx: &mut App) {
-    let pane = view.read(cx);
-    if pane.composition.text.is_empty() || !pane.focus.is_focused(window) {
-        return;
-    }
-    let Some(mut bounds) = pane.composition_bounds() else {
-        return;
+    let (bounds, line, caret_x, foreground, background) = {
+        let pane = view.read(cx);
+        if pane.composition.text.is_empty() || !pane.focus.is_focused(window) {
+            return;
+        }
+        let Some(mut bounds) = pane.composition_bounds() else {
+            return;
+        };
+        let mut base_font = font(
+            pane.terminal
+                .font_families
+                .first()
+                .map_or_else(|| "Menlo".into(), |family| muxy_ui::font::family(family)),
+        );
+        base_font.fallbacks = Some(gpui::FontFallbacks::from_fonts(
+            pane.terminal
+                .font_families
+                .iter()
+                .skip(1)
+                .map(|family| muxy_ui::font::family(family).into())
+                .collect(),
+        ));
+        let foreground = rgb(pane.palette.foreground);
+        let background = rgb(pane.palette.background);
+        let line = window.text_system().shape_line(
+            pane.composition.text.clone().into(),
+            px(pane.terminal.font_size),
+            &[TextRun {
+                len: pane.composition.text.len(),
+                font: base_font,
+                color: foreground.into(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }],
+            None,
+        );
+        bounds.size.width = line.width.max(bounds.size.width);
+        let caret = utf8_offset(&pane.composition.text, pane.composition.selection.end);
+        let caret_text = pane.composition.text[..caret].to_owned();
+        let caret_x = pane.composition_width(&caret_text, window);
+        (bounds, line, caret_x, foreground, background)
     };
-    let mut base_font = font(
-        pane.terminal
-            .font_families
-            .first()
-            .map_or_else(|| "Menlo".into(), |family| muxy_ui::font::family(family)),
-    );
-    base_font.fallbacks = Some(gpui::FontFallbacks::from_fonts(
-        pane.terminal
-            .font_families
-            .iter()
-            .skip(1)
-            .map(|family| muxy_ui::font::family(family).into())
-            .collect(),
-    ));
-    let foreground = rgb(pane.palette.foreground);
-    let background = rgb(pane.palette.background);
-    let line = window.text_system().shape_line(
-        pane.composition.text.clone().into(),
-        px(pane.terminal.font_size),
-        &[TextRun {
-            len: pane.composition.text.len(),
-            font: base_font,
-            color: foreground.into(),
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        }],
-        None,
-    );
-    bounds.size.width = line.width.max(bounds.size.width);
-    let caret = utf8_offset(&pane.composition.text, pane.composition.selection.end);
-    let caret_text = pane.composition.text[..caret].to_owned();
-    let caret_x = pane.composition_width(&caret_text, window);
-    drop(pane);
     window.paint_quad(fill(bounds, background));
     let _ = line.paint(bounds.origin, bounds.size.height, window, cx);
     window.paint_quad(fill(
