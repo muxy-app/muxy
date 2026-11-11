@@ -59,6 +59,13 @@ The user can **Allow** once, **Allow & Remember**, **Cancel**, **Deny &
 Remember**, or block that kind of action for the extension. An unanswered
 prompt is denied after 60 seconds, and at most five prompts can wait at once.
 
+The red **Always Allow This Extension…** button trusts the extension with
+every action above, after a second warning confirms it. A trusted extension is
+never prompted, and its saved rules, including Deny and Block, don't apply
+until trust is removed. Cancelling the warning returns to the prompt.
+
 Saved choices are listed under **Permission rules** on the extension's page in
 **Settings → Extensions**, with **Reveal audit log** for a history of
-decisions. Uninstalling clears them.
+decisions. **Always Allow…** there trusts the extension after the same warning,
+and **Stop Always Allowing** removes the trust. **Clear all** and uninstalling
+clear the rules and the trust.

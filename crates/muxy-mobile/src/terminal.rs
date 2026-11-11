@@ -50,7 +50,10 @@ impl Terminal {
         Scrollback::take(&self.client, self.view.channel, max_rows).map(Arc::new)
     }
 
+    /// Takes back the size this phone gave the session first, if the
+    /// desktop resized it since.
     pub fn send_input(&self, bytes: Vec<u8>) -> Result<(), MobileError> {
+        self.reclaim_size();
         Ok(self.client.send_input(self.view.channel, &bytes)?)
     }
 
@@ -86,7 +89,9 @@ impl Terminal {
     }
 
     /// Clicks at a cell: a press, then a release. The program sees it only
-    /// while `Screen::mouse_tracking` is on.
+    /// while `Screen::mouse_tracking` is on. A click that takes the phone's
+    /// size back from the desktop isn't sent, since it was aimed at the
+    /// desktop's layout.
     pub fn click(
         &self,
         button: MouseButton,
@@ -94,6 +99,9 @@ impl Terminal {
         column: u16,
         modifiers: Modifiers,
     ) -> Result<(), MobileError> {
+        if self.reclaim_size() {
+            return Ok(());
+        }
         for event in mouse::click(button, row, column, modifiers) {
             self.client.send_mouse(self.view.channel, event)?;
         }
@@ -102,17 +110,23 @@ impl Terminal {
 
     /// Turns the mouse wheel one step at a cell. The program sees it only
     /// while `Screen::mouse_tracking` or `Screen::alternate_scroll` is on.
+    /// Like `click`, a step that takes the phone's size back isn't sent.
     pub fn scroll(
         &self,
         direction: ScrollDirection,
         row: u16,
         column: u16,
     ) -> Result<(), MobileError> {
+        if self.reclaim_size() {
+            return Ok(());
+        }
         let event = mouse::scroll(direction, row, column);
         Ok(self.client.send_mouse(self.view.channel, event)?)
     }
 
     /// Resizes the session for every client viewing it, not just this device.
+    /// Typing, tapping, or scrolling here takes this size back after the
+    /// desktop resizes the session.
     pub fn resize(&self, columns: u16, rows: u16) -> Result<(), MobileError> {
         let size = Size {
             cols: columns,
@@ -120,7 +134,22 @@ impl Terminal {
         };
         // Resize first so the server's full redraw lands on a grid of the new size.
         self.view.lock().terminal.grid.resize(size);
-        Ok(self.client.resize(self.view.channel, size)?)
+        self.client.resize(self.view.channel, size)?;
+        self.view.lock().claim(size);
+        Ok(())
+    }
+
+    /// Returns whether the session is taking the phone's size back. When the
+    /// server refuses, the input still goes through and the next one asks again.
+    fn reclaim_size(&self) -> bool {
+        let Some((size, seq)) = self.view.lock().reclaim() else {
+            return false;
+        };
+        if self.client.resize(self.view.channel, size).is_err() {
+            return false;
+        }
+        self.view.lock().reclaimed(size, seq);
+        true
     }
 
     /// Stops receiving this terminal; the session keeps running.

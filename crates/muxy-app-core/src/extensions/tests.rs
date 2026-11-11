@@ -347,6 +347,37 @@ fn write_package(root: &Path, muxy: &serde_json::Value, files: &[(&str, &str)]) 
 }
 
 #[test]
+fn trust_allows_every_gate_over_saved_rules_until_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let mut grants = Grants::load(root.path()).unwrap();
+    let exec = Request::for_call("files", "exec", &json!({"argv":["rm","-rf"]}), "").unwrap();
+    let push = Request::for_call("files", "git.push", &json!({}), "/repo").unwrap();
+    let fetch = Request::http("example.com", "GET", "https://example.com");
+    grants.remember("files", &exec, Choice::Block).unwrap();
+    grants
+        .remember("files", &push, Choice::DenyAndRemember)
+        .unwrap();
+    assert!(Choice::Trust.allows() && Choice::Trust.remembers());
+    assert_eq!(exec.rule(Choice::Trust), None);
+    grants.remember("files", &fetch, Choice::Trust).unwrap();
+    let reloaded = Grants::load(root.path()).unwrap();
+    assert!(reloaded.trusted("files"));
+    assert!(!reloaded.trusted("git"));
+    for request in [&exec, &push, &fetch] {
+        assert_eq!(reloaded.decision("files", request), Consent::Allow);
+        assert_eq!(reloaded.decision("git", request), Consent::Ask);
+    }
+    assert_eq!(reloaded.rules("files").len(), 2);
+    grants.set_trusted("files", false).unwrap();
+    assert_eq!(grants.decision("files", &exec), Consent::Blocked);
+    assert_eq!(grants.decision("files", &push), Consent::Deny);
+    assert_eq!(grants.decision("files", &fetch), Consent::Ask);
+    grants.set_trusted("files", true).unwrap();
+    grants.clear("files").unwrap();
+    assert!(!Grants::load(root.path()).unwrap().trusted("files"));
+}
+
+#[test]
 fn earlier_grant_keys_keep_their_decisions() {
     let root = tempfile::tempdir().unwrap();
     fs::write(

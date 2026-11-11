@@ -54,6 +54,7 @@
 "%@ wants to read terminal output." = "%@ wants to read terminal output.";
 "%@ wants to run a shell command." = "%@ wants to run a shell command.";
 "%@ wants to type into a terminal." = "%@ wants to type into a terminal.";
+"%@ will be able to run shell commands, type into and read terminals, change files and git repositories, make network requests, and delete projects without asking. Only do this for an extension you trust.\n\nTo undo it, choose Stop Always Allowing under Permission rules in Settings → Extensions." = "%@ will be able to run shell commands, type into and read terminals, change files and git repositories, make network requests, and delete projects without asking. Only do this for an extension you trust.\n\nTo undo it, choose Stop Always Allowing under Permission rules in Settings → Extensions.";
 "%@ · Muxy keeps it in memory until it quits." = "%@ · Muxy keeps it in memory until it quits.";
 "%@ · Not installed" = "%@ · Not installed";
 "%@ · Unsupported" = "%@ · Unsupported";
@@ -189,6 +190,11 @@
 "Allowed" = "Allowed";
 "Also make backgrounds drawn by terminal programs translucent." = "Also make backgrounds drawn by terminal programs translucent.";
 "Also restart the server" = "Also restart the server";
+"Always Allow" = "Always Allow";
+"Always Allow This Extension…" = "Always Allow This Extension…";
+"Always Allow…" = "Always Allow…";
+"Always allow %@?" = "Always allow %@?";
+"Always allowed: every permission request from this extension is allowed without asking, and the rules below don't apply." = "Always allowed: every permission request from this extension is allowed without asking, and the rules below don't apply.";
 "Always running" = "Always running";
 "Amber" = "Amber";
 "An agent can guide you through it, and explains what publishing does before it changes anything." = "An agent can guide you through it, and explains what publishing does before it changes anything.";
@@ -1629,6 +1635,7 @@
 "Same as App" = "Same as App";
 "Save" = "Save";
 "Save settings, themes, extension preferences, projects, workspaces, and terminal layouts to a .muxy file." = "Save settings, themes, extension preferences, projects, workspaces, and terminal layouts to a .muxy file.";
+"Saving…" = "Saving…";
 "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in Settings → Servers and paste the link. The code works once and expires in 5 minutes." = "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in Settings → Servers and paste the link. The code works once and expires in 5 minutes.";
 "Scan the code with the Muxy app. It works once and expires in 5 minutes." = "Scan the code with the Muxy app. It works once and expires in 5 minutes.";
 "Scan with the Muxy app" = "Scan with the Muxy app";
@@ -1809,6 +1816,7 @@
 "Stays open when it loses focus" = "Stays open when it loses focus";
 "Still connecting to %@. Try again in a moment." = "Still connecting to %@. Try again in a moment.";
 "Stop" = "Stop";
+"Stop Always Allowing" = "Stop Always Allowing";
 "Stop Server?" = "Stop Server?";
 "Stop Server…" = "Stop Server…";
 "Stop server…" = "Stop server…";

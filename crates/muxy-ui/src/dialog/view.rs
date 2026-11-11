@@ -30,6 +30,18 @@ impl Dialog {
         (self.request.theme.bg, self.request.metrics.scaled(1.0))
     }
 
+    #[cfg(test)]
+    pub(super) fn danger(&self) -> Option<usize> {
+        self.request.danger
+    }
+
+    #[cfg(test)]
+    pub(super) fn tick(&mut self, index: usize) {
+        if let Some(checkbox) = self.request.choices.checkboxes.get_mut(index) {
+            checkbox.checked = true;
+        }
+    }
+
     pub(super) fn new(
         title: &str,
         message: Option<&str>,
@@ -254,7 +266,11 @@ impl Render for Dialog {
             buttons = buttons.child(controls::button(
                 style,
                 &format!("dialog-answer-{index}"),
-                controls::Button::secondary(button.label()),
+                if self.request.danger == Some(index) {
+                    controls::Button::danger(button.label())
+                } else {
+                    controls::Button::secondary(button.label())
+                },
                 move |_, _, cx| {
                     let _ = weak.update(cx, |view, cx| view.finish(Some(index), cx));
                 },

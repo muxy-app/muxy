@@ -192,6 +192,42 @@ fn consent_dismissal_never_grants_permission_and_rejects_overlapping_prompts(
 }
 
 #[gpui::test]
+fn the_trust_button_asks_for_trust_unless_blocking_is_ticked(cx: &mut TestAppContext) {
+    let (_, cx) = cx.add_window_view(|_, cx| Host::new(cx));
+    let answers = Rc::new(RefCell::new(Vec::new()));
+    for block in [false, true] {
+        let prompt = cx.update(|window, cx| {
+            let answers = answers.clone();
+            consent(
+                window,
+                cx,
+                "Permission",
+                "Execute a command?",
+                "Block extension",
+                style(),
+                move |answer| answers.borrow_mut().push(answer),
+            )
+            .expect("consent prompt")
+        });
+        cx.update(|window, cx| {
+            active(window, cx).update(cx, |dialog, cx| {
+                if block {
+                    dialog.tick(0);
+                }
+                assert_eq!(dialog.danger(), Some(4));
+                dialog.finish(Some(4), cx);
+            });
+        });
+        drop(prompt);
+        cx.run_until_parked();
+    }
+    assert_eq!(
+        *answers.borrow(),
+        [ConsentResponse::Trust, ConsentResponse::Block]
+    );
+}
+
+#[gpui::test]
 fn a_confirmation_keeps_the_keyboard_when_the_window_refocuses_its_content(
     cx: &mut TestAppContext,
 ) {

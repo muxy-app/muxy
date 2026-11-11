@@ -13,7 +13,7 @@ pub use manifest::{
     SettingKind, Side, Sidebar, StatusBarItem, TabType, local_event,
 };
 pub use permissions::{
-    Choice, Consent, Gate, Grants, Request, Rule, event_permission, required_permission,
+    Choice, Consent, Gate, Grants, Request, Rule, TRUSTED, event_permission, required_permission,
 };
 pub use storage::{Settings, Storage};
 
