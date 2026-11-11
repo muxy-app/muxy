@@ -59,7 +59,7 @@ fn measure(text: &str, width: f64, main_thread: MainThreadMarker) -> f64 {
 }
 
 /// Shows `message` in `alert`, with `input` below it when given. A long
-/// message scrolls in a selectable box so the alert's buttons stay on screen.
+/// message scrolls in a box so the alert's buttons stay on screen.
 pub(super) fn show(
     alert: &NSAlert,
     parent: &NSWindow,
@@ -99,6 +99,8 @@ pub(super) fn show(
     alert.setAccessoryView(Some(&container));
 }
 
+/// A read-only box. Selectable text would take the keyboard focus as the
+/// sheet opens, which scrolls it away from the message's first line.
 fn scrolling_text(message: &str, height: f64, main_thread: MainThreadMarker) -> Retained<NSView> {
     let scroll = NSScrollView::initWithFrame(
         NSScrollView::alloc(main_thread),
@@ -116,7 +118,7 @@ fn scrolling_text(message: &str, height: f64, main_thread: MainThreadMarker) -> 
     );
     text.setRichText(false);
     text.setEditable(false);
-    text.setSelectable(true);
+    text.setSelectable(false);
     text.setDrawsBackground(false);
     text.setFont(Some(&font()));
     text.setTextContainerInset(NSSize::new(BOX_INSET, BOX_INSET));
