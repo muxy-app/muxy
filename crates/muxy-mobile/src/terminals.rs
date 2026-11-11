@@ -165,15 +165,18 @@ impl Content {
     }
 
     /// The phone's size to ask the server for again, if another client
-    /// resized the session since the phone set it.
-    pub(crate) fn reclaim(&self) -> Option<Size> {
-        self.claimed.filter(|size| *size != self.terminal.grid.size)
+    /// resized the session since the phone set it, and the last frame shown
+    /// before asking.
+    pub(crate) fn reclaim(&self) -> Option<(Size, u64)> {
+        self.claimed
+            .filter(|size| *size != self.terminal.grid.size)
+            .map(|size| (size, self.terminal.seq()))
     }
 
-    /// Shows the screen at the size the server accepted, unless its redraw
-    /// at that size already arrived.
-    pub(crate) fn reclaimed(&mut self, size: Size) {
-        if self.terminal.grid.size != size {
+    /// Shows the screen at the size the server accepted, unless a frame
+    /// arrived since asking: the server's screen is newer than the request.
+    pub(crate) fn reclaimed(&mut self, size: Size, seq: u64) {
+        if self.terminal.seq() == seq {
             self.terminal.grid.resize(size);
         }
     }
@@ -243,10 +246,14 @@ mod tests {
     }
 
     fn resized(size: Size) -> ScreenFrame {
+        resized_at(size, 1)
+    }
+
+    fn resized_at(size: Size, seq: u64) -> ScreenFrame {
         ScreenFrame {
             size,
             graphics: None,
-            seq: 1,
+            seq,
             reset: true,
             rows: (0..size.rows)
                 .map(|index| muxy_protocol::Row {
@@ -305,24 +312,23 @@ mod tests {
 
         // The desktop took the session over. The phone asks until the server
         // accepts, and keeps the desktop's screen meanwhile.
-        terminals.frame(channel, resized(desktop));
-        assert_eq!(view.lock().reclaim(), Some(phone));
+        terminals.frame(channel, resized_at(desktop, 2));
+        assert_eq!(view.lock().reclaim(), Some((phone, 2)));
         assert_eq!(view.lock().terminal.grid.size, desktop);
-        assert_eq!(view.lock().reclaim(), Some(phone));
-        view.lock().reclaimed(phone);
+        assert_eq!(view.lock().reclaim(), Some((phone, 2)));
+        view.lock().reclaimed(phone, 2);
         assert_eq!(view.lock().terminal.grid.size, phone);
         assert_eq!(view.lock().reclaim(), None);
 
-        // The server's redraw arriving first leaves the screen as it drew it.
-        terminals.frame(channel, resized(desktop));
-        terminals.frame(channel, resized(phone));
-        view.lock().terminal.grid.rows[0] = vec![muxy_protocol::Run {
-            text: "kept".into(),
-            width: 4,
-            style: muxy_protocol::Style::default(),
-        }];
-        view.lock().reclaimed(phone);
-        assert_eq!(view.lock().terminal.grid.rows[0][0].text, "kept");
+        // A frame arriving while asking is newer than the request, so it
+        // stays, whether it is the redraw or the desktop taking over again.
+        for after in [phone, desktop] {
+            terminals.frame(channel, resized_at(desktop, 3));
+            let (size, seq) = view.lock().reclaim().unwrap();
+            terminals.frame(channel, resized_at(after, 4));
+            view.lock().reclaimed(size, seq);
+            assert_eq!(view.lock().terminal.grid.size, after);
+        }
     }
 
     #[test]
