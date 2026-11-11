@@ -469,3 +469,37 @@ fn publishing_a_marketplace_extension_is_refused(cx: &mut TestAppContext) {
         Err(crate::extensions::publish::PublishFailure::Failed(reason)) if reason.contains("reader")
     ));
 }
+
+#[gpui::test]
+fn always_allowing_needs_a_second_yes_and_can_be_stopped(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["runner"], cx);
+    let view = open_view(&model, cx);
+    cx.update(|_, cx| muxy_ui::dialog::simulate(cx));
+    let trusted = |cx: &mut VisualTestContext| {
+        model.read_with(cx, |model, _| model.extension_trusted("runner"))
+    };
+    view.update_in(cx, |view, window, cx| view.trust("runner", window, cx));
+    cx.run_until_parked();
+    cx.simulate_prompt_answer("Cancel");
+    cx.run_until_parked();
+    assert!(!trusted(cx));
+    view.update_in(cx, |view, window, cx| view.trust("runner", window, cx));
+    cx.run_until_parked();
+    cx.simulate_prompt_answer("Always Allow");
+    pump_until(cx, |cx| trusted(cx));
+    view.update(cx, |view, cx| view.set_trusted("runner", false, cx));
+    pump_until(cx, |cx| !trusted(cx));
+    let refused = model.update(cx, |model, cx| {
+        model.set_extension_trusted("gone", true, cx)
+    });
+    let result = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let saved = result.clone();
+    cx.spawn(async move |_| *saved.borrow_mut() = Some(refused.await))
+        .detach();
+    pump_until(cx, |_| result.borrow().is_some());
+    assert_eq!(
+        result.take(),
+        Some(Err("extension is not installed".to_owned()))
+    );
+    assert!(!model.read_with(cx, |model, _| model.extension_trusted("gone")));
+}

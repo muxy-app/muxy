@@ -54,6 +54,8 @@ enum Mutation {
     Publish,
     ResetPermissions,
     RemoveRule,
+    Trust,
+    Untrust,
 }
 
 impl From<&ActiveInstall> for Mutation {
@@ -79,6 +81,8 @@ impl Mutation {
             Self::Publish => "extension-publish",
             Self::ResetPermissions => "extension-reset-permissions",
             Self::RemoveRule => "extension-rule-remove",
+            Self::Trust => "extension-trust",
+            Self::Untrust => "extension-untrust",
         }
     }
 
@@ -96,6 +100,7 @@ impl Mutation {
             Self::Publish => tr_key!("Publishing…"),
             Self::ResetPermissions => tr_key!("Clearing…"),
             Self::RemoveRule => tr_key!("Removing…"),
+            Self::Trust | Self::Untrust => tr_key!("Saving…"),
         }
     }
 }
@@ -538,6 +543,45 @@ impl ExtensionsView {
         self.run(
             Mutation::RemoveRule,
             move |model, cx| model.remove_extension_rule(&owner, rule, cx),
+            cx,
+        );
+    }
+
+    /// Asks twice, through the button and then a warning, before allowing
+    /// every gated action of the extension without a prompt.
+    fn trust(&mut self, owner: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let owner = owner.to_owned();
+        let parent = muxy_ui::dialog::Parent::new(window.window_handle(), self.style());
+        cx.spawn(async move |view, cx| {
+            let (title, message) = AppModel::trust_question(&owner);
+            let [cancel, allow] = AppModel::trust_buttons();
+            let answer =
+                muxy_ui::dialog::choose(&parent, &title, &message, &[&cancel, &allow], cx).await;
+            match answer {
+                Ok(Some(1)) => {
+                    let _ = view.update(cx, |view, cx| view.set_trusted(&owner, true, cx));
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    let _ = view.update(cx, |view, cx| {
+                        view.error = Some(error.to_string());
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn set_trusted(&mut self, owner: &str, trusted: bool, cx: &mut Context<Self>) {
+        let owner = owner.to_owned();
+        self.run(
+            if trusted {
+                Mutation::Trust
+            } else {
+                Mutation::Untrust
+            },
+            move |model, cx| model.set_extension_trusted(&owner, trusted, cx),
             cx,
         );
     }
@@ -1078,15 +1122,14 @@ impl ExtensionsView {
             .child(content)
     }
 
-    /// Remembered consent answers, each removable, as on main.
-    fn rules_section(
-        &self,
-        owner: &str,
-        rules: &[Rule],
-        audit_log: std::path::PathBuf,
-        cx: &Context<Self>,
-    ) -> gpui::Div {
+    /// Remembered consent answers, each removable, as on main, and whether
+    /// the extension is always allowed.
+    fn rules_section(&self, owner: &str, model: &AppModel, cx: &Context<Self>) -> gpui::Div {
+        let rules = model.extension_rules(owner);
+        let trusted = model.extension_trusted(owner);
+        let audit_log = model.extension_audit_log();
         let clear = owner.to_owned();
+        let trust = owner.to_owned();
         let actions = div()
             .flex()
             .flex_wrap()
@@ -1104,6 +1147,17 @@ impl ExtensionsView {
                     move |view, _, cx| view.reset_permissions(&clear, cx),
                     cx,
                 ))
+            })
+            .when(!trusted, |actions| {
+                actions.child(
+                    self.button(
+                        "extension-trust",
+                        tr_key!("Always Allow…"),
+                        move |view, window, cx| view.trust(&trust, window, cx),
+                        cx,
+                    )
+                    .text_color(self.theme.danger),
+                )
             });
         let content = if rules.is_empty() {
             div().text_color(self.theme.fg_muted).child(accessibility::label(
@@ -1116,7 +1170,45 @@ impl ExtensionsView {
                 |list, (index, rule)| list.child(self.rule_row(owner, index, rule, cx)),
             )
         };
+        let content = div()
+            .flex()
+            .flex_col()
+            .gap(self.metrics.spacing6())
+            .when(trusted, |column| column.child(self.trusted_row(owner, cx)))
+            .child(content);
         self.section_with_actions(&tr!("Permission rules"), actions, content)
+    }
+
+    /// Says the extension skips every permission prompt, with a way to stop.
+    fn trusted_row(&self, owner: &str, cx: &Context<Self>) -> gpui::Div {
+        let owner = owner.to_owned();
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap(self.metrics.spacing6())
+            .px(self.metrics.spacing5())
+            .py(self.metrics.spacing3())
+            .rounded(self.metrics.radius_sm())
+            .border_1()
+            .border_color(self.theme.danger)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_color(self.theme.danger)
+                    .child(accessibility::label(
+                        "extension-trusted",
+                        tr!("Always allowed: every permission request from this extension is allowed without asking, and the rules below don't apply."),
+                    )),
+            )
+            .child(self.button(
+                "extension-untrust",
+                tr_key!("Stop Always Allowing"),
+                move |view, _, cx| view.set_trusted(&owner, false, cx),
+                cx,
+            ))
     }
 
     fn rule_row(&self, owner: &str, index: usize, rule: &Rule, cx: &Context<Self>) -> gpui::Div {
@@ -1253,10 +1345,8 @@ impl ExtensionsView {
                 .background
                 .is_some()
                 .then(|| model.background_running(&extension.name));
-            let rules = model.extension_rules(&extension.name);
-            let audit_log = model.extension_audit_log();
             body = body
-                .child(self.rules_section(&extension.name, &rules, audit_log, cx))
+                .child(self.rules_section(&extension.name, model, cx))
                 .children(self.settings_section(extension, &stored, cx))
                 .child(self.logs_section(extension, &lines, background, cx));
         }

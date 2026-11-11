@@ -15,6 +15,7 @@ use crate::controls::Style;
 use crate::tr;
 
 mod ask;
+mod message;
 #[allow(
     unsafe_code,
     reason = "AppKit text delegates and target/action use Objective-C FFI."
@@ -50,11 +51,12 @@ impl Drop for Confirmation {
 fn consent_choice(response: NSModalResponse, block: bool) -> ConsentResponse {
     let index = response - NSAlertFirstButtonReturn;
     match (index, block) {
-        (..0 | 2 | 4.., _) => ConsentResponse::Cancel,
+        (..0 | 2 | 5.., _) => ConsentResponse::Cancel,
         (_, true) => ConsentResponse::Block,
         (0, false) => ConsentResponse::AllowAndRemember,
         (1, false) => ConsentResponse::Allow,
-        (_, false) => ConsentResponse::DenyAndRemember,
+        (3, false) => ConsentResponse::DenyAndRemember,
+        (_, false) => ConsentResponse::Trust,
     }
 }
 
@@ -74,7 +76,7 @@ pub fn consent(
     let parent = parent_window(window)?;
     let alert = NSAlert::new(main_thread);
     alert.setMessageText(&NSString::from_str(title));
-    alert.setInformativeText(&NSString::from_str(message));
+    message::show(&alert, &parent, message, None, main_thread);
     alert.setAlertStyle(NSAlertStyle::Warning);
     for (label, key) in [
         (tr!("Allow & Remember"), "\r"),
@@ -86,6 +88,9 @@ pub fn consent(
             .addButtonWithTitle(&NSString::from_str(&label))
             .setKeyEquivalent(&NSString::from_str(key));
     }
+    let trust = alert.addButtonWithTitle(&NSString::from_str(&tr!("Always Allow This Extension…")));
+    trust.setKeyEquivalent(&NSString::from_str(""));
+    trust.setHasDestructiveAction(true);
     alert.setShowsSuppressionButton(true);
     let suppression = alert.suppressionButton();
     if let Some(button) = &suppression {
@@ -190,7 +195,7 @@ fn two_button_alert(
     let parent = parent_window(window)?;
     let alert = NSAlert::new(main_thread);
     alert.setMessageText(&NSString::from_str(title));
-    alert.setInformativeText(&NSString::from_str(message));
+    message::show(&alert, &parent, message, None, main_thread);
     alert.setAlertStyle(style);
     alert
         .addButtonWithTitle(&NSString::from_str(confirm_label))
@@ -241,13 +246,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn consent_buttons_map_to_main_choices_and_block_overrides_allowing() {
+    fn consent_buttons_map_to_main_choices_and_block_overrides_allowing_and_trust() {
         let button = |index| NSAlertFirstButtonReturn + index;
         let choices = [
             ConsentResponse::AllowAndRemember,
             ConsentResponse::Allow,
             ConsentResponse::Cancel,
             ConsentResponse::DenyAndRemember,
+            ConsentResponse::Trust,
         ];
         for (index, choice) in (0..).zip(choices) {
             assert_eq!(consent_choice(button(index), false), choice);
@@ -259,6 +265,7 @@ mod tests {
             assert_eq!(consent_choice(button(index), true), blocked);
         }
         assert_eq!(consent_choice(0, false), ConsentResponse::Cancel);
+        assert_eq!(consent_choice(button(5), false), ConsentResponse::Cancel);
         assert_eq!(consent_choice(button(7), true), ConsentResponse::Cancel);
     }
 }
@@ -373,7 +380,6 @@ pub fn present(
     }
     let alert = NSAlert::new(main_thread);
     alert.setMessageText(&NSString::from_str(&options.title));
-    alert.setInformativeText(&NSString::from_str(&options.message));
     alert.setAlertStyle(match options.style.as_str() {
         "warning" => NSAlertStyle::Warning,
         "critical" => NSAlertStyle::Critical,
@@ -402,10 +408,18 @@ pub fn present(
             objc2_foundation::NSPoint::new(0.0, 0.0),
             objc2_foundation::NSSize::new(320.0, 24.0),
         ));
-        alert.setAccessoryView(Some(&input));
-        alert.window().setInitialFirstResponder(Some(&input));
         input
     });
+    message::show(
+        &alert,
+        &parent,
+        &options.message,
+        input.as_deref().map(AsRef::<objc2_app_kit::NSView>::as_ref),
+        main_thread,
+    );
+    if let Some(input) = &input {
+        alert.window().setInitialFirstResponder(Some(input));
+    }
     let completed = Rc::new(Cell::new(false));
     let finished = completed.clone();
     let callback = Cell::new(Some(on_complete));

@@ -62,6 +62,7 @@ struct Request {
     input_limit: Option<usize>,
     cancel: Option<usize>,
     default: Option<usize>,
+    danger: Option<usize>,
     completion: Completion,
     theme: Theme,
     metrics: Metrics,
@@ -75,6 +76,7 @@ impl Request {
             input_limit: None,
             cancel: None,
             default: None,
+            danger: None,
             completion: Completion::default(),
             theme: style.theme.clone(),
             metrics: *style.metrics,
@@ -291,6 +293,7 @@ pub fn consent(
             tr!("Allow").to_string(),
             tr!("Cancel").to_string(),
             tr!("Deny & Remember").to_string(),
+            tr!("Always Allow This Extension…").to_string(),
         ],
         Request {
             choices: PromptChoices {
@@ -303,6 +306,7 @@ pub fn consent(
             },
             cancel: Some(2),
             default: Some(2),
+            danger: Some(4),
             ..Request::new(style)
         },
         move |answer| {
@@ -313,6 +317,7 @@ pub fn consent(
                     (Some(0), false) => ConsentResponse::AllowAndRemember,
                     (Some(1), false) => ConsentResponse::Allow,
                     (Some(3), false) => ConsentResponse::DenyAndRemember,
+                    (Some(4), false) => ConsentResponse::Trust,
                     _ => ConsentResponse::Cancel,
                 },
             );
