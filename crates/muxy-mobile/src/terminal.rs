@@ -139,17 +139,17 @@ impl Terminal {
         Ok(())
     }
 
-    /// Returns whether the session is taking the phone's size back. Gives
-    /// up the claim when the server refuses it, so input still goes through.
+    /// Returns whether the session is taking the phone's size back. When the
+    /// server refuses, the input still goes through and the next one asks again.
     fn reclaim_size(&self) -> bool {
         let Some(size) = self.view.lock().reclaim() else {
             return false;
         };
-        if self.client.resize(self.view.channel, size).is_ok() {
-            return true;
+        if self.client.resize(self.view.channel, size).is_err() {
+            return false;
         }
-        self.view.lock().claimed = None;
-        false
+        self.view.lock().reclaimed(size);
+        true
     }
 
     /// Stops receiving this terminal; the session keeps running.

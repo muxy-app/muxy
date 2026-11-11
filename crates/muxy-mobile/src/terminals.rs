@@ -166,12 +166,16 @@ impl Content {
 
     /// The phone's size to ask the server for again, if another client
     /// resized the session since the phone set it.
-    pub(crate) fn reclaim(&mut self) -> Option<Size> {
-        let size = self
-            .claimed
-            .filter(|size| *size != self.terminal.grid.size)?;
-        self.terminal.grid.resize(size);
-        Some(size)
+    pub(crate) fn reclaim(&self) -> Option<Size> {
+        self.claimed.filter(|size| *size != self.terminal.grid.size)
+    }
+
+    /// Shows the screen at the size the server accepted, unless its redraw
+    /// at that size already arrived.
+    pub(crate) fn reclaimed(&mut self, size: Size) {
+        if self.terminal.grid.size != size {
+            self.terminal.grid.resize(size);
+        }
     }
 
     /// Returns the sequence number to acknowledge.
@@ -299,11 +303,26 @@ mod tests {
         view.lock().claim_if_shown(phone);
         assert_eq!(view.lock().reclaim(), None);
 
-        // The desktop took the session over, so the phone asks once.
+        // The desktop took the session over. The phone asks until the server
+        // accepts, and keeps the desktop's screen meanwhile.
         terminals.frame(channel, resized(desktop));
         assert_eq!(view.lock().reclaim(), Some(phone));
+        assert_eq!(view.lock().terminal.grid.size, desktop);
+        assert_eq!(view.lock().reclaim(), Some(phone));
+        view.lock().reclaimed(phone);
         assert_eq!(view.lock().terminal.grid.size, phone);
         assert_eq!(view.lock().reclaim(), None);
+
+        // The server's redraw arriving first leaves the screen as it drew it.
+        terminals.frame(channel, resized(desktop));
+        terminals.frame(channel, resized(phone));
+        view.lock().terminal.grid.rows[0] = vec![muxy_protocol::Run {
+            text: "kept".into(),
+            width: 4,
+            style: muxy_protocol::Style::default(),
+        }];
+        view.lock().reclaimed(phone);
+        assert_eq!(view.lock().terminal.grid.rows[0][0].text, "kept");
     }
 
     #[test]
