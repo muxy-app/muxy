@@ -40,12 +40,17 @@ pub(super) fn read(
     let mut metadata = Metadata::default();
     let mut line = Vec::new();
     let mut consumed = 0;
+    let mut saw_newline = false;
     while reader.read_until(b'\n', &mut line)? > 0 {
         consumed += line.len() as u64;
         *budget = budget.saturating_sub(line.len() as u64);
-        if let Some(value) = json_record(&line) {
-            metadata.visit(provider, &value, false);
+        let ended = line.last() == Some(&b'\n');
+        if ended || (!saw_newline && consumed == length) {
+            if let Some(value) = json_record(&line) {
+                metadata.visit(provider, &value, false);
+            }
         }
+        saw_newline |= ended;
         line.clear();
     }
     if length > consumed {
@@ -60,7 +65,9 @@ pub(super) fn read(
         }
         while tail.read_until(b'\n', &mut line)? > 0 {
             *budget = budget.saturating_sub(line.len() as u64);
-            if let Some(value) = json_record(&line) {
+            if line.last() == Some(&b'\n')
+                && let Some(value) = json_record(&line)
+            {
                 metadata.visit(provider, &value, true);
             }
             line.clear();
@@ -189,8 +196,9 @@ impl Metadata {
     }
 }
 
-/// One JSON value from a transcript line. Cursor writes `meta.json` as a
-/// single object and does not end the file with a newline.
+/// One JSON value from a transcript line. A finished line ends in a newline.
+/// Cursor writes `meta.json` as a single object and does not end the file
+/// with a newline, so that value is passed here without one.
 fn json_record(line: &[u8]) -> Option<Value> {
     let line = line.strip_suffix(b"\n").unwrap_or(line);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
