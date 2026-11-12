@@ -43,11 +43,13 @@ use crate::model::preferences::Change;
 pub(crate) fn register_commands(
     registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
     model: &crate::model::AppModel,
+    cx: &gpui::App,
 ) {
     super::workspace::commands::register_placed(
         registry,
         model,
         muxy_core::shortcuts::ShortcutId::OpenSettings,
+        cx,
     );
 }
 

@@ -27,7 +27,7 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    pub const ACTIONS: [ShortcutId; 66] = [
+    pub const ACTIONS: [ShortcutId; 81] = [
         ShortcutId::OpenSettings,
         ShortcutId::NewHomeTab,
         ShortcutId::NewTabInProject,
@@ -94,6 +94,21 @@ impl Keymap {
         ShortcutId::IncreaseFontSize,
         ShortcutId::DecreaseFontSize,
         ShortcutId::NewBrowserTab,
+        ShortcutId::SwitchProject,
+        ShortcutId::RenameTab,
+        ShortcutId::MoveTabLeft,
+        ShortcutId::MoveTabRight,
+        ShortcutId::ResizePaneLeft,
+        ShortcutId::ResizePaneRight,
+        ShortcutId::ResizePaneUp,
+        ShortcutId::ResizePaneDown,
+        ShortcutId::FloatPane,
+        ShortcutId::DockFloatingTerminal,
+        ShortcutId::ShowFloatingTerminalInAllProjects,
+        ShortcutId::ShowFloatingTerminalInItsProject,
+        ShortcutId::MoveTabToMainWindow,
+        ShortcutId::ApplyLayout,
+        ShortcutId::OpenProjectInDefaultApp,
     ];
 
     pub fn chord(&self, action: ShortcutId) -> Option<&KeyChord> {
@@ -371,7 +386,7 @@ const RETIRED: [&str; 9] = [
 ];
 
 /// Built-in defaults that give way to a key a user binding already has.
-const YIELDING: [ShortcutId; 58] = [
+const YIELDING: [ShortcutId; 74] = [
     ShortcutId::OpenSettings,
     ShortcutId::NewHomeTab,
     ShortcutId::NewTabInProject,
@@ -430,6 +445,22 @@ const YIELDING: [ShortcutId; 58] = [
     ShortcutId::BrowserInspect,
     ShortcutId::FormNextControl,
     ShortcutId::FormPreviousControl,
+    ShortcutId::SwitchProject,
+    ShortcutId::RenameTab,
+    ShortcutId::MoveTabLeft,
+    ShortcutId::MoveTabRight,
+    ShortcutId::ResizePaneLeft,
+    ShortcutId::ResizePaneRight,
+    ShortcutId::ResizePaneUp,
+    ShortcutId::ResizePaneDown,
+    ShortcutId::FloatPane,
+    ShortcutId::DockFloatingTerminal,
+    ShortcutId::ShowFloatingTerminalInAllProjects,
+    ShortcutId::ShowFloatingTerminalInItsProject,
+    ShortcutId::MoveTabToMainWindow,
+    ShortcutId::ApplyLayout,
+    ShortcutId::OpenProjectInDefaultApp,
+    ShortcutId::ToggleAgentSessions,
 ];
 
 fn overlaps(left: &Shortcut, right: &Shortcut) -> bool {

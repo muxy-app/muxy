@@ -149,6 +149,7 @@ pub struct IconButton {
     color: Hsla,
     hover_color: Hsla,
     tooltip: Option<Tooltip>,
+    shortcut: Option<SharedString>,
     focus_handle: Option<FocusHandle>,
     selected: Option<(bool, Hsla, Pixels)>,
     on_click: Option<ClickHandler>,
@@ -179,6 +180,7 @@ impl IconButton {
             color,
             hover_color,
             tooltip: None,
+            shortcut: None,
             focus_handle: None,
             selected: None,
             on_click: None,
@@ -189,6 +191,13 @@ impl IconButton {
     /// Shows the name in a tooltip.
     pub fn tooltip(mut self, theme: &Theme) -> Self {
         self.tooltip = Some(Tooltip::themed(self.name.clone(), theme));
+        self
+    }
+
+    /// The key that does what the button does. The tooltip shows it after
+    /// the name, in parentheses.
+    pub fn shortcut(mut self, key: Option<SharedString>) -> Self {
+        self.shortcut = key;
         self
     }
 
@@ -293,7 +302,10 @@ impl RenderOnce for IconButton {
                         cx.stop_propagation();
                     });
         }
-        if let Some(tooltip) = self.tooltip {
+        if let Some(mut tooltip) = self.tooltip {
+            if let Some(key) = self.shortcut {
+                tooltip.text = crate::shortcuts::with_key(&tooltip.text, &key);
+            }
             button = button.tooltip(move |_, cx| cx.new(|_| tooltip.clone()).into());
         }
         button
@@ -331,7 +343,9 @@ impl Tooltip {
     }
 
     fn surface(&self, metrics: Metrics) -> gpui::Div {
+        let text = self.text.clone();
         div()
+            .debug_selector(move || format!("tooltip:{text}"))
             .max_w(metrics.scaled(320.0))
             .line_clamp(4)
             .px(metrics.scaled(8.0))

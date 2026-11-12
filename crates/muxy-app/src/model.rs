@@ -1,3 +1,4 @@
+mod active;
 mod adoption;
 pub(crate) mod agent_sessions;
 pub(crate) mod agents_panel;
@@ -3236,6 +3237,7 @@ pub(crate) mod tests {
     mod capabilities;
     mod webviews;
     use muxy_protocol::ExitReason;
+    mod active;
     mod activity;
     mod adoption;
     mod agent_sessions;

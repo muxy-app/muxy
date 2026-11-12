@@ -58,6 +58,26 @@ pub(crate) fn key_glyph(key: &str) -> String {
 }
 
 impl AppModel {
+    /// `name` as the tooltip of a control that runs the command `id`: with
+    /// the command's key after it in parentheses, when it has one.
+    pub(crate) fn tooltip(
+        &self,
+        name: impl Into<gpui::SharedString>,
+        id: ShortcutId,
+    ) -> gpui::SharedString {
+        let name = name.into();
+        match self.shortcut_label(id) {
+            Some(key) => muxy_ui::shortcuts::with_key(&name, &key),
+            None => name,
+        }
+    }
+
+    /// The key of the command `id`, as menus and tooltips show it.
+    pub(crate) fn shortcut_label(&self, id: ShortcutId) -> Option<gpui::SharedString> {
+        let chord = self.settings.keymap.chord(id)?;
+        Some(super::command_palette::chord_label(chord).into())
+    }
+
     pub(crate) fn update_shortcut_hints(&mut self, modifiers: Modifiers, cx: &mut Context<Self>) {
         let hints = &mut self.shortcut_hints;
         if hints.modifiers == modifiers {

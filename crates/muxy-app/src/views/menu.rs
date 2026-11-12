@@ -12,6 +12,8 @@ use crate::model::AppModel;
 mod render;
 mod shortcuts;
 
+pub(crate) use shortcuts::application_handles;
+
 actions!(
     menu,
     [
@@ -709,23 +711,8 @@ impl AppModel {
             | Command::TerminalSelectCommandOutput(id) => {
                 self.perform_pane_menu(id, command, position, cx);
             }
-            Command::CopyPath(id) => {
-                if let Some(project) = self.state.project(id)
-                    && project.status() == muxy_app_core::ProjectStatus::Available
-                {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                        project.directory.to_string_lossy().into_owned(),
-                    ));
-                }
-            }
-            Command::RevealPath(id) => {
-                if let Some(project) = self.state.project(id)
-                    && project.status() == muxy_app_core::ProjectStatus::Available
-                    && project.server_id.is_local()
-                {
-                    cx.reveal_path(&project.directory);
-                }
-            }
+            Command::CopyPath(id) => self.copy_project_path(id, cx),
+            Command::RevealPath(id) => self.reveal_project(id, cx),
             Command::EditProject(id, field) => {
                 self.open_project_editor(id, field, position, window, cx);
                 return;

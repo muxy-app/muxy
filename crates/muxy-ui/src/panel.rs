@@ -374,6 +374,7 @@ impl PanelControl {
 pub struct PanelAction {
     id: ElementId,
     label: SharedString,
+    shortcut: Option<SharedString>,
     content: PanelActionContent,
     focus_handle: FocusHandle,
     handler: PanelActionHandler,
@@ -401,6 +402,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Symbol(symbol.into()),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -418,6 +420,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Glyph(glyph.into()),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -435,6 +438,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Icon(icon),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -452,6 +456,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Element(element.into_any_element()),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -461,6 +466,12 @@ impl PanelAction {
 
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    /// Shows the key that does the same in the tooltip, after the label.
+    pub fn shortcut(mut self, key: Option<SharedString>) -> Self {
+        self.shortcut = key;
         self
     }
 
@@ -615,6 +626,7 @@ fn panel_action(
     let PanelAction {
         id,
         label,
+        shortcut,
         content,
         focus_handle,
         handler,
@@ -644,6 +656,10 @@ fn panel_action(
         PanelActionContent::Element(element) => element,
         PanelActionContent::Glyph(glyph) => div().child(glyph).into_any_element(),
     };
+    let tooltip = shortcut.map_or_else(
+        || label.clone(),
+        |key| crate::shortcuts::with_key(&label, &key),
+    );
     let click_handler = handler.clone();
     let key_handler = handler;
     let focus_for_mouse = focus_handle.clone();
@@ -682,11 +698,11 @@ fn panel_action(
         })
         .map(|button| match cover {
             Some(cover) => button.tooltip(crate::components::covering_tooltip(
-                label,
+                tooltip,
                 theme,
                 cover.clone(),
             )),
-            None => button.tooltip(crate::components::tooltip(label, theme)),
+            None => button.tooltip(crate::components::tooltip(tooltip, theme)),
         })
         .child(glyph)
         .into_any_element()

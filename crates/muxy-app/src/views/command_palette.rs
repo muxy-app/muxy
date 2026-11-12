@@ -35,12 +35,14 @@ pub(crate) fn with_shortcut(
     command: Command<Handler>,
 ) -> Command<Handler> {
     match model.settings.keymap.chord(id) {
-        Some(chord) => command.shortcut(
-            gpui::Keystroke::parse(chord.as_str())
-                .map_or_else(|_| chord.to_string(), |key| key.to_string()),
-        ),
+        Some(chord) => command.shortcut(chord_label(chord)),
         None => command,
     }
+}
+
+/// `chord` as the palette and menus show it.
+pub(crate) fn chord_label(chord: &muxy_app_core::settings::KeyChord) -> String {
+    gpui::Keystroke::parse(chord.as_str()).map_or_else(|_| chord.to_string(), |key| key.to_string())
 }
 
 impl AppModel {
@@ -51,17 +53,20 @@ impl AppModel {
     ) -> Registry<Handler> {
         self.reload_themes(cx);
         let mut registry = Registry::default();
-        super::workspace::commands::register_listed(&mut registry, self);
+        super::workspace::commands::register_listed(&mut registry, self, cx);
         super::sidebar::register_commands(&mut registry, self, cx);
-        super::tips::register_commands(&mut registry, self);
-        super::settings::register_commands(&mut registry, self);
+        super::settings::register_commands(&mut registry, self, cx);
         registry.register(super::theme_picker::command(
             self,
             super::theme_picker::ThemeTarget::App,
             dark,
             cx,
         ));
-        registry.register(super::remote_servers::command(self, cx));
+        registry.register(with_shortcut(
+            self,
+            ShortcutId::ShowServers,
+            super::remote_servers::command(self, cx),
+        ));
         self.register_extension_commands(&mut registry);
         self.register_custom_commands(&mut registry);
         registry
@@ -81,13 +86,24 @@ impl AppModel {
     }
 
     pub(crate) fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_palette_page(super::theme_picker::PAGE_ID, window, cx);
+    }
+
+    /// Opens the palette at one of its lists, like Switch Project…, or closes
+    /// the palette when it already shows that list.
+    pub(crate) fn toggle_palette_page(
+        &mut self,
+        page: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(Overlay::Commands(Palette { palette, .. })) = &self.overlay
-            && palette.read(cx).is_page(super::theme_picker::PAGE_ID)
+            && palette.read(cx).is_page(page)
         {
             self.dismiss_overlay(cx);
             return;
         }
-        self.open_command_palette(Some(super::theme_picker::PAGE_ID), window, cx);
+        self.open_command_palette(Some(page), window, cx);
     }
 
     fn open_command_palette(

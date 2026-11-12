@@ -89,7 +89,8 @@ mod tests {
         for (category, query, editable) in [
             (Category::About, "", false),
             (Category::About, "channel", false),
-            (Category::About, "updates", false),
+            (Category::About, "updates…", false),
+            (Category::About, "updates", true),
             (Category::About, "marketplace", false),
             (Category::General, "marketplace", false),
             (Category::About, "width", true),

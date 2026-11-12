@@ -5,6 +5,7 @@ use gpui::{
     div, px,
 };
 use muxy_app_core::{Project, ProjectId, ProjectStatus, Tab, TabId, settings::AppLayout};
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::accessibility::OnPress;
 use muxy_ui::components::{ButtonInteraction, IconButton, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
@@ -556,6 +557,11 @@ fn new_tab_button(project: &Project, model: &AppModel, cx: &mut Context<AppModel
             )
             .accessibility_id(format!("project-new-tab-{}", project.name))
             .tooltip(theme)
+            .shortcut(
+                (id == model.state.current_project().id)
+                    .then(|| model.shortcut_label(ShortcutId::NewTab))
+                    .flatten(),
+            )
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
                 model.select_project(id, cx);
@@ -802,10 +808,9 @@ fn tab_row(
             tab,
             status,
             number.and_then(|index| {
-                model.shortcut_hints.label(
-                    muxy_core::shortcuts::ShortcutId::TABS[index],
-                    &model.settings.keymap,
-                )
+                model
+                    .shortcut_hints
+                    .label(ShortcutId::TABS[index], &model.settings.keymap)
             }),
             bell,
             group,

@@ -301,14 +301,27 @@ fn menus() -> Vec<Menu> {
         menu_item(FocusPaneDown),
         menu_item(ToggleZoomPane),
         menu_item(EqualizeSplits),
+        menu_item(views::workspace::FocusNextPane),
+        menu_item(views::workspace::FocusPreviousPane),
+        menu_item(views::workspace::ResizePaneLeft),
+        menu_item(views::workspace::ResizePaneRight),
+        menu_item(views::workspace::ResizePaneUp),
+        menu_item(views::workspace::ResizePaneDown),
         menu_item(ClosePane),
         menu_item(CloseTab),
         MenuItem::separator(),
         menu_item(NextTab),
         menu_item(PreviousTab),
+        menu_item(views::workspace::MoveTabLeft),
+        menu_item(views::workspace::MoveTabRight),
+        menu_item(views::workspace::RenameTab),
+        MenuItem::separator(),
+        menu_item(views::workspace::NavigateBack),
+        menu_item(views::workspace::NavigateForward),
         MenuItem::separator(),
         menu_item(PreviousProject),
         menu_item(NextProject),
+        menu_item(views::workspace::SwitchProject),
         MenuItem::separator(),
     ];
     window_items.extend(
@@ -327,6 +340,7 @@ fn menus() -> Vec<Menu> {
         ]);
     }
     app_items.push(menu_item(OpenSettings));
+    app_items.push(menu_item(views::workspace::OpenKeyboardShortcuts));
     if backends.has_backend(Feature::Updates) {
         app_items.push(menu_item(CheckForUpdates));
     }
@@ -353,6 +367,7 @@ fn menus() -> Vec<Menu> {
         menu_item(ToggleAgentsPanel),
         menu_item(ToggleAgentSessions),
         menu_item(ToggleFloatingTerminals),
+        menu_item(views::workspace::ToggleStatusBar),
         menu_item(ToggleFullScreen),
         MenuItem::separator(),
         menu_item(ToggleThemePicker),

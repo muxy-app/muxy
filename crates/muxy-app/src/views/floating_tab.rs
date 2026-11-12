@@ -10,6 +10,7 @@ use gpui::{
     ParentElement, SharedString, Styled, Window, div, px,
 };
 use muxy_app_core::{FloatScope, Tab, TabWindowId};
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::floating::FloatingCard;
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
@@ -168,6 +169,11 @@ fn bar(id: TabWindowId, tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>)
                 Icon::Folder
             },
             &scope_label,
+            Some(if everywhere {
+                ShortcutId::ShowFloatingTerminalInItsProject
+            } else {
+                ShortcutId::ShowFloatingTerminalInAllProjects
+            }),
             model,
             cx.listener(move |model, _, _, cx| model.toggle_float_scope(id, cx)),
         ))
@@ -175,6 +181,7 @@ fn bar(id: TabWindowId, tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>)
             "floating-tab-dock",
             Icon::AppWindow,
             &tr!("Dock as Tab"),
+            Some(ShortcutId::DockFloatingTerminal),
             model,
             cx.listener(move |model, _, _, cx| model.return_tab_window(id, None, cx)),
         ))
@@ -182,6 +189,7 @@ fn bar(id: TabWindowId, tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>)
             "floating-tab-close",
             Icon::X,
             &tr!("Close"),
+            None,
             model,
             cx.listener(move |model, _, _, cx| model.close_tab_window(id, cx)),
         ))

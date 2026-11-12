@@ -92,7 +92,46 @@ actions!(
         BrowserZoomOut,
         BrowserZoomReset,
         BrowserCopyUrl,
-        BrowserInspect
+        BrowserInspect,
+        BrowserOpenExternally,
+        CreateExtension,
+        ManageExtensions,
+        ShowTip,
+        SwitchProject,
+        SwitchWorkspace,
+        ShowServers,
+        ToggleStatusBar,
+        OpenKeyboardShortcuts,
+        RenameTab,
+        ResetTabTitle,
+        ToggleTabPin,
+        CloseOtherTabs,
+        CloseTabsToTheLeft,
+        CloseTabsToTheRight,
+        NewTabToTheLeft,
+        NewTabToTheRight,
+        MoveTabLeft,
+        MoveTabRight,
+        MoveTabToMainWindow,
+        RenameProject,
+        RemoveProject,
+        CopyProjectPath,
+        RevealProject,
+        ApplyLayout,
+        ToggleProjectFocus,
+        ToggleWorktrees,
+        OpenProjectInDefaultApp,
+        NewWorkspace,
+        ResizePaneLeft,
+        ResizePaneRight,
+        ResizePaneUp,
+        ResizePaneDown,
+        FocusNextPane,
+        FocusPreviousPane,
+        ClearScreen,
+        SelectAllInTerminal,
+        ScrollToTop,
+        ResetFontSize
     ]
 );
 
@@ -283,9 +322,6 @@ pub(crate) fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
             }
         }))
         .on_action(cx.listener(titlebar::begin_window_move))
-        .on_action(
-            cx.listener(|model, _: &ReloadConfiguration, _, cx| model.reload_configuration(cx)),
-        )
 }
 
 impl AppModel {

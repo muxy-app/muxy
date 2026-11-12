@@ -1,30 +1,61 @@
 use std::rc::Rc;
 
-use gpui::{Action, Context, Div, InteractiveElement, MenuItem, SharedString, Window, div};
-use muxy_app_core::Direction;
+use gpui::{Action, App, Context, Div, InteractiveElement, MenuItem, SharedString, Window, div};
+use muxy_app_core::settings::TerminalAction;
+use muxy_app_core::{Direction, TabCloseScope, TabSide};
 use muxy_core::capability::Feature;
 use muxy_core::shortcuts::{ALL, ShortcutId};
 use muxy_ui::command_palette::{Command, Registry};
 use muxy_ui::l10n::tr_key;
 
 use super::{
-    AddProject, BrowserBack, BrowserCopyUrl, BrowserFocusAddress, BrowserForward, BrowserInspect,
-    BrowserReload, BrowserZoomIn, BrowserZoomOut, BrowserZoomReset, CheckForUpdates, ClosePane,
-    CloseTab, DecreaseFontSize, DetachTerminal, DockFloatingTerminal, EndAllSessionsAndQuit,
-    EqualizeSplits, ExistingTerminals, Find, FindNext, FindPrevious, FloatPane, FocusPaneDown,
-    FocusPaneLeft, FocusPaneRight, FocusPaneUp, HideApp, HideOthers, IncreaseFontSize,
-    InstallCommandLineTool, Minimize, MovePaneToNewTab, MovePaneToNewWindow, MoveTabToNewWindow,
-    NavigateBack, NavigateForward, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree,
-    NextProject, NextPrompt, NextTab, OpenAbout, OpenConfiguration, OpenSettings, PreviousProject,
-    PreviousPrompt, PreviousTab, Quit, ScrollToBottom, SelectCommandOutput, ShowAll,
-    ShowFloatingTerminalInAllProjects, ShowFloatingTerminalInItsProject, ShowWelcomeTour,
-    SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel,
-    ToggleCommandPalette, ToggleComposer, ToggleFloatingTerminals, ToggleFullScreen, ToggleSidebar,
-    ToggleThemePicker, ToggleZoomPane, Zoom,
+    AddProject, ApplyLayout, BrowserBack, BrowserCopyUrl, BrowserFocusAddress, BrowserForward,
+    BrowserInspect, BrowserOpenExternally, BrowserReload, BrowserZoomIn, BrowserZoomOut,
+    BrowserZoomReset, CheckForUpdates, ClearScreen, CloseOtherTabs, ClosePane, CloseTab,
+    CloseTabsToTheLeft, CloseTabsToTheRight, CopyProjectPath, CreateExtension, DecreaseFontSize,
+    DetachTerminal, DockFloatingTerminal, EndAllSessionsAndQuit, EqualizeSplits, ExistingTerminals,
+    Find, FindNext, FindPrevious, FloatPane, FocusNextPane, FocusPaneDown, FocusPaneLeft,
+    FocusPaneRight, FocusPaneUp, FocusPreviousPane, HideApp, HideOthers, IncreaseFontSize,
+    InstallCommandLineTool, ManageExtensions, Minimize, MovePaneToNewTab, MovePaneToNewWindow,
+    MoveTabLeft, MoveTabRight, MoveTabToMainWindow, MoveTabToNewWindow, NavigateBack,
+    NavigateForward, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewTabToTheLeft,
+    NewTabToTheRight, NewWorkspace, NewWorktree, NextProject, NextPrompt, NextTab, OpenAbout,
+    OpenConfiguration, OpenKeyboardShortcuts, OpenProjectInDefaultApp, OpenSettings,
+    PreviousProject, PreviousPrompt, PreviousTab, Quit, ReloadConfiguration, RemoveProject,
+    RenameProject, RenameTab, ResetFontSize, ResetTabTitle, ResizePaneDown, ResizePaneLeft,
+    ResizePaneRight, ResizePaneUp, RevealProject, ScrollToBottom, ScrollToTop, SelectAllInTerminal,
+    SelectCommandOutput, ShowAll, ShowFloatingTerminalInAllProjects,
+    ShowFloatingTerminalInItsProject, ShowServers, ShowTip, ShowWelcomeTour, SplitDown, SplitRight,
+    SwitchProject, SwitchWorkspace, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel,
+    ToggleCommandPalette, ToggleComposer, ToggleFloatingTerminals, ToggleFullScreen,
+    ToggleProjectFocus, ToggleSidebar, ToggleStatusBar, ToggleTabPin, ToggleThemePicker,
+    ToggleWorktrees, ToggleZoomPane, Zoom,
 };
 use crate::model::AppModel;
 use crate::model::browsers::BrowserAction;
-use crate::views::command_palette::{Handler, with_shortcut};
+use crate::views::command_palette::{Handler, chord_label};
+use crate::views::menu::application_handles;
+
+mod available;
+#[cfg(test)]
+mod tests;
+
+use available::{
+    browser_enabled, can_add_worktree, can_close_other_tabs, can_close_tabs_to_the_left,
+    can_close_tabs_to_the_right, can_float_pane, can_go_back, can_go_forward, can_move_tab_left,
+    can_move_tab_right, can_open_browser, can_open_project_in_app, can_remove_project,
+    can_rename_project, can_resize_down, can_resize_left, can_resize_right, can_resize_up,
+    can_reveal_project, can_switch_worktree, can_toggle_worktrees, float_in_all_projects,
+    float_in_project, has_browser, has_detached_tab, has_floats, has_listed_tab, has_other_project,
+    has_other_tab, has_pane, has_split, has_tab, has_terminal, has_titled_tab, has_workspaces,
+    in_float, pane_can_leave_window, project_available, project_present, tips_shown,
+};
+
+/// The palette lists the project, workspace, and server switchers under
+/// these ids, each a list of its own.
+pub(crate) const SWITCH_PROJECT_PAGE: &str = ALL[ShortcutId::SwitchProject as usize].id;
+pub(crate) const SWITCH_WORKSPACE_PAGE: &str = ALL[ShortcutId::SwitchWorkspace as usize].id;
+pub(crate) const SERVERS_PAGE: &str = ALL[ShortcutId::ShowServers as usize].id;
 
 #[derive(Clone, Copy)]
 enum Label {
@@ -49,6 +80,8 @@ struct CommandDef {
     keywords: Option<&'static str>,
     feature: Option<Feature>,
     available: Option<fn(&AppModel) -> bool>,
+    visible: Option<fn(&AppModel) -> bool>,
+    terminal: Option<fn() -> TerminalAction>,
     palette: Palette,
     bind: fn(&mut muxy_ui::shortcuts::Registry<'_>, ShortcutId),
     boxed: fn() -> Box<dyn Action>,
@@ -82,6 +115,8 @@ const fn unbound<A: Action + Clone + Default>(
         keywords: None,
         feature: None,
         available: None,
+        visible: None,
+        terminal: None,
         palette: Palette::Listed,
         bind: bind::<A>,
         boxed: boxed::<A>,
@@ -121,6 +156,19 @@ impl CommandDef {
         self
     }
 
+    /// Lists the command only while `visible` holds.
+    const fn visible(mut self, visible: fn(&AppModel) -> bool) -> Self {
+        self.visible = Some(visible);
+        self
+    }
+
+    /// Runs `action` in the active terminal. The palette shows the
+    /// terminal's own key for it when the command has none.
+    const fn terminal(mut self, action: fn() -> TerminalAction) -> Self {
+        self.terminal = Some(action);
+        self
+    }
+
     const fn placed(mut self) -> Self {
         self.palette = Palette::Placed;
         self
@@ -149,104 +197,54 @@ impl CommandDef {
         })
     }
 
-    fn palette_command(&self, model: &AppModel) -> Command<Handler> {
+    fn palette_command(&self, model: &AppModel, cx: &App) -> Command<Handler> {
         let boxed = self.boxed;
         let handler: Handler = Rc::new(move |_, window, cx| window.dispatch_action(boxed(), cx));
         let command = Command::new(self.palette_id, self.title(), handler)
             .keywords(self.search_words())
             .disabled(self.available.is_some_and(|available| !available(model)));
-        match self.shortcut {
-            Some(id) => with_shortcut(model, id, command),
+        match self.shortcut_label(model, cx) {
+            Some(shortcut) => command.shortcut(shortcut),
             None => command,
         }
     }
-}
 
-fn project_present(model: &AppModel) -> bool {
-    model.state.current_project().status() != muxy_app_core::ProjectStatus::Missing
-}
-
-fn has_tab(model: &AppModel) -> bool {
-    model.active_tab().is_some()
-}
-
-fn has_pane(model: &AppModel) -> bool {
-    project_present(model) && model.active_pane().is_some()
-}
-
-/// Whether the active pane can move into a window of its own: any pane of
-/// the main window, or a pane sharing its tab window with another.
-fn pane_can_leave_window(model: &AppModel) -> bool {
-    project_present(model)
-        && model
-            .active_tab()
-            .and_then(|tab| model.tab(tab))
-            .is_some_and(|tab| !tab.detached() || tab.floating() || tab.panes.len() >= 2)
-}
-
-fn can_float_pane(model: &AppModel) -> bool {
-    project_present(model)
-        && has_terminal(model)
-        && model
+    /// The key that runs the command from where the keyboard is. A key the
+    /// focused terminal binds to something else never reaches the command,
+    /// so the terminal's own key for the same action shows instead.
+    fn shortcut_label(&self, model: &AppModel, cx: &App) -> Option<String> {
+        let action = self.terminal.map(|action| action());
+        let bindings = model
             .active_pane()
-            .is_some_and(|pane| !model.pane_floats(pane))
-}
+            .and_then(|pane| model.terminal(&pane))
+            .map(|pane| &pane.view.read(cx).terminal.keybindings);
+        let chord = self
+            .shortcut
+            .and_then(|id| model.settings.keymap.chord(id))
+            .filter(|chord| {
+                bindings.is_none_or(|bindings| {
+                    bindings
+                        .bindings
+                        .get(chord)
+                        .is_none_or(|bound| action.as_ref() == Some(bound))
+                })
+            });
+        chord.map(chord_label).or_else(|| {
+            let bindings = bindings?;
+            bindings
+                .chords_for_action(action.as_ref()?)
+                .find(|chord| {
+                    bindings.bindings.contains_key(chord) || !application_handles(chord, cx)
+                })
+                .map(chord_label)
+        })
+    }
 
-fn has_floats(model: &AppModel) -> bool {
-    model.state.floating_tabs().next().is_some()
-}
-
-fn in_float(model: &AppModel) -> bool {
-    model.key_float().is_some()
-}
-
-fn float_in_project(model: &AppModel) -> bool {
-    model
-        .key_float()
-        .and_then(|id| model.float_scope(id))
-        .is_some_and(|scope| scope == muxy_app_core::FloatScope::Project)
-}
-
-fn float_in_all_projects(model: &AppModel) -> bool {
-    model
-        .key_float()
-        .and_then(|id| model.float_scope(id))
-        .is_some_and(|scope| scope == muxy_app_core::FloatScope::AllProjects)
-}
-
-fn has_split(model: &AppModel) -> bool {
-    project_present(model)
-        && model
-            .active_tab()
-            .and_then(|tab| model.tab(tab))
-            .is_some_and(|tab| tab.panes.len() >= 2)
-}
-
-fn has_terminal(model: &AppModel) -> bool {
-    model
-        .active_pane()
-        .and_then(|pane| model.terminal(&pane))
-        .is_some()
-}
-
-fn has_other_project(model: &AppModel) -> bool {
-    model.navigation_projects().len() >= 2
-}
-
-fn has_other_tab(model: &AppModel) -> bool {
-    model.navigation_tabs().len() >= 2
-}
-
-fn can_add_worktree(model: &AppModel) -> bool {
-    model.new_worktree_target().is_some()
-}
-
-fn can_switch_worktree(model: &AppModel) -> bool {
-    model.worktree_switcher_project().is_some()
-}
-
-fn can_open_browser(model: &AppModel) -> bool {
-    project_present(model) && model.browser_enabled()
+    fn listed(&self, model: &AppModel) -> bool {
+        self.feature
+            .is_none_or(|feature| model.capabilities.has_backend(feature))
+            && self.visible.is_none_or(|visible| visible(model))
+    }
 }
 
 static COMMANDS: &[CommandDef] = &[
@@ -470,8 +468,8 @@ static COMMANDS: &[CommandDef] = &[
         model.end_all_and_quit(cx);
         cx.stop_propagation();
     }),
-    unbound::<MoveTabToNewWindow>(
-        "move_tab_to_new_window",
+    row::<MoveTabToNewWindow>(
+        ShortcutId::MoveTabToNewWindow,
         Label::Key(tr_key!("Move Tab to New Window")),
     )
     .keywords("Detach Tab Window Separate")
@@ -481,8 +479,8 @@ static COMMANDS: &[CommandDef] = &[
             model.move_tab_to_window(tab, None, None, cx);
         }
     }),
-    unbound::<MovePaneToNewTab>(
-        "move_pane_to_new_tab",
+    row::<MovePaneToNewTab>(
+        ShortcutId::MovePaneToNewTab,
         Label::Key(tr_key!("Move Pane to New Tab")),
     )
     .keywords("Split Pane Tab Break Out")
@@ -494,8 +492,8 @@ static COMMANDS: &[CommandDef] = &[
             model.move_pane_to_new_tab(pane, muxy_app_core::TabPlace::end(project), cx);
         }
     }),
-    unbound::<MovePaneToNewWindow>(
-        "move_pane_to_new_window",
+    row::<MovePaneToNewWindow>(
+        ShortcutId::MovePaneToNewWindow,
         Label::Key(tr_key!("Move Pane to New Window")),
     )
     .keywords("Detach Pane Window Separate")
@@ -505,12 +503,12 @@ static COMMANDS: &[CommandDef] = &[
             model.move_pane_to_window(pane, None, None, cx);
         }
     }),
-    unbound::<FloatPane>("float_pane", Label::Key(tr_key!("Float Pane")))
+    row::<FloatPane>(ShortcutId::FloatPane, Label::Key(tr_key!("Float Pane")))
         .keywords("Floating Terminal Panel Overlay Pop Out")
         .available(can_float_pane)
         .run(|model, _, cx| model.float_active_pane(cx)),
-    unbound::<DockFloatingTerminal>(
-        "dock_floating_terminal",
+    row::<DockFloatingTerminal>(
+        ShortcutId::DockFloatingTerminal,
         Label::Key(tr_key!("Dock Floating Terminal")),
     )
     .keywords("Floating Terminal Dock Tab Return")
@@ -520,8 +518,8 @@ static COMMANDS: &[CommandDef] = &[
             model.return_tab_window(id, None, cx);
         }
     }),
-    unbound::<ShowFloatingTerminalInAllProjects>(
-        "show_floating_terminal_in_all_projects",
+    row::<ShowFloatingTerminalInAllProjects>(
+        ShortcutId::ShowFloatingTerminalInAllProjects,
         Label::Key(tr_key!("Show Floating Terminal in All Projects")),
     )
     .keywords("Floating Terminal Global Everywhere Scope")
@@ -531,8 +529,8 @@ static COMMANDS: &[CommandDef] = &[
             model.set_float_scope(id, muxy_app_core::FloatScope::AllProjects, cx);
         }
     }),
-    unbound::<ShowFloatingTerminalInItsProject>(
-        "show_floating_terminal_in_its_project",
+    row::<ShowFloatingTerminalInItsProject>(
+        ShortcutId::ShowFloatingTerminalInItsProject,
         Label::Key(tr_key!("Show Floating Terminal Only in Its Project")),
     )
     .keywords("Floating Terminal Project Scope")
@@ -549,8 +547,8 @@ static COMMANDS: &[CommandDef] = &[
     .keywords("Floating Terminals Show Hide")
     .available(has_floats)
     .run(|model, _, cx| model.toggle_floats(cx)),
-    unbound::<CheckForUpdates>(
-        "check_for_updates",
+    row::<CheckForUpdates>(
+        ShortcutId::CheckForUpdates,
         Label::Key(tr_key!("Check for Updates…")),
     )
     .keywords("Check for Updates")
@@ -587,8 +585,8 @@ static COMMANDS: &[CommandDef] = &[
         .keywords("Settings Open Settings")
         .placed()
         .run(AppModel::open_settings),
-    unbound::<ShowWelcomeTour>(
-        "show_welcome_tour",
+    row::<ShowWelcomeTour>(
+        ShortcutId::ShowWelcomeTour,
         Label::Key(tr_key!("Show Welcome Tour")),
     )
     .keywords("Onboarding Welcome Tour Getting Started Intro Guide")
@@ -630,40 +628,394 @@ static COMMANDS: &[CommandDef] = &[
         .run(|model, _, cx| {
             model.forward(Feature::AppHiding, cx);
         }),
-    shortcut_only::<NavigateBack>(ShortcutId::NavigateBack)
+    row::<NavigateBack>(ShortcutId::NavigateBack, Label::Key(tr_key!("Back")))
+        .keywords("Back Navigate History Previous Location")
+        .available(can_go_back)
         .run(|model, _, cx| model.navigate(false, cx)),
-    shortcut_only::<NavigateForward>(ShortcutId::NavigateForward)
+    row::<NavigateForward>(ShortcutId::NavigateForward, Label::Key(tr_key!("Forward")))
+        .keywords("Forward Navigate History Next Location")
+        .available(can_go_forward)
         .run(|model, _, cx| model.navigate(true, cx)),
     shortcut_only::<OpenConfiguration>(ShortcutId::OpenConfiguration).run(AppModel::open_settings),
-    shortcut_only::<BrowserFocusAddress>(ShortcutId::BrowserFocusAddress).run(
-        |model, window, cx| {
-            model.browser_action(BrowserAction::FocusAddress, window, cx);
-        },
-    ),
-    shortcut_only::<BrowserReload>(ShortcutId::BrowserReload).run(|model, window, cx| {
+    row::<OpenKeyboardShortcuts>(
+        ShortcutId::OpenKeyboardShortcuts,
+        Label::Key(tr_key!("Keyboard Shortcuts…")),
+    )
+    .keywords("Keyboard Shortcuts Keybindings Keymap Settings")
+    .run(AppModel::show_keyboard_settings),
+    row::<ReloadConfiguration>(
+        ShortcutId::ReloadConfiguration,
+        Label::Key(tr_key!("Reload Configuration")),
+    )
+    .keywords("Reload Configuration Terminal Settings Config")
+    .run(|model, _, cx| model.reload_configuration(cx)),
+    row::<ToggleStatusBar>(
+        ShortcutId::ToggleStatusBar,
+        Label::Key(tr_key!("Toggle Status Bar")),
+    )
+    .keywords("Toggle Status Bar Show Hide")
+    .run(|model, _, cx| model.toggle_status_bar(cx)),
+    row::<SwitchProject>(
+        ShortcutId::SwitchProject,
+        Label::Key(tr_key!("Switch Project…")),
+    )
+    .keywords("Switch Project")
+    .hidden()
+    .run(|model, window, cx| {
+        model.toggle_palette_page(SWITCH_PROJECT_PAGE, window, cx);
+    }),
+    row::<SwitchWorkspace>(
+        ShortcutId::SwitchWorkspace,
+        Label::Key(tr_key!("Switch Workspace…")),
+    )
+    .keywords("Switch Workspace")
+    .hidden()
+    .run(|model, window, cx| {
+        if has_workspaces(model) {
+            model.toggle_palette_page(SWITCH_WORKSPACE_PAGE, window, cx);
+        }
+    }),
+    row::<ShowServers>(ShortcutId::ShowServers, Label::Key(tr_key!("Servers…")))
+        .keywords("Servers Remote Clients Pairing")
+        .hidden()
+        .run(|model, window, cx| {
+            model.toggle_palette_page(SERVERS_PAGE, window, cx);
+        }),
+    row::<RenameTab>(ShortcutId::RenameTab, Label::Key(tr_key!("Rename Tab…")))
+        .keywords("Rename Tab Title")
+        .available(has_tab)
+        .run(AppModel::rename_active_tab),
+    row::<ResetTabTitle>(
+        ShortcutId::ResetTabTitle,
+        Label::Key(tr_key!("Reset Tab Title")),
+    )
+    .available(has_titled_tab)
+    .run(|model, _, cx| model.reset_active_tab_title(cx)),
+    row::<ToggleTabPin>(
+        ShortcutId::ToggleTabPin,
+        Label::Key(tr_key!("Toggle Tab Pin")),
+    )
+    .keywords("Toggle Tab Pin Unpin")
+    .available(has_listed_tab)
+    .run(|model, _, cx| {
+        if has_listed_tab(model) {
+            model.toggle_active_tab_pin(cx);
+        }
+    }),
+    row::<CloseOtherTabs>(
+        ShortcutId::CloseOtherTabs,
+        Label::Key(tr_key!("Close Other Tabs")),
+    )
+    .available(can_close_other_tabs)
+    .run(|model, _, cx| model.close_tabs_around_active(TabCloseScope::Other, cx)),
+    row::<CloseTabsToTheLeft>(
+        ShortcutId::CloseTabsToTheLeft,
+        Label::Key(tr_key!("Close Tabs to the Left")),
+    )
+    .available(can_close_tabs_to_the_left)
+    .run(|model, _, cx| model.close_tabs_around_active(TabCloseScope::Left, cx)),
+    row::<CloseTabsToTheRight>(
+        ShortcutId::CloseTabsToTheRight,
+        Label::Key(tr_key!("Close Tabs to the Right")),
+    )
+    .available(can_close_tabs_to_the_right)
+    .run(|model, _, cx| model.close_tabs_around_active(TabCloseScope::Right, cx)),
+    row::<NewTabToTheLeft>(
+        ShortcutId::NewTabToTheLeft,
+        Label::Key(tr_key!("New Tab to the Left")),
+    )
+    .available(has_listed_tab)
+    .run(|model, _, cx| {
+        if has_listed_tab(model) {
+            model.new_tab_beside_active(TabSide::Left, cx);
+        }
+    }),
+    row::<NewTabToTheRight>(
+        ShortcutId::NewTabToTheRight,
+        Label::Key(tr_key!("New Tab to the Right")),
+    )
+    .available(has_listed_tab)
+    .run(|model, _, cx| {
+        if has_listed_tab(model) {
+            model.new_tab_beside_active(TabSide::Right, cx);
+        }
+    }),
+    row::<MoveTabLeft>(
+        ShortcutId::MoveTabLeft,
+        Label::Key(tr_key!("Move Tab Left")),
+    )
+    .keywords("Move Tab Left Reorder Previous")
+    .available(can_move_tab_left)
+    .run(|model, _, cx| model.move_active_tab(false, cx)),
+    row::<MoveTabRight>(
+        ShortcutId::MoveTabRight,
+        Label::Key(tr_key!("Move Tab Right")),
+    )
+    .keywords("Move Tab Right Reorder Next")
+    .available(can_move_tab_right)
+    .run(|model, _, cx| model.move_active_tab(true, cx)),
+    row::<MoveTabToMainWindow>(
+        ShortcutId::MoveTabToMainWindow,
+        Label::Key(tr_key!("Move Tab to Main Window")),
+    )
+    .keywords("Move Tab to Main Window Return Attach")
+    .available(has_detached_tab)
+    .run(|model, _, cx| model.return_active_tab_to_main_window(cx)),
+    row::<RenameProject>(
+        ShortcutId::RenameProject,
+        Label::Key(tr_key!("Rename Project…")),
+    )
+    .keywords("Rename Project Worktree")
+    .available(can_rename_project)
+    .run(|model, window, cx| {
+        if can_rename_project(model) {
+            model.rename_current_project(window, cx);
+        }
+    }),
+    row::<RemoveProject>(
+        ShortcutId::RemoveProject,
+        Label::Key(tr_key!("Remove Project…")),
+    )
+    .keywords("Remove Project Worktree Delete")
+    .available(can_remove_project)
+    .run(|model, _, cx| model.remove_current_project(cx)),
+    row::<CopyProjectPath>(
+        ShortcutId::CopyProjectPath,
+        Label::Key(tr_key!("Copy Project Path")),
+    )
+    .keywords("Copy Project Path Folder Directory")
+    .available(project_available)
+    .run(|model, _, cx| model.copy_project_path(model.state.current_project().id, cx)),
+    row::<RevealProject>(
+        ShortcutId::RevealProject,
+        Label::Key(if cfg!(target_os = "macos") {
+            tr_key!("Reveal Project in Finder")
+        } else {
+            tr_key!("Show Project in File Manager")
+        }),
+    )
+    .keywords("Reveal Project in Finder Show File Manager Folder Directory")
+    .available(can_reveal_project)
+    .run(|model, _, cx| model.reveal_project(model.state.current_project().id, cx)),
+    row::<ApplyLayout>(
+        ShortcutId::ApplyLayout,
+        Label::Key(tr_key!("Apply Layout…")),
+    )
+    .keywords("Apply Layout Project Tabs Panes")
+    .available(project_available)
+    .run(|model, window, cx| {
+        model.open_layout_picker(model.state.current_project().id, window, cx);
+    }),
+    row::<ToggleProjectFocus>(
+        ShortcutId::ToggleProjectFocus,
+        Label::Key(tr_key!("Toggle Project Focus")),
+    )
+    .keywords("Toggle Project Focus Show All Projects Sidebar")
+    .run(|model, _, cx| model.toggle_project_focus(cx)),
+    row::<ToggleWorktrees>(
+        ShortcutId::ToggleWorktrees,
+        Label::Key(tr_key!("Toggle Worktrees")),
+    )
+    .keywords("Toggle Worktrees Show Hide Sidebar")
+    .available(can_toggle_worktrees)
+    .run(|model, _, cx| {
+        if can_toggle_worktrees(model) {
+            model.toggle_worktree_visibility(model.current_parent_project(), cx);
+        }
+    }),
+    row::<OpenProjectInDefaultApp>(
+        ShortcutId::OpenProjectInDefaultApp,
+        Label::Key(tr_key!("Open Project in Default App")),
+    )
+    .keywords("Open Project in Default App Editor IDE")
+    .available(can_open_project_in_app)
+    .run(|model, _, cx| model.open_project_in_default(cx)),
+    row::<NewWorkspace>(
+        ShortcutId::NewWorkspace,
+        Label::Key(tr_key!("New Workspace…")),
+    )
+    .run(AppModel::new_workspace),
+    row::<ResizePaneLeft>(
+        ShortcutId::ResizePaneLeft,
+        Label::Key(tr_key!("Resize Pane Left")),
+    )
+    .keywords("Resize Pane Left Split Divider")
+    .available(can_resize_left)
+    .run(|model, _, cx| model.resize_active_pane(Direction::Left, cx)),
+    row::<ResizePaneRight>(
+        ShortcutId::ResizePaneRight,
+        Label::Key(tr_key!("Resize Pane Right")),
+    )
+    .keywords("Resize Pane Right Split Divider")
+    .available(can_resize_right)
+    .run(|model, _, cx| model.resize_active_pane(Direction::Right, cx)),
+    row::<ResizePaneUp>(
+        ShortcutId::ResizePaneUp,
+        Label::Key(tr_key!("Resize Pane Up")),
+    )
+    .keywords("Resize Pane Up Split Divider")
+    .available(can_resize_up)
+    .run(|model, _, cx| model.resize_active_pane(Direction::Up, cx)),
+    row::<ResizePaneDown>(
+        ShortcutId::ResizePaneDown,
+        Label::Key(tr_key!("Resize Pane Down")),
+    )
+    .keywords("Resize Pane Down Split Divider")
+    .available(can_resize_down)
+    .run(|model, _, cx| model.resize_active_pane(Direction::Down, cx)),
+    row::<FocusNextPane>(
+        ShortcutId::FocusNextPane,
+        Label::Key(tr_key!("Focus Next Pane")),
+    )
+    .available(has_split)
+    .run(|model, _, cx| model.cycle_pane(true, cx)),
+    row::<FocusPreviousPane>(
+        ShortcutId::FocusPreviousPane,
+        Label::Key(tr_key!("Focus Previous Pane")),
+    )
+    .available(has_split)
+    .run(|model, _, cx| model.cycle_pane(false, cx)),
+    row::<ClearScreen>(ShortcutId::ClearScreen, Label::Key(tr_key!("Clear Screen")))
+        .keywords("Clear Screen Terminal Scrollback")
+        .available(has_terminal)
+        .terminal(|| TerminalAction::ClearScreen)
+        .run(|model, _, cx| model.terminal_action(&TerminalAction::ClearScreen, cx)),
+    row::<SelectAllInTerminal>(ShortcutId::SelectAll, Label::Key(tr_key!("Select All")))
+        .keywords("Select All Terminal Text")
+        .available(has_terminal)
+        .terminal(|| TerminalAction::SelectAll)
+        .run(|model, _, cx| model.terminal_action(&TerminalAction::SelectAll, cx)),
+    row::<ScrollToTop>(
+        ShortcutId::ScrollToTop,
+        Label::Key(tr_key!("Scroll to Top")),
+    )
+    .available(has_terminal)
+    .terminal(|| TerminalAction::ScrollTop)
+    .run(|model, _, cx| model.terminal_action(&TerminalAction::ScrollTop, cx)),
+    row::<ResetFontSize>(
+        ShortcutId::ResetFontSize,
+        Label::Key(tr_key!("Reset Font Size")),
+    )
+    .available(has_terminal)
+    .terminal(|| TerminalAction::ResetFontSize)
+    .run(|model, _, cx| model.terminal_action(&TerminalAction::ResetFontSize, cx)),
+    row::<CreateExtension>(
+        ShortcutId::CreateExtension,
+        Label::Key(tr_key!("Create Extension…")),
+    )
+    .keywords("Create Extension new make build agent")
+    .run(|model, _, cx| {
+        model.open_extension_agent(crate::extensions::authoring::AgentTask::Create, cx);
+    }),
+    row::<ManageExtensions>(
+        ShortcutId::ManageExtensions,
+        Label::Key(tr_key!("Manage Extensions")),
+    )
+    .keywords("Manage Extensions settings installed marketplace")
+    .run(AppModel::show_extensions_settings),
+    row::<ShowTip>(ShortcutId::ShowTip, Label::Key(tr_key!("Show Muxy Tip")))
+        .keywords("Show Muxy Tip Tips")
+        .visible(tips_shown)
+        .run(|model, _, cx| {
+            if tips_shown(model) {
+                model.show_tip(cx);
+            }
+        }),
+    row::<BrowserFocusAddress>(
+        ShortcutId::BrowserFocusAddress,
+        Label::Key(tr_key!("Focus Address Bar")),
+    )
+    .keywords("Focus Address Bar Browser URL Location")
+    .available(has_browser)
+    .visible(browser_enabled)
+    .run(|model, window, cx| {
+        model.browser_action(BrowserAction::FocusAddress, window, cx);
+    }),
+    row::<BrowserReload>(
+        ShortcutId::BrowserReload,
+        Label::Key(tr_key!("Reload Page")),
+    )
+    .keywords("Reload Page Browser Refresh")
+    .available(has_browser)
+    .visible(browser_enabled)
+    .run(|model, window, cx| {
         model.browser_action(BrowserAction::Reload, window, cx);
     }),
-    shortcut_only::<BrowserBack>(ShortcutId::BrowserBack).run(|model, window, cx| {
-        model.browser_action(BrowserAction::Back, window, cx);
-    }),
-    shortcut_only::<BrowserForward>(ShortcutId::BrowserForward).run(|model, window, cx| {
+    row::<BrowserBack>(ShortcutId::BrowserBack, Label::Key(tr_key!("Page Back")))
+        .keywords("Page Back Browser History Previous")
+        .available(has_browser)
+        .visible(browser_enabled)
+        .run(|model, window, cx| {
+            model.browser_action(BrowserAction::Back, window, cx);
+        }),
+    row::<BrowserForward>(
+        ShortcutId::BrowserForward,
+        Label::Key(tr_key!("Page Forward")),
+    )
+    .keywords("Page Forward Browser History Next")
+    .available(has_browser)
+    .visible(browser_enabled)
+    .run(|model, window, cx| {
         model.browser_action(BrowserAction::Forward, window, cx);
     }),
-    shortcut_only::<BrowserZoomIn>(ShortcutId::BrowserZoomIn).run(|model, window, cx| {
+    row::<BrowserZoomIn>(
+        ShortcutId::BrowserZoomIn,
+        Label::Key(tr_key!("Zoom In Page")),
+    )
+    .keywords("Zoom In Page Browser Bigger")
+    .available(has_browser)
+    .visible(browser_enabled)
+    .run(|model, window, cx| {
         model.browser_action(BrowserAction::ZoomIn, window, cx);
     }),
-    shortcut_only::<BrowserZoomOut>(ShortcutId::BrowserZoomOut).run(|model, window, cx| {
+    row::<BrowserZoomOut>(
+        ShortcutId::BrowserZoomOut,
+        Label::Key(tr_key!("Zoom Out Page")),
+    )
+    .keywords("Zoom Out Page Browser Smaller")
+    .available(has_browser)
+    .visible(browser_enabled)
+    .run(|model, window, cx| {
         model.browser_action(BrowserAction::ZoomOut, window, cx);
     }),
-    shortcut_only::<BrowserZoomReset>(ShortcutId::BrowserZoomReset).run(|model, window, cx| {
+    row::<BrowserZoomReset>(
+        ShortcutId::BrowserZoomReset,
+        Label::Key(tr_key!("Reset Page Zoom")),
+    )
+    .keywords("Reset Page Zoom Browser Actual Size")
+    .available(has_browser)
+    .visible(browser_enabled)
+    .run(|model, window, cx| {
         model.browser_action(BrowserAction::ZoomReset, window, cx);
     }),
-    shortcut_only::<BrowserCopyUrl>(ShortcutId::BrowserCopyUrl).run(|model, window, cx| {
+    row::<BrowserCopyUrl>(
+        ShortcutId::BrowserCopyUrl,
+        Label::Key(tr_key!("Copy Page Address")),
+    )
+    .keywords("Copy Page Address Browser URL Link")
+    .available(has_browser)
+    .visible(browser_enabled)
+    .run(|model, window, cx| {
         model.browser_action(BrowserAction::CopyUrl, window, cx);
     }),
-    shortcut_only::<BrowserInspect>(ShortcutId::BrowserInspect).run(|model, window, cx| {
+    row::<BrowserInspect>(
+        ShortcutId::BrowserInspect,
+        Label::Key(tr_key!("Open Web Inspector")),
+    )
+    .keywords("Open Web Inspector Browser Developer Tools DevTools")
+    .available(has_browser)
+    .visible(browser_enabled)
+    .run(|model, window, cx| {
         model.browser_action(BrowserAction::Inspect, window, cx);
     }),
+    row::<BrowserOpenExternally>(
+        ShortcutId::BrowserOpenExternally,
+        Label::Key(tr_key!("Open Page in Default Browser")),
+    )
+    .keywords("Open Page in Default Browser External")
+    .available(has_browser)
+    .visible(browser_enabled)
+    .run(|model, _, cx| model.open_active_page_externally(cx)),
 ];
 
 pub(super) fn action_handlers(cx: &mut Context<AppModel>) -> Div {
@@ -688,20 +1040,23 @@ pub(super) fn bind_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>) {
     }
 }
 
-pub(crate) fn register_listed(registry: &mut Registry<Handler>, model: &AppModel) {
-    for row in COMMANDS.iter().filter(|row| row.palette == Palette::Listed) {
-        if row
-            .feature
-            .is_none_or(|feature| model.capabilities.has_backend(feature))
-        {
-            registry.register(row.palette_command(model));
-        }
+pub(crate) fn register_listed(registry: &mut Registry<Handler>, model: &AppModel, cx: &App) {
+    for row in COMMANDS
+        .iter()
+        .filter(|row| row.palette == Palette::Listed && row.listed(model))
+    {
+        registry.register(row.palette_command(model, cx));
     }
 }
 
-pub(crate) fn register_placed(registry: &mut Registry<Handler>, model: &AppModel, id: ShortcutId) {
+pub(crate) fn register_placed(
+    registry: &mut Registry<Handler>,
+    model: &AppModel,
+    id: ShortcutId,
+    cx: &App,
+) {
     if let Some(row) = with_id(id) {
-        registry.register(row.palette_command(model));
+        registry.register(row.palette_command(model, cx));
     }
 }
 

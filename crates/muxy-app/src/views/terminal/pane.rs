@@ -1850,14 +1850,30 @@ impl TerminalPane {
                     self.send_paste(&bytes, cx);
                 }
             }
+            TerminalAction::Reload => {
+                window.dispatch_action(Box::new(crate::views::workspace::ReloadConfiguration), cx);
+            }
+            action => self.perform(&action, cx),
+        }
+        cx.notify();
+        cx.stop_propagation();
+        true
+    }
+
+    /// Runs a terminal action that needs no key: the ones a key binding and
+    /// a command share.
+    pub(crate) fn perform(
+        &mut self,
+        action: &muxy_app_core::settings::TerminalAction,
+        cx: &mut Context<Self>,
+    ) {
+        use muxy_app_core::settings::TerminalAction;
+        match action {
             TerminalAction::Copy => {
                 self.copy_selection(cx);
             }
             TerminalAction::Paste => self.paste_clipboard(cx),
             TerminalAction::SelectAll => self.select_all(cx),
-            TerminalAction::Reload => {
-                window.dispatch_action(Box::new(crate::views::workspace::ReloadConfiguration), cx);
-            }
             TerminalAction::ClearScreen => {
                 if self.state == PaneState::Live
                     && let Some(channel) = self.channel()
@@ -1878,7 +1894,7 @@ impl TerminalPane {
                 if let Some(grid) = &self.grid {
                     let rows = f32::from(self.viewport.unwrap_or(grid.size).rows);
                     self.scroll_rows(
-                        if action == TerminalAction::ScrollPageUp {
+                        if *action == TerminalAction::ScrollPageUp {
                             rows
                         } else {
                             -rows
@@ -1887,13 +1903,15 @@ impl TerminalPane {
                     );
                 }
             }
-            TerminalAction::IncreaseFontSize(amount) => self.terminal.zoom(amount),
-            TerminalAction::DecreaseFontSize(amount) => self.terminal.zoom(-amount),
+            TerminalAction::IncreaseFontSize(amount) => self.terminal.zoom(*amount),
+            TerminalAction::DecreaseFontSize(amount) => self.terminal.zoom(-*amount),
             TerminalAction::ResetFontSize => self.terminal.font_size = self.configured_font_size,
+            TerminalAction::Text(_)
+            | TerminalAction::Ignore
+            | TerminalAction::Unbind
+            | TerminalAction::Reload => {}
         }
         cx.notify();
-        cx.stop_propagation();
-        true
     }
 
     #[cfg_attr(

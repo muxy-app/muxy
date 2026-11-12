@@ -207,9 +207,7 @@ fn every_default_binding_round_trips_and_resolves_both_directions() -> Result {
     for action in Keymap::ACTIONS {
         if matches!(
             action,
-            ShortcutId::SelectCommandOutput
-                | ShortcutId::DetachTerminal
-                | ShortcutId::ToggleAgentSessions
+            ShortcutId::SelectCommandOutput | ShortcutId::DetachTerminal
         ) {
             assert!(keymap.chord(action).is_none());
             continue;
@@ -286,6 +284,44 @@ fn existing_bindings_take_precedence_over_new_project_defaults_and_round_trip() 
             assert_eq!(Settings::load(&path)?, settings);
             fs::write(&path, toml::to_string(&settings)?)?;
             assert_eq!(Settings::load(&path)?, settings);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn defaults_for_new_commands_yield_to_keys_already_bound() -> Result {
+    let fixture = Fixture::new()?;
+    let custom = "command.build";
+    for command in [
+        ShortcutId::SwitchProject,
+        ShortcutId::RenameTab,
+        ShortcutId::MoveTabLeft,
+        ShortcutId::MoveTabRight,
+        ShortcutId::ResizePaneLeft,
+        ShortcutId::ResizePaneRight,
+        ShortcutId::ResizePaneUp,
+        ShortcutId::ResizePaneDown,
+        ShortcutId::FloatPane,
+        ShortcutId::DockFloatingTerminal,
+        ShortcutId::ShowFloatingTerminalInAllProjects,
+        ShortcutId::ShowFloatingTerminalInItsProject,
+        ShortcutId::MoveTabToMainWindow,
+        ShortcutId::ApplyLayout,
+        ShortcutId::OpenProjectInDefaultApp,
+        ShortcutId::ToggleAgentSessions,
+    ] {
+        let key = command.definition().keys[0];
+        let chord: KeyChord = key.parse()?;
+        assert_eq!(Keymap::default().chord(command), Some(&chord));
+        for existing in [ShortcutId::NewTab.name(), custom] {
+            let source = format!("[keymap]\n\"{existing}\" = '{chord}'\n");
+            let path = fixture.write("settings.toml", &source)?;
+            let settings = Settings::load(&path)?;
+            assert_eq!(settings.keymap.binding(existing), Some(&chord));
+            assert_eq!(settings.keymap.chord(command), None);
+            let reloaded: Settings = toml::from_str(&toml::to_string(&settings)?)?;
+            assert_eq!(reloaded.keymap, settings.keymap);
         }
     }
     Ok(())

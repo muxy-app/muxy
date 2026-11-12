@@ -29,6 +29,15 @@ pub(crate) struct Item {
     pub root: PathBuf,
 }
 
+/// An item's tooltip, with the key of the command it runs when that has one.
+fn item_tooltip(item: &Item, cx: &gpui::App) -> gpui::SharedString {
+    let name = gpui::SharedString::from(item.tooltip.clone());
+    match super::RunCommand::key(&item.owner, &item.command, cx) {
+        Some(key) => muxy_ui::shortcuts::with_key(&name, &key),
+        None => name,
+    }
+}
+
 /// The cache key an icon renders under and the validated file it loads from.
 fn svg_path(extension: &Extension, icon: &Icon) -> Option<(PathBuf, PathBuf)> {
     let Icon::Svg(svg) = icon else {
@@ -268,8 +277,10 @@ impl AppModel {
             );
             let element_id =
                 gpui::SharedString::from(format!("extension-toolbar-{}-{}", item.owner, item.id));
+            let tooltip = item_tooltip(&item, cx);
             bar = bar.child(
-                titlebar::action_button(element_id, item.tooltip.clone(), self)
+                titlebar::action_button(element_id, tooltip, self)
+                    .aria_label(item.tooltip.clone())
                     .debug_selector(|| "extension-toolbar-item".into())
                     .button_interaction(cx.listener(move |model, _, window, cx| {
                         cx.stop_propagation();
@@ -300,7 +311,7 @@ impl AppModel {
         for item in self.status_items(side) {
             let key = format!("status:{}:{}", item.owner, item.id);
             let anchor = self.extensions.items.anchor(&key);
-            let tooltip = item.tooltip.clone();
+            let tooltip = item_tooltip(&item, cx);
             let icon = self.extension_icon(
                 &item.root,
                 &item.icon,

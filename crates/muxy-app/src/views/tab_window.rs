@@ -8,6 +8,7 @@ use gpui::{
     WeakEntity, Window, div, px, relative,
 };
 use muxy_app_core::{Tab, TabWindowId};
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
 
@@ -218,6 +219,7 @@ fn titlebar(
                     "tab-window-return",
                     Icon::AppWindow,
                     &tr!("Move to Main Window"),
+                    Some(ShortcutId::MoveTabToMainWindow),
                     model,
                     cx.listener(move |model, _, _, cx| model.return_tab_window(id, None, cx)),
                 )),
@@ -323,6 +325,7 @@ pub(crate) fn button(
     id: &'static str,
     icon: Icon,
     label: &SharedString,
+    shortcut: Option<ShortcutId>,
     model: &AppModel,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
@@ -348,7 +351,7 @@ pub(crate) fn button(
                 m.icon_md(),
                 model.theme.fg_muted,
             )),
-        label.to_string(),
+        shortcut.map_or_else(|| label.clone(), |id| model.tooltip(label.clone(), id)),
         model,
     )
     .into_any_element()
