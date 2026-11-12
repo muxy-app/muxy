@@ -1397,7 +1397,7 @@ impl TerminalPane {
                 anchor: point,
                 head: point,
             },
-            2 => Selection::word(point, grid),
+            2 => Selection::word(point, grid, &self.terminal.options.selection_word_chars),
             _ => Selection::row(point, grid),
         };
         self.selecting = Some((selection, event.click_count));
@@ -1468,7 +1468,7 @@ impl TerminalPane {
                 anchor: point,
                 head: point,
             },
-            2 => Selection::word(point, grid),
+            2 => Selection::word(point, grid, &self.terminal.options.selection_word_chars),
             _ => Selection::row(point, grid),
         };
         let selection = if target.anchor < anchor.anchor {
@@ -2109,6 +2109,7 @@ mod tests {
     mod images;
     mod links;
     mod scrollbar;
+    mod selection;
     mod server_input;
     mod session_size;
     mod settle;

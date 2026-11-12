@@ -1348,6 +1348,7 @@ fn terminal_field(id: &str) -> bool {
     matches!(
         id,
         "font-feature"
+            | "selection-word-chars"
             | "background"
             | "foreground"
             | "cursor-color"

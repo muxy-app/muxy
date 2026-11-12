@@ -14,6 +14,7 @@ pub(super) const KEYS: &[&str] = &[
     "adjust-cursor-thickness",
     "selection-foreground",
     "selection-background",
+    "selection-word-chars",
     "selection-clear-on-typing",
     "selection-clear-on-copy",
     "background-opacity",
@@ -72,6 +73,7 @@ pub struct TerminalOptions {
     pub cursor_thickness: super::CellHeight,
     pub selection_foreground: Option<TerminalColor>,
     pub selection_background: Option<TerminalColor>,
+    pub selection_word_chars: String,
     pub selection_clear_on_typing: bool,
     pub selection_clear_on_copy: bool,
     pub background_opacity: Option<f32>,
@@ -104,6 +106,7 @@ impl Default for TerminalOptions {
             cursor_thickness: super::CellHeight::Natural,
             selection_foreground: None,
             selection_background: None,
+            selection_word_chars: "/.-_~:@?&=%+#".into(),
             selection_clear_on_typing: false,
             selection_clear_on_copy: false,
             background_opacity: None,
@@ -173,6 +176,10 @@ impl TerminalOptions {
             ),
             ("selection-foreground", color(self.selection_foreground)),
             ("selection-background", color(self.selection_background)),
+            (
+                "selection-word-chars",
+                format!("\"{}\"", self.selection_word_chars),
+            ),
             (
                 "selection-clear-on-typing",
                 self.selection_clear_on_typing.to_string(),
@@ -314,6 +321,7 @@ impl TerminalOptions {
             "adjust-cursor-thickness" => self.cursor_thickness = value.parse()?,
             "selection-foreground" => self.selection_foreground = optional(value, color)?,
             "selection-background" => self.selection_background = optional(value, color)?,
+            "selection-word-chars" => self.selection_word_chars = value.into(),
             "selection-clear-on-typing" => self.selection_clear_on_typing = boolean(value, false)?,
             "selection-clear-on-copy" => self.selection_clear_on_copy = boolean(value, false)?,
             "background-opacity" => {

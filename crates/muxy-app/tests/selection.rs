@@ -115,17 +115,101 @@ fn words_stop_at_whitespace_and_punctuation_and_rows_trim_padding() {
         (10, "three"),
     ] {
         assert_eq!(
-            Selection::word(Point { row: 0, column }, &grid).text(&grid),
+            Selection::word(Point { row: 0, column }, &grid, "").text(&grid),
             expected
         );
     }
     assert_eq!(
-        Selection::word(Point { row: 1, column: 2 }, &grid).text(&grid),
+        Selection::word(Point { row: 1, column: 2 }, &grid, "").text(&grid),
         "A界e\u{301}"
     );
     assert_eq!(
         Selection::row(Point { row: 1, column: 5 }, &grid).text(&grid),
         "A界e\u{301}👩‍💻 Z"
+    );
+}
+
+#[test]
+fn default_word_selection_keeps_paths_and_urls_together_in_screen_and_history()
+-> Result<(), std::num::TryFromIntError> {
+    let options = muxy_app_core::settings::TerminalOptions::default();
+    for text in [
+        "/Users/me/src/project",
+        "https://example.com/a-b",
+        "~/src/my_project/main.rs",
+        "../src/project/file-name.txt",
+        "user@example.com:/srv/project",
+        "https://example.com/a%20b?q=one+two&lang=en#section",
+    ] {
+        let line = format!("before (\"{text}\"), after");
+        let mut grid = grid();
+        grid.size.cols = u16::try_from(line.len())?;
+        grid.rows[0] = vec![run(&line, grid.size.cols)];
+        grid.history[0].runs = grid.rows[0].clone();
+        let end = 9 + u16::try_from(text.len())?;
+        for row in [-1, 0] {
+            for column in 9..end {
+                let selected =
+                    Selection::word(Point { row, column }, &grid, &options.selection_word_chars);
+                assert_eq!(selected.text(&grid), text, "row {row}, column {column}");
+                assert_eq!(selected.columns(row, &grid), 9..end);
+            }
+            for (column, expected) in [(7, "("), (8, "\""), (end, "\""), (end + 2, ",")] {
+                assert_eq!(
+                    Selection::word(Point { row, column }, &grid, &options.selection_word_chars)
+                        .text(&grid),
+                    expected
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn custom_word_characters_replace_defaults_and_never_join_whitespace() {
+    let mut grid = grid();
+    grid.rows[0] = vec![run("a/b-c_d x_y", 11)];
+    for (word_chars, column, expected) in [
+        ("", 2, "b"),
+        ("", 1, "/"),
+        ("_", 6, "c_d"),
+        ("_", 1, "/"),
+        ("/-_", 1, "a/b-c_d"),
+        ("/-_ ", 6, "a/b-c_d"),
+        ("/-_ ", 8, "x_y"),
+    ] {
+        assert_eq!(
+            Selection::word(Point { row: 0, column }, &grid, word_chars).text(&grid),
+            expected
+        );
+    }
+    let whitespace = Selection::word(Point { row: 0, column: 7 }, &grid, "_ ");
+    assert_eq!(whitespace.columns(0, &grid), 7..8);
+}
+
+#[test]
+fn word_characters_work_across_styled_runs_and_unicode_cells() {
+    let mut grid = grid();
+    let mut styled = run("/tmp/", 5);
+    styled.style.bold = true;
+    grid.rows[0] = vec![
+        styled,
+        run("界", 2),
+        run("/", 1),
+        run("e\u{301}", 1),
+        run("-", 1),
+        run("👩‍💻", 2),
+        run(" ", 1),
+    ];
+    for column in 0..12 {
+        let selected = Selection::word(Point { row: 0, column }, &grid, "/-👩");
+        assert_eq!(selected.text(&grid), "/tmp/界/e\u{301}-👩‍💻");
+        assert_eq!(selected.columns(0, &grid), 0..12);
+    }
+    assert_eq!(
+        Selection::word(Point { row: 0, column: 11 }, &grid, "/-").text(&grid),
+        "👩‍💻"
     );
 }
 

@@ -5,6 +5,47 @@ use muxy_app_core::settings::{
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
+#[test]
+fn selection_word_characters_default_migrate_and_survive_preference_edits() -> Result {
+    let defaults = TerminalSettings::from_native_source("[options]\n")?;
+    assert_eq!(defaults.options.selection_word_chars, "/.-_~:@?&=%+#");
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("terminal.toml");
+    std::fs::write(
+        directory.path().join("ghostty.conf"),
+        "selection-word-chars = /._-\n",
+    )?;
+    let migrated = TerminalSettings::load_native(&path)?;
+    assert_eq!(migrated.options.selection_word_chars, "/._-");
+    assert!(migrated.diagnostics.is_empty());
+    for characters in ["/-_", "", "\"'\\界👩", "_ #"] {
+        let settings = TerminalSettings::edit_native(&path, |settings| {
+            settings.set_preference("selection-word-chars", characters)
+        })?;
+        assert_eq!(settings.options.selection_word_chars, characters);
+        assert_eq!(TerminalSettings::load_native(&path)?, settings);
+        let (source, skipped) =
+            TerminalSettings::import_supported_source(&settings.legacy_source());
+        assert!(skipped.is_empty());
+        assert_eq!(TerminalSettings::from_legacy_source(&source)?, settings);
+    }
+    let mut settings = TerminalSettings::load_native(&path)?;
+    let original = settings.clone();
+    assert!(
+        settings
+            .set_preference("selection-word-chars", "/\nfont-size = 99")
+            .is_err()
+    );
+    assert_eq!(settings, original);
+    assert!(
+        TerminalSettings::from_native_source(
+            "[options]\nselection_word_chars = \"/\\nfont-size = 99\"\n"
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
 fn save(path: &std::path::Path, settings: &TerminalSettings) -> Result {
     TerminalSettings::edit_native(path, |stored| {
         *stored = settings.clone();

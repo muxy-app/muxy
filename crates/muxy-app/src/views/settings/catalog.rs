@@ -773,6 +773,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Selection"),
     },
     Setting {
+        id: "selection-word-chars",
+        label: tr_key!("Word selection characters"),
+        description: tr_key!(
+            "Extra characters kept with letters and numbers when double-clicking terminal text. Leave empty to select only letters and numbers. Whitespace always separates words."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Selection"),
+    },
+    Setting {
         id: "selection-clear-on-typing",
         label: tr_key!("Clear selection when typing"),
         description: tr_key!("Remove the selected range when sending text to the terminal."),
