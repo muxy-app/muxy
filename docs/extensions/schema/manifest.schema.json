@@ -50,7 +50,7 @@
         },
         "events": {
           "type": "array",
-          "description": "Workspace events this extension may subscribe to (pane.created, pane.closed, pane.focused, tab.created, tab.updated, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, modal.opened, modal.closed, project.switched, projects.changed, worktree.switched, worktree.headChanged, notification.posted, agent.status, file.changed). worktree.offline is not emitted in Muxy 2. Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
+          "description": "Workspace events this extension may subscribe to (pane.created, pane.closed, pane.focused, tab.created, tab.updated, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, modal.opened, modal.closed, project.switched, projects.changed, worktree.switched, worktree.headChanged, notification.posted, agent.status, file.changed, settings.changed, theme.changed, ui.changed, preferences.changed). worktree.offline is not emitted in Muxy 2. Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
           "items": { "type": "string" },
           "uniqueItems": true
         },
@@ -164,6 +164,7 @@
         "worktrees:read",
         "worktrees:write",
         "agents:read",
+        "agents:write",
         "git:read",
         "git:write",
         "gh:read",
@@ -176,7 +177,18 @@
         "commands:run-script",
         "commands:exec",
         "shortcuts:register",
-        "remote:serve"
+        "remote:serve",
+        "ui:write",
+        "commands:read",
+        "commands:run",
+        "composer:write",
+        "layouts:read",
+        "layouts:write",
+        "preferences:read",
+        "preferences:write",
+        "clipboard:read",
+        "clipboard:write",
+        "system:open"
       ]
     },
     "icon": {

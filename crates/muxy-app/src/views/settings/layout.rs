@@ -49,7 +49,7 @@ impl Category {
 }
 
 impl SettingsView {
-    fn select_category(
+    pub(crate) fn select_category(
         &mut self,
         category: Category,
         section: Option<&'static str>,

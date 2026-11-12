@@ -1,9 +1,11 @@
+mod app;
 mod authoring;
 mod background;
 mod calls;
 mod checks;
 mod commands;
 mod consent;
+mod controls;
 mod events;
 mod http;
 mod installs;
@@ -387,7 +389,16 @@ impl AppModel {
         }
         self.probe_extension_runtimes(cx);
         self.extensions.grants = snapshot.grants;
+        let changed = events::changed_settings(&self.extensions.settings, &snapshot.settings);
         self.extensions.settings = snapshot.settings;
+        for (owner, key) in changed.into_iter().filter(|_| !first_load) {
+            self.emit_extension_event(
+                Some(&owner),
+                "settings.changed",
+                &events::strings([("key", key)]),
+                cx,
+            );
+        }
         self.read_earlier_logs(cx);
         self.invalidate_webview_shortcuts();
         self.register_extension_surfaces(cx);
@@ -925,6 +936,22 @@ impl AppModel {
                 Self::check_pane_request(&call.args)?;
             }
             "tabs.open" => self.check_tab_request(&call.args)?,
+            "composer.submit" | "composer.insert" if self.composer.view.is_none() => {
+                return Err("the composer is closed".into());
+            }
+            "commands.run" => {
+                let id = call.args["id"].as_str().unwrap_or("");
+                if let Some(custom) = id.strip_prefix("command.") {
+                    let command = self
+                        .settings
+                        .commands
+                        .iter()
+                        .find(|command| command.id == custom)
+                        .ok_or_else(|| format!("command not found {id}"))?;
+                    let approved = call.args["command"].as_str().unwrap_or(&command.command);
+                    return Ok(Some(Request::custom_command(&command.name, approved)));
+                }
+            }
             "projects.delete" => {
                 let project = self
                     .find_project(call.args["identifier"].as_str().unwrap_or(""))
@@ -971,6 +998,31 @@ impl AppModel {
         ))
     }
 
+    /// Pins a custom command's text to the call, so consent covers the text
+    /// the user sees and a later edit can't run under that consent.
+    fn bind_custom_command(&self, mut call: Call) -> Call {
+        if call.verb != "commands.run" {
+            return call;
+        }
+        let text = call.args["id"]
+            .as_str()
+            .and_then(|id| id.strip_prefix("command."))
+            .and_then(|id| {
+                self.settings
+                    .commands
+                    .iter()
+                    .find(|command| command.id == id)
+            })
+            .map(|command| command.command.clone());
+        if let Some(arguments) = call.args.as_object_mut() {
+            arguments.remove("command");
+            if let Some(text) = text {
+                arguments.insert("command".into(), Value::String(text));
+            }
+        }
+        call
+    }
+
     fn extension_call(&mut self, call: Call, window: &mut Window, cx: &mut Context<Self>) {
         if !self.call_live(&call, cx) {
             call.reply.send(Err("extension call expired".into()), cx);
@@ -984,6 +1036,7 @@ impl AppModel {
             self.dispatch_extension(call, window, cx);
             return;
         }
+        let call = self.bind_custom_command(call);
         if call.verb == "http.fetch" {
             self.check_http(call, cx);
             return;

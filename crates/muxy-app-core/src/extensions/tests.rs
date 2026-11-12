@@ -635,3 +635,96 @@ fn detached_panel_frames_must_be_sane() {
         assert!(Extension::load(root.path()).is_err(), "{frame}");
     }
 }
+
+#[test]
+fn app_control_verbs_need_their_permissions() {
+    let none = json!({});
+    for (verb, permission) in [
+        ("tabs.close", Some("tabs:write")),
+        ("tabs.rename", Some("tabs:write")),
+        ("tabs.pin", Some("tabs:write")),
+        ("tabs.move", Some("tabs:write")),
+        ("tabs.list", Some("tabs:read")),
+        ("panes.split", Some("panes:write")),
+        ("panes.zoom", Some("panes:write")),
+        ("panes.list", Some("panes:read")),
+        ("projects.next", Some("projects:write")),
+        ("projects.removed", Some("projects:read")),
+        ("projects.openIn", Some("system:open")),
+        ("projects.reveal", Some("system:open")),
+        ("app.openExternal", Some("system:open")),
+        ("agents.focus", Some("agents:write")),
+        ("ui.setSidebar", Some("ui:write")),
+        ("ui.quickTerminal", Some("ui:write")),
+        ("commands.list", Some("commands:read")),
+        ("commands.run", Some("commands:run")),
+        ("commands.anything", Some("commands:run")),
+        ("composer.setDraft", Some("composer:write")),
+        ("composer.submit", Some("composer:write")),
+        ("layouts.list", Some("layouts:read")),
+        ("layouts.apply", Some("layouts:write")),
+        ("preferences.get", Some("preferences:read")),
+        ("preferences.set", Some("preferences:write")),
+        ("clipboard.readText", Some("clipboard:read")),
+        ("clipboard.writeText", Some("clipboard:write")),
+        ("ui.state", None),
+        ("app.info", None),
+        ("settings.get", None),
+        ("settings.set", None),
+    ] {
+        assert_eq!(required_permission(verb, &none), permission, "{verb}");
+        if let Some(permission) = permission {
+            assert!(PERMISSIONS.contains(&permission), "{permission}");
+        }
+    }
+    assert_eq!(
+        event_permission("preferences.changed"),
+        Some("preferences:read")
+    );
+    for event in ["settings.changed", "theme.changed", "ui.changed"] {
+        assert_eq!(event_permission(event), None, "{event}");
+    }
+}
+
+#[test]
+fn sending_the_composer_and_reading_the_clipboard_ask_first() {
+    let none = json!({});
+    for verb in ["composer.submit", "composer.insert"] {
+        let request = Request::for_call("sample", verb, &none, "").unwrap();
+        assert_eq!(request.gate, Gate::PanesSend, "{verb}");
+    }
+    let request = Request::for_call("sample", "clipboard.readText", &none, "").unwrap();
+    assert_eq!(request.gate, Gate::ClipboardRead);
+    assert_eq!(request.gate.name(), "clipboard.read");
+    let request = Request::custom_command("Deploy", "make deploy");
+    assert_eq!(request.gate, Gate::TabsRunCommand);
+    assert_eq!(request.pattern, "command:make deploy");
+    for verb in [
+        "composer.setDraft",
+        "clipboard.writeText",
+        "commands.run",
+        "ui.setSidebar",
+    ] {
+        assert!(
+            Request::for_call("sample", verb, &none, "").is_none(),
+            "{verb}"
+        );
+    }
+}
+
+#[test]
+fn manifests_accept_the_app_control_permissions() {
+    let root = tempfile::tempdir().unwrap();
+    write_package(
+        root.path(),
+        &json!({
+            "permissions": ["ui:write", "commands:read", "commands:run", "composer:write", "layouts:read", "layouts:write", "preferences:read", "preferences:write", "clipboard:read", "clipboard:write", "system:open", "agents:write"],
+            "events": ["preferences.changed", "settings.changed", "theme.changed", "ui.changed"],
+        }),
+        &[],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    assert!(extension.allows("clipboard:read"));
+    assert!(extension.allows_event("preferences.changed"));
+    assert!(extension.allows_event("ui.changed"));
+}

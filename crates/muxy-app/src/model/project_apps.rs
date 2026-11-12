@@ -143,6 +143,16 @@ impl AppModel {
         let Some(directory) = self.project_apps_directory() else {
             return;
         };
+        self.open_directory_with(directory, app, cx);
+    }
+
+    /// Opens a folder on this computer with the app of `app`'s id.
+    pub(crate) fn open_directory_with(
+        &mut self,
+        directory: PathBuf,
+        app: String,
+        cx: &mut Context<Self>,
+    ) {
         let open = Arc::clone(&self.project_apps.open);
         let result = crate::opener::submit(move || open(&directory, &app));
         let failed = |model: &mut Self, error: String, cx: &mut Context<Self>| {

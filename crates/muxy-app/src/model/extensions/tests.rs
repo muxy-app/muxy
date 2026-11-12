@@ -1,3 +1,4 @@
+mod api;
 mod project_icons;
 
 use super::*;

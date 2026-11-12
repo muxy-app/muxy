@@ -9,7 +9,7 @@ use super::panels::{FrameSpec, PanelChrome, PanelScope, SizeSpec};
 const MAX_ICON_BYTES: u64 = 256 * 1024;
 
 /// Every permission an extension can declare. Unknown names fail the load, as on main.
-pub const PERMISSIONS: [&str; 25] = [
+pub const PERMISSIONS: [&str; 37] = [
     "panes:read",
     "panes:write",
     "tabs:read",
@@ -22,6 +22,7 @@ pub const PERMISSIONS: [&str; 25] = [
     "worktrees:read",
     "worktrees:write",
     "agents:read",
+    "agents:write",
     "git:read",
     "git:write",
     "files:read",
@@ -35,6 +36,17 @@ pub const PERMISSIONS: [&str; 25] = [
     "shortcuts:register",
     "remote:serve",
     "gh:read",
+    "ui:write",
+    "commands:read",
+    "commands:run",
+    "composer:write",
+    "layouts:read",
+    "layouts:write",
+    "preferences:read",
+    "preferences:write",
+    "clipboard:read",
+    "clipboard:write",
+    "system:open",
 ];
 
 /// An SF Symbol name or a template SVG bundled with the extension.

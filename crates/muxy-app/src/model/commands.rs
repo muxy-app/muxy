@@ -48,7 +48,7 @@ impl AppModel {
             })
     }
 
-    fn can_run_custom_command(&self) -> bool {
+    pub(crate) fn can_run_custom_command(&self) -> bool {
         self.quitting == Quitting::Idle
             && !self.dialogs.is_open()
             && self.close_request.is_none()
@@ -65,14 +65,23 @@ impl AppModel {
             .commands
             .iter()
             .find(|command| command.id == id)
+            .cloned()
         else {
             return;
         };
-        if let Err(error) = command.validate() {
-            self.fail(error.to_string(), cx);
-            return;
+        if let Err(error) = self.launch_custom_command(&command, cx) {
+            self.fail(error, cx);
         }
-        let command = command.clone();
+    }
+
+    /// Opens a terminal tab running `command`. Answers `None` when the tab
+    /// could not be saved, which the save already reported.
+    pub(crate) fn launch_custom_command(
+        &mut self,
+        command: &muxy_app_core::settings::CustomCommand,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<muxy_app_core::TabId>, String> {
+        command.validate().map_err(|error| error.to_string())?;
         let opened = self.open_terminal(
             OpenTerminal {
                 project: self.state.current_project().id,
@@ -81,10 +90,8 @@ impl AppModel {
                 directory: None,
             },
             cx,
-        );
-        if let Err(error) = opened {
-            self.fail(error, cx);
-        }
+        )?;
+        Ok(opened.map(|(tab, _)| tab))
     }
 
     pub(crate) fn register_custom_commands(&self, registry: &mut Registry<Handler>) {

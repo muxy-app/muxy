@@ -92,13 +92,26 @@
     muxy.tabs = { open: request => dispatch('tabs.open', request || {}) };
   } else {
     muxy.tabs = {
-      list: () => dispatch('tabs.list', {}),
+      list: o => dispatch('tabs.list', { project: optional((o || {}).project) }),
       switchTo: identifier => dispatch('tabs.switch', { identifier: String(identifier) }),
-      new: () => dispatch('tabs.new', {}),
+      new: o => dispatch('tabs.new', { beside: optional((o || {}).beside), side: optional((o || {}).side) }),
       next: () => dispatch('tabs.next', {}),
       previous: () => dispatch('tabs.previous', {}),
       open: request => dispatch('tabs.open', request || {}),
       split: (tab, beside, edge) => dispatch('tabs.split', { tabId: text(tab), besideId: text(beside), edge: optional(edge) }),
+      close: (tab, o) => dispatch('tabs.close', { tabId: text(tab), scope: optional((o || {}).scope) }),
+      rename: (tab, title) => dispatch('tabs.rename', { tabId: text(tab), title: optional(title) }),
+      setColor: (tab, color) => dispatch('tabs.setColor', { tabId: text(tab), color: optional(color) }),
+      pin: (tab, pinned) => dispatch('tabs.pin', { tabId: text(tab), pinned: pinned == null ? true : Boolean(pinned) }),
+      move: (tab, o) => {
+        const options = o || {};
+        const payload = { tabId: text(tab) };
+        if (options.index != null) payload.index = Number(options.index);
+        if (options.project != null) payload.destination = String(options.project);
+        return dispatch('tabs.move', payload);
+      },
+      moveToWindow: tab => dispatch('tabs.moveToWindow', { tabId: text(tab) }),
+      dock: tab => dispatch('tabs.dock', { tabId: text(tab) }),
     };
     const tabId = (verb, extra) => (tabId, ...rest) => dispatch(verb, { tabId: String(tabId), ...extra(...rest) });
     muxy.browser = {
@@ -122,6 +135,16 @@
       readScreen: (paneID, lines) => dispatch('panes.readScreen', { paneID, lines: lines == null ? 50 : Number(lines) }),
       close: paneID => dispatch('panes.close', { paneID }),
       rename: (paneID, title) => dispatch('panes.rename', { paneID, title: String(title) }),
+      split: (paneID, direction) => dispatch('panes.split', { paneID, direction: optional(direction) }),
+      focus: paneID => dispatch('panes.focus', { paneID }),
+      zoom: (paneID, zoomed) => dispatch('panes.zoom', { paneID, zoomed: zoomed == null ? null : Boolean(zoomed) }),
+      equalize: paneID => dispatch('panes.equalize', { paneID }),
+      detach: paneID => dispatch('panes.detach', { paneID }),
+      restart: (paneID, o) => dispatch('panes.restart', { paneID, proxy: (o || {}).proxy == null ? null : Boolean(o.proxy) }),
+      scrollToBottom: paneID => dispatch('panes.scrollToBottom', { paneID }),
+      float: (paneID, o) => dispatch('panes.float', { paneID, scope: optional((o || {}).scope) }),
+      moveToTab: (paneID, o) => dispatch('panes.moveToTab', { paneID, destination: optional((o || {}).project) }),
+      moveToWindow: paneID => dispatch('panes.moveToWindow', { paneID }),
     };
     muxy.projects = {
       list: () => dispatch('projects.list', {}),
@@ -142,6 +165,15 @@
       setIcon: (identifier, icon) => dispatch('projects.setIcon', { identifier: String(identifier), icon: optional(icon) }),
       setLogo: (identifier, logo) => dispatch('projects.setLogo', { identifier: String(identifier), logo: optional(logo) }),
       reorder: identifiers => dispatch('projects.reorder', { identifiers: (identifiers || []).map(String) }),
+      next: () => dispatch('projects.next', {}),
+      previous: () => dispatch('projects.previous', {}),
+      focus: identifier => dispatch('projects.focus', { identifier: optional(identifier) }),
+      sort: order => dispatch('projects.sort', { order: text(order) }),
+      removed: () => dispatch('projects.removed', {}),
+      restore: index => dispatch('projects.restore', { index: Number(index) }),
+      apps: () => dispatch('projects.apps', {}),
+      openIn: (identifier, app) => dispatch('projects.openIn', { identifier: text(identifier), app: optional(app) }),
+      reveal: identifier => dispatch('projects.reveal', { identifier: text(identifier) }),
     };
     muxy.workspaces = {
       list: () => dispatch('workspaces.list', {}),
@@ -180,7 +212,64 @@
     update: (panelID, options, instance) => dispatch('panels.update', panelArgs(panelID, { options: options || {}, instance: instanceOf(instance) })),
     list: () => dispatch('panels.list', {}),
   };
-  muxy.agents = { list: () => dispatch('agents.list', {}) };
+  muxy.agents = {
+    list: () => dispatch('agents.list', {}),
+    focus: paneID => dispatch('agents.focus', { paneID: text(paneID) }),
+  };
+  muxy.app = {
+    info: () => dispatch('app.info', {}),
+    openExternal: url => dispatch('app.openExternal', { url: text(url) }),
+  };
+  const visibility = verb => visible => dispatch(verb, { visible: visible == null ? null : Boolean(visible) });
+  muxy.ui = {
+    state: () => dispatch('ui.state', {}),
+    setSidebar: visibility('ui.setSidebar'),
+    setAgentsPanel: visibility('ui.setAgentsPanel'),
+    setAgentSessions: visibility('ui.setAgentSessions'),
+    setLayout: layout => dispatch('ui.setLayout', { layout: text(layout) }),
+    openCommandPalette: () => dispatch('ui.openCommandPalette', {}),
+    openSettings: section => dispatch('ui.openSettings', { section: optional(section) }),
+    back: () => dispatch('ui.back', {}),
+    forward: () => dispatch('ui.forward', {}),
+    toggleFloats: () => dispatch('ui.toggleFloats', {}),
+    quickTerminal: Object.freeze({
+      show: () => dispatch('ui.quickTerminal', { action: 'show' }),
+      hide: () => dispatch('ui.quickTerminal', { action: 'hide' }),
+      toggle: () => dispatch('ui.quickTerminal', { action: 'toggle' }),
+      pin: pinned => dispatch('ui.quickTerminal', { action: 'pin', pinned: pinned == null ? true : Boolean(pinned) }),
+    }),
+  };
+  muxy.commands = {
+    list: () => dispatch('commands.list', {}),
+    run: id => dispatch('commands.run', { id: text(id) }),
+  };
+  muxy.composer = {
+    open: () => dispatch('composer.open', {}),
+    close: () => dispatch('composer.close', {}),
+    getDraft: () => dispatch('composer.getDraft', {}),
+    setDraft: value => dispatch('composer.setDraft', { text: text(value) }),
+    submit: () => dispatch('composer.submit', {}),
+    insert: () => dispatch('composer.insert', {}),
+  };
+  muxy.layouts = {
+    list: o => dispatch('layouts.list', { project: optional((o || {}).project) }),
+    apply: (name, o) => dispatch('layouts.apply', { name: text(name), project: optional((o || {}).project) }),
+  };
+  muxy.preferences = {
+    get: () => dispatch('preferences.get', {}),
+    themes: () => dispatch('preferences.themes', {}),
+    set: (key, value) => dispatch('preferences.set', { key: text(key), value: value === undefined ? null : value }),
+  };
+  muxy.settings = {
+    get: key => dispatch('settings.get', { key: text(key) }),
+    all: () => dispatch('settings.all', {}),
+    set: (key, value) => dispatch('settings.set', { key: text(key), value: value === undefined ? null : value }),
+    reset: key => dispatch('settings.reset', { key: text(key) }),
+  };
+  muxy.clipboard = {
+    readText: () => dispatch('clipboard.readText', {}),
+    writeText: value => dispatch('clipboard.writeText', { text: text(value) }),
+  };
   muxy.gh = { user: () => dispatch('gh.user', {}) };
   const gitProject = o => (o && o.project != null ? String(o.project) : null);
   const git = (verb, build = () => ({})) => o => dispatch('git.' + verb, { project: gitProject(o), ...build(o || {}) });

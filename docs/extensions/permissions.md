@@ -13,15 +13,16 @@ loading. Ask for the minimum.
 | Permission | Allows |
 | --- | --- |
 | `tabs:read` | `tabs.list` |
-| `tabs:write` | Open, switch, split, and create tabs; set a tab's title and icon; `openTab` commands |
+| `tabs:write` | Open, switch, split, create, close, rename, color, pin, and move tabs; set a tab's title and icon; `openTab` commands |
 | `panes:read` | `panes.list`, `panes.readScreen` |
-| `panes:write` | `panes.send`, `panes.sendKeys`, `panes.close`, `panes.rename` |
-| `projects:read` | List projects and workspaces; the `projects.changed` event |
-| `projects:write` | Add, switch, rename, recolor, reorder projects; manage workspaces |
+| `panes:write` | Every other `panes.*` call: typing, closing, focusing, splitting, zooming, detaching, restarting, floating, and moving panes |
+| `projects:read` | List projects, workspaces, and removed projects; the `projects.changed` event |
+| `projects:write` | Add, switch, rename, recolor, reorder, focus, sort, and restore projects; manage workspaces |
 | `projects:delete` | `projects.delete` |
 | `worktrees:read` | `worktrees.list`; the `worktree.headChanged` event |
 | `worktrees:write` | `worktrees.switchTo`, `worktrees.refresh` |
 | `agents:read` | `agents.list`; the `agent.status` event |
+| `agents:write` | `agents.focus` |
 | `files:read` | `files.list`, `files.read`, `files.stat`; the `file.changed` event |
 | `files:write` | `files.write`, `mkdir`, `rename`, `move`, `delete` |
 | `git:read` | Status, diffs, log, branches, worktrees, pull request info |
@@ -34,10 +35,18 @@ loading. Ask for the minimum.
 | `commands:exec` | `exec`, `execAsync` |
 | `shortcuts:register` | `shortcuts.register`, `shortcuts.unregister` |
 | `browser:read` / `browser:write` | Read / drive [browser tabs](../features/browser.md) with `muxy.browser` |
+| `ui:write` | Every `ui.*` call but `ui.state`: panels, layout, the command palette, Settings, history, floats, and the Quick Terminal |
+| `commands:read` / `commands:run` | `commands.list` / `commands.run` |
+| `composer:write` | `composer.*` |
+| `layouts:read` / `layouts:write` | `layouts.list` / `layouts.apply` |
+| `preferences:read` | `preferences.get`, `preferences.themes`; the `preferences.changed` event |
+| `preferences:write` | `preferences.set` |
+| `clipboard:read` / `clipboard:write` | `clipboard.readText` / `clipboard.writeText` |
+| `system:open` | `projects.apps`, `projects.openIn`, `projects.reveal`, `app.openExternal` |
 | `remote:serve` | Accepted; remote methods are not available in 2.x |
 
-`http.fetch`, dialogs, the picker, `events`, and `lifecycle` need no
-permission.
+`http.fetch`, dialogs, the picker, `events`, `lifecycle`, `app.info`,
+`ui.state`, and the extension's own `settings` need no permission.
 
 ## Runtime prompts
 
@@ -46,14 +55,15 @@ Some calls also ask the user each time, even with the permission:
 | Asks before | Remembered per |
 | --- | --- |
 | Running a program (`exec`, `execAsync`) | Program, or shell command |
-| Typing or pressing keys in a terminal | Extension |
+| Typing or pressing keys in a terminal, or sending the composer | Extension |
 | Reading terminal output | Extension |
-| Opening a terminal tab that runs a command | Command |
+| Opening a terminal tab that runs a command, or running a custom command | Command |
 | Opening another extension's tab | Extension |
 | Changing the repository (`git:write` calls) | Operation |
 | Changing files (`files:write` calls) | Operation |
 | A web request (`http.fetch`) | Host |
 | Deleting a project | Project |
+| Reading the clipboard | Extension |
 
 The user can **Allow** once, **Allow & Remember**, **Cancel**, **Deny &
 Remember**, or block that kind of action for the extension. An unanswered

@@ -161,6 +161,64 @@ impl AppModel {
         cx.notify();
     }
 
+    /// The draft's text: the open composer's, or the one saved for this project.
+    pub(crate) fn composer_text(&self, cx: &gpui::App) -> String {
+        if let Some(view) = &self.composer.view {
+            return view.read(cx).draft.text.clone();
+        }
+        let key = self.composer_key();
+        self.composer
+            .store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .draft(&key)
+            .map(|draft| draft.text.clone())
+            .unwrap_or_default()
+    }
+
+    /// Opens the composer when it is closed and replaces its text.
+    pub(crate) fn set_composer_text(
+        &mut self,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self.composer.view.is_none() {
+            self.toggle_composer(window, cx);
+        }
+        let view = self
+            .composer
+            .view
+            .clone()
+            .ok_or("the composer cannot open now")?;
+        view.update(cx, |view, cx| {
+            let mut draft = view.draft.clone();
+            draft.text = text;
+            view.set_draft(draft, cx);
+        });
+        self.save_composer_draft(cx)
+    }
+
+    /// Sends the open composer's draft as Send does, or with `enter` unset as
+    /// Insert does.
+    pub(crate) fn send_composer(
+        &mut self,
+        enter: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self.composer.view.is_none() {
+            return Err("the composer is closed".into());
+        }
+        if self.composer.submission.is_some() {
+            return Err("the composer is already sending".into());
+        }
+        if self.composer_targets(cx)?.is_empty() {
+            return Err("open a live terminal before sending".into());
+        }
+        self.submit_composer(enter, cx);
+        Ok(())
+    }
+
     pub(crate) fn close_composer(&mut self, cx: &mut Context<Self>) {
         self.dismiss_composer(self.settings.composer.clear_on_close, cx);
     }
@@ -225,8 +283,14 @@ impl AppModel {
     }
 
     fn composer_changed(&mut self, cx: &mut Context<Self>) {
+        let _ = self.save_composer_draft(cx);
+    }
+
+    /// Saves the open composer's draft, answering the store's error, which
+    /// the composer also shows.
+    fn save_composer_draft(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
         let (Some(key), Some(view)) = (&self.composer.key, &self.composer.view) else {
-            return;
+            return Ok(());
         };
         let draft = view.read(cx).draft.clone();
         let result = {
@@ -239,14 +303,21 @@ impl AppModel {
                 .edit_content(key.clone(), draft.text, draft.file_attachments)
                 .map(|_| store.draft(key).cloned().unwrap_or_default())
         };
-        match result {
-            Ok(draft) => view.update(cx, |view, cx| {
-                view.draft = draft;
-                cx.notify();
-            }),
-            Err(error) => self.composer_error(error.to_string(), cx),
-        }
+        let saved = match result {
+            Ok(draft) => {
+                view.update(cx, |view, cx| {
+                    view.draft = draft;
+                    cx.notify();
+                });
+                Ok(())
+            }
+            Err(error) => {
+                self.composer_error(error.to_string(), cx);
+                Err(error.to_string())
+            }
+        };
         self.save_composer(cx);
+        saved
     }
 
     pub(super) fn save_composer(&mut self, cx: &mut Context<Self>) {

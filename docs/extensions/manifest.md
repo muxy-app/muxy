@@ -94,5 +94,5 @@ Declared settings appear on the extension's page in **Settings → Extensions**.
 ]
 ```
 
-`type` is `string`, `bool`, or `number`. Extensions can't read these values at
-runtime yet; use [storage](api.md#storage) for values your code needs.
+`type` is `string`, `bool`, or `number`. Read and change them with
+[`muxy.settings`](api.md#settings).
