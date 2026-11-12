@@ -65,11 +65,16 @@ window inside Muxy.
 - **Dock as Tab** in its pane header or right-click menu puts it back among its
   project's tabs. **Move to New Window** gives it a window of its own, and
   **Float Pane** floats a tab window's terminal back over the main window.
+- **Minimize** (the minus button) collapses a floating terminal into a pill at
+  the bottom right of the window. Click its icon and title to restore it to its
+  previous size and position. Its splits and terminals stay running. Minimized
+  terminals follow their project scope; scroll the row when it fills up.
 - **Toggle Floating Terminals** (`Cmd+Opt+F`, or the View menu) hides every
   floating terminal and shows them again. Hidden terminals keep running.
   Clicking a notification for a hidden one shows it.
-- Floating terminals, where they sit, and whether they are hidden come back
-  after a restart.
+- Floating terminals, where they sit, and whether they are hidden or minimized
+  come back after a restart. Toggling floating terminals preserves minimization;
+  clicking a notification for a minimized terminal restores it.
 
 ## Closing and detaching
 

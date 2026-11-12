@@ -31,6 +31,8 @@ pub struct Floating {
     pub frame: Option<[f32; 4]>,
     #[serde(default)]
     pub scope: FloatScope,
+    #[serde(default)]
+    pub minimized: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -225,7 +227,10 @@ impl AppState {
         }
         self.project_mut(project)?.require_available()?;
         let mut window = TabWindow::new(None, Some(pane));
-        window.floating = Some(Floating { frame: None, scope });
+        window.floating = Some(Floating {
+            scope,
+            ..Floating::default()
+        });
         let id = window.id;
         self.split_off(pane, TabPlace::end(project), Some(window))?;
         Ok(id)
@@ -245,7 +250,10 @@ impl AppState {
         if let Some(window) = &mut self.tab_mut(tab)?.window
             && window.floating.is_none()
         {
-            window.floating = Some(Floating { frame: None, scope });
+            window.floating = Some(Floating {
+                scope,
+                ..Floating::default()
+            });
         }
         Ok(id)
     }
@@ -257,6 +265,15 @@ impl AppState {
         scope: FloatScope,
     ) -> Result<(), AppError> {
         self.floating_mut(window)?.scope = scope;
+        Ok(())
+    }
+
+    pub fn set_float_minimized(
+        &mut self,
+        window: TabWindowId,
+        minimized: bool,
+    ) -> Result<(), AppError> {
+        self.floating_mut(window)?.minimized = minimized;
         Ok(())
     }
 

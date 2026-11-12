@@ -529,3 +529,265 @@ fn showing_floats_again_gives_back_the_one_that_had_the_keyboard(cx: &mut TestAp
         assert_eq!(model.floating.stack.frontmost(), Some(&panel(first)));
     });
 }
+
+fn minimize_and_restore(cx: &mut TestAppContext, headers: bool) {
+    let (view, cx, _, _, main, pane) = floated(cx);
+    view.update(cx, |model, cx| {
+        model.appearance.pane_headers = headers;
+        cx.notify();
+    });
+    redraw(cx);
+    let id = view.read_with(cx, |model, _| float_of(model, pane));
+    let card = bounds(cx, format!("floating-tab-{id}"));
+    let control = if headers {
+        format!("pane-minimize-{pane}")
+    } else {
+        "floating-tab-minimize".to_owned()
+    };
+    let minimize = bounds(cx, control).center();
+    cx.simulate_click(minimize, Modifiers::none());
+    redraw(cx);
+    view.read_with(cx, |model, cx| {
+        assert_eq!(model.minimized_floats(), [id]);
+        assert!(!model.float_shown(id));
+        assert!(!model.floating_members().contains(&panel(id)));
+        assert!(model.floating.drag.is_none());
+        assert_eq!(model.key_float(), None);
+        assert_eq!(model.active_pane(), Some(main));
+        assert!(
+            model
+                .terminal(&main)
+                .is_some_and(|t| t.view.read(cx).focused)
+        );
+        assert!(model.state.pane(pane).is_some());
+        assert!(!model.attached_panes().contains(&pane));
+        assert!(model.terminal(&pane).is_none());
+    });
+    let pill = bounds(cx, format!("minimized-float-{id}"));
+    assert!(pill.left() > px(900.0));
+    assert!(pill.top() > px(700.0));
+    assert!(pill.bottom() < px(800.0));
+    cx.simulate_click(pill.center(), Modifiers::none());
+    redraw(cx);
+    view.read_with(cx, |model, cx| {
+        assert!(model.minimized_floats().is_empty());
+        assert!(model.float_shown(id));
+        assert_eq!(model.key_float(), Some(id));
+        assert_eq!(model.active_pane(), Some(pane));
+        assert_eq!(model.floating.stack.frontmost(), Some(&panel(id)));
+        assert!(
+            model
+                .terminal(&pane)
+                .is_some_and(|t| t.view.read(cx).focused)
+        );
+    });
+    assert_eq!(bounds(cx, format!("floating-tab-{id}")), card);
+}
+
+#[gpui::test]
+fn the_pane_header_minimizes_and_the_bottom_pill_restores(cx: &mut TestAppContext) {
+    minimize_and_restore(cx, true);
+}
+
+#[gpui::test]
+fn the_floating_bar_minimizes_without_pane_headers(cx: &mut TestAppContext) {
+    minimize_and_restore(cx, false);
+}
+
+#[gpui::test]
+fn minimized_floats_follow_project_scope_and_stay_minimized_when_toggled(cx: &mut TestAppContext) {
+    let (view, cx, home, other, _, pane) = floated(cx);
+    view.update(cx, |model, cx| {
+        let id = float_of(model, pane);
+        model.minimize_float(id, cx);
+        model.select_project(other, cx);
+        assert!(model.minimized_floats().is_empty());
+        model.select_project(home, cx);
+        assert_eq!(model.minimized_floats(), [id]);
+        model.set_float_scope(id, FloatScope::AllProjects, cx);
+        model.select_project(other, cx);
+        assert_eq!(model.minimized_floats(), [id]);
+        model.toggle_floats(cx);
+        assert!(model.minimized_floats().is_empty());
+        model.toggle_floats(cx);
+        assert_eq!(model.minimized_floats(), [id]);
+        assert!(!model.float_shown(id));
+        assert_eq!(model.key_float(), None);
+        assert!(!model.attached_panes().contains(&pane));
+    });
+}
+
+#[gpui::test]
+fn revealing_a_minimized_pane_restores_it_over_its_project(cx: &mut TestAppContext) {
+    let (view, cx, home, other, _, pane) = floated(cx);
+    view.update(cx, |model, cx| {
+        let id = float_of(model, pane);
+        model.minimize_float(id, cx);
+        model.toggle_floats(cx);
+        model.select_project(other, cx);
+        assert!(model.raise_pane_window(pane, cx));
+        assert_eq!(model.state.current_project().id, home);
+        assert_eq!(model.key_float(), Some(id));
+        assert!(model.float_shown(id));
+        assert!(model.minimized_floats().is_empty());
+    });
+    redraw(cx);
+    assert!(cx.debug_bounds("floating-tab").is_some());
+}
+
+#[gpui::test]
+fn minimizing_a_split_float_keeps_every_pane_and_restores_them_together(cx: &mut TestAppContext) {
+    let (view, cx, _, _, main, pane) = floated(cx);
+    view.update(cx, |model, cx| {
+        let id = float_of(model, pane);
+        model.split_pane(Direction::Down, cx);
+        let split = model.active_pane().expect("split");
+        model.minimize_float(id, cx);
+        model.minimize_float(id, cx);
+        assert_eq!(model.minimized_floats(), [id]);
+        assert!(!model.attached_panes().contains(&split));
+        assert!(!model.attached_panes().contains(&pane));
+        assert_eq!(model.active_pane(), Some(main));
+        model.reveal_float(id, cx);
+        assert!(model.attached_panes().contains(&split));
+        assert!(model.attached_panes().contains(&pane));
+        assert_eq!(model.active_pane(), Some(split));
+    });
+}
+
+#[gpui::test]
+fn several_minimized_floats_restore_independently_and_docking_removes_the_pill(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx, _, _, main, pane) = floated(cx);
+    let (first, second) = view.update(cx, |model, cx| {
+        let first = float_of(model, pane);
+        model.minimize_float(first, cx);
+        model.float_pane(main, FloatScope::Project, cx);
+        let second = float_of(model, main);
+        model.minimize_float(second, cx);
+        assert_eq!(model.minimized_floats().len(), 2);
+        (first, second)
+    });
+    redraw(cx);
+    let first_pill = bounds(cx, format!("minimized-float-{first}"));
+    let second_pill = bounds(cx, format!("minimized-float-{second}"));
+    assert!(!first_pill.intersects(&second_pill));
+    cx.simulate_click(first_pill.center(), Modifiers::none());
+    redraw(cx);
+    view.update(cx, |model, cx| {
+        assert!(model.float_shown(first));
+        assert_eq!(model.minimized_floats(), [second]);
+        model.return_tab_window(second, None, cx);
+        assert!(model.minimized_floats().is_empty());
+        assert!(model.state.pane(main).is_some());
+    });
+}
+
+#[gpui::test]
+fn minimized_floats_scroll_in_a_small_window_and_restore_inside_it(cx: &mut TestAppContext) {
+    let (view, cx, _, _, _, pane) = floated(cx);
+    view.update(cx, |model, cx| {
+        model.minimize_float(float_of(model, pane), cx);
+        for _ in 0..3 {
+            model.new_tab(cx);
+            model.float_active_pane(cx);
+            model.minimize_float(model.key_float().expect("float"), cx);
+        }
+        model.appearance.status_bar_visible = false;
+        cx.notify();
+    });
+    cx.simulate_resize(size(px(420.0), px(400.0)));
+    redraw(cx);
+    let row = cx.debug_bounds("minimized-floats").expect("row");
+    assert!(row.left() >= px(0.0));
+    assert!(row.right() <= px(420.0));
+    assert!(row.bottom() <= px(400.0));
+    let last = view.read_with(cx, |model, _| {
+        *model.minimized_floats().last().expect("float")
+    });
+    let before = bounds(cx, format!("minimized-float-{last}"));
+    assert!(before.right() > row.right());
+    cx.simulate_event(gpui::ScrollWheelEvent {
+        position: row.center(),
+        delta: gpui::ScrollDelta::Pixels(point(px(-1000.0), px(0.0))),
+        modifiers: Modifiers::none(),
+        touch_phase: gpui::TouchPhase::Moved,
+    });
+    redraw(cx);
+    let after = bounds(cx, format!("minimized-float-{last}"));
+    assert!(after.right() <= row.right());
+    cx.simulate_click(after.center(), Modifiers::none());
+    redraw(cx);
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.key_float(), Some(last));
+        assert_eq!(model.minimized_floats().len(), 3);
+    });
+    let card = bounds(cx, format!("floating-tab-{last}"));
+    assert!(card.left() >= px(0.0) && card.right() <= px(420.0));
+    assert!(card.top() >= px(0.0) && card.bottom() <= px(400.0));
+}
+
+#[gpui::test]
+fn a_working_agent_keeps_its_icon_in_the_minimized_pill(cx: &mut TestAppContext) {
+    let (view, cx, home, _, _, pane) = floated(cx);
+    let (id, tab) = view.update(cx, |model, cx| {
+        let id = float_of(model, pane);
+        let tab = model.window_tab(id).expect("tab");
+        let session = SessionId::new(42).expect("session");
+        model
+            .state
+            .set_pane_session(pane, Some(session))
+            .expect("session");
+        model.servers.local.activity.snapshot.agents = vec![muxy_protocol::AgentActivity {
+            session,
+            project: home,
+            provider: muxy_protocol::AgentProvider::Codex,
+            state: muxy_protocol::AgentState::Working,
+        }];
+        model.minimize_float(id, cx);
+        (id, tab)
+    });
+    redraw(cx);
+    let pill = bounds(cx, format!("minimized-float-{id}"));
+    let icon = bounds(cx, format!("tab-provider-{tab}-Codex"));
+    assert!(pill.contains(&icon.center()));
+    assert!(icon.size.width > px(0.0) && icon.size.height > px(0.0));
+}
+
+#[gpui::test]
+fn minimized_panes_keep_keyboard_focus_across_redraws_and_restore_with_enter_or_space(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx, _, _, _, pane) = floated(cx);
+    let id = view.update(cx, |model, cx| {
+        crate::views::workspace::bind_keys(&model.settings.keymap, cx);
+        float_of(model, pane)
+    });
+    for key in ["enter", "space"] {
+        view.update(cx, |model, cx| model.minimize_float(id, cx));
+        redraw(cx);
+        let focus = cx.update(|window, cx| {
+            window.blur();
+            window.focus_prev();
+            window.focused(cx).expect("minimized pane is a tab stop")
+        });
+        redraw(cx);
+        cx.update(|window, _| assert!(focus.is_focused(window)));
+        cx.simulate_keystrokes(key);
+        redraw(cx);
+        view.read_with(cx, |model, cx| {
+            assert!(
+                model.minimized_floats().is_empty(),
+                "{key} restores the pane"
+            );
+            assert_eq!(model.key_float(), Some(id));
+            assert_eq!(model.active_pane(), Some(pane));
+            assert!(
+                model
+                    .terminal(&pane)
+                    .is_some_and(|t| t.view.read(cx).focused)
+            );
+        });
+    }
+}

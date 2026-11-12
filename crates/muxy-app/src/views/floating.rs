@@ -47,6 +47,7 @@ pub(crate) fn layer(
                 model.detached_webview_panel(id, window, cx)
             }
         }))
+        .children(super::floating_tab::minimized(model, window, cx))
         .when(dragging, |layer| {
             layer.child(
                 div()

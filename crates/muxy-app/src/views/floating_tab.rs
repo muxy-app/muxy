@@ -7,10 +7,11 @@ use std::collections::HashMap;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, SharedString, Styled, Window, div, px,
+    ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use muxy_app_core::{FloatScope, Tab, TabWindowId};
 use muxy_core::shortcuts::ShortcutId;
+use muxy_ui::components::ButtonInteraction;
 use muxy_ui::floating::FloatingCard;
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
@@ -178,6 +179,14 @@ fn bar(id: TabWindowId, tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>)
             cx.listener(move |model, _, _, cx| model.toggle_float_scope(id, cx)),
         ))
         .child(tab_window::button(
+            "floating-tab-minimize",
+            Icon::Minimize,
+            &tr!("Minimize"),
+            None,
+            model,
+            cx.listener(move |model, _, _, cx| model.minimize_float(id, cx)),
+        ))
+        .child(tab_window::button(
             "floating-tab-dock",
             Icon::AppWindow,
             &tr!("Dock as Tab"),
@@ -194,4 +203,93 @@ fn bar(id: TabWindowId, tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>)
             cx.listener(move |model, _, _, cx| model.close_tab_window(id, cx)),
         ))
         .into_any_element()
+}
+
+pub(crate) fn minimized(
+    model: &AppModel,
+    window: &Window,
+    cx: &mut Context<AppModel>,
+) -> Option<AnyElement> {
+    let floats = model.minimized_floats();
+    if floats.is_empty() {
+        return None;
+    }
+    let m = model.metrics;
+    let bottom = if model.appearance.status_bar_visible {
+        m.status_bar_height()
+    } else {
+        px(0.0)
+    };
+    Some(
+        div()
+            .id("minimized-floats")
+            .debug_selector(|| "minimized-floats".into())
+            .absolute()
+            .right(m.spacing6())
+            .bottom(bottom + m.spacing6())
+            .max_w((window.viewport_size().width - m.spacing6() * 2.0).max(px(0.0)))
+            .flex()
+            .gap(m.spacing4())
+            .overflow_x_scroll()
+            .occlude()
+            .children(
+                floats
+                    .into_iter()
+                    .filter_map(|id| minimized_pill(id, model, cx)),
+            )
+            .into_any_element(),
+    )
+}
+
+fn minimized_pill(
+    id: TabWindowId,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> Option<AnyElement> {
+    let tab = model.window_tab(id).and_then(|tab| model.tab(tab))?;
+    let m = model.metrics;
+    let theme = &model.theme;
+    let title = model.webview_title(tab, cx).to_owned();
+    let label = SharedString::from(format!("{}: {title}", tr!("Restore Pane")));
+    let hover = theme.raised();
+    let icon = super::tab_activity::icon(
+        tab,
+        model,
+        m.icon_md(),
+        muxy_ui::components::IconGlyph::new(Icon::Terminal, m.icon_md(), theme.fg)
+            .into_any_element(),
+    );
+    Some(
+        div()
+            .id(SharedString::from(format!("minimized-float-{id}")))
+            .debug_selector(move || format!("minimized-float-{id}"))
+            .role(Role::Button)
+            .aria_label(label)
+            .relative()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(m.spacing4())
+            .w(m.scaled(176.0))
+            .h(m.scaled(32.0))
+            .px(m.spacing5())
+            .rounded(m.radius_md())
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.bg)
+            .text_color(theme.fg)
+            .text_size(m.font_body())
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover))
+            .focus(|style| style.border_color(theme.accent))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .button_interaction(cx.listener(move |model, _, _, cx| {
+                cx.stop_propagation();
+                model.reveal_float(id, cx);
+            }))
+            .child(icon)
+            .child(div().min_w(px(0.0)).truncate().child(title))
+            .child(model.webview_occlusion())
+            .into_any_element(),
+    )
 }
