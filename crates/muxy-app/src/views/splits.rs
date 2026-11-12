@@ -7,10 +7,9 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, CursorStyle, DispatchPhase, HitboxBehavior, Hsla,
-    InteractiveElement, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement,
-    Pixels, Point, Role, SharedString, StatefulInteractiveElement, Styled, Window, canvas, div,
-    point, px, relative,
+    AnyElement, Bounds, Context, CursorStyle, DispatchPhase, InteractiveElement, IntoElement,
+    MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Role, SharedString,
+    StatefulInteractiveElement, Styled, Window, canvas, div, point, px, relative,
 };
 use muxy_app_core::{Axis, Branch, GroupId, Layout, PaneContent, ProjectId, Tab, TabGroup, TabId};
 use muxy_ui::tr;
@@ -70,12 +69,6 @@ impl SplitResizeState {
     }
     pub(crate) fn end(&self) -> bool {
         self.0.borrow_mut().take().is_some()
-    }
-    fn resizing(&self, owner: SplitOwner, path: &[Branch]) -> bool {
-        self.0
-            .borrow()
-            .as_ref()
-            .is_some_and(|resize| resize.owner == owner && resize.path == path)
     }
     fn cursor(&self) -> Option<CursorStyle> {
         self.0
@@ -385,11 +378,7 @@ fn split(
 ) -> AnyElement {
     let bounds = Rc::new(Cell::new(Bounds::default()));
     let measured = bounds.clone();
-    let divider = Rc::new(Cell::new(Bounds::default()));
-    let measured_divider = divider.clone();
     let state = model.split_resize.clone();
-    let resizing = state.resizing(owner, &path);
-    let hoverable = !state.active();
     let (id, selector) = match owner {
         SplitOwner::Tab(tab) => (
             format!("split-{tab}-{path:?}"),
@@ -407,7 +396,6 @@ fn split(
         .absolute()
         .block_mouse_except_scroll()
         .cursor(resize_cursor(axis))
-        .child(highlight(divider, resizing, hoverable, model.theme.accent))
         .when(!model.webviews.panes.is_empty(), |hit| {
             hit.child(model.webview_grip(None, resize_cursor(axis)))
         })
@@ -451,7 +439,6 @@ fn split(
                     measured.set(bounds);
                     let [first_bounds, divider, second_bounds] =
                         split_bounds(bounds, axis, ratio, window.scale_factor());
-                    measured_divider.set(divider);
                     first.layout_as_root(first_bounds.size.into(), window, cx);
                     first.prepaint_at(first_bounds.origin, window, cx);
                     second.layout_as_root(second_bounds.size.into(), window, cx);
@@ -468,34 +455,6 @@ fn split(
         )
         .child(hit)
         .into_any_element()
-}
-
-/// Paints `divider` in the accent color while it is dragged, or while the
-/// pointer is over this element and `hoverable`.
-fn highlight(
-    divider: Rc<Cell<Bounds<Pixels>>>,
-    resizing: bool,
-    hoverable: bool,
-    accent: Hsla,
-) -> AnyElement {
-    canvas(
-        |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
-        move |_, hitbox, window, _| {
-            let hovered = hitbox.is_hovered(window);
-            if resizing || (hoverable && hovered) {
-                window.paint_quad(gpui::fill(divider.get(), accent));
-            }
-            let view = window.current_view();
-            window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
-                if phase == DispatchPhase::Capture && hitbox.is_hovered(window) != hovered {
-                    cx.notify(view);
-                }
-            });
-        },
-    )
-    .absolute()
-    .size_full()
-    .into_any_element()
 }
 
 fn split_bounds(

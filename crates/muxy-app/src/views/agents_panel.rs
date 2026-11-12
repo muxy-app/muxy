@@ -16,7 +16,7 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 use crate::model::agents_panel::{
-    AgentStatus, Drag, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, PANEL, Placement, RunningAgent,
+    AgentStatus, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, PANEL, Placement, RunningAgent,
     starts_project_group,
 };
 use crate::views::overlays::{Mark, OverlayView};
@@ -26,7 +26,6 @@ const POPUP_WIDTH: f32 = 300.0;
 const POPUP_MAX_HEIGHT: f32 = 380.0;
 const RESIZE_GRIP: f32 = 18.0;
 const RESIZE_EDGE: f32 = 6.0;
-const FLOATING_GROUP: &str = "agents-panel-floating";
 
 fn status_color(status: AgentStatus, model: &AppModel) -> Hsla {
     match status {
@@ -785,7 +784,6 @@ pub(crate) fn docked(
         .map(|height| model.clamp_docked_height(height, window.viewport_size()));
     let measured = model.agents_panel.docked_height.clone();
     let start = measured.clone();
-    let active = matches!(model.agents_panel.drag, Some(Drag::Docked { .. }));
     let background = model.sidebar_background();
     let separator = Hsla::from(contrasting_foreground(background.into())).opacity(0.08);
     let panel = div()
@@ -812,7 +810,6 @@ pub(crate) fn docked(
             div()
                 .id("agents-panel-docked-resize")
                 .debug_selector(|| "agents-panel-docked-resize".into())
-                .group("agents-panel-docked-resize")
                 .absolute()
                 .top(-m.scaled(RESIZE_EDGE / 2.0))
                 .left(-m.spacing3())
@@ -826,16 +823,6 @@ pub(crate) fn docked(
                         window.prevent_default();
                         cx.stop_propagation();
                     }),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top(m.scaled(RESIZE_EDGE / 2.0) - px(1.0))
-                        .w_full()
-                        .h(px(1.0))
-                        .group_hover("agents-panel-docked-resize", |line| {
-                            line.bg(model.theme.accent)
-                        }),
                 ),
         );
     Some(
@@ -844,7 +831,6 @@ pub(crate) fn docked(
             .bg(background)
             .border_t_1()
             .border_color(separator)
-            .when(active, |panel| panel.border_color(model.theme.accent))
             .child(panel)
             .into_any_element(),
     )
@@ -1057,7 +1043,6 @@ fn resize_handle(
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let m = model.metrics;
-    let theme = &model.theme;
     div()
         .id(id)
         .debug_selector(move || id.into())
@@ -1079,20 +1064,7 @@ fn resize_handle(
                 .right_0()
                 .bottom_0()
                 .size(m.scaled(RESIZE_GRIP))
-                .cursor(gpui::CursorStyle::ResizeUpLeftDownRight)
-                .child(
-                    div()
-                        .invisible()
-                        .group_hover(FLOATING_GROUP, Styled::visible)
-                        .absolute()
-                        .right(m.scaled(4.0))
-                        .bottom(m.scaled(4.0))
-                        .size(m.scaled(7.0))
-                        .border_r_2()
-                        .border_b_2()
-                        .rounded_br(m.scaled(2.0))
-                        .border_color(theme.fg_dim),
-                ),
+                .cursor(gpui::CursorStyle::ResizeUpLeftDownRight),
         })
         .on_mouse_down(
             MouseButton::Left,
@@ -1162,7 +1134,6 @@ pub(crate) fn floating(
     let theme = &model.theme;
     let [x, y, width, height] = model.agents_panel_frame(window.viewport_size());
     let panel = div()
-        .group(FLOATING_GROUP)
         .absolute()
         .left(m.scaled(x))
         .top(m.scaled(y))

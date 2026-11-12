@@ -820,19 +820,11 @@ impl RenderOnce for PanelFrame {
         let bounds = self.sizing.bounds;
         let resize_state = self.sizing.resize_state.clone();
         let down_resize_state = resize_state.clone();
-        let group = SharedString::from(format!("panel-resize-{}", self.placement.id.as_str()));
-        let selector = group.clone();
-        let separator = div()
-            .absolute()
-            .bg(if resize_state.is_active() {
-                self.theme.accent
-            } else {
-                self.theme.border
-            })
-            .group_hover(group.clone(), |style| style.bg(self.theme.accent));
+        let id = SharedString::from(format!("panel-resize-{}", self.placement.id.as_str()));
+        let selector = id.clone();
+        let separator = div().absolute().bg(self.theme.border);
         let resize_handle = div()
-            .id(group.clone())
-            .group(group)
+            .id(id)
             .debug_selector(move || selector.to_string())
             .absolute()
             .occlude()
