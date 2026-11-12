@@ -847,6 +847,7 @@
 "External Drive" = "External Drive";
 "External Drive Fill" = "External Drive Fill";
 "Extra Large" = "Extra Large";
+"Extra characters kept with letters and numbers when double-clicking terminal text. Leave empty to select only letters and numbers. Whitespace always separates words." = "Extra characters kept with letters and numbers when double-clicking terminal text. Leave empty to select only letters and numbers. Whitespace always separates words.";
 "Eye" = "Eye";
 "Eye Fill" = "Eye Fill";
 "Eye Slash" = "Eye Slash";
@@ -2195,6 +2196,7 @@
 "Width 480–1200; height 280–800 pixels." = "Width 480–1200; height 280–800 pixels.";
 "Width in pixels for a new workspace window when no saved bounds exist." = "Width in pixels for a new workspace window when no saved bounds exist.";
 "Window size" = "Window size";
+"Word selection characters" = "Word selection characters";
 "Work finished and is ready to review." = "Work finished and is ready to review.";
 "Work is in progress." = "Work is in progress.";
 "Work is paused." = "Work is paused.";

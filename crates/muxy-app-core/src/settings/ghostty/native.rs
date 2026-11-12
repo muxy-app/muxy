@@ -145,6 +145,17 @@ impl TerminalSettings {
     }
 
     fn validate_native(&self) -> Result<()> {
+        if self
+            .options
+            .selection_word_chars
+            .chars()
+            .any(char::is_control)
+        {
+            return Err(Error::new(
+                "selection-word-chars",
+                "enter characters without control characters",
+            ));
+        }
         bounded("font size", self.font_size, 1.0, 256.0)?;
         for adjustment in [
             self.cell_height,
@@ -283,6 +294,7 @@ impl TerminalSettings {
             | "cursor-color"
             | "cursor-text"
             | "selection-foreground"
+            | "selection-word-chars"
             | "selection-background" => {
                 next.options.read(id, value)?;
             }

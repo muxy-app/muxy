@@ -240,6 +240,12 @@ proxy icon. Terminals get the proxy as `http_proxy`, `https_proxy`,
   bindings are set in Settings → Terminal, and the Quick Terminal
   shortcut has its own setting. Normal keystrokes in a terminal always go to
   the terminal.
+- **Settings → Terminal → Selection → Word selection characters** controls which
+  extra characters stay with letters and numbers when double-clicking or dragging
+  by words in the desktop app. The default `/.-_~:@?&=%+#` keeps common paths and
+  URLs together. Whitespace always separates words. To restore selection of only
+  letters and numbers, clear the field. In `terminal.toml`, this is
+  `selection_word_chars` under `[options]`.
 - **Settings → Appearance → App language** picks the interface language. English
   is built in; other languages come from language-pack extensions, the same ones
   made for Muxy 1.x. Untranslated text stays English, and while the chosen pack is

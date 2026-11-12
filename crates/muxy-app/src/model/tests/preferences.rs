@@ -373,6 +373,7 @@ fn terminal_preferences_apply_to_live_panes_preserve_zoom_and_reject_invalid_edi
         model.change_preference(Change::Field("adjust-cursor-thickness", "2".into()), cx);
         model.change_preference(Change::Terminal("cursor-style", "bar".into()), cx);
         model.change_preference(Change::Terminal("copy-on-select", "true".into()), cx);
+        model.change_preference(Change::Field("selection-word-chars", "/_".into()), cx);
         assert_eq!(pane.read(cx).terminal.font_size, 20.0);
         assert_eq!(
             pane.read(cx).terminal.options.background_opacity,
@@ -383,6 +384,7 @@ fn terminal_preferences_apply_to_live_panes_preserve_zoom_and_reject_invalid_edi
             CellHeight::Pixels(2)
         );
         assert_eq!(pane.read(cx).terminal.options.copy_on_select, Some(true));
+        assert_eq!(pane.read(cx).terminal.options.selection_word_chars, "/_");
         assert_eq!(
             model.palette.cursor_style,
             Some(muxy_protocol::CursorShape::Bar)

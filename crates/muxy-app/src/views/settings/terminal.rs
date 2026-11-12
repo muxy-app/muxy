@@ -71,28 +71,38 @@ pub(super) fn owns(id: &str) -> bool {
 }
 
 pub(super) fn fields() -> impl Iterator<Item = &'static str> {
-    std::iter::once("font-feature").chain(COLORS).chain(PALETTE)
+    ["font-feature", "selection-word-chars"]
+        .into_iter()
+        .chain(COLORS)
+        .chain(PALETTE)
 }
 
 pub(super) fn field_values(
     terminal: &TerminalSettings,
 ) -> impl Iterator<Item = (&'static str, String)> + '_ {
-    std::iter::once(("font-feature", terminal.font.feature_list()))
-        .chain(
-            COLORS
-                .into_iter()
-                .map(|id| (id, color(terminal, id).map_or_else(String::new, color_text))),
+    [
+        ("font-feature", terminal.font.feature_list()),
+        (
+            "selection-word-chars",
+            terminal.options.selection_word_chars.clone(),
+        ),
+    ]
+    .into_iter()
+    .chain(
+        COLORS
+            .into_iter()
+            .map(|id| (id, color(terminal, id).map_or_else(String::new, color_text))),
+    )
+    .chain(PALETTE.into_iter().zip(0_u8..).map(|(id, index)| {
+        (
+            id,
+            terminal
+                .options
+                .palette
+                .get(&index)
+                .map_or_else(String::new, |rgb| format!("#{rgb:06x}")),
         )
-        .chain(PALETTE.into_iter().zip(0_u8..).map(|(id, index)| {
-            (
-                id,
-                terminal
-                    .options
-                    .palette
-                    .get(&index)
-                    .map_or_else(String::new, |rgb| format!("#{rgb:06x}")),
-            )
-        }))
+    }))
 }
 
 fn color(terminal: &TerminalSettings, id: &str) -> Option<TerminalColor> {
@@ -480,7 +490,7 @@ pub(super) fn rows(
                 "font-family-bold" => style_font(pane, FontSlot::Bold, cx),
                 "font-family-italic" => style_font(pane, FontSlot::Italic, cx),
                 "font-family-bold-italic" => style_font(pane, FontSlot::BoldItalic, cx),
-                "font-feature" => pane.field(id),
+                "font-feature" | "selection-word-chars" => pane.field(id),
                 "font-thicken-strength" => slider(
                     pane,
                     id,
