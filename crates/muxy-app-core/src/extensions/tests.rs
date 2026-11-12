@@ -207,6 +207,44 @@ fn manifests_reject_escaping_resources_and_invalid_commands() {
 }
 
 #[test]
+fn a_malformed_marketplace_listing_never_stops_an_extension_loading() {
+    let root = tempfile::tempdir().unwrap();
+    package(root.path(), "files");
+    let path = root.path().join("package.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        Extension::load(root.path()).unwrap().manifest.marketplace,
+        Listing::default()
+    );
+    value["muxy"]["marketplace"] = json!({
+        "author": " Ada ",
+        "categories": ["git", 7, ""],
+        "icon": "assets/icon.svg",
+        "screenshots": "one.png",
+        "homepage": {"url": "https://example.com"},
+        "repository": "https://github.com/example/files",
+    });
+    fs::write(&path, value.to_string()).unwrap();
+    assert_eq!(
+        Extension::load(root.path()).unwrap().manifest.marketplace,
+        Listing {
+            author: Some("Ada".into()),
+            categories: vec!["git".into()],
+            icon: Some("assets/icon.svg".into()),
+            screenshots: Vec::new(),
+            homepage: None,
+            repository: Some("https://github.com/example/files".into()),
+        }
+    );
+    value["muxy"]["marketplace"] = json!("not a listing");
+    fs::write(&path, value.to_string()).unwrap();
+    assert_eq!(
+        Extension::load(root.path()).unwrap().manifest.marketplace,
+        Listing::default()
+    );
+}
+
+#[test]
 fn grants_scope_exact_shell_and_program_and_storage_is_per_extension() {
     let root = tempfile::tempdir().unwrap();
     let mut grants = Grants::load(root.path()).unwrap();

@@ -24,6 +24,60 @@ pub(crate) struct MarketplaceItem {
     pub(crate) name: String,
     #[serde(default, deserialize_with = "lenient")]
     pub(crate) description: String,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) version: Option<String>,
+    #[serde(flatten)]
+    pub(crate) about: About,
+}
+
+/// Who makes an extension and how widely it is used, shown beside its name.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub(crate) struct About {
+    #[serde(default, deserialize_with = "author")]
+    pub(crate) author: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) categories: Vec<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) downloads: Option<u64>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub(crate) official: bool,
+    #[serde(default, deserialize_with = "web_link")]
+    pub(crate) homepage: Option<String>,
+    #[serde(default, deserialize_with = "web_link")]
+    pub(crate) repository: Option<String>,
+}
+
+impl From<&muxy_app_core::extensions::Listing> for About {
+    fn from(listing: &muxy_app_core::extensions::Listing) -> Self {
+        let link = |url: &Option<String>| url.as_deref().and_then(checked_link);
+        Self {
+            author: listing.author.clone(),
+            categories: listing.categories.clone(),
+            downloads: None,
+            official: false,
+            homepage: link(&listing.homepage),
+            repository: link(&listing.repository),
+        }
+    }
+}
+
+/// How Browse orders the marketplace.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum Sort {
+    #[default]
+    Popular,
+    Recent,
+    Name,
+}
+
+impl Sort {
+    fn query(self) -> &'static str {
+        match self {
+            Self::Popular => "popular",
+            Self::Recent => "recent",
+            Self::Name => "all",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -50,6 +104,11 @@ pub(crate) struct ExtensionDetails {
     pub(crate) size: Option<u64>,
     #[serde(default, deserialize_with = "lenient")]
     pub(crate) sha256: Option<String>,
+    #[serde(flatten)]
+    pub(crate) about: About,
+    /// How many screenshots the listing has.
+    #[serde(default, rename = "screenshot_paths", deserialize_with = "count")]
+    pub(crate) screenshots: usize,
 }
 
 impl From<&Extension> for ExtensionDetails {
@@ -63,6 +122,8 @@ impl From<&Extension> for ExtensionDetails {
             download_url: None,
             size: None,
             sha256: None,
+            about: About::from(&extension.manifest.marketplace),
+            screenshots: extension.manifest.marketplace.screenshots.len(),
         }
     }
 }
@@ -74,6 +135,45 @@ fn required_name<'de, D: Deserializer<'de>>(
         Value::String(name) if !name.is_empty() => Ok(name),
         _ => Err(D::Error::custom("name must be a non-empty string")),
     }
+}
+
+/// The author's name, given as text or as `{"name": ...}`.
+fn author<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    let name = match &value {
+        Value::String(name) => Some(name.as_str()),
+        Value::Object(author) => author.get("name").and_then(Value::as_str),
+        _ => None,
+    };
+    Ok(name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned))
+}
+
+/// A web address the listing links to; anything else reads as absent.
+fn web_link<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    Ok(Value::deserialize(deserializer)?
+        .as_str()
+        .and_then(checked_link))
+}
+
+fn checked_link(url: &str) -> Option<String> {
+    reqwest::Url::parse(url.trim())
+        .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+        .map(String::from)
+}
+
+/// The length of a list, or none for anything else.
+fn count<'de, D: Deserializer<'de>>(deserializer: D) -> std::result::Result<usize, D::Error> {
+    Ok(Value::deserialize(deserializer)?
+        .as_array()
+        .map_or(0, Vec::len))
 }
 
 /// The marketplace is an external API, so `null` or a wrong type reads as absent.
@@ -117,13 +217,18 @@ fn bytes(response: reqwest::blocking::Response, limit: u64) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// One page of published extensions, optionally limited to a marketplace
-/// category such as `localization`.
-pub(crate) fn list(search: &str, page: u32, category: Option<&str>) -> Result<MarketplacePage> {
+/// One page of published extensions in `sort` order, optionally limited to a
+/// marketplace category such as `localization`.
+pub(crate) fn list(
+    search: &str,
+    page: u32,
+    category: Option<&str>,
+    sort: Sort,
+) -> Result<MarketplacePage> {
     let page = page.to_string();
     let mut query = vec![
         ("search", search),
-        ("sort", "all"),
+        ("sort", sort.query()),
         ("per_page", "24"),
         ("page", &page),
     ];
@@ -191,6 +296,49 @@ fn parse_details(body: &[u8]) -> Result<ExtensionDetails> {
         .ok_or_else(|| tr!("invalid marketplace details").into())
 }
 
+fn listing_url(name: &str, path: &[&str]) -> Option<String> {
+    let mut url = reqwest::Url::parse(&format!("{BASE}/extensions/")).ok()?;
+    url.path_segments_mut()
+        .ok()?
+        .pop_if_empty()
+        .push(name)
+        .extend(path);
+    Some(url.into())
+}
+
+/// Where the marketplace serves `name`'s listing icon.
+pub(crate) fn icon_url(name: &str) -> Option<String> {
+    listing_url(name, &["icon"])
+}
+
+/// Where the marketplace serves `name`'s screenshot at `index`, from 0.
+pub(crate) fn screenshot_url(name: &str, index: usize) -> Option<String> {
+    listing_url(name, &["screenshots", &index.to_string()])
+}
+
+/// The bytes of a listing picture, read only from the marketplace itself.
+pub(crate) fn picture(url: &str, limit: u64) -> Result<Vec<u8>> {
+    let url = reqwest::Url::parse(url).map_err(|error| error.to_string())?;
+    if !trusted(&url) {
+        return Err(tr!("untrusted marketplace picture URL").into());
+    }
+    bytes(
+        client()?
+            .get(url)
+            .send()
+            .map_err(|error| error.to_string())?,
+        limit,
+    )
+}
+
+fn trusted(url: &reqwest::Url) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some("muxy.app")
+        && url.port_or_known_default() == Some(443)
+        && url.username().is_empty()
+        && url.password().is_none()
+}
+
 /// The marketplace's newer version of `extension`, if `details` describes one.
 pub(crate) fn available_update<'a>(
     extension: &Extension,
@@ -239,12 +387,7 @@ pub(crate) fn download(details: &ExtensionDetails, directory: &Path) -> Result<t
             .ok_or_else(|| tr!("missing archive URL").to_string())?,
     )
     .map_err(|error| error.to_string())?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("muxy.app")
-        || url.port_or_known_default() != Some(443)
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
+    if !trusted(&url) {
         return Err(tr!("untrusted marketplace download URL").into());
     }
     let size = details
@@ -499,14 +642,89 @@ mod tests {
                 MarketplaceItem {
                     name: "ai-usage".into(),
                     description: "AI usage status bar".into(),
+                    version: None,
+                    about: About {
+                        author: Some("Wonjin".into()),
+                        downloads: Some(2464),
+                        ..About::default()
+                    },
                 },
                 MarketplaceItem {
                     name: "beads".into(),
                     description: String::new(),
+                    version: None,
+                    about: About {
+                        categories: vec!["productivity".into()],
+                        ..About::default()
+                    },
                 },
             ]
         );
         assert!(parsed.has_next);
+    }
+
+    #[test]
+    fn listing_details_read_leniently() {
+        let item = parse_listing(&serde_json::json!({
+            "name": "git",
+            "version": "1.0.0",
+            "official": true,
+            "downloads": "many",
+            "categories": ["git", 3],
+            "author": "  ",
+            "homepage": "javascript:alert(1)",
+            "repository": "https://github.com/muxy-app/extensions",
+        }))
+        .unwrap();
+        assert_eq!(item.version.as_deref(), Some("1.0.0"));
+        assert_eq!(
+            item.about,
+            About {
+                author: None,
+                categories: Vec::new(),
+                downloads: None,
+                official: true,
+                homepage: None,
+                repository: Some("https://github.com/muxy-app/extensions".into()),
+            }
+        );
+        let details = parse_details(
+            serde_json::json!({"data": {
+                "name": "git",
+                "author": {"name": "Saeed", "github": "saeed"},
+                "screenshot_paths": ["a.png", "b.png"],
+            }})
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(details.screenshots, 2);
+        assert_eq!(details.about.author.as_deref(), Some("Saeed"));
+    }
+
+    #[test]
+    fn pictures_come_only_from_the_marketplace() {
+        assert_eq!(
+            icon_url("ai-usage").as_deref(),
+            Some("https://muxy.app/extensions/ai-usage/icon")
+        );
+        assert_eq!(
+            screenshot_url("a/b", 2).as_deref(),
+            Some("https://muxy.app/extensions/a%2Fb/screenshots/2")
+        );
+        for url in [
+            "http://muxy.app/extensions/git/icon",
+            "https://example.com/extensions/git/icon",
+            "https://user@muxy.app/extensions/git/icon",
+            "https://muxy.app:8443/extensions/git/icon",
+        ] {
+            assert_eq!(
+                picture(url, 1024).unwrap_err(),
+                "untrusted marketplace picture URL"
+            );
+        }
+        assert_eq!(Sort::default().query(), "popular");
+        assert_eq!(Sort::Name.query(), "all");
     }
 
     #[test]

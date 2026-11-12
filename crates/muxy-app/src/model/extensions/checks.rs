@@ -46,6 +46,15 @@ impl AppModel {
         self.extensions.checks.available.len()
     }
 
+    /// Records that `name` has `version` available, as a check would.
+    #[cfg(test)]
+    pub(crate) fn offer_extension_update(&mut self, name: &str, version: &str) {
+        self.extensions
+            .checks
+            .available
+            .insert(name.to_owned(), version.to_owned());
+    }
+
     /// Checks now, then keeps the count fresh while the app stays open.
     pub(super) fn start_extension_update_checks(&mut self, cx: &mut Context<Self>) {
         self.check_extension_updates(cx);
