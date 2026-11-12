@@ -257,6 +257,30 @@ fn events_that_wait_fold_into_the_one_already_waiting_for_the_same_thing() -> Te
 }
 
 #[test]
+fn a_deferred_server_stop_leaves_its_panes_for_the_next_restore() -> TestResult {
+    let mut delivery = delivery::Delivery::default();
+    delivery.pending = 1;
+    let session = SessionId::from(std::num::NonZeroU64::new(7).ok_or("zero session")?);
+    let stopped = ClientEvent::SessionEnded {
+        session,
+        reason: muxy_protocol::ExitReason::ServerStopped,
+    };
+    assert!(delivery.event(stopped.clone())?.is_empty());
+    let ready = delivery.complete(None);
+    assert!(
+        ready
+            .iter()
+            .any(|update| matches!(update, Update::Event(event) if *event == stopped))
+    );
+    assert!(
+        !ready
+            .iter()
+            .any(|update| matches!(update, Update::CloseSessionPanes(_)))
+    );
+    Ok(())
+}
+
+#[test]
 fn a_full_event_buffer_preserves_the_only_disconnect_after_history_completion() -> TestResult {
     let mut delivery = delivery::Delivery::default();
     delivery.pending = 1;

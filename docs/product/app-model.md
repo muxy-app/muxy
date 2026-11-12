@@ -145,6 +145,9 @@ windows are on screen.
   never opens a tab by itself, except for terminals another client shows on
   this computer's server, which open as tabs. Until the [welcome tour](#welcome-tour) is finished
   or skipped, it opens over them.
+- When a terminal's session is gone because the server stopped, as after
+  restarting the computer, its pane keeps its place and starts a new shell in
+  the folder it was last in. The program that ran there doesn't start again.
 - The terminal UI opens one shell in Home the first time, then restores its
   layout.
 - `muxy <folder>`, or on macOS dropping a folder on the Dock icon or using
@@ -208,6 +211,7 @@ A setup failure keeps the new worktree; a teardown failure stops removal.
 | A remote server drops | Its section shows it offline and it reconnects on its own, waiting longer each time, until a login or host key needs you. Its projects never show as failed while offline. |
 | A project's folder is gone | The project shows as failed, also on a remote server. |
 | A terminal ends | Its panes close in every app, including hidden tabs. |
+| The server stops, or the computer restarts | Tabs and splits stay, each showing its last screen. Once the server is back, every terminal pane starts a new shell in the folder it was last in. |
 | You quit or detach | Terminals keep running. On macOS, only while Muxy is on under Background App Activity; otherwise macOS ends them and the next launch shows how to turn it on. |
 | **End All Sessions and Quit** | Every terminal on this computer ends and its panes close. Other panes stay. |
 

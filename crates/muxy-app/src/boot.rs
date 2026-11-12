@@ -431,6 +431,11 @@ pub(crate) enum Work {
         pane: PaneId,
         session: SessionId,
     },
+    /// Asks why `session`, which the server no longer runs, ended.
+    ReadEndReason {
+        pane: PaneId,
+        session: SessionId,
+    },
     History {
         pane: PaneId,
         session: SessionId,
@@ -505,6 +510,7 @@ impl Work {
             Self::MoveSession(..) => "MoveSession",
             Self::CheckClose { .. } => "CheckClose",
             Self::ReadSaved { .. } => "ReadSaved",
+            Self::ReadEndReason { .. } => "ReadEndReason",
             Self::History { .. } => "History",
             Self::ImageFrames { .. } => "ImageFrames",
             Self::EndAll(..) => "EndAll",
@@ -598,6 +604,11 @@ pub(crate) enum Update {
     Saved {
         pane: PaneId,
         result: Result<SavedScreen, ClientError>,
+    },
+    EndReason {
+        pane: PaneId,
+        session: SessionId,
+        result: Result<Option<muxy_protocol::ExitReason>, ClientError>,
     },
     ReferencesSynced(Result<(), ClientError>),
     /// A `SessionName` request finished.
@@ -1078,6 +1089,11 @@ fn rejected(work: Work, error: ClientError) -> Update {
             pane,
             result: Err(error),
         },
+        Work::ReadEndReason { pane, session } => Update::EndReason {
+            pane,
+            session,
+            result: Err(error),
+        },
         Work::History { pane, request, .. } => Update::History {
             pane,
             request,
@@ -1252,6 +1268,15 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             return Some(Update::Saved {
                 pane,
                 result: client.read_saved_screen(session),
+            });
+        }
+        Work::ReadEndReason { pane, session } => {
+            return Some(Update::EndReason {
+                pane,
+                session,
+                result: client
+                    .read_saved_screen(session)
+                    .map(|screen| screen.reason),
             });
         }
         Work::History {

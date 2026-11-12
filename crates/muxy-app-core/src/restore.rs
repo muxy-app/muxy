@@ -8,6 +8,11 @@ use crate::{AppState, PaneContent, PaneId, ProjectStatus, ServerId, SessionMove}
 pub struct RestorePlan {
     pub attach: Vec<(PaneId, SessionId)>,
     pub create: Vec<PaneId>,
+    /// Panes whose session the server no longer runs. Each closes if its
+    /// shell exited or was ended, and otherwise starts a new terminal in its
+    /// place, as after the server stopped or the computer restarted.
+    pub restart: Vec<(PaneId, SessionId)>,
+    /// Panes showing a session the server lists under another project.
     pub close: Vec<(PaneId, SessionId)>,
     /// Sessions the app moved to the project its pane shows them in while
     /// the server still lists them under another, as when the request never
@@ -55,7 +60,10 @@ pub fn plan(state: &AppState, server: ServerId, sessions: &[SessionInfo]) -> Res
                     ));
                 }
             }
-            PaneContent::Terminal { session: Some(id) } => plan.close.push((pane.id, id)),
+            PaneContent::Terminal { session: Some(id) } if live.contains_key(&id) => {
+                plan.close.push((pane.id, id));
+            }
+            PaneContent::Terminal { session: Some(id) } => plan.restart.push((pane.id, id)),
             PaneContent::Terminal { session: None }
                 if project.status() == ProjectStatus::Available =>
             {

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use muxy_app_core::PaneId;
-use muxy_protocol::{ChannelId, SessionId};
+use muxy_protocol::{ChannelId, ExitReason, SessionId};
 
 use super::{ClientEvent, CloseCheckId, Update, Work};
 
@@ -89,7 +89,11 @@ impl Delivery {
             return Err("too many events arrived before request completion");
         }
         let updates = match &event {
-            ClientEvent::SessionEnded { session, .. } => vec![Update::CloseSessionPanes(*session)],
+            ClientEvent::SessionEnded { session, reason }
+                if *reason != ExitReason::ServerStopped =>
+            {
+                vec![Update::CloseSessionPanes(*session)]
+            }
             _ => Vec::new(),
         };
         self.deferred.push(event);
