@@ -64,7 +64,7 @@ use muxy_app_core::{
     WindowBounds, restore, store,
 };
 use muxy_client::ClientEvent;
-use muxy_protocol::{SessionId, SessionInfo, Size};
+use muxy_protocol::{ExitReason, SessionId, SessionInfo, Size};
 
 use crate::boot::{Boot, CloseCheckId, Update, Work, missing_session};
 use crate::views::overlays::Overlay;
@@ -230,7 +230,7 @@ pub(crate) struct AppModel {
     notice_task: Option<Task<()>>,
     language_task: Option<Task<()>>,
     path: PathBuf,
-    bounds_save: Option<Task<()>>,
+    deferred_save: Option<Task<()>>,
     webview_shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
     pub(crate) spinners: crate::views::tab_activity::Spinners,
     /// Panes waiting for an attachment or saved output, with the server asked.
@@ -702,7 +702,7 @@ impl AppModel {
             notice_task: None,
             language_task: None,
             path: boot.state_path,
-            bounds_save: None,
+            deferred_save: None,
             webview_shortcuts: None,
             spinners: crate::views::tab_activity::Spinners::default(),
             pending: HashMap::new(),
@@ -1904,7 +1904,7 @@ impl AppModel {
     }
 
     fn save(&mut self, cx: &mut Context<Self>) -> bool {
-        self.bounds_save = None;
+        self.deferred_save = None;
         match store::save(&self.path, &self.state) {
             Ok(()) => true,
             Err(error) => {
@@ -1928,13 +1928,18 @@ impl AppModel {
         if self.state.window().bounds != Some(bounds)
             && self.state.set_window_bounds(Some(bounds)).is_ok()
         {
-            self.bounds_save = Some(cx.spawn(async move |model, cx| {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_millis(200))
-                    .await;
-                let _ = model.update(cx, AppModel::save);
-            }));
+            self.save_soon(cx);
         }
+    }
+
+    /// Saves shortly, once changes that come in bursts settle.
+    fn save_soon(&mut self, cx: &mut Context<Self>) {
+        self.deferred_save = Some(cx.spawn(async move |model, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(200))
+                .await;
+            let _ = model.update(cx, AppModel::save);
+        }));
     }
 
     /// Tells each connected server which of its sessions this app shows, so
@@ -2273,6 +2278,10 @@ impl AppModel {
         self.discard_pending(server, cx);
         self.forget_pane_loads(server);
         self.pending.retain(|_, owner| *owner != server);
+        for (pane, session) in plan.restart {
+            self.pending.insert(pane, server);
+            self.send(server, Work::ReadEndReason { pane, session }, cx);
+        }
         for (id, pane) in &self.grids {
             if self.state.pane_server(*id) != Some(server) {
                 continue;
@@ -2691,6 +2700,11 @@ impl AppModel {
                 error,
             } => self.receive_attach_failed(server, pane, session, created, &error, cx),
             Update::Saved { pane, result } => self.receive_saved(pane, result, cx),
+            Update::EndReason {
+                pane,
+                session,
+                result,
+            } => self.receive_end_reason(server, pane, session, &result, cx),
             Update::History {
                 pane,
                 request,
@@ -2934,6 +2948,63 @@ impl AppModel {
         self.check_next_close(cx);
     }
 
+    /// Closes a pane whose shell exited or was ended while this app was away,
+    /// and puts a new terminal in a pane whose session ended any other way,
+    /// as when the server stopped. A dropped connection decides nothing; the
+    /// next restore asks again.
+    fn receive_end_reason(
+        &mut self,
+        server: ServerId,
+        pane: PaneId,
+        session: SessionId,
+        result: &Result<Option<ExitReason>, muxy_client::ClientError>,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending.remove(&pane);
+        if self.state.pane_session(pane) != Some((server, session)) {
+            return;
+        }
+        match result {
+            Ok(Some(ExitReason::Exited(_) | ExitReason::Ended)) => {
+                self.close_ended_session(server, session, cx);
+            }
+            Ok(_) | Err(muxy_client::ClientError::Server(_)) => {
+                self.renew_ended_pane(server, pane, cx);
+            }
+            Err(_) => {}
+        }
+    }
+
+    fn renew_ended_pane(&mut self, server: ServerId, pane: PaneId, cx: &mut Context<Self>) {
+        let size = self
+            .terminal(&pane)
+            .and_then(|pane| pane.view.read(cx).viewport())
+            .unwrap_or(Size { cols: 80, rows: 24 });
+        let active = self.active_pane();
+        let local = server.is_local();
+        let renewed = match self
+            .state
+            .renew_ended_terminal(pane, |folder| !local || folder.is_dir())
+        {
+            Ok(renewed) => renewed,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return;
+            }
+        };
+        if active != self.active_pane() {
+            self.focus_owner.request_active_pane();
+        }
+        self.changed(cx);
+        if self
+            .state
+            .pane_project(renewed)
+            .is_some_and(|project| project.status() == ProjectStatus::Available)
+        {
+            self.start_attach(renewed, size, cx);
+        }
+    }
+
     fn receive_saved(
         &mut self,
         pane: PaneId,
@@ -3023,8 +3094,13 @@ impl AppModel {
             &metadata.directory,
         );
         let panes: Vec<_> = self.state.session_panes(server, session).collect();
+        let mut moved = false;
         for pane in panes {
             let _ = self.state.set_pane_title(pane, title.clone());
+            moved |= self.state.remember_directory(pane, &metadata.directory);
+        }
+        if moved {
+            self.save_soon(cx);
         }
         self.sync_extension_events(cx);
         cx.notify();
@@ -3079,11 +3155,15 @@ impl AppModel {
                     self.send(server, Work::Ack(channel, seq), cx);
                 }
             }
-            ClientEvent::SessionEnded { session, .. } => {
+            ClientEvent::SessionEnded { session, reason } => {
                 if local {
                     self.updates.sessions = self.updates.sessions.saturating_sub(1);
                 }
-                self.close_ended_session(server, session, cx);
+                if reason == ExitReason::ServerStopped {
+                    self.forget_session_activity(server, session, cx);
+                } else {
+                    self.close_ended_session(server, session, cx);
+                }
                 self.refresh_session_picker(cx);
                 if local {
                     self.reconcile_server_update(cx);
@@ -3974,7 +4054,9 @@ pub(crate) mod tests {
     }
 
     #[gpui::test]
-    fn restore_closes_dead_tabs_and_rejects_stale_connections(cx: &mut TestAppContext) {
+    fn restore_renews_dead_tabs_in_their_folder_and_rejects_stale_connections(
+        cx: &mut TestAppContext,
+    ) {
         let mut state = AppState::bootstrap().expect("state");
         state.open_terminal_tab(state.home().id).expect("tab");
         let pane = state.home().tabs[0].panes[0].id;
@@ -3982,18 +4064,42 @@ pub(crate) mod tests {
         state
             .set_pane_session(pane, Some(session))
             .expect("session");
+        let folder = std::env::temp_dir();
+        assert!(state.remember_directory(pane, &folder.as_path().into()));
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-        view.update(cx, |model, cx| {
+        let renewed = view.update(cx, |model, cx| {
             model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
-            assert!(model.state.home().tabs.is_empty());
-            assert!(
-                store::load(&model.path)
-                    .expect("saved state")
-                    .home()
-                    .tabs
-                    .is_empty()
+            assert_eq!(
+                model.state.pane_session(pane),
+                Some((ServerId::local(), session))
+            );
+            assert!(requests.try_iter().any(|(_, work)| matches!(
+                work,
+                Work::ReadEndReason { pane: asked, session: ended }
+                    if asked == pane && ended == session
+            )));
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::EndReason {
+                        pane,
+                        session,
+                        result: Ok(Some(ExitReason::ServerStopped)),
+                    },
+                ),
+                cx,
+            );
+            assert_eq!(model.state.home().tabs.len(), 1);
+            let renewed = model.state.home().tabs[0].panes[0].id;
+            assert_ne!(renewed, pane);
+            assert!(model.state.pane_tab(pane).is_none());
+            assert_eq!(model.active_pane(), Some(renewed));
+            assert_eq!(
+                store::load(&model.path).expect("saved state").home().tabs[0].panes[0].id,
+                renewed
             );
             model.receive(
                 (
@@ -4016,14 +4122,123 @@ pub(crate) mod tests {
             model.receive((ServerId::local(), 2, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
             assert!(model.servers.local.connection == ConnectionState::Ready);
-            assert!(model.state.home().tabs.is_empty());
-            assert!(model.grids.is_empty());
+            assert_eq!(model.state.home().tabs.len(), 1);
+            assert_eq!(model.state.home().tabs[0].panes[0].id, renewed);
+            renewed
         });
+        let attaches: Vec<_> = requests
+            .try_iter()
+            .filter_map(|(_, work)| match work {
+                Work::Attach {
+                    pane,
+                    session,
+                    directory,
+                    ..
+                } => Some((pane, session, directory)),
+                _ => None,
+            })
+            .collect();
+        assert!(!attaches.is_empty());
         assert!(
-            !requests
-                .try_iter()
-                .any(|(_, work)| matches!(work, Work::Attach { .. } | Work::ReadSaved { .. }))
+            attaches
+                .iter()
+                .all(|attach| *attach == (renewed, None, folder.clone()))
         );
+    }
+
+    #[gpui::test]
+    fn a_server_stop_keeps_panes_until_they_start_again_and_an_exit_still_closes(
+        cx: &mut TestAppContext,
+    ) {
+        let mut state = AppState::bootstrap().expect("state");
+        let home = state.home().id;
+        state.open_terminal_tab(home).expect("tab");
+        let left = state.window().active_pane.expect("pane");
+        let right = state.split_pane(left, Direction::Right).expect("split");
+        let stopped = SessionId::new(42).expect("ID");
+        let exited = SessionId::new(43).expect("ID");
+        state
+            .set_pane_session(left, Some(stopped))
+            .expect("session");
+        state
+            .set_pane_session(right, Some(exited))
+            .expect("session");
+        let (boot, _requests) = stub_boot(state);
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Connected(
+                        [stopped, exited]
+                            .map(|id| SessionInfo {
+                                project: home,
+                                id,
+                                directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+                            })
+                            .to_vec(),
+                    ),
+                ),
+                cx,
+            );
+            acknowledge_catalog(model, cx);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Event(ClientEvent::SessionEnded {
+                        session: exited,
+                        reason: ExitReason::Exited(0),
+                    }),
+                ),
+                cx,
+            );
+            assert_eq!(model.state.home().tabs[0].layout.leaves(), vec![left]);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Event(ClientEvent::SessionEnded {
+                        session: stopped,
+                        reason: ExitReason::ServerStopped,
+                    }),
+                ),
+                cx,
+            );
+            assert_eq!(model.state.home().tabs[0].layout.leaves(), vec![left]);
+            assert_eq!(
+                model.state.pane_session(left),
+                Some((ServerId::local(), stopped))
+            );
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Event(ClientEvent::Disconnected),
+                ),
+                cx,
+            );
+            model.connect(cx);
+            model.receive((ServerId::local(), 2, Update::Connected(vec![])), cx);
+            acknowledge_catalog(model, cx);
+            assert_eq!(model.state.home().tabs[0].layout.leaves(), vec![left]);
+            model.receive(
+                (
+                    ServerId::local(),
+                    2,
+                    Update::EndReason {
+                        pane: left,
+                        session: stopped,
+                        result: Ok(Some(ExitReason::ServerStopped)),
+                    },
+                ),
+                cx,
+            );
+            let leaves = model.state.home().tabs[0].layout.leaves();
+            assert_eq!(leaves.len(), 1);
+            assert_ne!(leaves[0], left);
+        });
     }
 
     #[gpui::test]
@@ -4181,7 +4396,27 @@ pub(crate) mod tests {
                 cx,
             );
             acknowledge_catalog(model, cx);
+            assert_eq!(model.state.home().tabs.len(), 2);
+            let away = model.state.home().tabs[1].panes[0].id;
+            for result in [
+                Err(muxy_client::ClientError::Disconnected),
+                Ok(Some(ExitReason::Exited(0))),
+            ] {
+                model.receive(
+                    (
+                        ServerId::local(),
+                        1,
+                        Update::EndReason {
+                            pane: away,
+                            session: gone,
+                            result,
+                        },
+                    ),
+                    cx,
+                );
+            }
             assert_eq!(model.state.home().tabs.len(), 1);
+            assert!(model.state.pane_tab(away).is_none());
             model.receive(
                 (
                     ServerId::local(),

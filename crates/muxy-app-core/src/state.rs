@@ -820,6 +820,48 @@ impl AppState {
         Ok(id)
     }
 
+    /// Puts a new terminal where `pane` is, after its session ended without
+    /// the shell exiting, as when the server stopped. The new one keeps the
+    /// old one's proxy choice, and starts in the folder the old one was last
+    /// in while `usable` accepts it, or else in its project's folder.
+    pub fn renew_ended_terminal(
+        &mut self,
+        pane: PaneId,
+        usable: impl FnOnce(&std::path::Path) -> bool,
+    ) -> Result<PaneId, AppError> {
+        let directory = self
+            .starting_directories
+            .get(&pane)
+            .filter(|directory| usable(directory.as_path()))
+            .cloned();
+        let proxy = self.pane(pane).map(|pane| pane.proxy);
+        let id = self.restart_terminal(pane)?;
+        if let Some(directory) = directory {
+            self.starting_directories.insert(id, directory);
+        }
+        if let Some(proxy) = proxy {
+            self.starting_proxies.insert(id, proxy);
+        }
+        Ok(id)
+    }
+
+    /// Notes the folder `pane`'s terminal is in, so a terminal that replaces
+    /// it starts there. Returns whether that changed.
+    pub fn remember_directory(
+        &mut self,
+        pane: PaneId,
+        directory: &muxy_protocol::ServerPath,
+    ) -> bool {
+        if !directory.as_path().is_absolute()
+            || self.pane_tab(pane).is_none()
+            || self.starting_directories.get(&pane) == Some(directory)
+        {
+            return false;
+        }
+        self.starting_directories.insert(pane, directory.clone());
+        true
+    }
+
     pub fn set_pane_proxy(&mut self, pane: PaneId, proxy: bool) -> Result<(), AppError> {
         self.pane_mut(pane)?.proxy = proxy;
         Ok(())
