@@ -117,8 +117,11 @@ fn a_terminal_renewed_after_its_server_stopped_keeps_its_place_folder_and_proxy(
     );
 
     assert!(restored.remember_directory(right, &folder));
+    restored.set_startup_command(right, "pi --continue")?;
     let gone = restored.renew_ended_terminal(right, |_| false)?;
     assert_eq!(restored.starting_proxy(gone), Some(false));
+    assert_eq!(restored.startup_command(gone), Some("pi --continue"));
+    assert_eq!(restored.startup_command(right), None);
     assert_eq!(
         restored.prepare_creation(gone, Path::new("/project")),
         ServerPath(b"/project".to_vec())

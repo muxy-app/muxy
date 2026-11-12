@@ -822,8 +822,9 @@ impl AppState {
 
     /// Puts a new terminal where `pane` is, after its session ended without
     /// the shell exiting, as when the server stopped. The new one keeps the
-    /// old one's proxy choice, and starts in the folder the old one was last
-    /// in while `usable` accepts it, or else in its project's folder.
+    /// old one's proxy choice and a startup command that never ran, and
+    /// starts in the folder the old one was last in while `usable` accepts
+    /// it, or else in its project's folder.
     pub fn renew_ended_terminal(
         &mut self,
         pane: PaneId,
@@ -835,7 +836,11 @@ impl AppState {
             .filter(|directory| usable(directory.as_path()))
             .cloned();
         let proxy = self.pane(pane).map(|pane| pane.proxy);
+        let command = self.startup_commands.get(&pane).cloned();
         let id = self.restart_terminal(pane)?;
+        if let Some(command) = command {
+            self.startup_commands.insert(id, command);
+        }
         if let Some(directory) = directory {
             self.starting_directories.insert(id, directory);
         }
