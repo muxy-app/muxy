@@ -27,7 +27,8 @@ pub use worktrees::{
 
 pub use appearance::{
     AgentSessionsPosition, AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping,
-    AgentsPanelIcon, AppLayout, Appearance, InterfaceSize, ProjectOrder, SidebarCollapsedStyle,
+    AgentsPanelIcon, AppLayout, Appearance, ExtensionsLayout, InterfaceSize, ProjectOrder,
+    SidebarCollapsedStyle,
 };
 pub use browser::BrowserSettings;
 pub use chord::KeyChord;

@@ -8,9 +8,9 @@ pub mod api;
 pub mod workspace;
 pub use audit::{AUDIT_LOG, AuditEntry, AuditLog, timestamp};
 pub use manifest::{
-    Action, BarItem, Command, Extension, FileOpener, HomeView, Icon, Localization, Manifest,
-    PERMISSIONS, Panel, PanelControl, PanelMode, PanelPosition, Popover, RemoteMethod, Setting,
-    SettingKind, Side, Sidebar, StatusBarItem, TabType, local_event,
+    Action, BarItem, Command, Extension, FileOpener, HomeView, Icon, Listing, Localization,
+    Manifest, PERMISSIONS, Panel, PanelControl, PanelMode, PanelPosition, Popover, RemoteMethod,
+    Setting, SettingKind, Side, Sidebar, StatusBarItem, TabType, local_event,
 };
 pub use permissions::{
     Choice, Consent, Gate, Grants, Request, Rule, TRUSTED, event_permission, required_permission,
