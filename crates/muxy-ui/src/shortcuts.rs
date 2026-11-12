@@ -1,6 +1,6 @@
 //! The single GPUI shortcut registration interface used by app and UI modules.
 
-use gpui::{Action, KeyBinding};
+use gpui::{Action, App, KeyBinding, SharedString};
 use muxy_core::shortcuts::{ShortcutId, ShortcutSettings};
 
 pub struct Registry<'a> {
@@ -41,5 +41,34 @@ impl<'a> Registry<'a> {
 
     pub fn into_bindings(self) -> Vec<KeyBinding> {
         self.bindings
+    }
+}
+
+/// `name` as a tooltip shows a control that has a shortcut: with `key` after
+/// it in parentheses.
+pub fn with_key(name: &str, key: &str) -> SharedString {
+    format!("{name} ({key})").into()
+}
+
+/// The key bound to `action`, as menus and tooltips show it. An action with
+/// several keys shows the first, which is the one Settings lists.
+pub fn key_for(action: &dyn Action, cx: &App) -> Option<SharedString> {
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    let binding = keymap.bindings_for_action(action).next()?;
+    let keys: Vec<_> = binding
+        .keystrokes()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    Some(keys.join(" ").into())
+}
+
+/// `name` for a tooltip, followed by the key bound to `action` when it has one.
+pub fn tooltip_text(name: impl Into<SharedString>, action: &dyn Action, cx: &App) -> SharedString {
+    let name = name.into();
+    match key_for(action, cx) {
+        Some(key) => with_key(&name, &key),
+        None => name,
     }
 }

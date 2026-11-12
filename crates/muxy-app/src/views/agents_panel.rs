@@ -5,6 +5,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelDock, AgentsPanelIcon};
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::accessibility::{self, OnPress};
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
@@ -965,7 +966,7 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover))
             .tooltip(muxy_ui::components::tooltip(
-                tr!("Agents").to_string(),
+                model.tooltip(tr!("Agents"), ShortcutId::ToggleAgentsPanel),
                 &model.theme,
             ))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

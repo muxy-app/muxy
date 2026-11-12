@@ -1,25 +1,13 @@
-use std::rc::Rc;
-
 use gpui::{
     AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use muxy_ui::command_palette::{Command, Registry};
 use muxy_ui::components::IconGlyph;
 use muxy_ui::controls::{self, Style};
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
 
-use super::command_palette::Handler;
 use crate::model::AppModel;
-
-pub(super) fn register_commands(registry: &mut Registry<Handler>, model: &AppModel) {
-    if !model.appearance.tips_visible {
-        return;
-    }
-    let show: Handler = Rc::new(|model, _, cx| model.show_tip(cx));
-    registry.register(Command::new("show_tip", tr!("Show Muxy Tip"), show).keywords("Tips"));
-}
 
 /// The tip toast in the window's bottom-right corner, above the status bar.
 pub(super) fn toast(

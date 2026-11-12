@@ -4,6 +4,7 @@ use gpui::{
     ParentElement, Pixels, Point, Role, SharedString, Stateful, StatefulInteractiveElement, Styled,
     Window, div, point, px,
 };
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::Metrics;
@@ -335,6 +336,7 @@ fn sidebar_toggle(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
             )
             .expanded(model.appearance.sidebar_expanded)
             .tooltip(theme)
+            .shortcut(model.shortcut_label(ShortcutId::ToggleSidebar))
             .on_click(cx.listener(|model, _, window, cx| {
                 cx.stop_propagation();
                 model.toggle_sidebar(window, cx);
@@ -405,6 +407,15 @@ fn arrow(model: &AppModel, forward: bool, cx: &mut Context<AppModel>) -> AnyElem
         .justify_center()
         .size(m.scaled(22.0))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+    let arrow = with_tooltip(
+        arrow,
+        if forward {
+            model.tooltip(tr!("Forward"), ShortcutId::NavigateForward)
+        } else {
+            model.tooltip(tr!("Back"), ShortcutId::NavigateBack)
+        },
+        model,
+    );
     if enabled {
         arrow
             .cursor_pointer()

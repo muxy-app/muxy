@@ -7,9 +7,33 @@ use muxy_core::shortcuts::ShortcutId;
 
 use super::Command;
 use crate::model::AppModel;
+use crate::views::project_editor::Field;
+use crate::views::tab_menu::Action as TabAction;
+
+/// The command that does to the active tab what a tab menu row does to its own.
+fn tab_shortcut(action: TabAction) -> Option<ShortcutId> {
+    use muxy_app_core::{TabCloseScope, TabSide};
+    match action {
+        TabAction::New(TabSide::Left) => Some(ShortcutId::NewTabToTheLeft),
+        TabAction::New(TabSide::Right) => Some(ShortcutId::NewTabToTheRight),
+        TabAction::Rename => Some(ShortcutId::RenameTab),
+        TabAction::ResetTitle => Some(ShortcutId::ResetTabTitle),
+        TabAction::TogglePin => Some(ShortcutId::ToggleTabPin),
+        TabAction::CloseTabs(TabCloseScope::Other) => Some(ShortcutId::CloseOtherTabs),
+        TabAction::CloseTabs(TabCloseScope::Left) => Some(ShortcutId::CloseTabsToTheLeft),
+        TabAction::CloseTabs(TabCloseScope::Right) => Some(ShortcutId::CloseTabsToTheRight),
+        TabAction::MoveToWindow => Some(ShortcutId::MoveTabToNewWindow),
+        TabAction::ReturnToMainWindow => Some(ShortcutId::MoveTabToMainWindow),
+        TabAction::Close
+        | TabAction::SetColor(_)
+        | TabAction::ResetColor
+        | TabAction::MoveToProject(_) => None,
+    }
+}
 
 impl Command {
     pub(crate) fn shortcut(self, model: &AppModel, cx: &App) -> Option<String> {
+        let current = model.state.current_project().id;
         let action = match self {
             Self::AddProject(server) if server == model.state.current_project().server_id => {
                 Some(ShortcutId::AddProject)
@@ -25,7 +49,36 @@ impl Command {
             Self::ClosePane(_) => Some(ShortcutId::ClosePane),
             Self::DetachTerminal(_) => Some(ShortcutId::DetachTerminal),
             Self::ExistingSessions(_) => Some(ShortcutId::ExistingTerminals),
-            Self::Tab(_, super::super::tab_menu::Action::Close) => Some(ShortcutId::CloseTab),
+            Self::Tab(_, TabAction::Close) => Some(ShortcutId::CloseTab),
+            Self::Tab(id, action) if model.active_tab() == Some(id) => tab_shortcut(action),
+            Self::MovePaneToWindow(pane) if model.active_pane() == Some(pane) => {
+                Some(ShortcutId::MovePaneToNewWindow)
+            }
+            Self::FloatPane(pane) if model.active_pane() == Some(pane) => {
+                Some(ShortcutId::FloatPane)
+            }
+            Self::OpenInBrowser(pane, None) if model.active_pane() == Some(pane) => {
+                Some(ShortcutId::BrowserOpenExternally)
+            }
+            Self::BrowserInspect(pane) if model.active_pane() == Some(pane) => {
+                Some(ShortcutId::BrowserInspect)
+            }
+            Self::CopyPath(id) if current == id => Some(ShortcutId::CopyProjectPath),
+            Self::RevealPath(id) if current == id => Some(ShortcutId::RevealProject),
+            Self::EditProject(id, Field::Name) if current == id => Some(ShortcutId::RenameProject),
+            Self::RemoveProject(id) if current == id => Some(ShortcutId::RemoveProject),
+            Self::ProjectLayouts(id) if current == id => Some(ShortcutId::ApplyLayout),
+            Self::NewProjectTab(id) if current == id => Some(ShortcutId::NewTab),
+            Self::Worktrees(id) if model.current_parent_project() == id => {
+                Some(ShortcutId::ToggleWorktrees)
+            }
+            Self::FocusProject(None) => Some(ShortcutId::ToggleProjectFocus),
+            Self::FocusProject(Some(id)) if model.current_parent_project() == id => {
+                Some(ShortcutId::ToggleProjectFocus)
+            }
+            Self::NewWorkspace(None) => Some(ShortcutId::NewWorkspace),
+            Self::CreateExtension => Some(ShortcutId::CreateExtension),
+            Self::ManageExtensions => Some(ShortcutId::ManageExtensions),
             _ => None,
         };
         let chord = action.and_then(|action| model.settings.keymap.chord(action));
@@ -64,14 +117,13 @@ impl Command {
                     bindings.bindings.contains_key(chord) || !application_handles(chord, cx)
                 })
             })?;
-        Some(
-            gpui::Keystroke::parse(chord.as_str())
-                .map_or_else(|_| chord.to_string(), |key| key.to_string()),
-        )
+        Some(crate::views::command_palette::chord_label(chord))
     }
 }
 
-fn application_handles(chord: &KeyChord, cx: &App) -> bool {
+/// Whether an app shortcut takes `chord` before a terminal's default key
+/// for it can run.
+pub(crate) fn application_handles(chord: &KeyChord, cx: &App) -> bool {
     let Ok(key) = gpui::Keystroke::parse(chord.as_str()) else {
         return true;
     };

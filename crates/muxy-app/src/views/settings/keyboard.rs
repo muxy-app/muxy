@@ -150,6 +150,18 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
 }
 
 impl SettingsView {
+    pub(crate) fn show_keyboard(&mut self, cx: &mut Context<Self>) {
+        self.finish_slider(cx);
+        self.recording = None;
+        self.cancel_quick_recording(cx);
+        self.category = Category::Keyboard;
+        self.section = None;
+        self.query.clear();
+        self.results.reset();
+        self.search.update(cx, |input, cx| input.set_text("", cx));
+        cx.notify();
+    }
+
     pub(crate) fn begin_recording(
         &mut self,
         id: &str,

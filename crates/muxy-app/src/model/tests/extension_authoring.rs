@@ -131,13 +131,15 @@ fn the_command_palette_can_create_and_manage_extensions(cx: &mut TestAppContext)
             let registry = model.command_registry(true, cx);
             let create = registry.action("create_extension").expect("create").clone();
             create(model, window, cx);
-            assert!(matches!(
-                &model.overlay,
-                Some(Overlay::ExtensionAgent(open)) if open.task == AgentTask::Create
-            ));
-            model.dismiss_overlay(cx);
             assert!(registry.action("manage_extensions").is_some());
         });
+    });
+    cx.run_until_parked();
+    model.read_with(cx, |model, _| {
+        assert!(matches!(
+            &model.overlay,
+            Some(Overlay::ExtensionAgent(open)) if open.task == AgentTask::Create
+        ));
     });
 }
 

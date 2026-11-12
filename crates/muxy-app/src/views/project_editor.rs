@@ -39,6 +39,16 @@ pub(crate) struct Editor {
 }
 
 impl AppModel {
+    /// Where an editor opens when no pointer placed it: near the top middle
+    /// of the window.
+    pub(crate) fn editor_position(&self, window: &Window) -> Point<Pixels> {
+        let size = window.viewport_size();
+        gpui::point(
+            size.width / 2.0 - self.metrics.scaled(120.0),
+            size.height / 3.0,
+        )
+    }
+
     pub(crate) fn open_project_editor(
         &mut self,
         id: ProjectId,

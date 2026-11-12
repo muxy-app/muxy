@@ -96,7 +96,14 @@ impl Composer {
             })
             .rounded(m.radius_xl())
             .child(SymbolGlyph::new(symbol, glyph_size, color))
-            .tooltip(muxy_ui::components::tooltip(translate(label), &theme))
+            .tooltip(muxy_ui::components::tooltip(
+                if id == "composer-close" {
+                    muxy_ui::shortcuts::tooltip_text(translate(label), &Close, cx)
+                } else {
+                    translate(label)
+                },
+                &theme,
+            ))
             .button_interaction(cx.listener(move |view, _, window, cx| action(view, window, cx)))
             .into_any_element()
     }
@@ -189,6 +196,11 @@ impl Composer {
                     view.preferences(cx);
                 });
             },
+        )
+        .shortcut(
+            matches!(control, PanelControl::Close)
+                .then(|| muxy_ui::shortcuts::key_for(&Close, cx))
+                .flatten(),
         )
     }
 

@@ -11,11 +11,13 @@ use muxy_protocol::{ErrorCode, HistoryCursor, SearchMatch, SearchPage};
 use muxy_ui::components::IconButton;
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::tr_key;
+use muxy_ui::shortcuts::key_for;
 use muxy_ui::text_input::{InputEvent, InputStyle, SEARCH_CONTEXT, TextInput};
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
 
 use super::pane::{PaneEvent, PaneState, TerminalPane};
+use crate::views::workspace::{FindNext, FindPrevious};
 
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
 const REFRESH: Duration = Duration::from_millis(250);
@@ -476,44 +478,51 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
             )
             .child(
                 button("find-previous", Icon::ChevronUp, tr!("Previous match"))
+                    .shortcut(key_for(&FindPrevious, cx))
                     .on_click(cx.listener(|pane, _, _, cx| pane.step_find(true, cx))),
             )
             .child(
                 button("find-next", Icon::ChevronDown, tr!("Next match"))
+                    .shortcut(key_for(&FindNext, cx))
                     .on_click(cx.listener(|pane, _, _, cx| pane.step_find(false, cx))),
             )
-            .child(
-                div()
-                    .id("find-ignore-case")
-                    .role(gpui::Role::Switch)
-                    .accessibility_id("find-ignore-case")
-                    .aria_label(tr!("Ignore Case"))
-                    .aria_toggled(if find.results.ignore_case {
-                        gpui::Toggled::True
-                    } else {
-                        gpui::Toggled::False
-                    })
-                    .debug_selector(|| "find-ignore-case".into())
-                    .cursor_pointer()
-                    .px(metrics.spacing2())
-                    .text_size(metrics.font_body())
-                    .text_color(if find.results.ignore_case {
-                        theme.accent
-                    } else {
-                        theme.fg_muted
-                    })
-                    .on_click(cx.listener(|pane, _, _, cx| {
-                        if let Some(find) = &mut pane.find {
-                            find.results.ignore_case = !find.results.ignore_case;
-                        }
-                        pane.find_query_changed(cx);
-                    }))
-                    .child("Aa"),
-            )
+            .child(ignore_case_switch(find, cx))
             .child(
                 button("find-close", Icon::X, tr!("Close search"))
+                    .shortcut(key_for(&super::pane::CloseFind, cx))
                     .on_click(cx.listener(|pane, _, window, cx| pane.close_find(window, cx))),
             )
             .into_any_element(),
     )
+}
+
+fn ignore_case_switch(find: &Find, cx: &mut Context<TerminalPane>) -> impl IntoElement {
+    let theme = &find.theme;
+    let metrics = find.metrics;
+    div()
+        .id("find-ignore-case")
+        .role(gpui::Role::Switch)
+        .accessibility_id("find-ignore-case")
+        .aria_label(tr!("Ignore Case"))
+        .aria_toggled(if find.results.ignore_case {
+            gpui::Toggled::True
+        } else {
+            gpui::Toggled::False
+        })
+        .debug_selector(|| "find-ignore-case".into())
+        .cursor_pointer()
+        .px(metrics.spacing2())
+        .text_size(metrics.font_body())
+        .text_color(if find.results.ignore_case {
+            theme.accent
+        } else {
+            theme.fg_muted
+        })
+        .on_click(cx.listener(|pane, _, _, cx| {
+            if let Some(find) = &mut pane.find {
+                find.results.ignore_case = !find.results.ignore_case;
+            }
+            pane.find_query_changed(cx);
+        }))
+        .child("Aa")
 }

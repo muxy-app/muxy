@@ -177,6 +177,15 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn show_keyboard_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.show_settings(window, cx) {
+            return;
+        }
+        if let Some(settings) = &self.settings_tab {
+            settings.view.update(cx, SettingsView::show_keyboard);
+        }
+    }
+
     /// Opens Settings at Browser, where profiles are managed.
     pub(crate) fn show_browser_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_settings(window, cx);

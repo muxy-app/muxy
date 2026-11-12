@@ -215,7 +215,8 @@ pub(super) fn new_tab_button(
         || SharedString::from("new-tab"),
         |anchor| SharedString::from(format!("new-tab-{anchor}")),
     );
-    titlebar::icon_button(id, Icon::Plus, tr!("New Tab (⌘T)"), model)
+    let tooltip = model.tooltip(tr!("New Tab"), ShortcutId::NewTab);
+    titlebar::icon_button(id, Icon::Plus, tooltip, model)
         .aria_label(tr!("New Tab"))
         .accessibility_id(if anchor.is_some() {
             "group-new-tab-button"
@@ -251,11 +252,7 @@ pub(super) fn existing_terminals_button(
     } else {
         tr!("%lld Existing Terminals", count)
     };
-    let tooltip = model
-        .settings
-        .keymap
-        .chord(ShortcutId::ExistingTerminals)
-        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"));
+    let tooltip = model.tooltip(name.clone(), ShortcutId::ExistingTerminals);
     titlebar::icon_button("existing-terminals", Icon::TerminalStack, tooltip, model)
         .aria_label(name)
         .accessibility_id("existing-terminals-button")
@@ -270,11 +267,7 @@ pub(super) fn existing_terminals_button(
 /// Opens a browser tab in the current project.
 pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let name = tr!("Open Browser Tab");
-    let tooltip = model
-        .settings
-        .keymap
-        .chord(ShortcutId::NewBrowserTab)
-        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"));
+    let tooltip = model.tooltip(name.clone(), ShortcutId::NewBrowserTab);
     titlebar::icon_button("new-browser-tab", Icon::Globe, tooltip, model)
         .aria_label(name)
         .accessibility_id("browser-button")
@@ -286,13 +279,8 @@ pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> An
         .into_any_element()
 }
 
-pub(super) fn settings_tooltip(model: &AppModel) -> String {
-    let name = tr!("Settings");
-    model
-        .settings
-        .keymap
-        .chord(ShortcutId::OpenSettings)
-        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"))
+pub(super) fn settings_tooltip(model: &AppModel) -> SharedString {
+    model.tooltip(tr!("Settings"), ShortcutId::OpenSettings)
 }
 
 pub(super) fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
@@ -322,11 +310,7 @@ pub(super) fn zoom_control(
     } else {
         tr!("Maximize Pane")
     };
-    let tooltip = model
-        .settings
-        .keymap
-        .chord(ShortcutId::ToggleZoomPane)
-        .map_or_else(|| label.to_string(), |chord| format!("{label} ({chord})"));
+    let tooltip = model.tooltip(label.clone(), ShortcutId::ToggleZoomPane);
     titlebar::icon_button(
         "toggle-zoom-pane",
         if zoomed {

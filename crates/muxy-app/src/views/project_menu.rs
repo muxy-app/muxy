@@ -174,21 +174,26 @@ pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
 }
 
 impl AppModel {
+    /// Whether `project` can have worktrees: it has some, or its folder is
+    /// not known to be outside a Git repository.
+    pub(crate) fn tracks_worktrees(&self, project: ProjectId) -> bool {
+        self.state
+            .projects()
+            .iter()
+            .any(|child| child.parent_id == Some(project))
+            || !self
+                .git
+                .projects
+                .get(&project)
+                .is_some_and(Repository::not_a_repository)
+    }
+
     /// The sidebar menu of `project`. Worktree projects get the worktree menu.
     pub(crate) fn project_menu(&self, project: &Project) -> Vec<Item> {
         if project.parent_id.is_some() {
             return worktree_items(project, false);
         }
-        let repository = self
-            .state
-            .projects()
-            .iter()
-            .any(|child| child.parent_id == Some(project.id))
-            || !self
-                .git
-                .projects
-                .get(&project.id)
-                .is_some_and(Repository::not_a_repository);
+        let repository = self.tracks_worktrees(project.id);
         let focus = if self.appearance.sidebar_focus {
             Item::action(
                 self.state.active_workspace().map_or_else(

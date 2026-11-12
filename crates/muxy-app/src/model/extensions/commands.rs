@@ -29,6 +29,19 @@ pub(crate) struct RunCommand {
     pub command: String,
 }
 
+impl RunCommand {
+    /// The key bound to an extension's command, as tooltips show it.
+    pub(crate) fn key(owner: &str, command: &str, cx: &gpui::App) -> Option<gpui::SharedString> {
+        muxy_ui::shortcuts::key_for(
+            &Self {
+                owner: owner.into(),
+                command: command.into(),
+            },
+            cx,
+        )
+    }
+}
+
 impl AppModel {
     /// Key bindings for extension commands: manifest defaults (or the user's
     /// rebinding) first, then runtime shortcuts; the first claim on a key wins.

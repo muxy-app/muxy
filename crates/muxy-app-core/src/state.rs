@@ -905,6 +905,18 @@ impl AppState {
         self.tab_mut(tab)?.layout.set_ratio(path, ratio)
     }
 
+    /// Moves the divider nearest `pane` toward `direction`. Returns whether
+    /// one moved; a zoomed tab shows no dividers, so none does.
+    pub fn resize_pane(
+        &mut self,
+        pane: PaneId,
+        direction: Direction,
+        step: f32,
+    ) -> Result<bool, AppError> {
+        let tab = self.pane_tab_mut(pane)?;
+        Ok(tab.zoomed.is_none() && tab.layout.resize(pane, direction, step))
+    }
+
     pub fn equalize_splits(&mut self, pane: PaneId) -> Result<(), AppError> {
         let tab = self.pane_tab_mut(pane)?;
         tab.layout = tab

@@ -407,26 +407,30 @@ impl AppModel {
             };
             let owner = panel.owner.clone();
             let command = item.command.clone();
+            let key = crate::model::extensions::RunCommand::key(&owner, &command, cx);
             let model = cx.weak_entity();
             let root = extension
                 .map(|extension| extension.directory.clone())
                 .unwrap_or_default();
-            chrome = chrome.with_trailing_action(PanelAction::element(
-                gpui::SharedString::from(format!("extension-panel-{}-{}", owner, item.id)),
-                item.tooltip.clone().unwrap_or_else(|| item.id.clone()),
-                self.extension_icon(
-                    &root,
-                    &item.icon,
-                    self.metrics.font_emphasis(),
-                    self.theme.fg_muted,
-                ),
-                focus.clone(),
-                move |window, cx| {
-                    let _ = model.update(cx, |model, cx| {
-                        model.run_extension_command(&owner, &command, window, cx);
-                    });
-                },
-            ));
+            chrome = chrome.with_trailing_action(
+                PanelAction::element(
+                    gpui::SharedString::from(format!("extension-panel-{}-{}", owner, item.id)),
+                    item.tooltip.clone().unwrap_or_else(|| item.id.clone()),
+                    self.extension_icon(
+                        &root,
+                        &item.icon,
+                        self.metrics.font_emphasis(),
+                        self.theme.fg_muted,
+                    ),
+                    focus.clone(),
+                    move |window, cx| {
+                        let _ = model.update(cx, |model, cx| {
+                            model.run_extension_command(&owner, &command, window, cx);
+                        });
+                    },
+                )
+                .shortcut(key),
+            );
         }
         Some(chrome)
     }

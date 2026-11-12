@@ -1636,7 +1636,7 @@ impl Picker {
         .when(action.icon_only || action.shortcut.is_some(), |button| {
             let label = action.shortcut.as_ref().map_or_else(
                 || action.label.clone(),
-                |shortcut| format!("{} ({shortcut})", action.label).into(),
+                |shortcut| crate::shortcuts::with_key(&action.label, shortcut),
             );
             button.tooltip(crate::components::tooltip(label, &self.theme))
         })

@@ -312,12 +312,6 @@ fn search_is_clickable_and_filters_after_a_project_switch(cx: &mut TestAppContex
 #[gpui::test]
 fn a_user_shortcut_toggles_the_panel(cx: &mut TestAppContext) {
     let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    assert!(
-        boot.settings
-            .keymap
-            .chord(ShortcutId::ToggleAgentSessions)
-            .is_none()
-    );
     boot.settings.keymap = boot
         .settings
         .keymap

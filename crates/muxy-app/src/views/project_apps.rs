@@ -6,6 +6,7 @@ use gpui::{
     AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
     Pixels, Role, StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
@@ -172,7 +173,7 @@ fn primary_button(
                         .child(shown.app.name.clone()),
                 )
             }),
-        name,
+        model.tooltip(name, ShortcutId::OpenProjectInDefaultApp),
         model,
     )
 }

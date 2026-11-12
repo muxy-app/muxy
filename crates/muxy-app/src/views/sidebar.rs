@@ -38,29 +38,22 @@ pub(crate) fn register_commands(
     model: &AppModel,
     cx: &Context<AppModel>,
 ) {
-    use super::command_palette::Handler;
-    use super::workspace::commands::register_placed;
+    use super::command_palette::{Handler, with_shortcut};
+    use super::workspace::commands::{
+        SWITCH_PROJECT_PAGE, SWITCH_WORKSPACE_PAGE, register_placed, search_words, title,
+    };
     use muxy_core::shortcuts::ShortcutId;
     use muxy_ui::command_palette::{Command, Registry};
 
-    register_placed(registry, model, ShortcutId::AddProject);
-    register_placed(registry, model, ShortcutId::NewTabInProject);
-    let create: Handler = Rc::new(|model, _, cx| {
-        model.open_extension_agent(crate::extensions::authoring::AgentTask::Create, cx);
-    });
-    registry.register(
-        Command::new("create_extension", tr!("Create Extension…"), create)
-            .keywords("new make build extension agent"),
-    );
-    let manage: Handler = Rc::new(AppModel::show_extensions_settings);
-    registry.register(
-        Command::new("manage_extensions", tr!("Manage Extensions"), manage)
-            .keywords("settings installed marketplace extension"),
-    );
+    register_placed(registry, model, ShortcutId::AddProject, cx);
+    register_placed(registry, model, ShortcutId::NewTabInProject, cx);
     let has_workspaces = !model.state.workspaces().is_empty();
+    let app = model;
     let model = cx.weak_entity();
-    registry.register(
-        Command::list("switch_project", tr!("Switch Project…"), move |cx| {
+    let switch_project = Command::list(
+        SWITCH_PROJECT_PAGE,
+        title(ShortcutId::SwitchProject),
+        move |cx| {
             let mut projects = Registry::default();
             let Some(model) = model.upgrade() else {
                 return projects;
@@ -97,15 +90,22 @@ pub(crate) fn register_commands(
                 });
             }
             projects
-        })
-        .keywords("Switch Project"),
-    );
+        },
+    )
+    .keywords(search_words(ShortcutId::SwitchProject));
+    registry.register(with_shortcut(
+        app,
+        ShortcutId::SwitchProject,
+        switch_project,
+    ));
     if !has_workspaces {
         return;
     }
     let model = cx.weak_entity();
-    registry.register(
-        Command::list("switch_workspace", tr!("Switch Workspace…"), move |cx| {
+    let switch_workspace = Command::list(
+        SWITCH_WORKSPACE_PAGE,
+        title(ShortcutId::SwitchWorkspace),
+        move |cx| {
             let mut workspaces = Registry::default();
             let Some(model) = model.upgrade() else {
                 return workspaces;
@@ -128,9 +128,14 @@ pub(crate) fn register_commands(
                 });
             }
             workspaces
-        })
-        .keywords("Switch Workspace"),
-    );
+        },
+    )
+    .keywords(search_words(ShortcutId::SwitchWorkspace));
+    registry.register(with_shortcut(
+        app,
+        ShortcutId::SwitchWorkspace,
+        switch_workspace,
+    ));
 }
 
 pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
@@ -386,7 +391,14 @@ fn add_project_row(server: ServerId, model: &AppModel, cx: &mut Context<AppModel
             row.justify_center()
                 .size(collapsed_item_size(model))
                 .tooltip(muxy_ui::components::tooltip(
-                    tr!("Add Project").to_string(),
+                    if server == model.state.current_project().server_id {
+                        model.tooltip(
+                            tr!("Add Project"),
+                            muxy_core::shortcuts::ShortcutId::AddProject,
+                        )
+                    } else {
+                        tr!("Add Project")
+                    },
                     &model.theme,
                 ))
         })

@@ -34,6 +34,9 @@ pub enum Branch {
     Second,
 }
 
+const MIN_RATIO: f32 = 0.15;
+const MAX_RATIO: f32 = 0.85;
+
 /// A split tree. Tabs split into panes; a project's tab groups split the same
 /// way.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -162,8 +165,38 @@ impl<L: Copy + Eq> Layout<L> {
         let Self::Split { ratio, .. } = node else {
             return Err(AppError::InvalidState("path must name a split".into()));
         };
-        *ratio = value.clamp(0.15, 0.85);
+        *ratio = value.clamp(MIN_RATIO, MAX_RATIO);
         Ok(())
+    }
+
+    /// Moves the divider nearest `pane` on `direction`'s axis toward
+    /// `direction` by `step` of its split. Returns whether it moved: `pane`
+    /// may have no such divider, or the divider may be as far as it goes.
+    pub fn resize(&mut self, pane: L, direction: Direction, step: f32) -> bool {
+        let Self::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } = self
+        else {
+            return false;
+        };
+        let inner = if first.contains(pane) { first } else { second };
+        if inner.resize(pane, direction, step) {
+            return true;
+        }
+        if *axis != direction.axis() || !step.is_finite() || !inner.contains(pane) {
+            return false;
+        }
+        let delta = match direction {
+            Direction::Left | Direction::Up => -step,
+            Direction::Right | Direction::Down => step,
+        };
+        let resized = (*ratio + delta).clamp(MIN_RATIO, MAX_RATIO);
+        let moved = (resized - *ratio).abs() > f32::EPSILON;
+        *ratio = resized;
+        moved
     }
 
     pub fn validate(&self) -> Result<(), AppError> {
@@ -174,7 +207,7 @@ impl<L: Copy + Eq> Layout<L> {
             ..
         } = self
         {
-            if !ratio.is_finite() || !(0.15..=0.85).contains(ratio) {
+            if !ratio.is_finite() || !(MIN_RATIO..=MAX_RATIO).contains(ratio) {
                 return Err(AppError::InvalidState(
                     "split ratio must be between 0.15 and 0.85".into(),
                 ));

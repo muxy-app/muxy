@@ -286,6 +286,40 @@ fn the_command_palette_acts_on_the_float_that_opened_it(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn closing_tabs_around_a_float_leaves_the_main_windows_tabs(cx: &mut TestAppContext) {
+    use muxy_core::shortcuts::ShortcutId;
+
+    let (view, cx, home, _, _, pane) = floated(cx);
+    view.update(cx, |model, cx| {
+        model.new_tab(cx);
+        model.focus_pane(pane, cx);
+        assert_eq!(model.key_float(), Some(float_of(model, pane)));
+        assert_eq!(listed(model, home).len(), 2);
+        let registry = model.command_registry(true, cx);
+        for id in [
+            ShortcutId::CloseOtherTabs,
+            ShortcutId::CloseTabsToTheLeft,
+            ShortcutId::CloseTabsToTheRight,
+        ] {
+            let command = registry.command(id.name()).expect("listed");
+            assert!(command.is_disabled(), "{}", id.name());
+        }
+    });
+    for action in [
+        Box::new(crate::views::workspace::CloseOtherTabs) as Box<dyn gpui::Action>,
+        Box::new(crate::views::workspace::CloseTabsToTheLeft),
+        Box::new(crate::views::workspace::CloseTabsToTheRight),
+    ] {
+        cx.update(|window, cx| window.dispatch_action(action, cx));
+        cx.run_until_parked();
+    }
+    view.read_with(cx, |model, _| {
+        assert_eq!(listed(model, home).len(), 2);
+        assert!(model.close_request.is_none());
+    });
+}
+
+#[gpui::test]
 fn the_float_holding_the_keyboard_stays_the_surface_shortcuts_act_on(cx: &mut TestAppContext) {
     let (view, cx, _, _, main, pane) = floated(cx);
     let id = view.read_with(cx, |model, _| float_of(model, pane));

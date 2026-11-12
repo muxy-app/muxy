@@ -517,7 +517,8 @@ pub(crate) fn list(
 pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handler> {
     let _ = model;
     let model = cx.weak_entity();
-    Command::list("remote_servers", tr!("Servers…"), move |cx| {
+    let title = super::workspace::commands::title(muxy_core::shortcuts::ShortcutId::ShowServers);
+    Command::list(super::workspace::commands::SERVERS_PAGE, title, move |cx| {
         let mut servers = Registry::default();
         let add: Handler = Rc::new(|model, _, cx| model.open_server_form(None, cx));
         servers.register(
@@ -546,7 +547,9 @@ pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handl
         }
         servers
     })
-    .keywords("Servers Remote Clients Pairing")
+    .keywords(super::workspace::commands::search_words(
+        muxy_core::shortcuts::ShortcutId::ShowServers,
+    ))
 }
 
 /// One server's page: what can be done with it now.

@@ -10,6 +10,7 @@ use gpui::{
     MouseDownEvent, ParentElement, Role, SharedString, Stateful, StatefulInteractiveElement,
     Styled, Window, canvas, div, px,
 };
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::accessibility;
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::floating::FloatingCard;
@@ -30,9 +31,10 @@ pub(crate) fn button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoE
     super::titlebar::icon_button(
         "toggle-agent-sessions",
         Icon::History,
-        tr!("Agent Sessions"),
+        model.tooltip(tr!("Agent Sessions"), ShortcutId::ToggleAgentSessions),
         model,
     )
+    .aria_label(tr!("Agent Sessions"))
     .debug_selector(|| "toggle-agent-sessions".into())
     .child(
         canvas(
@@ -226,8 +228,12 @@ fn chrome(model: &AppModel, cx: &mut Context<AppModel>) -> PanelChrome {
         )
     };
     let owner = cx.weak_entity();
+    let close_key = model.shortcut_label(ShortcutId::ToggleAgentSessions);
     let control = |id: &'static str, control: PanelControl, focus| {
         let owner = owner.clone();
+        let key = matches!(control, PanelControl::Close)
+            .then(|| close_key.clone())
+            .flatten();
         PanelAction::control(id, control, focus, move |window, cx| {
             let _ = owner.update(cx, |model, cx| match control {
                 PanelControl::Close => model.toggle_agent_sessions(window, cx),
@@ -238,6 +244,7 @@ fn chrome(model: &AppModel, cx: &mut Context<AppModel>) -> PanelChrome {
                 }
             });
         })
+        .shortcut(key)
     };
     let chrome = PanelChrome::new(
         tr!("Agent Sessions"),

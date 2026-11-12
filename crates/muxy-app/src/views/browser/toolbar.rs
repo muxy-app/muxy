@@ -12,9 +12,11 @@ use muxy_ui::accessibility;
 use muxy_ui::browser::NativeBrowser;
 use muxy_ui::components::{IconButton, IconGlyph, Tooltip};
 use muxy_ui::icon::Icon;
+use muxy_ui::shortcuts::key_for;
 use muxy_ui::tr;
 
 use super::{BrowserView, BrowserViewEvent, Menu};
+use crate::views::workspace::{BrowserBack, BrowserForward, BrowserReload, FindNext, FindPrevious};
 
 pub(super) fn render(
     view: &BrowserView,
@@ -74,6 +76,7 @@ pub(super) fn render(
                         tr!("Back"),
                         view.page.can_go_back,
                     )
+                    .shortcut(key_for(&BrowserBack, cx))
                     .on_click(cx.listener(|view, _, _, cx| view.go_back(cx))),
                 )
                 .child(
@@ -83,6 +86,7 @@ pub(super) fn render(
                         tr!("Forward"),
                         view.page.can_go_forward,
                     )
+                    .shortcut(key_for(&BrowserForward, cx))
                     .on_click(cx.listener(|view, _, _, cx| view.go_forward(cx))),
                 )
                 .child(if loading {
@@ -90,6 +94,7 @@ pub(super) fn render(
                         .on_click(cx.listener(|view, _, _, cx| view.stop(cx)))
                 } else {
                     button("browser-reload", Icon::RotateCw, tr!("Reload"), true)
+                        .shortcut(key_for(&BrowserReload, cx))
                         .on_click(cx.listener(|view, _, _, cx| view.reload(cx)))
                 })
                 .child(address)
@@ -489,10 +494,12 @@ pub(super) fn find_bar(view: &BrowserView, cx: &mut Context<BrowserView>) -> Opt
                     Icon::ChevronUp,
                     tr!("Previous match"),
                 )
+                .shortcut(key_for(&FindPrevious, cx))
                 .on_click(cx.listener(|view, _, _, cx| view.step_find(true, cx))),
             )
             .child(
                 button("browser-find-next", Icon::ChevronDown, tr!("Next match"))
+                    .shortcut(key_for(&FindNext, cx))
                     .on_click(cx.listener(|view, _, _, cx| view.step_find(false, cx))),
             )
             .child(

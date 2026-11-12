@@ -318,7 +318,7 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             name: "float",
             icon: Icon::Overlap,
             label: tr!("Float Pane"),
-            shortcut: None,
+            shortcut: Some(ShortcutId::FloatPane),
             perform: Perform::Pane(|model, pane, cx| {
                 model.float_pane(pane, muxy_app_core::FloatScope::Project, cx);
             }),
@@ -343,7 +343,11 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             } else {
                 tr!("Show in All Projects")
             },
-            shortcut: None,
+            shortcut: Some(if everywhere {
+                ShortcutId::ShowFloatingTerminalInItsProject
+            } else {
+                ShortcutId::ShowFloatingTerminalInAllProjects
+            }),
             perform: Perform::Pane(AppModel::toggle_pane_float_scope),
         });
     }
@@ -356,7 +360,11 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             } else {
                 tr!("Move to Main Window")
             },
-            shortcut: None,
+            shortcut: Some(if tab.floating() {
+                ShortcutId::DockFloatingTerminal
+            } else {
+                ShortcutId::MoveTabToMainWindow
+            }),
             perform: Perform::Pane(AppModel::return_pane_window),
         });
     }
@@ -397,13 +405,10 @@ fn button(
     cx: &Context<AppModel>,
 ) -> AnyElement {
     let m = model.metrics;
-    let tooltip = action
-        .shortcut
-        .and_then(|shortcut| model.settings.keymap.chord(shortcut))
-        .map_or_else(
-            || action.label.to_string(),
-            |chord| format!("{} ({chord})", action.label),
-        );
+    let tooltip = action.shortcut.map_or_else(
+        || action.label.clone(),
+        |shortcut| model.tooltip(action.label.clone(), shortcut),
+    );
     let name = action.name;
     let perform = action.perform;
     let hover = foreground.opacity(0.12);
