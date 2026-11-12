@@ -27,6 +27,7 @@ use muxy_ui::tr;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Section {
     Overview,
+    Updates,
     Permissions,
     Settings,
     Logs,
@@ -37,6 +38,7 @@ impl Section {
     fn label(self) -> &'static str {
         match self {
             Self::Overview => tr_key!("Overview"),
+            Self::Updates => tr_key!("Updates"),
             Self::Permissions => tr_key!("Permissions"),
             Self::Settings => tr_key!("Settings"),
             Self::Logs => tr_key!("Logs"),
@@ -47,6 +49,7 @@ impl Section {
     fn id(self) -> &'static str {
         match self {
             Self::Overview => "overview",
+            Self::Updates => "updates",
             Self::Permissions => "permissions",
             Self::Settings => "settings",
             Self::Logs => "logs",
@@ -350,7 +353,7 @@ impl ExtensionsView {
         )];
         if let Some((extension, _, false)) = local {
             children.push((
-                None,
+                Some(Section::Updates),
                 self.update_section(extension, details, cx)
                     .into_any_element(),
             ));

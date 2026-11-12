@@ -16,8 +16,13 @@ use crate::extensions::{
     pictures::{self, Size, Source},
 };
 
+/// The most screenshots a listing shows, as the marketplace allows.
+pub(super) const MAX_SCREENSHOTS: usize = 6;
+
 enum State {
-    Loading,
+    /// Being read by the request with this number; a later request for the
+    /// same picture gets a new number, so a stale reply is ignored.
+    Loading(u64),
     Ready(Arc<RenderImage>),
     Missing,
 }
@@ -34,7 +39,7 @@ impl Art {
     pub(super) fn marketplace(name: &str, screenshots: usize) -> Self {
         Self {
             icon: marketplace::icon_url(name).map(Source::Marketplace),
-            screenshots: (0..screenshots)
+            screenshots: (0..screenshots.min(MAX_SCREENSHOTS))
                 .filter_map(|index| marketplace::screenshot_url(name, index))
                 .map(Source::Marketplace)
                 .collect(),
@@ -47,7 +52,12 @@ impl Art {
         let file = |path: &String| extension.resource(path).ok().map(Source::File);
         Self {
             icon: listing.icon.as_ref().and_then(file),
-            screenshots: listing.screenshots.iter().filter_map(file).collect(),
+            screenshots: listing
+                .screenshots
+                .iter()
+                .take(MAX_SCREENSHOTS)
+                .filter_map(file)
+                .collect(),
         }
     }
 }
@@ -67,6 +77,8 @@ fn drop_later(images: Vec<Arc<RenderImage>>, cx: &mut gpui::App) {
 #[derive(Default)]
 pub(super) struct Pictures {
     loaded: RefCell<HashMap<(Source, Size), State>>,
+    /// The number the next request takes.
+    requests: std::cell::Cell<u64>,
     /// Installed extensions' pictures, by folder and version, so drawing a
     /// row never touches the disk.
     installed: RefCell<HashMap<(PathBuf, String), Art>>,
@@ -127,13 +139,15 @@ impl ExtensionsView {
         cx: &Context<Self>,
     ) -> Option<Arc<RenderImage>> {
         let key = (source.clone(), size);
+        let request = self.pictures.requests.get() + 1;
         {
             let mut loaded = self.pictures.loaded.borrow_mut();
             match loaded.get(&key) {
                 Some(State::Ready(image)) => return Some(image.clone()),
-                Some(State::Loading | State::Missing) => return None,
+                Some(State::Loading(_) | State::Missing) => return None,
                 None => {
-                    loaded.insert(key.clone(), State::Loading);
+                    self.pictures.requests.set(request);
+                    loaded.insert(key.clone(), State::Loading(request));
                 }
             }
         }
@@ -153,7 +167,10 @@ impl ExtensionsView {
                     }
                 };
                 let mut loaded = view.pictures.loaded.borrow_mut();
-                if let Some(slot) = loaded.get_mut(&key) {
+                if let Some(slot) = loaded
+                    .get_mut(&key)
+                    .filter(|slot| matches!(slot, State::Loading(owner) if *owner == request))
+                {
                     *slot = state;
                 } else if let State::Ready(image) = state {
                     drop_later(vec![image], cx);

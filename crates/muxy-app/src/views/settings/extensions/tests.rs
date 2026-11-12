@@ -666,6 +666,7 @@ fn an_installed_page_links_to_every_section(cx: &mut TestAppContext) {
             sections(view, &ExtensionDetails::from(&reader), cx),
             [
                 Section::Overview,
+                Section::Updates,
                 Section::Permissions,
                 Section::Logs,
                 Section::Manage
@@ -737,4 +738,10 @@ fn changing_the_layout_inside_the_settings_tab_saves_it(cx: &mut TestAppContext)
             ExtensionsLayout::Grid
         );
     });
+}
+
+#[test]
+fn a_listing_shows_at_most_six_screenshots() {
+    let art = super::pictures::Art::marketplace("git", 40);
+    assert_eq!(art.screenshots.len(), super::pictures::MAX_SCREENSHOTS);
 }

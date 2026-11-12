@@ -152,6 +152,8 @@ pub(crate) struct ExtensionsView {
     /// The section a header link last scrolled to, shown as current until
     /// the page is scrolled by hand.
     jumped: Option<detail::Section>,
+    /// The error the page last showed, so a new one scrolls into view.
+    shown_error: Option<String>,
     /// The scrolled area's width when it was last laid out, which sets how
     /// many grid columns fit and whether the gallery has a column beside it.
     width: Rc<Cell<Pixels>>,
@@ -223,6 +225,7 @@ impl ExtensionsView {
             detail_scroll: ScrollHandle::new(),
             sections: Vec::new(),
             jumped: None,
+            shown_error: None,
             width: Rc::new(Cell::new(px(0.0))),
             folder: None,
             setting_inputs: std::collections::HashMap::new(),
@@ -457,6 +460,8 @@ impl ExtensionsView {
     fn show_finished_install(&mut self, finished: FinishedInstall, cx: &mut Context<Self>) {
         let started = std::mem::take(&mut self.started_install);
         let succeeded = finished.error.is_none();
+        // An update replaces files in the same folder, which may hold new pictures.
+        self.pictures.forget_files(cx);
         self.error = finished.error;
         let opened = match &finished.job {
             ActiveInstall::Install { name } if started && succeeded => {
@@ -707,6 +712,8 @@ impl ExtensionsView {
                 Err(error) => Err(error.to_string()),
             };
             let _ = view.update(cx, |view, cx| {
+                // A redraw during the reload may have read the old files again.
+                view.pictures.forget_files(cx);
                 view.mutation = None;
                 view.completed = result.is_ok().then_some(Mutation::Reload);
                 view.error = result.err();
@@ -878,6 +885,17 @@ impl Render for ExtensionsView {
             ));
         }
 
+        if self.error != self.shown_error {
+            // Errors sit at the top of the page, which may be scrolled away
+            // from them, say at the actions that failed.
+            if self.error.is_some() {
+                let top = point(px(0.0), px(0.0));
+                self.list_scroll.set_offset(top);
+                self.detail_scroll.set_offset(top);
+                self.jumped = None;
+            }
+            self.shown_error.clone_from(&self.error);
+        }
         let mut children: Vec<AnyElement> = Vec::new();
         if let Some(error) = &self.error {
             children.push(
