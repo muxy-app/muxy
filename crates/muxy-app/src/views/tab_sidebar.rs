@@ -472,7 +472,7 @@ fn project_title(project: &Project, model: &AppModel, cx: &mut Context<AppModel>
             group_label(title, model)
                 .absolute()
                 .inset_0()
-                .text_color(model.theme.fg_muted)
+                .text_color(model.theme.fg)
                 .opacity(0.0)
                 .group_hover(group, |style| style.opacity(1.0)),
         )
@@ -518,14 +518,14 @@ pub(super) fn row_height(model: &AppModel) -> gpui::Pixels {
     model.metrics.control_small() + model.metrics.spacing2() * 2.0
 }
 
-/// The dim name above a project's rows, shared with the agents panel.
+/// The muted name above a project's rows, shared with the agents panel.
 pub(super) fn group_label(text: impl Into<SharedString>, model: &AppModel) -> gpui::Div {
     div()
         .flex_1()
         .min_w(px(0.0))
         .truncate()
-        .text_size(model.metrics.font_footnote())
-        .text_color(model.theme.fg_dim)
+        .text_size(model.metrics.font_body())
+        .text_color(model.theme.fg_muted)
         .child(text.into())
 }
 

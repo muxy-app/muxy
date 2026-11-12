@@ -131,6 +131,21 @@ fn projects_are_not_indented_under_their_servers_heading(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn project_names_are_as_large_as_their_tab_titles(cx: &mut TestAppContext) {
+    let (state, [with_tab, ..], tab) = three_projects();
+    let (view, cx) = open(state, AppLayout::TabFocused, cx);
+    view.update(cx, |model, cx| {
+        model.appearance.tab_focused_expanded.insert(with_tab, true);
+        cx.notify();
+    });
+    cx.run_until_parked();
+
+    let title = row(cx, format!("tab-project-title-{with_tab}")).expect("project title");
+    let tab_title = row(cx, format!("sidebar-tab-title-{tab}")).expect("tab title");
+    assert_eq!(title.size.height, tab_title.size.height);
+}
+
+#[gpui::test]
 fn project_rows_line_up_with_the_header_and_focus_from_their_menu(cx: &mut TestAppContext) {
     let (mut state, [with_tab, current, _], tab) = three_projects();
     state.open_terminal_tab(current).expect("tab");
