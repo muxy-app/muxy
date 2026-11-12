@@ -296,6 +296,10 @@ fn glyph(pane: &Pane, bell: bool, foreground: Hsla, model: &AppModel, cx: &App) 
     )
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "The pane header's available controls"
+)]
 fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
     let mut actions = vec![
         Action {
@@ -349,6 +353,13 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
                 ShortcutId::ShowFloatingTerminalInAllProjects
             }),
             perform: Perform::Pane(AppModel::toggle_pane_float_scope),
+        });
+        actions.push(Action {
+            name: "minimize",
+            icon: Icon::Minimize,
+            label: tr!("Minimize"),
+            shortcut: None,
+            perform: Perform::Pane(AppModel::minimize_pane_float),
         });
     }
     if tab.detached() {

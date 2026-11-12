@@ -44,13 +44,31 @@ impl AppModel {
             .is_some_and(|id| self.is_float(id))
     }
 
-    fn float_shows(&self, project: &Project, window: &TabWindow) -> bool {
+    fn float_in_scope(&self, project: &Project, window: &TabWindow) -> bool {
         let Some(floating) = window.floating() else {
             return false;
         };
         !self.state.floats_hidden()
             && (floating.scope == FloatScope::AllProjects
                 || project.id == self.state.current_project().id)
+    }
+
+    fn float_shows(&self, project: &Project, window: &TabWindow) -> bool {
+        self.float_in_scope(project, window)
+            && window
+                .floating()
+                .is_some_and(|floating| !floating.minimized)
+    }
+
+    pub(crate) fn minimized_floats(&self) -> Vec<TabWindowId> {
+        self.state
+            .floating_tabs()
+            .filter(|(project, _, window)| {
+                self.float_in_scope(project, window)
+                    && window.floating().is_some_and(|floating| floating.minimized)
+            })
+            .map(|(_, _, window)| window.id)
+            .collect()
     }
 
     /// Whether floating tab `id` shows over the main window now.
@@ -203,6 +221,21 @@ impl AppModel {
         cx.notify();
     }
 
+    pub(crate) fn minimize_float(&mut self, id: TabWindowId, cx: &mut Context<Self>) {
+        if !self.float_shown(id) || self.state.set_float_minimized(id, true).is_err() {
+            return;
+        }
+        self.changed(cx);
+        self.sync_floating_stack();
+        self.focus_owner.request_active_pane();
+    }
+
+    pub(crate) fn minimize_pane_float(&mut self, pane: PaneId, cx: &mut Context<Self>) {
+        if let Some(id) = self.state.pane_window(pane).filter(|id| self.is_float(*id)) {
+            self.minimize_float(id, cx);
+        }
+    }
+
     /// Shows floating tab `id`, over its own project if it floats only
     /// there, and gives it the keyboard.
     pub(crate) fn reveal_float(&mut self, id: TabWindowId, cx: &mut Context<Self>) {
@@ -214,6 +247,9 @@ impl AppModel {
             .is_some_and(|floating| floating.scope == FloatScope::Project)
             && project.id != self.state.current_project().id;
         let project = project.id;
+        if self.state.set_float_minimized(id, false).is_err() {
+            return;
+        }
         self.state.set_floats_hidden(false);
         if elsewhere {
             self.select_project(project, cx);

@@ -612,3 +612,58 @@ fn floating_tabs_hide_together_and_stay_hidden_after_a_restart() -> TestResult {
     assert!(!reload(&state)?.floats_hidden());
     Ok(())
 }
+
+#[test]
+fn minimized_floats_keep_their_layout_sessions_and_frame_after_restart() -> TestResult {
+    let mut state = AppState::bootstrap()?;
+    let home = state.home().id;
+    let tab = state.open_terminal_tab(home)?;
+    let pane = first_pane(&state, tab)?;
+    state.set_pane_session(pane, Some(session(12)?))?;
+    let window = state.float_tab(tab, FloatScope::AllProjects)?;
+    let split = state.split_pane(pane, Direction::Down)?;
+    let frame = [40.0, 60.0, 500.0, 300.0];
+    state.set_float_frame(window, frame)?;
+    state.set_float_minimized(window, true)?;
+    let mut restored = reload(&state)?;
+    let (_, tab, saved) = restored.tab_window(window).ok_or("window")?;
+    let floating = saved.floating().ok_or("float")?;
+    assert!(floating.minimized);
+    assert_eq!(floating.frame, Some(frame));
+    assert_eq!(floating.scope, FloatScope::AllProjects);
+    assert_eq!(tab.layout.leaves(), [pane, split]);
+    assert!(
+        restored
+            .session_references(ServerId::local())
+            .contains(&session(12)?)
+    );
+    restored.set_float_minimized(window, false)?;
+    let restored = reload(&restored)?;
+    assert!(
+        !restored
+            .tab_window(window)
+            .ok_or("window")?
+            .2
+            .floating()
+            .ok_or("float")?
+            .minimized
+    );
+    Ok(())
+}
+
+#[test]
+fn existing_floats_default_to_restored_and_only_floats_can_minimize() -> TestResult {
+    let floating: muxy_app_core::Floating =
+        serde_json::from_str(r#"{"frame":[40.0,60.0,500.0,300.0],"scope":"all_projects"}"#)?;
+    assert!(!floating.minimized);
+    let mut state = AppState::bootstrap()?;
+    let tab = state.open_terminal_tab(state.home().id)?;
+    let window = state.move_tab_to_window(tab, None)?;
+    assert!(state.set_float_minimized(window, true).is_err());
+    assert!(
+        state
+            .set_float_minimized(muxy_app_core::TabWindowId::new(), true)
+            .is_err()
+    );
+    Ok(())
+}
