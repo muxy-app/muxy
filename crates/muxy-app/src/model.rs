@@ -2900,7 +2900,13 @@ impl AppModel {
         if self.state.pane_tab(pane).is_none() && !self.is_quick_terminal(pane) {
             return;
         }
-        if missing_session(error) {
+        if session.is_none()
+            && matches!(error, muxy_client::ClientError::Server(reply) if reply.code == muxy_protocol::ErrorCode::BadPath)
+            && self.state.pane_session(pane).is_none()
+            && self.state.starts_outside_project(pane)
+        {
+            self.renew_ended_pane(server, pane, false, cx);
+        } else if missing_session(error) {
             if let Some((_, session)) = self.state.pane_session(pane) {
                 self.close_ended_session(server, session, cx);
             }
@@ -2950,8 +2956,8 @@ impl AppModel {
 
     /// Closes a pane whose shell exited or was ended while this app was away,
     /// and puts a new terminal in a pane whose session ended any other way,
-    /// as when the server stopped. A dropped connection decides nothing; the
-    /// next restore asks again.
+    /// as when the server stopped, or whose reason couldn't be read. While
+    /// disconnected nothing is decided; the next restore asks again.
     fn receive_end_reason(
         &mut self,
         server: ServerId,
@@ -2964,18 +2970,26 @@ impl AppModel {
         if self.state.pane_session(pane) != Some((server, session)) {
             return;
         }
-        match result {
-            Ok(Some(ExitReason::Exited(_) | ExitReason::Ended)) => {
-                self.close_ended_session(server, session, cx);
-            }
-            Ok(_) | Err(muxy_client::ClientError::Server(_)) => {
-                self.renew_ended_pane(server, pane, cx);
-            }
-            Err(_) => {}
+        if !self.ready(server) {
+            return;
+        }
+        if let Ok(Some(ExitReason::Exited(_) | ExitReason::Ended)) = result {
+            self.close_ended_session(server, session, cx);
+        } else {
+            self.renew_ended_pane(server, pane, true, cx);
         }
     }
 
-    fn renew_ended_pane(&mut self, server: ServerId, pane: PaneId, cx: &mut Context<Self>) {
+    /// Puts a new terminal in `pane`'s place, in the folder it was last in
+    /// when `last_folder` allows and that folder can be used, or else in its
+    /// project's folder.
+    fn renew_ended_pane(
+        &mut self,
+        server: ServerId,
+        pane: PaneId,
+        last_folder: bool,
+        cx: &mut Context<Self>,
+    ) {
         let size = self
             .terminal(&pane)
             .and_then(|pane| pane.view.read(cx).viewport())
@@ -2984,7 +2998,7 @@ impl AppModel {
         let local = server.is_local();
         let renewed = match self
             .state
-            .renew_ended_terminal(pane, |folder| !local || folder.is_dir())
+            .renew_ended_terminal(pane, |folder| last_folder && (!local || folder.is_dir()))
         {
             Ok(renewed) => renewed,
             Err(error) => {
@@ -4242,6 +4256,80 @@ pub(crate) mod tests {
     }
 
     #[gpui::test]
+    fn an_unreadable_end_reason_renews_and_a_missing_folder_falls_back_once(
+        cx: &mut TestAppContext,
+    ) {
+        let mut state = AppState::bootstrap().expect("state");
+        state.open_terminal_tab(state.home().id).expect("tab");
+        let pane = state.home().tabs[0].panes[0].id;
+        let session = SessionId::new(42).expect("ID");
+        state
+            .set_pane_session(pane, Some(session))
+            .expect("session");
+        let folder = std::env::temp_dir().join("muxy-renew-elsewhere");
+        std::fs::create_dir_all(&folder).expect("folder");
+        assert!(state.remember_directory(pane, &folder.as_path().into()));
+        let (boot, _requests) = stub_boot(state);
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
+            acknowledge_catalog(model, cx);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::EndReason {
+                        pane,
+                        session,
+                        result: Err(muxy_client::ClientError::Timeout),
+                    },
+                ),
+                cx,
+            );
+            let renewed = model.state.home().tabs[0].panes[0].id;
+            assert_ne!(renewed, pane);
+            assert!(model.state.starts_outside_project(renewed));
+            let bad_path = || {
+                muxy_client::ClientError::Server(muxy_protocol::ErrorReply {
+                    code: muxy_protocol::ErrorCode::BadPath,
+                    message: "not a directory".into(),
+                })
+            };
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::AttachFailed {
+                        pane: renewed,
+                        session: None,
+                        created: false,
+                        error: bad_path(),
+                    },
+                ),
+                cx,
+            );
+            let fallback = model.state.home().tabs[0].panes[0].id;
+            assert_ne!(fallback, renewed);
+            assert!(!model.state.starts_outside_project(fallback));
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::AttachFailed {
+                        pane: fallback,
+                        session: None,
+                        created: false,
+                        error: bad_path(),
+                    },
+                ),
+                cx,
+            );
+            assert_eq!(model.state.home().tabs[0].panes[0].id, fallback);
+        });
+        let _ = std::fs::remove_dir(folder);
+    }
+
+    #[gpui::test]
     fn restore_closes_only_the_pane_with_invalid_session_membership(cx: &mut TestAppContext) {
         let mut state = AppState::bootstrap().expect("state");
         let home = state.home().id;
@@ -4398,23 +4486,18 @@ pub(crate) mod tests {
             acknowledge_catalog(model, cx);
             assert_eq!(model.state.home().tabs.len(), 2);
             let away = model.state.home().tabs[1].panes[0].id;
-            for result in [
-                Err(muxy_client::ClientError::Disconnected),
-                Ok(Some(ExitReason::Exited(0))),
-            ] {
-                model.receive(
-                    (
-                        ServerId::local(),
-                        1,
-                        Update::EndReason {
-                            pane: away,
-                            session: gone,
-                            result,
-                        },
-                    ),
-                    cx,
-                );
-            }
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::EndReason {
+                        pane: away,
+                        session: gone,
+                        result: Ok(Some(ExitReason::Exited(0))),
+                    },
+                ),
+                cx,
+            );
             assert_eq!(model.state.home().tabs.len(), 1);
             assert!(model.state.pane_tab(away).is_none());
             model.receive(

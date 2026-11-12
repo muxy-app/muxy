@@ -845,6 +845,15 @@ impl AppState {
         Ok(id)
     }
 
+    /// Whether `pane`'s terminal starts somewhere other than its project's
+    /// folder.
+    pub fn starts_outside_project(&self, pane: PaneId) -> bool {
+        self.starting_directories
+            .get(&pane)
+            .zip(self.pane_project(pane))
+            .is_some_and(|(directory, project)| directory.as_path() != project.directory)
+    }
+
     /// Notes the folder `pane`'s terminal is in, so a terminal that replaces
     /// it starts there. Returns whether that changed.
     pub fn remember_directory(
