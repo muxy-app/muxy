@@ -68,6 +68,9 @@ Some calls also ask the user each time, even with the permission:
 The user can **Allow** once, **Allow & Remember**, **Cancel**, **Deny &
 Remember**, or block that kind of action for the extension. An unanswered
 prompt is denied after 60 seconds, and at most five prompts can wait at once.
+The extension's log notes each call that waits for an answer and each one
+denied because nobody answered, and `muxy extension status` counts the
+prompts still waiting.
 
 The red **Always Allow This Extension…** button trusts the extension with
 every action above, after a second warning confirms it. A trusted extension is

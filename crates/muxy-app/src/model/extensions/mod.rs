@@ -12,6 +12,7 @@ mod installs;
 mod items;
 mod local;
 mod logs;
+mod pages;
 mod scripts;
 mod surfaces;
 #[cfg(test)]
@@ -24,6 +25,7 @@ pub(crate) use commands::{ExtensionShortcut, RunCommand};
 pub(in crate::model) use events::root_of;
 pub(crate) use installs::{ActiveInstall, FinishedInstall};
 pub(crate) use logs::log_file;
+pub(crate) use pages::is_page_verb;
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::Path;

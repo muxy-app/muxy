@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io;
 use std::ops::RangeInclusive;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use muxy_app_core::browser::automation::{self, DEFAULT_NAVIGATION_WAIT, DEFAULT_WAIT};
@@ -22,6 +23,8 @@ pub(crate) struct Invocation {
     /// How much longer than a quick reply the app may take: what a wait
     /// waits for, or capturing a screenshot.
     pub(crate) extra_time: Duration,
+    /// Where a screenshot is saved instead of printed.
+    pub(crate) out: Option<PathBuf>,
 }
 
 /// How the app's reply is printed.
@@ -47,6 +50,7 @@ impl Invocation {
             args: Map::new(),
             output: Output::Json,
             extra_time: Duration::ZERO,
+            out: None,
         }
     }
     fn arg(mut self, key: &str, value: impl Into<Value>) -> Self {
@@ -135,7 +139,7 @@ fn verb(action: &str) -> Option<&'static str> {
 }
 
 #[allow(clippy::too_many_lines)]
-fn invocation(words: &[&str]) -> io::Result<Invocation> {
+pub(crate) fn invocation(words: &[&str]) -> io::Result<Invocation> {
     let (action, rest) = match words {
         [group @ ("storage" | "cookies"), action, rest @ ..] => (format!("{group} {action}"), rest),
         [action, rest @ ..] => ((*action).to_owned(), rest),
@@ -204,9 +208,13 @@ fn invocation(words: &[&str]) -> io::Result<Invocation> {
             request.arg("tabId", given.word(0))
         }
         "screenshot" => {
-            let given = simple("<tab-id>", 1..=1)?;
+            let given = Given::parse(rest, usage("<tab-id> [--out FILE]"), 1..=1, &["--out"], &[])?;
             Invocation {
                 extra_time: SCREENSHOT_TIME,
+                out: given
+                    .value("--out")
+                    .map(|file| std::path::absolute(Path::new(file)))
+                    .transpose()?,
                 ..request
                     .arg("tabId", given.word(0))
                     .output(Output::Screenshot)
@@ -764,9 +772,22 @@ mod tests {
             (vec!["close", "T"], Output::Ok),
             (vec!["eval", "T", "1"], Output::Json),
             (vec!["screenshot", "T"], Output::Screenshot),
+            (
+                vec!["screenshot", "T", "--out", "a.png"],
+                Output::Screenshot,
+            ),
         ] {
             assert_eq!(invocation(&words)?.output, output, "{words:?}");
         }
+        assert_eq!(invocation(&["screenshot", "T"])?.out, None);
+        let saved = invocation(&["screenshot", "--out", "shots/a.png", "T"])?;
+        assert!(
+            saved
+                .out
+                .as_deref()
+                .is_some_and(|out| out.is_absolute() && out.ends_with("shots/a.png"))
+        );
+        assert!(!saved.args.contains_key("out"));
         for (words, extra_time) in [
             (vec!["click", "T", "#a"], Duration::ZERO),
             (vec!["screenshot", "T"], SCREENSHOT_TIME),

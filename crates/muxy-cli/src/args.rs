@@ -27,6 +27,8 @@ pub(crate) enum Command {
     Browser(Box<crate::browser::Invocation>),
     /// Manages extensions in the desktop app on this computer.
     Extension(Box<crate::extension::Invocation>),
+    /// Builds and reloads an extension whenever its files change.
+    ExtensionDev(crate::extension::dev::Dev),
     /// Reads or changes the desktop app's settings on this computer.
     Config(crate::config::Invocation),
     /// Installs the agent skill into agent folders and these folders.
@@ -84,6 +86,7 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
                     | Command::Open(_)
                     | Command::Browser(_)
                     | Command::Extension(_)
+                    | Command::ExtensionDev(_)
                     | Command::Config(_)
                     | Command::InstallSkills(_)
                     | Command::Status(_),

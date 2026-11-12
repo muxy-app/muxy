@@ -95,6 +95,10 @@ const FILES: &[(&str, &str)] = &[
         "references/schema/manifest.schema.json",
         include_str!("../../../../docs/extensions/schema/manifest.schema.json"),
     ),
+    (
+        "references/types/muxy.d.ts",
+        include_str!("../../../../docs/extensions/types/muxy.d.ts"),
+    ),
 ];
 
 /// Where one extension of the workspace lives.
@@ -205,6 +209,7 @@ mod tests {
                     .join("references/schema/manifest.schema.json")
                     .is_file()
             );
+            assert!(skill.join("references/types/muxy.d.ts").is_file());
         }
         for pointer in POINTERS {
             assert_eq!(fs::read_to_string(root.join(pointer))?, POINTER);

@@ -75,9 +75,24 @@ muxy extension logs my-extension --lines 50
 `reload` restarts only that extension. If its folder no longer loads, or its
 package name changed, you get the reason and the running copy stays as it was.
 
+Agents also check their work in the running app, the way you would use it:
+
+```bash
+muxy extension dev extensions/my-extension          # build and reload on every change
+page=$(muxy extension open my-extension panel:main)  # open a panel, tab, or modal
+muxy extension page click "$page" "#save"           # drive the page like a browser tab
+muxy extension page screenshot "$page" --out shot.png
+muxy extension emit my-extension file.changed '{"path":"README.md"}'
+```
+
+See [Developing and testing](../features/muxy-cli.md#developing-and-testing)
+for every command. TypeScript types for the `muxy` API ship with the skill, in
+`references/types/muxy.d.ts`.
+
 There is deliberately no command to uninstall a marketplace extension, or to
 change what an extension may do. [Runtime prompts](permissions.md#runtime-prompts)
-still ask you, whoever loaded the extension.
+still ask you, whoever loaded the extension. While one waits, the extension's
+log says so, so the agent can tell you what it is waiting for.
 
 ## Publish
 

@@ -258,6 +258,36 @@ pub(super) const COMMANDS: &[(&str, &str, &str)] = &[
         "Open a pull request to the extension store after approval in the desktop app.",
     ),
     (
+        "extension dev",
+        "<folder> [--once]",
+        "Load and enable an unpacked folder, then build and reload it whenever its files change. Prints ready or failed per round with the log lines it added. --once does one round and exits non-zero if it failed.",
+    ),
+    (
+        "extension pages",
+        "<name> [--json]",
+        "List the extension's open pages: page ID, kind, ID, panel instance, loaded or failed, visible, and title.",
+    ),
+    (
+        "extension open",
+        "<name> panel:<id>|tab:<type>|modal:<entry> [--data JSON]",
+        "Open one of the extension's panels, tabs or modal pages, wait for it to load, and print its page ID.",
+    ),
+    (
+        "extension run",
+        "<name> <command>",
+        "Run one of the extension's commands, as the command palette does.",
+    ),
+    (
+        "extension emit",
+        "<name> <event> [payload-json]",
+        "Send the extension an event it lists in its manifest, with a JSON object payload.",
+    ),
+    (
+        "extension page",
+        "<action> <page-id> [arguments]",
+        "Drive an extension page with the browser page actions: read, screenshot [--out FILE], eval, click, type, fill, press, select, hover, scroll-into-view, check, uncheck, is, wait, wait-for, get-text, get-html, get-value, get-attribute, get-count, find, snapshot, and storage get|set|clear. Arguments are as in muxy help browser <action>, with a page ID from muxy extension pages.",
+    ),
+    (
         "browser open",
         "[url] [--split] [--project PROJECT] [--worktree WORKTREE] [--profile PROFILE]",
         "Open a browser tab and print its ID. Starts the desktop app if needed.",
@@ -291,8 +321,8 @@ pub(super) const COMMANDS: &[(&str, &str, &str)] = &[
     ),
     (
         "browser screenshot",
-        "<tab-id>",
-        "Print a screenshot as a base64 PNG, ready to decode.",
+        "<tab-id> [--out FILE]",
+        "Print a screenshot as a base64 PNG, ready to decode, or save it to FILE and print its path.",
     ),
     (
         "browser eval",

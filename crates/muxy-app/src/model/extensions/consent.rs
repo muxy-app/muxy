@@ -154,6 +154,34 @@ fn block_label(gate: Gate) -> SharedString {
 }
 
 impl AppModel {
+    fn log_unanswered(&mut self, call: &Call, request: &Request) {
+        self.extension_log(
+            &call.owner,
+            format!(
+                "[muxy] {} denied: nobody answered the prompt within {} seconds",
+                request.gate.name(),
+                PROMPT_TIMEOUT.as_secs()
+            ),
+        );
+    }
+
+    /// How many of `owner`'s calls wait for the user to answer a prompt.
+    pub(super) fn waiting_prompts(&self, owner: &str) -> usize {
+        self.extensions
+            .waiting
+            .iter()
+            .filter(|waiting| {
+                matches!(waiting, Waiting::Consent { .. }) && waiting.owner() == owner
+            })
+            .count()
+            + usize::from(
+                self.extensions
+                    .sheet
+                    .as_ref()
+                    .is_some_and(|sheet| !sheet.dialog && sheet.owner == owner),
+            )
+    }
+
     /// The second question before an extension is always allowed.
     pub(crate) fn trust_question(owner: &str) -> (SharedString, SharedString) {
         (
@@ -263,6 +291,14 @@ impl AppModel {
                 }
                 self.extensions.next += 1;
                 let id = self.extensions.next;
+                self.extension_log(
+                    &call.owner,
+                    format!(
+                        "[muxy] {} is waiting for the user to allow it in Muxy: {}",
+                        request.gate.name(),
+                        clamp(&request.summary)
+                    ),
+                );
                 self.extensions
                     .waiting
                     .push_back(Waiting::Consent { id, call, request });
@@ -284,6 +320,7 @@ impl AppModel {
             position.and_then(|index| self.extensions.waiting.remove(index))
         {
             self.audit(&call, &request, "deny", None, Some("timeout"));
+            self.log_unanswered(&call, &request);
             call.reply.send(Err(denial(&call.verb, &request)), cx);
         } else if self
             .extensions
@@ -510,6 +547,7 @@ impl AppModel {
                                 }
                                 (true, false) => {
                                     model.audit(&call, &request, "deny", None, Some("timeout"));
+                                    model.log_unanswered(&call, &request);
                                 }
                                 (true, true) => model.audit(
                                     &call,

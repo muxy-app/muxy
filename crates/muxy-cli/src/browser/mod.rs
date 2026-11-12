@@ -1,7 +1,7 @@
 //! `muxy browser`: drives the built-in browser tabs of the desktop app on
 //! this computer. Each command is one request to the app over its socket.
 
-mod args;
+pub(crate) mod args;
 
 use std::error::Error;
 use std::io::{self, Write};
@@ -29,7 +29,7 @@ pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
         starts_app,
         invocation.extra_time,
     )?;
-    print(invocation.output, reply)
+    print(invocation.output, invocation.out.as_deref(), reply)
 }
 
 pub(crate) fn call_app(
@@ -86,7 +86,7 @@ fn reply_time() -> Result<Duration, Box<dyn Error>> {
         .ok_or_else(|| "MUXY_CLI_TIMEOUT must be a whole number of seconds".into())
 }
 
-fn print(output: Output, reply: Value) -> Result<(), Box<dyn Error>> {
+fn print(output: Output, out: Option<&Path>, reply: Value) -> Result<(), Box<dyn Error>> {
     let mut stdout = io::stdout().lock();
     match output {
         Output::Ok => writeln!(stdout, "ok")?,
@@ -134,7 +134,17 @@ fn print(output: Output, reply: Value) -> Result<(), Box<dyn Error>> {
             text(&reply["url"]),
             text(&reply["text"])
         )?,
-        Output::Screenshot => writeln!(stdout, "{}", reply["png"].as_str().ok_or(INVALID_REPLY)?)?,
+        Output::Screenshot => {
+            let png = reply["png"].as_str().ok_or(INVALID_REPLY)?;
+            match out {
+                Some(file) => {
+                    let bytes = muxy_core::base64::decode(png).ok_or(INVALID_REPLY)?;
+                    std::fs::write(file, bytes)?;
+                    writeln!(stdout, "{}", file.display())?;
+                }
+                None => writeln!(stdout, "{png}")?,
+            }
+        }
     }
     Ok(())
 }

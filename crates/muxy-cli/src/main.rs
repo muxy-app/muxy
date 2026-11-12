@@ -57,6 +57,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::Status(report) => status::run(&report)?,
         Command::Browser(invocation) => browser::run(*invocation)?,
         Command::Extension(invocation) => extension::run(*invocation)?,
+        Command::ExtensionDev(dev) => extension::dev::run(&dev)?,
         Command::Config(invocation) => config::run(invocation)?,
         Command::InstallSkills(directories) => {
             let home = std::env::home_dir();
