@@ -11,6 +11,7 @@ use gpui::{
 };
 use muxy_app_core::{FloatScope, Tab, TabWindowId};
 use muxy_core::shortcuts::ShortcutId;
+use muxy_ui::components::ButtonInteraction;
 use muxy_ui::floating::FloatingCard;
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
@@ -280,8 +281,9 @@ fn minimized_pill(
             .text_size(m.font_body())
             .cursor_pointer()
             .hover(move |style| style.bg(hover))
+            .focus(|style| style.border_color(theme.accent))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(cx.listener(move |model, _, _, cx| {
+            .button_interaction(cx.listener(move |model, _, _, cx| {
                 cx.stop_propagation();
                 model.reveal_float(id, cx);
             }))

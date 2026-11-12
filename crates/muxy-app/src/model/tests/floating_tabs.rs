@@ -754,3 +754,40 @@ fn a_working_agent_keeps_its_icon_in_the_minimized_pill(cx: &mut TestAppContext)
     assert!(pill.contains(&icon.center()));
     assert!(icon.size.width > px(0.0) && icon.size.height > px(0.0));
 }
+
+#[gpui::test]
+fn minimized_panes_keep_keyboard_focus_across_redraws_and_restore_with_enter_or_space(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx, _, _, _, pane) = floated(cx);
+    let id = view.update(cx, |model, cx| {
+        crate::views::workspace::bind_keys(&model.settings.keymap, cx);
+        float_of(model, pane)
+    });
+    for key in ["enter", "space"] {
+        view.update(cx, |model, cx| model.minimize_float(id, cx));
+        redraw(cx);
+        let focus = cx.update(|window, cx| {
+            window.blur();
+            window.focus_prev();
+            window.focused(cx).expect("minimized pane is a tab stop")
+        });
+        redraw(cx);
+        cx.update(|window, _| assert!(focus.is_focused(window)));
+        cx.simulate_keystrokes(key);
+        redraw(cx);
+        view.read_with(cx, |model, cx| {
+            assert!(
+                model.minimized_floats().is_empty(),
+                "{key} restores the pane"
+            );
+            assert_eq!(model.key_float(), Some(id));
+            assert_eq!(model.active_pane(), Some(pane));
+            assert!(
+                model
+                    .terminal(&pane)
+                    .is_some_and(|t| t.view.read(cx).focused)
+            );
+        });
+    }
+}
