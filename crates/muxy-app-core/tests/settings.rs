@@ -315,7 +315,7 @@ fn defaults_for_new_commands_yield_to_keys_already_bound() -> Result {
         let chord: KeyChord = key.parse()?;
         assert_eq!(Keymap::default().chord(command), Some(&chord));
         for existing in [ShortcutId::NewTab.name(), custom] {
-            let source = format!("[keymap]\n\"{existing}\" = '{key}'\n");
+            let source = format!("[keymap]\n\"{existing}\" = '{chord}'\n");
             let path = fixture.write("settings.toml", &source)?;
             let settings = Settings::load(&path)?;
             assert_eq!(settings.keymap.binding(existing), Some(&chord));

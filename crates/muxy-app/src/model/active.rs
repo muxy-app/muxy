@@ -167,6 +167,11 @@ impl AppModel {
         self.open_new_workspace_editor(None, position, window, cx);
     }
 
+    pub(crate) fn can_resize_active_pane(&self, direction: Direction) -> bool {
+        self.active_pane()
+            .is_some_and(|pane| self.state.can_resize_pane(pane, direction, RESIZE_STEP))
+    }
+
     pub(crate) fn resize_active_pane(&mut self, direction: Direction, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle {
             return;

@@ -442,10 +442,6 @@ impl Render for QuickTerminalView {
                         )
                         .named(tr!("Close Quick Terminal"))
                         .tooltip(&theme)
-                        .shortcut(muxy_ui::shortcuts::key_for(
-                            &crate::views::workspace::ClosePane,
-                            cx,
-                        ))
                         .on_click(move |_, _, cx| {
                             dispatch_bridge_action(&owner_close, BridgeAction::Close, cx);
                         }),

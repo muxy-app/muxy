@@ -1,7 +1,7 @@
 //! Whether each command can run now. The palette lists a command that
 //! can't as disabled.
 
-use muxy_app_core::{ProjectStatus, TabCloseScope};
+use muxy_app_core::{Direction, ProjectStatus, TabCloseScope};
 
 use crate::model::AppModel;
 
@@ -190,4 +190,20 @@ pub(super) fn can_toggle_worktrees(model: &AppModel) -> bool {
 
 pub(super) fn can_open_project_in_app(model: &AppModel) -> bool {
     model.project_apps_directory().is_some() && model.default_project_app().is_some()
+}
+
+pub(super) fn can_resize_left(model: &AppModel) -> bool {
+    project_present(model) && model.can_resize_active_pane(Direction::Left)
+}
+
+pub(super) fn can_resize_right(model: &AppModel) -> bool {
+    project_present(model) && model.can_resize_active_pane(Direction::Right)
+}
+
+pub(super) fn can_resize_up(model: &AppModel) -> bool {
+    project_present(model) && model.can_resize_active_pane(Direction::Up)
+}
+
+pub(super) fn can_resize_down(model: &AppModel) -> bool {
+    project_present(model) && model.can_resize_active_pane(Direction::Down)
 }

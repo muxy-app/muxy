@@ -79,14 +79,24 @@ fn resizing_a_pane_moves_its_nearest_divider_on_that_axis() -> Result {
     assert!(state.resize_pane(left, Direction::Left, 5.0)?);
     assert!(near(share(&state, left, 2), 0.15));
     let narrowest = state.clone();
+    assert!(!state.can_resize_pane(left, Direction::Left, 0.05));
+    assert!(state.can_resize_pane(left, Direction::Right, 0.05));
+    assert!(!state.can_resize_pane(left, Direction::Up, 0.05));
     assert!(!state.resize_pane(left, Direction::Left, 0.05)?);
     assert_eq!(state, narrowest);
     state.home().tabs[0].layout.validate()?;
     let restored: AppState = serde_json::from_value(serde_json::to_value(&state)?)?;
     assert_eq!(restored, state);
 
+    let inner = state.split_pane(left, Direction::Right)?;
+    assert!(state.resize_pane(inner, Direction::Left, 5.0)?);
+    let limited = state.clone();
+    assert!(!state.resize_pane(inner, Direction::Left, 0.05)?);
+    assert_eq!(state, limited, "the outer divider stays where it is");
+
     state.toggle_zoom(left)?;
     let zoomed = state.clone();
+    assert!(!state.can_resize_pane(left, Direction::Right, 0.05));
     assert!(!state.resize_pane(left, Direction::Right, 0.05)?);
     assert_eq!(state, zoomed);
     assert!(

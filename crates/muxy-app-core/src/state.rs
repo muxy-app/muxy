@@ -917,6 +917,17 @@ impl AppState {
         Ok(tab.zoomed.is_none() && tab.layout.resize(pane, direction, step))
     }
 
+    /// Whether `resize_pane` would move a divider for `pane`.
+    pub fn can_resize_pane(&self, pane: PaneId, direction: Direction, step: f32) -> bool {
+        self.projects
+            .iter()
+            .flat_map(|project| &project.tabs)
+            .find(|tab| tab.layout.contains(pane))
+            .is_some_and(|tab| {
+                tab.zoomed.is_none() && tab.layout.clone().resize(pane, direction, step)
+            })
+    }
+
     pub fn equalize_splits(&mut self, pane: PaneId) -> Result<(), AppError> {
         let tab = self.pane_tab_mut(pane)?;
         tab.layout = tab

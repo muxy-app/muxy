@@ -173,6 +173,13 @@ impl<L: Copy + Eq> Layout<L> {
     /// `direction` by `step` of its split. Returns whether it moved: `pane`
     /// may have no such divider, or the divider may be as far as it goes.
     pub fn resize(&mut self, pane: L, direction: Direction, step: f32) -> bool {
+        self.resize_nearest(pane, direction, step) == Some(true)
+    }
+
+    /// `None` when no divider on `direction`'s axis bounds `pane` here;
+    /// otherwise whether the nearest one moved. One at its limit stays the
+    /// nearest, so the dividers around it are left alone.
+    fn resize_nearest(&mut self, pane: L, direction: Direction, step: f32) -> Option<bool> {
         let Self::Split {
             axis,
             ratio,
@@ -180,14 +187,17 @@ impl<L: Copy + Eq> Layout<L> {
             second,
         } = self
         else {
-            return false;
+            return None;
         };
         let inner = if first.contains(pane) { first } else { second };
-        if inner.resize(pane, direction, step) {
-            return true;
+        if let Some(moved) = inner.resize_nearest(pane, direction, step) {
+            return Some(moved);
         }
-        if *axis != direction.axis() || !step.is_finite() || !inner.contains(pane) {
-            return false;
+        if *axis != direction.axis() || !inner.contains(pane) {
+            return None;
+        }
+        if !step.is_finite() {
+            return Some(false);
         }
         let delta = match direction {
             Direction::Left | Direction::Up => -step,
@@ -196,7 +206,7 @@ impl<L: Copy + Eq> Layout<L> {
         let resized = (*ratio + delta).clamp(MIN_RATIO, MAX_RATIO);
         let moved = (resized - *ratio).abs() > f32::EPSILON;
         *ratio = resized;
-        moved
+        Some(moved)
     }
 
     pub fn validate(&self) -> Result<(), AppError> {

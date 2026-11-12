@@ -33,7 +33,7 @@ use super::{
 };
 use crate::model::AppModel;
 use crate::model::browsers::BrowserAction;
-use crate::views::command_palette::{Handler, chord_label, with_shortcut};
+use crate::views::command_palette::{Handler, chord_label};
 use crate::views::menu::application_handles;
 
 mod available;
@@ -44,11 +44,11 @@ use available::{
     browser_enabled, can_add_worktree, can_close_other_tabs, can_close_tabs_to_the_left,
     can_close_tabs_to_the_right, can_float_pane, can_go_back, can_go_forward, can_move_tab_left,
     can_move_tab_right, can_open_browser, can_open_project_in_app, can_remove_project,
-    can_rename_project, can_reveal_project, can_switch_worktree, can_toggle_worktrees,
-    float_in_all_projects, float_in_project, has_browser, has_detached_tab, has_floats,
-    has_listed_tab, has_other_project, has_other_tab, has_pane, has_split, has_tab, has_terminal,
-    has_titled_tab, has_workspaces, in_float, pane_can_leave_window, project_available,
-    project_present, tips_shown,
+    can_rename_project, can_resize_down, can_resize_left, can_resize_right, can_resize_up,
+    can_reveal_project, can_switch_worktree, can_toggle_worktrees, float_in_all_projects,
+    float_in_project, has_browser, has_detached_tab, has_floats, has_listed_tab, has_other_project,
+    has_other_tab, has_pane, has_split, has_tab, has_terminal, has_titled_tab, has_workspaces,
+    in_float, pane_can_leave_window, project_available, project_present, tips_shown,
 };
 
 /// The palette lists the project, workspace, and server switchers under
@@ -203,25 +203,41 @@ impl CommandDef {
         let command = Command::new(self.palette_id, self.title(), handler)
             .keywords(self.search_words())
             .disabled(self.available.is_some_and(|available| !available(model)));
-        let bound = self
-            .shortcut
-            .is_some_and(|id| model.settings.keymap.chord(id).is_some());
-        match (self.shortcut, self.terminal_shortcut(model, cx)) {
-            (Some(id), _) if bound => with_shortcut(model, id, command),
-            (_, Some(shortcut)) => command.shortcut(shortcut),
-            _ => command,
+        match self.shortcut_label(model, cx) {
+            Some(shortcut) => command.shortcut(shortcut),
+            None => command,
         }
     }
 
-    /// The key the active terminal binds to this command's terminal action.
-    fn terminal_shortcut(&self, model: &AppModel, cx: &App) -> Option<String> {
-        let action = self.terminal?();
-        let pane = model.active_pane().and_then(|pane| model.terminal(&pane))?;
-        let bindings = &pane.view.read(cx).terminal.keybindings;
-        bindings
-            .chords_for_action(&action)
-            .find(|chord| bindings.bindings.contains_key(chord) || !application_handles(chord, cx))
-            .map(chord_label)
+    /// The key that runs the command from where the keyboard is. A key the
+    /// focused terminal binds to something else never reaches the command,
+    /// so the terminal's own key for the same action shows instead.
+    fn shortcut_label(&self, model: &AppModel, cx: &App) -> Option<String> {
+        let action = self.terminal.map(|action| action());
+        let bindings = model
+            .active_pane()
+            .and_then(|pane| model.terminal(&pane))
+            .map(|pane| &pane.view.read(cx).terminal.keybindings);
+        let chord = self
+            .shortcut
+            .and_then(|id| model.settings.keymap.chord(id))
+            .filter(|chord| {
+                bindings.is_none_or(|bindings| {
+                    bindings
+                        .bindings
+                        .get(chord)
+                        .is_none_or(|bound| action.as_ref() == Some(bound))
+                })
+            });
+        chord.map(chord_label).or_else(|| {
+            let bindings = bindings?;
+            bindings
+                .chords_for_action(action.as_ref()?)
+                .find(|chord| {
+                    bindings.bindings.contains_key(chord) || !application_handles(chord, cx)
+                })
+                .map(chord_label)
+        })
     }
 
     fn listed(&self, model: &AppModel) -> bool {
@@ -824,28 +840,28 @@ static COMMANDS: &[CommandDef] = &[
         Label::Key(tr_key!("Resize Pane Left")),
     )
     .keywords("Resize Pane Left Split Divider")
-    .available(has_split)
+    .available(can_resize_left)
     .run(|model, _, cx| model.resize_active_pane(Direction::Left, cx)),
     row::<ResizePaneRight>(
         ShortcutId::ResizePaneRight,
         Label::Key(tr_key!("Resize Pane Right")),
     )
     .keywords("Resize Pane Right Split Divider")
-    .available(has_split)
+    .available(can_resize_right)
     .run(|model, _, cx| model.resize_active_pane(Direction::Right, cx)),
     row::<ResizePaneUp>(
         ShortcutId::ResizePaneUp,
         Label::Key(tr_key!("Resize Pane Up")),
     )
     .keywords("Resize Pane Up Split Divider")
-    .available(has_split)
+    .available(can_resize_up)
     .run(|model, _, cx| model.resize_active_pane(Direction::Up, cx)),
     row::<ResizePaneDown>(
         ShortcutId::ResizePaneDown,
         Label::Key(tr_key!("Resize Pane Down")),
     )
     .keywords("Resize Pane Down Split Divider")
-    .available(has_split)
+    .available(can_resize_down)
     .run(|model, _, cx| model.resize_active_pane(Direction::Down, cx)),
     row::<FocusNextPane>(
         ShortcutId::FocusNextPane,

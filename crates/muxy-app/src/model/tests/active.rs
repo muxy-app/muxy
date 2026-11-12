@@ -134,7 +134,20 @@ fn resizing_and_cycling_panes_from_the_keyboard(cx: &mut TestAppContext) {
         });
     }
 
-    view.update(cx, AppModel::toggle_zoom_pane);
+    let resize = [
+        ShortcutId::ResizePaneLeft,
+        ShortcutId::ResizePaneRight,
+        ShortcutId::ResizePaneUp,
+        ShortcutId::ResizePaneDown,
+    ];
+    view.update(cx, |model, cx| {
+        assert_eq!(
+            disabled(model, &resize, cx),
+            [Some(false), Some(false), Some(true), Some(true)]
+        );
+        model.toggle_zoom_pane(cx);
+        assert_eq!(disabled(model, &resize, cx), [Some(true); 4]);
+    });
     cx.dispatch_action(ResizePaneLeft);
     cx.run_until_parked();
     view.read_with(cx, |model, _| {
