@@ -294,9 +294,8 @@ impl AppModel {
                 self.extension_log(
                     &call.owner,
                     format!(
-                        "[muxy] {} is waiting for the user to allow it in Muxy: {}",
-                        request.gate.name(),
-                        clamp(&request.summary)
+                        "[muxy] {} is waiting for the user to allow it in Muxy",
+                        request.gate.name()
                     ),
                 );
                 self.extensions

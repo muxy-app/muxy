@@ -54,10 +54,13 @@ pub(crate) fn run(dev: &Dev) -> Result<(), Box<dyn Error>> {
     let folder = fs::canonicalize(&dev.folder)
         .map_err(|error| format!("can't open {}: {error}", dev.folder.display()))?;
     let package = Package::read(&folder)?;
-    let name = prepare(&folder, &package.name)?;
     let mut round = 1;
     let mut stdout = io::stdout();
-    let ready = build_and_reload(&folder, &package, &name, round, &mut stdout)?;
+    if !build_step(&folder, &package, &package.name, round, &mut stdout)? {
+        return Err(format!("{} didn't build; fix it and run dev again", package.name).into());
+    }
+    let name = prepare(&folder, &package.name)?;
+    let ready = reload_step(&name, round, &mut stdout)?;
     if dev.once {
         return if ready {
             Ok(())
@@ -186,6 +189,17 @@ fn build_and_reload(
     round: u32,
     out: &mut impl Write,
 ) -> Result<bool, Box<dyn Error>> {
+    Ok(build_step(folder, package, name, round, out)? && reload_step(name, round, out)?)
+}
+
+/// Runs the build script, if there is one. Whether it passed.
+fn build_step(
+    folder: &Path,
+    package: &Package,
+    name: &str,
+    round: u32,
+    out: &mut impl Write,
+) -> Result<bool, Box<dyn Error>> {
     if let Some(runner) = &package.build {
         writeln!(out, "building {name} with {runner} run build")?;
         out.flush()?;
@@ -197,6 +211,12 @@ fn build_and_reload(
             return Ok(false);
         }
     }
+    Ok(true)
+}
+
+/// Reloads the extension and reports how it came up. Whether it loaded
+/// without errors.
+fn reload_step(name: &str, round: u32, out: &mut impl Write) -> Result<bool, Box<dyn Error>> {
     let before = log_lines(name);
     if let Err(error) = call("extension.reload", named(name), CHANGE_TIME) {
         writeln!(out, "failed {name} (round {round}): {error}")?;
@@ -269,18 +289,12 @@ fn log_lines(name: &str) -> Vec<String> {
 }
 
 /// The lines at the end of `after` that `before` didn't end with. The log
-/// keeps only its last lines, so `after` may have lost some of `before`.
+/// keeps only its last lines, so with no overlap every line counts as new.
 fn new_lines<'a>(before: &[String], after: &'a [String]) -> &'a [String] {
     let overlap = (0..=before.len().min(after.len()))
         .rev()
         .find(|length| before[before.len() - length..] == after[..*length])
         .unwrap_or(0);
-    if overlap == 0
-        && !before.is_empty()
-        && let Some(position) = after.iter().rposition(|line| Some(line) == before.last())
-    {
-        return &after[position + 1..];
-    }
     &after[overlap..]
 }
 
@@ -296,12 +310,13 @@ fn fingerprint(folder: &Path, builds: bool) -> Vec<(PathBuf, u64, SystemTime)> {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with('.') || SKIPPED.contains(&name.as_ref()) {
-                continue;
-            }
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
+            let hidden = name.starts_with('.') && (kind.is_dir() || name == ".DS_Store");
+            if hidden || SKIPPED.contains(&name.as_ref()) {
+                continue;
+            }
             if kind.is_dir() {
                 if !(builds && current == folder && name == "dist") {
                     folders.push(entry.path());
@@ -374,6 +389,10 @@ mod tests {
         }
         assert_eq!(fingerprint(folder.path(), true), before);
         assert_ne!(fingerprint(folder.path(), false), before);
+        fs::write(folder.path().join(".DS_Store"), "d")?;
+        assert_eq!(fingerprint(folder.path(), true), before);
+        fs::write(folder.path().join(".env"), "KEY=1")?;
+        assert_ne!(fingerprint(folder.path(), true), before);
         fs::create_dir(folder.path().join("src"))?;
         fs::write(folder.path().join("src/main.ts"), "c")?;
         assert_ne!(fingerprint(folder.path(), true), before);

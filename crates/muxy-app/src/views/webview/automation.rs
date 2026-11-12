@@ -26,7 +26,7 @@ pub(crate) struct Picture {
 pub(crate) struct Automation {
     next: u64,
     scripts: HashMap<String, Sender<Outcome>>,
-    captures: Vec<Sender<Result<Picture, String>>>,
+    captures: Vec<(u64, Sender<Result<Picture, String>>)>,
 }
 
 impl Automation {
@@ -66,10 +66,17 @@ impl Automation {
         true
     }
 
-    pub(crate) fn capture(&mut self) -> Receiver<Result<Picture, String>> {
+    /// Waits for the next snapshot. The number forgets the wait.
+    pub(crate) fn capture(&mut self) -> (u64, Receiver<Result<Picture, String>>) {
+        self.next += 1;
         let (sender, receiver) = async_channel::bounded(1);
-        self.captures.push(sender);
-        receiver
+        self.captures.push((self.next, sender));
+        (self.next, receiver)
+    }
+
+    /// Stops waiting for a snapshot that didn't come in time.
+    pub(crate) fn forget_capture(&mut self, id: u64) {
+        self.captures.retain(|(capture, _)| *capture != id);
     }
 
     pub(crate) fn wants_capture(&self) -> bool {
@@ -77,7 +84,7 @@ impl Automation {
     }
 
     pub(crate) fn deliver(&mut self, snapshot: &Snapshot) {
-        for waiting in self.captures.drain(..) {
+        for (_, waiting) in self.captures.drain(..) {
             let _ = waiting.try_send(Ok(Picture {
                 width: snapshot.width,
                 height: snapshot.height,
@@ -87,7 +94,7 @@ impl Automation {
     }
 
     pub(crate) fn fail_captures(&mut self, error: &str) {
-        for waiting in self.captures.drain(..) {
+        for (_, waiting) in self.captures.drain(..) {
             let _ = waiting.try_send(Err(error.to_owned()));
         }
     }
@@ -188,7 +195,11 @@ mod tests {
     #[test]
     fn captures_wait_for_the_next_snapshot() {
         let mut automation = Automation::default();
-        let picture = automation.capture();
+        let (forgotten, unwanted) = automation.capture();
+        automation.forget_capture(forgotten);
+        assert!(unwanted.is_closed(), "a forgotten capture stops waiting");
+        assert!(!automation.wants_capture());
+        let (_, picture) = automation.capture();
         assert!(automation.wants_capture());
         automation.deliver(&Snapshot {
             width: 1,

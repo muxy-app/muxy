@@ -78,15 +78,17 @@ package name changed, you get the reason and the running copy stays as it was.
 Agents also check their work in the running app, the way you would use it:
 
 ```bash
-muxy extension dev extensions/my-extension          # build and reload on every change
+muxy extension dev extensions/my-extension --once   # build, load, and reload once
 page=$(muxy extension open my-extension panel:main)  # open a panel, tab, or modal
 muxy extension page click "$page" "#save"           # drive the page like a browser tab
 muxy extension page screenshot "$page" --out shot.png
 muxy extension emit my-extension file.changed '{"path":"README.md"}'
 ```
 
-See [Developing and testing](../features/muxy-cli.md#developing-and-testing)
-for every command. TypeScript types for the `muxy` API ship with the skill, in
+Without `--once`, `dev` keeps watching and rebuilds after every change, so
+agents run it in a terminal of its own. See
+[Developing and testing](../features/muxy-cli.md#developing-and-testing) for
+every command. TypeScript types for the `muxy` API ship with the skill, in
 `references/types/muxy.d.ts`.
 
 There is deliberately no command to uninstall a marketplace extension, or to

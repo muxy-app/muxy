@@ -607,11 +607,22 @@ declare namespace Muxy {
           : T[K];
   };
 
+  /** `exec` with both of its forms, answering directly. */
+  interface SyncExec {
+    exec(argv: string[], options?: ExecOptions): ExecResult;
+    exec(options: ExecOptions & ({ shell: string } | { argv: string[] })): ExecResult;
+  }
+
   /** `muxy` in a `runScript` command. */
-  type ScriptAPI = Sync<SharedAPI & WorkspaceAPI>;
+  type ScriptAPI = Omit<Sync<SharedAPI & WorkspaceAPI>, "exec" | "execAsync"> &
+    SyncExec & {
+      execAsync(argv: string[], options?: ExecOptions): ExecJob;
+      execAsync(options: ExecOptions & ({ shell: string } | { argv: string[] })): ExecJob;
+    };
 
   /** `muxy` in the background script. */
-  type BackgroundAPI = Sync<SharedAPI> & {
+  type BackgroundAPI = Omit<Sync<SharedAPI>, "exec" | "modal"> &
+    SyncExec & {
     events: {
       subscribe(name: EventName, handler: (payload: Record<string, JSONValue>) => void): Unsubscribe;
       unsubscribe(name: EventName, handler: (payload: Record<string, JSONValue>) => void): void;
@@ -622,7 +633,7 @@ declare namespace Muxy {
       handle(action: string, handler: (...args: JSONValue[]) => unknown): void;
       unhandle(action: string): void;
     };
-    modal: Sync<SharedAPI["modal"]> & {
+    modal: Omit<Sync<SharedAPI["modal"]>, "open" | "openWebview"> & {
       /** In background scripts, returns right away with the request ID. */
       open(options: ModalOptions): string | null;
       openWebview(options: ModalWebviewOptions): Promise<JSONValue | null>;

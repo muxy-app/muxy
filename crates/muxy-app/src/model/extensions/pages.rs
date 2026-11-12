@@ -9,7 +9,7 @@ use gpui::{Context, Entity, Task, WeakEntity, Window};
 use muxy_app_core::browser::automation::{
     self, Args, DEFAULT_WAIT, MAX_WAIT, POLL_INTERVAL, string,
 };
-use muxy_app_core::extensions::Extension;
+use muxy_app_core::extensions::{Action, Extension};
 use muxy_app_core::webview::WebviewDescriptor;
 use muxy_ui::javascript::is_async_function_body;
 use serde_json::{Value, json};
@@ -104,12 +104,30 @@ impl AppModel {
                 let name = string(args, "name")?;
                 let command = string(args, "command")?;
                 let extension = self.enabled_extension(name)?;
-                if extension.manifest.command(command).is_none()
-                    && !self.runtime_command_event(name, &format!("command.{command}"))
-                {
-                    return Err(format!(
-                        "{name} has no command '{command}'; its commands are listed in its package.json"
-                    ));
+                match extension.manifest.command(command) {
+                    Some(declared) => {
+                        if matches!(declared.action, Action::OpenPopover { .. }) {
+                            return Err(format!(
+                                "'{command}' opens a popover, which needs its bar item to open from; click the item in Muxy instead"
+                            ));
+                        }
+                        if let Some(reason) = self.extension_action_reason(&declared.action) {
+                            return Err(reason.into_owned());
+                        }
+                        if let Some(permission) = declared.action.permission()
+                            && !extension.allows(permission)
+                        {
+                            return Err(format!(
+                                "{name} needs the {permission} permission to run '{command}'"
+                            ));
+                        }
+                    }
+                    None if self.runtime_command_event(name, &format!("command.{command}")) => {}
+                    None => {
+                        return Err(format!(
+                            "{name} has no command '{command}'; its commands are listed in its package.json"
+                        ));
+                    }
                 }
                 self.run_extension_command(name, command, window, cx);
                 done(Value::Null)
@@ -209,13 +227,13 @@ impl AppModel {
                 (SurfaceKind::Tab, Some(pane.to_string()))
             }
             "modal" => {
-                self.open_extension_modal(
+                let (modal, _) = self.open_extension_modal(
                     &extension,
                     &json!({ "entry": id, "data": data }),
                     window,
                     cx,
                 )?;
-                (SurfaceKind::Modal, None)
+                (SurfaceKind::Modal, Some(modal))
             }
             other => {
                 return Err(format!(
@@ -370,11 +388,17 @@ fn wait_until(
 }
 
 fn screenshot(view: &Entity<Webview>, cx: &mut Context<AppModel>) -> Reply {
-    let picture = view.update(cx, |view, cx| {
+    let (capture, picture) = view.update(cx, |view, cx| {
         let picture = view.capture();
         cx.notify();
         picture
     });
+    let page = view.downgrade();
+    cx.spawn(async move |_, cx| {
+        cx.background_executor().timer(CAPTURE_WAIT).await;
+        let _ = page.update(cx, |page, _| page.forget_capture(capture));
+    })
+    .detach();
     let picture = within(
         picture,
         CAPTURE_WAIT,

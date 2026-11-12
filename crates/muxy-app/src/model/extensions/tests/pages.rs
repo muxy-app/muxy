@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use gpui::{Entity, TestAppContext, VisualTestContext};
 use muxy_app_core::AppState;
+use muxy_core::capability::{Capability, Feature};
 use serde_json::{Map, Value, json};
 
 use crate::model::AppModel;
@@ -82,6 +83,23 @@ fn commands_run_its_commands_and_send_it_only_the_events_it_lists(cx: &mut TestA
     );
     assert!(off.unwrap_err().contains("turned off"));
     call(&model, cx, "extension.enable", json!({"name": "hello"})).unwrap();
+    model.update(cx, |model, _| {
+        for feature in [Feature::ExtensionScripts, Feature::ExtensionWebviews] {
+            model.capabilities.set(feature, Capability::Unsupported);
+        }
+    });
+    let unsupported = call(
+        &model,
+        cx,
+        "extension.run",
+        json!({"name": "hello", "command": "ping"}),
+    );
+    assert!(unsupported.is_err(), "a command that can't run says so");
+    model.update(cx, |model, _| {
+        model
+            .capabilities
+            .set(Feature::ExtensionScripts, Capability::Supported);
+    });
     sent_events(&model, cx);
 
     call(

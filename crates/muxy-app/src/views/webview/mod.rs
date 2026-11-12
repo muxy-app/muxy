@@ -358,11 +358,14 @@ impl Webview {
         self.automation.forget(token);
     }
 
-    /// A picture of the page as it is now.
+    /// A picture of the page as it is now, and the number that forgets it.
     pub(crate) fn capture(
         &mut self,
-    ) -> async_channel::Receiver<Result<automation::Picture, String>> {
-        let picture = self.automation.capture();
+    ) -> (
+        u64,
+        async_channel::Receiver<Result<automation::Picture, String>>,
+    ) {
+        let (id, picture) = self.automation.capture();
         match &self.error {
             Some(error) => {
                 let error = error.clone();
@@ -370,7 +373,11 @@ impl Webview {
             }
             None => self.native.snapshot(),
         }
-        picture
+        (id, picture)
+    }
+
+    pub(crate) fn forget_capture(&mut self, id: u64) {
+        self.automation.forget_capture(id);
     }
 
     pub(crate) fn loaded(&self) -> bool {
