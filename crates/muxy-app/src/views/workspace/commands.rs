@@ -719,30 +719,30 @@ const RESERVED: [ShortcutId; 9] = [
     ShortcutId::Zoom,
 ];
 
-fn extension_rows(model: &AppModel) -> impl Iterator<Item = (ShortcutId, &'static CommandDef)> {
-    COMMANDS.iter().filter_map(|row| {
-        let id = row.shortcut?;
-        (row.run.is_some()
+fn extension_rows(model: &AppModel) -> impl Iterator<Item = &'static CommandDef> {
+    COMMANDS.iter().filter(|row| {
+        row.run.is_some()
             && row.palette != Palette::Hidden
-            && !RESERVED.contains(&id)
+            && row.shortcut.is_none_or(|id| !RESERVED.contains(&id))
             && row
                 .feature
-                .is_none_or(|feature| model.capabilities.has_backend(feature)))
-        .then_some((id, row))
+                .is_none_or(|feature| model.capabilities.has_backend(feature))
     })
 }
 
 /// The built-in commands extensions can run, as `commands.list` reports them.
 pub(crate) fn extension_commands(model: &AppModel) -> Vec<serde_json::Value> {
     extension_rows(model)
-        .map(|(id, row)| {
-            let title = row.title();
+        .map(|row| {
             serde_json::json!({
                 "id": row.palette_id,
                 "kind": "app",
-                "title": title.to_string(),
+                "title": row.title().to_string(),
                 "enabled": row.available.is_none_or(|available| available(model)),
-                "shortcut": model.settings.keymap.chord(id).map(ToString::to_string),
+                "shortcut": row
+                    .shortcut
+                    .and_then(|id| model.settings.keymap.chord(id))
+                    .map(ToString::to_string),
             })
         })
         .collect()
@@ -756,7 +756,7 @@ pub(crate) fn run_extension_command(
     window: &mut Window,
     cx: &mut Context<AppModel>,
 ) -> Option<Result<(), String>> {
-    let (_, row) = extension_rows(model).find(|(_, row)| row.palette_id == id)?;
+    let row = extension_rows(model).find(|row| row.palette_id == id)?;
     if row.available.is_some_and(|available| !available(model)) {
         return Some(Err(format!("command {id} is not available now")));
     }

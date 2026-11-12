@@ -218,19 +218,23 @@ impl AppModel {
         }
         let id = call.args["id"].as_str().unwrap_or("");
         if let Some(custom) = id.strip_prefix("command.") {
-            if !self
+            let command = self
                 .settings
                 .commands
                 .iter()
-                .any(|command| command.id == custom)
-            {
-                return Err(format!("command not found {id}"));
+                .find(|command| command.id == custom)
+                .cloned()
+                .ok_or_else(|| format!("command not found {id}"))?;
+            if call.args["command"].as_str() != Some(command.command.as_str()) {
+                return Err(format!("command {id} changed; run it again"));
             }
             if !self.can_run_custom_command() || self.overlay.is_some() {
                 return Err(format!("command {id} is not available now"));
             }
-            self.run_custom_command(custom, cx);
-            return Ok(Value::Null);
+            return self
+                .launch_custom_command(&command, cx)?
+                .map(|tab| json!(tab.to_string()))
+                .ok_or_else(|| "could not save tabs".into());
         }
         commands::run_extension_command(self, id, window, cx)
             .unwrap_or_else(|| Err(format!("command not found {id}")))

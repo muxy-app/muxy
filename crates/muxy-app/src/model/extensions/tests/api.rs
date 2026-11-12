@@ -444,6 +444,10 @@ fn extensions_list_and_run_built_in_commands_but_never_quit(cx: &mut TestAppCont
         .filter_map(|command| command["id"].as_str())
         .collect();
     assert!(ids.contains(&"new_tab"), "{ids:?}");
+    assert!(
+        ids.contains(&"show_welcome_tour"),
+        "commands without a shortcut are listed"
+    );
     for reserved in [
         "quit",
         "end_all_sessions_and_quit",
@@ -514,6 +518,12 @@ fn running_a_custom_command_asks_first(cx: &mut TestAppContext) {
                 .map(|request| request.is_some()),
             Err("command not found command.missing".into())
         );
+        call.args = json!({"id": "command.deploy", "command": "rm -rf /"});
+        let bound = model.bind_custom_command(call.clone());
+        assert_eq!(
+            bound.args["command"], "make deploy",
+            "the call's own text is replaced"
+        );
         call.args = json!({"id": "new_tab"});
         assert!(matches!(model.consent_request(&call), Ok(None)));
         call.verb = "composer.submit".into();
@@ -524,6 +534,15 @@ fn running_a_custom_command_asks_first(cx: &mut TestAppContext) {
             Err("the composer is closed".into())
         );
     });
+    assert_eq!(
+        call(
+            &view,
+            cx,
+            "commands.run",
+            json!({"id": "command.deploy", "command": "make deploy-old"})
+        ),
+        Err("command command.deploy changed; run it again".into())
+    );
 }
 
 #[gpui::test]

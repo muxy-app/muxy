@@ -93,7 +93,7 @@ commands from **Settings → Commands**:
 `[{ id, kind, title, enabled, shortcut }]`, where `kind` is `app` or `custom`.
 `commands.run(id)` runs one as the command palette would, and fails while it
 isn't available. A custom command asks the user first, like opening a terminal
-that runs a command. Quitting, hiding or resizing the app's windows, and
+that runs a command, and resolves to its new tab's ID. Quitting, hiding or resizing the app's windows, and
 installing the command line tool are not offered.
 
 ```js
@@ -107,7 +107,7 @@ await muxy.commands.run("split_right");
 | `composer.open()`, `close()` | |
 | `composer.getDraft()` | The draft's text |
 | `composer.setDraft(text)` | Opens the composer and replaces its text |
-| `composer.submit()`, `insert()` | Sends the draft as **Send** does, or without pressing Return as **Insert** does. Asks first, like typing into a terminal |
+| `composer.submit()`, `insert()` | Sends the draft as **Send** does, or without pressing Return as **Insert** does. Asks first, like typing into a terminal, and fails without a live terminal |
 
 ## Project layouts
 

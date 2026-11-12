@@ -254,9 +254,9 @@ impl AppModel {
         if to >= project.tabs.len() {
             return Err(format!("index {to} is out of range"));
         }
-        self.state
-            .move_tab(source, from, to)
-            .map_err(|error| error.to_string())?;
+        self.transact(|state| state.move_tab(source, from, to), cx)
+            .map_err(|error| error.to_string())?
+            .ok_or("could not save tabs")?;
         self.changed(cx);
         Ok(Value::Null)
     }

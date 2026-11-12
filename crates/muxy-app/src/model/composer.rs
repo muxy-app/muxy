@@ -196,8 +196,7 @@ impl AppModel {
             draft.text = text;
             view.set_draft(draft, cx);
         });
-        self.composer_changed(cx);
-        Ok(())
+        self.save_composer_draft(cx)
     }
 
     /// Sends the open composer's draft as Send does, or with `enter` unset as
@@ -212,6 +211,9 @@ impl AppModel {
         }
         if self.composer.submission.is_some() {
             return Err("the composer is already sending".into());
+        }
+        if self.composer_targets(cx)?.is_empty() {
+            return Err("open a live terminal before sending".into());
         }
         self.submit_composer(enter, cx);
         Ok(())
@@ -281,8 +283,14 @@ impl AppModel {
     }
 
     fn composer_changed(&mut self, cx: &mut Context<Self>) {
+        let _ = self.save_composer_draft(cx);
+    }
+
+    /// Saves the open composer's draft, answering the store's error, which
+    /// the composer also shows.
+    fn save_composer_draft(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
         let (Some(key), Some(view)) = (&self.composer.key, &self.composer.view) else {
-            return;
+            return Ok(());
         };
         let draft = view.read(cx).draft.clone();
         let result = {
@@ -295,14 +303,21 @@ impl AppModel {
                 .edit_content(key.clone(), draft.text, draft.file_attachments)
                 .map(|_| store.draft(key).cloned().unwrap_or_default())
         };
-        match result {
-            Ok(draft) => view.update(cx, |view, cx| {
-                view.draft = draft;
-                cx.notify();
-            }),
-            Err(error) => self.composer_error(error.to_string(), cx),
-        }
+        let saved = match result {
+            Ok(draft) => {
+                view.update(cx, |view, cx| {
+                    view.draft = draft;
+                    cx.notify();
+                });
+                Ok(())
+            }
+            Err(error) => {
+                self.composer_error(error.to_string(), cx);
+                Err(error.to_string())
+            }
+        };
         self.save_composer(cx);
+        saved
     }
 
     pub(super) fn save_composer(&mut self, cx: &mut Context<Self>) {
