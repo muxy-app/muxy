@@ -593,6 +593,7 @@ impl AppModel {
             .cloned()
             .collect();
         entry["load_errors"] = json!(errors);
+        entry["waiting_prompts"] = json!(self.waiting_prompts(name));
         if self
             .extensions
             .registry

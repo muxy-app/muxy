@@ -71,7 +71,8 @@ The extension shows an **Unpacked** badge. After editing, choose **Reload**.
 
 For anything bigger, use any web tooling, such as Vite. Point every `entry` at
 paths inside your build output, and copy `package.json` into `dist/` as part of
-the build. Only `dist/` is published.
+the build. Only `dist/` is published. For TypeScript, copy
+[`types/muxy.d.ts`](types/muxy.d.ts) into your source to type `window.muxy`.
 
 ```json
 "scripts": {
@@ -81,6 +82,10 @@ the build. Only `dist/` is published.
 
 ## Debugging
 
+- `muxy extension dev <folder>` builds and reloads the extension each time
+  you save, and prints whether it loaded with the log lines it added. See
+  [Developing and testing](../features/muxy-cli.md#developing-and-testing)
+  for opening its pages and driving them from the command line.
 - `console.log`, `console.warn`, and `console.error` from pages and scripts go
   to the extension's log, along with uncaught errors.
 - The extension's page in **Settings → Extensions** shows recent log lines,

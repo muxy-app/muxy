@@ -26,56 +26,98 @@ pets. `references/panels.md` covers them.
    the questions that change what you build.
 2. Write the extension. Read the references below instead of guessing at
    manifest fields or API names, and ask for the fewest permissions that work.
-3. If it has a build step, run it. Muxy loads `dist/` when it exists, so a stale
-   `dist/` hides your edits.
-4. Load and enable it, the first time:
+   For TypeScript, copy `references/types/muxy.d.ts` into the extension; it
+   types `window.muxy`, and the type check catches wrong API names.
+3. Build, load, enable, and reload it in one step:
 
    ```bash
-   muxy extension load extensions/my-extension
-   muxy extension enable my-extension
+   muxy extension dev extensions/my-extension --once
    ```
 
-5. After later edits, build if needed and reload:
+   It runs the `build` script if there is one, so a stale `dist/` can't hide
+   your edits, then prints `ready` or `failed` with the load errors and the log
+   lines that round added. Without `--once` it keeps watching and does another
+   round after every change; run it in a terminal of its own, such as a
+   `muxy new` session, and read that output instead of guessing.
+4. Check that it works by using it, not just by loading it:
 
    ```bash
-   muxy extension reload my-extension
+   page=$(muxy extension open my-extension panel:main)
+   muxy extension page snapshot "$page"
+   muxy extension page click "$page" "#save"
+   muxy extension page wait "$page" --text "Saved"
+   muxy extension page screenshot "$page" --out /tmp/my-extension.png
    ```
 
-6. Check that it works, then tell the user how to open it:
+   `open` takes `panel:<id>`, `tab:<type>` or `modal:<entry>` and prints the
+   page ID once the page has loaded. `pages` lists the pages already open.
+   `page` takes the same actions as `muxy browser`: `snapshot` lists the
+   interactive elements with selectors, `eval` runs JavaScript in the page and
+   prints its result, and `screenshot --out` saves a PNG you can look at. Look
+   at it in both light and dark themes when the extension draws its own
+   colors.
+5. Reach the rest the way the user would. `run` runs one of its commands,
+   and `emit` sends it an event its manifest lists, such as `file.changed`,
+   with a JSON payload, so you can see how it reacts:
 
    ```bash
-   muxy extension status my-extension
-   muxy extension logs my-extension --lines 50
+   muxy extension run my-extension toggle
+   muxy extension emit my-extension file.changed '{"path":"README.md"}'
    ```
+6. Tell the user how to open it.
 
-Don't declare it finished while `status` shows a load error or the logs show an
-uncaught error.
+Don't declare it finished while `dev` prints `failed`, the log shows an
+uncaught error, or what you checked in step 4 didn't happen.
+
+### Runtime prompts
+
+Running programs, writing files or Git, web requests, and a few other calls
+ask the user first, each time, until they choose to remember it. While a call
+waits, the log says `... is waiting for the user to allow it in Muxy`, and
+`muxy extension status my-extension` counts the prompts still waiting. Tell the user what
+to answer and why; you can't answer for them. A prompt nobody answers is
+denied after 60 seconds, and the log says so.
 
 ## Commands
 
 These talk to the Muxy app on this computer, and start it if needed. Add
-`--json` to `list`, `status`, `validate`, or `publish` for structured output.
+`--json` to `list`, `status`, `pages`, `validate`, or `publish` for structured
+output.
 
 ```bash
 muxy extension list
 muxy extension status my-extension
 muxy extension logs my-extension --lines 100
+muxy extension dev extensions/my-extension
+muxy extension dev extensions/my-extension --once
 muxy extension load extensions/my-extension
 muxy extension enable my-extension
 muxy extension disable my-extension
 muxy extension reload my-extension
 muxy extension unload my-extension
+muxy extension pages my-extension
+muxy extension open my-extension panel:main
+muxy extension open my-extension tab:viewer --data '{"file":"README.md"}'
+muxy extension run my-extension toggle
+muxy extension emit my-extension settings.changed '{"key":"greeting"}'
+muxy extension page read 12
+muxy extension page eval 12 document.title
+muxy extension page screenshot 12 --out shot.png
 muxy extension validate my-extension
 muxy extension publish my-extension
 ```
 
+- `dev` loads an unpacked folder that isn't loaded yet and turns it on.
 - `load` remembers an unpacked folder. It starts disabled, so `enable` it.
 - `reload` restarts only that extension. If the folder no longer loads, or its
   package name changed, it prints why and the running copy stays as it was.
 - `unload` forgets an unpacked folder and keeps its files. It doesn't work on
   extensions installed from the marketplace.
-- There is no command to uninstall a marketplace extension. If the user wants
-  that, they do it in **Settings → Extensions**.
+- `page` takes every page action `muxy browser` has except opening,
+  navigating, and cookies; run `muxy help extension page`.
+- There is no command to uninstall a marketplace extension, or to change what
+  an extension may do. If the user wants that, they do it in **Settings →
+  Extensions**.
 
 If `muxy` isn't found, tell the user to run **Install Command Line Tool…** from
 Muxy's command palette, and stop until it works.
@@ -106,7 +148,9 @@ to their fork, and open a pull request titled `<name> <version>`.
    needs a semantic version, a `README.md`, a `package-lock.json` (run
    `npm install`), a `scripts.build` script, and a `marketplace` block with an
    icon and at least one screenshot. Details are in
-   `references/contributing.md`. Ask the user for screenshots you can't make.
+   `references/contributing.md`. Make screenshots of pages with `page
+   screenshot --out`, as in [the loop](#the-loop); ask the user for any you
+   can't make, such as one of the whole window.
 2. Bump `version` if this updates something already published.
 3. Run `muxy extension publish my-extension`. Muxy asks the user to approve in
    its own window, and prints the pull request's address when it is open. It sends
@@ -141,6 +185,7 @@ Read the one you need from `references/`, beside this file:
 | `overview.md` | How extensions work, and where they run |
 | `get-started.md` | A complete small extension |
 | `manifest.md`, `schema/manifest.schema.json` | Every manifest field |
+| `types/muxy.d.ts` | TypeScript types for the `muxy` API |
 | `permissions.md` | Permissions and runtime prompts |
 | `api.md` | The `window.muxy` API |
 | `tabs.md`, `panels.md`, `bar-items.md`, `commands.md`, `dialogs.md` | Each kind of surface |

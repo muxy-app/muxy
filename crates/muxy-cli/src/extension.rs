@@ -1,5 +1,8 @@
 //! `muxy extension`: manages the extensions of the desktop app on this
-//! computer. Each command is one request to the app over its socket.
+//! computer. Each command is one request to the app over its socket, except
+//! `dev`, which keeps building and reloading one.
+
+pub(crate) mod dev;
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -47,6 +50,12 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
                 .ok_or_else(|| invalid("arguments must be UTF-8"))
         })
         .collect::<io::Result<_>>()?;
+    if words.first() == Some(&"page") {
+        return page(&words[1..]).map(|invocation| Command::Browser(Box::new(invocation)));
+    }
+    if words.first() == Some(&"dev") {
+        return dev::parse(&words[1..]).map(Command::ExtensionDev);
+    }
     if words.get(1) == Some(&"--") {
         words.remove(1);
     } else if words.first() != Some(&"list")
@@ -72,6 +81,13 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
         ["validate", target, "--json"] => validate(target, true)?,
         ["publish", name] => publish(name, false)?,
         ["publish", name, "--json"] => publish(name, true)?,
+        ["pages", name] => named("extension.pages", name, false)?,
+        ["pages", name, "--json"] => named("extension.pages", name, true)?,
+        ["open", name, surface] => open(name, surface, None)?,
+        ["open", name, surface, "--data", data] => open(name, surface, Some(data))?,
+        ["run", name, command] => run_command(name, command)?,
+        ["emit", name, event] => emit(name, event, None)?,
+        ["emit", name, event, payload] => emit(name, event, Some(payload))?,
         _ => {
             return Err(invalid(
                 "unknown extension command; run muxy extension --help",
@@ -185,6 +201,96 @@ fn publish(name: &str, json: bool) -> io::Result<Invocation> {
     })
 }
 
+/// The `muxy browser` page actions an extension page takes too, and the
+/// verb each sends.
+const PAGE_VERBS: [(&str, &str); 24] = [
+    ("browser.read", "extension.page.read"),
+    ("browser.screenshot", "extension.page.screenshot"),
+    ("browser.eval", "extension.page.eval"),
+    ("browser.click", "extension.page.click"),
+    ("browser.type", "extension.page.type"),
+    ("browser.fill", "extension.page.fill"),
+    ("browser.press", "extension.page.press"),
+    ("browser.select", "extension.page.select"),
+    ("browser.hover", "extension.page.hover"),
+    ("browser.scrollIntoView", "extension.page.scrollIntoView"),
+    ("browser.setChecked", "extension.page.setChecked"),
+    ("browser.is", "extension.page.is"),
+    ("browser.wait", "extension.page.wait"),
+    ("browser.waitFor", "extension.page.waitFor"),
+    ("browser.getText", "extension.page.getText"),
+    ("browser.getHTML", "extension.page.getHTML"),
+    ("browser.getValue", "extension.page.getValue"),
+    ("browser.getAttribute", "extension.page.getAttribute"),
+    ("browser.getCount", "extension.page.getCount"),
+    ("browser.find", "extension.page.find"),
+    ("browser.snapshot", "extension.page.snapshot"),
+    ("browser.storage.get", "extension.page.storage.get"),
+    ("browser.storage.set", "extension.page.storage.set"),
+    ("browser.storage.clear", "extension.page.storage.clear"),
+];
+
+/// `muxy extension page <action> <page-id> …`: a `muxy browser` page action
+/// aimed at an extension page.
+fn page(words: &[&str]) -> io::Result<crate::browser::Invocation> {
+    let as_page = |error: io::Error| {
+        invalid(
+            &error
+                .to_string()
+                .replace("muxy browser", "muxy extension page")
+                .replace("<tab-id>", "<page-id>"),
+        )
+    };
+    let unknown = || invalid("unknown page command; run muxy extension --help");
+    let mut invocation = crate::browser::args::invocation(words).map_err(as_page)?;
+    invocation.verb = PAGE_VERBS
+        .iter()
+        .find(|(browser, _)| *browser == invocation.verb)
+        .map(|(_, page)| *page)
+        .ok_or_else(unknown)?;
+    let page = invocation.args.remove("tabId").ok_or_else(unknown)?;
+    invocation.args.insert("pageId".to_owned(), page);
+    Ok(invocation)
+}
+
+/// `panel:<id>`, `tab:<type>` or `modal:<entry>`.
+fn open(name: &str, surface: &str, data: Option<&str>) -> io::Result<Invocation> {
+    let (kind, id) = surface
+        .split_once(':')
+        .filter(|(kind, id)| matches!(*kind, "panel" | "tab" | "modal") && !id.is_empty())
+        .ok_or_else(|| invalid("expected panel:<id>, tab:<type> or modal:<entry>"))?;
+    let mut args = name_argument(name)?;
+    args.insert("surface".to_owned(), json!(kind));
+    args.insert("id".to_owned(), json!(id));
+    if let Some(data) = data {
+        let data: Value = serde_json::from_str(data).map_err(|_| invalid("--data must be JSON"))?;
+        args.insert("data".to_owned(), data);
+    }
+    Ok(Invocation {
+        extra_time: CHANGE_TIME,
+        ..request("extension.open", args, false)
+    })
+}
+
+fn run_command(name: &str, command: &str) -> io::Result<Invocation> {
+    let mut invocation = named("extension.run", name, false)?;
+    invocation.args.insert("command".to_owned(), json!(command));
+    Ok(invocation)
+}
+
+fn emit(name: &str, event: &str, payload: Option<&str>) -> io::Result<Invocation> {
+    let mut invocation = named("extension.emit", name, false)?;
+    invocation.args.insert("event".to_owned(), json!(event));
+    if let Some(payload) = payload {
+        let payload: Value = serde_json::from_str(payload)
+            .ok()
+            .filter(Value::is_object)
+            .ok_or_else(|| invalid("the payload must be a JSON object"))?;
+        invocation.args.insert("payload".to_owned(), payload);
+    }
+    Ok(invocation)
+}
+
 fn string<'a>(value: &'a Value, key: &str) -> &'a str {
     value.get(key).and_then(Value::as_str).unwrap_or_default()
 }
@@ -259,6 +365,9 @@ fn display_text(verb: &str, reply: &Value, display: crate::output::Display) -> S
     for error in strings(reply, "load_errors") {
         let _ = writeln!(output, "load error: {}", crate::output::cell(&json!(error)));
     }
+    if let Some(waiting) = waiting_prompts(reply) {
+        let _ = writeln!(output, "{waiting}");
+    }
     for line in strings(reply, "log") {
         let _ = writeln!(output, "{}", crate::output::cell(&json!(line)));
     }
@@ -285,6 +394,9 @@ fn text(verb: &str, reply: &Value) -> String {
             output.push_str(&list_row(reply));
             for error in strings(reply, "load_errors") {
                 let _ = writeln!(output, "load error: {error}");
+            }
+            if let Some(waiting) = waiting_prompts(reply) {
+                let _ = writeln!(output, "{waiting}");
             }
             for line in strings(reply, "log") {
                 output.push_str(line);
@@ -320,9 +432,55 @@ fn text(verb: &str, reply: &Value) -> String {
             output.push_str(string(reply, "url"));
             output.push('\n');
         }
+        "extension.pages" => {
+            for page in reply.as_array().into_iter().flatten() {
+                output.push_str(&page_row(page));
+            }
+        }
+        "extension.open" => {
+            output.push_str(string(reply, "pageId"));
+            output.push('\n');
+        }
         _ => output.push_str("ok\n"),
     }
     output
+}
+
+/// `pageId kind id instance loaded visible title`, tab-separated.
+fn page_row(page: &Value) -> String {
+    let flag = |key: &str, yes: &str, no: &str| {
+        if page.get(key).and_then(Value::as_bool) == Some(true) {
+            yes.to_owned()
+        } else {
+            no.to_owned()
+        }
+    };
+    let field = |key: &str| {
+        string(page, key)
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect::<String>()
+    };
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        field("pageId"),
+        field("kind"),
+        field("id"),
+        field("instance"),
+        if page.get("error").is_some_and(Value::is_string) {
+            format!("failed: {}", field("error"))
+        } else {
+            flag("loaded", "loaded", "loading")
+        },
+        flag("visible", "visible", "hidden"),
+        field("title"),
+    )
+}
+
+fn waiting_prompts(reply: &Value) -> Option<String> {
+    let count = reply.get("waiting_prompts").and_then(Value::as_u64)?;
+    (count > 0)
+        .then(|| format!("waiting for the user to answer {count} permission prompt(s) in Muxy"))
 }
 
 /// What stops a package that is otherwise ready from being published.
@@ -382,6 +540,109 @@ mod tests {
         );
         assert_eq!(invocation(&["publish", "hello"])?.extra_time, PUBLISH_TIME);
         Ok(())
+    }
+
+    fn page_invocation(words: &[&str]) -> io::Result<crate::browser::Invocation> {
+        match parsed(words)? {
+            Command::Browser(invocation) => Ok(*invocation),
+            other => Err(invalid(&format!("unexpected {other:?}"))),
+        }
+    }
+
+    #[test]
+    fn page_actions_take_a_page_instead_of_a_tab() -> io::Result<()> {
+        let click = page_invocation(&["page", "click", "42", "#save"])?;
+        assert_eq!(click.verb, "extension.page.click");
+        assert_eq!(click.args["pageId"], "42");
+        assert_eq!(click.args["selector"], "#save");
+        assert!(!click.args.contains_key("tabId"));
+        let shot = page_invocation(&["page", "screenshot", "42", "--out", "shot.png"])?;
+        assert_eq!(shot.verb, "extension.page.screenshot");
+        assert!(shot.out.as_deref().is_some_and(Path::is_absolute));
+        assert_eq!(
+            page_invocation(&["page", "storage", "set", "42", "k", "v"])?.verb,
+            "extension.page.storage.set"
+        );
+        assert_eq!(
+            page_invocation(&["page", "wait", "42", "--text", "Done"])?.args["text"],
+            "Done"
+        );
+        for words in [
+            vec!["page", "open", "https://example.com"],
+            vec!["page", "navigate", "42", "https://example.com"],
+            vec!["page", "cookies", "clear", "42"],
+            vec!["page", "list"],
+        ] {
+            assert!(parsed(&words).is_err(), "{words:?}");
+        }
+        let usage = parsed(&["page", "click", "42"])
+            .err()
+            .map(|error| error.to_string());
+        assert_eq!(
+            usage.as_deref(),
+            Some("usage: muxy extension page click <page-id> <selector>")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn surfaces_commands_and_events_reach_the_app() -> io::Result<()> {
+        let open = invocation(&["open", "hello", "panel:main", "--data", "{\"a\":1}"])?;
+        assert_eq!(open.verb, "extension.open");
+        assert_eq!(open.args["surface"], "panel");
+        assert_eq!(open.args["id"], "main");
+        assert_eq!(open.args["data"], json!({"a": 1}));
+        assert_eq!(
+            invocation(&["open", "hello", "modal:dialog.html"])?.args["id"],
+            "dialog.html"
+        );
+        let run = invocation(&["run", "hello", "toggle"])?;
+        assert_eq!(
+            (run.verb, &run.args["command"]),
+            ("extension.run", &json!("toggle"))
+        );
+        let emit = invocation(&["emit", "hello", "file.changed", "{\"path\":\"a\"}"])?;
+        assert_eq!(emit.args["event"], "file.changed");
+        assert_eq!(emit.args["payload"], json!({"path": "a"}));
+        assert!(invocation(&["pages", "hello", "--json"])?.json);
+        for words in [
+            vec!["open", "hello", "panel"],
+            vec!["open", "hello", "popover:menu"],
+            vec!["open", "hello", "panel:main", "--data", "{"],
+            vec!["emit", "hello", "file.changed", "[1]"],
+            vec!["run", "hello"],
+        ] {
+            assert!(parsed(&words).is_err(), "{words:?}");
+        }
+        assert!(matches!(
+            parsed(&["dev", "extensions/hello"])?,
+            Command::ExtensionDev(_)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn pages_and_waiting_prompts_print_as_text() {
+        let pages = json!([{
+            "pageId": "7", "kind": "panel", "id": "main", "instance": null,
+            "loaded": true, "visible": false, "title": "Hi\tthere\u{1b}[2J",
+        }, {
+            "pageId": "8", "kind": "tab", "id": "view", "error": "missing entry",
+        }]);
+        assert_eq!(
+            text("extension.pages", &pages),
+            "7\tpanel\tmain\t\tloaded\thidden\tHi there [2J\n8\ttab\tview\t\tfailed: missing entry\thidden\t\n"
+        );
+        assert_eq!(text("extension.open", &json!({"pageId": "7"})), "7\n");
+        let status = json!({"name": "hello", "waiting_prompts": 2});
+        assert!(text("extension.status", &status).contains("2 permission prompt(s)"));
+        assert!(
+            !text(
+                "extension.status",
+                &json!({"name": "hello", "waiting_prompts": 0})
+            )
+            .contains("prompt")
+        );
     }
 
     #[test]
@@ -518,7 +779,10 @@ mod tests {
             .collect();
         assert!(commands.len() > 12, "{commands:?}");
         for command in commands {
-            let words: Vec<_> = command.split_whitespace().collect();
+            let words: Vec<_> = command
+                .split_whitespace()
+                .map(|word| word.trim_matches('\''))
+                .collect();
             assert!(parsed(&words).is_ok(), "muxy extension {command}");
         }
     }

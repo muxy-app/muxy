@@ -1,4 +1,5 @@
 mod api;
+mod pages;
 mod project_icons;
 
 use super::*;
@@ -250,5 +251,36 @@ fn extensions_split_tabs_into_groups(cx: &mut TestAppContext) {
         assert!(model.extension_split_tab(&split(a, a, "left"), cx).is_err());
         assert_eq!(model.state, before);
         assert!(model.error.is_none(), "{:?}", model.error);
+    });
+}
+
+#[gpui::test]
+fn a_call_that_waits_for_the_user_says_so(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update_in(cx, |model, window, cx| {
+        let (reply, _replies) = std::sync::mpsc::sync_channel(1);
+        let call = Call {
+            owner: "tester".into(),
+            epoch: model.extensions.epoch_for("tester"),
+            generation: model.servers.local.generation,
+            project: model.state.home().id,
+            verb: "exec".into(),
+            args: json!({"argv": ["git", "status"]}),
+            reply: Reply::Script(1, reply),
+            approved: false,
+        };
+        let request = model
+            .consent_request(&call)
+            .expect("valid")
+            .expect("exec asks");
+        assert_eq!(model.waiting_prompts("tester"), 0);
+        model.gate(call, request, window, cx);
+        let log: Vec<_> = model.extensions.logs.tail("tester").collect();
+        assert!(
+            log.iter()
+                .any(|line| line.contains("exec is waiting for the user to allow it")),
+            "{log:?}"
+        );
     });
 }

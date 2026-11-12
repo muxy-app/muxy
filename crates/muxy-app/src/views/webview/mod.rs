@@ -1,3 +1,4 @@
+pub(crate) mod automation;
 pub(crate) mod input;
 pub(crate) mod modal;
 pub(crate) mod panel;
@@ -48,7 +49,7 @@ pub(crate) enum SurfaceKind {
 }
 
 impl SurfaceKind {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Tab => "tab",
             Self::Panel => "panel",
@@ -129,6 +130,9 @@ pub(crate) struct Webview {
     menu: Option<OptionMenu>,
     closes: CloseRequests,
     close_results: HashMap<u64, async_channel::Sender<bool>>,
+    /// Whether the page's document has finished loading.
+    loaded: bool,
+    automation: automation::Automation,
     _events: Task<()>,
 }
 
@@ -204,6 +208,8 @@ impl Webview {
                 menu: None,
                 closes: CloseRequests::default(),
                 close_results: HashMap::new(),
+                loaded: false,
+                automation: automation::Automation::default(),
                 _events: events,
             }
         }))
@@ -222,6 +228,57 @@ impl Webview {
             .reply(request.id, request.generation, &response.to_string());
     }
 
+    fn handle_message(&mut self, id: u64, generation: u64, json: &str, cx: &mut Context<Self>) {
+        if generation != self.native.generation() {
+            return;
+        }
+        let body: Value = serde_json::from_str(json).unwrap_or(Value::Null);
+        let request = Request {
+            id,
+            generation,
+            body,
+        };
+        match request.body["verb"].as_str() {
+            Some(automation::RESULT_VERB) => {
+                let token = request.body["requestID"].as_str().unwrap_or_default();
+                let result = if self.automation.finish(token, &request.body["args"]) {
+                    Ok(Value::Null)
+                } else {
+                    Err("no script is waiting for this result".into())
+                };
+                self.reply(&request, result);
+            }
+            Some("lifecycle.ackBeforeClose") => {
+                if let Some(id) = request.body["args"]["callID"]
+                    .as_str()
+                    .and_then(|id| id.parse().ok())
+                {
+                    self.closes.acknowledge(id);
+                }
+                self.reply(&request, Ok(Value::Null));
+            }
+            Some("lifecycle.resolveBeforeClose") => {
+                if let Some(id) = request.body["args"]["callID"]
+                    .as_str()
+                    .and_then(|id| id.parse().ok())
+                    && self.closes.resolve(id)
+                {
+                    self.resolve_close(
+                        id,
+                        request.body["args"]["prevent"].as_bool().unwrap_or(false),
+                    );
+                }
+                self.reply(&request, Ok(Value::Null));
+            }
+            Some(_)
+                if request.body["requestID"].is_string() && request.body["args"].is_object() =>
+            {
+                cx.emit(SurfaceEvent::Request(request));
+            }
+            _ => self.reply(&request, Err("invalid webview message".into())),
+        }
+    }
+
     fn handle(&mut self, event: Event, cx: &mut Context<Self>) {
         match event {
             Event::Asset { id, result } => self.native.complete_asset(id, result),
@@ -229,55 +286,18 @@ impl Webview {
                 id,
                 generation,
                 json,
-            } => {
-                if generation != self.native.generation() {
-                    return;
-                }
-                let body: Value = serde_json::from_str(&json).unwrap_or(Value::Null);
-                let request = Request {
-                    id,
-                    generation,
-                    body,
-                };
-                match request.body["verb"].as_str() {
-                    Some("lifecycle.ackBeforeClose") => {
-                        if let Some(id) = request.body["args"]["callID"]
-                            .as_str()
-                            .and_then(|id| id.parse().ok())
-                        {
-                            self.closes.acknowledge(id);
-                        }
-                        self.reply(&request, Ok(Value::Null));
-                    }
-                    Some("lifecycle.resolveBeforeClose") => {
-                        if let Some(id) = request.body["args"]["callID"]
-                            .as_str()
-                            .and_then(|id| id.parse().ok())
-                            && self.closes.resolve(id)
-                        {
-                            self.resolve_close(
-                                id,
-                                request.body["args"]["prevent"].as_bool().unwrap_or(false),
-                            );
-                        }
-                        self.reply(&request, Ok(Value::Null));
-                    }
-                    Some(_)
-                        if request.body["requestID"].is_string()
-                            && request.body["args"].is_object() =>
-                    {
-                        cx.emit(SurfaceEvent::Request(request));
-                    }
-                    _ => self.reply(&request, Err("invalid webview message".into())),
-                }
-            }
+            } => self.handle_message(id, generation, &json, cx),
             Event::Navigated => {
                 self.fail_closes();
+                self.loaded = false;
+                self.automation
+                    .fail_scripts("the page loaded another document before answering");
                 self.error = None;
                 self.clear_snapshot(cx);
                 cx.emit(SurfaceEvent::Navigated);
             }
             Event::Loaded => {
+                self.loaded = true;
                 self.push_state();
                 if self.presentation.native_visible(false) {
                     self.native.snapshot();
@@ -285,6 +305,8 @@ impl Webview {
             }
             Event::Failed(error) => {
                 self.fail_closes();
+                self.automation.fail_captures(&error);
+                self.automation.fail_scripts(&error);
                 self.error = Some(error);
                 self.native.set_visible(false);
             }
@@ -304,6 +326,9 @@ impl Webview {
                 // Asked even when the snapshot will not be shown: a backend
                 // that paces its snapshots sends the next one after this.
                 let current = self.native.accept_snapshot(id, generation);
+                if current && self.automation.wants_capture() {
+                    self.automation.deliver(&image);
+                }
                 if current
                     && self.error.is_none()
                     && let Some(image) = render_snapshot(image)
@@ -316,6 +341,59 @@ impl Webview {
             }
         }
         cx.notify();
+    }
+
+    /// Runs `body` as an async function in the page. Its JSON result
+    /// arrives on the receiver; the token forgets it.
+    pub(crate) fn run_page_script(
+        &mut self,
+        body: &str,
+    ) -> (String, async_channel::Receiver<automation::Outcome>) {
+        let (script, token, result) = self.automation.start(body);
+        self.native.evaluate(&script);
+        (token, result)
+    }
+
+    pub(crate) fn forget_page_script(&mut self, token: &str) {
+        self.automation.forget(token);
+    }
+
+    /// A picture of the page as it is now, and the number that forgets it.
+    pub(crate) fn capture(
+        &mut self,
+    ) -> (
+        u64,
+        async_channel::Receiver<Result<automation::Picture, String>>,
+    ) {
+        let (id, picture) = self.automation.capture();
+        match &self.error {
+            Some(error) => {
+                let error = error.clone();
+                self.automation.fail_captures(&error);
+            }
+            None => self.native.snapshot(),
+        }
+        (id, picture)
+    }
+
+    pub(crate) fn forget_capture(&mut self, id: u64) {
+        self.automation.forget_capture(id);
+    }
+
+    pub(crate) fn loaded(&self) -> bool {
+        self.loaded && self.error.is_none()
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub(crate) fn shown(&self) -> bool {
+        self.presentation.visible
+    }
+
+    pub(crate) fn panel_instance(&self) -> Option<&str> {
+        self.panel_instance.as_deref()
     }
 
     fn clear_snapshot(&mut self, cx: &mut gpui::App) {

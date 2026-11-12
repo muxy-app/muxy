@@ -367,6 +367,8 @@ impl AppModel {
                                 .reload_settings(cx)
                                 .map(|()| serde_json::json!({ "reloaded": true })),
                         )
+                    } else if crate::model::extensions::is_page_verb(&verb) {
+                        model.extension_page_cli_call(&verb, &args, window, cx)
                     } else if manages_extension {
                         model.extension_cli_call(&verb, &args, cx)
                     } else {
