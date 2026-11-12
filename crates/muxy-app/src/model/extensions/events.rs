@@ -14,6 +14,9 @@ use super::AppModel;
 /// How long a terminal title must hold before events report it, as on main.
 const TITLE_DEBOUNCE: Duration = Duration::from_millis(500);
 
+/// The tab context keys whose change sends `tab.updated`.
+const TAB_UPDATES: [&str; 6] = ["title", "projectPath", "cwd", "data", "isPinned", "color"];
+
 #[derive(Default)]
 pub(super) struct Tracker {
     initialized: bool,
@@ -35,6 +38,9 @@ pub(super) struct Tracker {
     pending_titles: HashMap<PaneId, (String, Task<()>)>,
     branches: BTreeMap<ProjectId, String>,
     agents: BTreeMap<String, Value>,
+    ui: Value,
+    theme: Value,
+    preferences: Value,
     pub(super) watched: BTreeSet<ProjectId>,
     pub(super) watch_pending: bool,
     watch_epoch: u64,
@@ -57,6 +63,47 @@ pub(super) fn strings<'a>(pairs: impl IntoIterator<Item = (&'a str, String)>) ->
             .map(|(key, value)| (key.to_owned(), Value::String(value)))
             .collect(),
     )
+}
+
+/// A value as a payload string: text as is, anything else as JSON.
+fn text(value: &Value) -> String {
+    value
+        .as_str()
+        .map_or_else(|| value.to_string(), str::to_owned)
+}
+
+/// An object with every value made a payload string.
+fn text_values(value: &Value) -> Value {
+    Value::Object(
+        value
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(key, value)| (key.clone(), Value::String(text(value))))
+            .collect(),
+    )
+}
+
+/// The `(extension, key)` of every stored setting value that differs, for
+/// `settings.changed`.
+pub(super) fn changed_settings(
+    before: &BTreeMap<String, Map<String, Value>>,
+    after: &BTreeMap<String, Map<String, Value>>,
+) -> Vec<(String, String)> {
+    let empty = Map::new();
+    let mut changed = Vec::new();
+    for owner in before.keys().chain(after.keys()).collect::<BTreeSet<_>>() {
+        let (old, new) = (
+            before.get(owner).unwrap_or(&empty),
+            after.get(owner).unwrap_or(&empty),
+        );
+        for key in old.keys().chain(new.keys()).collect::<BTreeSet<_>>() {
+            if old.get(key) != new.get(key) {
+                changed.push((owner.clone(), key.clone()));
+            }
+        }
+    }
+    changed
 }
 
 pub(super) fn provider_id(provider: AgentProvider) -> &'static str {
@@ -106,6 +153,10 @@ impl AppModel {
         put("areaID", project.id.to_string());
         put("title", self.event_title(tab, cx));
         put("projectPath", project.directory.display().to_string());
+        put("isPinned", tab.pinned.to_string());
+        if let Some(color) = &tab.color {
+            put("color", color.as_str().to_owned());
+        }
         match pane.map(|pane| (pane.id, &pane.content)) {
             Some((id, PaneContent::Webview(descriptor))) => {
                 put("kind", "extensionWebView".into());
@@ -349,9 +400,7 @@ impl AppModel {
                 emit(self, "tab.closed", context.clone());
             }
         }
-        let visible = |context: &Value| {
-            ["title", "projectPath", "cwd", "data"].map(|key| context.get(key).cloned())
-        };
+        let visible = |context: &Value| TAB_UPDATES.map(|key| context.get(key).cloned());
         for (id, context) in &tabs {
             if previous
                 .get(id)
@@ -399,6 +448,7 @@ impl AppModel {
             );
         }
         self.sync_agent_events(&mut emit);
+        self.sync_app_events(&mut emit);
         self.extensions.events.initialized = true;
         self.sync_extension_file_watches(cx);
     }
@@ -531,6 +581,33 @@ impl AppModel {
             }
         }
         self.extensions.events.agents = agents;
+    }
+
+    /// `ui.changed`, `theme.changed`, and one `preferences.changed` per
+    /// preference that changed.
+    fn sync_app_events(&mut self, emit: &mut impl FnMut(&Self, &str, Value)) {
+        let ui = self.ui_state();
+        if self.extensions.events.ui != ui {
+            emit(self, "ui.changed", text_values(&ui));
+            self.extensions.events.ui = ui;
+        }
+        let theme = self.theme_state();
+        if self.extensions.events.theme != theme {
+            emit(self, "theme.changed", text_values(&theme));
+            self.extensions.events.theme = theme;
+        }
+        let preferences = self.preference_values();
+        let previous =
+            std::mem::replace(&mut self.extensions.events.preferences, preferences.clone());
+        for (key, value) in preferences.as_object().into_iter().flatten() {
+            if previous.get(key) != Some(value) {
+                emit(
+                    self,
+                    "preferences.changed",
+                    strings([("key", key.clone()), ("value", text(value))]),
+                );
+            }
+        }
     }
 
     fn sync_extension_file_watches(&mut self, cx: &mut Context<Self>) {

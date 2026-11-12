@@ -56,8 +56,23 @@ impl AppModel {
                 self.extension_storage(call, cx);
                 return;
             }
+            "tabs.new" | "tabs.close" | "tabs.rename" | "tabs.setColor" | "tabs.pin"
+            | "tabs.move" | "tabs.moveToWindow" | "tabs.dock" => self.tab_control(&call, cx),
             verb if verb.starts_with("tabs.") => self.tabs_call(&call, cx),
+            "panes.split"
+            | "panes.focus"
+            | "panes.zoom"
+            | "panes.equalize"
+            | "panes.detach"
+            | "panes.restart"
+            | "panes.scrollToBottom"
+            | "panes.float"
+            | "panes.moveToTab"
+            | "panes.moveToWindow" => self.pane_control(&call, cx),
             verb if verb.starts_with("panes.") => self.panes_call(&call, cx),
+            "projects.next" | "projects.previous" | "projects.focus" | "projects.sort"
+            | "projects.removed" | "projects.restore" | "projects.apps" | "projects.openIn"
+            | "projects.reveal" => self.project_control(&call, cx),
             "projects.create" => {
                 self.create_extension_project(call, cx);
                 return;
@@ -83,6 +98,21 @@ impl AppModel {
                 return;
             }
             "agents.list" => Ok(Value::Array(self.agent_statuses().into_values().collect())),
+            "agents.focus" => self.focus_extension_agent(&call, cx),
+            verb if verb.starts_with("ui.") => self.ui_call(&call, window, cx),
+            "commands.list" | "commands.run" => self.commands_call(&call, window, cx),
+            verb if verb.starts_with("composer.") => self.composer_call(&call, window, cx),
+            verb if verb.starts_with("preferences.") => self.preferences_call(&call, cx),
+            verb if verb.starts_with("clipboard.") => Self::clipboard_call(&call, cx),
+            verb if verb.starts_with("app.") => self.app_call(&call, cx),
+            verb if verb.starts_with("settings.") => {
+                self.settings_call(call, cx);
+                return;
+            }
+            "layouts.list" | "layouts.apply" => {
+                self.layouts_call(call, cx);
+                return;
+            }
             "gh.user" => {
                 self.gh_user(call, cx);
                 return;

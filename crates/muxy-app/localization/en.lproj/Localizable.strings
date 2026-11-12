@@ -55,9 +55,10 @@
 "%@ wants to open another extension's tab." = "%@ wants to open another extension's tab.";
 "%@ wants to press keys in a terminal." = "%@ wants to press keys in a terminal.";
 "%@ wants to read terminal output." = "%@ wants to read terminal output.";
+"%@ wants to read the clipboard." = "%@ wants to read the clipboard.";
 "%@ wants to run a shell command." = "%@ wants to run a shell command.";
 "%@ wants to type into a terminal." = "%@ wants to type into a terminal.";
-"%@ will be able to run shell commands, type into and read terminals, change files and git repositories, make network requests, and delete projects without asking. Only do this for an extension you trust.\n\nTo undo it, choose Stop Always Allowing under Permission rules in Settings → Extensions." = "%@ will be able to run shell commands, type into and read terminals, change files and git repositories, make network requests, and delete projects without asking. Only do this for an extension you trust.\n\nTo undo it, choose Stop Always Allowing under Permission rules in Settings → Extensions.";
+"%@ will be able to run shell commands, type into and read terminals, change files and git repositories, make network requests, read the clipboard, and delete projects without asking. Only do this for an extension you trust.\n\nTo undo it, choose Stop Always Allowing under Permission rules in Settings → Extensions." = "%@ will be able to run shell commands, type into and read terminals, change files and git repositories, make network requests, read the clipboard, and delete projects without asking. Only do this for an extension you trust.\n\nTo undo it, choose Stop Always Allowing under Permission rules in Settings → Extensions.";
 "%@ · Muxy keeps it in memory until it quits." = "%@ · Muxy keeps it in memory until it quits.";
 "%@ · Not installed" = "%@ · Not installed";
 "%@ · Unsupported" = "%@ · Unsupported";
@@ -310,6 +311,7 @@
 "Beta" = "Beta";
 "Block" = "Block";
 "Block all auto-run terminal commands from this extension" = "Block all auto-run terminal commands from this extension";
+"Block all clipboard reads from this extension" = "Block all clipboard reads from this extension";
 "Block all file changes from this extension" = "Block all file changes from this extension";
 "Block all foreign tab opens from this extension" = "Block all foreign tab opens from this extension";
 "Block all git changes from this extension" = "Block all git changes from this extension";

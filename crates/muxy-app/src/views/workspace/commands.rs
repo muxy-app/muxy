@@ -705,6 +705,66 @@ pub(crate) fn register_placed(registry: &mut Registry<Handler>, model: &AppModel
     }
 }
 
+/// Commands extensions may not run: they quit, install software, or change
+/// the app's windows.
+const RESERVED: [ShortcutId; 9] = [
+    ShortcutId::Quit,
+    ShortcutId::EndAllSessionsAndQuit,
+    ShortcutId::InstallCommandLineTool,
+    ShortcutId::HideApp,
+    ShortcutId::HideOthers,
+    ShortcutId::ShowAll,
+    ShortcutId::ToggleFullScreen,
+    ShortcutId::Minimize,
+    ShortcutId::Zoom,
+];
+
+fn extension_rows(model: &AppModel) -> impl Iterator<Item = (ShortcutId, &'static CommandDef)> {
+    COMMANDS.iter().filter_map(|row| {
+        let id = row.shortcut?;
+        (row.run.is_some()
+            && row.palette != Palette::Hidden
+            && !RESERVED.contains(&id)
+            && row
+                .feature
+                .is_none_or(|feature| model.capabilities.has_backend(feature)))
+        .then_some((id, row))
+    })
+}
+
+/// The built-in commands extensions can run, as `commands.list` reports them.
+pub(crate) fn extension_commands(model: &AppModel) -> Vec<serde_json::Value> {
+    extension_rows(model)
+        .map(|(id, row)| {
+            let title = row.title();
+            serde_json::json!({
+                "id": row.palette_id,
+                "kind": "app",
+                "title": title.to_string(),
+                "enabled": row.available.is_none_or(|available| available(model)),
+                "shortcut": model.settings.keymap.chord(id).map(ToString::to_string),
+            })
+        })
+        .collect()
+}
+
+/// Runs a built-in command by id, when it is available now. Answers `None`
+/// for an id that names no built-in command.
+pub(crate) fn run_extension_command(
+    model: &mut AppModel,
+    id: &str,
+    window: &mut Window,
+    cx: &mut Context<AppModel>,
+) -> Option<Result<(), String>> {
+    let (_, row) = extension_rows(model).find(|(_, row)| row.palette_id == id)?;
+    if row.available.is_some_and(|available| !available(model)) {
+        return Some(Err(format!("command {id} is not available now")));
+    }
+    let run = row.run?;
+    run(model, window, cx);
+    Some(Ok(()))
+}
+
 pub(crate) fn title(id: ShortcutId) -> SharedString {
     with_id(id).map_or_else(SharedString::default, CommandDef::title)
 }

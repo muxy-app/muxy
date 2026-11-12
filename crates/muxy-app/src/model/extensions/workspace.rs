@@ -33,6 +33,16 @@ pub(super) fn standardized(path: &str) -> PathBuf {
     normalized
 }
 
+/// A palette color by name, like `blue`, or a hex color.
+pub(super) fn parse_color(color: &str) -> Result<muxy_app_core::Color, String> {
+    muxy_app_core::PROJECT_COLORS
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(color))
+        .map_or(color, |(_, hex)| *hex)
+        .parse()
+        .map_err(|_| format!("unknown color '{color}'"))
+}
+
 fn key_bytes(key: &str) -> Result<&'static [u8], String> {
     Ok(match key.to_lowercase().as_str() {
         "escape" | "esc" => b"\x1b",
@@ -204,12 +214,7 @@ impl AppModel {
                 let id = self.mutable_project(text("identifier")?)?;
                 let color = match call.args["color"].as_str() {
                     None => muxy_app_core::Color::default(),
-                    Some(color) => muxy_app_core::PROJECT_COLORS
-                        .iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case(color))
-                        .map_or(color, |(_, hex)| *hex)
-                        .parse()
-                        .map_err(|_| format!("unknown color '{color}'"))?,
+                    Some(color) => parse_color(color)?,
                 };
                 self.apply_project_edit(|state| state.set_project_color(id, color), cx)
             }
@@ -439,8 +444,12 @@ impl AppModel {
         let project = self.state.current_project();
         match call.verb.as_str() {
             "tabs.list" => Ok(Value::Array(
-                project
-                    .tabs
+                if call.args["project"].is_string() {
+                    self.state.project(call.project).unwrap_or(project)
+                } else {
+                    project
+                }
+                .tabs
                     .iter()
                     .enumerate()
                     .map(|(index, tab)| {
@@ -458,6 +467,11 @@ impl AppModel {
                             "kind": kind,
                             "title": self.webview_title(tab, cx),
                             "isActive": Some(tab.id) == self.active_tab(),
+                            "isPinned": tab.pinned,
+                            "color": tab.color.as_ref().map(muxy_app_core::Color::as_str),
+                            "customTitle": tab.custom_title,
+                            "isDetached": tab.detached(),
+                            "paneIDs": tab.panes.iter().map(|pane| pane.id.to_string()).collect::<Vec<_>>(),
                         })
                     })
                     .collect(),
@@ -496,10 +510,6 @@ impl AppModel {
                 .ok_or_else(|| format!("tab not found {identifier}"))?;
                 self.select_tab(tab, cx);
                 Ok(Value::Null)
-            }
-            "tabs.new" => {
-                self.new_tab(cx);
-                Ok(json!(self.active_tab().map(|tab| tab.to_string())))
             }
             "tabs.next" | "tabs.previous" => {
                 self.cycle_tab(call.verb == "tabs.next", cx);
@@ -708,6 +718,10 @@ impl AppModel {
                             "title": tab.custom_title.clone().unwrap_or_else(|| pane.title.clone()),
                             "workingDirectory": directory.display().to_string(),
                             "isFocused": Some(pane.id) == active,
+                            "tabID": tab.id.to_string(),
+                            "projectID": super::events::root_of(project).to_string(),
+                            "worktreeID": project.id.to_string(),
+                            "isZoomed": tab.zoomed == Some(pane.id),
                         })
                     })
                     .collect(),

@@ -133,6 +133,7 @@ fn purpose(gate: Gate, owner: &str) -> SharedString {
         Gate::FilesWrite => tr!("%@ wants to modify workspace files.", owner),
         Gate::HttpFetch => tr!("%@ wants to make a network request.", owner),
         Gate::ProjectsDelete => tr!("%@ wants to delete a project.", owner),
+        Gate::ClipboardRead => tr!("%@ wants to read the clipboard.", owner),
     }
 }
 
@@ -148,6 +149,7 @@ fn block_label(gate: Gate) -> SharedString {
         Gate::FilesWrite => tr!("Block all file changes from this extension"),
         Gate::HttpFetch => tr!("Block all network requests from this extension"),
         Gate::ProjectsDelete => tr!("Block all project deletions from this extension"),
+        Gate::ClipboardRead => tr!("Block all clipboard reads from this extension"),
     }
 }
 
@@ -157,7 +159,7 @@ impl AppModel {
         (
             tr!("Always allow %@?", owner),
             tr!(
-                "%@ will be able to run shell commands, type into and read terminals, change files and git repositories, make network requests, and delete projects without asking. Only do this for an extension you trust.\n\nTo undo it, choose Stop Always Allowing under Permission rules in Settings → Extensions.",
+                "%@ will be able to run shell commands, type into and read terminals, change files and git repositories, make network requests, read the clipboard, and delete projects without asking. Only do this for an extension you trust.\n\nTo undo it, choose Stop Always Allowing under Permission rules in Settings → Extensions.",
                 owner
             ),
         )

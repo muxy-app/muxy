@@ -52,16 +52,30 @@ pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
         "exec" | "execAsync" | "exec.start" | "exec.cancel" => "commands:exec",
         "runScript" => "commands:run-script",
         "tabs.list" => "tabs:read",
-        "tabs.switch" | "tabs.new" | "tabs.next" | "tabs.previous" | "tabs.open" | "tabs.split"
-        | "tabs.setTitle" | "tabs.setIcon" => "tabs:write",
+        v if v.starts_with("tabs.") => "tabs:write",
         "panes.list" | "panes.readScreen" => "panes:read",
-        "panes.send" | "panes.sendKeys" | "panes.close" | "panes.rename" => "panes:write",
-        "projects.list" | "workspaces.list" => "projects:read",
+        v if v.starts_with("panes.") => "panes:write",
+        "projects.list" | "projects.removed" | "workspaces.list" => "projects:read",
         "projects.delete" => "projects:delete",
+        "projects.apps" | "projects.openIn" | "projects.reveal" | "app.openExternal" => {
+            "system:open"
+        }
         v if v.starts_with("projects.") || v.starts_with("workspaces.") => "projects:write",
         "worktrees.list" => "worktrees:read",
         "worktrees.switch" | "worktrees.refresh" => "worktrees:write",
         "agents.list" => "agents:read",
+        "agents.focus" => "agents:write",
+        "ui.state" | "app.info" => return None,
+        v if v.starts_with("ui.") => "ui:write",
+        "commands.list" => "commands:read",
+        v if v.starts_with("commands.") => "commands:run",
+        v if v.starts_with("composer.") => "composer:write",
+        "layouts.list" => "layouts:read",
+        "layouts.apply" => "layouts:write",
+        "preferences.get" | "preferences.themes" => "preferences:read",
+        "preferences.set" => "preferences:write",
+        "clipboard.readText" => "clipboard:read",
+        "clipboard.writeText" => "clipboard:write",
         "browser.wait" if waits_on_a_function(args) => "browser:write",
         v if BROWSER_READS.contains(&v) => "browser:read",
         v if v.starts_with("browser.") => "browser:write",
@@ -100,6 +114,7 @@ fn waits_on_a_function(args: &Value) -> bool {
 pub fn event_permission(event: &str) -> Option<&'static str> {
     match event {
         "agent.status" => Some("agents:read"),
+        "preferences.changed" => Some("preferences:read"),
         "file.changed" => Some("files:read"),
         "projects.changed" => Some("projects:read"),
         "worktree.headChanged" => Some("worktrees:read"),
@@ -120,10 +135,11 @@ pub enum Gate {
     FilesWrite,
     HttpFetch,
     ProjectsDelete,
+    ClipboardRead,
 }
 
 impl Gate {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::Exec,
         Self::PanesSend,
         Self::PanesSendKeys,
@@ -134,6 +150,7 @@ impl Gate {
         Self::FilesWrite,
         Self::HttpFetch,
         Self::ProjectsDelete,
+        Self::ClipboardRead,
     ];
 
     fn parse(name: &str) -> Option<Self> {
@@ -152,6 +169,7 @@ impl Gate {
             Self::FilesWrite => "files.write",
             Self::HttpFetch => "http.fetch",
             Self::ProjectsDelete => "projects.delete",
+            Self::ClipboardRead => "clipboard.read",
         }
     }
 
@@ -168,6 +186,7 @@ impl Gate {
             Self::FilesWrite => "file changes",
             Self::HttpFetch => "network requests",
             Self::ProjectsDelete => "project deletions",
+            Self::ClipboardRead => "clipboard reads",
         }
     }
 
@@ -183,6 +202,7 @@ impl Gate {
             Self::FilesWrite => "wants to modify workspace files",
             Self::HttpFetch => "wants to make a network request",
             Self::ProjectsDelete => "wants to delete a project",
+            Self::ClipboardRead => "wants to read the clipboard",
         }
     }
 }
@@ -229,6 +249,18 @@ impl Request {
                     vec![format!("pane: {pane}")],
                 ))
             }
+            "composer.submit" | "composer.insert" => Some(Self::new(
+                Gate::PanesSend,
+                ANY.into(),
+                format!("{} the composer's draft", &verb["composer.".len()..]),
+                vec!["target: the composer's terminals".into()],
+            )),
+            "clipboard.readText" => Some(Self::new(
+                Gate::ClipboardRead,
+                ANY.into(),
+                "read the clipboard".into(),
+                Vec::new(),
+            )),
             "tabs.open" => Self::tab(owner, args),
             "files.write" | "files.mkdir" | "files.rename" | "files.move" | "files.delete" => {
                 let operation = &verb["files.".len()..];
@@ -329,6 +361,19 @@ impl Request {
                 format!("host: {host}"),
                 format!("method: {method}"),
                 format!("url: {url}"),
+            ],
+        )
+    }
+
+    /// Running one of the user's custom commands opens a terminal that runs it.
+    pub fn custom_command(name: &str, command: &str) -> Self {
+        Self::new(
+            Gate::TabsRunCommand,
+            format!("command:{command}"),
+            command.into(),
+            vec![
+                format!("custom command: {name}"),
+                format!("command: {command}"),
             ],
         )
     }

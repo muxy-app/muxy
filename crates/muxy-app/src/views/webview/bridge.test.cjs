@@ -272,10 +272,61 @@ test('pages expose main\'s API surface', () => {
     'panes.readScreen', 'projects.list', 'projects.reorder', 'worktrees.list', 'agents.list',
     'gh.user', 'shortcuts.register', 'shortcuts.list', 'statusbar.set', 'topbar.hide',
     'browser.list', 'workspaces.list', 'dialog.pickFolder', 'modal.open', 'storage.keys',
+    'tabs.close', 'tabs.pin', 'panes.split', 'panes.focus', 'projects.next', 'agents.focus',
+    'ui.state', 'ui.quickTerminal.toggle', 'commands.list', 'composer.submit', 'layouts.list',
+    'preferences.get', 'settings.all', 'clipboard.readText', 'app.info',
   ]) {
     const value = path.split('.').reduce((object, key) => object && object[key], muxy);
     assert.equal(typeof value, 'function', path);
   }
+});
+
+test('app control namespaces forward their payloads', async () => {
+  const { muxy, messages } = page();
+  await muxy.tabs.close(1, { scope: 'others' });
+  await muxy.tabs.rename('t', null);
+  await muxy.tabs.pin('t');
+  await muxy.tabs.move('t', { project: 'web' });
+  await muxy.tabs.new({ beside: 't', side: 'left' });
+  await muxy.tabs.list({ project: 'web' });
+  await muxy.panes.zoom('p', false);
+  await muxy.panes.split('p');
+  await muxy.projects.focus(null);
+  await muxy.ui.setSidebar();
+  await muxy.ui.quickTerminal.pin(false);
+  await muxy.commands.run('new_tab');
+  await muxy.composer.setDraft(42);
+  await muxy.composer.insert();
+  await muxy.layouts.apply('dev', { project: 'web' });
+  await muxy.preferences.set('tips', undefined);
+  await muxy.settings.set('greeting', 'hi');
+  await muxy.clipboard.writeText('x');
+  await muxy.app.openExternal('https://example.com');
+  await muxy.agents.focus('p');
+  assert.deepEqual(messages.map(message => [message.verb, message.args]), [
+    ['tabs.close', { tabId: '1', scope: 'others' }],
+    ['tabs.rename', { tabId: 't', title: null }],
+    ['tabs.pin', { tabId: 't', pinned: true }],
+    ['tabs.move', { tabId: 't', destination: 'web' }],
+    ['tabs.new', { beside: 't', side: 'left' }],
+    ['tabs.list', { project: 'web' }],
+    ['panes.zoom', { paneID: 'p', zoomed: false }],
+    ['panes.split', { paneID: 'p', direction: null }],
+    ['projects.focus', { identifier: null }],
+    ['ui.setSidebar', { visible: null }],
+    ['ui.quickTerminal', { action: 'pin', pinned: false }],
+    ['commands.run', { id: 'new_tab' }],
+    ['composer.setDraft', { text: '42' }],
+    ['composer.insert', {}],
+    ['layouts.apply', { name: 'dev', project: 'web' }],
+    ['preferences.set', { key: 'tips', value: null }],
+    ['settings.set', { key: 'greeting', value: 'hi' }],
+    ['clipboard.writeText', { text: 'x' }],
+    ['app.openExternal', { url: 'https://example.com' }],
+    ['agents.focus', { paneID: 'p' }],
+  ]);
+  assert.ok(Object.isFrozen(muxy.ui.quickTerminal));
+  assert.ok(Object.isFrozen(muxy.settings));
 });
 
 test('tabs.split forwards tab IDs and an optional edge', async () => {

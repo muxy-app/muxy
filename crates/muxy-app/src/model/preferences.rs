@@ -197,6 +197,31 @@ impl AppModel {
         self.sync_servers_page(true, cx);
     }
 
+    /// Opens Settings at `category`.
+    pub(crate) fn show_settings_category(
+        &mut self,
+        category: crate::views::settings::Category,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::views::settings::Category;
+        match category {
+            Category::Servers => self.show_servers_settings(window, cx),
+            Category::Extensions => self.show_extensions_settings(window, cx),
+            Category::About => self.show_about_settings(window, cx),
+            category => {
+                if !self.show_settings(window, cx) {
+                    return;
+                }
+                if let Some(settings) = &self.settings_tab {
+                    settings.view.update(cx, |view, cx| {
+                        view.select_category(category, None, window, cx);
+                    });
+                }
+            }
+        }
+    }
+
     pub(super) fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.quitting != Quitting::Idle || self.dialogs.is_open() {
             return false;
@@ -409,6 +434,25 @@ impl AppModel {
 
     pub(crate) fn configuration_path(&self, filename: &str) -> std::path::PathBuf {
         self.path.with_file_name(filename)
+    }
+
+    /// Applies a change made outside Settings and answers whether it saved.
+    pub(crate) fn try_change_preference(
+        &mut self,
+        change: Change,
+        cx: &mut Context<Self>,
+    ) -> std::result::Result<(), String> {
+        if self.quitting != Quitting::Idle {
+            return Err("the app is quitting".into());
+        }
+        let id = change_id(&change).to_owned();
+        let result = self
+            .apply_preference(change, cx)
+            .map_err(|error| error.to_string());
+        self.preference_result(&id, result.as_ref().err().map(String::as_str), cx);
+        self.sync_preferences(cx);
+        cx.notify();
+        result
     }
 
     pub(crate) fn change_preference(&mut self, change: Change, cx: &mut Context<Self>) {

@@ -48,7 +48,7 @@ impl AppModel {
             })
     }
 
-    fn can_run_custom_command(&self) -> bool {
+    pub(crate) fn can_run_custom_command(&self) -> bool {
         self.quitting == Quitting::Idle
             && !self.dialogs.is_open()
             && self.close_request.is_none()
