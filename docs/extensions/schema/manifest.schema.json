@@ -112,7 +112,7 @@
         },
         "marketplace": {
           "type": "object",
-          "description": "Listing metadata used by the marketplace. Required: icon + at least one screenshot. Ignored by the app loader. The pricing key is reserved for a future paid-extensions feature and is not yet enforced.",
+          "description": "Listing metadata used by the marketplace. Required: icon + at least one screenshot. Settings → Extensions shows the installed copy's icon and screenshots from these paths; a malformed block never stops the extension loading. The pricing key is reserved for a future paid-extensions feature and is not yet enforced.",
           "additionalProperties": false,
           "required": ["icon", "screenshots"],
           "properties": {

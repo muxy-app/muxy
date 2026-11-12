@@ -84,6 +84,16 @@ pub enum AgentsPanelDensity {
     Compact,
 }
 
+/// How Settings → Extensions lays out a list of extensions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionsLayout {
+    /// Cards with a screenshot above the name.
+    Grid,
+    /// One row per extension.
+    List,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentsPanelDock {
@@ -165,6 +175,10 @@ pub struct Appearance {
     pub agent_sessions_width: Option<f32>,
     pub agent_sessions_height: Option<f32>,
     pub agent_sessions_providers: Vec<muxy_protocol::AgentProvider>,
+    /// How Settings lists installed extensions.
+    pub extensions_installed_layout: ExtensionsLayout,
+    /// How Settings lists marketplace extensions.
+    pub extensions_browse_layout: ExtensionsLayout,
 }
 
 impl Default for Appearance {
@@ -221,6 +235,8 @@ impl Default for Appearance {
                 .into_iter()
                 .filter(|provider| crate::agent_sessions::supported(*provider))
                 .collect(),
+            extensions_installed_layout: ExtensionsLayout::List,
+            extensions_browse_layout: ExtensionsLayout::Grid,
         }
     }
 }

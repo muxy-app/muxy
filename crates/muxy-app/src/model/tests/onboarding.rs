@@ -351,6 +351,8 @@ fn details(name: &str) -> Result<ExtensionDetails, String> {
         download_url: None,
         size: None,
         sha256: None,
+        about: crate::extensions::marketplace::About::default(),
+        screenshots: 0,
     })
 }
 

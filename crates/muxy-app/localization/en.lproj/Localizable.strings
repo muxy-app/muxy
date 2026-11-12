@@ -20,6 +20,7 @@
 "%@ exited with %@" = "%@ exited with %@";
 "%@ failed: %@" = "%@ failed: %@";
 "%@ has no changes compared to %@" = "%@ has no changes compared to %@";
+"%@ installs" = "%@ installs";
 "%@ is a folder. Only files can be sent to %@." = "%@ is a folder. Only files can be sent to %@.";
 "%@ is already published by %@. Your pull request would change their extension." = "%@ is already published by %@. Your pull request would change their extension.";
 "%@ is also bound to %@" = "%@ is also bound to %@";
@@ -39,11 +40,13 @@
 "%@ isn't loaded. Run muxy extension list." = "%@ isn't loaded. Run muxy extension list.";
 "%@ must be a regular file no larger than 16 MiB" = "%@ must be a regular file no larger than 16 MiB";
 "%@ must contain an object" = "%@ must contain an object";
+"%@ of %@" = "%@ of %@";
 "%@ on %@" = "%@ on %@";
 "%@ returned an empty response: %@" = "%@ returned an empty response: %@";
 "%@ returned invalid UTF-8" = "%@ returned invalid UTF-8";
 "%@ runs an older Muxy that lists only folders inside %@. Update it there to browse others, or type a full path." = "%@ runs an older Muxy that lists only folders inside %@. Update it there to browse others, or type a full path.";
 "%@ unit" = "%@ unit";
+"%@ updates available" = "%@ updates available";
 "%@ wants to delete a project." = "%@ wants to delete a project.";
 "%@ wants to make a network request." = "%@ wants to make a network request.";
 "%@ wants to modify the git repository." = "%@ wants to modify the git repository.";
@@ -173,6 +176,7 @@
 "Agents panel icon" = "Agents panel icon";
 "Agents panel rows" = "Agents panel rows";
 "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy." = "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy.";
+"All" = "All";
 "All Projects" = "All Projects";
 "All extensions are up to date." = "All extensions are up to date.";
 "All of them at a glance" = "All of them at a glance";
@@ -262,6 +266,7 @@
 "Attach, drop, or paste them. Files go in as paths, and AI tools can read your images." = "Attach, drop, or paste them. Files go in as paths, and AI tools can read your images.";
 "Attached file is missing: %@" = "Attached file is missing: %@";
 "Attachment paths must be absolute UTF-8 paths" = "Attachment paths must be absolute UTF-8 paths";
+"Author" = "Author";
 "Auto" = "Auto";
 "Auto · %@" = "Auto · %@";
 "Auto · None installed" = "Auto · None installed";
@@ -271,6 +276,7 @@
 "Automatic updates require a user-installed Linux desktop release" = "Automatic updates require a user-installed Linux desktop release";
 "Automatic updates require an installed %@.app" = "Automatic updates require an installed %@.app";
 "Automatic updates require an installed release of %@" = "Automatic updates require an installed release of %@";
+"A–Z" = "A–Z";
 "Back" = "Back";
 "Back to Extensions" = "Back to Extensions";
 "Background" = "Background";
@@ -379,6 +385,7 @@
 "Cart" = "Cart";
 "Cart Fill" = "Cart Fill";
 "Case" = "Case";
+"Categories" = "Categories";
 "Change Icon…" = "Change Icon…";
 "Change Theme…" = "Change Theme…";
 "Change settings with…" = "Change settings with…";
@@ -732,6 +739,7 @@
 "Detach" = "Detach";
 "Detach Terminal" = "Detach Terminal";
 "Detached %@" = "Detached %@";
+"Developer tools" = "Developer tools";
 "Diamond" = "Diamond";
 "Diamond Fill" = "Diamond Fill";
 "Disable" = "Disable";
@@ -931,6 +939,7 @@
 "Google Play" = "Google Play";
 "Got It" = "Got It";
 "Green" = "Green";
+"Grid" = "Grid";
 "Group" = "Group";
 "Group Actions" = "Group Actions";
 "Group Actions for %@" = "Group Actions for %@";
@@ -958,6 +967,7 @@
 "Home directory is unavailable" = "Home directory is unavailable";
 "Home directory unavailable" = "Home directory unavailable";
 "Home page" = "Home page";
+"Homepage" = "Homepage";
 "Horizontal padding (points)" = "Horizontal padding (points)";
 "Host" = "Host";
 "House" = "House";
@@ -1018,12 +1028,14 @@
 "Installed" = "Installed";
 "Installed %@." = "Installed %@.";
 "Installed %@.\n\n%@" = "Installed %@.\n\n%@";
+"Installed (%@)" = "Installed (%@)";
 "Installed, not enabled" = "Installed, not enabled";
 "Installing %@…" = "Installing %@…";
 "Installing muxy-server, then testing connection…" = "Installing muxy-server, then testing connection…";
 "Installing the app update and restarting Muxy." = "Installing the app update and restarting Muxy.";
 "Installing the command line tool is not available on this platform yet." = "Installing the command line tool is not available on this platform yet.";
 "Installing…" = "Installing…";
+"Installs" = "Installs";
 "Interface" = "Interface";
 "Interface size" = "Interface size";
 "Invalid Mobile port" = "Invalid Mobile port";
@@ -1066,6 +1078,7 @@
 "Know when you're needed" = "Know when you're needed";
 "Language" = "Language";
 "Language packs and other resource-only extensions keep working." = "Language packs and other resource-only extensions keep working.";
+"Languages" = "Languages";
 "Large" = "Large";
 "Last 24 hours" = "Last 24 hours";
 "Last seen %lld d ago" = "Last seen %lld d ago";
@@ -1126,6 +1139,7 @@
 "Make %@ Default" = "Make %@ Default";
 "Make Default" = "Make Default";
 "Make it yours" = "Make it yours";
+"Manage" = "Manage";
 "Manage Extensions" = "Manage Extensions";
 "Manage Profiles…" = "Manage Profiles…";
 "Manage Servers" = "Manage Servers";
@@ -1249,6 +1263,7 @@
 "Next Prompt" = "Next Prompt";
 "Next Tab" = "Next Tab";
 "Next match" = "Next match";
+"Next screenshot" = "Next screenshot";
 "No Group" = "No Group";
 "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead." = "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead.";
 "No SSH? Pair instead" = "No SSH? Pair instead";
@@ -1315,6 +1330,7 @@
 "Off" = "Off";
 "Off. Nothing is sent to muxy.app, and phones can't turn notifications on for this computer." = "Off. Nothing is sent to muxy.app, and phones can't turn notifications on for this computer.";
 "Off. Nothing is sent to muxy.app. Paused phones resume when you turn this on, for %lld more days." = "Off. Nothing is sent to muxy.app. Paused phones resume when you turn this on, for %lld more days.";
+"Official" = "Official";
 "Older sessions" = "Older sessions";
 "On" = "On";
 "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN." = "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN.";
@@ -1366,6 +1382,7 @@
 "Other Servers" = "Other Servers";
 "Outline" = "Outline";
 "Output changed; search again" = "Output changed; search again";
+"Overview" = "Overview";
 "Owner: %@" = "Owner: %@";
 "PR #%lld" = "PR #%lld";
 "PRIMARY" = "PRIMARY";
@@ -1414,6 +1431,7 @@
 "Percent" = "Percent";
 "Permanently delete branch “%@”? Unmerged commits may become unreachable." = "Permanently delete branch “%@”? Unmerged commits may become unreachable.";
 "Permission rules" = "Permission rules";
+"Permissions" = "Permissions";
 "Person" = "Person";
 "Person 2" = "Person 2";
 "Person 2 Fill" = "Person 2 Fill";
@@ -1438,6 +1456,7 @@
 "Play Rectangle Fill" = "Play Rectangle Fill";
 "Points to change the font size by, such as 1." = "Points to change the font size by, such as 1.";
 "Pop Out Panel" = "Pop Out Panel";
+"Popular" = "Popular";
 "Port" = "Port";
 "Press %@ for the agents panel, with every running agent in one list." = "Press %@ for the agents panel, with every running agent in one list.";
 "Press %@ to give a branch its own tabs and terminals." = "Press %@ to give a branch its own tabs and terminals.";
@@ -1449,7 +1468,9 @@
 "Previous Prompt" = "Previous Prompt";
 "Previous Tab" = "Previous Tab";
 "Previous match" = "Previous match";
+"Previous screenshot" = "Previous screenshot";
 "Privacy" = "Privacy";
+"Productivity" = "Productivity";
 "Profile name" = "Profile name";
 "Profiles" = "Profiles";
 "Profiles keep cookies and logins apart. New tabs use the default profile." = "Profiles keep cookies and logins apart. New tabs use the default profile.";
@@ -1506,6 +1527,7 @@
 "Reattach to Sidebar" = "Reattach to Sidebar";
 "Rebase" = "Rebase";
 "Rebase and Merge" = "Rebase and Merge";
+"Recent" = "Recent";
 "Recently Active" = "Recently Active";
 "Recently Removed" = "Recently Removed";
 "Reconnect" = "Reconnect";
@@ -1578,6 +1600,7 @@
 "Replaces the 16 ANSI colors. Leave a color empty to use the theme." = "Replaces the 16 ANSI colors. Leave a color empty to use the theme.";
 "Replaces the theme's terminal background, such as #1e1e2e. Leave empty to use the theme." = "Replaces the theme's terminal background, such as #1e1e2e. Leave empty to use the theme.";
 "Replaces the theme's terminal text color. Leave empty to use the theme." = "Replaces the theme's terminal text color. Leave empty to use the theme.";
+"Repository" = "Repository";
 "Requested permissions" = "Requested permissions";
 "Reset" = "Reset";
 "Reset %@" = "Reset %@";
@@ -1667,6 +1690,7 @@
 "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in Settings → Servers and paste the link. The code works once and expires in 5 minutes." = "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in Settings → Servers and paste the link. The code works once and expires in 5 minutes.";
 "Scan the code with the Muxy app. It works once and expires in 5 minutes." = "Scan the code with the Muxy app. It works once and expires in 5 minutes.";
 "Scan with the Muxy app" = "Scan with the Muxy app";
+"Screenshot %@" = "Screenshot %@";
 "Screwdriver" = "Screwdriver";
 "Screwdriver Fill" = "Screwdriver Fill";
 "Scroll page down" = "Scroll page down";
@@ -1702,6 +1726,7 @@
 "Search worktrees…" = "Search worktrees…";
 "Searches typed in the address bar use this engine." = "Searches typed in the address bar use this engine.";
 "Search…" = "Search…";
+"Sections" = "Sections";
 "Sections of %@" = "Sections of %@";
 "See what makes it different" = "See what makes it different";
 "Select %@" = "Select %@";
@@ -1778,7 +1803,6 @@
 "Show a one-time code to scan with the Muxy phone app, or a link to paste on another computer." = "Show a one-time code to scan with the Muxy phone app, or a link to paste on another computer.";
 "Show a persistent home-directory shell with a shortcut." = "Show a persistent home-directory shell with a shortcut.";
 "Show agents panel" = "Show agents panel";
-"Show all" = "Show all";
 "Show an enabled extension's sidebar in place of the built-in one." = "Show an enabled extension's sidebar in place of the built-in one.";
 "Show connection and terminal information at the bottom of the workspace." = "Show connection and terminal information at the bottom of the workspace.";
 "Show each agent on two lines with its agent and status, or fit more on one line each." = "Show each agent on two lines with its agent and status, or fit more on one line each.";
@@ -1800,7 +1824,6 @@
 "Show unread completion counts beside worktrees." = "Show unread completion counts beside worktrees.";
 "Show unread worktree indicators" = "Show unread worktree indicators";
 "Show “%@”" = "Show “%@”";
-"Showing language extensions" = "Showing language extensions";
 "Shown in the sidebar" = "Shown in the sidebar";
 "Shows only the current project in the sidebar, or every project again." = "Shows only the current project in the sidebar, or every project again.";
 "Sidebar vibrancy" = "Sidebar vibrancy";
@@ -1810,6 +1833,7 @@
 "Skip whenever you like. You can replay it from the command palette." = "Skip whenever you like. You can replay it from the command palette.";
 "Some history exceeds the scan limit." = "Some history exceeds the scan limit.";
 "Sort Projects" = "Sort Projects";
+"Sort extensions" = "Sort extensions";
 "Source Control" = "Source Control";
 "Sparkle" = "Sparkle";
 "Speedometer" = "Speedometer";
@@ -2044,6 +2068,7 @@
 "Try Again" = "Try Again";
 "Try a different name or clear your search." = "Try a different name or clear your search.";
 "Try a different search to find extensions." = "Try a different search to find extensions.";
+"Try another category or a different search." = "Try another category or a different search.";
 "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours." = "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours.";
 "Turn on Allow clients in Settings → Servers to copy a pairing link." = "Turn on Allow clients in Settings → Servers to copy a pairing link.";
 "Type" = "Type";
@@ -2089,6 +2114,7 @@
 "Update and End Sessions…" = "Update and End Sessions…";
 "Update and Restart App" = "Update and Restart App";
 "Update and restart app…" = "Update and restart app…";
+"Update available" = "Update available";
 "Update download checksum mismatch" = "Update download checksum mismatch";
 "Update feed is too large" = "Update feed is too large";
 "Update from %@" = "Update from %@";
@@ -2137,7 +2163,6 @@
 "Video" = "Video";
 "Video Fill" = "Video Fill";
 "View" = "View";
-"View %@" = "View %@";
 "Viewfinder" = "Viewfinder";
 "Viewfinder Circle" = "Viewfinder Circle";
 "Violet" = "Violet";
@@ -2225,6 +2250,7 @@
 "browser zoom out" = "browser zoom out";
 "browser zoom reset" = "browser zoom reset";
 "button activate" = "button activate";
+"by %@" = "by %@";
 "check for updates" = "check for updates";
 "clear screen" = "clear screen";
 "close other tabs" = "close other tabs";
@@ -2444,6 +2470,7 @@
 "too many files in extension archive" = "too many files in extension archive";
 "unsafe path in extension archive" = "unsafe path in extension archive";
 "untrusted marketplace download URL" = "untrusted marketplace download URL";
+"untrusted marketplace picture URL" = "untrusted marketplace picture URL";
 "zoom" = "zoom";
 "· active pane" = "· active pane";
 "“Remember” saves the rule: %@" = "“Remember” saves the rule: %@";

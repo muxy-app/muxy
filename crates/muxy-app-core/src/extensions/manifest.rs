@@ -507,6 +507,54 @@ pub struct Manifest {
     pub status_bar_items: Vec<StatusBarItem>,
     pub settings: Vec<Setting>,
     pub remote_methods: Vec<RemoteMethod>,
+    /// The marketplace listing, read only to show the extension in Settings.
+    #[serde(deserialize_with = "listing")]
+    pub marketplace: Listing,
+}
+
+/// What the marketplace shows about an extension: its pictures, maker, and
+/// links. The app never acts on it, so a malformed field is left empty
+/// instead of stopping the extension from loading.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Listing {
+    pub author: Option<String>,
+    pub categories: Vec<String>,
+    /// The listing icon, relative to the resource root.
+    pub icon: Option<String>,
+    /// Listing screenshots, relative to the resource root.
+    pub screenshots: Vec<String>,
+    pub homepage: Option<String>,
+    pub repository: Option<String>,
+}
+
+fn listing<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Listing, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    let text = |key: &str| {
+        value[key]
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+    };
+    let texts = |key: &str| {
+        value[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    Ok(Listing {
+        author: text("author"),
+        categories: texts("categories"),
+        icon: text("icon"),
+        screenshots: texts("screenshots"),
+        homepage: text("homepage"),
+        repository: text("repository"),
+    })
 }
 
 impl Manifest {
