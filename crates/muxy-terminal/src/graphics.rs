@@ -444,12 +444,33 @@ impl Cache {
         render: &mut RenderState<'static>,
         cell: CellSize,
     ) -> Result<Graphics> {
+        let found = self.placed(engine, render)?;
+        let films = self.films;
+        listing(engine, &mut self.images, found, cell, films)
+    }
+
+    /// The images placed on rows of history, listed as stills and kept apart
+    /// from the screen's. `found` holds placements whose rows count from the
+    /// first of those rows.
+    pub(crate) fn history(
+        engine: &Terminal<'static, 'static>,
+        found: Vec<Found>,
+        cell: CellSize,
+    ) -> Result<Graphics> {
+        listing(engine, &mut BTreeMap::new(), found, cell, false)
+    }
+
+    /// The Kitty placements the render state lists for the rows in view,
+    /// with rows counted from the top of the view.
+    pub(crate) fn placed(
+        &mut self,
+        engine: &Terminal<'static, 'static>,
+        render: &mut RenderState<'static>,
+    ) -> Result<Vec<Found>> {
         let storage = engine.kitty_graphics()?;
-        let stored = storage.generation()?;
         let snapshot = render.update(engine)?;
         let mut iter = self.placements.update(&snapshot)?;
         let mut found = Vec::new();
-        let mut sizes = BTreeMap::new();
         while let Some(placement) = iter.next() {
             if found.len() >= MAX_GRAPHICS_PLACEMENTS {
                 break;
@@ -478,10 +499,10 @@ impl Cache {
             if size.contains(&0) || source[2] == 0 || source[3] == 0 {
                 continue;
             }
-            sizes.insert(id, (image.generation()?, full));
-            found.push((
+            found.push(Found {
                 full,
-                GraphicPlacement {
+                generation: image.generation()?,
+                placement: GraphicPlacement {
                     image: id,
                     id: placement.kitty_placement_id()?.unwrap_or_default(),
                     column: placement.viewport_col()?,
@@ -491,53 +512,41 @@ impl Cache {
                     source,
                     z: placement.z()?,
                 },
-            ));
+            });
         }
-        let listed = within_screen(&sizes);
-        self.images.retain(|id, _| listed.contains(id));
-        let mut images = Vec::new();
-        for &id in &listed {
-            let Some(image) = storage.image(id) else {
-                continue;
-            };
-            if let Some(cached) = cached(&mut self.images, id, &image, stored, self.films)? {
-                images.push(cached.clone());
-            }
-        }
-        images.sort_by_key(|image| image.id);
-        let mut placements: Vec<GraphicPlacement> = found
-            .into_iter()
-            .filter_map(|(full, mut placement)| {
-                let image = images
-                    .binary_search_by_key(&placement.image, |image| image.id)
-                    .ok()
-                    .map(|index| &images[index])?;
-                placement.source = scaled_source(placement.source, full, image);
-                Some(placement)
-            })
-            .collect();
-        placements.sort_by_key(|p| (p.z, p.image, p.id));
-        Ok(Graphics {
-            cell,
-            images,
-            placements,
-        })
+        Ok(found)
     }
 
     /// The pixels of the frames of an image on screen that `keys` name, in
     /// that order, as far as one reply holds them. Frames that are gone are
     /// left out. A still image has one frame, and answers with the pixels it
     /// has now under their key, so an app that asks late still gets a picture.
+    /// An image only history shows, and an animation asked for the still a
+    /// history page lists it as, answer with that still.
     pub(crate) fn frames(
         &self,
         engine: &Terminal<'static, 'static>,
         id: u32,
         keys: &[u64],
     ) -> Result<Vec<ImageFrame>> {
-        let Some(cached) = self.images.get(&id).map(|cached| &cached.image) else {
-            return Ok(Vec::new());
-        };
         let storage = engine.kitty_graphics()?;
+        let mut stills = BTreeMap::new();
+        let screen = self
+            .images
+            .get(&id)
+            .map(|cached| &cached.image)
+            .filter(|image| image.frames.is_empty() || !keys.contains(&image.generation));
+        let cached = if let Some(image) = screen {
+            image
+        } else {
+            let Some(image) = storage.image(id) else {
+                return Ok(Vec::new());
+            };
+            let Some(still) = cached(&mut stills, id, &image, storage.generation()?, false)? else {
+                return Ok(Vec::new());
+            };
+            still
+        };
         let mut frames = Vec::new();
         let mut total = 0;
         if cached.frames.is_empty() {
@@ -568,6 +577,100 @@ impl Cache {
         }
         Ok(frames)
     }
+}
+
+/// One placement the render state lists, with its image's full size and the
+/// generation that orders images when they don't all fit.
+#[derive(Clone, Debug)]
+pub(crate) struct Found {
+    full: Size,
+    generation: u64,
+    pub(crate) placement: GraphicPlacement,
+}
+
+/// What views of history saw, each with the history row at its top, as
+/// placements on the `rows` rows starting at history row `first`, counted
+/// from that row. Placements covering none of those rows are left out, and
+/// one seen from two views is kept once.
+pub(crate) fn page_placements(
+    viewed: Vec<(usize, Vec<Found>)>,
+    first: usize,
+    rows: usize,
+    cell: CellSize,
+) -> Vec<Found> {
+    let (Ok(first), Ok(rows)) = (i64::try_from(first), i64::try_from(rows)) else {
+        return Vec::new();
+    };
+    let mut placed: Vec<Found> = Vec::new();
+    for (top, found) in viewed {
+        let Ok(top) = i64::try_from(top) else {
+            continue;
+        };
+        for mut found in found {
+            let Ok(row) = i32::try_from(i64::from(found.placement.row) + top - first) else {
+                continue;
+            };
+            found.placement.row = row;
+            if !found.placement.covers(cell, rows) {
+                continue;
+            }
+            if placed.iter().any(|kept| kept.placement == found.placement) {
+                continue;
+            }
+            if placed.len() >= MAX_GRAPHICS_PLACEMENTS {
+                return placed;
+            }
+            placed.push(found);
+        }
+    }
+    placed
+}
+
+/// The images `found` places, newest first as far as one list holds them,
+/// read through `images` and dropping the rest of it.
+fn listing(
+    engine: &Terminal<'static, 'static>,
+    images: &mut BTreeMap<u32, Cached>,
+    found: Vec<Found>,
+    cell: CellSize,
+    films: bool,
+) -> Result<Graphics> {
+    let storage = engine.kitty_graphics()?;
+    let stored = storage.generation()?;
+    let sizes: BTreeMap<u32, (u64, Size)> = found
+        .iter()
+        .map(|found| (found.placement.image, (found.generation, found.full)))
+        .collect();
+    let listed = within_screen(&sizes);
+    images.retain(|id, _| listed.contains(id));
+    let mut shown = Vec::new();
+    for &id in &listed {
+        let Some(image) = storage.image(id) else {
+            continue;
+        };
+        if let Some(cached) = cached(images, id, &image, stored, films)? {
+            shown.push(cached.clone());
+        }
+    }
+    shown.sort_by_key(|image| image.id);
+    let mut placements: Vec<GraphicPlacement> = found
+        .into_iter()
+        .filter_map(|found| {
+            let image = shown
+                .binary_search_by_key(&found.placement.image, |image| image.id)
+                .ok()
+                .map(|index| &shown[index])?;
+            let mut placement = found.placement;
+            placement.source = scaled_source(placement.source, found.full, image);
+            Some(placement)
+        })
+        .collect();
+    placements.sort_by_key(|p| (p.z, p.image, p.id));
+    Ok(Graphics {
+        cell,
+        images: shown,
+        placements,
+    })
 }
 
 /// The image as the screen lists it, read again when the storage changed.

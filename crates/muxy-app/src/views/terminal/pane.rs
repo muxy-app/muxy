@@ -483,7 +483,10 @@ impl TerminalPane {
         let output_changed = !frame.rows.is_empty() || terminal.grid.cursor != frame.cursor;
         let seq = terminal.apply(frame);
         self.session_size = Some(frame.size);
-        let conversions = self.images.convert(&terminal.grid.graphics);
+        let shown: Vec<_> = std::iter::once(&terminal.grid.graphics)
+            .chain(self.scroll.view.as_ref().map(|view| &view.graphics))
+            .collect();
+        let conversions = self.images.convert(&shown);
         let channel = terminal.channel();
         if output_changed && self.terminal.options.scroll_on_output {
             self.scroll.bottom();
@@ -790,6 +793,15 @@ impl TerminalPane {
         if let Some(request) = self.scroll.receive(request, result, height) {
             cx.emit(PaneEvent::History(request));
         }
+        let shown: Vec<_> = self
+            .grid
+            .as_deref()
+            .map(|grid| &grid.graphics)
+            .into_iter()
+            .chain(self.scroll.view.as_ref().map(|view| &view.graphics))
+            .collect();
+        let conversions = self.images.convert(&shown);
+        Self::convert_images(conversions, cx);
         if failed {
             if let Some(find) = &mut self.find {
                 find.results.loading_history = false;
@@ -2544,6 +2556,7 @@ mod tests {
                     next: None,
                     total_rows: 1,
                     screen: None,
+                    graphics: None,
                 }),
                 cx,
             );

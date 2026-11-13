@@ -195,6 +195,33 @@ fn terminals_other_clients_show_here_open_as_background_tabs_once(cx: &mut TestA
 }
 
 #[gpui::test]
+fn terminals_a_muxy_command_holds_stay_in_existing_terminals(cx: &mut TestAppContext) {
+    let (remote, api) = (ServerId::new(), ProjectId::new());
+    let (view, cx, _requests, _remotes, _home) = two_servers(remote, api, cx);
+    view.update(cx, |model, cx| {
+        let local_home = model.state.home().id;
+        let mut created = listed(local_home, 7, true, false);
+        created.owner = Some(muxy_protocol::SessionClient {
+            id: muxy_protocol::ClientId::new(),
+            kind: muxy_protocol::ClientKind::Cli,
+        });
+        model.receive(
+            listing(
+                ServerId::local(),
+                local_home,
+                vec![created, listed(local_home, 8, true, false)],
+            ),
+            cx,
+        );
+        assert_eq!(
+            sessions_in(model, local_home),
+            [SessionId::new(8).expect("id")],
+            "a phone's opens, a command's stays listed"
+        );
+    });
+}
+
+#[gpui::test]
 fn a_terminal_detached_here_is_not_reopened(cx: &mut TestAppContext) {
     let (remote, api) = (ServerId::new(), ProjectId::new());
     let (view, cx, _requests, _remotes, _home) = two_servers(remote, api, cx);

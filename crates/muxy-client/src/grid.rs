@@ -39,6 +39,8 @@ impl RunGrid {
         };
         grid.replace_rows(&snapshot.rows);
         grid.replace_links(snapshot.links.clone(), true);
+        let above = grid.history.len();
+        grid.place_history(snapshot.history_graphics.clone(), above);
         grid
     }
 
@@ -142,7 +144,9 @@ impl RunGrid {
             self.rows = screen.rows.into_iter().map(|row| row.runs).collect();
             self.cursor = screen.cursor;
         }
+        let rows = page.rows.len();
         self.history = page.rows.into();
+        self.place_history(page.graphics, rows);
         self.replace_links(page.links, has_screen);
         self.history_cursor = page.next;
         self.history_total = page.total_rows;
@@ -167,10 +171,48 @@ impl RunGrid {
         for row in page.rows.into_iter().rev() {
             self.history.push_front(row);
         }
+        self.place_history(page.graphics, history);
         self.history_cursor = page.next;
     }
 
+    /// Adds the images a history page places, whose first row is `above`
+    /// rows over the screen, with rows counted from the top of the screen as
+    /// the screen's own are. A placement already listed is kept once.
+    fn place_history(&mut self, graphics: Option<muxy_protocol::Graphics>, above: usize) {
+        let Some(graphics) = graphics else {
+            return;
+        };
+        let Ok(above) = i32::try_from(above) else {
+            return;
+        };
+        if self.graphics.placements.is_empty() {
+            self.graphics.cell = graphics.cell;
+        }
+        for image in graphics.images {
+            match self
+                .graphics
+                .images
+                .iter_mut()
+                .find(|kept| kept.id == image.id)
+            {
+                Some(kept) if kept.rgba.is_empty() && !image.rgba.is_empty() => *kept = image,
+                Some(_) => {}
+                None => self.graphics.images.push(image),
+            }
+        }
+        for mut placement in graphics.placements {
+            let Some(row) = placement.row.checked_sub(above) else {
+                continue;
+            };
+            placement.row = row;
+            if !self.graphics.placements.contains(&placement) {
+                self.graphics.placements.push(placement);
+            }
+        }
+    }
+
     pub fn clear_history(&mut self) {
+        self.graphics.shift_up(0, i64::MAX);
         self.links.history.clear();
         let history = self.history.len();
         self.prompts = self
@@ -347,6 +389,7 @@ mod tests {
             history: vec![],
             history_cursor: None,
             history_total: 0,
+            history_graphics: None,
         }
     }
 
@@ -368,6 +411,89 @@ mod tests {
                 bracketed_paste: true,
             },
         }
+    }
+
+    #[test]
+    fn history_images_count_rows_from_the_top_of_the_screen() {
+        let image = |id| muxy_protocol::GraphicImage {
+            id,
+            width: 1,
+            height: 1,
+            rgba: vec![255; 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        };
+        let placed = |image, row| muxy_protocol::GraphicPlacement {
+            image,
+            id: 0,
+            column: 0,
+            row,
+            offset: [0, 0],
+            size: [8, 32],
+            source: [0, 0, 1, 1],
+            z: 0,
+        };
+        let graphics = |placements: &[(u32, i32)]| muxy_protocol::Graphics {
+            cell: muxy_protocol::CellSize::default(),
+            images: placements.iter().map(|&(id, _)| image(id)).collect(),
+            placements: placements
+                .iter()
+                .map(|&(id, row)| placed(id, row))
+                .collect(),
+        };
+        let snapshot = snapshot();
+        let page = |rows: u16, graphics, screen| HistoryPage {
+            links: None,
+            prompts: vec![],
+            rows: (0..rows).map(|index| row(index, "line")).collect(),
+            next: None,
+            total_rows: 8,
+            screen,
+            graphics,
+        };
+        let mut grid = RunGrid::from_snapshot(&snapshot);
+        grid.replace_history(page(
+            5,
+            Some(graphics(&[(1, 2), (9, 4)])),
+            Some(SavedScreen {
+                graphics: graphics(&[(9, -1)]),
+                size: snapshot.size,
+                rows: snapshot.rows.clone(),
+                cursor: snapshot.cursor,
+                reason: None,
+            }),
+        ));
+        grid.fetch_older(page(3, Some(graphics(&[(2, 0)])), None));
+        let rows = |grid: &RunGrid| -> Vec<(u32, i32)> {
+            grid.graphics
+                .placements
+                .iter()
+                .map(|placement| (placement.image, placement.row))
+                .collect()
+        };
+        assert_eq!(
+            rows(&grid),
+            [(9, -1), (1, -3), (2, -8)],
+            "the image the screen and history both reach is placed once"
+        );
+        assert_eq!(grid.graphics.images.len(), 3);
+        grid.graphics.placements.push(placed(9, 40));
+        grid.clear_history();
+        assert_eq!(
+            rows(&grid),
+            [(9, -1), (9, 40)],
+            "only the screen's stay, even under rows the grid hasn't grown to yet"
+        );
+        assert_eq!(grid.graphics.images.len(), 1);
+
+        let mut attached = snapshot.clone();
+        attached.history = (0..4).map(|index| row(index, "line")).collect();
+        attached.history_graphics = Some(graphics(&[(3, 1)]));
+        let grid = RunGrid::from_snapshot(&attached);
+        assert_eq!(
+            rows(&grid),
+            [(3, -3)],
+            "an attach places its history's images"
+        );
     }
 
     #[test]
@@ -394,6 +520,7 @@ mod tests {
             next: None,
             total_rows: 2,
             screen: None,
+            graphics: None,
         });
         for (index, uri) in ["https://older", "https://history", "https://screen"]
             .into_iter()
@@ -416,6 +543,7 @@ mod tests {
                 cursor: snapshot.cursor,
                 reason: None,
             }),
+            graphics: None,
         });
         assert!(grid.content_links(0).is_empty());
         assert_eq!(grid.content_links(1)[0].uri, "https://refreshed");
@@ -546,6 +674,7 @@ mod prompt_tests {
             ],
             history_cursor: Some(HistoryCursor(2)),
             history_total: 4,
+            history_graphics: None,
         })
     }
 

@@ -196,13 +196,17 @@ impl Connection {
         self.lock().state.images = ImageDelivery::Stream;
     }
 
-    /// Leaves image pixels out of a live screen read with its history, for
-    /// an app that reads them itself.
+    /// Leaves image pixels out of a live screen read with its history, and
+    /// out of the images on the history's rows, for an app that reads them itself.
     pub(super) fn defer_page(&self, page: &mut muxy_protocol::HistoryPage) {
-        if self.lock().state.images == ImageDelivery::Defer
-            && let Some(screen) = &mut page.screen
-        {
+        if self.lock().state.images != ImageDelivery::Defer {
+            return;
+        }
+        if let Some(screen) = &mut page.screen {
             screen.graphics.defer_pixels();
+        }
+        if let Some(graphics) = &mut page.graphics {
+            graphics.defer_pixels();
         }
     }
 
@@ -352,6 +356,9 @@ impl Connection {
         let mut inner = self.lock();
         if inner.state.images == ImageDelivery::Defer {
             snapshot.graphics.defer_pixels();
+            if let Some(graphics) = &mut snapshot.history_graphics {
+                graphics.defer_pixels();
+            }
         }
         let Some(attachment) = inner.attachments.get_mut(&channel) else {
             return false;

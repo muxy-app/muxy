@@ -175,3 +175,6 @@ Themes are in **Settings → Appearance**. See
   32 MB is scaled down to fit, and a very long one loses its last frames. A
   terminal keeps about 136 MB of images; past that, the oldest ones go, as in
   Kitty and Ghostty. A saved screen keeps the frame that was showing.
+- Images stay with their rows when output pushes them into scrollback, and
+  scrolling back shows them again, as stills. A terminal's saved history,
+  read after it ends or the server restarts, keeps only its text.

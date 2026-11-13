@@ -37,6 +37,9 @@ pub struct TerminalHistory {
     pub rows: Vec<Row>,
     pub prompts: Vec<u16>,
     pub links: Vec<crate::LinkRow>,
+    /// The images placed on `rows`, rows counted from the first of them.
+    /// `None` when there are none.
+    pub graphics: Option<crate::Graphics>,
 }
 
 /// A copy of a terminal that can move to another thread and become an archive there.
@@ -818,7 +821,7 @@ impl Terminal {
         &mut self,
         range: Range<usize>,
     ) -> Result<(Vec<Row>, Vec<u16>), TerminalError> {
-        self.history_with_metadata(range, None)
+        self.history_with_metadata(range, None, None)
     }
 
     pub fn history_with_links(
@@ -826,18 +829,33 @@ impl Terminal {
         range: Range<usize>,
     ) -> Result<TerminalHistory, TerminalError> {
         let mut links = Vec::new();
-        let (rows, prompts) = self.history_with_metadata(range, Some(&mut links))?;
+        let mut placed = Vec::new();
+        let (rows, prompts) =
+            self.history_with_metadata(range, Some(&mut links), Some(&mut placed))?;
+        let graphics = if placed.is_empty() {
+            None
+        } else {
+            Some(
+                crate::graphics::Cache::history(&self.engine, placed, self.cell)
+                    .map_err(|error| TerminalError::wrap(TerminalStep::History, error))?,
+            )
+            .filter(|graphics| !graphics.placements.is_empty())
+        };
         Ok(TerminalHistory {
             rows,
             prompts,
             links,
+            graphics,
         })
     }
 
+    /// History rows of `range`, their prompts and, when asked, their links
+    /// and the image placements on them, rows counted from the first row.
     fn history_with_metadata(
         &mut self,
         range: Range<usize>,
         links: Option<&mut Vec<crate::LinkRow>>,
+        placed: Option<&mut Vec<crate::graphics::Found>>,
     ) -> Result<(Vec<Row>, Vec<u16>), TerminalError> {
         let end = range.end.min(self.history_rows()?);
         if range.start >= end {
@@ -856,12 +874,20 @@ impl Terminal {
             let mut prompts = Vec::new();
             let mut history_links = Vec::new();
             let mut link_count = 0;
+            let mut viewed = Vec::new();
             'viewports: for start in (range.start..end)
                 .step_by(usize::from(self.size.rows))
                 .rev()
             {
                 self.engine.scroll_viewport(ScrollViewport::Row(start));
                 let (screen, screen_prompts) = self.screen_with_prompts()?;
+                if placed.is_some() {
+                    let found = self
+                        .graphics_cache
+                        .placed(&self.engine, &mut self.render)
+                        .map_err(query)?;
+                    viewed.push((start, found));
+                }
                 for row in screen.into_iter().take(end - start).rev() {
                     if links.is_some() {
                         let mut cached = crate::links::CachedRow::default();
@@ -889,6 +915,15 @@ impl Terminal {
                 }
             }
             history.reverse();
+            if let Some(placed) = placed {
+                let first = end - history.len();
+                placed.extend(crate::graphics::page_placements(
+                    viewed,
+                    first,
+                    history.len(),
+                    self.cell,
+                ));
+            }
             for (index, row) in history.iter_mut().enumerate() {
                 row.index = u16::try_from(index).unwrap_or(u16::MAX);
             }

@@ -539,9 +539,10 @@ impl Owner {
             history: history.rows,
             history_cursor: history.next,
             history_total: history.total_rows,
+            history_graphics: history.graphics,
         };
         if sink.send(AttachmentEvent::Snapshot {
-            snapshot,
+            snapshot: Box::new(snapshot),
             process: self.metadata.process.clone(),
         }) {
             sink.send(AttachmentEvent::Metadata(MetadataEvent::InputModes(
@@ -579,6 +580,7 @@ impl Owner {
             rows: history,
             mut prompts,
             mut links,
+            graphics,
         } = self
             .terminal
             .history_with_links(range)
@@ -626,6 +628,7 @@ impl Owner {
                 next,
                 total_rows: total as u64,
                 screen,
+                graphics,
             },
         )
     }

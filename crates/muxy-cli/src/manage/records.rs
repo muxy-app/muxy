@@ -107,6 +107,7 @@ mod tests {
             next: Some(HistoryCursor(id)),
             total_rows: 0,
             screen: None,
+            graphics: None,
         });
         let search = search(&SearchPage {
             matches: Vec::new(),

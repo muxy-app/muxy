@@ -98,6 +98,7 @@ fn snapshot() -> AttachSnapshot {
         history: Vec::new(),
         history_cursor: None,
         history_total: 0,
+        history_graphics: None,
     }
 }
 

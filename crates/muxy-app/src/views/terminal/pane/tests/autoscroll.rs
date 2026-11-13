@@ -85,6 +85,7 @@ fn selection_autoscroll_pages_history_and_extends_after_reply(cx: &mut TestAppCo
                 total_rows: 20,
                 prompts: Vec::new(),
                 screen: None,
+                graphics: None,
             }),
             cx,
         );

@@ -482,6 +482,7 @@ mod tests {
             next,
             total_rows: 100,
             screen: None,
+            graphics: None,
         }
     }
 
@@ -505,6 +506,7 @@ mod tests {
             history: page(80, 100, None).rows,
             history_cursor: Some(HistoryCursor(42)),
             history_total: 100,
+            history_graphics: None,
         })
     }
 

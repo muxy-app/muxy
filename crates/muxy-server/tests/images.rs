@@ -87,3 +87,68 @@ fn a_session_lists_an_animation_and_hands_out_its_frames() -> Result {
     let _ = fs::remove_dir_all(directory);
     Ok(())
 }
+
+#[test]
+fn a_history_page_places_the_images_on_its_rows() -> Result {
+    let directory = std::env::temp_dir().join(format!("muxy-images-{}", ProjectId::new()));
+    fs::create_dir(&directory)?;
+    fs::write(
+        directory.join("output"),
+        "before\r\n\x1b_Ga=T,i=6,f=32,s=1,v=1,c=2,r=2,q=2;/wAA/w==\x1b\\\r\nafter\r\n",
+    )?;
+    let shell = directory.join("shell");
+    fs::write(
+        &shell,
+        "#!/bin/sh\ncat output\nseq 1 30\necho done\nexec /bin/sleep 60\n",
+    )?;
+    fs::set_permissions(&shell, fs::Permissions::from_mode(0o700))?;
+    let (events, _) = mpsc::channel();
+    let registry = Registry::new(
+        ServerSettings {
+            default_shell: Some(shell),
+            shell_integration: false,
+            ..ServerSettings::default()
+        },
+        events,
+    );
+    let info = registry.create(&directory, Size { cols: 20, rows: 5 })?;
+    let handle = registry.handle(info.id).ok_or("session disappeared")?;
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let page = loop {
+        let (reply, receive) = mpsc::channel();
+        handle.send(SessionCommand::HistoryPage {
+            before: HistoryCursor(0),
+            max_rows: 100,
+            reply,
+        })?;
+        let page = receive.recv_timeout(Duration::from_secs(5))??;
+        if page.graphics.is_some() {
+            break page;
+        }
+        assert!(Instant::now() < deadline, "the image never reached history");
+        thread::sleep(Duration::from_millis(20));
+    };
+    assert!(
+        page.screen
+            .as_ref()
+            .ok_or("no screen")?
+            .graphics
+            .placements
+            .is_empty(),
+        "the screen no longer shows it"
+    );
+    let graphics = page.graphics.ok_or("no history images")?;
+    let row = usize::try_from(graphics.placements[0].row)?;
+    let text: String = page.rows[row - 1]
+        .runs
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(text.trim_end(), "before");
+    assert_eq!(graphics.images[0].rgba.to_vec(), [255, 0, 0, 255]);
+    let image = &graphics.images[0];
+    let pixels = frames(&handle, image.id, vec![image.generation])?;
+    assert_eq!(pixels[0].rgba.to_vec(), [255, 0, 0, 255]);
+    Ok(())
+}
