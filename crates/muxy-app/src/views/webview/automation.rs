@@ -135,17 +135,9 @@ pub(crate) fn png(picture: Picture) -> Result<Vec<u8>, String> {
         height,
         mut rgba,
     } = picture;
+    super::unpremultiply(&mut rgba);
     for pixel in rgba.chunks_exact_mut(4) {
-        let [blue, green, red, alpha] = [pixel[0], pixel[1], pixel[2], pixel[3]];
-        let straight = |channel: u8| -> u8 {
-            if alpha == 0 {
-                0
-            } else {
-                u8::try_from((u32::from(channel) * 255 + u32::from(alpha) / 2) / u32::from(alpha))
-                    .unwrap_or(u8::MAX)
-            }
-        };
-        pixel.copy_from_slice(&[straight(red), straight(green), straight(blue), alpha]);
+        pixel.swap(0, 2);
     }
     let image = image::RgbaImage::from_raw(width, height, rgba)
         .ok_or("the screenshot has the wrong size")?;

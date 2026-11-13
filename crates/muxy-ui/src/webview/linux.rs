@@ -137,20 +137,15 @@ impl NativeWebview {
         source: Source,
         script: &str,
         _background: Rgba,
-        transparent_background: bool,
     ) -> Result<(Self, Receiver<Event>), String> {
         // A window the desktop does not show, as in a test, has nowhere to
         // draw a page, so no engine is started for it.
         HasWindowHandle::window_handle(window).map_err(|error| error.to_string())?;
-        Self::open(source, script, transparent_background)
+        Self::open(source, script)
     }
 
     /// Opens a page that renders off screen, whoever draws it.
-    fn open(
-        source: Source,
-        script: &str,
-        transparent: bool,
-    ) -> Result<(Self, Receiver<Event>), String> {
+    fn open(source: Source, script: &str) -> Result<(Self, Receiver<Event>), String> {
         let url = source.entry_url().map_err(|error| error.to_string())?;
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
         let (events, receiver) = async_channel::bounded(256);
@@ -161,7 +156,7 @@ impl NativeWebview {
             source: Some(source),
             browser: None,
             script: script.to_owned(),
-            transparent,
+            transparent: true,
             events: Events::Extension(events.clone()),
             shared: shared.clone(),
         };

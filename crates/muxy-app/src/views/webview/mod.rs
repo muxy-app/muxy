@@ -84,11 +84,11 @@ impl Presentation {
         self.visible && !self.blocked && !failed
     }
 
-    /// A page the app draws is its snapshots. One the system shows keeps a
-    /// snapshot under it for when it is hidden, except where the page lets
-    /// what is behind it show through.
-    fn show_snapshot(&self, see_through: bool, failed: bool) -> bool {
-        NativeWebview::DRAWN_BY_APP || !see_through || !self.native_visible(failed)
+    /// A page the app draws is its snapshots. One the system shows lets what
+    /// is behind it show through where it leaves its background unset, so its
+    /// snapshot is drawn only while it is hidden.
+    fn show_snapshot(&self, failed: bool) -> bool {
+        NativeWebview::DRAWN_BY_APP || !self.native_visible(failed)
     }
 
     fn update_focus(&mut self, visible: bool, blocked: bool, focused: bool) -> Option<bool> {
@@ -165,13 +165,7 @@ impl Webview {
             &theme_values,
         );
         let background = page_background(&theme, transparent);
-        let (native, events) = NativeWebview::new(
-            window,
-            source.clone(),
-            &script,
-            background,
-            transparent || matches!(kind, SurfaceKind::Modal | SurfaceKind::Popover),
-        )?;
+        let (native, events) = NativeWebview::new(window, source.clone(), &script, background)?;
         Ok(cx.new(move |cx| {
             cx.on_release(|view: &mut Self, cx| view.clear_snapshot(cx))
                 .detach();
@@ -641,8 +635,25 @@ impl Webview {
 }
 
 fn render_snapshot(snapshot: muxy_ui::webview::Snapshot) -> Option<gpui::RenderImage> {
-    let pixels = image::RgbaImage::from_raw(snapshot.width, snapshot.height, snapshot.bgra)?;
+    let mut bgra = snapshot.bgra;
+    unpremultiply(&mut bgra);
+    let pixels = image::RgbaImage::from_raw(snapshot.width, snapshot.height, bgra)?;
     Some(gpui::RenderImage::new([image::Frame::new(pixels)]))
+}
+
+/// Turns premultiplied pixels, alpha last, into the straight alpha images
+/// are drawn with, in place.
+pub(crate) fn unpremultiply(pixels: &mut [u8]) {
+    for pixel in pixels.chunks_exact_mut(4) {
+        let alpha = u32::from(pixel[3]);
+        for channel in &mut pixel[..3] {
+            *channel = if alpha == 0 {
+                0
+            } else {
+                u8::try_from((u32::from(*channel) * 255 + alpha / 2) / alpha).unwrap_or(u8::MAX)
+            };
+        }
+    }
 }
 
 impl Drop for Webview {
@@ -696,13 +707,7 @@ impl Render for Webview {
             .children(
                 self.snapshot
                     .clone()
-                    .filter(|_| {
-                        self.presentation.show_snapshot(
-                            self.transparent
-                                || matches!(self.kind, SurfaceKind::Modal | SurfaceKind::Popover),
-                            failed,
-                        )
-                    })
+                    .filter(|_| self.presentation.show_snapshot(failed))
                     .map(|image| img(image).absolute().size_full().rounded(corners)),
             )
             .children(
@@ -826,4 +831,40 @@ pub(crate) fn placeholder(
                 .child(tr!("Tab type: %@", kind)),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+
+    #[test]
+    fn a_shown_page_has_no_snapshot_under_it_unless_the_app_draws_it() {
+        let shown = Presentation {
+            visible: true,
+            ..Presentation::default()
+        };
+        assert_eq!(shown.show_snapshot(false), NativeWebview::DRAWN_BY_APP);
+        assert!(shown.show_snapshot(true));
+        let blocked = Presentation {
+            visible: true,
+            blocked: true,
+            ..Presentation::default()
+        };
+        assert!(blocked.show_snapshot(false));
+        assert!(Presentation::default().show_snapshot(false));
+    }
+
+    #[test]
+    fn snapshots_are_drawn_with_straight_alpha() {
+        let mut pixels = vec![
+            64, 32, 128, 128, 10, 20, 30, 0, 255, 255, 255, 255, 200, 0, 0, 100,
+        ];
+        unpremultiply(&mut pixels);
+        assert_eq!(
+            pixels,
+            vec![
+                128, 64, 255, 128, 0, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 100
+            ]
+        );
+    }
 }

@@ -142,14 +142,16 @@ impl NativeWebview {
     pub const DRAWN_BY_APP: bool = backend::DRAWN_BY_APP;
 
     /// Loads `source` with `script` run at the start of each of its documents.
+    /// The engine draws no background of its own, so what the app draws
+    /// behind the page shows until the page paints and wherever it leaves
+    /// its background unset.
     pub fn new(
         window: &Window,
         source: Source,
         script: &str,
         background: Rgba,
-        transparent_background: bool,
     ) -> Result<(Self, Receiver<Event>), String> {
-        backend::NativeWebview::new(window, source, script, background, transparent_background)
+        backend::NativeWebview::new(window, source, script, background)
             .map(|(view, events)| (Self(view), events))
     }
 

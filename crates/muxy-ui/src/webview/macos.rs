@@ -275,7 +275,6 @@ impl NativeWebview {
         source: Source,
         script: &str,
         background: Rgba,
-        transparent_background: bool,
     ) -> Result<(Self, Receiver<Event>), String> {
         let url = source.entry_url().map_err(|error| error.to_string())?;
         let mtm = MainThreadMarker::new().ok_or("webview must be created on the main thread")?;
@@ -320,12 +319,10 @@ impl NativeWebview {
         view.setWantsLayer(true);
         unsafe {
             view.setUnderPageBackgroundColor(Some(&background_color(background)));
-            if transparent_background {
-                view.setValue_forKey(
-                    Some(&NSNumber::new_bool(false)),
-                    &NSString::from_str("drawsBackground"),
-                );
-            }
+            view.setValue_forKey(
+                Some(&NSNumber::new_bool(false)),
+                &NSString::from_str("drawsBackground"),
+            );
         }
         let mut host = Host::new(parent, mtm);
         host.container().addSubview(&view);

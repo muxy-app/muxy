@@ -25,7 +25,6 @@ impl NativeWebview {
         _source: Source,
         _script: &str,
         _background: Rgba,
-        _transparent_background: bool,
     ) -> Result<(Self, Receiver<Event>), String> {
         Err(Feature::ExtensionWebviews.unsupported_reason().into_owned())
     }

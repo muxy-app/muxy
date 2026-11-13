@@ -64,17 +64,23 @@ pub(in crate::views) fn handle(model: &AppModel, cx: &mut Context<AppModel>) -> 
                 cx.notify();
             }),
         )
+        .when_some(model.webviews.sidebar.as_ref(), |handle, sidebar| {
+            handle.child(model.webview_grip(
+                Some(sidebar.surface.view.entity_id()),
+                gpui::CursorStyle::ResizeLeftRight,
+            ))
+        })
         .child(
             div()
                 .absolute()
                 .right_0()
                 .h_full()
                 .w(px(1.0))
-                .bg(model.theme.border),
+                .bg(model.theme.border)
+                .when(model.webviews.sidebar.is_some(), |border| {
+                    border.child(model.webview_occlusion())
+                }),
         )
-        .when(model.webviews.sidebar.is_some(), |handle| {
-            handle.child(model.webview_occlusion())
-        })
         .child(
             canvas(
                 |_, _, _| (),

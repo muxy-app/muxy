@@ -612,7 +612,7 @@ mod probe {
                         entry: "webview_keyboard.html".into(),
                     };
                     let (page, events) =
-                        NativeWebview::new(window, source, "", gpui::rgb(0x00ff_ffff), false)
+                        NativeWebview::new(window, source, "", gpui::rgb(0x00ff_ffff))
                             .expect("webview");
                     let page = Rc::new(page);
                     let bounds =
