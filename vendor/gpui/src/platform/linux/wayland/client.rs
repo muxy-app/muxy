@@ -1,6 +1,7 @@
 use std::{
     cell::{RefCell, RefMut},
     hash::Hash,
+    ops::Range,
     os::fd::{AsRawFd, BorrowedFd},
     path::PathBuf,
     rc::{Rc, Weak},
@@ -190,6 +191,90 @@ pub struct Output {
     pub bounds: Bounds<DevicePixels>,
 }
 
+struct Preedit {
+    text: String,
+    selection_utf16: Option<Range<usize>>,
+}
+
+fn preedit_selection_utf16(text: &str, cursor_begin: i32, cursor_end: i32) -> Option<Range<usize>> {
+    if cursor_begin < 0 || cursor_end < 0 {
+        return None;
+    }
+    let start = char_boundary(text, cursor_begin as usize);
+    let end = char_boundary(text, cursor_end as usize);
+    let (start, end) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
+    Some(utf16_offset(text, start)..utf16_offset(text, end))
+}
+
+fn char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
+fn utf16_offset(text: &str, byte: usize) -> usize {
+    text[..byte].encode_utf16().count()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ImeCursorRectangle {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+impl From<Bounds<Pixels>> for ImeCursorRectangle {
+    fn from(bounds: Bounds<Pixels>) -> Self {
+        Self {
+            x: bounds.origin.x.0 as i32,
+            y: bounds.origin.y.0 as i32,
+            width: bounds.size.width.0 as i32,
+            height: bounds.size.height.0 as i32,
+        }
+    }
+}
+
+fn set_ime_cursor_rectangle(
+    text_input: &zwp_text_input_v3::ZwpTextInputV3,
+    rectangle: ImeCursorRectangle,
+) {
+    text_input.set_cursor_rectangle(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
+}
+
+fn update_ime_cursor_rectangle(
+    text_input: &zwp_text_input_v3::ZwpTextInputV3,
+    last: &mut Option<ImeCursorRectangle>,
+    bounds: Bounds<Pixels>,
+) {
+    let rectangle = ImeCursorRectangle::from(bounds);
+    if *last == Some(rectangle) {
+        return;
+    }
+    *last = Some(rectangle);
+    set_ime_cursor_rectangle(text_input, rectangle);
+    text_input.commit();
+}
+
+fn set_ime_cursor_rectangle_after_done(
+    text_input: &zwp_text_input_v3::ZwpTextInputV3,
+    last: &mut Option<ImeCursorRectangle>,
+    bounds: Bounds<Pixels>,
+    should_commit: bool,
+) {
+    if should_commit {
+        update_ime_cursor_rectangle(text_input, last, bounds);
+    } else {
+        set_ime_cursor_rectangle(text_input, ImeCursorRectangle::from(bounds));
+    }
+}
+
 pub(crate) struct WaylandClientState {
     serial_tracker: SerialTracker,
     globals: Globals,
@@ -202,7 +287,8 @@ pub(crate) struct WaylandClientState {
     primary_selection: Option<zwp_primary_selection_device_v1::ZwpPrimarySelectionDeviceV1>,
     text_input: Option<zwp_text_input_v3::ZwpTextInputV3>,
     pre_edit_text: Option<String>,
-    ime_pre_edit: Option<String>,
+    last_ime_cursor_rectangle: Option<ImeCursorRectangle>,
+    ime_pre_edit: Option<Preedit>,
     composing: bool,
     // Surface to Window mapping
     windows: HashMap<ObjectId, WaylandWindowStatePtr>,
@@ -296,21 +382,21 @@ impl WaylandClientStatePtr {
             return;
         };
 
+        state.last_ime_cursor_rectangle = None;
         text_input.enable();
         text_input.set_content_type(ContentHint::None, ContentPurpose::Normal);
+        let mut cursor_rectangle = None;
         if let Some(window) = state.keyboard_focused_window.clone() {
             drop(state);
             if let Some(area) = window.get_ime_area() {
-                text_input.set_cursor_rectangle(
-                    area.origin.x.0 as i32,
-                    area.origin.y.0 as i32,
-                    area.size.width.0 as i32,
-                    area.size.height.0 as i32,
-                );
+                let area = ImeCursorRectangle::from(area);
+                set_ime_cursor_rectangle(&text_input, area);
+                cursor_rectangle = Some(area);
             }
             state = client.borrow_mut();
         }
         text_input.commit();
+        state.last_ime_cursor_rectangle = cursor_rectangle;
         state.text_input = Some(text_input);
     }
 
@@ -327,18 +413,18 @@ impl WaylandClientStatePtr {
     pub fn update_ime_position(&self, bounds: Bounds<Pixels>) {
         let client = self.get_client();
         let mut state = client.borrow_mut();
-        if state.composing || state.text_input.is_none() || state.pre_edit_text.is_some() {
+        if state.pre_edit_text.is_some() {
             return;
         }
-
-        let text_input = state.text_input.as_ref().unwrap();
-        text_input.set_cursor_rectangle(
-            bounds.origin.x.0 as i32,
-            bounds.origin.y.0 as i32,
-            bounds.size.width.0 as i32,
-            bounds.size.height.0 as i32,
-        );
-        text_input.commit();
+        let WaylandClientState {
+            text_input,
+            last_ime_cursor_rectangle,
+            ..
+        } = &mut *state;
+        let Some(text_input) = text_input.as_ref() else {
+            return;
+        };
+        update_ime_cursor_rectangle(text_input, last_ime_cursor_rectangle, bounds);
     }
 
     pub fn handle_keyboard_layout_change(&self) {
@@ -562,6 +648,7 @@ impl WaylandClient {
             primary_selection,
             text_input: None,
             pre_edit_text: None,
+            last_ime_cursor_rectangle: None,
             ime_pre_edit: None,
             composing: false,
             outputs: HashMap::default(),
@@ -1317,7 +1404,10 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                                     let pre_edit =
                                         state.pre_edit_text.clone().unwrap_or(String::default());
                                     drop(state);
-                                    focused_window.handle_ime(ImeInput::SetMarkedText(pre_edit));
+                                    focused_window.handle_ime(ImeInput::SetMarkedText {
+                                        text: pre_edit,
+                                        selection_utf16: None,
+                                    });
                                     state = client.borrow_mut();
                                 }
 
@@ -1337,8 +1427,10 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                                         focused_window.handle_ime(ImeInput::InsertText(pre_edit));
                                     }
                                     if let Some(current_key) = new_pre_edit {
-                                        focused_window
-                                            .handle_ime(ImeInput::SetMarkedText(current_key));
+                                        focused_window.handle_ime(ImeInput::SetMarkedText {
+                                            text: current_key,
+                                            selection_utf16: None,
+                                        });
                                     }
                                     compose.feed(keysym);
                                     state = client.borrow_mut();
@@ -1453,9 +1545,16 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for WaylandClientStatePtr {
                     }
                 }
             }
-            zwp_text_input_v3::Event::PreeditString { text, .. } => {
-                state.composing = true;
-                state.ime_pre_edit = text;
+            zwp_text_input_v3::Event::PreeditString {
+                text,
+                cursor_begin,
+                cursor_end,
+            } => {
+                state.composing = text.as_ref().is_some_and(|text| !text.is_empty());
+                state.ime_pre_edit = text.map(|text| Preedit {
+                    selection_utf16: preedit_selection_utf16(&text, cursor_begin, cursor_end),
+                    text,
+                });
             }
             zwp_text_input_v3::Event::Done { serial } => {
                 let last_serial = state.serial_tracker.get(SerialKind::InputMethod);
@@ -1464,19 +1563,20 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for WaylandClientStatePtr {
                     return;
                 };
 
-                if let Some(text) = state.ime_pre_edit.take() {
+                if let Some(preedit) = state.ime_pre_edit.take() {
                     drop(state);
-                    window.handle_ime(ImeInput::SetMarkedText(text));
+                    window.handle_ime(ImeInput::SetMarkedText {
+                        text: preedit.text,
+                        selection_utf16: preedit.selection_utf16,
+                    });
                     if let Some(area) = window.get_ime_area() {
-                        text_input.set_cursor_rectangle(
-                            area.origin.x.0 as i32,
-                            area.origin.y.0 as i32,
-                            area.size.width.0 as i32,
-                            area.size.height.0 as i32,
+                        let mut state = client.borrow_mut();
+                        set_ime_cursor_rectangle_after_done(
+                            text_input,
+                            &mut state.last_ime_cursor_rectangle,
+                            area,
+                            last_serial == serial,
                         );
-                        if last_serial == serial {
-                            text_input.commit();
-                        }
                     }
                 } else {
                     state.composing = false;
@@ -2155,5 +2255,19 @@ impl Dispatch<zwp_primary_selection_source_v1::ZwpPrimarySelectionSourceV1, ()>
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preedit_selection_utf16;
+
+    #[test]
+    fn preedit_cursor_bytes_become_utf16_units_of_the_composing_text() {
+        assert_eq!(preedit_selection_utf16("ni", 2, 2), Some(2..2));
+        assert_eq!(preedit_selection_utf16("你", 3, 3), Some(1..1));
+        assert_eq!(preedit_selection_utf16("你", 0, 3), Some(0..1));
+        assert_eq!(preedit_selection_utf16("你好", 3, 6), Some(1..2));
+        assert_eq!(preedit_selection_utf16("你", -1, -1), None);
     }
 }

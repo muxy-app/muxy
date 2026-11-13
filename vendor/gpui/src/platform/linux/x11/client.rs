@@ -1022,7 +1022,7 @@ impl X11Client {
                                 let pre_edit =
                                     state.pre_edit_text.clone().unwrap_or(String::default());
                                 drop(state);
-                                window.handle_ime_preedit(pre_edit);
+                                window.handle_ime_preedit(pre_edit, None);
                                 state = self.0.borrow_mut();
                             }
                             xkbc::Status::Cancelled => {
@@ -1032,7 +1032,7 @@ impl X11Client {
                                     window.handle_ime_commit(pre_edit);
                                 }
                                 if let Some(current_key) = Keystroke::underlying_dead_key(keysym) {
-                                    window.handle_ime_preedit(current_key);
+                                    window.handle_ime_preedit(current_key, None);
                                 }
                                 state = self.0.borrow_mut();
                                 compose_state.feed(keysym);
@@ -1273,8 +1273,8 @@ impl X11Client {
             XimCallbackEvent::XimCommitEvent(window, text) => {
                 self.xim_handle_commit(window, text);
             }
-            XimCallbackEvent::XimPreeditEvent(window, text) => {
-                self.xim_handle_preedit(window, text);
+            XimCallbackEvent::XimPreeditEvent(window, text, selection_utf16) => {
+                self.xim_handle_preedit(window, text, selection_utf16);
             }
         };
     }
@@ -1322,7 +1322,12 @@ impl X11Client {
         Some(())
     }
 
-    fn xim_handle_preedit(&self, window: xproto::Window, text: String) -> Option<()> {
+    fn xim_handle_preedit(
+        &self,
+        window: xproto::Window,
+        text: String,
+        selection_utf16: Option<std::ops::Range<usize>>,
+    ) -> Option<()> {
         let Some(window) = self.get_window(window) else {
             log::error!("bug: Failed to get window for XIM preedit");
             return None;
@@ -1332,7 +1337,7 @@ impl X11Client {
         let (mut ximc, mut xim_handler) = state.take_xim()?;
         state.composing = !text.is_empty();
         drop(state);
-        window.handle_ime_preedit(text);
+        window.handle_ime_preedit(text, selection_utf16);
 
         if let Some(scaled_area) = window.get_ime_area() {
             let ic_attributes = ximc

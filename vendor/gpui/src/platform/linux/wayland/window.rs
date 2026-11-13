@@ -227,7 +227,10 @@ impl WaylandWindowState {
 pub(crate) struct WaylandWindow(pub WaylandWindowStatePtr);
 pub enum ImeInput {
     InsertText(String),
-    SetMarkedText(String),
+    SetMarkedText {
+        text: String,
+        selection_utf16: Option<std::ops::Range<usize>>,
+    },
     UnmarkText,
     DeleteText,
 }
@@ -643,8 +646,11 @@ impl WaylandWindowStatePtr {
                 ImeInput::InsertText(text) => {
                     input_handler.replace_text_in_range(None, &text);
                 }
-                ImeInput::SetMarkedText(text) => {
-                    input_handler.replace_and_mark_text_in_range(None, &text, None);
+                ImeInput::SetMarkedText {
+                    text,
+                    selection_utf16,
+                } => {
+                    input_handler.replace_and_mark_text_in_range(None, &text, selection_utf16);
                 }
                 ImeInput::UnmarkText => {
                     input_handler.unmark_text();
@@ -664,9 +670,7 @@ impl WaylandWindowStatePtr {
         let mut bounds: Option<Bounds<Pixels>> = None;
         if let Some(mut input_handler) = state.input_handler.take() {
             drop(state);
-            if let Some(selection) = input_handler.marked_text_range() {
-                bounds = input_handler.bounds_for_range(selection.start..selection.start);
-            }
+            bounds = input_handler.ime_candidate_bounds();
             self.state.borrow_mut().input_handler = Some(input_handler);
         }
         bounds

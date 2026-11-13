@@ -1039,11 +1039,15 @@ impl X11WindowStatePtr {
         }
     }
 
-    pub fn handle_ime_preedit(&self, text: String) {
+    pub fn handle_ime_preedit(
+        &self,
+        text: String,
+        selection_utf16: Option<std::ops::Range<usize>>,
+    ) {
         let mut state = self.state.borrow_mut();
         if let Some(mut input_handler) = state.input_handler.take() {
             drop(state);
-            input_handler.replace_and_mark_text_in_range(None, &text, None);
+            input_handler.replace_and_mark_text_in_range(None, &text, selection_utf16);
             let mut state = self.state.borrow_mut();
             state.input_handler = Some(input_handler);
         }
