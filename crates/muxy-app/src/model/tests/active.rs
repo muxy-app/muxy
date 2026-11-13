@@ -334,6 +334,53 @@ fn hovering_shows(cx: &mut VisualTestContext, selector: String, expected: &str) 
 }
 
 #[gpui::test]
+fn project_names_only_appear_in_tooltips_when_the_sidebar_is_collapsed(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::{AppLayout, SidebarCollapsedStyle};
+
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let project = state
+        .add_project(ServerId::local(), std::env::temp_dir())
+        .expect("project");
+    let name = "Alpha project with a complete display name";
+    state.rename_project(project, name).expect("rename");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.appearance.layout = AppLayout::ProjectFocused;
+    boot.settings.appearance.sidebar_collapsed_style = SidebarCollapsedStyle::Icons;
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+
+    for expanded in [true, false] {
+        view.update(cx, |model, cx| {
+            model.appearance.sidebar_expanded = expanded;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        for (id, expected) in [(home, "Home"), (project, name)] {
+            assert_eq!(
+                hovering_shows(cx, format!("project-tile-{id}"), expected),
+                !expanded,
+                "{expected}, sidebar expanded: {expanded}"
+            );
+        }
+    }
+
+    view.update(cx, |model, cx| {
+        model
+            .state
+            .rename_project(project, "Renamed project")
+            .expect("rename");
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(hovering_shows(
+        cx,
+        format!("project-tile-{project}"),
+        "Renamed project"
+    ));
+}
+
+#[gpui::test]
 fn hovering_a_button_shows_its_shortcut_beside_its_name(cx: &mut TestAppContext) {
     use crate::views::command_palette::chord_label;
 

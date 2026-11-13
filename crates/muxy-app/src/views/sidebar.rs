@@ -1387,7 +1387,9 @@ fn project_row(
                 .hover(|style| style.bg(if active { theme.surface } else { theme.hover }))
         })
         .when(!wide, |row| {
-            row.justify_center().size(collapsed_item_size(model))
+            row.justify_center()
+                .size(collapsed_item_size(model))
+                .tooltip(muxy_ui::components::tooltip(name.clone(), theme))
         })
         .when(missing, |row| row.opacity(0.5))
         .when(!missing, |row| {
