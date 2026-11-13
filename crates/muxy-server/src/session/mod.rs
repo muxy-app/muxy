@@ -76,7 +76,7 @@ pub enum SessionCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AttachmentEvent {
     Snapshot {
-        snapshot: AttachSnapshot,
+        snapshot: Box<AttachSnapshot>,
         process: Option<ForegroundProcess>,
     },
     Metadata(MetadataEvent),

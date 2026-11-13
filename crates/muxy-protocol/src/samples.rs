@@ -56,6 +56,7 @@ impl Message {
                         history: Vec::new(),
                         history_cursor: None,
                         history_total: 0,
+                        history_graphics: None,
                     }),
                     process: None,
                 },
@@ -438,6 +439,7 @@ fn history_samples(mut snapshot: AttachSnapshot) -> Vec<Message> {
                 next: None,
                 total_rows: 2,
                 screen: None,
+                graphics: None,
             }),
         },
         Message::Reply {

@@ -25,7 +25,8 @@ server and path where they show outside the sidebar.
 
 Terminals another client shows on this computer's server, such as another
 desktop, the terminal UI, or a phone, open here too, as tabs in their project
-that don't take focus. Terminals nobody shows, such as detached ones, and
+that don't take focus. Terminals nobody shows, such as detached ones or ones
+made with `muxy session create`, and
 those other clients show on another computer's server stay in **Existing
 Terminals**. Closing or detaching such a tab here leaves the terminal running
 in the clients still showing it, and the app doesn't open it here again.

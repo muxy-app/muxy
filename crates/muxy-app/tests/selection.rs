@@ -57,6 +57,7 @@ fn grid() -> RunGrid {
         }],
         history_cursor: None,
         history_total: 1,
+        history_graphics: None,
     })
 }
 
@@ -228,6 +229,7 @@ fn older_pages_do_not_move_selection_and_selected_rows_detect_changes() {
         next: None,
         total_rows: 2,
         screen: None,
+        graphics: None,
     });
     assert_eq!(selected.text(&grid), "older\none");
     assert_eq!(selected.rows(&grid), before);

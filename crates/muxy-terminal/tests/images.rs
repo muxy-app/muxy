@@ -684,3 +684,91 @@ fn large_animations_show_together_and_a_saved_screen_keeps_them() -> Result {
     );
     Ok(())
 }
+
+fn row_text(row: &muxy_protocol::Row) -> String {
+    row.runs
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
+}
+
+#[test]
+fn an_image_scrolled_into_history_is_placed_on_its_history_rows() -> Result {
+    let folder = tempfile::tempdir()?;
+    let path = folder.path().join("dot.png");
+    write_png(&path)?;
+    let mut terminal = terminal()?;
+    terminal.feed(b"before\r\n");
+    terminal.feed(format!("\x1b_Gi=4,a=T,f=100,t=f,c=2,r=2;{}\x1b\\", encoded(&path)).as_bytes());
+    terminal.feed(b"\r\nafter");
+    for line in 0..20 {
+        terminal.feed(format!("\r\n{line}").as_bytes());
+    }
+    assert_eq!(terminal.take_pty_output(), b"\x1b_Gi=4;OK\x1b\\");
+    assert!(
+        terminal.graphics()?.placements.is_empty(),
+        "the screen no longer shows it"
+    );
+
+    let total = terminal.history_rows()?;
+    let history = terminal.history_with_links(0..total)?;
+    let graphics = history.graphics.ok_or("no images on history rows")?;
+    assert_eq!(
+        graphics.placements.len(),
+        1,
+        "one placement, though two views saw it"
+    );
+    let placement = &graphics.placements[0];
+    let row = usize::try_from(placement.row)?;
+    assert_eq!(row_text(&history.rows[row - 1]), "before");
+    assert_eq!(placement.size[1], 2 * u32::from(CELL.height));
+    assert_eq!(graphics.images.len(), 1);
+    assert_eq!(graphics.images[0].rgba.to_vec(), GREEN);
+
+    let page = terminal.history_with_links(row + 1..total)?;
+    let shifted = page
+        .graphics
+        .ok_or("the image's second row is on this page")?;
+    assert_eq!(
+        shifted.placements[0].row, -1,
+        "rows count from the page's first"
+    );
+    let later = terminal.history_with_links(row + 2..total)?;
+    assert!(
+        later.graphics.is_none(),
+        "rows under the image place nothing"
+    );
+
+    let image = &graphics.images[0];
+    let frames = terminal.image_frames(image.id, &[image.generation])?;
+    assert_eq!(frames.len(), 1, "history's images can still be read");
+    assert_eq!(frames[0].rgba.to_vec(), GREEN);
+    Ok(())
+}
+
+#[test]
+fn an_animation_also_in_history_answers_for_the_still_history_lists() -> Result {
+    let mut terminal = terminal()?;
+    terminal.feed(b"\x1b_Ga=T,i=5,f=32,s=1,v=1,q=2;/wAA/w==\x1b\\");
+    terminal.feed(b"\x1b_Ga=f,i=5,f=32,s=1,v=1,z=100,q=2;AAD//w==\x1b\\");
+    terminal.feed(b"\x1b_Ga=a,i=5,r=1,z=50,s=3,v=1,q=2\x1b\\");
+    for line in 0..20 {
+        terminal.feed(format!("\r\n{line}").as_bytes());
+    }
+    terminal.feed(b"\x1b_Ga=p,i=5,q=2\x1b\\");
+    let screen = terminal.graphics()?;
+    assert!(!screen.images[0].frames.is_empty(), "the screen plays it");
+    let total = terminal.history_rows()?;
+    let history = terminal
+        .history_with_links(0..total)?
+        .graphics
+        .ok_or("no images on history rows")?;
+    let still = &history.images[0];
+    assert!(still.frames.is_empty(), "history lists a still");
+    let frames = terminal.image_frames(still.id, &[still.generation])?;
+    assert_eq!(frames.len(), 1, "the still's key is answered");
+    assert_eq!(frames[0].key, still.generation);
+    Ok(())
+}

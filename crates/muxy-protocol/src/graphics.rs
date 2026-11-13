@@ -169,7 +169,41 @@ pub struct GraphicPlacement {
     pub z: i32,
 }
 
+impl GraphicPlacement {
+    /// How many rows of `cell` the placement reaches into, from its own.
+    pub fn rows(&self, cell: CellSize) -> i64 {
+        let height = i64::from(cell.height.max(1));
+        let tall = i64::from(self.offset[1]) + i64::from(self.size[1]);
+        (tall + height - 1) / height
+    }
+
+    /// Whether the placement covers any of the `rows` rows counted from row zero.
+    pub fn covers(&self, cell: CellSize, rows: i64) -> bool {
+        let row = i64::from(self.row);
+        row < rows && row + self.rows(cell) > 0
+    }
+}
+
 impl Graphics {
+    /// Moves every placement `rows` rows up, then keeps those covering some
+    /// of the first `within` rows and the images they place.
+    pub fn shift_up(&mut self, rows: i64, within: i64) {
+        let cell = self.cell;
+        self.placements.retain_mut(|placement| {
+            let Ok(row) = i32::try_from(i64::from(placement.row) - rows) else {
+                return false;
+            };
+            placement.row = row;
+            placement.covers(cell, within)
+        });
+        let placed: std::collections::BTreeSet<u32> = self
+            .placements
+            .iter()
+            .map(|placement| placement.image)
+            .collect();
+        self.images.retain(|image| placed.contains(&image.id));
+    }
+
     /// Leaves the pixels out, for an app that reads them with `ImageFrames`.
     pub fn defer_pixels(&mut self) {
         for image in &mut self.images {

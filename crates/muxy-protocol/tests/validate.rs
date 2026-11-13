@@ -809,6 +809,7 @@ fn snapshot() -> AttachSnapshot {
         history: vec![],
         history_cursor: None,
         history_total: 0,
+        history_graphics: None,
     }
 }
 
@@ -852,6 +853,7 @@ fn history_limits_and_page_shape_are_validated() {
         next: Some(HistoryCursor(3)),
         total_rows: 5,
         screen: None,
+        graphics: None,
     };
     assert_eq!(
         reply(ReplyBody::HistoryPage(valid.clone())).validate(),
@@ -900,6 +902,54 @@ fn history_limits_and_page_shape_are_validated() {
 }
 
 #[test]
+fn history_page_images_must_cover_its_rows() {
+    use muxy_protocol::{GraphicImage, GraphicPlacement, Graphics, HistoryCursor, HistoryPage};
+    let rows = snapshot().rows;
+    let count = i32::try_from(rows.len()).expect("rows");
+    let placed = |row: i32, tall: u32| HistoryPage {
+        links: None,
+        prompts: Vec::new(),
+        rows: rows.clone(),
+        next: Some(HistoryCursor(3)),
+        total_rows: 5,
+        screen: None,
+        graphics: Some(Graphics {
+            cell: muxy_protocol::CellSize::default(),
+            images: vec![GraphicImage {
+                id: 1,
+                width: 1,
+                height: 1,
+                ..GraphicImage::default()
+            }],
+            placements: vec![GraphicPlacement {
+                image: 1,
+                id: 0,
+                column: 0,
+                row,
+                offset: [0, 0],
+                size: [8, tall],
+                source: [0, 0, 1, 1],
+                z: 0,
+            }],
+        }),
+    };
+    for (row, tall) in [(0, 16), (count - 1, 16), (-1, 32)] {
+        assert_eq!(
+            reply(ReplyBody::HistoryPage(placed(row, tall))).validate(),
+            Ok(()),
+            "row {row}, {tall} pixels tall"
+        );
+    }
+    for (row, tall) in [(count, 16), (-1, 16), (-2, 32)] {
+        assert_eq!(
+            reply(ReplyBody::HistoryPage(placed(row, tall))).validate(),
+            Err(ErrorCode::BadRequest),
+            "row {row}, {tall} pixels tall"
+        );
+    }
+}
+
+#[test]
 fn history_links_reject_out_of_page_rows_and_invalid_spans() {
     use muxy_protocol::{HistoryPage, LinkRow, LinkSpan};
     let link = LinkRow {
@@ -917,6 +967,7 @@ fn history_links_reject_out_of_page_rows_and_invalid_spans() {
         next: None,
         total_rows: 1,
         screen: None,
+        graphics: None,
     };
     assert!(
         reply(ReplyBody::HistoryPage(page.clone()))
@@ -1030,6 +1081,7 @@ fn history_and_screen_link_budgets_are_independent_and_bounded()
                 cursor: snapshot.cursor,
                 reason: None,
             }),
+            graphics: None,
         };
         assert_eq!(
             reply(ReplyBody::HistoryPage(page.clone())).validate(),

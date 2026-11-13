@@ -125,6 +125,11 @@ impl Textures {
         self.retired.drain(..)
     }
 
+    #[cfg(test)]
+    pub(crate) fn has_frame(&self, image: u32, key: u64) -> bool {
+        self.frames.contains_key(&(image, key))
+    }
+
     /// Lets the frames of failed requests be asked for again.
     pub(crate) fn retry(&mut self) {
         for key in std::mem::take(&mut self.failed) {
@@ -132,23 +137,23 @@ impl Textures {
         }
     }
 
-    /// Starts making textures of the pixels `graphics` carries for frames on
-    /// show that have none and aren't being made.
+    /// Starts making textures of the pixels `shown` carries for frames on
+    /// show that have none and aren't being made. `shown` lists the screen's
+    /// images and, while the pane is scrolled back, those of its history.
     ///
-    /// It also forgets the frames the screen no longer lists, so a pane that
-    /// takes screens without painting them, as in a hidden window, keeps
-    /// only what it would draw.
-    pub(crate) fn convert(&mut self, graphics: &Graphics) -> Vec<Conversion> {
-        self.listed = graphics
-            .images
-            .iter()
+    /// It also forgets the frames none of them lists, so a pane that takes
+    /// screens without painting them, as in a hidden window, keeps only what
+    /// it would draw.
+    pub(crate) fn convert(&mut self, shown: &[&Graphics]) -> Vec<Conversion> {
+        let images = || shown.iter().flat_map(|graphics| &graphics.images);
+        self.listed = images()
             .flat_map(|image| image.frame_keys().map(|key| (image.id, key)))
             .collect();
         self.drawn
-            .retain(|id, _| graphics.images.iter().any(|image| image.id == *id));
+            .retain(|id, _| images().any(|image| image.id == *id));
         self.forget();
         let mut conversions = Vec::new();
-        for image in &graphics.images {
+        for image in images() {
             if image.rgba.is_empty() {
                 continue;
             }
@@ -303,7 +308,7 @@ impl Textures {
         now: Instant,
         fetch: bool,
     ) -> Prepared {
-        let conversions = self.convert(graphics);
+        let conversions = self.convert(&[graphics]);
         let listed = &self.listed;
         self.asked.retain(|key| listed.contains(key));
         self.failed.retain(|key| listed.contains(key));
@@ -777,7 +782,7 @@ mod tests {
         convert(&mut textures, prepared);
         prepare(&mut textures, &shown, start);
         for id in 2..10 {
-            let conversions = textures.convert(&still(id, id.into(), true));
+            let conversions = textures.convert(&[&still(id, id.into(), true)]);
             for conversion in conversions {
                 textures.converted(conversion.run());
             }

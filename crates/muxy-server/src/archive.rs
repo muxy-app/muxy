@@ -29,6 +29,10 @@ use crate::search::Search;
 /// The only whole-file record version, written before records were indexed.
 const LEGACY_VERSION: u32 = 1;
 const SCREEN_LIMIT: u64 = 16 * 1024 * 1024 - 1024;
+/// Room a history page's screen and the images on its rows take together,
+/// past which the images placed furthest up are left out, so its rows
+/// still have a mebibyte.
+const PAGE_GRAPHICS_LIMIT: u64 = SCREEN_LIMIT - 1024 * 1024;
 type Completion = Sender<Result<(), String>>;
 type Queue = Arc<Mutex<BTreeMap<SessionId, Job>>>;
 
@@ -256,6 +260,7 @@ impl Archive {
             next,
             total_rows: total as u64,
             screen: None,
+            graphics: None,
         })
     }
 
@@ -461,6 +466,7 @@ pub(crate) fn bound_history_page(
         )
     };
     let screen_size = postcard::experimental::serialized_size(&page.screen).map_err(size_error)?;
+    let graphics_size = bound_page_graphics(&mut page, screen_size).map_err(size_error)?;
     let link_size = |row: &muxy_protocol::LinkRow| {
         row.spans.iter().fold(8_u64, |size, span| {
             size.saturating_add(span.uri.len() as u64)
@@ -468,7 +474,7 @@ pub(crate) fn bound_history_page(
         })
     };
     let mut links = page.links.iter().flatten().rev().peekable();
-    let mut used = u64::try_from(screen_size)
+    let mut used = u64::try_from(screen_size + graphics_size)
         .unwrap_or(u64::MAX)
         .saturating_add(128)
         .saturating_add(
@@ -523,12 +529,73 @@ pub(crate) fn bound_history_page(
         });
     }
     page.rows.drain(..removed);
+    if let Some(graphics) = &mut page.graphics {
+        let rows = i64::try_from(page.rows.len()).unwrap_or(i64::MAX);
+        graphics.shift_up(i64::try_from(removed).unwrap_or(i64::MAX), rows);
+    }
+    page.graphics = page
+        .graphics
+        .take()
+        .filter(|graphics| !graphics.placements.is_empty());
     for (index, row) in page.rows.iter_mut().enumerate() {
         row.index = u16::try_from(index).unwrap_or(u16::MAX);
     }
     let total = usize::try_from(page.total_rows).unwrap_or(usize::MAX);
     page.next = history_range(session, generation, before, keep, total)?.1;
     Ok(page)
+}
+
+/// Leaves out the pixels of the history images the page's screen also lists,
+/// as an app draws those from the screen, then the history images placed
+/// furthest up until they fit beside the screen. Returns their size.
+fn bound_page_graphics(page: &mut HistoryPage, screen_size: usize) -> postcard::Result<usize> {
+    let Some(graphics) = &mut page.graphics else {
+        return Ok(0);
+    };
+    if let Some(screen) = &page.screen {
+        for image in &mut graphics.images {
+            if screen
+                .graphics
+                .images
+                .iter()
+                .any(|shown| shown.id == image.id)
+            {
+                image.rgba = Arc::default();
+            }
+        }
+    }
+    let fits = |size: usize| {
+        u64::try_from(screen_size.saturating_add(size)).unwrap_or(u64::MAX) <= PAGE_GRAPHICS_LIMIT
+    };
+    let mut size = postcard::experimental::serialized_size(&*graphics)?;
+    while !fits(size) {
+        let lowest = |image: u32| {
+            graphics
+                .placements
+                .iter()
+                .filter(|placement| placement.image == image)
+                .map(|placement| placement.row)
+                .max()
+        };
+        let Some(oldest) = graphics
+            .images
+            .iter()
+            .map(|image| image.id)
+            .min_by_key(|&image| lowest(image))
+        else {
+            break;
+        };
+        graphics.images.retain(|image| image.id != oldest);
+        graphics
+            .placements
+            .retain(|placement| placement.image != oldest);
+        size = postcard::experimental::serialized_size(&*graphics)?;
+    }
+    if graphics.placements.is_empty() || !fits(size) {
+        page.graphics = None;
+        return postcard::experimental::serialized_size(&page.graphics);
+    }
+    Ok(size)
 }
 
 fn write_jobs(directory: &Path, queue: &Queue, wake: &Receiver<()>) {
@@ -886,6 +953,32 @@ mod tests {
                 next: None,
                 total_rows: 500,
                 screen: None,
+                graphics: Some(Graphics {
+                    cell: CellSize::default(),
+                    images: [1, 2]
+                        .into_iter()
+                        .map(|id| GraphicImage {
+                            id,
+                            width: 1,
+                            height: 1,
+                            rgba: vec![255; 4].into(),
+                            ..GraphicImage::default()
+                        })
+                        .collect(),
+                    placements: [(1, 0), (2, 499)]
+                        .into_iter()
+                        .map(|(image, row)| GraphicPlacement {
+                            image,
+                            id: 0,
+                            column: 0,
+                            row,
+                            offset: [0, 0],
+                            size: [8, 16],
+                            source: [0, 0, 1, 1],
+                            z: 0,
+                        })
+                        .collect(),
+                }),
             },
         )?;
         assert!(page.rows.len() < 500);
@@ -897,11 +990,90 @@ mod tests {
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].row, u16::try_from(kept - 1)?);
         assert_eq!(links[0].spans[0].uri, "https://test/499");
+        let graphics = page.graphics.as_ref().ok_or("missing images")?;
+        assert_eq!(graphics.placements.len(), 1, "the trimmed row's image goes");
+        assert_eq!(graphics.placements[0].row, i32::try_from(kept - 1)?);
+        assert_eq!(graphics.images.len(), 1);
+        assert_eq!(graphics.images[0].id, 2);
         let (older, next) =
             history_range(session, 7, page.next.ok_or("missing cursor")?, 500, 500)?;
         assert_eq!(older, 0..500 - kept);
         assert_eq!(next, None);
         assert_eq!(page.rows.first().ok_or("empty page")?.index, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn history_images_that_do_not_fit_beside_the_screen_go_oldest_first() -> TestResult {
+        let session = SessionId::new(1).ok_or("zero ID")?;
+        let image = |id, bytes: usize| GraphicImage {
+            id,
+            width: 1,
+            height: 1,
+            rgba: vec![7; bytes].into(),
+            ..GraphicImage::default()
+        };
+        let placed = |image, row| GraphicPlacement {
+            image,
+            id: 0,
+            column: 0,
+            row,
+            offset: [0, 0],
+            size: [8, 16],
+            source: [0, 0, 1, 1],
+            z: 0,
+        };
+        let large = 7 * 1024 * 1024 + 512 * 1024;
+        let page = bound_history_page(
+            session,
+            7,
+            HistoryCursor(0),
+            HistoryPage {
+                links: None,
+                prompts: Vec::new(),
+                rows: (0..6)
+                    .map(|index| Row {
+                        index,
+                        runs: Vec::new(),
+                    })
+                    .collect(),
+                next: None,
+                total_rows: 6,
+                screen: Some(SavedScreen {
+                    graphics: Graphics {
+                        cell: CellSize::default(),
+                        images: vec![image(1, 4)],
+                        placements: vec![placed(1, 0)],
+                    },
+                    size: Size { cols: 4, rows: 1 },
+                    rows: vec![Row {
+                        index: 0,
+                        runs: Vec::new(),
+                    }],
+                    cursor: Cursor {
+                        shape: CursorShape::Block,
+                        row: 0,
+                        col: 0,
+                        visible: true,
+                    },
+                    reason: None,
+                }),
+                graphics: Some(Graphics {
+                    cell: CellSize::default(),
+                    images: vec![image(1, 4), image(2, large), image(3, large)],
+                    placements: vec![placed(1, 5), placed(2, 0), placed(3, 4)],
+                }),
+            },
+        )?;
+        let graphics = page.graphics.ok_or("missing images")?;
+        let ids: Vec<u32> = graphics.images.iter().map(|image| image.id).collect();
+        assert_eq!(ids, [1, 3], "the image placed furthest up goes");
+        assert!(
+            graphics.images[0].rgba.is_empty(),
+            "the screen already carries its pixels"
+        );
+        assert_eq!(graphics.images[1].rgba.len(), large);
+        assert_eq!(page.rows.len(), 6, "every row still fits");
         Ok(())
     }
 
@@ -934,6 +1106,7 @@ mod tests {
                 next: None,
                 total_rows: 1,
                 screen: None,
+                graphics: None,
             },
         )?;
         assert_eq!(page.rows, [row]);

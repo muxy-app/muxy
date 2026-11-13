@@ -35,7 +35,7 @@ impl OutboxSink {
         };
         match event {
             AttachmentEvent::Snapshot { snapshot, process } => {
-                connection.snapshot(self.channel, snapshot, process)
+                connection.snapshot(self.channel, *snapshot, process)
             }
             AttachmentEvent::Metadata(event) => connection.push_metadata(self.channel, event),
             AttachmentEvent::Frame(frame) => connection.push_frame(self.channel, frame),
@@ -126,7 +126,7 @@ mod tests {
         };
 
         assert!(sink.send(AttachmentEvent::Snapshot {
-            snapshot,
+            snapshot: Box::new(snapshot),
             process: None,
         }));
         assert!(matches!(
@@ -193,7 +193,7 @@ mod tests {
                 modes: snapshot.modes,
             };
             assert!(sink.send(AttachmentEvent::Snapshot {
-                snapshot,
+                snapshot: Box::new(snapshot),
                 process: None,
             }));
             let resized = frame.clone();
@@ -245,10 +245,13 @@ mod tests {
                     reason: None,
                 }),
                 links: None,
+                graphics: Some(graphics.clone()),
             };
             connection.defer_page(&mut page);
             let screen = page.screen.ok_or("no screen")?;
             assert_eq!(&screen.graphics.images[0], expected, "defers: {defers}");
+            let history = page.graphics.ok_or("no history images")?;
+            assert_eq!(&history.images[0], expected, "defers: {defers}");
         }
         Ok(())
     }
@@ -281,7 +284,7 @@ mod tests {
             modes: snapshot.modes,
         };
         assert!(sink.send(AttachmentEvent::Snapshot {
-            snapshot,
+            snapshot: Box::new(snapshot),
             process: None,
         }));
         let Some((

@@ -5,6 +5,7 @@ fn history_page(terminal: &mut muxy_terminal::Terminal, size: Size) -> HistoryPa
         rows,
         prompts,
         mut links,
+        ..
     } = terminal.history_with_links(0..5).unwrap();
     links.extend(
         terminal
@@ -29,6 +30,7 @@ fn history_page(terminal: &mut muxy_terminal::Terminal, size: Size) -> HistoryPa
             cursor: terminal.cursor().unwrap(),
             reason: None,
         }),
+        graphics: None,
     }
 }
 

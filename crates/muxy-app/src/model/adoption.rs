@@ -5,7 +5,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use gpui::Context;
 use muxy_app_core::{AppError, ProjectId, ProjectStatus, ServerId};
-use muxy_protocol::{ProjectSession, SessionId, SessionStatus};
+use muxy_protocol::{ClientKind, ProjectSession, SessionId, SessionStatus};
 
 use super::{AppModel, Quitting};
 
@@ -42,7 +42,8 @@ impl AppModel {
 
     /// Opens, as background tabs, the terminals of `project` that another
     /// client shows and this app neither shows nor stopped showing. Terminals
-    /// nobody shows stay in Existing Terminals.
+    /// nobody shows stay in Existing Terminals, as do those a `muxy` command
+    /// holds only while it creates or types into them.
     pub(crate) fn adopt_sessions(
         &mut self,
         project: ProjectId,
@@ -58,7 +59,9 @@ impl AppModel {
         let others: Vec<_> = sessions
             .iter()
             .filter(|session| {
-                session.owner.is_some()
+                session
+                    .owner
+                    .is_some_and(|owner| owner.kind != ClientKind::Cli)
                     && !session.attached
                     && session.info.project == project
                     && matches!(

@@ -44,6 +44,9 @@ sequenceDiagram
 - Frames carry only the visible rows that changed. A resize sends the whole
   screen.
 - History is never pushed. Apps page through it and search it on request.
+  A page, and the history an attach starts with, also list the images
+  placed on those rows, as stills, with each placement's row counted from
+  the first of them. Older servers list none.
 - Image pixels go out once. The desktop app asks the server to stream
   images: a screen carries the pixels of an image's frame on show the first
   time it lists that frame, and later screens list it without them. The

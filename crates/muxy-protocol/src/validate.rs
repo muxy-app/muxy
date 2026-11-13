@@ -374,6 +374,9 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         ReplyBody::SessionCreated(session) => validate_path(&session.directory),
         ReplyBody::Attached { snapshot, .. } => {
             snapshot.graphics.validate()?;
+            if let Some(graphics) = &snapshot.history_graphics {
+                validate_page_graphics(graphics, snapshot.history.len())?;
+            }
             validate_size(snapshot.size)?;
             validate_path(&snapshot.directory)?;
             validate_history(
@@ -397,6 +400,9 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
             validate_history(&page.rows, page.next, page.total_rows, 500)?;
             if let Some(screen) = &page.screen {
                 validate_saved_screen(screen)?;
+            }
+            if let Some(graphics) = &page.graphics {
+                validate_page_graphics(graphics, page.rows.len())?;
             }
             let count = page.rows.len()
                 + page
@@ -475,6 +481,20 @@ fn validate_history(
     } else {
         Ok(())
     }
+}
+
+/// Images a history page places on its own rows; each placement must cover at least one of them.
+fn validate_page_graphics(graphics: &crate::Graphics, rows: usize) -> Result<(), ErrorCode> {
+    graphics.validate()?;
+    let rows = i64::try_from(rows).map_err(|_| ErrorCode::BadRequest)?;
+    if graphics
+        .placements
+        .iter()
+        .any(|placement| !placement.covers(graphics.cell, rows))
+    {
+        return Err(ErrorCode::BadRequest);
+    }
+    Ok(())
 }
 
 fn validate_saved_screen(screen: &SavedScreen) -> Result<(), ErrorCode> {

@@ -180,7 +180,7 @@ fn dense_history_pages_and_attachments_preserve_all_links() -> Result {
         Message::Reply {
             id: RequestId(1),
             body: ReplyBody::Attached {
-                snapshot: Box::new(snapshot),
+                snapshot,
                 process: None,
             },
         }
