@@ -11,13 +11,14 @@ use objc2_app_kit::NSView;
 use objc2_core_graphics::{CGColor, CGPath};
 use objc2_foundation::{NSNumber, NSPoint, NSRect, NSSize, ns_string};
 use objc2_quartz_core::{
-    CABasicAnimation, CAMediaTiming, CAMediaTimingFunction, CAShapeLayer, CATransaction,
-    kCALineCapRound, kCAMediaTimingFunctionLinear,
+    CABasicAnimation, CAFrameRateRange, CAMediaTiming, CAMediaTimingFunction, CAShapeLayer,
+    CATransaction, kCALineCapRound, kCAMediaTimingFunctionLinear,
 };
 
 const LINE_FRACTION: f64 = 1.0 / 8.0;
 const ARC_FRACTION: f64 = 0.28;
 const TRACK_ALPHA: f32 = 0.25;
+const FRAMES_PER_SECOND: f32 = 30.0;
 
 pub struct NativeSpinner {
     view: Retained<NSView>,
@@ -143,6 +144,11 @@ impl NativeSpinner {
         animation.setTimingFunction(Some(&timing));
         animation.setDuration(0.8);
         animation.setRepeatCount(f32::INFINITY);
+        animation.setPreferredFrameRateRange(CAFrameRateRange {
+            minimum: FRAMES_PER_SECOND,
+            maximum: FRAMES_PER_SECOND,
+            preferred: FRAMES_PER_SECOND,
+        });
         self.arc
             .addAnimation_forKey(&animation, Some(ns_string!("turn")));
     }
