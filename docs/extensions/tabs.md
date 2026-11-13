@@ -92,6 +92,10 @@ Variables: `--muxy-background`, `--muxy-foreground`, `--muxy-foreground-muted`,
 `colorScheme` set to `light` or `dark`. `muxy.onThemeChange(fn)` reports
 changes.
 
+Muxy draws `--muxy-background` behind every page, unless a panel is
+`transparent`. It shows while the page loads and wherever the page leaves its
+background unset, so a page never flashes white as it opens.
+
 ## File openers
 
 A file opener lets an extension open files that users `Cmd`-click in a
