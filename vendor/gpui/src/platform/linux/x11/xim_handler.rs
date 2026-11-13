@@ -5,7 +5,6 @@ use xim::{AHashMap, AttributeName, Client, ClientError, ClientHandler, InputStyl
 
 pub enum XimCallbackEvent {
     XimXEvent(x11rb::protocol::Event),
-    /// The range is the composing caret in UTF-16 code units of the preedit string.
     XimPreeditEvent(xproto::Window, String, Option<std::ops::Range<usize>>),
     XimCommitEvent(xproto::Window, String),
 }
@@ -134,8 +133,6 @@ impl<C: Client<XEvent = xproto::KeyPressEvent>> ClientHandler<C> for XimHandler 
     }
 }
 
-/// XIM reports the caret as a character index into the preedit string.
-/// The input handler wants that caret in UTF-16 code units of the same string.
 fn xim_caret_utf16(text: &str, caret: i32) -> Option<std::ops::Range<usize>> {
     if caret < 0 {
         return None;

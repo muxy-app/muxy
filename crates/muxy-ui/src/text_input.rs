@@ -536,12 +536,9 @@ pub struct TextInput {
     marked_range: Option<Range<usize>>,
     last_layout: Option<Layout>,
     last_content: Size<Pixels>,
-    /// Font the field was last painted with, so an IME rectangle can be
-    /// measured before the next frame.
     shaped_font: Option<gpui::Font>,
     shaped_font_size: Pixels,
     shaped_line_height: Pixels,
-    /// Shaped text reused while the candidate window probes each offset.
     ime_layout: Option<ImeLayout>,
     is_selecting: bool,
     multiline: bool,
@@ -756,8 +753,13 @@ impl TextInput {
             return false;
         };
         let width = field.size.width;
+        let text: SharedString = if self.secure {
+            "*".repeat(self.content.len()).into()
+        } else {
+            self.content.clone()
+        };
         if let Some(cached) = &self.ime_layout
-            && cached.content == self.content
+            && cached.content == text
             && cached.width == width
             && cached.font == font
             && cached.font_size == self.shaped_font_size
@@ -765,7 +767,6 @@ impl TextInput {
         {
             return true;
         }
-        let text = self.content.clone();
         let shaped = window
             .text_system()
             .shape_text(
@@ -2078,7 +2079,7 @@ impl Element for TextElement {
             scrollbar,
             scroll,
             content,
-            shaped_font,
+            shaped_font: text_style.font(),
             shaped_font_size: font_size,
             shaped_line_height: line_height,
         }
@@ -2334,6 +2335,45 @@ mod gpui_regression_tests {
                 assert_eq!(input.marked_range, Some(12..15));
                 assert_eq!(input.selected_range, 15..15);
             });
+        });
+    }
+
+    #[gpui::test]
+    #[allow(clippy::unwrap_used)]
+    fn ime_bounds_match_the_painted_password_mask(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx, "W😀ii");
+        input.update(cx, |input, cx| {
+            input.secure = true;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        input.update_in(cx, |input, window, cx| {
+            let layout = input.last_layout.as_ref().unwrap();
+            let field = layout.bounds;
+            let expected =
+                input.bounds_from_layout(layout, input.content.len()..input.content.len(), field);
+            let caret = input.content.encode_utf16().count();
+            let actual = input
+                .bounds_for_range(caret..caret, field, window, cx)
+                .unwrap();
+            assert_eq!(actual, expected);
+        });
+    }
+
+    #[gpui::test]
+    fn identical_preedit_after_commit_starts_a_new_composition(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx, "prefix ");
+        mark(&input, cx, "nihao");
+        commit(&input, cx, "你好");
+        mark(&input, cx, "nihao");
+        input.read_with(cx, |input, _| {
+            assert_eq!(input.text(), "prefix 你好nihao");
+            assert_eq!(input.marked_range, Some(13..18));
+        });
+        mark(&input, cx, "");
+        input.read_with(cx, |input, _| {
+            assert_eq!(input.text(), "prefix 你好");
+            assert_eq!(input.marked_range, None);
         });
     }
 

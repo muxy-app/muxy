@@ -37,11 +37,11 @@ pub(crate) mod scap_screen_capture;
 
 use crate::{
     Action, AnyWindowHandle, App, AsyncWindowContext, BackgroundExecutor, Bounds,
-    DEFAULT_WINDOW_SIZE, DevicePixels, DispatchEventResult, Font, FontId, FontMetrics, FontRun,
-    ForegroundExecutor, GlyphId, GpuSpecs, ImageSource, Keymap, LineLayout, Pixels, PlatformInput,
-    Point, RenderGlyphParams, RenderImage, RenderImageParams, RenderSvgParams, Scene, ShapedGlyph,
-    ShapedRun, SharedString, Size, SvgRenderer, SvgSize, SystemWindowTab, Task, TaskLabel, Window,
-    WindowControlArea, hash, point, px, size, FocusId,
+    DEFAULT_WINDOW_SIZE, DevicePixels, DispatchEventResult, FocusId, Font, FontId, FontMetrics,
+    FontRun, ForegroundExecutor, GlyphId, GpuSpecs, ImageSource, Keymap, LineLayout, Pixels,
+    PlatformInput, Point, RenderGlyphParams, RenderImage, RenderImageParams, RenderSvgParams,
+    Scene, ShapedGlyph, ShapedRun, SharedString, Size, SvgRenderer, SvgSize, SystemWindowTab, Task,
+    TaskLabel, Window, WindowControlArea, hash, point, px, size,
 };
 use anyhow::Result;
 use async_task::Runnable;
@@ -999,12 +999,13 @@ impl PlatformInputHandler {
         })
     }
 
-    /// Rectangle for the IME candidate window. During composition this is the
-    /// start of the visual line that contains the caret, inside the marked text.
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     pub fn ime_candidate_bounds(&mut self) -> Option<Bounds<Pixels>> {
         let marked_range = self.marked_text_range();
         let selection = self.selected_text_range(true)?;
-        compute_ime_candidate_bounds(marked_range, &selection, |range| self.bounds_for_range(range))
+        compute_ime_candidate_bounds(marked_range, &selection, |range| {
+            self.bounds_for_range(range)
+        })
     }
 
     #[allow(unused)]
@@ -1016,12 +1017,7 @@ impl PlatformInputHandler {
     }
 }
 
-/// Where the candidate window should sit.
-///
-/// A composition anchors at the start of the caret's visual line inside the
-/// marked text, so a wrapped preedit follows the current line. Otherwise the
-/// anchor is the caret.
-pub fn compute_ime_candidate_bounds(
+fn compute_ime_candidate_bounds(
     marked_range: Option<Range<usize>>,
     selection: &UTF16Selection,
     mut bounds_for_range: impl FnMut(Range<usize>) -> Option<Bounds<Pixels>>,

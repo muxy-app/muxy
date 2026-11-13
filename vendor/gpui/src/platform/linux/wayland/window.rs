@@ -227,8 +227,6 @@ impl WaylandWindowState {
 pub(crate) struct WaylandWindow(pub WaylandWindowStatePtr);
 pub enum ImeInput {
     InsertText(String),
-    /// `selection_utf16` is the composing caret or clause, in UTF-16 code units
-    /// relative to `text`. `None` leaves the caret at the end of `text`.
     SetMarkedText {
         text: String,
         selection_utf16: Option<std::ops::Range<usize>>,

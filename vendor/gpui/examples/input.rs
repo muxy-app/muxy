@@ -680,7 +680,6 @@ impl Render for InputExample {
     }
 }
 
-/// `offset` is a UTF-16 index into `text`, not into the rest of the field.
 fn utf8_offset_in(text: &str, offset: usize) -> usize {
     let mut utf8_offset = 0;
     let mut utf16_count = 0;
