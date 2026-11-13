@@ -123,10 +123,14 @@ fn a_history_page_places_the_images_on_its_rows() -> Result {
             reply,
         })?;
         let page = receive.recv_timeout(Duration::from_secs(5))??;
-        if page.graphics.is_some() {
+        let off_screen = page
+            .screen
+            .as_ref()
+            .is_some_and(|screen| screen.graphics.placements.is_empty());
+        if page.graphics.is_some() && off_screen {
             break page;
         }
-        assert!(Instant::now() < deadline, "the image never reached history");
+        assert!(Instant::now() < deadline, "the image never left the screen");
         thread::sleep(Duration::from_millis(20));
     };
     assert!(
