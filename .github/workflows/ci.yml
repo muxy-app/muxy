@@ -186,10 +186,15 @@ jobs:
     timeout-minutes: 90
     env:
       SCOPE: ${{ needs.scope.outputs.scope || 'full' }}
+      # Links the many test binaries far faster than link.exe.
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld.exe
     defaults:
       run:
         shell: pwsh
     steps:
+      # Real-time scanning of every file the compiler writes slows the build;
+      # the runner is discarded after the job.
+      - run: Set-MpPreference -DisableRealtimeMonitoring $true
       - run: |
           git config --global core.autocrlf false
           git config --global core.longpaths true
