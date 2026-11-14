@@ -335,6 +335,11 @@ impl AppModel {
             open.picker
                 .update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
         }
+        if let Some(Overlay::FileOpener(open)) = &self.overlay {
+            open.picker.update(cx, |picker, cx| {
+                picker.set_appearance(self.theme.clone(), self.metrics, cx);
+            });
+        }
         if let Some(Overlay::Commands(crate::views::command_palette::Palette { palette, dark })) =
             &self.overlay
         {
@@ -3345,6 +3350,7 @@ pub(crate) mod tests {
     mod detach;
     mod dialogs;
     mod extension_authoring;
+    mod file_openers;
     mod find;
     mod floating;
     mod floating_tabs;

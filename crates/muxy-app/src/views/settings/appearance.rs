@@ -8,7 +8,7 @@ use muxy_app_core::settings::{
     SidebarCollapsedStyle,
 };
 use muxy_ui::controls::{self, Choice};
-use muxy_ui::l10n::{tr_key, translate};
+use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
 #[allow(
@@ -286,12 +286,8 @@ pub(super) fn rows(
             ));
         }
     }
-    if category == Category::General && pane.matches(category, tr_key!("Open files with")) {
-        rows.push(pane.row(
-            "file-opener",
-            tr_key!("Open files with"),
-            pane.picker(PickerKind::FileOpener, &file_opener(&pane.snapshot), cx),
-        ));
+    if category == Category::General {
+        rows.extend(super::files::rows(pane, cx));
     }
     let size = pane.snapshot.settings.window.default_size;
     for (index, id, label, minimum) in [
@@ -333,13 +329,6 @@ pub(super) fn rows(
     }
     rows
 }
-
-/// Built-in openers for files clicked in a terminal, as `(setting value, label key)`.
-pub(super) const FILE_OPENERS: [(&str, &str); 3] = [
-    ("system.editor", tr_key!("Project editor")),
-    ("system.finder", crate::opener::FILE_MANAGER),
-    ("system.application", tr_key!("Default application")),
-];
 
 /// Which sidebar shows. The row is there before any extension provides one,
 /// and says where to get one; a chosen one that is no longer enabled stays
@@ -393,33 +382,6 @@ pub(super) fn sidebar_label(snapshot: &Snapshot, selected: &str) -> String {
             },
             |(_, label)| label.clone(),
         )
-}
-
-/// The chosen file opener's label. A chosen extension opener that is no
-/// longer enabled stays chosen, marked unavailable.
-fn file_opener(snapshot: &Snapshot) -> String {
-    let value = &snapshot.settings.openers.file;
-    FILE_OPENERS
-        .iter()
-        .map(|&(id, label)| (id, translate(label)))
-        .chain(
-            snapshot
-                .file_openers
-                .iter()
-                .map(|(id, label)| (id.as_str(), label.clone().into())),
-        )
-        .find(|(id, _)| id == value)
-        .map_or_else(
-            || unavailable_file_opener(value),
-            |(_, label)| label.to_string(),
-        )
-}
-
-pub(super) fn unavailable_file_opener(value: &str) -> String {
-    match value.split_once(':') {
-        Some((extension, opener)) => tr!("%@ (%@, unavailable)", extension, opener).to_string(),
-        None => tr!("%@ (unavailable)", value).to_string(),
-    }
 }
 
 /// The app language. While the chosen language's extension is unavailable,

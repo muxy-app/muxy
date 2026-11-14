@@ -12,7 +12,7 @@ On macOS, choose **About Muxy** (or **About Muxy Beta**) from the app menu to op
 
 | Section | What's in it |
 | --- | --- |
-| General | Closing behavior, the app that opens files, window size, worktree locations, the anonymous daily ping |
+| General | Closing behavior, file types, defaults, and opener rules, window size, worktree locations, the anonymous daily ping |
 | Quick Terminal | Global shortcut, pinning, size, transparency |
 | Composer | Clearing, image submission, font |
 | Appearance | Language, light and dark themes, interface size, sidebar, status bar, rail, pane headers, tips |
@@ -184,3 +184,48 @@ show those icons in the top bar instead.
 
 Language packs are extensions too. Pick a language in **Settings → Appearance →
 App language**, or choose **Browse language extensions…**.
+
+## File types and openers
+
+Under **General → Files**, inspect the types registered by enabled extensions.
+An extension opens matching project files from terminal links. If more than one
+matches, choose an opener or turn on **Always use for this type** in the chooser
+before selecting it. No match means Finder on macOS or the system file manager
+on Linux. URLs keep their browser settings. Remote paths use remote-file
+handling when no extension matches.
+
+Use **File type rules → Add Rule** for custom types and defaults. Patterns such
+as `*.md`, `*.tar.gz`, `.env`, and `Dockerfile` match filenames at any depth;
+`docs/*.txt` matches a project-relative path. Matching ignores case. Choose an
+extension, **Always ask**, or the file manager. Assigning an extension also
+registers that custom pattern for it. Rules run from top to bottom; use **Move
+Up** and **Move Down** to change priority. **Edit** changes a pattern or opener,
+and **Remove** restores automatic matching for that rule.
+
+**Always show the file opener** shows the chooser even for one matching
+extension or a saved default. Unsupported files still go to the file manager.
+Disabled or removed extensions are not candidates; their saved rules become
+active again if they return. The old global `openers.file` setting is accepted
+for compatibility and ignored. The topbar project-app choice only affects
+explicit clicks on that control.
+
+These preferences are stored in `settings.toml`:
+
+```toml
+[openers]
+always_ask = false
+
+[[openers.file_rules]]
+pattern = "*.md"
+opener = "preview:markdown"
+
+[[openers.file_rules]]
+pattern = "Dockerfile"
+opener = "ask"
+
+[[openers.file_rules]]
+pattern = "*.pdf"
+opener = "system.finder"
+```
+
+An extension opener ID is `<extension package name>:<file opener id>`.

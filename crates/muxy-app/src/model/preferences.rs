@@ -43,8 +43,13 @@ pub(crate) enum Change {
     Terminal(&'static str, String),
     TerminalEdit(TerminalEdit),
     ResetTerminal,
-    /// `[openers] file`: a built-in opener, or `<extension>:<opener>`.
-    FileOpener(String),
+    FileRule {
+        previous: Option<String>,
+        rule: muxy_app_core::opener::FileRule,
+    },
+    RemoveFileRule(String),
+    MoveFileRule(String, bool),
+    AlwaysAskFiles(bool),
     /// `[openers] project_target`: the app the Open in IDE control opens.
     ProjectTarget(String),
     Directory(muxy_app_core::settings::NewPaneDirectory),
@@ -491,12 +496,15 @@ impl AppModel {
         } else {
             let theme_change = matches!(change, Change::Theme(..));
             let target_change = matches!(change, Change::ProjectTarget(_));
+            let file_change = matches!(change, Change::FileRule { .. });
             let result = self.apply_preference(change, cx);
             let error = result.err().map(|error| error.to_string());
             self.preference_result(&id, error.as_deref(), cx);
             if let Some(error) = error {
                 if theme_change {
                     self.fail(tr!("Could not save theme: %@", &error).to_string(), cx);
+                } else if file_change {
+                    self.fail(tr!("Could not save file rule: %@", &error).to_string(), cx);
                 } else if target_change {
                     self.fail(
                         tr!("Could not save the default app: %@", &error).to_string(),
@@ -694,8 +702,57 @@ impl AppModel {
                 settings.privacy.usage_ping = value;
                 settings.save_privacy(&path)?;
             }
-            Change::FileOpener(value) => {
-                settings.openers.file = value;
+            Change::FileRule { previous, rule } => {
+                let rule = muxy_app_core::opener::FileRule {
+                    pattern: rule.pattern.trim().to_owned(),
+                    ..rule
+                };
+                rule.validate()?;
+                let rules = &mut settings.openers.file_rules;
+                let keep = |existing: &muxy_app_core::opener::FileRule| {
+                    !existing.pattern.eq_ignore_ascii_case(&rule.pattern)
+                        && !previous
+                            .as_ref()
+                            .is_some_and(|pattern| existing.pattern.eq_ignore_ascii_case(pattern))
+                };
+                let position = previous
+                    .as_ref()
+                    .and_then(|pattern| {
+                        rules
+                            .iter()
+                            .position(|rule| rule.pattern.eq_ignore_ascii_case(pattern))
+                    })
+                    .map_or(0, |position| {
+                        rules[..position]
+                            .iter()
+                            .filter(|existing| keep(existing))
+                            .count()
+                    });
+                rules.retain(keep);
+                rules.insert(position, rule);
+                settings.save_openers(&path)?;
+            }
+            Change::RemoveFileRule(pattern) => {
+                settings
+                    .openers
+                    .file_rules
+                    .retain(|rule| rule.pattern != pattern);
+                settings.save_openers(&path)?;
+            }
+            Change::MoveFileRule(pattern, up) => {
+                let rules = &mut settings.openers.file_rules;
+                if let Some(index) = rules.iter().position(|rule| rule.pattern == pattern) {
+                    let next = if up {
+                        index.saturating_sub(1)
+                    } else {
+                        (index + 1).min(rules.len() - 1)
+                    };
+                    rules.swap(index, next);
+                }
+                settings.save_openers(&path)?;
+            }
+            Change::AlwaysAskFiles(value) => {
+                settings.openers.always_ask = value;
                 settings.save_openers(&path)?;
             }
             Change::ProjectTarget(value) => {
@@ -1390,7 +1447,10 @@ fn change_id(change: &Change) -> &str {
         Change::ConfirmProcess(_) => "confirm-process",
         Change::UsagePing(_) => "usage-ping",
         Change::CloseBehavior(_) => "close-behavior",
-        Change::FileOpener(_) => "file-opener",
+        Change::FileRule { .. } | Change::RemoveFileRule(_) | Change::MoveFileRule(..) => {
+            "file-rules"
+        }
+        Change::AlwaysAskFiles(_) => "always-ask-files",
         Change::ProjectTarget(_) => "project-target",
         Change::Directory(_) => "directory",
         Change::Terminal("padding-left" | "padding-right", _) => "window-padding-x",

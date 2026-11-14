@@ -145,6 +145,23 @@ impl RemoteFiles {
         })
     }
 
+    pub(crate) fn project_file(
+        &self,
+        project: ProjectId,
+        path: &Path,
+        root: &Path,
+    ) -> Option<String> {
+        let relative = path.strip_prefix(root).ok()?;
+        let info = self
+            .client
+            .file_info(project, ServerPath::from(relative))
+            .ok()?;
+        if info.is_directory {
+            return None;
+        }
+        info.path.as_path().to_str().map(str::to_owned)
+    }
+
     /// Whether a project's folder is there, as this computer checks its own:
     /// a worktree also needs its `.git` file. `None` when the server
     /// couldn't say.
@@ -573,6 +590,94 @@ mod tests {
     use muxy_ui::pasteboard::Content;
 
     use super::*;
+
+    #[test]
+    fn project_file_uses_the_source_project_and_the_servers_resolved_path() {
+        use muxy_protocol::wire::{Decoder, Encoder};
+        use muxy_protocol::{
+            CONTROL, ErrorReply, FileInfo, FilesAction, FilesReply, Message, ReplyBody,
+            RequestBody, ServerInfo,
+        };
+
+        let project = ProjectId::new();
+        let (client, server) = muxy_protocol::transport::socket_pair().expect("socket pair");
+        server
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .expect("read timeout");
+        let worker = std::thread::spawn(move || {
+            let mut decoder = Decoder::new(server.try_clone().expect("clone"));
+            let mut encoder = Encoder::new(server);
+            decoder.next().expect("hello");
+            encoder
+                .send(
+                    CONTROL,
+                    &Message::HelloReply {
+                        versions: muxy_protocol::SUPPORTED.to_vec(),
+                        server: ServerInfo::current(),
+                        features: Vec::new(),
+                    },
+                )
+                .expect("hello reply");
+            let info = |path: &str, is_directory| {
+                ReplyBody::Files(FilesReply::Info(FileInfo {
+                    name: Path::new(path).file_name().map_or_else(
+                        || ServerPath::from(""),
+                        |name| ServerPath::from(Path::new(name)),
+                    ),
+                    path: path.into(),
+                    is_directory,
+                    size: 0,
+                }))
+            };
+            for (path, reply) in [
+                ("src/../README.md", info("README.md", false)),
+                ("src/alias", info("documents/README.md", false)),
+                ("src/..", info("", true)),
+                (
+                    "src/../../secret.md",
+                    ReplyBody::Error(ErrorReply {
+                        code: ErrorCode::BadPath,
+                        message: "Path escapes the workspace root".into(),
+                    }),
+                ),
+            ] {
+                let (
+                    _,
+                    Message::Request {
+                        id,
+                        body: RequestBody::Files(request),
+                    },
+                ) = decoder.next().expect("file request")
+                else {
+                    panic!("expected file request")
+                };
+                assert_eq!(request.project, project);
+                assert_eq!(request.action, FilesAction::Stat(path.into()));
+                encoder
+                    .send(CONTROL, &Message::Reply { id, body: reply })
+                    .expect("file reply");
+            }
+        });
+        let files = RemoteFiles {
+            client: Client::from_stream(Box::new(client)).expect("client"),
+            name: "Remote".into(),
+            roots: vec![
+                (ProjectId::new(), PathBuf::from("/repo/src")),
+                (project, PathBuf::from("/repo")),
+            ],
+            home: "/home/me".into(),
+        };
+        let open = |path| files.project_file(project, Path::new(path), Path::new("/repo"));
+        assert_eq!(open("/outside/file.md"), None);
+        assert_eq!(open("/repo/src/../README.md").as_deref(), Some("README.md"));
+        assert_eq!(
+            open("/repo/src/alias").as_deref(),
+            Some("documents/README.md")
+        );
+        assert_eq!(open("/repo/src/.."), None);
+        assert_eq!(open("/repo/src/../../secret.md"), None);
+        worker.join().expect("server");
+    }
 
     #[test]
     fn copied_files_are_sent_though_their_names_are_also_on_the_clipboard_as_text() {

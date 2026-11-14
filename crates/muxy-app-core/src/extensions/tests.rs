@@ -529,6 +529,45 @@ fn manifests_load_whatever_main_accepts() {
     assert!(!only("a*b").matches("a*x"));
     assert!(!only("?").matches("ab"));
     assert!(only("src/*.rs").matches("SRC/lib.RS"));
+    assert!(only("Dockerfile").matches("nested/Dockerfile"));
+    assert!(
+        !FileOpener {
+            patterns: Vec::new(),
+            ..opener.clone()
+        }
+        .matches("anything.md")
+    );
+    let unregistered: FileOpener =
+        serde_json::from_value(json!({"id":"viewer", "tabType":"view"})).unwrap();
+    assert!(!unregistered.matches("anything.md"));
+}
+
+#[test]
+fn file_type_registrations_override_legacy_patterns_without_changing_the_tab_contract() {
+    let root = tempfile::tempdir().unwrap();
+    write_package(
+        root.path(),
+        &json!({
+            "tabTypes": [{"id": "editor", "title": "Editor", "entry": "index.html"}],
+            "fileOpeners": [{"id": "editor", "tabType": "editor", "singleton": false,
+                "patterns": ["*"], "fileTypes": ["*.md", "*.png", "Dockerfile"]}]
+        }),
+        &[("index.html", "")],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    let opener = &extension.manifest.file_openers[0];
+    assert_eq!(opener.patterns, ["*"]);
+    assert_eq!(opener.tab_type, "editor");
+    assert!(!opener.singleton);
+    assert!(opener.matches("docs/README.MD"));
+    assert!(opener.matches("image.png"));
+    assert!(opener.matches("app/Dockerfile"));
+    assert!(!opener.matches("archive.zip"));
+    let disabled = FileOpener {
+        file_types: Some(Vec::new()),
+        ..opener.clone()
+    };
+    assert!(!disabled.matches("readme.md"));
 }
 
 #[test]
