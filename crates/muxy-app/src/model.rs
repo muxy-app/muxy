@@ -3352,6 +3352,8 @@ pub(crate) mod tests {
     mod detach;
     mod dialogs;
     mod extension_authoring;
+    // Extensions open files in web view tabs, which Windows builds don't offer yet.
+    #[cfg(not(windows))]
     mod file_openers;
     mod find;
     mod floating;
