@@ -31,7 +31,7 @@ PARTS = {
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", choices=sorted(TARGETS), required=True)
-    parser.add_argument("--part", choices=sorted(PARTS), help="run only this part; CI runs the parts in parallel")
+    parser.add_argument("--part", choices=sorted(PARTS), help="run only this part; without it, lint then test")
     parser.add_argument("--scope", choices=ci_scope.SCOPES, default=ci_scope.FULL, help="which crates to test")
     args = parser.parse_args()
     compiler = subprocess.check_output(["rustc", "-vV"], cwd=ROOT, text=True)
