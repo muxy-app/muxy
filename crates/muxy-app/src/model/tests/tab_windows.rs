@@ -105,7 +105,7 @@ fn terminals_change_project_only_on_servers_that_can_follow(cx: &mut TestAppCont
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
     let other = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.select_project(home).expect("select");
     let a = state.open_terminal_tab(home).expect("tab");
@@ -253,7 +253,7 @@ fn a_move_the_server_refuses_puts_the_terminal_back(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
     let other = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.select_project(home).expect("select");
     let a = state.open_terminal_tab(home).expect("tab");
@@ -317,7 +317,7 @@ fn a_terminal_still_starting_keeps_its_project(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
     let other = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.select_project(home).expect("select");
     let a = state.open_terminal_tab(home).expect("tab");
@@ -342,7 +342,7 @@ fn a_terminal_two_panes_show_moves_only_with_both(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
     let other = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.select_project(home).expect("select");
     let a = state.open_terminal_tab(home).expect("tab");
@@ -373,7 +373,7 @@ fn a_terminal_moves_again_only_once_its_server_answered(cx: &mut TestAppContext)
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
     let other = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.select_project(home).expect("select");
     let a = state.open_terminal_tab(home).expect("tab");
@@ -402,7 +402,7 @@ fn a_move_whose_answer_timed_out_is_sent_again_once(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let home = state.home().id;
     let other = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.select_project(home).expect("select");
     let a = state.open_terminal_tab(home).expect("tab");

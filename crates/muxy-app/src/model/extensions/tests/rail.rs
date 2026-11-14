@@ -28,7 +28,7 @@ fn open(cx: &mut TestAppContext) -> (Entity<AppModel>, &mut VisualTestContext) {
             Extension {
                 name: "sample".into(),
                 version: "1.0.0".into(),
-                directory: std::env::temp_dir(),
+                directory: crate::test_support::project_directory(),
                 manifest,
             },
         );

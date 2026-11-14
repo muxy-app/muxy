@@ -48,7 +48,7 @@ fn floated(
         .expect("pane");
     let pane = state.split_pane(main, Direction::Right).expect("split");
     let other = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.open_terminal_tab(other).expect("tab");
     let _ = state.select_project(home);

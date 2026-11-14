@@ -2,7 +2,6 @@
 """Check the whole workspace, desktop app included, on a native Windows host."""
 
 import argparse
-import os
 from pathlib import Path
 import platform
 import shutil
@@ -15,12 +14,12 @@ import slow_test_guard  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGETS = ["aarch64-pc-windows-msvc", "x86_64-pc-windows-msvc"]
+# Formatting is the same on every platform and the docs are not published, so CI
+# checks both once, in the Linux desktop lint.
 PARTS = {
     "lint": [
         [sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests"],
-        ["cargo", "fmt", "--all", "--check"],
         ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
-        ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
     ],
     "test": [
         ["cargo", "test", "--locked", "--workspace", "--all-features", "--tests", "--timings"],
@@ -39,14 +38,10 @@ def main():
         raise ValueError("The Windows check requires a native Windows host and the requested Rust toolchain")
     if not shutil.which("zig"):
         raise ValueError("Install Zig 0.17.0 before running the Windows check")
-    env = {
-        **os.environ,
-        "RUSTDOCFLAGS": (os.environ.get("RUSTDOCFLAGS", "") + " -D warnings").strip(),
-    }
     parts = {**PARTS, "test": ci_scope.tests(args.scope, PARTS["test"])}
     for command in parts[args.part] if args.part else [*parts["lint"], *parts["test"]]:
         print("+ " + " ".join(command), flush=True)
-        slow_test_guard.run(command, cwd=ROOT, env=env)
+        slow_test_guard.run(command, cwd=ROOT)
     print(f"Windows checks passed on {args.target}; they are headless and replace no human check.", flush=True)
 
 

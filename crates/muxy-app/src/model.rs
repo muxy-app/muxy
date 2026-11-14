@@ -3484,7 +3484,7 @@ pub(crate) mod tests {
     ) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>, Remotes) {
         let (work, requests) = std::sync::mpsc::channel();
         let (_, updates) = async_channel::unbounded();
-        let directory = std::env::temp_dir().join(format!("muxy-app-restore-{}", ProjectId::new()));
+        let directory = crate::test_support::directory();
         let remotes = Remotes::default();
         let started = Rc::clone(&remotes);
         let workers = crate::boot::Workers::with(move |server, _| {
@@ -4092,7 +4092,7 @@ pub(crate) mod tests {
         state
             .set_pane_session(pane, Some(session))
             .expect("session");
-        let folder = std::env::temp_dir();
+        let folder = crate::test_support::project_directory();
         assert!(state.remember_directory(pane, &folder.as_path().into()));
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -4354,7 +4354,7 @@ pub(crate) mod tests {
             .set_pane_session(valid, Some(session))
             .expect("session");
         let other = state
-            .add_project(ServerId::local(), std::env::temp_dir())
+            .add_project(ServerId::local(), crate::test_support::project_directory())
             .expect("project");
         state.open_terminal_tab(other).expect("tab");
         let invalid = state.window().active_pane.expect("pane");
@@ -4407,7 +4407,7 @@ pub(crate) mod tests {
             .set_pane_session(state.window().active_pane.expect("pane"), Some(dead))
             .expect("session");
         let hidden = state
-            .add_project(ServerId::local(), std::env::temp_dir())
+            .add_project(ServerId::local(), crate::test_support::project_directory())
             .expect("project");
         state.open_terminal_tab(hidden).expect("tab");
         state

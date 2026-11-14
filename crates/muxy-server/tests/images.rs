@@ -157,5 +157,8 @@ fn a_history_page_places_the_images_on_its_rows() -> Result {
     let image = &graphics.images[0];
     let pixels = frames(&handle, image.id, vec![image.generation])?;
     assert_eq!(pixels[0].rgba.to_vec(), [255, 0, 0, 255]);
+
+    registry.shutdown();
+    let _ = fs::remove_dir_all(directory);
     Ok(())
 }

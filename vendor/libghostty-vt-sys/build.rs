@@ -1,3 +1,4 @@
+mod kept_install;
 mod patch;
 
 use std::env;
@@ -107,6 +108,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=OPT_LEVEL");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=patch.rs");
+    println!("cargo:rerun-if-changed=kept_install.rs");
     println!("cargo:rerun-if-changed=patches/clear-screen.patch");
     println!("cargo:rerun-if-changed=patches/kitty-image-file.patch");
     println!("cargo:rerun-if-changed=patches/kitty-animation-frames.patch");
@@ -136,25 +138,7 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set"));
     let host = env::var("HOST").expect("HOST must be set");
 
-    // Locate ghostty source: env override > fetch into OUT_DIR.
-    let ghostty_dir = match env::var("GHOSTTY_SOURCE_DIR") {
-        Ok(dir) => {
-            let p = PathBuf::from(dir);
-            assert!(
-                p.join("build.zig").exists(),
-                "GHOSTTY_SOURCE_DIR does not contain build.zig: {}",
-                p.display()
-            );
-            println!("cargo:rerun-if-changed={}", p.display());
-            p
-        }
-        Err(_) => fetch_ghostty(&out_dir),
-    };
-
-    // Keep both the pinned checkout and any caller-provided source untouched.
-    let ghostty_dir = patch::prepare(&ghostty_dir, &out_dir);
-
-    // Build libghostty-vt via zig.
+    // Zig installs libghostty-vt here.
     let install_prefix = out_dir.join("ghostty-install");
     // Tell the gen-bindings tool, a binary of this crate, which headers
     // this exact build installed. Cargo keeps one build output per feature
@@ -164,14 +148,6 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
         "cargo:rustc-env=LIBGHOSTTY_VT_SYS_INCLUDE_DIR={}",
         install_prefix.join("include").display()
     );
-    // CI keeps Zig's build outputs across runs in a directory of its choosing,
-    // because caching tools discard this crate's OUT_DIR. Zig keys its cache by
-    // content, so a kept cache can only skip work, not change the result.
-    let zig_cache_dir = env::var_os("LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR")
-        .filter(|dir| !dir.is_empty())
-        .map_or_else(|| out_dir.join("zig-cache"), PathBuf::from);
-    let zig_global_cache_dir = out_dir.join("zig-global-cache");
-
     let optimize = zig_optimize_mode();
     let cpu = env::var("LIBGHOSTTY_VT_SYS_CPU").unwrap_or_else(|_| "baseline".to_owned());
     assert!(
@@ -206,6 +182,104 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
              disable the link-dynamic feature"
         );
     }
+
+    // CI reuses an install kept from an earlier run when nothing that shapes
+    // it has changed, since Zig rebuilds a freshly checked-out Ghostty.
+    let kept = kept_install::KeptInstall::find(
+        matches!(link_mode, LinkMode::Static),
+        &kept_install::Build {
+            target,
+            host: &host,
+            optimize,
+            cpu: &cpu,
+        },
+    );
+    if !kept.as_ref().is_some_and(|kept| kept.restore(&install_prefix)) {
+        build_with_zig(target, &host, &out_dir, &install_prefix, optimize, &cpu, ios_platform);
+        if let Some(kept) = &kept {
+            kept.keep(&install_prefix);
+        }
+    }
+
+    let lib_dir = install_prefix.join("lib");
+    let include_dir = install_prefix.join("include");
+    let search_dirs = library_search_dirs(target, &install_prefix);
+    if ios_platform.is_none() {
+        warn_unused_xcframework(&lib_dir);
+    }
+
+    let has_requested_library = search_dirs.iter().any(|dir| {
+        std::fs::read_dir(dir)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
+            .any(|entry| {
+                let entry = entry.unwrap_or_else(|error| {
+                    panic!("failed to read entry from {}: {error}", dir.display())
+                });
+                let file_name = entry.file_name();
+                let Some(file_name) = file_name.to_str() else {
+                    return false;
+                };
+
+                link_mode.matches_library(target, file_name)
+            })
+    });
+    assert!(
+        has_requested_library,
+        "expected libghostty-vt {} in one of {:?}",
+        link_mode.artifact_kind(),
+        search_dirs
+    );
+    assert!(
+        include_dir.join("ghostty").join("vt.h").exists(),
+        "expected header at {}",
+        include_dir.join("ghostty").join("vt.h").display()
+    );
+
+    for dir in &search_dirs {
+        println!("cargo:rustc-link-search=native={}", dir.display());
+    }
+    match link_mode {
+        LinkMode::Dynamic => println!("cargo:rustc-link-lib=dylib=ghostty-vt"),
+        LinkMode::Static => emit_static_link_lib(target),
+    }
+    emit_include_metadata(&[include_dir]);
+}
+
+/// Fetch and patch Ghostty, then build and install libghostty-vt with Zig.
+fn build_with_zig(
+    target: &str,
+    host: &str,
+    out_dir: &Path,
+    install_prefix: &Path,
+    optimize: &str,
+    cpu: &str,
+    ios_platform: Option<&str>,
+) {
+    // Locate ghostty source: env override > fetch into OUT_DIR.
+    let ghostty_dir = match env::var("GHOSTTY_SOURCE_DIR") {
+        Ok(dir) => {
+            let p = PathBuf::from(dir);
+            assert!(
+                p.join("build.zig").exists(),
+                "GHOSTTY_SOURCE_DIR does not contain build.zig: {}",
+                p.display()
+            );
+            println!("cargo:rerun-if-changed={}", p.display());
+            p
+        }
+        Err(_) => fetch_ghostty(&out_dir),
+    };
+
+    // Keep both the pinned checkout and any caller-provided source untouched.
+    let ghostty_dir = patch::prepare(&ghostty_dir, &out_dir);
+
+    // CI keeps Zig's build outputs across runs in a directory of its choosing,
+    // because caching tools discard this crate's OUT_DIR. Zig keys its cache by
+    // content, so a kept cache can only skip work, not change the result.
+    let zig_cache_dir = env::var_os("LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| out_dir.join("zig-cache"), PathBuf::from);
+    let zig_global_cache_dir = out_dir.join("zig-global-cache");
 
     // Users can override the zig command with the `ZIG` env variable.
     // We default to assuming zig is in path.
@@ -285,49 +359,6 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
     if let Some(platform) = ios_platform {
         extract_xcframework_lib(&install_prefix, platform);
     }
-
-    let lib_dir = install_prefix.join("lib");
-    let include_dir = install_prefix.join("include");
-    let search_dirs = library_search_dirs(target, &install_prefix);
-    if ios_platform.is_none() {
-        warn_unused_xcframework(&lib_dir);
-    }
-
-    let has_requested_library = search_dirs.iter().any(|dir| {
-        std::fs::read_dir(dir)
-            .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
-            .any(|entry| {
-                let entry = entry.unwrap_or_else(|error| {
-                    panic!("failed to read entry from {}: {error}", dir.display())
-                });
-                let file_name = entry.file_name();
-                let Some(file_name) = file_name.to_str() else {
-                    return false;
-                };
-
-                link_mode.matches_library(target, file_name)
-            })
-    });
-    assert!(
-        has_requested_library,
-        "expected libghostty-vt {} in one of {:?}",
-        link_mode.artifact_kind(),
-        search_dirs
-    );
-    assert!(
-        include_dir.join("ghostty").join("vt.h").exists(),
-        "expected header at {}",
-        include_dir.join("ghostty").join("vt.h").display()
-    );
-
-    for dir in &search_dirs {
-        println!("cargo:rustc-link-search=native={}", dir.display());
-    }
-    match link_mode {
-        LinkMode::Dynamic => println!("cargo:rustc-link-lib=dylib=ghostty-vt"),
-        LinkMode::Static => emit_static_link_lib(target),
-    }
-    emit_include_metadata(&[include_dir]);
 }
 
 /// Emit the link directive for the static archive.

@@ -110,7 +110,7 @@ fn a_finished_script_cancels_its_commands_without_a_frame(cx: &mut TestAppContex
             muxy_app_core::extensions::Extension {
                 name: "files".into(),
                 version: "1.0.0".into(),
-                directory: std::env::temp_dir(),
+                directory: crate::test_support::project_directory(),
                 manifest: muxy_app_core::extensions::Manifest::default(),
             },
         );

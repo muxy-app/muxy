@@ -40,7 +40,7 @@ fn launched(launches: &mpsc::Receiver<(PathBuf, String)>) -> (PathBuf, String) {
 fn the_control_opens_the_project_in_the_chosen_app_and_remembers_it(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.open_terminal_tab(project).expect("tab");
     let (boot, _requests) = stub_boot(state);
@@ -73,7 +73,10 @@ fn the_control_opens_the_project_in_the_chosen_app_and_remembers_it(cx: &mut Tes
     cx.simulate_click(primary.center(), Modifiers::default());
     assert_eq!(
         launched(&launches),
-        (std::env::temp_dir(), "dev.zed.Zed".to_owned())
+        (
+            crate::test_support::project_directory(),
+            "dev.zed.Zed".to_owned()
+        )
     );
     view.read_with(cx, |model, _| {
         assert_eq!(
@@ -100,7 +103,10 @@ fn the_control_opens_the_project_in_the_chosen_app_and_remembers_it(cx: &mut Tes
     cx.run_until_parked();
     assert_eq!(
         launched(&launches),
-        (std::env::temp_dir(), "com.apple.dt.Xcode".to_owned())
+        (
+            crate::test_support::project_directory(),
+            "com.apple.dt.Xcode".to_owned()
+        )
     );
     view.read_with(cx, |model, _| {
         assert!(model.overlay.is_none());
@@ -143,7 +149,7 @@ fn projects_on_other_computers_have_no_open_in_ide_control(cx: &mut TestAppConte
 fn a_choice_that_cannot_be_saved_still_opens_and_says_so(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.open_terminal_tab(project).expect("tab");
     let (boot, _requests) = stub_boot(state);
@@ -162,7 +168,10 @@ fn a_choice_that_cannot_be_saved_still_opens_and_says_so(cx: &mut TestAppContext
     });
     assert_eq!(
         launched(&launches),
-        (std::env::temp_dir(), "com.apple.dt.Xcode".to_owned())
+        (
+            crate::test_support::project_directory(),
+            "com.apple.dt.Xcode".to_owned()
+        )
     );
     view.read_with(cx, |model, _| {
         assert_eq!(model.settings.openers.project_target, None);
@@ -181,7 +190,7 @@ fn a_choice_that_cannot_be_saved_still_opens_and_says_so(cx: &mut TestAppContext
 fn a_failed_launch_forgets_editors_that_were_uninstalled(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.open_terminal_tab(project).expect("tab");
     let (boot, _requests) = stub_boot(state);
@@ -190,7 +199,7 @@ fn a_failed_launch_forgets_editors_that_were_uninstalled(cx: &mut TestAppContext
         model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
     });
-    let installed = std::env::temp_dir();
+    let installed = crate::test_support::project_directory();
     let uninstalled = installed.join(format!("muxy-uninstalled-{}.app", ProjectId::new()));
     view.update(cx, |model, cx| {
         let editor = |id: &str, path: &std::path::Path| Listed {
@@ -248,7 +257,7 @@ fn cramped(
 ) -> (gpui::Bounds<gpui::Pixels>, gpui::Bounds<gpui::Pixels>) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.open_terminal_tab(project).expect("tab");
     let (mut boot, _requests) = stub_boot(state);

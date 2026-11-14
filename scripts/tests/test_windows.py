@@ -29,8 +29,7 @@ class WindowsTests(unittest.TestCase):
         stack.enter_context(patch.object(sys, "argv", ["check-windows.py", "--target", TARGET, *arguments]))
         stack.enter_context(patch.object(CHECK.platform, "system", return_value=system))
         stack.enter_context(patch.object(CHECK.shutil, "which", return_value=zig))
-        stack.enter_context(patch.dict(os.environ, {"RUSTDOCFLAGS": "--cfg regression_guard", **(env or {})},
-                                       clear=True))
+        stack.enter_context(patch.dict(os.environ, env or {}, clear=True))
         stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
 
         stack.enter_context(patch.object(CHECK.subprocess, "check_output", return_value=f"host: {host}\n"))
@@ -51,7 +50,7 @@ class WindowsTests(unittest.TestCase):
                 self.doCleanups()
 
     def test_any_failed_check_stops_the_run(self):
-        for failed_step in range(5):
+        for failed_step in range(3):
             with self.subTest(failed_step=failed_step):
                 run = self.environment()
                 run.side_effect = [None] * failed_step + [subprocess.CalledProcessError(1, "check")]
@@ -66,7 +65,6 @@ class WindowsTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in run.call_args_list], [*CHECK.PARTS["lint"], *CHECK.PARTS["test"]])
         for call in run.call_args_list:
             self.assertEqual(call.kwargs["cwd"], ROOT)
-            self.assertEqual(call.kwargs["env"]["RUSTDOCFLAGS"], "--cfg regression_guard -D warnings")
 
     def test_each_part_runs_alone(self):
         run = self.environment(part="lint")
