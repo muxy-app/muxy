@@ -1,6 +1,12 @@
 //! Local sockets: Unix-domain sockets on Unix, and `AF_UNIX` sockets on
 //! Windows 10 1803 and later.
 
+#[cfg(unix)]
+#[cfg_attr(
+    not(any(target_os = "linux", target_os = "android")),
+    allow(unsafe_code, reason = "getpeereid")
+)]
+mod credentials;
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod windows;
@@ -47,7 +53,11 @@ impl UnixSocketListener {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent)?;
+        // A folder made here is private. One that exists is left as it is,
+        // since `accept` turns away other users wherever the socket lives.
+        if !parent.try_exists()? {
+            muxy_core::files::private_dir(parent)?;
+        }
         let _lock = lock_socket_directory(parent)?;
 
         let socket = match LocalListener::bind(&path) {
@@ -75,8 +85,15 @@ impl UnixSocketListener {
 }
 
 impl Listener for UnixSocketListener {
+    /// Closes, unread, any connection from another user (other than root),
+    /// wherever the socket file lives and whoever can reach it.
     fn accept(&self) -> io::Result<Box<dyn ByteStream>> {
-        let stream = self.socket.accept(Listening::accept)?.0;
+        let stream = loop {
+            let stream = self.socket.accept(Listening::accept)?.0;
+            if trusted_peer(&stream) {
+                break stream;
+            }
+        };
         stream.set_nonblocking(false)?;
         Ok(Box::new(stream))
     }
@@ -96,6 +113,28 @@ pub fn connect_local(path: impl AsRef<Path>) -> io::Result<LocalStream> {
     let stream = LocalStream::connect(socket_address(path.as_ref()))?;
     stream.set_nonblocking(false)?;
     Ok(stream)
+}
+
+/// Whether a listener serves the process at the other end of `stream`: on
+/// Unix one of this user or root, which can act as anyone anyway. Windows
+/// leaves it to the socket's folder, whose DACL decides who can connect.
+fn trusted_peer(stream: &LocalStream) -> bool {
+    #[cfg(unix)]
+    {
+        credentials::peer_uid(stream).is_ok_and(|uid| uid == credentials::own_uid() || uid == 0)
+    }
+    #[cfg(windows)]
+    {
+        let _ = stream;
+        true
+    }
+}
+
+/// Whether the process at the other end of `stream` runs as this user, so a
+/// client can refuse a socket that another user put in its place.
+#[cfg(unix)]
+pub fn peer_is_same_user(stream: &LocalStream) -> io::Result<bool> {
+    Ok(credentials::peer_uid(stream)? == credentials::own_uid())
 }
 
 /// Held while a socket in `parent` is bound, replaced or removed, so those
@@ -318,6 +357,34 @@ impl Write for SocketWriter {
 impl Drop for SocketWriter {
     fn drop(&mut self) {
         let _ = self.stream.shutdown(Shutdown::Write);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod unix_tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
+
+    #[test]
+    fn a_missing_socket_folder_is_made_private_and_peers_are_this_user() -> io::Result<()> {
+        // Short, because socket paths are limited to about 100 bytes.
+        let root = Path::new("/tmp").join(format!(
+            "muxy-peer-{:x}",
+            uuid::Uuid::new_v4().as_u64_pair().0
+        ));
+        let folder = root.join("a").join("b");
+        let path = folder.join("s.sock");
+        let result = (|| {
+            let listener = UnixSocketListener::bind(&path).map_err(io::Error::other)?;
+            assert_eq!(fs::metadata(&folder)?.permissions().mode() & 0o777, 0o700);
+            let client = connect_local(&path)?;
+            drop(listener.accept()?);
+            assert!(peer_is_same_user(&client)?);
+            Ok(())
+        })();
+        fs::remove_dir_all(&root)?;
+        result
     }
 }
 

@@ -167,8 +167,10 @@ pub(crate) fn clone_name(name: &str) -> String {
 
 /// A word the shell reads literally, in every shell Muxy starts. Backslashes go
 /// outside the quotes too, because fish reads one inside them as an escape.
-/// Control characters can't be quoted, since the line editor acts on them first:
-/// see [`typed_safely`].
+/// Curly single quotes go inside double quotes, because `PowerShell` reads them
+/// as quotes and every shell reads them as text there. Control characters
+/// can't be quoted, since the line editor acts on them first: see
+/// [`typed_safely`].
 #[cfg(not(windows))]
 pub(crate) fn shell_quote(text: &str) -> String {
     let plain = !text.is_empty()
@@ -183,11 +185,33 @@ pub(crate) fn shell_quote(text: &str) -> String {
         match character {
             '\'' => quoted.push_str(r"'\''"),
             '\\' => quoted.push_str(r"'\\'"),
+            '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}' => {
+                quoted.push_str("'\"");
+                quoted.push(character);
+                quoted.push_str("\"'");
+            }
             character => quoted.push(character),
         }
     }
     quoted.push('\'');
     quoted
+}
+
+/// Whether `shell` reads the lines [`launch_line`] types: sh and the shells
+/// built on its grammar, and fish. Others, such as `PowerShell` or nu, read the
+/// same quotes differently, so a folder's name could end a word early and run
+/// the rest of it; the line isn't typed into them at all.
+#[cfg(not(windows))]
+pub(crate) fn reads_launch_line(shell: &Path) -> bool {
+    let name = shell
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .trim_start_matches('-');
+    matches!(
+        name,
+        "sh" | "bash" | "zsh" | "dash" | "ash" | "ksh" | "ksh93" | "mksh" | "fish"
+    )
 }
 
 /// A line is typed into the shell, so a control character in it, such as from a
@@ -639,6 +663,16 @@ mod tests {
         assert_eq!(shell_quote(r"a\"), r"'a'\\''");
     }
 
+    /// `PowerShell` reads a curly single quote as a quote, so inside single
+    /// quotes it would end the word, and a folder named with one could run
+    /// the rest of its name.
+    #[cfg(not(windows))]
+    #[test]
+    fn curly_single_quotes_go_inside_double_quotes() {
+        assert_eq!(shell_quote("it\u{2019}s; rm"), "'it'\"\u{2019}\"'s; rm'");
+        assert_eq!(shell_quote("\u{2018}"), "''\"\u{2018}\"''");
+    }
+
     /// A quoted word has to come back from a real shell as the same text, with
     /// nothing in it run.
     #[cfg(not(windows))]
@@ -652,11 +686,20 @@ mod tests {
             format!(r"x\';touch {marker};#"),
             format!("it's; touch {marker} $(touch {marker}) `touch {marker}`"),
             format!(r"\\'\';touch {marker}"),
+            format!("it\u{2019}s; touch {marker}; \u{2018}x\u{201b}"),
             r"trailing\".to_owned(),
             "plain".to_owned(),
             String::new(),
         ];
-        for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
+        let fish = [
+            "/usr/bin/fish",
+            "/usr/local/bin/fish",
+            "/opt/homebrew/bin/fish",
+        ];
+        for shell in ["/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash"]
+            .into_iter()
+            .chain(fish)
+        {
             if !Path::new(shell).exists() {
                 continue;
             }
@@ -673,6 +716,29 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn launch_lines_are_typed_only_into_shells_that_read_them() {
+        for shell in [
+            "/bin/sh",
+            "/bin/bash",
+            "-zsh",
+            "/usr/bin/dash",
+            "/opt/homebrew/bin/fish",
+        ] {
+            assert!(reads_launch_line(Path::new(shell)), "{shell}");
+        }
+        for shell in [
+            "/usr/local/bin/pwsh",
+            "/usr/bin/nu",
+            "/bin/tcsh",
+            "/usr/bin/xonsh",
+            "",
+        ] {
+            assert!(!reads_launch_line(Path::new(shell)), "{shell}");
+        }
     }
 
     #[cfg(windows)]

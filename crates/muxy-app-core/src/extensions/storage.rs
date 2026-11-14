@@ -34,6 +34,43 @@ pub(super) fn write(path: &Path, value: &Value) -> Result<(), String> {
     write().map_err(|error| error.to_string())
 }
 
+/// The file that holds an extension's data. Extension names are
+/// case-sensitive but filesystems may not be, so each uppercase letter is
+/// written as `^` and its lowercase form: `Foo` and `foo` never share a file.
+/// Lowercase names, nearly all of them, keep the names they always had.
+fn data_file(root: &Path, name: &str) -> PathBuf {
+    let mut file = String::with_capacity(name.len() + 8);
+    for character in name.chars() {
+        if character.is_ascii_uppercase() {
+            file.push('^');
+        }
+        file.push(character.to_ascii_lowercase());
+    }
+    file.push_str(".json");
+    root.join(file)
+}
+
+/// Renames files saved under the old case-preserving names, once, when the
+/// store opens. Best effort: a file that can't be renamed stays where it was.
+fn migrate(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file = entry.file_name();
+        let Some(name) = file.to_str().and_then(|file| file.strip_suffix(".json")) else {
+            continue;
+        };
+        if name.contains('^') || !name.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            continue;
+        }
+        let target = data_file(root, name);
+        if !target.exists() {
+            let _ = std::fs::rename(entry.path(), target);
+        }
+    }
+}
+
 fn object(path: &Path) -> Result<Map<String, Value>, String> {
     match read(path) {
         Ok(value) => serde_json::from_value(value).map_err(|e| e.to_string()),
@@ -50,9 +87,9 @@ pub struct Storage {
 
 impl Storage {
     pub fn new(profile: &Path) -> Self {
-        Self {
-            root: profile.join("extension-storage"),
-        }
+        let root = profile.join("extension-storage");
+        migrate(&root);
+        Self { root }
     }
 
     pub fn call(
@@ -61,7 +98,7 @@ impl Storage {
         verb: &str,
         args: &Value,
     ) -> Result<Value, String> {
-        let path = self.root.join(format!("{}.json", extension.name));
+        let path = data_file(&self.root, &extension.name);
         let mut values = object(&path)?;
         if verb == "storage.keys" {
             let mut keys: Vec<_> = values.keys().collect();
@@ -113,13 +150,13 @@ pub struct Settings {
 
 impl Settings {
     pub fn new(profile: &Path) -> Self {
-        Self {
-            root: profile.join("extension-settings"),
-        }
+        let root = profile.join("extension-settings");
+        migrate(&root);
+        Self { root }
     }
 
     fn path(&self, extension: &str) -> PathBuf {
-        self.root.join(format!("{extension}.json"))
+        data_file(&self.root, extension)
     }
 
     /// The overrides stored for one extension.

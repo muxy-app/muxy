@@ -211,6 +211,58 @@ fn traversal_symlinks_missing_manifest_and_unknown_versions_are_rejected() {
     assert!(export(directory.path(), &archive, &AppState::bootstrap().unwrap()).is_err());
 }
 
+fn native_archive(path: &Path, listed: &[String], entries: &[String]) {
+    let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("manifest.json", options).unwrap();
+    zip.write_all(
+        serde_json::json!({"schemaVersion":2,"format":"muxy.configuration","files":listed})
+            .to_string()
+            .as_bytes(),
+    )
+    .unwrap();
+    for entry in entries {
+        zip.start_file(entry.as_str(), options).unwrap();
+    }
+    zip.finish().unwrap();
+}
+
+#[test]
+fn manifest_paths_are_checked_once_each() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("backup.muxy");
+    let themes: Vec<_> = (0..4000).map(|index| format!("themes/{index}")).collect();
+    let mut listed = themes.clone();
+    listed.extend(["settings.toml".to_owned(), "themes".to_owned()]);
+    let mut entries = themes;
+    entries.push("settings.toml".into());
+    native_archive(&path, &listed, &entries);
+    let (files, legacy, _) = archive::read(&path).unwrap();
+    assert!(!legacy);
+    assert_eq!(files.len(), 4001);
+
+    native_archive(&path, &["themes".into()], &[]);
+    assert!(archive::read(&path).is_err());
+    native_archive(&path, &["themes".into()], &["themes/a/b".into()]);
+    assert_eq!(archive::read(&path).unwrap().0.len(), 1);
+
+    // A name listed again is the same name, as it always was.
+    let repeated = vec!["settings.toml".to_owned(); 3];
+    native_archive(&path, &repeated, &["settings.toml".into()]);
+    assert_eq!(archive::read(&path).unwrap().0.len(), 1);
+}
+
+#[test]
+fn manifests_listing_too_many_paths_are_refused() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("backup.muxy");
+    // One name, listed past the limit: without the limit, the names would
+    // collapse to one and the archive would be valid.
+    let listed = vec!["themes/0".to_owned(); 9000];
+    native_archive(&path, &listed, &["themes/0".into()]);
+    assert!(archive::read(&path).is_err());
+}
+
 #[test]
 fn ghostty_includes_are_resolved_and_untrusted_imports_cannot_read_external_files() {
     let directory = profile();

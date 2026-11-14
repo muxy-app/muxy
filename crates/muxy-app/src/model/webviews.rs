@@ -590,8 +590,13 @@ impl AppModel {
         let (pane, panel) = (target.pane, target.panel);
         let (is_modal, is_popover) = (target.modal, target.popover);
         let result = match request.body["verb"].as_str().unwrap_or("") {
+            // The page reports its own clicks, so the report moves focus only
+            // when the platform saw a click on the page too: keys follow focus,
+            // and a page must not take them without the user choosing it.
             "surface.focus" => {
-                self.focus_webview(view, pane, is_modal || is_popover, window, cx);
+                if view.read(cx).native.take_click() {
+                    self.focus_webview(view, pane, is_modal || is_popover, window, cx);
+                }
                 Ok(Value::Null)
             }
             "tabs.setTitle" | "tabs.setIcon" => {
@@ -1268,24 +1273,24 @@ impl AppModel {
                 if bytes.len() > 256 * 1024 {
                     return Err("icon exceeds 256 KiB".into());
                 }
-                Ok(bytes)
+                // Drawn into a small square, whatever size the SVG claims.
+                muxy_ui::icon::svg::page_icon(&bytes)
+                    .map(std::sync::Arc::new)
+                    .ok_or_else(|| "icon is not a readable SVG or is too complex".to_owned())
             });
             let view = view.downgrade();
             let request = request.clone();
             cx.spawn(async move |model, cx| {
-                let result: Result<Vec<u8>, String> = load.await;
+                let result: Result<std::sync::Arc<gpui::Image>, String> = load.await;
                 let _ = view.update(cx, |view, _| {
                     if view.native.generation() != request.generation {
                         return;
                     }
-                    let result = result.map(|bytes| {
+                    let result = result.map(|image| {
                         if view.icon_revision != revision {
                             return Value::Null;
                         }
-                        view.icon =
-                            Some(crate::views::webview::PageIcon::Svg(std::sync::Arc::new(
-                                gpui::Image::from_bytes(gpui::ImageFormat::Svg, bytes),
-                            )));
+                        view.icon = Some(crate::views::webview::PageIcon::Svg(image));
                         Value::Null
                     });
                     view.reply(&request, result);

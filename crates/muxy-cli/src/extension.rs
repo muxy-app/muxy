@@ -331,9 +331,22 @@ fn list_row(extension: &Value) -> String {
     )
 }
 
+/// What `run` prints. Piped output is the raw text for scripts; a terminal
+/// gets it escaped, since logs and problems hold extension-controlled text
+/// that could otherwise drive the terminal, such as setting its clipboard.
 fn display_text(verb: &str, reply: &Value, display: crate::output::Display) -> String {
-    if !display.terminal || !matches!(verb, "extension.list" | "extension.status") {
+    if !display.terminal {
         return text(verb, reply);
+    }
+    if verb == "extension.logs" {
+        let mut output = String::new();
+        for line in strings(reply, "lines") {
+            let _ = writeln!(output, "{}", crate::output::cell(&json!(line)));
+        }
+        return output;
+    }
+    if !matches!(verb, "extension.list" | "extension.status") {
+        return crate::output::terminal_text(&text(verb, reply));
     }
     let extensions: Vec<_> = if verb == "extension.status" {
         vec![reply]
@@ -756,13 +769,15 @@ mod tests {
         let reply = json!({"name": "hello", "log": [line], "lines": [line]});
         let mut display = crate::output::Display::stdout();
         display.terminal = true;
-        for verb in ["extension.list", "extension.status"] {
+        for verb in ["extension.list", "extension.status", "extension.logs"] {
             let output = display_text(verb, &reply, display);
             assert!(!output.contains(line), "{verb}: {output:?}");
             assert!(output.ends_with("\\u{1b}[2Jstatus\\tchanged\\r\\nnext\n"));
         }
+        let clipboard = json!({"problems": ["\u{1b}]52;c;aGk=\u{7}bad"], "github": "octocat"});
+        let output = display_text("extension.validate", &clipboard, display);
+        assert_eq!(output, "\\u{1b}]52;c;aGk=\\u{7}bad\n");
         let raw = format!("{line}\n");
-        assert_eq!(display_text("extension.logs", &reply, display), raw);
         display.terminal = false;
         for verb in ["extension.list", "extension.status", "extension.logs"] {
             assert_eq!(display_text(verb, &reply, display), text(verb, &reply));

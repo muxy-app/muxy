@@ -15,9 +15,13 @@ use crate::file_lock::FileLock;
 
 /// Creates `path` and its parents, and makes `path` open only to the user.
 ///
-/// On Unix every directory it creates gets mode `0o700`. On Windows `path`
-/// gets a protected DACL for the user and SYSTEM, which everything below it
-/// inherits; parents keep the permissions they inherit.
+/// On Unix every directory it creates gets mode `0o700`. An existing `path`
+/// must belong to the user, and loses any access it gives other users, so
+/// nobody else can replace what Muxy keeps there. When `path` is a symbolic
+/// link, its target is checked but left as it is, and refused if other users
+/// can change it. On Windows `path` gets a protected DACL for the user and
+/// SYSTEM, which everything below it inherits; parents keep the permissions
+/// they inherit.
 pub fn private_dir(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -25,13 +29,55 @@ pub fn private_dir(path: &Path) -> io::Result<()> {
         fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
-            .create(path)
+            .create(path)?;
+        restrict_directory(path)
     }
     #[cfg(windows)]
     {
         fs::create_dir_all(path)?;
         windows::protect_directory(path)
     }
+}
+
+/// Refuses a folder another user owns, and takes away other users' access
+/// to one the user owns. A link's target is only checked, since it may be a
+/// folder the user shares on purpose.
+#[cfg(unix)]
+fn restrict_directory(path: &Path) -> io::Result<()> {
+    use rustix::fs::{Mode, OFlags};
+
+    let link = fs::symlink_metadata(path)?.file_type().is_symlink();
+    let mut flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    if !link {
+        // The folder just checked, never a link swapped in since.
+        flags |= OFlags::NOFOLLOW;
+    }
+    let directory = rustix::fs::open(path, flags, Mode::empty())?;
+    let stat = rustix::fs::fstat(&directory)?;
+    if stat.st_uid != rustix::process::geteuid().as_raw() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} belongs to another user", path.display()),
+        ));
+    }
+    let mode = stat.st_mode & 0o7777;
+    let shared = mode & 0o077;
+    if shared == 0 {
+        return Ok(());
+    }
+    if link {
+        if mode & 0o022 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("other users can change {}", path.display()),
+            ));
+        }
+        return Ok(());
+    }
+    Ok(rustix::fs::fchmod(
+        &directory,
+        Mode::from_raw_mode(mode & !0o077),
+    )?)
 }
 
 /// Options that create files only the user can open. On Windows a new file
@@ -351,6 +397,41 @@ mod tests {
                 "{file}"
             );
         }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_folder_loses_other_users_access() -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir()?;
+        let directory = root.path().join("profile");
+        fs::create_dir(&directory)?;
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o777))?;
+        private_dir(&directory)?;
+        assert_eq!(
+            fs::metadata(&directory)?.permissions().mode() & 0o777,
+            0o700
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_folder_is_kept_unless_other_users_can_change_it() -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir()?;
+        let target = root.path().join("target");
+        let link = root.path().join("link");
+        fs::create_dir(&target)?;
+        std::os::unix::fs::symlink(&target, &link)?;
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755))?;
+        private_dir(&link)?;
+        assert_eq!(fs::metadata(&target)?.permissions().mode() & 0o777, 0o755);
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o777))?;
+        let error = private_dir(&link).err().map(|error| error.kind());
+        assert_eq!(error, Some(io::ErrorKind::PermissionDenied));
+        assert_eq!(fs::metadata(&target)?.permissions().mode() & 0o777, 0o777);
         Ok(())
     }
 

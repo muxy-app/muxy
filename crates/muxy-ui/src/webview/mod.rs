@@ -168,6 +168,14 @@ impl NativeWebview {
         self.0.set_focused(focused);
     }
 
+    /// Whether the user pressed a mouse button on the page a moment ago, as
+    /// the platform saw it. It is yes once per click, so a page's script,
+    /// which can say it was clicked at any time, can take the focus only when
+    /// it really was.
+    pub fn take_click(&self) -> bool {
+        self.0.take_click()
+    }
+
     /// The resize grips drawn over the page, in window coordinates. Call
     /// after [`Self::occlude`].
     pub fn set_grips(&self, grips: &[(Bounds<Pixels>, CursorStyle)]) {

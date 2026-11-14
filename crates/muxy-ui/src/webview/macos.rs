@@ -9,7 +9,9 @@ use gpui::{Bounds, CursorStyle, Pixels, Rgba, Window};
 use muxy_core::worker::WorkerPool;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2::{
+    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel,
+};
 use objc2_app_kit::NSColor;
 use objc2_foundation::{
     NSData, NSDictionary, NSError, NSJSONReadingOptions, NSJSONSerialization, NSJSONWritingOptions,
@@ -305,6 +307,7 @@ impl NativeWebview {
             );
         }
         install_script(&controller, script, mtm);
+        disable_peer_connections(&configuration);
         let view = unsafe {
             WKWebView::initWithFrame_configuration(
                 WKWebView::alloc(mtm),
@@ -361,6 +364,10 @@ impl NativeWebview {
     /// Sends clicks on the resize grips drawn over the page, in window
     /// coordinates, to Muxy and shows each grip's cursor there. The page's
     /// pixels don't change. Call after [`Self::occlude`].
+    pub(super) fn take_click(&self) -> bool {
+        self.host.take_click()
+    }
+
     pub(super) fn set_grips(&self, grips: &[(Bounds<Pixels>, CursorStyle)]) {
         self.host.set_grips(grips);
     }
@@ -516,6 +523,23 @@ impl NativeWebview {
     pub(super) fn choose(&self, _option: Option<usize>) {}
 }
 
+/// Turns `WebRTC` off for extension pages. Their content security policy
+/// covers requests, not peer connections, which could reach any host
+/// through ICE without `http.fetch`'s per-host consent. The switch is
+/// private, so it is only used where `WebKit` has it.
+fn disable_peer_connections(configuration: &WKWebViewConfiguration) {
+    // SAFETY: `preferences` returns the configuration's live preferences,
+    // and the setter, called only when they respond to it, takes one BOOL.
+    unsafe {
+        let preferences: Retained<AnyObject> = msg_send![configuration, preferences];
+        let setter = sel!(_setPeerConnectionEnabled:);
+        let responds: bool = msg_send![&preferences, respondsToSelector: setter];
+        if responds {
+            let _: () = msg_send![&preferences, _setPeerConnectionEnabled: false];
+        }
+    }
+}
+
 fn install_script(controller: &WKUserContentController, source: &str, mtm: MainThreadMarker) {
     unsafe {
         controller.removeAllUserScripts();
@@ -574,11 +598,13 @@ fn asset_response(
             &*NSString::from_str("Content-Type"),
             &*NSString::from_str("Content-Length"),
             &*NSString::from_str("Cache-Control"),
+            &*NSString::from_str("Content-Security-Policy"),
         ],
         &[
             &*NSString::from_str(content_type),
             &*NSString::from_str(&length.to_string()),
             &*NSString::from_str("no-store"),
+            &*NSString::from_str(rules::CONTENT_SECURITY_POLICY),
         ],
     );
     objc2_foundation::NSHTTPURLResponse::initWithURL_statusCode_HTTPVersion_headerFields(

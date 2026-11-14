@@ -45,6 +45,9 @@ pub(crate) struct Browsers {
     profiles: Option<ProfileManager>,
     retiring: HashSet<String>,
     favicons: HashMap<String, Option<Arc<gpui::RenderImage>>>,
+    /// Icons being fetched, with the panes waiting for each, so one page
+    /// loading many times fetches its icon once.
+    favicons_loading: HashMap<String, Vec<PaneId>>,
     /// Panes opened from the UI, whose address field takes focus.
     focus_address: HashSet<PaneId>,
     /// Panes a page opened, which may close themselves.
@@ -558,16 +561,29 @@ impl AppModel {
             }
             return;
         }
-        let fetch = url.clone();
-        let task = cx
-            .background_executor()
-            .spawn(async move { crate::favicon::fetch(&fetch) });
+        if let Some(waiting) = self.browsers.favicons_loading.get_mut(&url) {
+            waiting.push(pane);
+            return;
+        }
+        let Some(fetched) = crate::favicon::submit(url.clone()) else {
+            return;
+        };
+        self.browsers
+            .favicons_loading
+            .insert(url.clone(), vec![pane]);
         cx.spawn(async move |model, cx| {
-            let image = task.await.map(Arc::new);
+            let image = fetched.recv().await.ok().flatten().map(Arc::new);
             let _ = model.update(cx, |model, cx| {
+                let waiting = model
+                    .browsers
+                    .favicons_loading
+                    .remove(&url)
+                    .unwrap_or_default();
                 model.browsers.favicons.insert(url, image.clone());
-                if let Some(view) = model.browser_view(pane) {
-                    view.update(cx, |view, cx| view.set_favicon(image, cx));
+                for pane in waiting {
+                    if let Some(view) = model.browser_view(pane) {
+                        view.update(cx, |view, cx| view.set_favicon(image.clone(), cx));
+                    }
                 }
             });
         })

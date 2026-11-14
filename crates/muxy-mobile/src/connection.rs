@@ -294,6 +294,7 @@ impl Connection {
             client: self.client.clone(),
             view,
             terminals: Arc::clone(&self.terminals),
+            titles: Arc::clone(&self.titles),
         }))
     }
 

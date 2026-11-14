@@ -25,7 +25,7 @@ tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", features = ["event", "process"] }
+rustix = { version = "1.1.4", features = ["event", "fs", "process"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libproc = "0.14.11"

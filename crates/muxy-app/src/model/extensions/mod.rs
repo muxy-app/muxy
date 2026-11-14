@@ -556,7 +556,29 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) -> gpui::Task<Result<(), String>> {
         self.change_extensions(
-            move |state| state.registry.load_unpacked(&path).map(|_| ()),
+            move |state| {
+                // Consent belongs to the folder that earned it, not the name,
+                // so it is cleared before another folder can take the name.
+                let target = state.registry.unpacked_target(&path)?;
+                if target.new_source {
+                    state
+                        .grants
+                        .as_mut()
+                        .map_err(|error| error.clone())?
+                        .clear(&target.name)?;
+                }
+                let loaded = state.registry.load_unpacked(&path)?;
+                // The folder is read again to load it, so if what it holds
+                // changed since, clear the consent of what was registered.
+                if loaded.new_source && (!target.new_source || loaded.name != target.name) {
+                    state
+                        .grants
+                        .as_mut()
+                        .map_err(|error| error.clone())?
+                        .clear(&loaded.name)?;
+                }
+                Ok(())
+            },
             cx,
         )
     }

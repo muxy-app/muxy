@@ -382,9 +382,12 @@ fn check_listing(source: &Path, listing: &Value, problems: &mut Vec<String>) {
     }
     if screenshots.len() > SCREENSHOT_MAX_COUNT {
         problems.push(tr!("The store takes at most 6 screenshots.").to_string());
+        return;
     }
+    let mut checked = std::collections::HashSet::new();
     for screenshot in screenshots {
         match screenshot.as_str() {
+            Some(screenshot) if !checked.insert(screenshot) => {}
             Some(screenshot) => check_screenshot(source, screenshot, problems),
             None => problems
                 .push(tr!("Each marketplace.screenshots entry must be a file path.").to_string()),
@@ -407,8 +410,9 @@ fn listing_asset(source: &Path, relative: &str) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
+/// Reads only the PNG signature and header, never the whole file.
 fn png_size(path: &Path) -> Option<(u32, u32)> {
-    let bytes = fs::read(path).ok()?;
+    let bytes = read_head(path, 24)?;
     let width = bytes.get(16..20)?;
     let height = bytes.get(20..24)?;
     if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" || bytes.get(12..16)? != b"IHDR" {
@@ -418,6 +422,18 @@ fn png_size(path: &Path) -> Option<(u32, u32)> {
         u32::from_be_bytes(width.try_into().ok()?),
         u32::from_be_bytes(height.try_into().ok()?),
     ))
+}
+
+/// Up to the first `length` bytes of a regular file.
+fn read_head(path: &Path, length: u64) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let file = fs::File::open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(length).read_to_end(&mut bytes).ok()?;
+    Some(bytes)
 }
 
 fn size_of(path: &Path) -> u64 {
@@ -432,10 +448,10 @@ fn has_extension(file: &str, extension: &str) -> bool {
 
 /// The store's own test: the file opens with a tag, and has an `svg` one near the start.
 fn looks_like_svg(path: &Path) -> bool {
-    let Ok(bytes) = fs::read(path) else {
+    let Some(bytes) = read_head(path, 4096) else {
         return false;
     };
-    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).to_lowercase();
+    let head = String::from_utf8_lossy(&bytes).to_lowercase();
     let head = head.trim_start_matches('\u{feff}').trim_start();
     head.starts_with('<')
         && head.match_indices("<svg").any(|(start, _)| {
@@ -563,27 +579,29 @@ fn signed_out(error: &str) -> bool {
 
 /// Copies the files to a private folder. One that went away or became a link
 /// since it was listed, or a folder that is itself a link, stops the publish.
+/// Each file is read through handles opened from the held source folder down,
+/// never following a link, so swapping a file or a folder above it for a link
+/// can't bring in a file from elsewhere.
 fn stage(source: &Path, files: &[PathBuf]) -> Result<tempfile::TempDir, String> {
     let changed = || tr!("The extension's files changed while checking them. Publish again.");
-    let linked = fs::symlink_metadata(source).map_err(|_| changed().to_string())?;
-    if linked.is_symlink() {
-        return Err(changed().to_string());
-    }
-    let staged = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let folder = super::beneath::Folder::open(source).map_err(|_| changed().to_string())?;
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut staging = tempfile::Builder::new();
+    #[cfg(unix)]
+    staging.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700));
+    let staged = staging.tempdir().map_err(|error| error.to_string())?;
     for file in files {
-        let mut path = source.to_owned();
-        for part in file.components() {
-            path.push(part);
-            let metadata = fs::symlink_metadata(&path).map_err(|_| changed().to_string())?;
-            if metadata.is_symlink() {
-                return Err(changed().to_string());
-            }
-        }
+        let mut opened = folder.open_file(file).map_err(|_| changed().to_string())?;
         let target = staged.path().join(file);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
-        fs::copy(&path, &target).map_err(|error| error.to_string())?;
+        let mut copy = fs::File::create_new(&target).map_err(|error| error.to_string())?;
+        io::copy(&mut opened, &mut copy).map_err(|error| error.to_string())?;
+        // Keeps a script's executable bit, as a plain copy would.
+        let permissions = opened.metadata().map_err(|error| error.to_string())?;
+        copy.set_permissions(permissions.permissions())
+            .map_err(|error| error.to_string())?;
     }
     Ok(staged)
 }
@@ -725,6 +743,9 @@ fn choose_branch(
         if let Some(url) = open_pull_request(tools, owner, &branch, title)? {
             return Ok((branch, Some(url)));
         }
+        // A fork GitHub only just created may not answer yet. A failed lookup
+        // still picks the branch: it is pushed only if the fork has no branch
+        // of that name, so an existing one is never moved.
         let taken = tools
             .run(
                 "git",
@@ -736,7 +757,7 @@ fn choose_branch(
                 ],
                 None,
             )
-            .is_ok_and(|listed| !listed.is_empty());
+            .is_ok_and(|heads| !heads.is_empty());
         if !taken {
             return Ok((branch, None));
         }
@@ -778,7 +799,9 @@ fn commit(tools: &dyn Tools, repository: &Path, title: &str, login: &str) -> Res
     tools.run("git", &arguments, Some(repository)).map(|_| ())
 }
 
-/// A fork GitHub only just created can take a moment to accept a push.
+/// A fork GitHub only just created can take a moment to accept a push. A new
+/// branch is pushed only if the fork still has no branch of that name, so one
+/// made since it was chosen is never moved.
 fn push(
     tools: &dyn Tools,
     repository: &Path,
@@ -787,6 +810,7 @@ fn push(
     force: bool,
 ) -> Result<(), String> {
     let refspec = format!("HEAD:refs/heads/{branch}");
+    let absent = format!("--force-with-lease=refs/heads/{branch}:");
     let mut arguments = vec![
         "-c",
         "credential.helper=",
@@ -794,9 +818,7 @@ fn push(
         "credential.helper=!gh auth git-credential",
         "push",
     ];
-    if force {
-        arguments.push("--force");
-    }
+    arguments.push(if force { "--force" } else { &absent });
     arguments.extend([fork_url, &refspec]);
     let mut result = Err(String::new());
     for attempt in 0..PUSH_ATTEMPTS {

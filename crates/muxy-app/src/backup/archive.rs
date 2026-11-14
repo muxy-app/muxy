@@ -172,6 +172,10 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
         }
     };
     let names: Vec<String> = serde_json::from_value(manifest["files"].clone())?;
+    if names.len() > MAX_FILES {
+        return Err(failure(&tr!("Backup contains too many entries")));
+    }
+    let names: HashSet<String> = names.into_iter().collect();
     let roots = if legacy { LEGACY_ROOTS } else { ROOTS };
     let mut files = Files::new();
     let mut seen = HashSet::new();
@@ -192,14 +196,7 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
         if entry.is_dir() || name == "manifest.json" || name.starts_with("__MACOSX/") {
             continue;
         }
-        if !allowed(&name, roots)
-            || !names.iter().any(|root| {
-                name == *root
-                    || name
-                        .strip_prefix(root)
-                        .is_some_and(|suffix| suffix.starts_with('/'))
-            })
-        {
+        if !allowed(&name, roots) || !itself_and_folders(&name).any(|root| names.contains(root)) {
             if legacy {
                 continue;
             }
@@ -218,16 +215,15 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
         }
         files.insert(name, bytes);
     }
+    let folders: HashSet<&str> = files
+        .keys()
+        .flat_map(|file| itself_and_folders(file).skip(1))
+        .collect();
     for name in names {
         if !safe_name(&name) {
             return Err(failure(&tr!("Invalid manifest path")));
         }
-        if allowed(&name, roots)
-            && !seen.contains(&name)
-            && !files
-                .keys()
-                .any(|file| file.starts_with(&format!("{name}/")))
-        {
+        if allowed(&name, roots) && !seen.contains(&name) && !folders.contains(name.as_str()) {
             return Err(failure(&tr!("Backup is missing %@", &name)));
         }
     }
@@ -241,6 +237,13 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
         Restore::Partial
     };
     Ok((files, legacy, restore))
+}
+
+/// `a/b/c`, then the folders that hold it: `a/b` and `a`.
+fn itself_and_folders(name: &str) -> impl Iterator<Item = &str> {
+    std::iter::successors(Some(name), |name| {
+        name.rsplit_once('/').map(|(folder, _)| folder)
+    })
 }
 
 pub(super) fn materialize(directory: &Path, files: &Files) -> Result<()> {

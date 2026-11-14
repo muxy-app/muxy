@@ -34,6 +34,9 @@ impl NativeWebview {
     pub(super) fn set_focused(&self, _focused: bool) {
         match *self {}
     }
+    pub(super) fn take_click(&self) -> bool {
+        match *self {}
+    }
     pub(super) fn set_grips(&self, _grips: &[(Bounds<Pixels>, CursorStyle)]) {
         match *self {}
     }

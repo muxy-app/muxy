@@ -16,6 +16,7 @@ pub struct Terminal {
     pub(crate) client: Client,
     pub(crate) view: Arc<View>,
     pub(crate) terminals: Arc<Terminals>,
+    pub(crate) titles: Arc<crate::titles::Titles>,
 }
 
 impl std::fmt::Debug for Terminal {
@@ -79,12 +80,16 @@ impl Terminal {
         Ok(text(&path))
     }
 
-    /// Pastes absolute paths, such as `upload`'s, quoted for a shell and
-    /// separated by spaces, which AI tools read as attached files.
+    /// Pastes absolute paths, such as `upload`'s, quoted for the program in
+    /// the terminal's foreground and separated by spaces, which AI tools read
+    /// as attached files. Nothing is pasted where they can't be quoted safely.
     pub fn paste_paths(&self, paths: Vec<String>) -> Result<(), MobileError> {
         let modes = self.view.lock().terminal.grid.modes;
-        let bytes =
-            keys::paths(&paths, modes).ok_or(ClientError::Invalid(ErrorCode::BadRequest))?;
+        let process = self.titles.process(self.view.session);
+        let quoting = muxy_client::input::PathQuoting::for_process(process.as_ref())
+            .ok_or(ClientError::Invalid(ErrorCode::BadRequest))?;
+        let bytes = keys::paths(&paths, quoting, modes)
+            .ok_or(ClientError::Invalid(ErrorCode::BadRequest))?;
         self.send_input(bytes)
     }
 

@@ -437,3 +437,179 @@ fn one_x_close_tab_and_close_pane_defaults_take_the_two_x_defaults() {
     assert_eq!(report.imported, 2);
     assert!(report.attention.is_empty());
 }
+
+#[test]
+fn restoring_never_replaces_a_remote_project_that_shares_a_local_projects_id() {
+    let directory = tempfile::tempdir().unwrap();
+    let (remote, remote_home, api) = (
+        ServerId::new(),
+        muxy_app_core::ProjectId::new(),
+        muxy_app_core::ProjectId::new(),
+    );
+    let descriptor = |id, home, name: &str| muxy_protocol::ProjectDescriptor {
+        id,
+        home,
+        name: name.into(),
+        icon: None,
+        logo: None,
+        color: "#808080".into(),
+        directory: muxy_protocol::ServerPath::from(format!("/home/dev/{name}")),
+        kind: None,
+        parent_id: None,
+    };
+    let mut current = AppState::bootstrap().unwrap();
+    current
+        .apply_catalog(
+            remote,
+            &muxy_protocol::CatalogPage {
+                server: muxy_protocol::ServerIdentity::from_u128(2),
+                home: remote_home,
+                revision: 7,
+                projects: vec![
+                    descriptor(remote_home, true, "Home"),
+                    descriptor(api, false, "api"),
+                ],
+                next: None,
+                legacy_home: None,
+            },
+        )
+        .unwrap();
+    current.open_terminal_tab(api).unwrap();
+
+    let mut exported = AppState::bootstrap().unwrap();
+    let local = exported
+        .add_project(ServerId::local(), directory.path().into())
+        .unwrap();
+    // A backup whose local project uses the remote project's ID.
+    let source = serde_json::to_string(&exported.configuration_backup())
+        .unwrap()
+        .replace(&local.to_string(), &api.to_string());
+    let imported: AppState = serde_json::from_str(&source).unwrap();
+
+    for restored in [
+        imported.restore_configuration(&current).unwrap(),
+        imported.merge_configuration(&current).unwrap(),
+    ] {
+        let kept = restored.project(api).unwrap();
+        assert_eq!(kept.server_id, remote);
+        assert_eq!(kept.tabs.len(), 1);
+        let copies = restored
+            .projects()
+            .iter()
+            .filter(|project| project.server_id.is_local() && !project.home)
+            .filter(|project| project.id != api)
+            .count();
+        assert_eq!(copies, 1);
+    }
+}
+
+#[test]
+fn one_x_projects_share_logos_and_stop_at_the_logo_budget() {
+    let folder = tempfile::tempdir().unwrap();
+    let mut logo = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    logo.extend(64_u32.to_be_bytes());
+    logo.extend(64_u32.to_be_bytes());
+    logo.resize(300 * 1024, 0);
+    let projects: Vec<_> = (0..80)
+        .map(|index| {
+            let path = folder.path().join(format!("p{index}"));
+            std::fs::create_dir(&path).unwrap();
+            json!({
+                "id": format!("01000000-0000-0000-0000-{:012}", index + 10),
+                "name": format!("P{index}"),
+                "path": path,
+                "sortOrder": index,
+                "logo": "shared.png",
+            })
+        })
+        .collect();
+    let assets = BTreeMap::from([("logos/shared.png".to_owned(), logo)]);
+    let (state, report) = backup::import_projects(
+        &serde_json::to_vec(&projects).unwrap(),
+        None,
+        None,
+        &assets,
+        &mut Settings::default(),
+    )
+    .unwrap();
+    let logos: Vec<_> = state
+        .projects()
+        .iter()
+        .filter_map(|project| project.logo.clone())
+        .collect();
+    // 16 MiB holds 54 of the 300 KiB logos, all one allocation.
+    assert_eq!(logos.len(), 54);
+    assert!(
+        logos
+            .iter()
+            .all(|logo| std::sync::Arc::ptr_eq(logo, &logos[0]))
+    );
+    assert_eq!(state.projects().len(), 81);
+    assert_eq!(
+        report
+            .attention
+            .iter()
+            .filter(|note| note.contains("too many logos"))
+            .count(),
+        26
+    );
+}
+
+#[test]
+fn one_x_layouts_with_many_tabs_import_in_linear_time() {
+    let folder = tempfile::tempdir().unwrap();
+    let project = "01000000-0000-0000-0000-000000000001";
+    let projects = json!([{"id":project,"name":"Example","path":folder.path(),"sortOrder":0}]);
+    let tabs: Vec<_> = (0..20_000)
+        .map(|index| json!({"id":index,"kind":"terminal"}))
+        .collect();
+    let order: Vec<_> = (0..20_000).rev().collect();
+    let workspaces = json!([{
+        "projectID": project,
+        "topLevelTabOrder": order,
+        "root": {"type":"tabArea","tabArea":{"tabs":tabs}},
+    }]);
+    let started = std::time::Instant::now();
+    let (state, _) = backup::import_projects(
+        &serde_json::to_vec(&projects).unwrap(),
+        Some(&serde_json::to_vec(&workspaces).unwrap()),
+        None,
+        &BTreeMap::new(),
+        &mut Settings::default(),
+    )
+    .unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    let project = state.project(project.parse().unwrap()).unwrap();
+    assert_eq!(project.tabs.len(), 20_000);
+}
+
+#[test]
+fn one_x_commands_are_checked_before_anything_is_copied() {
+    let invalid: Vec<_> = (0..5_000)
+        .map(|_| json!({"name":"Broken","command":"true"}))
+        .collect();
+    let source = json!({
+        "muxy.ai.repositoryActions.createPullRequest.prompt": "x".repeat(1 << 20),
+        "shortcuts.customCommands": {
+            "prefixCombo": {"key":"", "modifiers":0},
+            "shortcuts": invalid,
+        }
+    });
+    let started = std::time::Instant::now();
+    let (_, report) =
+        backup::import_settings(&serde_json::to_vec(&source).unwrap(), &Settings::default())
+            .unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    let broken = report
+        .attention
+        .iter()
+        .filter(|note| note.as_str() == "command Broken")
+        .count();
+    assert_eq!(broken, 1024);
+    assert!(
+        report
+            .attention
+            .iter()
+            .any(|note| note.starts_with("3976 more custom commands"))
+    );
+}

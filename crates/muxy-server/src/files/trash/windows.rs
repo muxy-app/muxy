@@ -28,22 +28,35 @@ use super::{Result, Root, Target, error};
 const NO_RECYCLE_BIN: &str = "This drive has no Recycle Bin, so the file was kept";
 
 pub(in crate::files) fn move_to_trash(root: &Root, source: &Target) -> Result<()> {
+    use muxy_core::files::FileId;
+
+    // The shell works by path. Pinning the folder that holds the file keeps
+    // every folder on that path in place until the shell is done, so the path
+    // can't be redirected through a junction swapped in after these checks.
+    let pinned = super::super::native::pin_directory(&source.parent).map_err(error)?;
     let expected = source.stat()?;
     let absolute = root.path.join(&source.relative);
-    // The shell works by path, which must still name the file just checked.
-    let current = muxy_core::files::FileId::of_link(&absolute).map_err(error)?;
+    let folder = absolute
+        .parent()
+        .ok_or_else(|| error("Cannot move the workspace root to the Recycle Bin"))?;
+    let changed = || error("Path changed before moving to the Recycle Bin; retry");
+    if FileId::of_path(folder).map_err(error)? != FileId::of(&pinned).map_err(error)? {
+        return Err(changed());
+    }
+    // The path must still name the file just checked.
+    let current = FileId::of_link(&absolute).map_err(error)?;
     if current.device() != expected.device || current.index() != expected.index {
-        return Err(error(
-            "Path changed before moving to the Recycle Bin; retry",
-        ));
+        return Err(changed());
     }
     // The shell's file operations need a single-threaded apartment.
-    std::thread::scope(|scope| {
+    let result = std::thread::scope(|scope| {
         scope
             .spawn(|| recycle(&absolute))
             .join()
             .unwrap_or_else(|_| Err(error("The Recycle Bin operation failed")))
-    })
+    });
+    drop(pinned);
+    result
 }
 
 fn recycle(path: &Path) -> Result<()> {

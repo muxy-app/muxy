@@ -304,6 +304,11 @@ impl Host {
             .is_some_and(|clicked| clicked.elapsed() <= elapsed)
     }
 
+    /// Whether the user clicked into the page just now, using the click up.
+    pub(crate) fn take_click(&self) -> bool {
+        super::rules::take_click(&self.focus.last_click)
+    }
+
     /// Sends clicks on the resize grips drawn over the page, in window
     /// coordinates, to Muxy and shows each grip's cursor there. The page's
     /// pixels don't change. Call after [`Self::occlude`].

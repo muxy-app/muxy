@@ -385,7 +385,7 @@ impl Registry {
                         }
                         self.stop_worktree_sessions(&receipt.project)?;
                         #[cfg(unix)]
-                        super::processes::stop(target)?;
+                        super::processes::stop(target, expected.device, expected.inode)?;
                         #[cfg(windows)]
                         self.end_sessions_inside(target)?;
                         if self.inspect_removal(&receipt.project)? != *expected {
@@ -557,7 +557,9 @@ impl Registry {
             self.catalog.save_git(receipt.clone())?;
             return Err(cause);
         }
-        if let Err(cause) = super::processes::delete_set_aside(&aside) {
+        if let Err(cause) =
+            super::processes::delete_set_aside(&aside, receipt.device, receipt.inode)
+        {
             super::processes::restore(&aside, target)?;
             receipt.set_aside = None;
             self.catalog.save_git(receipt.clone())?;
@@ -603,7 +605,7 @@ fn finish_deleting_set_aside(receipt: &GitReceipt) -> Result<()> {
             "the folder set aside for removal was replaced; it was kept",
         )));
     }
-    match super::processes::delete_set_aside(&aside) {
+    match super::processes::delete_set_aside(&aside, receipt.device, receipt.inode) {
         Err(cause) if cause.kind() != std::io::ErrorKind::NotFound => Err(error(cause)),
         _ => Ok(()),
     }

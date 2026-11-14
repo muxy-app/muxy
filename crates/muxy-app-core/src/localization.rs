@@ -17,6 +17,8 @@ use crate::extensions::{Extension, Registry};
 use plist::Value;
 
 const MAX_CATALOG_BYTES: u64 = 4 * 1024 * 1024;
+/// Catalog bytes one extension's localizations may read in total.
+pub(crate) const MAX_PACK_CATALOG_BYTES: u64 = 64 * 1024 * 1024;
 const CATALOGS: [&str; 2] = ["Localizable.strings", "Localizable.stringsdict"];
 
 /// A language an enabled extension provides.
@@ -78,7 +80,8 @@ pub fn provider(registry: &Registry, selection: &str) -> Option<Provider> {
 pub fn load(provider: &Provider) -> Result<Language, String> {
     let mut strings = HashMap::new();
     let mut plurals = HashMap::new();
-    for found in catalogs(&provider.bundle, &provider.language)? {
+    let mut budget = MAX_CATALOG_BYTES * CATALOGS.len() as u64;
+    for found in catalogs(&provider.bundle, &provider.language, &mut budget)? {
         catalog::split(found, &mut strings, &mut plurals);
     }
     Ok(Language::new(strings, plurals, rules(&provider.language)))
@@ -86,12 +89,21 @@ pub fn load(provider: &Provider) -> Result<Language, String> {
 
 /// Checks a bundle as main does before offering it: a resource-only
 /// `Info.plist`, and catalogs under 4 MiB whose translations keep their
-/// keys' placeholders.
-pub(crate) fn validate_bundle(bundle: &Path, language: &str) -> Result<(), String> {
-    catalogs(bundle, language).map(|_| ())
+/// keys' placeholders. Each catalog read is charged to `budget`, which an
+/// extension shares across all its localizations.
+pub(crate) fn validate_bundle(
+    bundle: &Path,
+    language: &str,
+    budget: &mut u64,
+) -> Result<(), String> {
+    catalogs(bundle, language, budget).map(|_| ())
 }
 
-fn catalogs(bundle: &Path, language: &str) -> Result<Vec<BTreeMap<String, Value>>, String> {
+fn catalogs(
+    bundle: &Path,
+    language: &str,
+    budget: &mut u64,
+) -> Result<Vec<BTreeMap<String, Value>>, String> {
     let root = bundle
         .canonicalize()
         .map_err(|_| "bundle was not found".to_owned())?;
@@ -109,6 +121,7 @@ fn catalogs(bundle: &Path, language: &str) -> Result<Vec<BTreeMap<String, Value>
             continue;
         }
         let catalog = read(&root, &relative)
+            .and_then(|bytes| charge(budget, &bytes).map(|()| bytes))
             .and_then(|bytes| plist::dictionary(&bytes))
             .map_err(|error| format!("catalog {name} is invalid: {error}"))?;
         if let Some(key) = catalog::incompatible_key(&catalog) {
@@ -124,6 +137,13 @@ fn catalogs(bundle: &Path, language: &str) -> Result<Vec<BTreeMap<String, Value>
         ));
     }
     Ok(found)
+}
+
+fn charge(budget: &mut u64, bytes: &[u8]) -> Result<(), String> {
+    *budget = budget
+        .checked_sub(bytes.len() as u64)
+        .ok_or_else(|| "catalogs exceed 64 MiB in total".to_owned())?;
+    Ok(())
 }
 
 /// A regular file inside `root` of at most 4 MiB.

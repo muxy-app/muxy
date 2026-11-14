@@ -65,18 +65,33 @@ pub(in crate::files) fn open_file(parent: &File, name: &OsStr) -> io::Result<Fil
     .into())
 }
 
-pub(in crate::files) fn create_file(parent: &File, name: &OsStr) -> io::Result<File> {
+/// Creates a new file to write. One that will replace another starts open
+/// only to the user, until [`copy_mode`] gives it the replaced file's
+/// permissions, so nobody who can't read the old file can open the new one
+/// while its content is written.
+pub(in crate::files) fn create_file(
+    parent: &File,
+    name: &OsStr,
+    replacing: bool,
+) -> io::Result<File> {
+    let mode = if replacing { 0o600 } else { 0o666 };
     Ok(fs::openat(
         parent,
         name,
         OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::from_raw_mode(0o666),
+        Mode::from_raw_mode(mode),
     )?
     .into())
 }
 
-/// Gives `file` the permissions of the file it replaces.
-pub(in crate::files) fn copy_mode(file: &File, replaced: &Entry) -> io::Result<()> {
+/// Gives `file` the permissions of `replaced`, the file named `_name` in
+/// `_parent` that it replaces.
+pub(in crate::files) fn copy_mode(
+    file: &File,
+    _parent: &File,
+    _name: &OsStr,
+    replaced: &Entry,
+) -> io::Result<()> {
     #[allow(
         clippy::unnecessary_fallible_conversions,
         reason = "The raw mode is narrower on macOS"

@@ -83,6 +83,9 @@ Panels, the sidebar, and bar items take an `icon`:
   the extension icon in place of the rest.
 - `svg` is a file of up to 256 KiB. It is tinted like the app's own icons, so
   use `currentColor` or one solid color. It looks the same on macOS and Linux.
+  Icons can't use patterns, filters, `url()` in a `<style>`, or repeated
+  `id`s, and stay under 10,000 elements once every reference is expanded;
+  Muxy shows its own icon in place of one that doesn't.
 
 ## Settings
 

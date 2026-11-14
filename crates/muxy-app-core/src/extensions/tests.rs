@@ -20,7 +20,7 @@ fn unpacked_packages_require_explicit_enable_and_unload_keeps_sources() {
     let source = tempfile::tempdir().unwrap();
     package(&source.path().join("dist"), "files");
     let mut registry = Registry::load(profile.path());
-    assert_eq!(registry.load_unpacked(source.path()).unwrap(), "files");
+    assert_eq!(registry.load_unpacked(source.path()).unwrap().name, "files");
     assert!(registry.enabled("files").is_none());
     assert!(registry.load_unpacked(source.path()).is_err());
     registry.set_enabled("files", true).unwrap();
@@ -155,6 +155,49 @@ fn a_folder_cant_be_loaded_twice_under_two_names() {
 }
 
 #[test]
+fn a_name_moved_to_another_folder_starts_disabled() {
+    let profile = tempfile::tempdir().unwrap();
+    let original = tempfile::tempdir().unwrap();
+    let replacement = tempfile::tempdir().unwrap();
+    package(original.path(), "hello");
+    package(replacement.path(), "hello");
+    let mut registry = Registry::load(profile.path());
+    assert!(registry.load_unpacked(original.path()).unwrap().new_source);
+    registry.set_enabled("hello", true).unwrap();
+    fs::write(original.path().join("package.json"), "not json").unwrap();
+
+    let mut registry = Registry::load(profile.path());
+    assert!(registry.extensions.is_empty());
+    // Asked first, so consent can go before the name moves; asking changes
+    // nothing.
+    let target = registry.unpacked_target(replacement.path()).unwrap();
+    assert_eq!((target.name.as_str(), target.new_source), ("hello", true));
+    assert!(registry.extensions.is_empty());
+    let loaded = registry.load_unpacked(replacement.path()).unwrap();
+    assert!(loaded.new_source);
+    assert!(registry.enabled("hello").is_none());
+    assert!(Registry::load(profile.path()).enabled("hello").is_none());
+}
+
+#[test]
+fn a_folder_refused_for_a_loaded_name_is_refused_before_anything_changes() {
+    let profile = tempfile::tempdir().unwrap();
+    let loaded = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    package(loaded.path(), "hello");
+    package(other.path(), "hello");
+    let mut registry = Registry::load(profile.path());
+    registry.load_unpacked(loaded.path()).unwrap();
+    // Asked before consent is cleared, so a refused folder can't clear it.
+    assert!(registry.unpacked_target(other.path()).is_err());
+    assert!(registry.load_unpacked(other.path()).is_err());
+    assert_eq!(
+        registry.source_folder("hello"),
+        Some(loaded.path().canonicalize().unwrap().as_path())
+    );
+}
+
+#[test]
 fn a_repaired_folder_can_be_loaded_again_after_failing_at_startup() {
     let profile = tempfile::tempdir().unwrap();
     let source = tempfile::tempdir().unwrap();
@@ -167,7 +210,9 @@ fn a_repaired_folder_can_be_loaded_again_after_failing_at_startup() {
     let mut registry = Registry::load(profile.path());
     assert!(registry.extensions.is_empty());
     fs::write(source.path().join("package.json"), good).unwrap();
-    assert_eq!(registry.load_unpacked(source.path()).unwrap(), "hello");
+    let loaded = registry.load_unpacked(source.path()).unwrap();
+    assert_eq!(loaded.name, "hello");
+    assert!(!loaded.new_source);
 }
 
 #[test]
@@ -299,6 +344,31 @@ fn grants_scope_exact_shell_and_program_and_storage_is_per_extension() {
             .unwrap(),
         serde_json::Value::Null
     );
+}
+
+#[test]
+fn names_that_differ_only_in_case_keep_separate_data() {
+    let root = tempfile::tempdir().unwrap();
+    package(&root.path().join("upper"), "Notes");
+    package(&root.path().join("lower"), "notes");
+    let upper = Extension::load(&root.path().join("upper")).unwrap();
+    let lower = Extension::load(&root.path().join("lower")).unwrap();
+    // Data an older build saved under the case-preserving name.
+    let saved = root.path().join("extension-storage");
+    fs::create_dir_all(&saved).unwrap();
+    fs::write(saved.join("Notes.json"), r#"{"cache":1}"#).unwrap();
+
+    let storage = Storage::new(root.path());
+    let get = |extension| storage.call(extension, "storage.get", &json!({"key":"cache"}));
+    assert_eq!(get(&upper).unwrap(), json!(1));
+    assert_eq!(get(&lower).unwrap(), serde_json::Value::Null);
+    storage
+        .call(&lower, "storage.set", &json!({"key":"cache","value":2}))
+        .unwrap();
+    assert_eq!(get(&upper).unwrap(), json!(1));
+    assert_eq!(get(&lower).unwrap(), json!(2));
+    assert!(saved.join("^notes.json").is_file());
+    assert!(saved.join("notes.json").is_file());
 }
 
 #[test]
@@ -807,4 +877,29 @@ fn rail_items_are_checked_like_topbar_items() {
         required_permission("rail.set", &json!({})),
         Some("panels:write")
     );
+}
+
+#[test]
+fn localizations_that_share_a_bundle_and_language_read_it_once() {
+    let root = tempfile::tempdir().unwrap();
+    let localizations: Vec<_> = (0..40)
+        .map(|index| {
+            json!({"id":format!("de{index}"),"language":"de","title":"Deutsch","bundle":"German.bundle"})
+        })
+        .collect();
+    // Forty reads of this 3 MiB catalog would pass the 64 MiB pack budget.
+    let catalog = format!("\"A\" = \"{}\";", "x".repeat(3 * 1024 * 1024));
+    write_package(
+        root.path(),
+        &json!({"localizations":localizations}),
+        &[
+            (
+                "German.bundle/Info.plist",
+                r#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict></dict></plist>"#,
+            ),
+            ("German.bundle/de.lproj/Localizable.strings", &catalog),
+        ],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    assert_eq!(extension.manifest.localizations.len(), 40);
 }

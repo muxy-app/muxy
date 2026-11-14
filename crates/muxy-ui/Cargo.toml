@@ -17,6 +17,7 @@ serde_json.workspace = true
 muxy-core = { path = "../muxy-core" }
 gpui = { version = "=0.2.2", default-features = false }
 image = { version = "0.25", default-features = false }
+roxmltree = "0.20"
 unicode-segmentation = "1"
 async-channel = "2"
 raw-window-handle = "0.6"

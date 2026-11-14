@@ -127,6 +127,8 @@ pub(super) struct NativeWebview {
     hit_regions: RefCell<Option<Vec<Bounds<Pixels>>>>,
     /// The buttons pressed on the page and not yet released, one bit each.
     pressed_inside: Cell<u8>,
+    /// When the user last pressed a button on the page.
+    last_click: Cell<Option<std::time::Instant>>,
     placed: Cell<Option<(u32, u32, f32)>>,
     shown: Cell<Option<bool>>,
 }
@@ -175,6 +177,7 @@ impl NativeWebview {
                 passthrough: Cell::new(false),
                 hit_regions: RefCell::new(None),
                 pressed_inside: Cell::new(0),
+                last_click: Cell::new(None),
                 placed: Cell::new(None),
                 shown: Cell::new(None),
             },
@@ -204,6 +207,10 @@ impl NativeWebview {
     // hit-tests what is above the page itself.
     #[allow(clippy::unused_self)]
     pub(super) fn set_focused(&self, _focused: bool) {}
+
+    pub(super) fn take_click(&self) -> bool {
+        super::rules::take_click(&self.last_click)
+    }
 
     #[allow(clippy::unused_self)]
     pub(super) fn set_grips(&self, _grips: &[(Bounds<Pixels>, CursorStyle)]) {}
@@ -255,6 +262,7 @@ impl NativeWebview {
                     return None;
                 }
                 self.pressed_inside.set(held | button_bit(button));
+                self.last_click.set(Some(std::time::Instant::now()));
                 Some(event)
             }
             Pointer::Released { button, .. } => {

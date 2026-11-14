@@ -106,6 +106,7 @@
 "A color, cell-foreground, or cell-background. Leave empty to use the theme." = "A color, cell-foreground, or cell-background. Leave empty to use the theme.";
 "A few keys to remember" = "A few keys to remember";
 "A marketplace extension named %@ is installed. Choose another package name." = "A marketplace extension named %@ is installed. Choose another package name.";
+"A message can include at most %lld images." = "A message can include at most %lld images.";
 "A phone beside the code that pairs it." = "A phone beside the code that pairs it.";
 "A process is still running in these tabs.\nAre you sure you want to close them?" = "A process is still running in these tabs.\nAre you sure you want to close them?";
 "A process is still running in this pane.\nAre you sure you want to close it?" = "A process is still running in this pane.\nAre you sure you want to close it?";
@@ -178,6 +179,7 @@
 "Agents panel density" = "Agents panel density";
 "Agents panel icon" = "Agents panel icon";
 "Agents panel rows" = "Agents panel rows";
+"Agents start from sh, bash, zsh or fish. Change the default shell in Settings → Servers, then try again." = "Agents start from sh, bash, zsh or fish. Change the default shell in Settings → Servers, then try again.";
 "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy." = "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy.";
 "All" = "All";
 "All Projects" = "All Projects";
@@ -1982,6 +1984,7 @@
 "The first matching available rule wins. Choose a default, Always ask, or the file manager. Assign custom types to an extension here. Remove a rule to restore automatic matching." = "The first matching available rule wins. Choose a default, Always ask, or the file manager. Assign custom types to an extension here. Remove a rule to restore automatic matching.";
 "The folder operation was cancelled." = "The folder operation was cancelled.";
 "The image is empty." = "The image is empty.";
+"The images in this message are too large to send together." = "The images in this message are too large to send together.";
 "The installed app changed. Reopen Muxy to update the server." = "The installed app changed. Reopen Muxy to update the server.";
 "The installed app changed. Reopen it before installing the command line tool." = "The installed app changed. Reopen it before installing the command line tool.";
 "The installed app changed. Reopen it before updating." = "The installed app changed. Reopen it before updating.";
@@ -2073,6 +2076,7 @@
 "This server can’t move terminals between projects. Update it, then try again." = "This server can’t move terminals between projects. Update it, then try again.";
 "This session is no longer available. Refresh the session list." = "This session is no longer available. Refresh the session list.";
 "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones." = "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones.";
+"This terminal's shell can't be sent file paths safely." = "This terminal's shell can't be sent file paths safely.";
 "This turns on Allow clients. A paired phone gets full terminal access; revoke it anytime in Settings → Servers." = "This turns on Allow clients. A paired phone gets full terminal access; revoke it anytime in Settings → Servers.";
 "This update requires a server restart" = "This update requires a server restart";
 "This version is already what the store has. Nothing to publish." = "This version is already what the store has. Nothing to publish.";

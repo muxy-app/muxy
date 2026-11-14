@@ -57,7 +57,10 @@ impl Target {
     /// Resolve a file candidate against `directory`, where `~` means `home`.
     /// The caller supplies the lookup, on this disk or through another
     /// computer's server, so UI code can run it on a bounded worker, never in
-    /// rendering or hit testing.
+    /// rendering or hit testing. A path on another computer, such as
+    /// `\\server\share` on Windows, is never looked up unless `directory` is
+    /// on that same share: text a program prints could otherwise make the
+    /// lookup reach a server it names.
     pub fn file(
         text: &str,
         directory: &Path,
@@ -94,6 +97,9 @@ impl Target {
         } else {
             directory.join(path)
         };
+        if reaches_another_computer(&path, directory) {
+            return None;
+        }
         if exists(&path) {
             return Some(Self::File(FileLocation {
                 path,
@@ -116,6 +122,40 @@ impl Target {
             line: Some(line),
             column,
         }))
+    }
+}
+
+/// Whether looking up `path` would reach another computer or a device: a
+/// Windows UNC or device path, unless `directory` is on the same share.
+/// Paths elsewhere have no such prefix.
+fn reaches_another_computer(path: &Path, directory: &Path) -> bool {
+    use std::ffi::OsStr;
+    use std::path::{Component, Prefix};
+    fn prefix(path: &Path) -> Option<Prefix<'_>> {
+        match path.components().next() {
+            Some(Component::Prefix(prefix)) => Some(prefix.kind()),
+            _ => None,
+        }
+    }
+    fn share(prefix: Option<Prefix<'_>>) -> Option<(&OsStr, &OsStr)> {
+        match prefix {
+            Some(Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share)) => {
+                Some((server, share))
+            }
+            _ => None,
+        }
+    }
+    match prefix(path) {
+        None | Some(Prefix::Disk(_) | Prefix::VerbatimDisk(_)) => false,
+        Some(Prefix::DeviceNS(_) | Prefix::Verbatim(_)) => true,
+        found => {
+            let ours = share(prefix(directory));
+            !share(found).is_some_and(|(server, name)| {
+                ours.is_some_and(|(other, other_name)| {
+                    other.eq_ignore_ascii_case(server) && other_name.eq_ignore_ascii_case(name)
+                })
+            })
+        }
     }
 }
 

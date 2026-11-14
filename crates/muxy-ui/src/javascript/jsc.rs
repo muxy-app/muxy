@@ -33,6 +33,9 @@ use super::{Call, Event};
 const RETRY: Duration = Duration::from_millis(16);
 /// The longest a timer can be scheduled ahead, in milliseconds.
 const MAX_DELAY_MS: f64 = 86_400_000.0;
+/// How often, in seconds of running, the engine asks whether a script that
+/// hasn't returned has been stopped.
+const WATCHDOG_PERIOD: f64 = 0.1;
 
 pub const CAPABILITY: Capability = Capability::Supported;
 
@@ -70,7 +73,7 @@ impl Script {
                         cancelled: stop.clone(),
                     });
                 });
-                let context = Context::new();
+                let context = Context::new(&stop);
                 if let Err(error) = context.evaluate(&source) {
                     let _ = events.try_send(Event::Error(error));
                 }
@@ -167,10 +170,20 @@ impl Drop for JsString {
 struct Context(JSGlobalContextRef);
 
 impl Context {
-    fn new() -> Self {
+    /// A context whose running script ends once `stop` is set, even if it never
+    /// returns, where the engine has a watchdog. Without one, only a script that
+    /// returns or calls Muxy notices.
+    fn new(stop: &Arc<AtomicBool>) -> Self {
         // SAFETY: Context and all its values remain on this thread. A null class uses the default global object.
+        // The flag outlives the context: the script thread holds it until after the context is released.
         unsafe {
             let context = Self(JSGlobalContextCreate(ptr::null_mut()));
+            api::set_execution_time_limit(
+                context.0,
+                WATCHDOG_PERIOD,
+                Some(should_terminate),
+                Arc::as_ptr(stop).cast_mut().cast(),
+            );
             let name = JsString::new("__muxyNative");
             let callback = JSObjectMakeFunctionWithCallback(context.0, name.0, Some(dispatch));
             JSObjectSetProperty(
@@ -237,6 +250,21 @@ impl Drop for Context {
     }
 }
 
+/// Whether the script the engine is running has been stopped. If not, asks
+/// again after another period: the engine asks once per limit it is given.
+unsafe extern "C" fn should_terminate(context: JSContextRef, stop: *mut std::ffi::c_void) -> bool {
+    // SAFETY: `stop` is the flag given in `Context::new`, which outlives the context.
+    if unsafe { &*stop.cast::<AtomicBool>() }.load(Ordering::Acquire) {
+        return true;
+    }
+    // SAFETY: The engine passes the live context that is running, and the flag
+    // still outlives it.
+    unsafe {
+        api::set_execution_time_limit(context, WATCHDOG_PERIOD, Some(should_terminate), stop);
+    }
+    false
+}
+
 unsafe fn value_text(context: JSContextRef, value: JSValueRef) -> String {
     // SAFETY: The callback/evaluator supplies a live context and value.
     let string = unsafe { JSValueToStringCopy(context, value, ptr::null_mut()) };
@@ -291,4 +319,47 @@ unsafe extern "C-unwind" fn dispatch(
     );
     // SAFETY: JavaScriptCore copies the live string into the callback's context.
     unsafe { JSValueMakeString(context, response.0) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Runs `source` in a fresh context on its own thread, setting the stop
+    /// flag after `stop_after`, and answers whether it ended in an error, or
+    /// `None` if it was still running seconds later.
+    fn run(source: &'static str, stop_after: Option<Duration>) -> Option<bool> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let (done, finished) = mpsc::channel();
+        let flag = stop.clone();
+        std::thread::spawn(move || {
+            let context = Context::new(&flag);
+            let _ = done.send(context.evaluate(source).is_err());
+        });
+        if let Some(after) = stop_after {
+            std::thread::sleep(after);
+            stop.store(true, Ordering::Release);
+        }
+        finished.recv_timeout(Duration::from_secs(10)).ok()
+    }
+
+    #[test]
+    fn stopping_ends_a_script_that_never_returns() {
+        if api::load().is_err() {
+            return;
+        }
+        assert_eq!(
+            run("for (;;) {}", Some(Duration::from_millis(300))),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn a_long_script_that_is_not_stopped_runs_to_the_end() {
+        if api::load().is_err() {
+            return;
+        }
+        let source = "const end = Date.now() + 400; while (Date.now() < end) {}";
+        assert_eq!(run(source, None), Some(false));
+    }
 }

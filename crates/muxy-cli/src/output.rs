@@ -148,15 +148,26 @@ pub(crate) fn cell(value: &Value) -> String {
 }
 
 fn escape(text: &str) -> String {
-    text.chars()
-        .flat_map(|character| {
-            if character.is_control() {
-                character.escape_default().collect::<Vec<_>>()
-            } else {
-                vec![character]
-            }
-        })
-        .collect()
+    escape_except(text, &[])
+}
+
+/// `text` safe to write to a terminal: control characters other than line
+/// breaks and tabs show as escapes, so text from a page, an extension or a
+/// server can't move the cursor, retitle the window or set the clipboard.
+pub(crate) fn terminal_text(text: &str) -> String {
+    escape_except(text, &['\n', '\t'])
+}
+
+fn escape_except(text: &str, kept: &[char]) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        if character.is_control() && !kept.contains(&character) {
+            escaped.extend(character.escape_default());
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 pub(crate) fn help(text: &str) -> io::Result<()> {
@@ -210,6 +221,16 @@ mod tests {
         assert_eq!(text, "name  build\\n\\u{1b}[2J\\tjob\n");
         assert!(!text.contains('\u{1b}'));
         assert_eq!(cell(&json!("it's a build")), "it's a build");
+    }
+
+    #[test]
+    fn terminal_text_keeps_lines_and_tabs_but_escapes_other_controls() {
+        let text = "title\u{1b}]52;c;aGk=\u{7}\r\nnext\tcolumn\u{9b}2J";
+        assert_eq!(
+            terminal_text(text),
+            "title\\u{1b}]52;c;aGk=\\u{7}\\r\nnext\tcolumn\\u{9b}2J"
+        );
+        assert_eq!(terminal_text("plain 界 text"), "plain 界 text");
     }
 
     #[test]

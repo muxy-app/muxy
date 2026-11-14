@@ -5,6 +5,28 @@ pub(super) const SCHEME: &str = "muxy-ext";
 /// The name pages post their requests to.
 pub(super) const HANDLER: &str = "muxy";
 
+/// The policy every extension asset is served with. A page may load only its
+/// own files, `data:` and `blob:` URLs, so an image, style, font, frame, or
+/// `fetch` can't reach the network without asking: web requests go through
+/// `muxy.http`, which asks the user per host. Inline and evaluated script stay
+/// allowed, since bundlers emit both. A worker is served with the policy too.
+pub(super) const CONTENT_SECURITY_POLICY: &str = "default-src 'self' muxy-ext: data: blob:; \
+     script-src 'self' muxy-ext: data: blob: 'unsafe-inline' 'unsafe-eval'; \
+     style-src 'self' muxy-ext: data: blob: 'unsafe-inline'";
+
+/// How long after a native click on a page its own report of that click may
+/// move Muxy's focus to it.
+const CLICK_EVIDENCE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Whether the native click in `last` is recent enough to move focus, using it
+/// up. A page reports a click from script, which it could do at any time; only
+/// a native click, which the page can't make, lets that report through, and
+/// only once.
+pub(super) fn take_click(last: &std::cell::Cell<Option<std::time::Instant>>) -> bool {
+    last.take()
+        .is_some_and(|clicked| clicked.elapsed() <= CLICK_EVIDENCE)
+}
+
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const MAX_PENDING_REPLIES: usize = 128;
 const MAX_PENDING_ASSETS: usize = 32;
@@ -73,6 +95,34 @@ pub(super) fn path(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_click_moves_focus_once_and_only_while_recent() {
+        use std::cell::Cell;
+        use std::time::{Duration, Instant};
+        let last = Cell::new(None);
+        assert!(!take_click(&last));
+        last.set(Some(Instant::now()));
+        assert!(take_click(&last));
+        assert!(!take_click(&last));
+        last.set(Instant::now().checked_sub(Duration::from_secs(5)));
+        assert!(!take_click(&last));
+    }
+
+    #[test]
+    fn the_content_policy_names_no_remote_source() {
+        let policy = CONTENT_SECURITY_POLICY;
+        assert!(policy.starts_with("default-src 'self' muxy-ext: data: blob:;"));
+        for directive in policy.split(';') {
+            let sources = directive.split_whitespace().skip(1);
+            for source in sources {
+                assert!(
+                    source.starts_with('\'') || ["muxy-ext:", "data:", "blob:"].contains(&source),
+                    "{source} reaches the network",
+                );
+            }
+        }
+    }
 
     #[test]
     fn only_the_owners_own_pages_and_blank_documents_are_reachable() {

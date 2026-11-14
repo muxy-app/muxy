@@ -22,7 +22,16 @@ use windows_sys::Wdk::Storage::FileSystem::{
     FileRenameInformationEx, NtCreateFile, NtSetInformationFile,
 };
 use windows_sys::Win32::Foundation::{
-    ERROR_NO_MORE_FILES, GENERIC_READ, GENERIC_WRITE, HANDLE, OBJ_CASE_INSENSITIVE, UNICODE_STRING,
+    ERROR_NO_MORE_FILES, ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE, HANDLE, LocalFree,
+    OBJ_CASE_INSENSITIVE, UNICODE_STRING,
+};
+use windows_sys::Win32::Security::Authorization::{
+    ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1,
+    SE_FILE_OBJECT, SetSecurityInfo,
+};
+use windows_sys::Win32::Security::{
+    DACL_SECURITY_INFORMATION, GetSecurityDescriptorControl, PROTECTED_DACL_SECURITY_INFORMATION,
+    SE_DACL_PROTECTED, SECURITY_DESCRIPTOR, UNPROTECTED_DACL_SECURITY_INFORMATION,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, DELETE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
@@ -30,7 +39,8 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_FLAG_OPEN_REPARSE_POINT, FILE_FULL_DIR_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FileAttributeTagInfo,
     FileFullDirectoryInfo, FileFullDirectoryRestartInfo, GetFileInformationByHandle,
-    GetFileInformationByHandleEx, SYNCHRONIZE,
+    GetFileInformationByHandleEx, GetVolumeInformationByHandleW, READ_CONTROL, SYNCHRONIZE,
+    WRITE_DAC,
 };
 use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
@@ -70,6 +80,22 @@ pub(in crate::files) fn open_directory(parent: &File, name: &OsStr) -> io::Resul
     let (attributes, tag) = attribute_tag(&directory)?;
     refuse_links(attributes, tag)?;
     Ok(directory)
+}
+
+/// Opens `directory` again, reading its listing and sharing everything but
+/// deletion, so while the handle is open nobody can rename, delete or replace
+/// the folder, and Windows refuses to rename any folder above it. Its path
+/// then keeps naming it for programs, such as the shell, that only take paths.
+pub(in crate::files) fn pin_directory(directory: &File) -> io::Result<File> {
+    open_shared(
+        directory,
+        OsStr::new("."),
+        DIRECTORY_ACCESS,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        FILE_OPEN,
+        FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT,
+        ptr::null(),
+    )
 }
 
 pub(in crate::files) fn stat(parent: &File, name: &OsStr) -> io::Result<Entry> {
@@ -118,20 +144,170 @@ pub(in crate::files) fn open_file(parent: &File, name: &OsStr) -> io::Result<Fil
     Ok(content)
 }
 
-pub(in crate::files) fn create_file(parent: &File, name: &OsStr) -> io::Result<File> {
-    open_at(
+/// Creates a new file to write. One that will replace another starts with a
+/// DACL that lets in only its owner and SYSTEM, and is shared with nobody
+/// while this handle is open, until [`copy_mode`] gives it the replaced
+/// file's DACL. So its content is never open to more accounts, even when
+/// saving stops partway and the file is left behind.
+pub(in crate::files) fn create_file(
+    parent: &File,
+    name: &OsStr,
+    replacing: bool,
+) -> io::Result<File> {
+    // A volume without ACLs, such as FAT32 or exFAT, has no DACL to set.
+    let acls = replacing && keeps_acls(parent);
+    let (access, share) = match (replacing, acls) {
+        (true, true) => (GENERIC_WRITE | DELETE | SYNCHRONIZE | WRITE_DAC, 0),
+        (true, false) => (GENERIC_WRITE | DELETE | SYNCHRONIZE, 0),
+        (false, _) => (GENERIC_WRITE | DELETE | SYNCHRONIZE, SHARE_ALL),
+    };
+    let private = if acls {
+        Some(private_descriptor()?)
+    } else {
+        None
+    };
+    open_shared(
         parent,
         name,
-        GENERIC_WRITE | DELETE | SYNCHRONIZE,
+        access,
+        share,
         FILE_CREATE,
-        FILE_NON_DIRECTORY_FILE,
+        FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT,
+        private.as_ref().map_or(ptr::null(), |descriptor| {
+            descriptor.0.cast::<SECURITY_DESCRIPTOR>().cast_const()
+        }),
     )
 }
 
-/// Windows has no permission bits to carry over.
-#[allow(clippy::unnecessary_wraps, reason = "Matches the Unix signature")]
-pub(in crate::files) fn copy_mode(_file: &File, _replaced: &Entry) -> io::Result<()> {
-    Ok(())
+/// `FILE_PERSISTENT_ACLS` from `winnt.h`: the volume keeps ACLs.
+const FILE_PERSISTENT_ACLS: u32 = 8;
+
+/// Whether the volume holding `file` keeps ACLs. FAT32 and exFAT don't, so
+/// their files have no DACL to protect or copy. A volume that can't be asked
+/// is taken to keep them, so a failure to protect a file is never hidden.
+fn keeps_acls(file: &File) -> bool {
+    let mut flags = 0;
+    // SAFETY: the handle is open for the call, no name buffers are asked
+    // for, and `flags` is live.
+    let asked = unsafe {
+        GetVolumeInformationByHandleW(
+            file.as_raw_handle(),
+            ptr::null_mut(),
+            0,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &raw mut flags,
+            ptr::null_mut(),
+            0,
+        )
+    };
+    asked == 0 || flags & FILE_PERSISTENT_ACLS != 0
+}
+
+/// A security descriptor whose protected DACL gives only the file's owner
+/// and SYSTEM access, inheriting nothing from the folder.
+fn private_descriptor() -> io::Result<LocalMemory> {
+    let sddl: Vec<u16> = "D:P(A;;FA;;;OW)(A;;FA;;;SY)"
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let mut descriptor = ptr::null_mut();
+    // SAFETY: `sddl` is NUL-terminated and outlives the call, and the
+    // descriptor it allocates is freed by `LocalMemory`.
+    check(unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &raw mut descriptor,
+            ptr::null_mut(),
+        )
+    })?;
+    Ok(LocalMemory(descriptor))
+}
+
+/// Gives `file` the DACL of `replaced`, the file named `name` in `parent`
+/// that it replaces, so the replacement keeps the file's own entries. A DACL
+/// that inherits from the folder keeps inheriting from it, so its inherited
+/// entries are the folder's, as they are after any save that replaces a file.
+pub(in crate::files) fn copy_mode(
+    file: &File,
+    parent: &File,
+    name: &OsStr,
+    replaced: &Entry,
+) -> io::Result<()> {
+    let original = open_at(
+        parent,
+        name,
+        READ_CONTROL | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        FILE_OPEN,
+        FILE_NON_DIRECTORY_FILE,
+    )?;
+    let information = information(&original)?;
+    let index =
+        (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
+    if u64::from(information.dwVolumeSerialNumber) != replaced.device || index != replaced.index {
+        return Err(io::Error::other("File changed while saving it; retry"));
+    }
+    if !keeps_acls(parent) {
+        return Ok(());
+    }
+    let mut dacl = ptr::null_mut();
+    let mut descriptor = ptr::null_mut();
+    // SAFETY: the handle is open for the call and every out-pointer is live.
+    win32(unsafe {
+        GetSecurityInfo(
+            original.as_raw_handle(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &raw mut dacl,
+            ptr::null_mut(),
+            &raw mut descriptor,
+        )
+    })?;
+    let descriptor = LocalMemory(descriptor);
+    let (mut control, mut revision) = (0, 0);
+    // SAFETY: `descriptor` is the valid descriptor the call above returned.
+    check(unsafe {
+        GetSecurityDescriptorControl(descriptor.0, &raw mut control, &raw mut revision)
+    })?;
+    let inheritance = if control & SE_DACL_PROTECTED == 0 {
+        UNPROTECTED_DACL_SECURITY_INFORMATION
+    } else {
+        PROTECTED_DACL_SECURITY_INFORMATION
+    };
+    // SAFETY: the handle is open with `WRITE_DAC`, and `dacl`, a null DACL
+    // when the original has none, lives inside `descriptor` past the call.
+    win32(unsafe {
+        SetSecurityInfo(
+            file.as_raw_handle(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | inheritance,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            dacl,
+            ptr::null(),
+        )
+    })
+}
+
+/// Memory that Win32 allocated with `LocalAlloc`.
+struct LocalMemory(*mut std::ffi::c_void);
+
+impl Drop for LocalMemory {
+    fn drop(&mut self) {
+        // SAFETY: the pointer came from a call that hands its ownership here.
+        unsafe { LocalFree(self.0) };
+    }
+}
+
+fn win32(status: u32) -> io::Result<()> {
+    if status == ERROR_SUCCESS {
+        Ok(())
+    } else {
+        Err(io::Error::from_raw_os_error(status.cast_signed()))
+    }
 }
 
 /// Replaces `to` with `from`, both in `parent`, even while `to` is open.
@@ -399,6 +575,29 @@ fn open_relative(
     disposition: u32,
     options: u32,
 ) -> io::Result<File> {
+    open_shared(
+        parent,
+        name,
+        access,
+        SHARE_ALL,
+        disposition,
+        options,
+        ptr::null(),
+    )
+}
+
+/// As [`open_relative`], letting others open the file only as `share` says
+/// while the handle is open. A file it creates gets `security`, or inherits
+/// from the folder when that is null.
+fn open_shared(
+    parent: &File,
+    name: &OsStr,
+    access: u32,
+    share: u32,
+    disposition: u32,
+    options: u32,
+    security: *const SECURITY_DESCRIPTOR,
+) -> io::Result<File> {
     // An empty name opens the root directory itself, as `.` does on Unix.
     let mut wide: Vec<u16> = if name == "." {
         Vec::new()
@@ -423,7 +622,7 @@ fn open_relative(
         RootDirectory: parent.as_raw_handle(),
         ObjectName: &raw const object_name,
         Attributes: OBJ_CASE_INSENSITIVE,
-        SecurityDescriptor: ptr::null(),
+        SecurityDescriptor: security,
         SecurityQualityOfService: ptr::null(),
     };
     let mut handle: HANDLE = ptr::null_mut();
@@ -438,7 +637,7 @@ fn open_relative(
             &raw mut status_block,
             ptr::null(),
             FILE_ATTRIBUTE_NORMAL,
-            SHARE_ALL,
+            share,
             disposition,
             options | FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT,
             ptr::null(),

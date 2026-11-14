@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 use muxy_protocol::{ProjectDescriptor, ProjectMutation, ProjectPatch};
@@ -112,7 +112,15 @@ impl AppState {
         let mut restored = self.configuration_backup();
         let mut ids = self.match_restore_projects(current);
         for project in &restored.projects {
-            ids.entry(project.id).or_insert(project.id);
+            // An unmatched project keeps its ID unless that ID is already
+            // taken, such as by a remote project, which must stay as it is.
+            ids.entry(project.id).or_insert_with(|| {
+                if current.project(project.id).is_some() {
+                    ProjectId::new()
+                } else {
+                    project.id
+                }
+            });
         }
         restored.window.current_project = ids[&restored.window.current_project];
         let selected = restored.window.selected_tab.clone();
@@ -276,7 +284,14 @@ impl AppState {
             };
             let mut project = project.clone();
             project.parent_id = parent;
-            ids.insert(project.id, project.id);
+            // The ID may already belong to a remote project, which stays as it is.
+            let id = if merged.project(project.id).is_some() {
+                ProjectId::new()
+            } else {
+                project.id
+            };
+            ids.insert(project.id, id);
+            project.id = id;
             creates.push(project.descriptor());
             merged.projects.push(project);
         }
@@ -410,6 +425,7 @@ pub fn import_projects(
     let mut state = AppState::bootstrap()?;
     let mut report = ImportReport::default();
     let mut ids = BTreeMap::from([(LEGACY_HOME, state.home().id)]);
+    let mut logos = Logos::new();
     for value in values {
         let name = value["name"].as_str().unwrap_or("unknown");
         let Ok(id) = value["id"]
@@ -435,7 +451,7 @@ pub fn import_projects(
                 .push(format!("Project {name} (duplicate ID)"));
             continue;
         }
-        let project = match legacy_project(id, &value, assets, &mut report) {
+        let project = match legacy_project(id, &value, assets, &mut logos, &mut report) {
             Ok(project) => project,
             Err(reason) => {
                 report.attention.push(format!("Project {name} ({reason})"));
@@ -503,6 +519,7 @@ fn legacy_project(
     id: ProjectId,
     value: &Value,
     assets: &BTreeMap<String, Vec<u8>>,
+    logos: &mut Logos,
     report: &mut ImportReport,
 ) -> Result<Project> {
     let name = value["name"].as_str().ok_or("missing name")?;
@@ -542,14 +559,61 @@ fn legacy_project(
     }
     if let Some(logo) = value["logo"]
         .as_str()
-        .and_then(|file| assets.get(&format!("logos/{file}")))
-        && !keep_if_valid(&mut project, |project| {
-            project.logo = Some(logo.clone().into());
-        })
+        .and_then(|file| logos.shared(&format!("logos/{file}"), assets))
     {
-        report.attention.push(format!("Logo of {name}"));
+        if !keep_if_valid(&mut project, |project| project.logo = Some(logo.clone())) {
+            report.attention.push(format!("Logo of {name}"));
+        } else if !logos.charge(logo.len()) {
+            project.logo = None;
+            report
+                .attention
+                .push(format!("Logo of {name} (the backup has too many logos)"));
+        }
     }
     Ok(project)
+}
+
+/// Logos in imported state, in bytes. Every project that uses a logo saves its
+/// own copy, so a few large logos shared by many projects can't expand the
+/// state past this.
+const MAX_IMPORTED_LOGO_BYTES: usize = 16 * 1024 * 1024;
+
+/// Each logo asset read once and shared, with what the state may still hold.
+struct Logos {
+    shared: BTreeMap<String, std::sync::Arc<[u8]>>,
+    remaining: usize,
+}
+
+impl Logos {
+    fn new() -> Self {
+        Self {
+            shared: BTreeMap::new(),
+            remaining: MAX_IMPORTED_LOGO_BYTES,
+        }
+    }
+
+    /// The asset, allocated once however many projects use it.
+    fn shared(
+        &mut self,
+        asset: &str,
+        assets: &BTreeMap<String, Vec<u8>>,
+    ) -> Option<std::sync::Arc<[u8]>> {
+        if let Some(logo) = self.shared.get(asset) {
+            return Some(logo.clone());
+        }
+        let logo: std::sync::Arc<[u8]> = assets.get(asset)?.as_slice().into();
+        self.shared.insert(asset.to_owned(), logo.clone());
+        Some(logo)
+    }
+
+    /// Whether the state may hold another `bytes` of logos.
+    fn charge(&mut self, bytes: usize) -> bool {
+        let Some(remaining) = self.remaining.checked_sub(bytes) else {
+            return false;
+        };
+        self.remaining = remaining;
+        true
+    }
 }
 
 fn keep_if_valid(project: &mut Project, change: impl FnOnce(&mut Project)) -> bool {
@@ -722,17 +786,34 @@ fn import_layout_snapshot(
     };
     let mut roots = Vec::new();
     collect_roots(&workspace["root"], &mut roots, report, 0)?;
-    let order = workspace["topLevelTabOrder"].as_array();
+    let mut order = HashMap::new();
+    for (position, id) in workspace["topLevelTabOrder"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        order.entry(id.to_string()).or_insert(position);
+    }
     roots.sort_by_key(|tab| {
         order
-            .and_then(|order| order.iter().position(|id| id == &tab["id"]))
+            .get(&tab["id"].to_string())
+            .copied()
             .unwrap_or(usize::MAX)
     });
+    let mut areas = HashMap::new();
+    index_areas(&workspace["root"], &mut areas);
+    let mut budget = MAX_LAYOUT_VISITS;
     let mut tabs = Vec::new();
     for root in roots {
         let mut tab = Tab::terminal();
         tab.panes.clear();
-        let Some(layout) = import_layout(&workspace["root"], &root["id"], &mut tab.panes, 0)?
+        let lookup = Lookup {
+            areas: &areas,
+            root: root["id"].to_string(),
+        };
+        let Some(layout) =
+            import_layout(&workspace["root"], &lookup, &mut tab.panes, 0, &mut budget)?
         else {
             continue;
         };
@@ -786,20 +867,53 @@ fn collect_roots(
     Ok(())
 }
 
+/// Layout nodes one 1.x workspace may visit while rebuilding its tabs. Each
+/// tab walks the whole tree, so many tabs in a large tree are refused here
+/// rather than taking quadratic time.
+const MAX_LAYOUT_VISITS: usize = 1 << 20;
+
+/// For each tab area, by address, the first terminal tab that each tab ID
+/// selects, as its own ID or its parent's.
+type Areas<'a> = HashMap<*const Value, HashMap<String, &'a Value>>;
+
+fn index_areas<'a>(node: &'a Value, areas: &mut Areas<'a>) {
+    if node["type"].as_str() == Some("tabArea") {
+        let mut first = HashMap::new();
+        for tab in node["tabArea"]["tabs"].as_array().into_iter().flatten() {
+            if is_terminal(tab) {
+                first.entry(tab["id"].to_string()).or_insert(tab);
+                first.entry(tab["parentTabID"].to_string()).or_insert(tab);
+            }
+        }
+        areas.insert(std::ptr::from_ref(node), first);
+    } else if node["type"].as_str() == Some("split") {
+        index_areas(&node["split"]["first"], areas);
+        index_areas(&node["split"]["second"], areas);
+    }
+}
+
+/// The tab areas' index and the root tab being rebuilt.
+struct Lookup<'a> {
+    areas: &'a Areas<'a>,
+    root: String,
+}
+
 fn import_layout(
     node: &Value,
-    root: &Value,
+    lookup: &Lookup<'_>,
     panes: &mut Vec<Pane>,
     depth: usize,
+    budget: &mut usize,
 ) -> Result<Option<Layout>> {
-    if depth > 32 || panes.len() >= 256 {
+    if depth > 32 || panes.len() >= 256 || *budget == 0 {
         return Err("1.x layout is too large".into());
     }
+    *budget -= 1;
     if node["type"].as_str() == Some("tabArea") {
-        let tab = node["tabArea"]["tabs"].as_array().and_then(|tabs| {
-            tabs.iter()
-                .find(|tab| is_terminal(tab) && (&tab["id"] == root || &tab["parentTabID"] == root))
-        });
+        let tab = lookup
+            .areas
+            .get(&std::ptr::from_ref(node))
+            .and_then(|area| area.get(&lookup.root));
         return Ok(tab.map(|tab| {
             let id = PaneId::new();
             panes.push(Pane {
@@ -812,8 +926,8 @@ fn import_layout(
         }));
     }
     let branch = &node["split"];
-    let first = import_layout(&branch["first"], root, panes, depth + 1)?;
-    let second = import_layout(&branch["second"], root, panes, depth + 1)?;
+    let first = import_layout(&branch["first"], lookup, panes, depth + 1, budget)?;
+    let second = import_layout(&branch["second"], lookup, panes, depth + 1, budget)?;
     Ok(match (first, second) {
         (Some(first), Some(second)) => Some(Layout::Split {
             axis: if branch["direction"].as_str() == Some("vertical") {

@@ -151,20 +151,31 @@ impl reqwest::dns::Resolve for PublicOnly {
     }
 }
 
+/// Consent covers one host, so a redirect follows only to that host, and
+/// never to a private address. Any other one comes back as the response.
+fn follows(host: &str, next: &reqwest::Url) -> bool {
+    next.host_str().is_some_and(|next| {
+        next.trim_end_matches('.')
+            .eq_ignore_ascii_case(host.trim_end_matches('.'))
+            && !blocked(next)
+    })
+}
+
 pub(crate) fn fetch(request: Request) -> Result<Value, String> {
     let failed = |error: reqwest::Error| format!("http request failed: {error}");
+    let host = request.host.clone();
     let client = reqwest::blocking::Client::builder()
         .timeout(request.timeout)
         .user_agent("Muxy/2 Extensions")
         .no_proxy()
         .dns_resolver(Arc::new(PublicOnly))
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
             if attempt.previous().len() >= 10 {
                 attempt.error("too many redirects")
-            } else if attempt.url().host_str().is_none_or(blocked) {
-                attempt.stop()
-            } else {
+            } else if follows(&host, attempt.url()) {
                 attempt.follow()
+            } else {
+                attempt.stop()
             }
         }))
         .build()
@@ -244,6 +255,20 @@ mod tests {
             [("Accept".to_owned(), "application/json".to_owned())]
         );
         assert_eq!(request.timeout, Duration::from_secs(120));
+    }
+
+    #[test]
+    fn redirects_follow_only_to_the_consented_host() {
+        let url = |text: &str| reqwest::Url::parse(text).unwrap();
+        assert!(follows("8.8.8.8", &url("https://8.8.8.8/next")));
+        assert!(follows("8.8.8.8", &url("http://8.8.8.8:8080/next")));
+        assert!(
+            !follows("8.8.8.8", &url("https://1.1.1.1/")),
+            "another host"
+        );
+        assert!(!follows("example.com", &url("https://evil.example/")));
+        assert!(!follows("example.com", &url("https://sub.example.com/")));
+        assert!(!follows("localhost", &url("http://localhost/")), "private");
     }
 
     #[test]
