@@ -119,8 +119,10 @@ def stamp_version(root, version):
             pattern, lambda match: match[1] + version + match[2], lock, name[1]
         )
     # Only local package versions change. All third-party resolutions stay locked.
-    manifest_path.write_text(manifest)
-    lock_path.write_text(lock)
+    # Windows would otherwise rewrite the line endings.
+    for path, text in ((manifest_path, manifest), (lock_path, lock)):
+        with open(path, "w", newline="\n") as file:
+            file.write(text)
 
 
 def bundle_info(version, build):

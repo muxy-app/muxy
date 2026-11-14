@@ -1,7 +1,7 @@
 # Getting Started
 
 Install: [macOS](#macos-desktop-app) · [Linux](#linux-desktop-app) ·
-[CLI and server only](#cli-and-server-only)
+[Windows (beta)](#windows-desktop-app-beta) · [CLI and server only](#cli-and-server-only)
 
 After installing: [First steps](#first-steps) · [Upgrading from 1.x](#upgrading-from-muxy-1x) ·
 [Beta builds](#beta)
@@ -12,6 +12,7 @@ After installing: [First steps](#first-steps) · [Upgrading from 1.x](#upgrading
 | --- | --- |
 | Desktop app | macOS 14 or newer, on Apple Silicon or Intel; experimental Linux packages target Ubuntu 24.04 on x86_64 and ARM64 |
 | `muxy` CLI and server | macOS 14 or newer, or Linux with glibc 2.35 or newer, on x86_64 or ARM64. musl is unsupported. |
+| Windows desktop app, CLI and server | Beta only: Windows 11 on x64 or ARM64 |
 
 ## macOS desktop app
 
@@ -140,6 +141,27 @@ saved session data.
   (`com.muxy-beta.app.desktop` for beta). Do not delete a copy still used by
   another running app or server.
 
+## Windows desktop app (beta)
+
+Windows builds come with [beta](#beta) releases only for now.
+
+1. From the [releases page](https://github.com/muxy-app/muxy/releases), open the
+   newest `v<version>-beta.<N>` pre-release and download
+   `muxy-<version>-windows-x86_64.zip`, or `-arm64.zip` for an ARM PC.
+2. Unzip it anywhere and run `muxy-app.exe`. Windows warns about an unknown
+   publisher, since builds aren't signed yet: choose **More info**, then **Run
+   anyway**.
+3. To use [`muxy`](../features/muxy-cli.md) in a terminal, add the folder to your
+   `PATH`.
+
+Terminals run PowerShell 7 when it's installed, and Windows PowerShell
+otherwise. Not available on Windows yet: browser panes, the Quick Terminal,
+remote servers over SSH, extensions that run scripts or show pages, and
+automatic updates. Settings says why for each one.
+
+To update, quit Muxy and run `muxy server stop`, which ends running terminals,
+then unzip the newer beta over the same folder.
+
 ## CLI and server only
 
 For a Linux computer or Mac without the desktop app. This installs `muxy` and
@@ -207,6 +229,7 @@ with separate settings and session data.
   (`python3 - install --channel beta`), or download a beta `.deb` or AppImage
   from the releases page. Use the same [update method](#updates) as stable.
   The quick installer and Debian package provide `muxy-beta` and `muxy-server-beta`.
+- **Windows:** see [Windows desktop app](#windows-desktop-app-beta).
 - **CLI and server only:** give the [install script](#install-script) a beta
   version, such as `2.1.0-beta.1143`.
 

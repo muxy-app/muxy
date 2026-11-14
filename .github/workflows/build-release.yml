@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: ''
+      windows:
+        description: Also build Windows, which ships in betas only for now
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -257,6 +262,66 @@ jobs:
             ${{ env.PACKAGE_DIR }}/*-audit.txt
           if-no-files-found: error
           retention-days: 30
+
+  windows:
+    name: Build (Windows, ${{ matrix.arch }})
+    if: inputs.windows
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-build-${{ matrix.target }}
+      cancel-in-progress: false
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            target: x86_64-pc-windows-msvc
+            runner: windows-latest
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+    env:
+      VERSION: ${{ inputs.version }}
+      PACKAGE_DIR: target/packages/${{ inputs.version }}/windows-${{ matrix.arch }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - run: |
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          targets: ${{ matrix.target }}
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      # ring builds its ARM64 assembly with clang.
+      - if: matrix.arch == 'arm64'
+        run: |
+          if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
+            choco install llvm --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            'C:\Program Files\LLVM\bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+      - name: Stamp the build version without committing a bump
+        run: python scripts/release.py stamp "$env:VERSION"
+      - name: Build the app, CLI and server
+        run: cargo build --locked --release --target "${{ matrix.target }}" -p muxy-app -p muxy-cli -p muxy-server
+      - name: Package and verify the portable archive
+        run: python scripts/package-windows.py "$env:VERSION" "${{ matrix.arch }}" "target/${{ matrix.target }}/release" "$env:PACKAGE_DIR"
+      - name: Upload distribution archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: distribution-windows-${{ matrix.arch }}
+          path: ${{ env.PACKAGE_DIR }}/muxy-${{ env.VERSION }}-windows-${{ matrix.arch }}.zip
+          if-no-files-found: error
+          retention-days: 7
 
   mobile-sdk:
     name: Build (mobile SDK)

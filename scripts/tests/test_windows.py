@@ -6,8 +6,10 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("windows", ROOT / "scripts/check-windows.py")
@@ -120,6 +122,46 @@ class WindowsTests(unittest.TestCase):
             "      - uses: actions/checkout@v4\n",
         ]:
             self.assertIn(expected, WORKFLOW)
+
+
+
+PACKAGE_SPEC = importlib.util.spec_from_file_location("package_windows", ROOT / "scripts/package-windows.py")
+PACKAGE = importlib.util.module_from_spec(PACKAGE_SPEC)
+PACKAGE_SPEC.loader.exec_module(PACKAGE)
+
+
+class WindowsPackageTests(unittest.TestCase):
+    def test_a_release_zips_the_three_checked_programs_with_the_license(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binaries = Path(directory) / "release"
+            binaries.mkdir()
+            for name in PACKAGE.BINARIES:
+                (binaries / name).write_bytes(name.encode())
+            with patch.object(PACKAGE.release, "check_build") as check:
+                archive = PACKAGE.package("2.1.0-beta.3", "arm64", binaries, Path(directory) / "out")
+            self.assertEqual(archive.name, "muxy-2.1.0-beta.3-windows-arm64.zip")
+            self.assertEqual(
+                [call.args for call in check.call_args_list],
+                [("2.1.0-beta.3", binaries / name) for name in PACKAGE.BINARIES],
+            )
+            with zipfile.ZipFile(archive) as zipped:
+                self.assertEqual(sorted(zipped.namelist()), sorted(
+                    f"muxy-2.1.0-beta.3-windows-arm64/{name}" for name in (*PACKAGE.BINARIES, "LICENSE")))
+
+    def test_a_build_that_reports_another_release_is_not_packaged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(PACKAGE.release, "check_build", side_effect=ValueError("mismatch")):
+                with self.assertRaises(ValueError):
+                    PACKAGE.package("2.1.0-beta.3", "x86_64", Path(directory), Path(directory) / "out")
+            self.assertFalse((Path(directory) / "out").exists())
+
+    def test_only_betas_publish_windows_archives(self):
+        publish = (ROOT / "scripts/publish-release.sh").read_text()
+        self.assertIn('if [[ "$CHANNEL" == beta ]]; then\n    for ARCH in arm64 x86_64; do\n'
+                      '        ASSETS+=("muxy-${VERSION}-windows-${ARCH}.zip")', publish)
+        self.assertIn("windows: true", (ROOT / ".github/workflows/release-beta.yml").read_text())
+        self.assertNotIn("windows:", (ROOT / ".github/workflows/release.yml").read_text())
+        self.assertIn("if: inputs.windows", (ROOT / ".github/workflows/build-release.yml").read_text())
 
 
 if __name__ == "__main__":

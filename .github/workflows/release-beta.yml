@@ -49,6 +49,7 @@ jobs:
     with:
       version: ${{ needs.prepare.outputs.version }}
       source: ${{ github.sha }}
+      windows: true
     secrets: inherit
 
   release:
