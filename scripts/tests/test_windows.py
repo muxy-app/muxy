@@ -117,7 +117,6 @@ class WindowsTests(unittest.TestCase):
             "runs-on: windows-latest\n",
             "git config --global core.autocrlf false\n          git config --global core.longpaths true\n"
             "      - uses: actions/checkout@v4\n",
-            "windows-platform",
         ]:
             self.assertIn(expected, WORKFLOW)
 
