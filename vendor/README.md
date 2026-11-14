@@ -56,6 +56,7 @@ Muxy relies on these changes:
 - Keep atlas textures alive until the GPU is done with them.
 - Read copied files from the Linux clipboard.
 - Give X11 windows their raw handles.
+- Return unavailable native handles for simulated test windows.
 - Release the window lock before resigning a spurious key window on macOS.
 - Composite translucent layers with "over" alpha on macOS.
 - Truncate text from its full runs, and measure it again once its width is
