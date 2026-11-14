@@ -7,6 +7,7 @@ mod catalog;
 mod commands;
 mod composer;
 pub(crate) mod extensions;
+mod files;
 mod keyboard;
 mod layout;
 mod pickers;
@@ -142,8 +143,7 @@ pub(crate) struct Snapshot {
     pub(crate) extensions_loaded: bool,
     /// Enabled extensions that provide a sidebar, as `(extension, label)`.
     pub(crate) sidebars: Vec<(String, String)>,
-    /// Enabled extensions' file openers, as `(setting value, label)`.
-    pub(crate) file_openers: Vec<(String, String)>,
+    pub(crate) file_openers: Vec<muxy_app_core::opener::FileHandler>,
     /// Languages enabled extensions provide, as `(selection, label)`.
     pub(crate) languages: Vec<(String, String)>,
     pub(crate) extension_shortcuts: Vec<crate::model::extensions::ExtensionShortcut>,
@@ -184,6 +184,7 @@ pub(crate) struct SettingsView {
     pub(crate) errors: HashMap<String, String>,
     recording: Option<String>,
     command_editor: Option<muxy_app_core::settings::CustomCommand>,
+    file_rule_editor: Option<files::RuleEditor>,
     focus_initialized: bool,
     compact: bool,
     picker_anchors: HashMap<PickerKind, PickerAnchor>,
@@ -291,6 +292,7 @@ impl SettingsView {
             errors: HashMap::new(),
             recording: None,
             command_editor: None,
+            file_rule_editor: None,
             focus_initialized: false,
             compact: false,
             picker_anchors: [
@@ -334,6 +336,14 @@ impl SettingsView {
                 if multiline { input.multiline() } else { input }
             });
             let changed = cx.subscribe(&input, move |pane: &mut Self, _, event, cx| {
+                if id == "file-pattern" {
+                    match event {
+                        InputEvent::Submitted => pane.save_file_rule(cx),
+                        InputEvent::Cancelled => pane.cancel_file_rule(cx),
+                        InputEvent::Changed => cx.notify(),
+                    }
+                    return;
+                }
                 if matches!(id, "command-name" | "command-text") {
                     match event {
                         InputEvent::Submitted => pane.save_command(cx),
@@ -510,6 +520,7 @@ impl SettingsView {
             self.errors.remove(id);
             match id {
                 "commands" => self.command_editor = None,
+                "file-rules" => self.file_rule_editor = None,
                 "font-codepoint-map" => self.codepoint_editor = None,
                 "terminal-keybindings" => self.binding_editor = None,
                 "terminal-reset" => {
@@ -839,6 +850,7 @@ fn announced_error(note: gpui::Div, id: &str, error: &str) -> accessibility::Liv
 /// Every text field Settings shows, and whether it takes several lines.
 fn field_ids() -> impl Iterator<Item = (&'static str, bool)> {
     [
+        "file-pattern",
         "command-name",
         "command-text",
         "composer-font",

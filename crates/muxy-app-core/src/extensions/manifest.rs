@@ -438,53 +438,30 @@ pub struct Setting {
     pub default_value: Value,
 }
 
-fn all_files() -> Vec<String> {
-    vec!["*".into()]
-}
-
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileOpener {
     pub id: String,
     pub title: Option<String>,
     pub tab_type: String,
-    #[serde(default = "all_files")]
+    #[serde(default)]
     pub patterns: Vec<String>,
+    #[serde(default)]
+    pub file_types: Option<Vec<String>>,
     #[serde(default = "visible")]
     pub singleton: bool,
 }
 
 impl FileOpener {
-    /// Case-insensitive `*`/`?` glob match against a project-relative path.
-    pub fn matches(&self, relative: &str) -> bool {
-        let path: Vec<char> = relative.to_lowercase().chars().collect();
-        self.patterns.is_empty()
-            || self
-                .patterns
-                .iter()
-                .any(|pattern| glob(&pattern.to_lowercase().chars().collect::<Vec<_>>(), &path))
+    pub fn registered_patterns(&self) -> &[String] {
+        self.file_types.as_deref().unwrap_or(&self.patterns)
     }
-}
 
-fn glob(pattern: &[char], text: &[char]) -> bool {
-    let (mut p, mut t) = (0, 0);
-    let mut resume: Option<(usize, usize)> = None;
-    while t < text.len() {
-        if p < pattern.len() && pattern[p] == '*' {
-            resume = Some((p, t));
-            p += 1;
-        } else if p < pattern.len() && (pattern[p] == '?' || pattern[p] == text[t]) {
-            p += 1;
-            t += 1;
-        } else if let Some((star, matched)) = resume {
-            p = star + 1;
-            t = matched + 1;
-            resume = Some((star, matched + 1));
-        } else {
-            return false;
-        }
+    pub fn matches(&self, relative: &str) -> bool {
+        self.registered_patterns()
+            .iter()
+            .any(|pattern| crate::opener::matches_pattern(pattern, relative))
     }
-    pattern[p..].iter().all(|character| *character == '*')
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -863,7 +840,12 @@ impl Extension {
                     opener.id, opener.tab_type
                 ));
             }
-            if opener.patterns.iter().any(String::is_empty) {
+            if opener
+                .patterns
+                .iter()
+                .chain(opener.file_types.iter().flatten())
+                .any(String::is_empty)
+            {
                 return Err(format!("file opener '{}' has an empty pattern", opener.id));
             }
         }

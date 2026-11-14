@@ -361,8 +361,6 @@ impl SettingsTab {
         });
     }
 
-    /// Chooses what opens files clicked in a terminal: a built-in opener or
-    /// an enabled extension's.
     fn open_file_opener_picker(
         &mut self,
         request: PickerRequest,
@@ -370,16 +368,31 @@ impl SettingsTab {
         cx: &mut Context<Self>,
     ) {
         let view = self.view.read(cx);
-        let current = view.snapshot.settings.openers.file.clone();
-        let mut openers: Vec<(String, String)> = super::appearance::FILE_OPENERS
-            .iter()
-            .map(|&(id, label)| (id.to_owned(), translate(label).to_string()))
-            .chain(view.snapshot.file_openers.iter().cloned())
-            .collect();
+        let Some(editor) = &view.file_rule_editor else {
+            return;
+        };
+        let current = editor.rule.opener.clone();
+        let mut openers: Vec<(String, String)> = [
+            ("ask".into(), tr!("Always ask").to_string()),
+            (
+                "system.finder".into(),
+                translate(crate::opener::FILE_MANAGER).to_string(),
+            ),
+        ]
+        .into_iter()
+        .chain(
+            view.snapshot
+                .file_openers
+                .iter()
+                .map(|handler| (handler.id.clone(), handler.title.clone())),
+        )
+        .collect();
         let unavailable = !openers.iter().any(|(id, _)| *id == current);
         if unavailable {
-            let label = super::appearance::unavailable_file_opener(&current);
-            openers.push((current.clone(), label));
+            openers.push((
+                current.clone(),
+                super::files::opener_label(&view.snapshot, &current),
+            ));
         }
         let (theme, metrics) = (view.theme.clone(), view.metrics);
         let picker = cx.new(|cx| {
@@ -390,22 +403,32 @@ impl SettingsTab {
                 cx,
             )
         });
-        let items = openers
+        let items: Vec<_> = openers
             .into_iter()
             .map(|(id, label)| {
                 let disabled = unavailable && id == current;
                 PickerItem::Row(PickerRow::new(id, label)).disabled(disabled)
             })
             .collect();
-        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        picker.update(cx, |picker, cx| picker.set_items(items.clone(), cx));
         self.overlay_subscription = Some(cx.subscribe_in(
             &picker,
             window,
-            move |root, _, event, window, cx| match event {
+            move |root, picker, event, window, cx| match event {
+                PickerEvent::QueryChanged { query, .. } => {
+                    let query = query.to_lowercase();
+                    let filtered = items.iter().filter(|item| {
+                        matches!(item, PickerItem::Row(row) if query.split_whitespace().all(|word| row.title.to_lowercase().contains(word)))
+                    }).cloned().collect();
+                    picker.update(cx, |picker, cx| picker.set_items(filtered, cx));
+                }
                 PickerEvent::Confirmed(selection) => {
                     let opener = selection.id.to_string();
-                    let _ = root.model.update(cx, |model, cx| {
-                        model.change_preference(Change::FileOpener(opener), cx);
+                    root.view.update(cx, |view, cx| {
+                        if let Some(editor) = &mut view.file_rule_editor {
+                            editor.rule.opener = opener;
+                        }
+                        cx.notify();
                     });
                     root.dismiss_overlay(window, cx);
                 }

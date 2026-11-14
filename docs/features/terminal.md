@@ -110,14 +110,21 @@ plain text and case-insensitive; **Aa** makes it case-sensitive.
 ## Links and files
 
 - `Cmd`-click a URL or file path to open it. Paths with `:line:column` jump to
-  that line in supported editors.
-- **Settings → General → Open files with** picks the app for files.
+  that line in supporting extensions.
+- Enabled extensions register supported file types. One match opens directly;
+  multiple matches show a searchable chooser. Turn on **Always use for this
+  type** before choosing to save a default.
+- **Settings → General → Files** manages custom patterns, per-type defaults,
+  rule priority, and when the chooser appears. Unmatched local files and folders
+  go to Finder or the system file manager.
+- The project-app picker in the topbar only opens the project when clicked;
+  it never controls terminal file links.
 - Web links open in your system browser, or in the
   [built-in browser](browser.md) when **Settings → Browser** says so.
 - Dropping files on a terminal pastes their paths.
 - On a [remote server](remote-servers.md), dropped and pasted files are
   uploaded first and the remote path is pasted. `Cmd`-clicking a remote file
-  offers a read-only copy.
+  opens a matching extension, or offers remote-file actions including a read-only copy.
 
 ## Shell integration
 

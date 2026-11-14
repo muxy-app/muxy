@@ -130,7 +130,7 @@ fn anchor(anchor: &muxy_ui::popover::PopoverAnchor) {
 /// Every overlay a test can open. `Webview`, `Popover`, `Native`,
 /// `ProjectLogo` and `Projects` need a native web view, an extension, a
 /// decoded image or a folder search; `PullRequest` needs a loaded pull request.
-pub(super) fn openers(project: ProjectId) -> [(&'static str, Open); 21] {
+pub(super) fn openers(project: ProjectId) -> [(&'static str, Open); 22] {
     let at = gpui::point(px(200.0), px(200.0));
     [
         ("updates", Box::new(AppModel::toggle_update_popover)),
@@ -199,6 +199,7 @@ pub(super) fn openers(project: ProjectId) -> [(&'static str, Open); 21] {
             Box::new(move |model, window, cx| model.open_project_icons(project, at, window, cx)),
         ),
         ("commands", Box::new(AppModel::toggle_command_palette)),
+        ("file opener", Box::new(file_opener)),
         (
             "git form",
             Box::new(move |model, _, cx| model.open_git_form(project, true, cx)),
@@ -248,4 +249,27 @@ fn overlays_mark_exactly_when_their_variant_says(cx: &mut TestAppContext) {
         let marks = drawn_marks(&view, cx);
         assert_eq!(!marks.is_empty(), marked, "{name} marks {marks:?}");
     }
+}
+
+fn file_opener(model: &mut AppModel, _: &mut Window, cx: &mut Context<AppModel>) {
+    use muxy_app_core::opener::{FileHandler, FileLocation, OpenRequest, Target};
+    let pane = model.active_pane().expect("pane");
+    let context = model.opener_context(pane).expect("context");
+    model.open_file_chooser(
+        OpenRequest {
+            target: Target::File(FileLocation {
+                path: context.project_directory.join("readme.md"),
+                line: None,
+                column: None,
+            }),
+            context,
+        },
+        "readme.md".into(),
+        vec![FileHandler {
+            id: "preview:md".into(),
+            title: "Preview".into(),
+            patterns: vec!["*.md".into()],
+        }],
+        cx,
+    );
 }
