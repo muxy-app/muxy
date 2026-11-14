@@ -39,7 +39,8 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_FLAG_OPEN_REPARSE_POINT, FILE_FULL_DIR_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
     FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FileAttributeTagInfo,
     FileFullDirectoryInfo, FileFullDirectoryRestartInfo, GetFileInformationByHandle,
-    GetFileInformationByHandleEx, READ_CONTROL, SYNCHRONIZE, WRITE_DAC,
+    GetFileInformationByHandleEx, GetVolumeInformationByHandleW, READ_CONTROL, SYNCHRONIZE,
+    WRITE_DAC,
 };
 use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
@@ -153,12 +154,14 @@ pub(in crate::files) fn create_file(
     name: &OsStr,
     replacing: bool,
 ) -> io::Result<File> {
-    let (access, share) = if replacing {
-        (GENERIC_WRITE | DELETE | SYNCHRONIZE | WRITE_DAC, 0)
-    } else {
-        (GENERIC_WRITE | DELETE | SYNCHRONIZE, SHARE_ALL)
+    // A volume without ACLs, such as FAT32 or exFAT, has no DACL to set.
+    let acls = replacing && keeps_acls(parent);
+    let (access, share) = match (replacing, acls) {
+        (true, true) => (GENERIC_WRITE | DELETE | SYNCHRONIZE | WRITE_DAC, 0),
+        (true, false) => (GENERIC_WRITE | DELETE | SYNCHRONIZE, 0),
+        (false, _) => (GENERIC_WRITE | DELETE | SYNCHRONIZE, SHARE_ALL),
     };
-    let private = if replacing {
+    let private = if acls {
         Some(private_descriptor()?)
     } else {
         None
@@ -174,6 +177,31 @@ pub(in crate::files) fn create_file(
             descriptor.0.cast::<SECURITY_DESCRIPTOR>().cast_const()
         }),
     )
+}
+
+/// `FILE_PERSISTENT_ACLS` from `winnt.h`: the volume keeps ACLs.
+const FILE_PERSISTENT_ACLS: u32 = 8;
+
+/// Whether the volume holding `file` keeps ACLs. FAT32 and exFAT don't, so
+/// their files have no DACL to protect or copy. A volume that can't be asked
+/// is taken to keep them, so a failure to protect a file is never hidden.
+fn keeps_acls(file: &File) -> bool {
+    let mut flags = 0;
+    // SAFETY: the handle is open for the call, no name buffers are asked
+    // for, and `flags` is live.
+    let asked = unsafe {
+        GetVolumeInformationByHandleW(
+            file.as_raw_handle(),
+            ptr::null_mut(),
+            0,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &raw mut flags,
+            ptr::null_mut(),
+            0,
+        )
+    };
+    asked == 0 || flags & FILE_PERSISTENT_ACLS != 0
 }
 
 /// A security descriptor whose protected DACL gives only the file's owner
@@ -218,6 +246,9 @@ pub(in crate::files) fn copy_mode(
         (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
     if u64::from(information.dwVolumeSerialNumber) != replaced.device || index != replaced.index {
         return Err(io::Error::other("File changed while saving it; retry"));
+    }
+    if !keeps_acls(parent) {
+        return Ok(());
     }
     let mut dacl = ptr::null_mut();
     let mut descriptor = ptr::null_mut();

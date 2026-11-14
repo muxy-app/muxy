@@ -257,7 +257,8 @@ impl AppModel {
     }
 
     /// The shell new terminals on this computer start: the server's default,
-    /// or else `$SHELL`, as the server picks it.
+    /// or else `$SHELL` when it is an executable file, as the server picks it.
+    /// `None` means the server's own fallback, zsh or sh, which reads the line.
     #[cfg(not(windows))]
     fn local_shell(&self) -> Option<PathBuf> {
         use std::os::unix::ffi::OsStrExt;
@@ -266,7 +267,15 @@ impl AppModel {
             .as_ref()
             .and_then(|settings| settings.default_shell.as_ref())
             .map(|shell| std::ffi::OsStr::from_bytes(&shell.0).into())
-            .or_else(|| std::env::var_os("SHELL").map(Into::into))
+            .or_else(|| {
+                std::env::var_os("SHELL")
+                    .map(PathBuf::from)
+                    .filter(|shell| {
+                        shell.is_absolute()
+                            && shell.is_file()
+                            && rustix::fs::access(shell, rustix::fs::Access::EXEC_OK).is_ok()
+                    })
+            })
     }
 
     fn start_extension_agent_at(

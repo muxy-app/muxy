@@ -238,6 +238,9 @@ mod tests {
         // A second definition of an id must not hide the first, which engines use.
         let duplicate = laughs().replace("</svg>", r#"<g id="l10"/><g id="l9"/></svg>"#);
         assert!(!within_budget(duplicate.as_bytes()));
+        // Refused for the repeated id alone, in an otherwise ordinary icon.
+        let repeated = r#"<svg xmlns="http://www.w3.org/2000/svg"><g id="a"/><g id="a"/></svg>"#;
+        assert!(!within_budget(repeated.as_bytes()));
         for refused in [
             r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><pattern id="p" width="8192" height="8192" patternUnits="userSpaceOnUse"><rect width="1" height="1"/></pattern></defs><rect width="16" height="16" fill="url(#p)"/></svg>"#,
             r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><filter id="f"><feGaussianBlur stdDeviation="9"/></filter></defs><rect width="16" height="16" filter="url(#f)"/></svg>"#,

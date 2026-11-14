@@ -256,7 +256,9 @@ fn manifest_paths_are_checked_once_each() {
 fn manifests_listing_too_many_paths_are_refused() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("backup.muxy");
-    let listed: Vec<_> = (0..9000).map(|index| format!("themes/{index}")).collect();
+    // One name, listed past the limit: without the limit, the names would
+    // collapse to one and the archive would be valid.
+    let listed = vec!["themes/0".to_owned(); 9000];
     native_archive(&path, &listed, &["themes/0".into()]);
     assert!(archive::read(&path).is_err());
 }

@@ -163,10 +163,10 @@ impl Registry {
     /// starts disabled, and the caller must forget its remembered consent:
     /// the new folder's code never inherits the old one's authority.
     /// What [`Self::load_unpacked`] would register for `path`, changing
-    /// nothing, so consent can be cleared before a folder takes a name over.
+    /// nothing, or the reason it would refuse. So consent is cleared only
+    /// before a folder that will take a name over, never for a refused one.
     pub fn unpacked_target(&self, path: &Path) -> Result<Unpacked, String> {
-        let extension = Self::unpacked_extension(path)?;
-        let folder = path.canonicalize().map_err(|e| e.to_string())?;
+        let (extension, folder) = self.checked_unpacked(path)?;
         let new_source = self.unpacked.get(&extension.name) != Some(&folder);
         Ok(Unpacked {
             name: extension.name,
@@ -174,7 +174,8 @@ impl Registry {
         })
     }
 
-    pub fn load_unpacked(&mut self, path: &Path) -> Result<Unpacked, String> {
+    /// `path`'s package and canonical folder, if it may be loaded.
+    fn checked_unpacked(&self, path: &Path) -> Result<(Extension, PathBuf), String> {
         let extension = Self::unpacked_extension(path)?;
         if self.extensions.contains_key(&extension.name) {
             return Err("an extension with this name is already loaded".into());
@@ -189,6 +190,11 @@ impl Registry {
                 "this folder is already loaded as '{loaded}'; unload it first"
             ));
         }
+        Ok((extension, folder))
+    }
+
+    pub fn load_unpacked(&mut self, path: &Path) -> Result<Unpacked, String> {
+        let (extension, folder) = self.checked_unpacked(path)?;
         let name = extension.name.clone();
         let new_source = self.unpacked.get(&name) != Some(&folder);
         if new_source && self.enabled.contains(&name) {

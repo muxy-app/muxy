@@ -180,6 +180,24 @@ fn a_name_moved_to_another_folder_starts_disabled() {
 }
 
 #[test]
+fn a_folder_refused_for_a_loaded_name_is_refused_before_anything_changes() {
+    let profile = tempfile::tempdir().unwrap();
+    let loaded = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    package(loaded.path(), "hello");
+    package(other.path(), "hello");
+    let mut registry = Registry::load(profile.path());
+    registry.load_unpacked(loaded.path()).unwrap();
+    // Asked before consent is cleared, so a refused folder can't clear it.
+    assert!(registry.unpacked_target(other.path()).is_err());
+    assert!(registry.load_unpacked(other.path()).is_err());
+    assert_eq!(
+        registry.source_folder("hello"),
+        Some(loaded.path().canonicalize().unwrap().as_path())
+    );
+}
+
+#[test]
 fn a_repaired_folder_can_be_loaded_again_after_failing_at_startup() {
     let profile = tempfile::tempdir().unwrap();
     let source = tempfile::tempdir().unwrap();
