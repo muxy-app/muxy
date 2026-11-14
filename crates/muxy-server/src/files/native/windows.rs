@@ -226,8 +226,9 @@ fn private_descriptor() -> io::Result<LocalMemory> {
 }
 
 /// Gives `file` the DACL of `replaced`, the file named `name` in `parent`
-/// that it replaces, so replacing a file never opens it to more accounts.
-/// A DACL that inherits from the folder keeps inheriting from it.
+/// that it replaces, so the replacement keeps the file's own entries. A DACL
+/// that inherits from the folder keeps inheriting from it, so its inherited
+/// entries are the folder's, as they are after any save that replaces a file.
 pub(in crate::files) fn copy_mode(
     file: &File,
     parent: &File,
