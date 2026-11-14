@@ -404,8 +404,12 @@ fn is_executable(path: &Path) -> bool {
             .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
-/// Windows has no executable bit, so any file counts.
+/// A terminal starts only a program file, not a script such as `.cmd` or `.ps1`.
 #[cfg(windows)]
 fn is_executable(path: &Path) -> bool {
-    path.is_absolute() && std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
+    path.is_absolute()
+        && path.extension().is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("exe") || extension.eq_ignore_ascii_case("com")
+        })
+        && std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
 }

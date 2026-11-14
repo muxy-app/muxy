@@ -315,7 +315,12 @@ fn execute(
     let mut command = if let Some(shell) = &request.shell {
         script_command(shell)
     } else {
-        let mut command = Command::new(program(&request.argv[0], request.env.get("PATH")));
+        let path = request
+            .env
+            .iter()
+            .rfind(|(name, _)| crate::spawn::same_name(std::ffi::OsStr::new(name), "PATH"))
+            .map(|(_, value)| value);
+        let mut command = Command::new(program(&request.argv[0], path));
         command.args(&request.argv[1..]);
         command
     };

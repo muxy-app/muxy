@@ -596,7 +596,14 @@ fn finish_deleting_set_aside(receipt: &GitReceipt) -> Result<()> {
     let Some(aside) = &receipt.set_aside else {
         return Ok(());
     };
-    match super::processes::delete_set_aside(&path(aside)?) {
+    let aside = path(aside)?;
+    // Setting a folder aside keeps its identity; anything else there now isn't the worktree.
+    if aside.exists() && !same_identity(&aside, receipt.device, receipt.inode) {
+        return Err(error(std::io::Error::other(
+            "the folder set aside for removal was replaced; it was kept",
+        )));
+    }
+    match super::processes::delete_set_aside(&aside) {
         Err(cause) if cause.kind() != std::io::ErrorKind::NotFound => Err(error(cause)),
         _ => Ok(()),
     }

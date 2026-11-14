@@ -108,10 +108,12 @@ fn start_and_connect<T>(
     }
 }
 
+/// The server starts in its own folder, so its paths can't be relative.
 fn server_arguments(socket: &Path) -> [OsString; 6] {
+    let socket = std::path::absolute(socket).unwrap_or_else(|_| socket.to_owned());
     [
         "--socket".into(),
-        socket.into(),
+        socket.clone().into(),
         "--settings".into(),
         socket.with_file_name("server.toml").into(),
         "--log".into(),

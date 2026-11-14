@@ -7,7 +7,7 @@ use std::os::windows::io::{AsHandle, AsRawHandle, FromRawHandle, OwnedHandle};
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::ptr;
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -100,7 +100,8 @@ impl<'a> Running<'a> {
     /// output closes, or a limit stops it.
     pub fn wait(mut self) -> io::Result<Output> {
         let limits = &self.limits;
-        let (sender, events) = mpsc::channel();
+        // Readers wait while chunks are pending, so a fast writer can't fill memory.
+        let (sender, events) = mpsc::sync_channel(16);
         let stdout = self.child.stdout.take();
         let mut stdout = Stream::new(stdout, limits.stdout, Source::Stdout, &sender)?;
         let stderr = self.child.stderr.take();
@@ -315,7 +316,7 @@ impl Stream {
         pipe: Option<impl Read + Send + 'static>,
         cap: Cap,
         source: Source,
-        events: &Sender<Event>,
+        events: &SyncSender<Event>,
     ) -> io::Result<Self> {
         let Some(mut pipe) = pipe else {
             return Ok(Self {

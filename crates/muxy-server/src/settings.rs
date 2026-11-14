@@ -62,8 +62,8 @@ impl ServerSettings {
     }
 }
 
-/// Whether `shell` is a file the system can run: executable on Unix, and on
-/// Windows a file whose extension is in `PATHEXT`.
+/// Whether `shell` is a file a terminal can start: executable on Unix, and on
+/// Windows a program file, since a terminal can't start a `.cmd` script.
 fn runnable(shell: &Path) -> Result<bool, crate::ServerError> {
     let missing = |error: std::io::Error| {
         crate::ServerError::new(ErrorCode::BadPath, format!("{}: {error}", shell.display()))
@@ -77,7 +77,10 @@ fn runnable(shell: &Path) -> Result<bool, crate::ServerError> {
     #[cfg(windows)]
     {
         let metadata = std::fs::symlink_metadata(shell).map_err(missing)?;
-        Ok(!metadata.is_dir() && crate::exec::has_program_extension(shell))
+        Ok(!metadata.is_dir()
+            && shell.extension().is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("exe") || extension.eq_ignore_ascii_case("com")
+            }))
     }
 }
 
