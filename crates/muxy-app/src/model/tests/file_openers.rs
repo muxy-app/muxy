@@ -251,3 +251,54 @@ fn file_rule_settings_edit_custom_types_and_persist_priority(cx: &mut TestAppCon
         );
     });
 }
+
+#[gpui::test]
+fn renamed_file_rules_keep_priority_when_replacing_an_existing_pattern(cx: &mut TestAppContext) {
+    use crate::model::preferences::Change;
+    use muxy_app_core::opener::{FileResolution, resolve_file};
+
+    let mut state = AppState::bootstrap().unwrap();
+    state.open_terminal_tab(state.home().id).unwrap();
+    let (boot, _) = stub_boot(state);
+    let (model, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    model.update(cx, |model, cx| {
+        install(model, cx);
+        model.settings.openers.file_rules = [
+            ("*.txt", "preview:open"),
+            ("*.md", "ask"),
+            ("Dockerfile", "files:open"),
+            ("*", "system.finder"),
+        ]
+        .map(|(pattern, opener)| FileRule {
+            pattern: pattern.into(),
+            opener: opener.into(),
+        })
+        .to_vec();
+        model.change_preference(
+            Change::FileRule {
+                previous: Some("Dockerfile".into()),
+                rule: FileRule {
+                    pattern: "*.TXT".into(),
+                    opener: "files:open".into(),
+                },
+            },
+            cx,
+        );
+        assert_eq!(
+            model
+                .settings
+                .openers
+                .file_rules
+                .iter()
+                .map(|rule| rule.pattern.as_str())
+                .collect::<Vec<_>>(),
+            ["*.md", "*.TXT", "*"]
+        );
+        let saved = Settings::load(&model.configuration_path("settings.toml")).unwrap();
+        assert_eq!(saved.openers.file_rules, model.settings.openers.file_rules);
+        assert_eq!(
+            resolve_file("notes.txt", &model.extension_file_openers(), &saved.openers),
+            FileResolution::Handler("files:open".into())
+        );
+    });
+}

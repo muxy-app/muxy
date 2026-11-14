@@ -709,6 +709,12 @@ impl AppModel {
                 };
                 rule.validate()?;
                 let rules = &mut settings.openers.file_rules;
+                let keep = |existing: &muxy_app_core::opener::FileRule| {
+                    !existing.pattern.eq_ignore_ascii_case(&rule.pattern)
+                        && !previous
+                            .as_ref()
+                            .is_some_and(|pattern| existing.pattern.eq_ignore_ascii_case(pattern))
+                };
                 let position = previous
                     .as_ref()
                     .and_then(|pattern| {
@@ -716,14 +722,14 @@ impl AppModel {
                             .iter()
                             .position(|rule| rule.pattern.eq_ignore_ascii_case(pattern))
                     })
-                    .unwrap_or(0);
-                rules.retain(|existing| {
-                    !existing.pattern.eq_ignore_ascii_case(&rule.pattern)
-                        && !previous
-                            .as_ref()
-                            .is_some_and(|pattern| existing.pattern.eq_ignore_ascii_case(pattern))
-                });
-                rules.insert(position.min(rules.len()), rule);
+                    .map_or(0, |position| {
+                        rules[..position]
+                            .iter()
+                            .filter(|existing| keep(existing))
+                            .count()
+                    });
+                rules.retain(keep);
+                rules.insert(position, rule);
                 settings.save_openers(&path)?;
             }
             Change::RemoveFileRule(pattern) => {
