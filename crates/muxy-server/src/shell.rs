@@ -151,31 +151,7 @@ pub(crate) fn is_powershell(program: &Path) -> bool {
 fn powershell_command(script: &str) -> String {
     let wrapped = format!("try {{ {script} }} catch {{}}");
     let bytes: Vec<u8> = wrapped.encode_utf16().flat_map(u16::to_le_bytes).collect();
-    base64(&bytes)
-}
-
-#[cfg(any(windows, test))]
-fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let value = chunk
-            .iter()
-            .enumerate()
-            .fold(0_u32, |value, (index, byte)| {
-                value | (u32::from(*byte) << (16 - 8 * index))
-            });
-        for index in 0..4 {
-            if index <= chunk.len() {
-                text.push(char::from(
-                    ALPHABET[(value >> (18 - 6 * index)) as usize & 63],
-                ));
-            } else {
-                text.push('=');
-            }
-        }
-    }
-    text
+    muxy_core::base64::encode(&bytes)
 }
 
 fn get_env<'a>(request: &'a SpawnRequest, name: &str) -> Option<&'a OsString> {
@@ -208,15 +184,11 @@ mod encoding_tests {
 
     #[test]
     fn powershell_receives_the_script_as_utf16_base64() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
         let utf16: Vec<u8> = "try { 1 } catch {}"
             .encode_utf16()
             .flat_map(u16::to_le_bytes)
             .collect();
-        assert_eq!(powershell_command("1"), base64(&utf16));
+        assert_eq!(powershell_command("1"), muxy_core::base64::encode(&utf16));
     }
 
     #[test]

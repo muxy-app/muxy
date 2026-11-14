@@ -3,6 +3,7 @@ use super::*;
 use crate::model::agents_panel::{
     AgentStatus, Entry, EntryKey, Placement, RunningAgent, starts_project_group,
 };
+use crate::model::webviews::panel_sessions::SavedPanel;
 use gpui::Modifiers;
 use muxy_app_core::settings::{
     AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping, AgentsPanelIcon,
@@ -531,7 +532,7 @@ fn right_agents_share_the_panel_host_without_losing_the_composer_draft(cx: &mut 
             "Agents is global across project switches"
         );
         let home = model.state.home().id;
-        let saved = crate::model::webviews::panel_sessions::SavedPanel {
+        let saved = SavedPanel {
             owner: "test-extension".into(),
             kind: "right".into(),
             instance: None,

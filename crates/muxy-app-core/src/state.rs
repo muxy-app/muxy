@@ -868,7 +868,7 @@ impl AppState {
         pane: PaneId,
         directory: &muxy_protocol::ServerPath,
     ) -> bool {
-        if !directory.as_path().is_absolute()
+        if !directory.is_absolute()
             || self.pane_tab(pane).is_none()
             || self.starting_directories.get(&pane) == Some(directory)
         {

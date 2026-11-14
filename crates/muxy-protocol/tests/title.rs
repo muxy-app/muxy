@@ -52,9 +52,10 @@ fn a_header_shows_the_folder_within_home_as_a_tilde() {
     };
     assert_eq!(shown("", Some(home)), None);
     assert_eq!(shown("/home/dev", Some(home)).as_deref(), Some("~"));
+    let separator = std::path::MAIN_SEPARATOR;
     assert_eq!(
-        shown("/home/dev/muxy/crates", Some(home)).as_deref(),
-        Some("~/muxy/crates")
+        shown("/home/dev/muxy/crates", Some(home)),
+        Some(format!("~{separator}muxy{separator}crates"))
     );
     assert_eq!(
         shown("/home/developer", Some(home)).as_deref(),

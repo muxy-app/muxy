@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -30,6 +31,7 @@ STUBS = {
 }
 
 
+@unittest.skipIf(sys.platform == "win32", "The release notarizer is a macOS shell script")
 class NotarizeReleaseTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

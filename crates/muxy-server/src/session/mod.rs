@@ -243,13 +243,13 @@ impl SessionHandle {
         }
     }
 
-    /// Records that the session belongs to another project now.
     /// The title, folder and program the session last reported.
     #[cfg(windows)]
     pub(crate) fn metadata(&self) -> SessionMetadata {
         self.published.metadata()
     }
 
+    /// Records that the session belongs to another project now.
     pub(crate) fn move_to(&self, project: ProjectId) {
         self.published.set_project(project);
     }

@@ -281,7 +281,9 @@ fn restored_bounds(boot: &boot::Boot, cx: &App) -> Bounds<gpui::Pixels> {
     let [width, height] = boot.settings.window.default_size;
     let mut default = size(px(width), px(height));
     // Windows places a window taller than its screen partly above the top edge.
-    if let Some(display) = cx.primary_display() {
+    if cfg!(windows)
+        && let Some(display) = cx.primary_display()
+    {
         let room = display.bounds().size;
         default.width = default.width.min(room.width * 0.9);
         default.height = default.height.min(room.height * 0.9);

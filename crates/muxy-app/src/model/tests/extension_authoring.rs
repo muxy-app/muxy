@@ -290,7 +290,12 @@ fn an_agent_starts_in_a_home_tab_at_the_workspace_with_its_prompt(cx: &mut TestA
             .startup_command(pane)
             .expect("command")
             .to_owned();
-        assert!(command.starts_with("/test/agent '"), "{command}");
+        let start = if cfg!(windows) {
+            "& '/test/agent' '"
+        } else {
+            "/test/agent '"
+        };
+        assert!(command.starts_with(start), "{command}");
         assert!(
             command.contains(&workspace::skill_file(&root).display().to_string()),
             "{command}"

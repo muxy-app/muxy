@@ -164,23 +164,47 @@ pub(super) fn delete_set_aside(aside: &Path) -> std::io::Result<()> {
             git = Some(entry);
             continue;
         }
-        remove_retrying(&entry.path(), entry.file_type()?.is_dir())?;
+        remove_retrying(&entry.path(), Entry::of(entry.file_type()?))?;
     }
     if let Some(git) = git {
-        remove_retrying(&git.path(), git.file_type()?.is_dir())?;
+        remove_retrying(&git.path(), Entry::of(git.file_type()?))?;
     }
-    remove_retrying(aside, true)
+    remove_retrying(aside, Entry::Folder)
+}
+
+/// How Windows deletes an entry: a link to a folder, junctions included, is
+/// removed as a folder, without touching what it points to.
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+enum Entry {
+    Folder,
+    FolderLink,
+    File,
+}
+
+#[cfg(windows)]
+impl Entry {
+    fn of(file_type: std::fs::FileType) -> Self {
+        use std::os::windows::fs::FileTypeExt;
+        if file_type.is_symlink_dir() {
+            Self::FolderLink
+        } else if file_type.is_dir() {
+            Self::Folder
+        } else {
+            Self::File
+        }
+    }
 }
 
 /// Retries for a moment while ended processes finish exiting.
 #[cfg(windows)]
-fn remove_retrying(path: &Path, directory: bool) -> std::io::Result<()> {
+fn remove_retrying(path: &Path, entry: Entry) -> std::io::Result<()> {
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
-        let removed = if directory {
-            std::fs::remove_dir_all(path)
-        } else {
-            std::fs::remove_file(path)
+        let removed = match entry {
+            Entry::Folder => std::fs::remove_dir_all(path),
+            Entry::FolderLink => std::fs::remove_dir(path),
+            Entry::File => std::fs::remove_file(path),
         };
         match removed {
             Err(cause) if in_use(&cause) && Instant::now() < deadline => {

@@ -986,7 +986,7 @@ fn valid_directory(directory: &Path) -> Result<ServerPath, ServerError> {
             "session directory must be an absolute path on this computer",
         )
     };
-    let path = ServerPath::from(directory);
+    let path = ServerPath::from_path(directory).map_err(|_| invalid())?;
     if !directory.is_absolute() || path.0.len() > 4096 || path.0.contains(&0) {
         return Err(invalid());
     }

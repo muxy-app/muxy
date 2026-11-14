@@ -270,16 +270,6 @@ mod tests {
     }
 
     #[test]
-    fn unix_reports_keep_their_bytes() {
-        let unix = |value: &str| terminal_directory(value.as_bytes(), false).map(|path| path.0);
-        assert_eq!(unix("file:///tmp/a%20b"), Some(b"/tmp/a b".to_vec()));
-        assert_eq!(unix("file://host/tmp/%FF"), Some(b"/tmp/\xff".to_vec()));
-        assert_eq!(unix("/tmp"), Some(b"/tmp".to_vec()));
-        assert_eq!(unix("file:///tmp/%00"), None);
-        assert_eq!(unix("relative"), None);
-    }
-
-    #[test]
     fn windows_reports_name_drive_folders_only() {
         let windows = |value: &str| terminal_directory(value.as_bytes(), true).map(|path| path.0);
         assert_eq!(

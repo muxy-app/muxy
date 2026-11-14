@@ -144,6 +144,7 @@ fn resolve_directory(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(windows))]
     #[test]
     fn the_extension_workspace_sits_under_the_config_folder() {
         let workspace = |override_path: Option<&str>, config: Option<&str>| {

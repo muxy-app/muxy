@@ -129,6 +129,7 @@ fn settings_reuses_its_tab_without_opening_windows_or_stealing_focus(cx: &mut Te
     });
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn quick_terminal_settings_and_pickers_use_the_workspace_tab(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");

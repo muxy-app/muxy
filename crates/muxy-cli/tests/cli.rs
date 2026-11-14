@@ -50,6 +50,7 @@ fn completions_and_version_work_offline() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[cfg(unix)]
 #[test]
 fn bash_completion_script_supplies_candidates() -> Result<(), Box<dyn Error>> {
     let directory = tempfile::tempdir()?;

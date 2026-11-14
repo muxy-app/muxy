@@ -911,7 +911,10 @@ impl AppModel {
                         model.confirm_project_path(path, *create_if_missing, cx);
                     }
                     PickerEvent::ChooseFolder { directory } => {
-                        model.choose_project_folder(PathBuf::from(directory), cx);
+                        model.choose_project_folder(
+                            PathBuf::from(path_service::to_native(directory)),
+                            cx,
+                        );
                     }
                     PickerEvent::Dismiss => model.dismiss_overlay(cx),
                 }),

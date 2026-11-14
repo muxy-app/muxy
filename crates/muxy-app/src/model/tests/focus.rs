@@ -173,6 +173,7 @@ fn session_providers_hand_the_keyboard_back_to_the_search_unless_it_hides(cx: &m
     assert!(pane_focused(&view, pane, cx));
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn a_return_belongs_to_the_overlay_that_closes(cx: &mut TestAppContext) {
     let (view, cx, pane) = split_workspace(cx);

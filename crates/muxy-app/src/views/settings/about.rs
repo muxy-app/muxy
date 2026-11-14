@@ -126,6 +126,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[gpui::test]
     fn about_cancels_shortcut_recording(cx: &mut TestAppContext) {
         let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));

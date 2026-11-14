@@ -169,6 +169,7 @@ pub(crate) fn clone_name(name: &str) -> String {
 /// outside the quotes too, because fish reads one inside them as an escape.
 /// Control characters can't be quoted, since the line editor acts on them first:
 /// see [`typed_safely`].
+#[cfg(not(windows))]
 pub(crate) fn shell_quote(text: &str) -> String {
     let plain = !text.is_empty()
         && text
@@ -202,9 +203,35 @@ pub(crate) fn typed_safely(line: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A word the shell Windows sessions start reads literally: in its single
+/// quotes, which it also reads from the curly ones.
+#[cfg(windows)]
+pub(crate) fn shell_quote(text: &str) -> String {
+    let plain = text.starts_with(|character: char| character.is_ascii_alphanumeric())
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_./:\\".contains(&byte));
+    if plain {
+        return text.to_owned();
+    }
+    let mut quoted = String::from("'");
+    for character in text.chars() {
+        if matches!(
+            character,
+            '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}'
+        ) {
+            quoted.push(character);
+        }
+        quoted.push(character);
+    }
+    quoted.push('\'');
+    quoted
+}
+
 /// The line typed into a new terminal to start `provider`. `muxy_directory`
 /// comes first on its `PATH` when the shell would otherwise find no `muxy`, or
 /// the one of another Muxy build.
+#[cfg(not(windows))]
 pub(crate) fn launch_line(
     provider: Provider,
     executable: &Path,
@@ -238,6 +265,53 @@ pub(crate) fn launch_line(
     });
     let profile = profile.map_or_else(String::new, |profile| {
         format!("MUXY_DIR={} ", shell_quote(&profile.to_string_lossy()))
+    });
+    format!(
+        "{}{profile}{path}{}",
+        hint.unwrap_or_default(),
+        words.join(" ")
+    )
+}
+
+/// The line typed into a new Windows terminal to start `provider`. The
+/// variables it sets stay set in that terminal after the agent exits.
+#[cfg(windows)]
+pub(crate) fn launch_line(
+    provider: Provider,
+    executable: &Path,
+    prompt: &str,
+    muxy_directory: Option<&Path>,
+    profile: Option<&Path>,
+) -> String {
+    let (arguments, initial) = provider.interactive();
+    let mut words = vec!["&".to_owned(), shell_quote(&executable.to_string_lossy())];
+    words.extend(arguments.iter().map(|word| shell_quote(word)));
+    let hint = match initial {
+        InitialPrompt::Argument => {
+            words.push(shell_quote(prompt));
+            None
+        }
+        InitialPrompt::Flag(flag) => {
+            words.push(flag.to_owned());
+            words.push(shell_quote(prompt));
+            None
+        }
+        InitialPrompt::Typed => Some(format!(
+            "Write-Output {}; ",
+            shell_quote(&tr!("Paste this into the agent: %@", prompt))
+        )),
+    };
+    let path = muxy_directory.map_or_else(String::new, |directory| {
+        format!(
+            "$env:Path = {} + ';' + $env:Path; ",
+            shell_quote(&directory.to_string_lossy())
+        )
+    });
+    let profile = profile.map_or_else(String::new, |profile| {
+        format!(
+            "$env:MUXY_DIR = {}; ",
+            shell_quote(&profile.to_string_lossy())
+        )
     });
     format!(
         "{}{profile}{path}{}",
@@ -492,6 +566,7 @@ mod tests {
         crate::ai::provider(id).unwrap_or_else(|| panic!("no provider {id}"))
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn every_provider_starts_interactively_with_or_without_its_prompt() {
         let executable = Path::new("/bin/agent");
@@ -519,6 +594,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn a_needed_muxy_folder_goes_first_on_path() {
         assert_eq!(
@@ -533,6 +609,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn a_settings_agent_works_on_the_apps_own_profile() {
         assert_eq!(
@@ -547,6 +624,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn prompts_and_paths_stay_one_shell_word() {
         assert_eq!(shell_quote("it's $HOME; rm"), r"'it'\''s $HOME; rm'");
@@ -554,6 +632,7 @@ mod tests {
         assert_eq!(shell_quote("/usr/bin/gh"), "/usr/bin/gh");
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn a_backslash_stays_outside_the_quotes_and_they_reopen_after_it() {
         assert_eq!(shell_quote(r"a\b"), r"'a'\\'b'");
@@ -562,6 +641,7 @@ mod tests {
 
     /// A quoted word has to come back from a real shell as the same text, with
     /// nothing in it run.
+    #[cfg(not(windows))]
     #[test]
     fn quoted_text_reaches_real_shells_unchanged_and_runs_nothing() -> io::Result<()> {
         let folder = tempfile::tempdir()?;
@@ -591,6 +671,62 @@ mod tests {
                     "{shell} ran part of {text:?}"
                 );
             }
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn powershell_lines_start_the_agent_with_its_folder_and_profile() {
+        assert_eq!(
+            launch_line(
+                provider("codex"),
+                Path::new(r"C:\Program Files\nodejs\codex.cmd"),
+                "it's here",
+                Some(Path::new(r"C:\Program Files\Muxy")),
+                Some(Path::new(r"C:\Users\me\AppData\Roaming\Muxy 2")),
+            ),
+            r"$env:MUXY_DIR = 'C:\Users\me\AppData\Roaming\Muxy 2'; $env:Path = 'C:\Program Files\Muxy' + ';' + $env:Path; & 'C:\Program Files\nodejs\codex.cmd' 'it''s here'"
+        );
+        assert_eq!(
+            launch_line(
+                provider("kiro"),
+                Path::new(r"C:\bin\kiro.exe"),
+                "hi",
+                None,
+                None
+            ),
+            "Write-Output 'Paste this into the agent: hi'; & C:\\bin\\kiro.exe chat"
+        );
+    }
+
+    /// A quoted word has to come back from the shell Windows sessions start as
+    /// the same text, with nothing in it run.
+    #[cfg(windows)]
+    #[test]
+    fn quoted_text_reaches_powershell_unchanged_and_runs_nothing() -> io::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let marker = folder.path().join("ran");
+        let marker = marker.display();
+        let texts = [
+            format!("it's; New-Item '{marker}'; #"),
+            format!("$(New-Item '{marker}') `$x \u{2019}; New-Item '{marker}'"),
+            format!(r"C:\a\b; & New-Item {marker}"),
+            "@splat".to_owned(),
+            "-flag".to_owned(),
+            "plain".to_owned(),
+            String::new(),
+        ];
+        for text in &texts {
+            let output = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command"])
+                .arg(format!(
+                    "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); & {{ [Console]::Out.Write($args[0]) }} {}",
+                    shell_quote(text)
+                ))
+                .output()?;
+            assert_eq!(String::from_utf8_lossy(&output.stdout), *text);
+            assert!(!folder.path().join("ran").exists(), "ran part of {text:?}");
         }
         Ok(())
     }
@@ -652,6 +788,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn work_outside_the_workspace_stays_outside_it() {
         let root = Path::new("/config/muxy/extension-workspace");

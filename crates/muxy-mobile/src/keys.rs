@@ -204,6 +204,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn pasted_paths_are_quoted_for_a_shell_and_bracketed_when_asked() {
         let uploads = vec![

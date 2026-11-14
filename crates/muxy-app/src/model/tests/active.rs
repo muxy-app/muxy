@@ -279,12 +279,18 @@ fn terminal_and_browser_commands_need_their_pane(cx: &mut TestAppContext) {
     ];
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    // Windows has no browser panes, so their commands aren't listed at all.
+    let browser_disabled = if cfg!(windows) {
+        [None; 3]
+    } else {
+        [Some(true); 3]
+    };
     view.update(cx, |model, cx| {
         assert_eq!(disabled(model, &terminal, cx), [Some(true); 4]);
-        assert_eq!(disabled(model, &browser, cx), [Some(true); 3]);
+        assert_eq!(disabled(model, &browser, cx), browser_disabled);
         model.new_tab(cx);
         assert_eq!(disabled(model, &terminal, cx), [Some(false); 4]);
-        assert_eq!(disabled(model, &browser, cx), [Some(true); 3]);
+        assert_eq!(disabled(model, &browser, cx), browser_disabled);
     });
 }
 

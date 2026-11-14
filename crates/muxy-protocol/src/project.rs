@@ -118,12 +118,7 @@ impl ProjectDescriptor {
     /// A new project, named after its folder, in a random color that none of
     /// `taken` uses, while one is left.
     pub fn new<'a>(directory: ServerPath, taken: impl IntoIterator<Item = &'a str>) -> Self {
-        let name = directory
-            .0
-            .rsplit(|byte| matches!(byte, b'/' | b'\\'))
-            .find(|part| !part.is_empty())
-            .unwrap_or(&directory.0);
-        let name = String::from_utf8_lossy(name).into_owned();
+        let name = crate::title::folder_name(&directory);
         Self::create(false, name, directory, taken)
     }
 

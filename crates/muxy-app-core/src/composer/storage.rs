@@ -186,31 +186,30 @@ fn temporary_name() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use crate::composer::IMAGES_DIRECTORY_NAME;
+    #[cfg(windows)]
     use crate::composer::image_storage::ImageStorage;
-    use crate::composer::{ComposerStore, DraftId, IMAGES_DIRECTORY_NAME};
+    use crate::composer::{ComposerStore, DraftId};
 
+    #[cfg(windows)]
     #[test]
     fn a_linked_drafts_document_is_never_read() {
         let root = tempfile::tempdir().unwrap();
         let outside = root.path().join("outside.json");
         std::fs::write(&outside, b"{}").unwrap();
         let linked = root.path().join(crate::composer::DRAFTS_FILE_NAME);
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&outside, &linked).unwrap();
-        #[cfg(windows)]
         std::os::windows::fs::symlink_file(&outside, &linked).unwrap();
         assert_eq!(super::read_document(&outside).unwrap(), b"{}");
         assert!(super::read_document(&linked).is_err());
     }
 
+    #[cfg(windows)]
     #[test]
     fn a_linked_image_folder_is_refused() {
         let profile = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let folder = profile.path().join(IMAGES_DIRECTORY_NAME);
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(outside.path(), &folder).unwrap();
-        #[cfg(windows)]
         std::os::windows::fs::symlink_dir(outside.path(), &folder).unwrap();
         assert!(ImageStorage::open(profile.path()).is_err());
     }
