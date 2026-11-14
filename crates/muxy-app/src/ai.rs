@@ -345,13 +345,14 @@ impl Provider {
 
 /// Why Windows can't hand `prompt` to the provider at `executable` on its
 /// command line: a line break in an argument to a `.cmd` or `.bat` launcher,
-/// as npm installs, or a line longer than Windows takes.
+/// as npm installs, or a line longer than Windows takes: `cmd.exe` runs those
+/// launchers and takes 8191 characters, other programs 32767.
 #[cfg(windows)]
 fn command_line_problem(executable: &Path, prompt: &str, name: &str) -> Option<String> {
-    const LIMIT: usize = 32_000;
     let batch = executable.extension().is_some_and(|extension| {
         extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
     });
+    let limit = if batch { 7_500 } else { 32_000 };
     if batch && prompt.contains(['\r', '\n']) {
         return Some(
             tr!(
@@ -361,7 +362,7 @@ fn command_line_problem(executable: &Path, prompt: &str, name: &str) -> Option<S
             .to_string(),
         );
     }
-    (prompt.encode_utf16().count() > LIMIT)
+    (prompt.encode_utf16().count() > limit)
         .then(|| tr!("The prompt is too long for Windows to hand to %@.", name).to_string())
 }
 

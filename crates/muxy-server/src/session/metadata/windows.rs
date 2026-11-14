@@ -86,7 +86,13 @@ fn program_name(image: &Path) -> String {
         .map(|name| name.to_string_lossy().into_owned());
     let name = name.unwrap_or_default();
     match name.len().checked_sub(4) {
-        Some(stem) if name[stem..].eq_ignore_ascii_case(".exe") => name[..stem].to_owned(),
+        Some(stem)
+            if name
+                .get(stem..)
+                .is_some_and(|end| end.eq_ignore_ascii_case(".exe")) =>
+        {
+            name[..stem].to_owned()
+        }
         _ => name,
     }
 }
@@ -217,6 +223,8 @@ mod tests {
             program_name(Path::new(r"C:\Users\me\.local\bin\claude.EXE")),
             "claude"
         );
+        assert_eq!(program_name(Path::new(r"C:\bin\café")), "café");
+        assert_eq!(program_name(Path::new(r"C:\bin\éé")), "éé");
         assert_eq!(
             crate::detection::identify(&program_name(Path::new(r"C:\bin\claude.exe")), &[]),
             Some(AgentProvider::Claude)

@@ -947,7 +947,13 @@ fn same_root(requested: &Path, resolved: &Path) -> bool {
             _ => None,
         }
     }
-    match (prefix(requested), prefix(resolved)) {
+    // A request may name its root as `\\?\C:\`; a session can't start in one.
+    let requested = prefix(requested).map(|prefix| match prefix {
+        Prefix::VerbatimDisk(drive) => Prefix::Disk(drive),
+        Prefix::VerbatimUNC(server, share) => Prefix::UNC(server, share),
+        prefix => prefix,
+    });
+    match (requested, prefix(resolved)) {
         (Some(Prefix::Disk(requested)), Some(Prefix::Disk(resolved))) => {
             requested.eq_ignore_ascii_case(&resolved)
         }
@@ -973,6 +979,8 @@ mod directory_tests {
         assert!(same(r"c:/Users/me", r"C:\Users\me"));
         assert!(same(r"\\Server\Share\a", r"\\server\share\a"));
         assert!(!same(r"Z:\proj", r"\\server\share\proj"));
+        assert!(same(r"\\?\C:\Users\me", r"C:\Users\me"));
+        assert!(same(r"\\?\UNC\server\share\a", r"\\Server\Share\a"));
         assert!(!same(r"S:\proj", r"C:\Users\me\proj"));
         assert!(!same(r"C:\a", r"\\?\C:\a"));
         assert!(!same(r"\\server\share\a", r"\\server\other\a"));

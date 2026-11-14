@@ -215,7 +215,8 @@ fn program_in(folder: &Path, name: &str) -> Option<PathBuf> {
         .find(|file| crate::spawn::exists(file))
 }
 
-/// Whether Windows runs `path` by its extension, which `PATHEXT` lists.
+/// Whether `Command` can start `path` by its extension, which `PATHEXT`
+/// lists; `.js` and `.vbs` need another program.
 #[cfg(windows)]
 pub(crate) fn has_program_extension(path: &Path) -> bool {
     path.extension().is_some_and(|extension| {
@@ -234,7 +235,11 @@ fn program_extensions() -> Vec<String> {
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into())
         .split(';')
-        .filter(|extension| extension.starts_with('.') && extension.len() > 1)
+        .filter(|extension| {
+            [".com", ".exe", ".bat", ".cmd"]
+                .iter()
+                .any(|startable| extension.eq_ignore_ascii_case(startable))
+        })
         .map(str::to_owned)
         .collect()
 }

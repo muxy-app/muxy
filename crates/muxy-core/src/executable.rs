@@ -77,6 +77,11 @@ pub fn find_program(directories: &[PathBuf], name: &str) -> Option<PathBuf> {
     }
 }
 
+/// The `PATHEXT` extensions `Command` can start without another program,
+/// unlike `.js` or `.vbs`.
+#[cfg(windows)]
+const STARTABLE: [&str; 4] = [".com", ".exe", ".bat", ".cmd"];
+
 /// [`find_program`] with `extensions` as `PATHEXT` holds them. Without any,
 /// the ones every Windows has.
 #[cfg(windows)]
@@ -87,11 +92,11 @@ pub fn find_with_extensions(
 ) -> Option<PathBuf> {
     let mut extensions: Vec<String> = extensions
         .split(';')
-        .filter(|extension| extension.starts_with('.') && extension.len() > 1)
         .map(str::to_ascii_lowercase)
+        .filter(|extension| STARTABLE.contains(&extension.as_str()))
         .collect();
     if extensions.is_empty() {
-        extensions = [".com", ".exe", ".bat", ".cmd"].map(String::from).to_vec();
+        extensions = STARTABLE.map(String::from).to_vec();
     }
     directories.iter().find_map(|directory| {
         extensions
