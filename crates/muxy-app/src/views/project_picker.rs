@@ -301,9 +301,9 @@ impl ProjectPicker {
                                 SEARCH_RESULT_LIMIT,
                                 &cancelled,
                             );
-                            snapshot
-                                .results
-                                .retain(|result| Path::new(&result.path).is_dir());
+                            snapshot.results.retain(|result| {
+                                Path::new(&path_service::to_native(&result.path)).is_dir()
+                            });
                             snapshot
                         })
                         .await;
@@ -899,7 +899,7 @@ impl AppModel {
                     } => {
                         model.open_terminal_at(
                             ServerId::local(),
-                            Path::new(&path_service::standardize(path)),
+                            Path::new(&path_service::to_native(&path_service::standardize(path))),
                             cx,
                         );
                     }

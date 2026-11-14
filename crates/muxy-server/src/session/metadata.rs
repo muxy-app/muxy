@@ -143,9 +143,16 @@ impl Metadata {
         }
         for event in terminal {
             match event {
-                TerminalEvent::Title(title) if title != self.title => {
-                    self.title.clone_from(&title);
-                    events.push(MetadataEvent::Title(title));
+                TerminalEvent::Title(title) => {
+                    let title = if is_console_default_title(&title) {
+                        String::new()
+                    } else {
+                        title
+                    };
+                    if title != self.title {
+                        self.title.clone_from(&title);
+                        events.push(MetadataEvent::Title(title));
+                    }
                 }
                 TerminalEvent::Directory(directory) => {
                     if let Some(directory) = terminal_directory(&directory, cfg!(windows)) {
@@ -156,7 +163,7 @@ impl Metadata {
                     events.push(MetadataEvent::ClipboardWrite(text));
                 }
                 TerminalEvent::Bell => events.push(MetadataEvent::Bell),
-                TerminalEvent::Progress(_) | TerminalEvent::Title(_) => {}
+                TerminalEvent::Progress(_) => {}
             }
         }
         if self.directory != previous_directory {
@@ -164,6 +171,24 @@ impl Metadata {
         }
         events
     }
+}
+
+/// Windows' console names itself after the program it started, such as
+/// `C:\Program Files\PowerShell\7\pwsh.exe`, until a program sets a title.
+/// That isn't a title of the program's own, so the app names the tab as it
+/// does for a shell that sets none.
+fn is_console_default_title(title: &str) -> bool {
+    cfg!(windows) && is_executable_path(title)
+}
+
+fn is_executable_path(title: &str) -> bool {
+    let bytes = title.as_bytes();
+    let absolute = matches!(bytes, [drive, b':', b'\\', ..] if drive.is_ascii_alphabetic())
+        || title.starts_with(r"\\");
+    absolute
+        && title
+            .get(title.len().saturating_sub(4)..)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case(".exe"))
 }
 
 /// The folder an OSC 7 report names. Windows takes only drive paths, as
@@ -218,6 +243,19 @@ fn percent_decoded(text: &[u8]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_console_named_after_its_program_has_no_title_of_its_own() {
+        assert!(is_executable_path(
+            r"C:\Program Files\PowerShell\7\pwsh.exe"
+        ));
+        assert!(is_executable_path(r"C:\WINDOWS\system32\cmd.EXE"));
+        assert!(is_executable_path(r"\\server\tools\bin\agent.exe"));
+        assert!(!is_executable_path("pwsh.exe"));
+        assert!(!is_executable_path(r"C:\Users\me\src"));
+        assert!(!is_executable_path("vim notes.exe"));
+        assert!(!is_executable_path("/usr/bin/a.exe"));
+    }
 
     #[test]
     fn terminal_directories_keep_raw_and_percent_encoded_bytes() {

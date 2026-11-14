@@ -279,7 +279,14 @@ fn restored_bounds(boot: &boot::Boot, cx: &App) -> Bounds<gpui::Pixels> {
         );
     }
     let [width, height] = boot.settings.window.default_size;
-    Bounds::centered(None, size(px(width), px(height)), cx)
+    let mut default = size(px(width), px(height));
+    // Windows places a window taller than its screen partly above the top edge.
+    if let Some(display) = cx.primary_display() {
+        let room = display.bounds().size;
+        default.width = default.width.min(room.width * 0.9);
+        default.height = default.height.min(room.height * 0.9);
+    }
+    Bounds::centered(None, default, cx)
 }
 
 /// Windows draws a transparent window through composition, which the app has
