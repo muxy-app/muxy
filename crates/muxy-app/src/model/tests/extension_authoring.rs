@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{Focusable, Modifiers, VisualTestContext};
 use muxy_app_core::extensions::workspace;
@@ -59,7 +59,9 @@ fn call(
     })
     .detach();
     cx.executor().allow_parking();
-    for _ in 0..2_000 {
+    // Validation runs real file checks, which a busy CI runner can take a while over.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
         cx.run_until_parked();
         if let Ok(result) = replied.try_recv() {
             return result;
