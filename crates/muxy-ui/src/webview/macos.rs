@@ -9,7 +9,9 @@ use gpui::{Bounds, CursorStyle, Pixels, Rgba, Window};
 use muxy_core::worker::WorkerPool;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2::{
+    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel,
+};
 use objc2_app_kit::NSColor;
 use objc2_foundation::{
     NSData, NSDictionary, NSError, NSJSONReadingOptions, NSJSONSerialization, NSJSONWritingOptions,
@@ -305,6 +307,7 @@ impl NativeWebview {
             );
         }
         install_script(&controller, script, mtm);
+        disable_peer_connections(&configuration);
         let view = unsafe {
             WKWebView::initWithFrame_configuration(
                 WKWebView::alloc(mtm),
@@ -518,6 +521,23 @@ impl NativeWebview {
     }
     #[allow(clippy::unused_self)]
     pub(super) fn choose(&self, _option: Option<usize>) {}
+}
+
+/// Turns `WebRTC` off for extension pages. Their content security policy
+/// covers requests, not peer connections, which could reach any host
+/// through ICE without `http.fetch`'s per-host consent. The switch is
+/// private, so it is only used where `WebKit` has it.
+fn disable_peer_connections(configuration: &WKWebViewConfiguration) {
+    // SAFETY: `preferences` returns the configuration's live preferences,
+    // and the setter, called only when they respond to it, takes one BOOL.
+    unsafe {
+        let preferences: Retained<AnyObject> = msg_send![configuration, preferences];
+        let setter = sel!(_setPeerConnectionEnabled:);
+        let responds: bool = msg_send![&preferences, respondsToSelector: setter];
+        if responds {
+            let _: () = msg_send![&preferences, _setPeerConnectionEnabled: false];
+        }
+    }
 }
 
 fn install_script(controller: &WKUserContentController, source: &str, mtm: MainThreadMarker) {

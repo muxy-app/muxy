@@ -852,20 +852,24 @@ async fn send_remote(
 }
 
 impl AppModel {
+    /// Whether a target is still the terminal the message was prepared for.
+    /// Paths were quoted for its program then, so a different program in its
+    /// foreground, such as fish started from bash, stops the send too.
     fn composer_target_current(
         &self,
         key: &DraftId,
         pane: PaneId,
         attachment: (ServerId, ChannelId),
         generation: u64,
+        quoting: Option<PathQuoting>,
         cx: &gpui::App,
     ) -> bool {
         self.generation(attachment.0) == generation
             && &self.composer_key() == key
-            && self
-                .grids
-                .get(&pane)
-                .is_some_and(|pane| pane.view.read(cx).attachment() == Some(attachment))
+            && self.grids.get(&pane).is_some_and(|pane| {
+                let view = pane.view.read(cx);
+                view.attachment() == Some(attachment) && view.path_quoting() == quoting
+            })
     }
 
     /// The worker and connection generation of each server the targets use.
@@ -999,7 +1003,7 @@ impl AppModel {
                     let generation = *generation;
                     let mut payload = vec![0x15];
                     for step in &steps {
-                        let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, cx)).unwrap_or(false);
+                        let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, *quoting, cx)).unwrap_or(false);
                         if !current { return Err(tr!("Composer target changed; sending stopped.").to_string()); }
                         match step {
                             Step::Text(text) => payload.extend(muxy_client::input::paste(text, *modes)),
@@ -1023,7 +1027,7 @@ impl AppModel {
                             }
                         }
                     }
-                    let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, cx)).unwrap_or(false);
+                    let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, *quoting, cx)).unwrap_or(false);
                     if !current { return Err(tr!("Composer target changed; sending stopped.").to_string()); }
                     if enter { payload.push(b'\r'); }
                     if !payload.is_empty() { deliver(worker, generation, channel, payload).await?; }

@@ -56,8 +56,12 @@ impl PathQuoting {
             "pwsh" | "powershell" => Self::PowerShell,
             "cmd" => Self::Cmd,
             "" => Self::Unknown,
+            // Shells with another grammar, then programs that pass keys to a
+            // shell elsewhere, which could be any of them.
             "csh" | "tcsh" | "nu" | "xonsh" | "elvish" | "ion" | "rc" | "es" | "yash" | "osh"
-            | "ysh" | "oil" | "murex" | "nushell" => return None,
+            | "ysh" | "oil" | "murex" | "nushell" | "ssh" | "mosh" | "mosh-client" | "et"
+            | "telnet" | "tmux" | "screen" | "zellij" | "docker" | "podman" | "kubectl" | "wsl"
+            | "sudo" | "su" | "doas" => return None,
             _ if process.is_shell => return None,
             _ => Self::Program,
         })
@@ -106,12 +110,15 @@ fn quote_path(bytes: &[u8], quoting: PathQuoting) -> Option<Vec<u8>> {
             }
             powershell(text)
         }
+        // Only the plain single-quoted form reads the same in every shell:
+        // sh writes a quote as `'\''`, which ends the word in PowerShell, and
+        // fish reads a backslash before a quote as an escape.
         PathQuoting::Unknown => {
             let text = std::str::from_utf8(bytes).ok()?;
-            if text.contains(CURLY_SINGLE_QUOTES) {
+            if text.contains(CURLY_SINGLE_QUOTES) || text.contains(['\'', '\\']) {
                 return None;
             }
-            posix(bytes, true)
+            posix(bytes, false)
         }
     }
 }
@@ -275,6 +282,8 @@ mod tests {
         assert_eq!(of("nu", false), None, "even when another shell started it");
         assert_eq!(of("someshell", true), None);
         assert_eq!(of("claude", false), Some(PathQuoting::Program));
+        assert_eq!(of("ssh", false), None, "a shell elsewhere could be any");
+        assert_eq!(of("tmux", false), None);
         assert_eq!(of("claude.exe", false), Some(PathQuoting::Program));
     }
 
@@ -348,9 +357,13 @@ mod tests {
         assert_eq!(quoted("/tmp/it\u{2019}s", PathQuoting::Unknown), None);
         assert_eq!(quoted("/tmp/a\x1bb", PathQuoting::Unknown), None);
         assert_eq!(
-            paths(&[PathBuf::from("/tmp/it's here")], modes(false)).as_deref(),
-            Some(b"'/tmp/it'\\''s here'".as_slice())
+            paths(&[PathBuf::from("/tmp/a b")], modes(false)).as_deref(),
+            Some(b"'/tmp/a b'".as_slice())
         );
+        // sh's `'\''` ends the word in PowerShell, and fish reads `\'` as an
+        // escape, so before the shell is known these are refused.
+        assert_eq!(paths(&[PathBuf::from("/tmp/it's; x")], modes(false)), None);
+        assert_eq!(paths(&[PathBuf::from(r"/tmp/x\")], modes(false)), None);
         assert_eq!(paths(&[PathBuf::from("relative")], modes(false)), None);
     }
 

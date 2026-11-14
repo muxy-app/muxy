@@ -26,11 +26,12 @@ use windows_sys::Win32::Foundation::{
     OBJ_CASE_INSENSITIVE, UNICODE_STRING,
 };
 use windows_sys::Win32::Security::Authorization::{
-    GetSecurityInfo, SE_FILE_OBJECT, SetSecurityInfo,
+    ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1,
+    SE_FILE_OBJECT, SetSecurityInfo,
 };
 use windows_sys::Win32::Security::{
     DACL_SECURITY_INFORMATION, GetSecurityDescriptorControl, PROTECTED_DACL_SECURITY_INFORMATION,
-    SE_DACL_PROTECTED, UNPROTECTED_DACL_SECURITY_INFORMATION,
+    SE_DACL_PROTECTED, SECURITY_DESCRIPTOR, UNPROTECTED_DACL_SECURITY_INFORMATION,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, DELETE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
@@ -92,6 +93,7 @@ pub(in crate::files) fn pin_directory(directory: &File) -> io::Result<File> {
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         FILE_OPEN,
         FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT,
+        ptr::null(),
     )
 }
 
@@ -141,9 +143,11 @@ pub(in crate::files) fn open_file(parent: &File, name: &OsStr) -> io::Result<Fil
     Ok(content)
 }
 
-/// Creates a new file to write. One that will replace another is shared
-/// with nobody while this handle is open, so no other program can open it
-/// before [`copy_mode`] gives it the replaced file's DACL.
+/// Creates a new file to write. One that will replace another starts with a
+/// DACL that lets in only its owner and SYSTEM, and is shared with nobody
+/// while this handle is open, until [`copy_mode`] gives it the replaced
+/// file's DACL. So its content is never open to more accounts, even when
+/// saving stops partway and the file is left behind.
 pub(in crate::files) fn create_file(
     parent: &File,
     name: &OsStr,
@@ -154,6 +158,11 @@ pub(in crate::files) fn create_file(
     } else {
         (GENERIC_WRITE | DELETE | SYNCHRONIZE, SHARE_ALL)
     };
+    let private = if replacing {
+        Some(private_descriptor()?)
+    } else {
+        None
+    };
     open_shared(
         parent,
         name,
@@ -161,7 +170,31 @@ pub(in crate::files) fn create_file(
         share,
         FILE_CREATE,
         FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT,
+        private.as_ref().map_or(ptr::null(), |descriptor| {
+            descriptor.0.cast::<SECURITY_DESCRIPTOR>().cast_const()
+        }),
     )
+}
+
+/// A security descriptor whose protected DACL gives only the file's owner
+/// and SYSTEM access, inheriting nothing from the folder.
+fn private_descriptor() -> io::Result<LocalMemory> {
+    let sddl: Vec<u16> = "D:P(A;;FA;;;OW)(A;;FA;;;SY)"
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let mut descriptor = ptr::null_mut();
+    // SAFETY: `sddl` is NUL-terminated and outlives the call, and the
+    // descriptor it allocates is freed by `LocalMemory`.
+    check(unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &raw mut descriptor,
+            ptr::null_mut(),
+        )
+    })?;
+    Ok(LocalMemory(descriptor))
 }
 
 /// Gives `file` the DACL of `replaced`, the file named `name` in `parent`
@@ -510,11 +543,20 @@ fn open_relative(
     disposition: u32,
     options: u32,
 ) -> io::Result<File> {
-    open_shared(parent, name, access, SHARE_ALL, disposition, options)
+    open_shared(
+        parent,
+        name,
+        access,
+        SHARE_ALL,
+        disposition,
+        options,
+        ptr::null(),
+    )
 }
 
 /// As [`open_relative`], letting others open the file only as `share` says
-/// while the handle is open.
+/// while the handle is open. A file it creates gets `security`, or inherits
+/// from the folder when that is null.
 fn open_shared(
     parent: &File,
     name: &OsStr,
@@ -522,6 +564,7 @@ fn open_shared(
     share: u32,
     disposition: u32,
     options: u32,
+    security: *const SECURITY_DESCRIPTOR,
 ) -> io::Result<File> {
     // An empty name opens the root directory itself, as `.` does on Unix.
     let mut wide: Vec<u16> = if name == "." {
@@ -547,7 +590,7 @@ fn open_shared(
         RootDirectory: parent.as_raw_handle(),
         ObjectName: &raw const object_name,
         Attributes: OBJ_CASE_INSENSITIVE,
-        SecurityDescriptor: ptr::null(),
+        SecurityDescriptor: security,
         SecurityQualityOfService: ptr::null(),
     };
     let mut handle: HANDLE = ptr::null_mut();

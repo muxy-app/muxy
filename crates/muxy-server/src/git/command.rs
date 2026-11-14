@@ -124,8 +124,29 @@ pub(super) fn without_relative_path(command: &mut Command) {
     }
 }
 
+/// The absolute folders of `path`, or the system's own when none are left,
+/// since an empty `PATH` also means the current folder.
 fn absolute_folders(path: &OsStr) -> Option<OsString> {
-    std::env::join_paths(std::env::split_paths(path).filter(|folder| folder.is_absolute())).ok()
+    let kept: Vec<PathBuf> = std::env::split_paths(path)
+        .filter(|folder| folder.is_absolute())
+        .collect();
+    if kept.is_empty() {
+        return Some(system_path());
+    }
+    std::env::join_paths(kept).ok()
+}
+
+#[cfg(unix)]
+fn system_path() -> OsString {
+    "/usr/local/bin:/usr/bin:/bin".into()
+}
+
+#[cfg(windows)]
+fn system_path() -> OsString {
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    let root = PathBuf::from(root);
+    std::env::join_paths([root.join("System32"), root])
+        .unwrap_or_else(|_| r"C:\Windows\System32".into())
 }
 
 /// Drops the `GIT_*` variables the server inherited, which could point Git
@@ -230,5 +251,11 @@ mod tests {
             std::env::split_paths(&kept).collect::<Vec<_>>(),
             [folders[0].clone(), folders[4].clone()]
         );
+        // Nothing absolute left must not leave an empty PATH, which means the
+        // current folder: the repository's.
+        let relative = std::env::join_paths(&folders[1..4]).unwrap_or_default();
+        let kept = absolute_folders(&relative).unwrap_or_default();
+        assert!(!kept.is_empty());
+        assert!(std::env::split_paths(&kept).all(|folder| folder.is_absolute()));
     }
 }

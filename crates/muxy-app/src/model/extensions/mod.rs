@@ -557,16 +557,17 @@ impl AppModel {
     ) -> gpui::Task<Result<(), String>> {
         self.change_extensions(
             move |state| {
-                let loaded = state.registry.load_unpacked(&path)?;
-                if loaded.new_source {
-                    // Consent belongs to the folder that earned it, not the name.
+                // Consent belongs to the folder that earned it, not the name,
+                // so it is cleared before another folder can take the name.
+                let target = state.registry.unpacked_target(&path)?;
+                if target.new_source {
                     state
                         .grants
                         .as_mut()
                         .map_err(|error| error.clone())?
-                        .clear(&loaded.name)?;
+                        .clear(&target.name)?;
                 }
-                Ok(())
+                state.registry.load_unpacked(&path).map(|_| ())
             },
             cx,
         )

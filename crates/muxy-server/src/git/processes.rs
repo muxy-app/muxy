@@ -273,8 +273,10 @@ pub(super) fn delete_set_aside(aside: &Path, device: u64, index: u64) -> std::io
         remove_retrying(&git.path(), Entry::of(git.file_type()?))?;
     }
     drop(pinned);
-    // Removes only a link if one was swapped in after the contents were gone.
-    remove_retrying(aside, Entry::Folder)
+    // The contents are gone, so only an empty folder is left to remove. Not
+    // recursively: a folder or link swapped in once the pin is released is
+    // refused or removed alone, never emptied.
+    remove_retrying(aside, Entry::FolderLink)
 }
 
 /// Opens the folder at `path`, refusing anything but the folder with the

@@ -123,6 +123,16 @@ impl Titles {
         })
     }
 
+    /// The program in `session`'s foreground, as its metadata last said.
+    pub(crate) fn process(&self, session: SessionId) -> Option<ForegroundProcess> {
+        self.lock()
+            .get(&session)?
+            .metadata
+            .as_ref()?
+            .process
+            .clone()
+    }
+
     pub(crate) fn ended(&self, session: SessionId) {
         self.lock().remove(&session);
     }

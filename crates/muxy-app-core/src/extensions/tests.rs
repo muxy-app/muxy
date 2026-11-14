@@ -168,6 +168,11 @@ fn a_name_moved_to_another_folder_starts_disabled() {
 
     let mut registry = Registry::load(profile.path());
     assert!(registry.extensions.is_empty());
+    // Asked first, so consent can go before the name moves; asking changes
+    // nothing.
+    let target = registry.unpacked_target(replacement.path()).unwrap();
+    assert_eq!((target.name.as_str(), target.new_source), ("hello", true));
+    assert!(registry.extensions.is_empty());
     let loaded = registry.load_unpacked(replacement.path()).unwrap();
     assert!(loaded.new_source);
     assert!(registry.enabled("hello").is_none());

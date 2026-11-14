@@ -30,13 +30,38 @@ pub fn within_budget(bytes: &[u8]) -> bool {
     let Ok(document) = roxmltree::Document::parse_with_options(text, options) else {
         return false;
     };
-    let ids: HashMap<&str, roxmltree::NodeId> = document
-        .descendants()
-        .filter_map(|node| Some((node.attribute("id")?, node.id())))
-        .collect();
+    let mut ids: HashMap<&str, roxmltree::NodeId> = HashMap::new();
+    for node in document.descendants() {
+        if let Some(id) = node.attribute("id")
+            // Engines take the first element with an id, so a second one
+            // could hide what a reference really expands to.
+            && ids.insert(id, node.id()).is_some()
+        {
+            return false;
+        }
+        if !allowed(node) {
+            return false;
+        }
+    }
     let mut sizes = HashMap::new();
     expanded(document.root_element(), &document, &ids, &mut sizes)
         .is_some_and(|size| size <= MAX_EXPANDED_NODES)
+}
+
+/// Whether an icon may hold `node`. A pattern is drawn again, at its own
+/// size, for every shape that inherits it as a fill, and a filter can work on
+/// a region far larger than the icon, so neither has a cost the tree bounds;
+/// icons are drawn in one color and use neither. A stylesheet's references
+/// can't be told apart by element, so one with any is refused too.
+fn allowed(node: roxmltree::Node<'_, '_>) -> bool {
+    match node.tag_name().name() {
+        "pattern" | "filter" => false,
+        "style" => !node
+            .descendants()
+            .filter_map(|text| text.text())
+            .any(|text| text.contains("url(")),
+        _ => true,
+    }
 }
 
 /// How many elements `node` expands to, or `None` when it is over budget, is a
@@ -206,6 +231,23 @@ mod tests {
             <rect x="8" width="4" height="4" style="fill:url('#g')"/>
         </svg>"#;
         assert!(within_budget(shared.as_bytes()));
+    }
+
+    #[test]
+    fn duplicate_ids_patterns_filters_and_stylesheet_references_are_refused() {
+        // A second definition of an id must not hide the first, which engines use.
+        let duplicate = laughs().replace("</svg>", r#"<g id="l10"/><g id="l9"/></svg>"#);
+        assert!(!within_budget(duplicate.as_bytes()));
+        for refused in [
+            r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><pattern id="p" width="8192" height="8192" patternUnits="userSpaceOnUse"><rect width="1" height="1"/></pattern></defs><rect width="16" height="16" fill="url(#p)"/></svg>"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><filter id="f"><feGaussianBlur stdDeviation="9"/></filter></defs><rect width="16" height="16" filter="url(#f)"/></svg>"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg"><style>.a { mask: url(#m) }</style><mask id="m"><rect width="1" height="1"/></mask><rect class="a" width="16" height="16"/></svg>"#,
+        ] {
+            assert!(!within_budget(refused.as_bytes()), "{refused}");
+        }
+        // A stylesheet without references is an ordinary icon.
+        let styled = r#"<svg xmlns="http://www.w3.org/2000/svg"><style>.a { fill: currentColor }</style><rect class="a" width="16" height="16"/></svg>"#;
+        assert!(within_budget(styled.as_bytes()));
     }
 
     #[test]

@@ -162,6 +162,18 @@ impl Registry {
     /// folder before, such as one moved from a folder that no longer loads,
     /// starts disabled, and the caller must forget its remembered consent:
     /// the new folder's code never inherits the old one's authority.
+    /// What [`Self::load_unpacked`] would register for `path`, changing
+    /// nothing, so consent can be cleared before a folder takes a name over.
+    pub fn unpacked_target(&self, path: &Path) -> Result<Unpacked, String> {
+        let extension = Self::unpacked_extension(path)?;
+        let folder = path.canonicalize().map_err(|e| e.to_string())?;
+        let new_source = self.unpacked.get(&extension.name) != Some(&folder);
+        Ok(Unpacked {
+            name: extension.name,
+            new_source,
+        })
+    }
+
     pub fn load_unpacked(&mut self, path: &Path) -> Result<Unpacked, String> {
         let extension = Self::unpacked_extension(path)?;
         if self.extensions.contains_key(&extension.name) {

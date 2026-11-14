@@ -135,20 +135,25 @@ pub(crate) fn paste(text: &str, bracketed: bool) -> Vec<u8> {
     }
 }
 
-/// Absolute paths quoted for a shell and separated by spaces, as one paste.
-/// `None` when there are none, or one isn't absolute, holds a NUL byte, or is
-/// too long.
-pub(crate) fn paths(paths: &[String], modes: Modes) -> Option<Vec<u8>> {
+/// Absolute paths quoted as `quoting` says and separated by spaces, as one
+/// paste. `None` when there are none, or one isn't absolute, holds a NUL
+/// byte, is too long, or can't be quoted safely that way.
+pub(crate) fn paths(
+    paths: &[String],
+    quoting: muxy_client::input::PathQuoting,
+    modes: Modes,
+) -> Option<Vec<u8>> {
     if paths.is_empty() {
         return None;
     }
     let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
-    muxy_client::input::paths(&paths, modes)
+    muxy_client::input::quoted_paths(&paths, quoting, modes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use muxy_client::input::PathQuoting;
 
     fn modes(application_cursor_keys: bool) -> Modes {
         Modes {
@@ -212,26 +217,40 @@ mod tests {
             "/tmp/muxy-uploads-501/7/it's here.jpg".to_owned(),
         ];
         assert_eq!(
-            paths(&uploads, modes(false)),
+            paths(&uploads, PathQuoting::Bash, modes(false)),
             Some(
                 b"'/tmp/muxy-uploads-501/7/pasted-image.png' '/tmp/muxy-uploads-501/7/it'\\''s here.jpg'"
                     .to_vec()
             )
+        );
+        // Before the shell is known, only names every shell reads the same
+        // way are pasted.
+        assert_eq!(
+            paths(&uploads[1..], PathQuoting::Unknown, modes(false)),
+            None
         );
         let bracketed = Modes {
             bracketed_paste: true,
             ..modes(false)
         };
         assert_eq!(
-            paths(&uploads[..1], bracketed),
+            paths(&uploads[..1], PathQuoting::Unknown, bracketed),
             Some(b"\x1b[200~'/tmp/muxy-uploads-501/7/pasted-image.png'\x1b[201~".to_vec())
         );
     }
 
     #[test]
     fn pasted_paths_must_be_absolute() {
-        assert_eq!(paths(&[], modes(false)), None);
-        assert_eq!(paths(&["relative.png".to_owned()], modes(false)), None);
-        assert_eq!(paths(&["/tmp/a\0b.png".to_owned()], modes(false)), None);
+        for quoting in [PathQuoting::Bash, PathQuoting::Unknown] {
+            assert_eq!(paths(&[], quoting, modes(false)), None);
+            assert_eq!(
+                paths(&["relative.png".to_owned()], quoting, modes(false)),
+                None
+            );
+            assert_eq!(
+                paths(&["/tmp/a\0b.png".to_owned()], quoting, modes(false)),
+                None
+            );
+        }
     }
 }

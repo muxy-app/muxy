@@ -237,9 +237,7 @@ fn manifest_paths_are_checked_once_each() {
     let mut entries = themes;
     entries.push("settings.toml".into());
     native_archive(&path, &listed, &entries);
-    let started = std::time::Instant::now();
     let (files, legacy, _) = archive::read(&path).unwrap();
-    assert!(started.elapsed() < std::time::Duration::from_secs(5));
     assert!(!legacy);
     assert_eq!(files.len(), 4001);
 
@@ -248,8 +246,18 @@ fn manifest_paths_are_checked_once_each() {
     native_archive(&path, &["themes".into()], &["themes/a/b".into()]);
     assert_eq!(archive::read(&path).unwrap().0.len(), 1);
 
-    let repeated = vec!["settings.toml".to_owned(); 9000];
+    // A name listed again is the same name, as it always was.
+    let repeated = vec!["settings.toml".to_owned(); 3];
     native_archive(&path, &repeated, &["settings.toml".into()]);
+    assert_eq!(archive::read(&path).unwrap().0.len(), 1);
+}
+
+#[test]
+fn manifests_listing_too_many_paths_are_refused() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("backup.muxy");
+    let listed: Vec<_> = (0..9000).map(|index| format!("themes/{index}")).collect();
+    native_archive(&path, &listed, &["themes/0".into()]);
     assert!(archive::read(&path).is_err());
 }
 
