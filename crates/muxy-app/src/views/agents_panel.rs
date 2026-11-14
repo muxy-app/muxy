@@ -717,7 +717,10 @@ pub(crate) fn right_panel_content(
     }
     let m = model.metrics;
     let scale = m.multiplier();
-    let maximum = f32::from(window.viewport_size().width) - model.sidebar_width() - 100.0;
+    let maximum = f32::from(window.viewport_size().width)
+        - model.sidebar_width()
+        - super::rail::width(model)
+        - 100.0;
     let placement = AppModel::agents_right_placement();
     let sizing = PanelSizing::new(
         &placement,

@@ -1,13 +1,13 @@
-//! Extension popovers: one open at a time app-wide, anchored to the topbar or
-//! status-bar item that opened it.
+//! Extension popovers: one open at a time app-wide, anchored to the topbar,
+//! rail, or status-bar item that opened it.
 
 use gpui::{Context, Window};
-use muxy_app_core::extensions::Side;
 use muxy_ui::popover::PopoverAnchor;
 use muxy_ui::webview::assets::Source;
 use serde_json::{Value, json};
 
 use super::{AppModel, Surface, SurfaceKind, Webview};
+use crate::model::extensions::Placement;
 use crate::views::overlays::Overlay;
 
 const MIN_SIZE: f64 = 80.0;
@@ -19,7 +19,7 @@ pub(crate) struct Popover {
     pub id: String,
     pub anchor_key: String,
     pub anchor: PopoverAnchor,
-    pub above: bool,
+    pub placement: Placement,
     pub width: f64,
     pub height: f64,
     pub surface: Surface,
@@ -42,7 +42,7 @@ impl AppModel {
         owner: &str,
         popover: &str,
         anchor_key: &str,
-        above: bool,
+        placement: Placement,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -95,7 +95,7 @@ impl AppModel {
             id: popover.into(),
             anchor_key: anchor_key.into(),
             anchor: self.extensions.items.anchor(anchor_key),
-            above,
+            placement,
             width: declared.width,
             height: declared.height,
             surface,
@@ -182,26 +182,11 @@ impl AppModel {
         Ok(Value::Null)
     }
 
-    /// A popover closes when the item it is anchored to is hidden.
+    /// A popover closes when the item it is anchored to is hidden or moves.
     pub(crate) fn close_hidden_popover(&mut self, cx: &mut Context<Self>) {
-        let Some(anchor) = self
-            .webviews
-            .popover
-            .as_ref()
-            .map(|popover| popover.anchor_key.clone())
-        else {
-            return;
-        };
-        let shown = self
-            .topbar_items()
-            .iter()
-            .any(|item| format!("top:{}:{}", item.owner, item.id) == anchor)
-            || [Side::Left, Side::Right].into_iter().any(|side| {
-                self.status_items(side)
-                    .iter()
-                    .any(|item| format!("status:{}:{}", item.owner, item.id) == anchor)
-            });
-        if !shown {
+        if self.webviews.popover.as_ref().is_some_and(|popover| {
+            !self.extension_item_shown(&popover.anchor_key, popover.placement)
+        }) {
             self.close_extension_popover(cx);
         }
     }

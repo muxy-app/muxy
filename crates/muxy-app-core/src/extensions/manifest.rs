@@ -57,7 +57,7 @@ pub enum Icon {
 }
 
 impl Icon {
-    /// The lenient runtime form accepted by `topbar.set`, `statusbar.set`, and `tabs.setIcon`.
+    /// The lenient runtime form accepted by `topbar.set`, `rail.set`, `statusbar.set`, and `tabs.setIcon`.
     pub fn parse(value: &Value) -> Option<Self> {
         match value {
             Value::String(symbol) if !symbol.is_empty() => Some(Self::Symbol(symbol.clone())),
@@ -387,7 +387,8 @@ fn visible() -> bool {
     true
 }
 
-/// A topbar item or panel header button that runs one of the extension's commands.
+/// A topbar item, rail item, or panel header button that runs one of the
+/// extension's commands.
 #[derive(Clone, Debug, Deserialize)]
 pub struct BarItem {
     pub id: String,
@@ -516,6 +517,7 @@ pub struct Manifest {
     pub file_openers: Vec<FileOpener>,
     pub localizations: Vec<Localization>,
     pub topbar_items: Vec<BarItem>,
+    pub rail_items: Vec<BarItem>,
     pub status_bar_items: Vec<StatusBarItem>,
     pub settings: Vec<Setting>,
     pub remote_methods: Vec<RemoteMethod>,
@@ -919,6 +921,13 @@ impl Extension {
         )?;
         for item in &manifest.topbar_items {
             check("topbar item", &item.id, &item.command, &item.icon)?;
+        }
+        unique(
+            "rail item",
+            manifest.rail_items.iter().map(|i| i.id.as_str()),
+        )?;
+        for item in &manifest.rail_items {
+            check("rail item", &item.id, &item.command, &item.icon)?;
         }
         unique(
             "status bar item",

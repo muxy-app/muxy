@@ -115,7 +115,11 @@ Most 1.x extensions work unchanged. The differences:
 - **Background scripts run in-process,** in JavaScriptCore on their own thread.
 - **Not supported yet:** remote methods for the phone app, home views, and the
   `worktree.offline` event.
-- **Bar items** always sit in the top bar. There is no icon rail.
+- **Bar items** go where the extension declares them: `topbarItems`,
+  `railItems`, or `statusBarItems`. 1.x's **Show Extension Icon Rail** let users
+  move panel toggles to the rail; in 2.x the extension chooses with
+  `railItems`, and the 1.x preference imports as the rail's open state. See
+  [The rail](bar-items.md#the-rail).
 - **New:** the `openPanel` command action, `visible` on panel header buttons,
   `execAsync` on pages and scripts, the `modal.opened` and `modal.closed`
   events, reading settings with `muxy.settings`, and app controls: `ui`,

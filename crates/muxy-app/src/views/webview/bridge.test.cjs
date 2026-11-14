@@ -270,7 +270,7 @@ test('pages expose main\'s API surface', () => {
     'popover.close', 'popover.resize', 'http.fetch', 'events.emit', 'events.subscribe',
     'tabs.new', 'tabs.next', 'tabs.previous', 'tabs.open', 'tabs.split', 'tabs.setTitle', 'panes.list',
     'panes.readScreen', 'projects.list', 'projects.reorder', 'worktrees.list', 'agents.list',
-    'gh.user', 'shortcuts.register', 'shortcuts.list', 'statusbar.set', 'topbar.hide',
+    'gh.user', 'shortcuts.register', 'shortcuts.list', 'statusbar.set', 'topbar.hide', 'rail.set', 'rail.hide',
     'browser.list', 'workspaces.list', 'dialog.pickFolder', 'modal.open', 'storage.keys',
     'tabs.close', 'tabs.pin', 'panes.split', 'panes.focus', 'projects.next', 'agents.focus',
     'ui.state', 'ui.quickTerminal.toggle', 'commands.list', 'composer.submit', 'layouts.list',
@@ -345,11 +345,15 @@ test('http, popover, and item calls forward main\'s payloads', async () => {
   await muxy.popover.resize('100', 50);
   await muxy.statusbar.set({ id: 3, text: null, visible: 0 });
   await muxy.topbar.show('star');
+  await muxy.rail.set({ id: 'notes', icon: 'note.text', text: 'x', visible: 1 });
+  await muxy.rail.hide('notes');
   assert.deepEqual(messages.map(message => [message.verb, message.args]), [
     ['http.fetch', { url: 'https://example.com', method: 'post', headers: { a: 'b' }, body: '1', timeoutMs: 5 }],
     ['popover.resize', { width: 100, height: 50 }],
     ['statusbar.set', { id: '3', text: null, visible: false }],
     ['topbar.set', { id: 'star', visible: true }],
+    ['rail.set', { id: 'notes', icon: 'note.text', visible: true }],
+    ['rail.set', { id: 'notes', visible: false }],
   ]);
 });
 

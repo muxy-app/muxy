@@ -94,8 +94,9 @@ pub(crate) fn render(
     let project = model.state.current_project();
     let content = match project.groups() {
         Some(groups) => {
-            let width =
-                f32::from(super::titlebar::content_size(window).width) - model.sidebar_width();
+            let width = f32::from(super::titlebar::content_size(window).width)
+                - model.sidebar_width()
+                - super::rail::width(model);
             let widths: HashMap<_, _> = groups
                 .layout()
                 .rects()

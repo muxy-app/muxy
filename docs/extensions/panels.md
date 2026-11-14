@@ -186,8 +186,8 @@ pet.addEventListener("click", async () => {
 
 ## Popovers
 
-A popover opens under a top bar or status bar item, and closes when you click
-outside it.
+A popover opens under a top bar item, left of a rail item, or above a status
+bar item, and closes when you click outside it.
 
 ```json
 "popovers": [{ "id": "status", "entry": "status/index.html", "width": 320, "height": 360 }],

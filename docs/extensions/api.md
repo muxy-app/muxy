@@ -17,7 +17,7 @@ a message.
 
 | Namespace | Pages | Scripts | Background |
 | --- | :-: | :-: | :-: |
-| `notifications`, `dialog`, `storage`, `shortcuts`, `topbar`, `statusbar`, `agents`, `gh`, `git`, `exec`, `modal`, `panels` | ✓ | ✓ | ✓ |
+| `notifications`, `dialog`, `storage`, `shortcuts`, `topbar`, `rail`, `statusbar`, `agents`, `gh`, `git`, `exec`, `modal`, `panels` | ✓ | ✓ | ✓ |
 | `app`, `ui`, `commands`, `composer`, `layouts`, `preferences`, `settings`, `clipboard` | ✓ | ✓ | ✓ |
 | `tabs.open` | ✓ | ✓ | ✓ |
 | other `tabs`, `panes`, `projects`, `workspaces`, `worktrees`, `files`, `toast`, `execAsync` | ✓ | ✓ | |

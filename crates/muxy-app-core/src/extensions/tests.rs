@@ -728,3 +728,44 @@ fn manifests_accept_the_app_control_permissions() {
     assert!(extension.allows_event("preferences.changed"));
     assert!(extension.allows_event("ui.changed"));
 }
+
+#[test]
+fn rail_items_are_checked_like_topbar_items() {
+    let root = tempfile::tempdir().unwrap();
+    let manifest = |rail: serde_json::Value| {
+        json!({
+            "commands": [{"id": "toggle", "title": "Toggle"}],
+            "topbarItems": [{"id": "same", "icon": "star", "command": "toggle"}],
+            "railItems": rail,
+        })
+    };
+    write_package(
+        root.path(),
+        &manifest(json!([
+            {"id": "same", "icon": "star", "command": "toggle", "tooltip": "Star"},
+            {"id": "hidden", "icon": "bolt", "command": "toggle", "visible": false},
+        ])),
+        &[],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    let rail = &extension.manifest.rail_items;
+    assert_eq!(rail.len(), 2);
+    assert_eq!(rail[0].tooltip.as_deref(), Some("Star"));
+    assert!(rail[0].visible);
+    assert!(!rail[1].visible);
+    for invalid in [
+        json!([{"id": "a", "icon": "star", "command": "absent"}]),
+        json!([
+            {"id": "a", "icon": "star", "command": "toggle"},
+            {"id": "a", "icon": "bolt", "command": "toggle"},
+        ]),
+        json!([{"id": "", "icon": "star", "command": "toggle"}]),
+    ] {
+        write_package(root.path(), &manifest(invalid.clone()), &[]);
+        assert!(Extension::load(root.path()).is_err(), "{invalid}");
+    }
+    assert_eq!(
+        required_permission("rail.set", &json!({})),
+        Some("panels:write")
+    );
+}

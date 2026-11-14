@@ -1,6 +1,7 @@
 mod api;
 mod pages;
 mod project_icons;
+mod rail;
 
 use super::*;
 use crate::model::tests::stub_boot;

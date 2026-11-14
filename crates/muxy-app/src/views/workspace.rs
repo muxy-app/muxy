@@ -473,6 +473,7 @@ impl AppModel {
         let content = super::agents_panel::right_panel_content(content, self, window, cx);
         let content = super::agent_sessions::panel_content(content, self, window, cx);
         let content = self.composer_content(content, window, cx);
+        let content = super::rail::content(content, self, cx);
         let workspace = action_handlers(cx)
             .capture_any_mouse_down(cx.listener(|model, _, _, cx| {
                 model.enter_main_unless_overlay(cx);

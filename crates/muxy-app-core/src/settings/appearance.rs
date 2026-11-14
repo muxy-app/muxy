@@ -127,6 +127,9 @@ pub struct Appearance {
     pub sidebar_expanded_width: Option<f32>,
     pub sidebar_collapsed_style: SidebarCollapsedStyle,
     pub status_bar_visible: bool,
+    /// Extensions' rail items sit on the rail; off puts them in the top bar.
+    pub rail_enabled: bool,
+    pub rail_expanded: bool,
     /// Each pane shows a header with its icon, title and actions.
     pub pane_headers: bool,
     pub tips_visible: bool,
@@ -194,6 +197,8 @@ impl Default for Appearance {
             sidebar_expanded_width: None,
             sidebar_collapsed_style: SidebarCollapsedStyle::default(),
             status_bar_visible: true,
+            rail_enabled: true,
+            rail_expanded: false,
             pane_headers: true,
             tips_visible: true,
             onboarding_completed: false,
