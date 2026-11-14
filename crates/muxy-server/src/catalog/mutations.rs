@@ -27,7 +27,7 @@ impl Catalog {
                         || state.projects.len() == MAX_PROJECTS
                     {
                         Err(bad("project identity already exists or catalog is full"))
-                    } else if !project.directory.as_path().is_dir() {
+                    } else if !is_folder(&project.directory) {
                         Err(ServerError::new(
                             muxy_protocol::ErrorCode::BadPath,
                             "project folder does not exist",
@@ -142,7 +142,7 @@ impl State {
             && project
                 .parent_id
                 .and_then(|id| self.projects.get(&id))
-                .is_some_and(|parent| parent.directory.as_path().is_dir())
+                .is_some_and(|parent| is_folder(&parent.directory))
             && project
                 .directory
                 .as_path()
@@ -153,4 +153,10 @@ impl State {
                 .values()
                 .any(|session| session.info.project == id)
     }
+}
+
+/// Whether `directory` is an absolute path to a folder on this computer.
+fn is_folder(directory: &muxy_protocol::ServerPath) -> bool {
+    let directory = directory.as_path();
+    directory.is_absolute() && directory.is_dir()
 }

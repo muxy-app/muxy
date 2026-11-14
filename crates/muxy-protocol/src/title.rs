@@ -69,7 +69,13 @@ pub fn directory_for_header(directory: &ServerPath, home: Option<&Path>) -> Opti
         .and_then(|home| directory.strip_prefix(home).ok());
     Some(match relative {
         Some(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
-        Some(rest) => format!("~/{}", rest.to_string_lossy()),
+        Some(rest) => rest
+            .components()
+            .fold(String::from("~"), |mut shown, part| {
+                shown.push(std::path::MAIN_SEPARATOR);
+                shown.push_str(&part.as_os_str().to_string_lossy());
+                shown
+            }),
         None => directory.to_string_lossy().into_owned(),
     })
 }
@@ -102,7 +108,17 @@ fn derive_with(
             return title;
         }
     }
-    let directory = directory.as_path();
-    let basename = directory.file_name().unwrap_or(directory.as_os_str());
-    sanitize_or_default(&basename.to_string_lossy())
+    sanitize_or_default(&folder_name(directory))
+}
+
+/// The last component of a Unix or a Windows server's path, or the whole
+/// path for a root such as `/`.
+pub(crate) fn folder_name(directory: &ServerPath) -> String {
+    let path = String::from_utf8_lossy(&directory.0);
+    let windows = matches!(directory.0.as_slice(), [_, b':', ..] | [b'\\', b'\\', ..]);
+    let separator = |c: char| c == '/' || (windows && c == '\\');
+    match path.trim_end_matches(separator).rsplit(separator).next() {
+        Some(name) if !name.is_empty() => name.to_owned(),
+        _ => path.into_owned(),
+    }
 }

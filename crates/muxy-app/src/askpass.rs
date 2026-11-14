@@ -4,13 +4,14 @@
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use muxy_app_core::ServerId;
+use muxy_protocol::transport::{LocalListener, LocalStream};
 
 /// Where the app answers. The app runs as askpass when it is set.
 pub(crate) const SOCKET: &str = "MUXY_ASKPASS_SOCKET";
@@ -57,7 +58,7 @@ impl Passwords {
 
     /// Moves the socket before anything listens, for paths short enough
     /// for a socket in tests.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn set_socket(&mut self, socket: PathBuf) {
         assert!(!self.listening, "the socket already listens");
         self.socket = socket;
@@ -167,7 +168,8 @@ impl Passwords {
             return Ok(());
         }
         let _ = std::fs::remove_file(&self.socket);
-        let listener = UnixListener::bind(&self.socket)?;
+        let listener = LocalListener::bind(&self.socket)?;
+        #[cfg(unix)]
         std::fs::set_permissions(&self.socket, std::fs::Permissions::from_mode(0o600))?;
         let answers = Arc::clone(&self.answers);
         std::thread::Builder::new()
@@ -192,7 +194,7 @@ impl Drop for Passwords {
 
 /// Reads `token`, a newline, and ssh's prompt, then writes the password, or
 /// nothing to refuse.
-fn respond(mut stream: UnixStream, answers: &Mutex<HashMap<String, Answer>>) -> io::Result<()> {
+fn respond(mut stream: LocalStream, answers: &Mutex<HashMap<String, Answer>>) -> io::Result<()> {
     let mut request = Vec::new();
     Read::by_ref(&mut stream)
         .take(16 * 1024)
@@ -264,7 +266,7 @@ fn asks_password_of(prompt: &str, login: &str) -> bool {
 /// Answers one ssh prompt by asking the app, then exits.
 pub(crate) fn run(socket: &std::ffi::OsStr, prompt: &str) -> ExitCode {
     let token = std::env::var(TOKEN).unwrap_or_default();
-    let answer = UnixStream::connect(socket).and_then(|mut stream| {
+    let answer = LocalStream::connect(socket).and_then(|mut stream| {
         stream.write_all(format!("{token}\n{prompt}").as_bytes())?;
         stream.shutdown(std::net::Shutdown::Write)?;
         let mut answer = String::new();

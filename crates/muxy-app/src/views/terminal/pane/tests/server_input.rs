@@ -305,6 +305,13 @@ fn large_server_pastes_are_bounded_complete_and_preserve_text(cx: &mut TestAppCo
     assert_eq!(contents, text.replace("\r\n", "\n").as_bytes());
 }
 
+/// A dropped path that needs quoting, absolute on this computer.
+const DROPPED: &str = if cfg!(windows) {
+    r"C:\Temp\a b"
+} else {
+    "/tmp/a b"
+};
+
 #[gpui::test]
 fn clipboard_paths_and_focus_do_not_use_stale_client_modes(cx: &mut TestAppContext) {
     let (pane, cx) = cx.add_window_view(pane);
@@ -320,14 +327,14 @@ fn clipboard_paths_and_focus_do_not_use_stale_client_modes(cx: &mut TestAppConte
         });
         pane.update(cx, TerminalPane::paste_clipboard);
         pane.update(cx, |pane, cx| {
-            pane.drop_paths(&[PathBuf::from("/tmp/a b")], cx);
+            pane.drop_paths(&[PathBuf::from(DROPPED)], cx);
         });
         pane.update(cx, |pane, cx| pane.focus_changed(true, cx));
         assert_eq!(
             sent.borrow().as_slice(),
             [
                 Sent::Terminal(TerminalInput::Paste(b"one\r\ntwo\x1b[201~".to_vec())),
-                Sent::Terminal(TerminalInput::Paste(b"'/tmp/a b'".to_vec())),
+                Sent::Terminal(TerminalInput::Paste(format!("'{DROPPED}'").into_bytes())),
                 Sent::Terminal(TerminalInput::Focus(true)),
             ]
         );

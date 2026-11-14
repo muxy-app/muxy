@@ -194,6 +194,17 @@ fn remove_others(root: &Path, folder: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
 
+    fn link_folder(target: &Path, link: &Path) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link)
+        }
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_dir(target, link)
+        }
+    }
+
     #[test]
     fn prepares_the_skill_for_each_agent_and_a_pointer_for_the_others() -> io::Result<()> {
         let folder = tempfile::tempdir()?;
@@ -257,7 +268,7 @@ mod tests {
         let root = folder.path().join("workspace");
         let skills = root.join(AGENT_SKILLS[0]);
         fs::create_dir_all(&skills)?;
-        std::os::unix::fs::symlink(&elsewhere, skills.join(SKILL_NAME))?;
+        link_folder(&elsewhere, &skills.join(SKILL_NAME))?;
         assert!(prepare(&root).is_err());
         assert_eq!(fs::read_to_string(elsewhere.join("mine.txt"))?, "kept");
         assert!(!elsewhere.join("SKILL.md").exists());
@@ -275,7 +286,7 @@ mod tests {
             let root = folder.path().join("workspace");
             let link = root.join(link);
             fs::create_dir_all(link.parent().unwrap_or(&root))?;
-            std::os::unix::fs::symlink(&elsewhere, &link)?;
+            link_folder(&elsewhere, &link)?;
             assert!(prepare(&root).is_err(), "{}", link.display());
             assert_eq!(fs::read_to_string(theirs.join("mine.txt"))?, "kept");
         }
@@ -288,7 +299,7 @@ mod tests {
         let real = folder.path().join("dotfiles");
         fs::create_dir_all(&real)?;
         let config = folder.path().join("config");
-        std::os::unix::fs::symlink(&real, &config)?;
+        link_folder(&real, &config)?;
         let root = config.join("workspace");
         prepare(&root)?;
         assert!(
@@ -308,7 +319,7 @@ mod tests {
         let root = folder.path().join("workspace");
         let skill = root.join(AGENT_SKILLS[0]).join(SKILL_NAME);
         fs::create_dir_all(&skill)?;
-        std::os::unix::fs::symlink(&elsewhere, skill.join("references"))?;
+        link_folder(&elsewhere, &skill.join("references"))?;
         assert!(prepare(&root).is_err());
         assert!(
             fs::read_dir(&elsewhere)?.next().is_none(),

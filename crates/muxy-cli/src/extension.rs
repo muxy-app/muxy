@@ -650,7 +650,10 @@ mod tests {
         let load = invocation(&["load", "extensions/hello"])?;
         let path = load.args["path"].as_str().unwrap_or_default();
         assert!(Path::new(path).is_absolute(), "{path}");
-        assert!(path.ends_with("extensions/hello"), "{path}");
+        assert!(
+            Path::new(path).ends_with(Path::new("extensions").join("hello")),
+            "{path}"
+        );
         Ok(())
     }
 

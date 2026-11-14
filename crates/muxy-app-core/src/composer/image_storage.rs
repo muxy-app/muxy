@@ -223,23 +223,44 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
-    fn composer_image_sweep_ignores_symlinks_and_removes_only_regular_orphans() {
-        use std::os::unix::fs::symlink;
-
+    fn composer_images_never_follow_symlinks_and_sweep_only_regular_orphans() {
         let profile = tempfile::tempdir().unwrap();
         let storage = ImageStorage::open(profile.path()).unwrap();
         let retained = storage.write_source(&png()).unwrap();
         let orphan = storage.write_source(&png()).unwrap();
         let outside = profile.path().join("outside.png");
         std::fs::write(&outside, b"outside").unwrap();
-        let linked = storage.directory_path().join("linked.png");
-        symlink(&outside, &linked).unwrap();
+        let linked_name = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE.png";
+        let linked = storage.directory_path().join(linked_name);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &linked).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&outside, &linked).unwrap();
+        assert!(storage.read(linked_name).is_err());
+        assert!(!storage.remove(linked_name).unwrap());
         let removed = storage.sweep(&HashSet::from([retained.clone()])).unwrap();
         assert_eq!(removed, vec![orphan]);
         assert!(storage.read(&retained).is_ok());
         assert_eq!(std::fs::read(outside).unwrap(), b"outside");
         assert!(linked.symlink_metadata().unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn a_published_image_name_is_never_replaced() {
+        let profile = tempfile::tempdir().unwrap();
+        let storage = ImageStorage::open(profile.path()).unwrap();
+        let name = storage.write_source(&png()).unwrap();
+        let error = storage
+            .directory
+            .write_new_atomic(&name, b"other")
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(storage.read(&name).unwrap(), png());
+        let leftovers = std::fs::read_dir(storage.directory_path())
+            .unwrap()
+            .filter(|entry| entry.as_ref().unwrap().file_name() != name.as_str())
+            .count();
+        assert_eq!(leftovers, 0);
     }
 }

@@ -1133,3 +1133,12 @@ fn a_key_bound_before_floating_terminals_existed_keeps_its_command() -> Result {
     assert_eq!(keymap.chord(ShortcutId::ToggleFloatingTerminals), None);
     Ok(())
 }
+
+#[test]
+fn the_platform_key_reads_the_same_however_gpui_writes_it() -> Result {
+    let cmd = "cmd-backspace".parse::<KeyChord>()?;
+    for written in ["super-backspace", "win-backspace", "Win-Backspace"] {
+        assert_eq!(written.parse::<KeyChord>()?, cmd, "{written}");
+    }
+    Ok(())
+}

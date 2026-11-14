@@ -5,11 +5,10 @@ mod storage;
 use storage::StoredRecord;
 
 use std::collections::BTreeMap;
-use std::fs::{self, DirBuilder, File};
+use std::fs::{self, File};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, BufWriter, Read, Write};
 use std::ops::Range;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
@@ -107,7 +106,7 @@ struct Disk {
     queue: Queue,
     wake: Option<SyncSender<()>>,
     worker: Mutex<Option<JoinHandle<()>>>,
-    _lock: File,
+    _lock: muxy_core::file_lock::FileLock,
 }
 
 impl Drop for Disk {
@@ -145,13 +144,13 @@ impl Archive {
     }
 
     pub(crate) fn open(directory: &Path, budget: u64) -> io::Result<Self> {
-        DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(directory)?;
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
-        let directory_lock = File::open(directory)?;
-        muxy_core::file_lock::acquire_file(&directory_lock, Duration::from_secs(3))?;
+        muxy_core::files::private_dir(directory)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+        }
+        let directory_lock = muxy_core::files::lock_directory(directory, Duration::from_secs(3))?;
         let queue = Queue::default();
         let jobs = Arc::clone(&queue);
         let (wake, receiver) = mpsc::sync_channel(1);
@@ -282,9 +281,10 @@ impl Archive {
         let stamp = match self.0.as_ref() {
             Backend::Memory { revision, .. } => [revision.load(Ordering::Acquire), 0, 0],
             Backend::Disk(disk) => {
-                let metadata =
-                    fs::metadata(record_path(&disk.directory, session)).map_err(failed)?;
-                [metadata.dev(), metadata.ino(), metadata.len()]
+                let path = record_path(&disk.directory, session);
+                let identity = muxy_core::files::FileId::of_path(&path).map_err(failed)?;
+                let length = fs::metadata(&path).map_err(failed)?.len();
+                [identity.device(), identity.index(), length]
             }
         };
         if cache
@@ -671,7 +671,7 @@ fn write_buffered(record: &Record, writer: impl Write) -> io::Result<()> {
 
 fn discard_record(directory: &Path, session: SessionId) -> io::Result<()> {
     match fs::remove_file(record_path(directory, session)) {
-        Ok(()) => File::open(directory)?.sync_all(),
+        Ok(()) => muxy_core::files::sync_directory(directory),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
@@ -1129,11 +1129,15 @@ mod tests {
         old_file.read_to_end(&mut still_old)?;
         assert_eq!(old_bytes, still_old);
         assert_ne!(fs::read(&path)?, old_bytes);
-        assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
-        assert_eq!(
-            fs::metadata(&directory.0)?.permissions().mode() & 0o777,
-            0o700
-        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                fs::metadata(&directory.0)?.permissions().mode() & 0o777,
+                0o700
+            );
+        }
         let record = StoredRecord::open(&path, 512)?;
         assert_eq!(record.total(), capture("last")?.archive()?.history.len());
         assert_eq!(*record.screen(), archive.read(session)?);
@@ -1164,6 +1168,9 @@ mod tests {
         Ok(())
     }
 
+    /// Moves the archive folder aside while the archive uses it, which
+    /// Windows refuses while files in it are open.
+    #[cfg(unix)]
     #[test]
     fn failed_write_preserves_previous_complete_record_and_discard_drains_pending_saves()
     -> TestResult {

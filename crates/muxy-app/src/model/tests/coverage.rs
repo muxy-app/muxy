@@ -130,9 +130,10 @@ fn anchor(anchor: &muxy_ui::popover::PopoverAnchor) {
 /// Every overlay a test can open. `Webview`, `Popover`, `Native`,
 /// `ProjectLogo` and `Projects` need a native web view, an extension, a
 /// decoded image or a folder search; `PullRequest` needs a loaded pull request.
-pub(super) fn openers(project: ProjectId) -> [(&'static str, Open); 22] {
+/// Windows builds offer no remote servers, so their popover is left out there.
+pub(super) fn openers(project: ProjectId) -> Vec<(&'static str, Open)> {
     let at = gpui::point(px(200.0), px(200.0));
-    [
+    let openers: [(&'static str, Open); 22] = [
         ("updates", Box::new(AppModel::toggle_update_popover)),
         ("server", Box::new(AppModel::toggle_server_popover)),
         ("remote servers", Box::new(AppModel::toggle_remote_popover)),
@@ -225,7 +226,11 @@ pub(super) fn openers(project: ProjectId) -> [(&'static str, Open); 22] {
             "password",
             Box::new(|model, _, cx| model.ask_password(ServerId::local(), cx)),
         ),
-    ]
+    ];
+    openers
+        .into_iter()
+        .filter(|(name, _)| !(cfg!(windows) && name.contains("remote servers")))
+        .collect()
 }
 
 #[gpui::test]

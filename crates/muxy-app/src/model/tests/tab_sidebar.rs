@@ -342,12 +342,12 @@ fn collapsed_project_tiles_fill_their_squares(cx: &mut TestAppContext) {
     let sidebar = cx.debug_bounds("workspace-sidebar").expect("sidebar");
     assert_eq!(sidebar.size.width, metrics.sidebar_collapsed_width());
     let square = metrics.scaled(34.0);
-    for selector in [
-        "project-row-0",
-        "sidebar-extensions",
-        "remote-servers-section",
-        "settings-button",
-    ] {
+    // Windows builds offer no remote servers, so their section isn't drawn.
+    let remote = (!cfg!(windows)).then_some("remote-servers-section");
+    for selector in ["project-row-0", "sidebar-extensions", "settings-button"]
+        .into_iter()
+        .chain(remote)
+    {
         let bounds = cx.debug_bounds(selector).expect(selector);
         assert_eq!(bounds.size, size(square, square), "{selector}");
     }

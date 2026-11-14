@@ -62,7 +62,7 @@ impl Client {
         if timeout.is_zero() {
             return Err(ClientError::Timeout);
         }
-        Self::from_stream_with_timeout(muxy_protocol::transport::connect(socket)?, timeout)
+        Self::from_stream_with_timeout(crate::local::connect(socket)?, timeout)
     }
 
     pub fn from_stream(stream: Box<dyn ByteStream>) -> Result<Self, ClientError> {

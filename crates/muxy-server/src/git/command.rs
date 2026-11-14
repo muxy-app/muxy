@@ -1,4 +1,4 @@
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -24,7 +24,7 @@ pub(super) fn run_with_index(
 }
 
 pub(super) fn network(path: &Path, args: &[impl AsRef<OsStr>]) -> Result<Vec<u8>> {
-    let mut arguments: Vec<std::ffi::OsString> = Vec::new();
+    let mut arguments: Vec<OsString> = Vec::new();
     if let Some(helper) = github_credential_helper() {
         arguments.extend(["-c".into(), helper]);
     }
@@ -38,29 +38,43 @@ pub(super) fn network(path: &Path, args: &[impl AsRef<OsStr>]) -> Result<Vec<u8>
     .map(|output| output.0)
 }
 
-fn github_credential_helper() -> Option<std::ffi::OsString> {
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+/// A Git option that asks `gh` for GitHub credentials. Git runs the helper
+/// through a POSIX shell, Git for Windows included.
+fn github_credential_helper() -> Option<OsString> {
     let gh = github_cli()?;
-    let mut value = b"credential.https://github.com.helper=!'".to_vec();
-    for byte in gh.as_os_str().as_bytes() {
-        if *byte == b'\'' {
-            value.extend_from_slice(b"'\\''");
-        } else {
-            value.push(*byte);
+    let mut value = OsString::from("credential.https://github.com.helper=!'");
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let mut quoted = Vec::new();
+        for byte in gh.as_os_str().as_bytes() {
+            if *byte == b'\'' {
+                quoted.extend_from_slice(b"'\\''");
+            } else {
+                quoted.push(*byte);
+            }
         }
+        value.push(OsString::from_vec(quoted));
     }
-    value.extend_from_slice(b"' auth git-credential");
-    Some(std::ffi::OsString::from_vec(value))
+    #[cfg(windows)]
+    value.push(gh.to_str()?.replace('\'', "'\\''"));
+    value.push("' auth git-credential");
+    Some(value)
 }
 
 /// Finds `gh` beyond the system PATH that a server started from the app inherits,
 /// checking Homebrew's folders before asking the login shell.
 pub(super) fn github_cli() -> Option<PathBuf> {
     let inherited = std::env::var_os("PATH").unwrap_or_default();
-    crate::process::find_executable(
+    let homebrew: &[&str] = if cfg!(windows) {
+        &[]
+    } else {
+        &["/opt/homebrew/bin", "/usr/local/bin"]
+    };
+    crate::exec::find_program(
         "gh",
         std::env::split_paths(&inherited)
-            .chain(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from))
+            .chain(homebrew.iter().map(PathBuf::from))
             .chain(
                 std::iter::once_with(crate::exec::login_path)
                     .flatten()

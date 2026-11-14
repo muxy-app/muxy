@@ -15,6 +15,9 @@ pub(crate) struct GitReceipt {
     pub(crate) hook_error: Option<String>,
     pub(crate) failed: Option<muxy_protocol::ErrorReply>,
     pub(crate) reply: Option<GitReply>,
+    /// Where a removal on Windows set the worktree folder aside before
+    /// deleting it.
+    pub(crate) set_aside: Option<muxy_protocol::ServerPath>,
 }
 
 impl Catalog {
@@ -26,7 +29,7 @@ impl Catalog {
         state.projects.get(&id).cloned().ok_or_else(unknown)
     }
     pub(crate) fn child_at(&self, parent: ProjectId, path: &Path) -> Option<ProjectId> {
-        let canonical = path.canonicalize().ok()?;
+        let canonical = muxy_core::files::canonicalize(path).ok()?;
         let projects: Vec<_> = self
             .lock()
             .projects
@@ -37,10 +40,8 @@ impl Catalog {
         projects
             .iter()
             .find(|p| {
-                p.directory
-                    .as_path()
-                    .canonicalize()
-                    .is_ok_and(|p| p == canonical)
+                muxy_core::files::canonicalize(p.directory.as_path())
+                    .is_ok_and(|path| muxy_core::paths::path_eq(&path, &canonical))
             })
             .map(|p| p.id)
     }

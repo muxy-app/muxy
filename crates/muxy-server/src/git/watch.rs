@@ -1,4 +1,4 @@
-use super::{Result, command, error, is_repository, run};
+use super::{Result, command, error, git_path, is_repository, path, run, server_path};
 use crate::Registry;
 use crate::connection::Connection;
 use crate::watch::{DebouncedWatch, MAX_DELAY, Subscribers, Subscription, Timing};
@@ -6,7 +6,6 @@ use muxy_protocol::{Message, ProjectId};
 use notify::EventKind;
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,11 +36,7 @@ impl Roots {
     fn resolve(directory: &Path) -> Result<Self> {
         let resolve = |name: &str| -> Result<PathBuf> {
             let value = run(directory, &["rev-parse", "--path-format=absolute", name])?;
-            Path::new(OsStr::from_bytes(
-                value.strip_suffix(b"\n").unwrap_or(&value),
-            ))
-            .canonicalize()
-            .map_err(error)
+            muxy_core::files::canonicalize(&git_path(&value)?).map_err(error)
         };
         Ok(Self {
             worktree: resolve("--show-toplevel")?,
@@ -155,7 +150,10 @@ impl Changes {
         }
         let mut input = Vec::with_capacity(self.bytes);
         for path in &self.paths {
-            input.extend_from_slice(path.as_os_str().as_bytes());
+            let Ok(path) = server_path(path) else {
+                return true;
+            };
+            input.extend_from_slice(&path.0);
             input.push(0);
         }
         match command::ignored(worktree, &input) {
@@ -180,7 +178,7 @@ impl Registry {
         connection: &Arc<Connection>,
     ) -> Result<Option<Subscription>> {
         let descriptor = self.catalog.project(project)?;
-        let directory = descriptor.directory.as_path();
+        let directory = &path(&descriptor.directory)?;
         self.git
             .watches
             .subscribe(project, connection, |subscribers| {

@@ -93,6 +93,7 @@ pub(super) fn sample() -> State {
         hook_error: None,
         failed: None,
         reply: None,
+        set_aside: None,
     };
     let receipt = |id: u128, mutation: ProjectMutation, error: Option<ErrorReply>| {
         (

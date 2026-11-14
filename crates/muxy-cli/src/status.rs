@@ -56,7 +56,8 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<String> {
 /// Writes the report to this process's terminal, even when its output is
 /// redirected, or to its output when it has no terminal.
 pub(crate) fn run(report: &str) -> io::Result<()> {
-    if let Ok(mut terminal) = OpenOptions::new().write(true).open("/dev/tty") {
+    let terminal = if cfg!(windows) { "CONOUT$" } else { "/dev/tty" };
+    if let Ok(mut terminal) = OpenOptions::new().write(true).open(terminal) {
         return terminal.write_all(report.as_bytes());
     }
     let mut stdout = io::stdout().lock();

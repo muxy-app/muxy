@@ -218,6 +218,8 @@ struct StoredGitReceipt {
     #[serde(default)]
     failed: Option<StoredError>,
     reply: Option<StoredGitReply>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    set_aside: Option<ServerPath>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -566,6 +568,7 @@ impl TryFrom<&GitReceipt> for StoredGitReceipt {
                 .as_ref()
                 .map(StoredGitReply::try_from)
                 .transpose()?,
+            set_aside: receipt.set_aside.clone(),
         })
     }
 }
@@ -584,6 +587,7 @@ impl From<StoredGitReceipt> for GitReceipt {
             hook_error: receipt.hook_error,
             failed: receipt.failed.map(ErrorReply::from),
             reply: receipt.reply.map(GitReply::from),
+            set_aside: receipt.set_aside,
         }
     }
 }

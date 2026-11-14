@@ -33,7 +33,8 @@ def tests(scope, full):
 
 
 def git(*args, cwd):
-    return subprocess.check_output(["git", *args], cwd=cwd, text=True, errors="surrogateescape")
+    # Git writes paths as UTF-8 bytes; Windows would otherwise decode them in its ANSI code page.
+    return subprocess.check_output(["git", *args], cwd=cwd, encoding="utf-8", errors="surrogateescape")
 
 
 def changed_paths(cwd=ROOT):

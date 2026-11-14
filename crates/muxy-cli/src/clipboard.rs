@@ -23,9 +23,12 @@ pub(crate) fn copy(text: &str) -> io::Result<Copied> {
     Ok(Copied::Terminal)
 }
 
-/// Hands `text` to the platform's clipboard tool, if it has one.
+/// Hands `text` to the platform's clipboard tool, if it has one. Windows
+/// gets OSC 52, which Windows Terminal supports.
 fn system(text: &str) -> bool {
-    let tools: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
+    let tools: &[(&str, &[&str])] = if cfg!(windows) {
+        &[]
+    } else if cfg!(target_os = "macos") {
         &[("pbcopy", &[])]
     } else if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         &[("wl-copy", &[])]

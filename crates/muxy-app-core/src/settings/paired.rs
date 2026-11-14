@@ -101,8 +101,6 @@ impl PairingTokens {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
-
     use super::*;
 
     #[test]
@@ -114,11 +112,15 @@ mod tests {
         PairingTokens::set(&path, studio, &[1; 32])?;
         PairingTokens::set(&path, laptop, &[2; 32])?;
         PairingTokens::set(&path, studio, &[3; 32])?;
-        let mode = fs::metadata(&path)
-            .map_err(|error| Error::new("test", error))?
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path)
+                .map_err(|error| Error::new("test", error))?
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
         let tokens = PairingTokens::load(&path)?;
         assert_eq!(tokens.token(studio), Some([3; 32]));
         assert_eq!(tokens.token(laptop), Some([2; 32]));

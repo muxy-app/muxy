@@ -33,7 +33,7 @@ pub(super) struct Github {
 
 impl Github {
     /// Runs `executable` in place of the installed GitHub CLI.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn with_cli(executable: PathBuf) -> Self {
         Self {
             cli: cli::Cli {

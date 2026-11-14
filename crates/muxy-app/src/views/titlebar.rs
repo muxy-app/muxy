@@ -16,6 +16,8 @@ use crate::model::AppModel;
 pub(crate) mod frame;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
+#[cfg(windows)]
+pub(crate) mod windows;
 
 pub(crate) fn content_size(window: &Window) -> gpui::Size<Pixels> {
     #[cfg(target_os = "linux")]
@@ -74,7 +76,9 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         + model.extension_toolbar_width();
     #[cfg(target_os = "linux")]
     let window_controls = linux::controls_width(window, model.metrics);
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    let window_controls = windows::controls_width() + f32::from(model.metrics.spacing2());
+    #[cfg(target_os = "macos")]
     let window_controls = 0.0;
     let room = f32::from(content_size(window).width)
         - navigation_width(model, window).max(model.sidebar_width())
@@ -90,7 +94,7 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .flex()
         .flex_none()
         .items_center()
-        .when(cfg!(target_os = "linux"), Styled::h_full)
+        .when(!cfg!(target_os = "macos"), Styled::h_full)
         .children(project_apps)
         .when(existing_count > 0, |bar| {
             bar.child(super::tab_strip::existing_terminals_button(
@@ -130,6 +134,12 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
             width + linux::controls_width(window, model.metrics) + 1.0,
         );
     }
+    #[cfg(windows)]
+    return (
+        bar.child(windows::controls(window, &model.theme).ml(model.metrics.spacing2())),
+        width + windows::controls_width() + f32::from(model.metrics.spacing2()),
+    );
+    #[cfg(not(windows))]
     (bar, width)
 }
 
@@ -169,6 +179,20 @@ fn start_window_move(window: &Window) {
     let _ = window;
 }
 
+/// Empty titlebar space, which moves the window. On Windows, Windows itself
+/// moves it, maximizes it on a double click, and offers its menu. It does
+/// so only for a press no element handled, so the space occludes the
+/// focusable views behind it, which would otherwise take the press.
+#[cfg(windows)]
+pub(crate) fn background(id: &'static str) -> Stateful<Div> {
+    div()
+        .id(id)
+        .debug_selector(move || id.into())
+        .window_control_area(gpui::WindowControlArea::Drag)
+        .occlude()
+}
+
+#[cfg(not(windows))]
 pub(crate) fn background(id: &'static str) -> Stateful<Div> {
     background_with(id, |_, window, cx| {
         window.dispatch_action(Box::new(BeginWindowMove), cx);

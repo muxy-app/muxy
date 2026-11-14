@@ -4735,6 +4735,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "windows 0.62.2",
  "xim-ctext",
  "zed-reqwest",
  "zip",
@@ -4761,6 +4762,7 @@ dependencies = [
  "toml 1.1.5+spec-1.1.0",
  "unicode-segmentation",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4790,6 +4792,7 @@ dependencies = [
  "serde_json",
  "signal-hook 0.4.4",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4802,6 +4805,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4825,8 +4829,10 @@ dependencies = [
  "rustix 1.1.4",
  "rustls",
  "serde",
+ "uds_windows",
  "unicode-segmentation",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4852,6 +4858,9 @@ dependencies = [
  "signal-hook 0.4.4",
  "toml 1.1.5+spec-1.1.0",
  "ureq",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4864,6 +4873,7 @@ dependencies = [
  "muxy-protocol",
  "portable-pty",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4890,6 +4900,8 @@ dependencies = [
  "raw-window-handle",
  "serde_json",
  "unicode-segmentation",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "x11rb",
  "zbus",
 ]

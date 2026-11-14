@@ -29,6 +29,7 @@
 "%@ is an unrelated link; move it before installing Muxy." = "%@ is an unrelated link; move it before installing Muxy.";
 "%@ is checked out in another worktree, so this one stays on its branch." = "%@ is checked out in another worktree, so this one stays on its branch.";
 "%@ is disconnected" = "%@ is disconnected";
+"%@ is installed with a command launcher, which Windows can't hand a prompt of several lines to." = "%@ is installed with a command launcher, which Windows can't hand a prompt of several lines to.";
 "%@ is larger than 100 MiB, the most Muxy sends to %@." = "%@ is larger than 100 MiB, the most Muxy sends to %@.";
 "%@ is no longer available. Try again." = "%@ is no longer available. Try again.";
 "%@ is not installed" = "%@ is not installed";
@@ -361,6 +362,7 @@
 "Browser" = "Browser";
 "Browser Profile" = "Browser Profile";
 "Browser Profile: %@" = "Browser Profile: %@";
+"Browser tabs are not available on this platform yet." = "Browser tabs are not available on this platform yet.";
 "Browse…" = "Browse…";
 "Browsing" = "Browsing";
 "Bubble Left" = "Bubble Left";
@@ -1341,6 +1343,7 @@
 "Nothing is staged. Stage changes first or include unstaged changes." = "Nothing is staged. Stage changes first or include unstaged changes.";
 "Nothing to manage" = "Nothing to manage";
 "Notifications are turned off for Muxy in System Settings." = "Notifications are turned off for Muxy in System Settings.";
+"Notifications are turned off for Muxy in Windows Settings." = "Notifications are turned off for Muxy in Windows Settings.";
 "Notifications on" = "Notifications on";
 "Notifications paused" = "Notifications paused";
 "Notifications pending" = "Notifications pending";
@@ -1582,6 +1585,7 @@
 "Remote file actions" = "Remote file actions";
 "Remote project on %@" = "Remote project on %@";
 "Remote projects sit beside your local ones." = "Remote projects sit beside your local ones.";
+"Remote servers are not available on this platform yet." = "Remote servers are not available on this platform yet.";
 "Remove" = "Remove";
 "Remove %@" = "Remove %@";
 "Remove %@ %@ %@" = "Remove %@ %@ %@";
@@ -1833,6 +1837,7 @@
 "Show how long ago each completed or idle agent finished working." = "Show how long ago each completed or idle agent finished working.";
 "Show idle time" = "Show idle time";
 "Show in All Projects" = "Show in All Projects";
+"Show in File Explorer" = "Show in File Explorer";
 "Show in File Manager" = "Show in File Manager";
 "Show or hide the sidebar" = "Show or hide the sidebar";
 "Show other servers in the sidebar" = "Show other servers in the sidebar";
@@ -1996,6 +2001,7 @@
 "The project directory isn't available on this Mac" = "The project directory isn't available on this Mac";
 "The project or home directory could not be found." = "The project or home directory could not be found.";
 "The project's tabs changed. Choose the layout again to confirm replacement." = "The project's tabs changed. Choose the layout again to confirm replacement.";
+"The prompt is too long for Windows to hand to %@." = "The prompt is too long for Windows to hand to %@.";
 "The proxy settings contain characters that can't be used" = "The proxy settings contain characters that can't be used";
 "The screenshot %@ must be a 16:10 or 16:9 PNG." = "The screenshot %@ must be a 16:10 or 16:9 PNG.";
 "The screenshot %@ must be at most 3 MB." = "The screenshot %@ must be at most 3 MB.";
@@ -2218,6 +2224,8 @@
 "Width 480–1200; height 280–800 pixels." = "Width 480–1200; height 280–800 pixels.";
 "Width in pixels for a new workspace window when no saved bounds exist." = "Width in pixels for a new workspace window when no saved bounds exist.";
 "Window size" = "Window size";
+"Windows refused a notification: %@" = "Windows refused a notification: %@";
+"Windows refused to set up notifications: %@" = "Windows refused to set up notifications: %@";
 "Word selection characters" = "Word selection characters";
 "Work finished and is ready to review." = "Work finished and is ready to review.";
 "Work is in progress." = "Work is in progress.";

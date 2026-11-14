@@ -22,7 +22,6 @@ serde-saphyr = { version = "1.3", default-features = false, features = ["deseria
 uuid = { version = "1", features = ["v4", "serde"] }
 unicode-segmentation = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "tiff", "webp"] }
-rustix = { version = "1.1.4", features = ["fs"] }
 regex = "1"
 qrcodegen = "1.8"
 roxmltree = "0.20"
@@ -30,6 +29,12 @@ icu_plurals = "2.3"
 icu_locale_core = "2.3"
 # Plural rules live in the shared app language, which other threads read.
 icu_provider = { version = "2.3", features = ["sync"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile = "3"

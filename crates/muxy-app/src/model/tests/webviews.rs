@@ -1,3 +1,5 @@
+#![cfg(not(windows))]
+
 use super::*;
 
 #[gpui::test]

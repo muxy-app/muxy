@@ -196,7 +196,7 @@ pub(crate) struct AppModel {
     pub(crate) focus_owner: focus::FocusOwner,
     pub(crate) split_resize: crate::views::splits::SplitResizeState,
     pub(crate) sidebar_resize: Option<crate::views::sidebar::SidebarResize>,
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "macos"))]
     pub(crate) sidebar_available_width: gpui::Pixels,
     pub(crate) agent_sessions: agent_sessions::AgentSessions,
     pub(crate) agents_panel: agents_panel::AgentsPanel,
@@ -680,7 +680,7 @@ impl AppModel {
             focus_owner: focus::FocusOwner::default(),
             split_resize: crate::views::splits::SplitResizeState::default(),
             sidebar_resize: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(not(target_os = "macos"))]
             sidebar_available_width: gpui::px(f32::MAX),
             agent_sessions: agent_sessions::AgentSessions::new(cx),
             agents_panel: agents_panel::AgentsPanel::new(cx),
@@ -3343,6 +3343,8 @@ pub(crate) mod tests {
     mod agents_panel;
     mod ai;
     mod background;
+    // Windows has no browser engine yet.
+    #[cfg(not(windows))]
     mod browsers;
     mod commands;
     mod composer;
@@ -3350,6 +3352,8 @@ pub(crate) mod tests {
     mod detach;
     mod dialogs;
     mod extension_authoring;
+    // Extensions open files in web view tabs, which Windows builds don't offer yet.
+    #[cfg(not(windows))]
     mod file_openers;
     mod find;
     mod floating;
@@ -3358,6 +3362,8 @@ pub(crate) mod tests {
     mod git;
     mod layout_drag;
     mod links;
+    // Remote servers are reached over SSH, which Windows builds don't offer.
+    #[cfg(unix)]
     mod manage_servers;
     mod new_tab;
     mod onboarding;
@@ -3368,6 +3374,8 @@ pub(crate) mod tests {
     mod projects;
     mod proxy;
     mod quick_terminal;
+    // Remote servers are reached over SSH, which Windows builds don't offer.
+    #[cfg(unix)]
     mod remote_parity;
     mod servers;
     mod session_names;

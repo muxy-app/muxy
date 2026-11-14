@@ -72,6 +72,12 @@ if [[ "$CHANNEL" == stable ]]; then
     fi
     ASSETS+=(appcast.xml)
 fi
+# Windows ships in betas only until it is ready for stable releases.
+if [[ "$CHANNEL" == beta ]]; then
+    for ARCH in arm64 x86_64; do
+        ASSETS+=("muxy-${VERSION}-windows-${ARCH}.zip")
+    done
+fi
 ASSETS+=("muxy-mobile-${VERSION}-ios.zip" "muxy-mobile-${VERSION}-android.zip" "muxy-mobile-${VERSION}.json")
 for ASSET in "${ASSETS[@]}"; do
     if [[ ! -f "$ASSET" || ! -s "$ASSET" || -L "$ASSET" ]]; then

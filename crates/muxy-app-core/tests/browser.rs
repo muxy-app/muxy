@@ -227,6 +227,17 @@ fn targets_resolve_projects_and_worktrees() -> TestResult {
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn a_project_folder_is_named_whatever_its_case_on_windows() -> TestResult {
+    let folder = tempfile::tempdir()?;
+    let mut state = AppState::bootstrap()?;
+    let id = state.add_project(ServerId::local(), folder.path().to_owned())?;
+    let upper = folder.path().to_str().ok_or("folder")?.to_uppercase();
+    assert_eq!(resolve_target(&state, Some(&upper), None), Ok(id));
+    Ok(())
+}
+
 #[test]
 fn targets_match_names_that_differ_in_case() -> TestResult {
     let (mut state, ids) = projects()?;

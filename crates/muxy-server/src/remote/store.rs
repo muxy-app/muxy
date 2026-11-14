@@ -316,7 +316,6 @@ pub(super) fn save(path: &Path, stored: &Stored) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
     use super::*;
@@ -355,7 +354,11 @@ mod tests {
             push_off_since: Some(12),
         };
         save(&path, &stored)?;
-        assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
+        }
         let loaded = load(&path)?;
         assert_eq!(loaded.settings, stored.settings);
         assert_eq!(loaded.identity, stored.identity);

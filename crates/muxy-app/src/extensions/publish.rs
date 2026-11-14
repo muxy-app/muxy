@@ -183,6 +183,15 @@ pub(crate) fn plan(tools: &dyn Tools, source: &Path) -> Result<PublishPlan, Publ
     })
 }
 
+/// A file in the package as Git and the marketplace name it, with `/` on
+/// every platform.
+fn package_path(file: &Path) -> String {
+    file.components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 impl PublishPlan {
     /// What the user approves: where it goes, under whose name, and what is sent.
     pub(crate) fn confirmation(&self) -> String {
@@ -190,7 +199,7 @@ impl PublishPlan {
         let shown = readiness.files.len().min(FILES_IN_CONFIRMATION);
         let mut files: Vec<String> = readiness.files[..shown]
             .iter()
-            .map(|file| file.display().to_string())
+            .map(|file| package_path(file))
             .collect();
         if readiness.files.len() > shown {
             files.push(tr!("and %lld more", readiness.files.len() - shown).to_string());

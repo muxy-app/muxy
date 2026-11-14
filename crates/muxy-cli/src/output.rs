@@ -11,6 +11,21 @@ pub(crate) struct Display {
     width: usize,
 }
 
+/// The width of the terminal that stdout writes to, if it writes to one.
+fn stdout_width() -> Option<usize> {
+    #[cfg(unix)]
+    let columns = rustix::termios::tcgetwinsize(io::stdout())
+        .ok()
+        .map(|size| size.ws_col);
+    #[cfg(windows)]
+    let columns = io::stdout()
+        .is_terminal()
+        .then(ratatui::crossterm::terminal::size)
+        .and_then(Result::ok)
+        .map(|(columns, _)| columns);
+    columns.map(usize::from).filter(|width| *width > 0)
+}
+
 impl Display {
     pub(crate) fn stdout() -> Self {
         let terminal = io::stdout().is_terminal();
@@ -19,11 +34,7 @@ impl Display {
             color: terminal
                 && std::env::var_os("NO_COLOR").is_none_or(|value| value.is_empty())
                 && std::env::var_os("TERM").is_none_or(|value| value != "dumb"),
-            width: rustix::termios::tcgetwinsize(io::stdout())
-                .ok()
-                .map(|size| usize::from(size.ws_col))
-                .filter(|width| *width > 0)
-                .unwrap_or(80),
+            width: stdout_width().unwrap_or(80),
         }
     }
 

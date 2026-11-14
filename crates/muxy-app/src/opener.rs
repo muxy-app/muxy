@@ -8,6 +8,9 @@ use std::time::Duration;
 use std::time::Instant;
 
 mod process;
+#[cfg(windows)]
+#[allow(unsafe_code, reason = "Shell calls that open and reveal files")]
+mod shell;
 
 use muxy_app_core::opener::{FileLocation, OpenContext, OpenRequest, Registry, Target};
 use muxy_core::worker::WorkerPool;
@@ -30,6 +33,8 @@ pub(crate) const FILE_MANAGER: &str = if cfg!(target_os = "macos") {
 pub(crate) fn reveal_label() -> gpui::SharedString {
     if cfg!(target_os = "macos") {
         tr!("Reveal in Finder")
+    } else if cfg!(windows) {
+        tr!("Show in File Explorer")
     } else {
         tr!("Show in File Manager")
     }
@@ -66,7 +71,7 @@ pub(crate) fn resolve(text: &str, context: &OpenContext) -> Option<Target> {
         if context.server != muxy_app_core::ServerId::local() {
             return None;
         }
-        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let home = muxy_core::paths::home_dir().ok();
         Target::file(text, &context.directory, home.as_deref(), Path::exists)
     })
 }
@@ -146,10 +151,14 @@ struct Launch {
 }
 
 impl Launch {
+    /// Hands `args` to the system's handler for them. On Windows that is
+    /// the shell itself, so there is no program.
     fn system(args: impl IntoIterator<Item = OsString>) -> Self {
         Self::program(
             if cfg!(target_os = "macos") {
                 "/usr/bin/open"
+            } else if cfg!(windows) {
+                ""
             } else {
                 "xdg-open"
             },
@@ -157,6 +166,7 @@ impl Launch {
         )
     }
 
+    #[cfg(not(windows))]
     fn text_editor(path: &Path) -> Self {
         let mut args = Vec::new();
         if cfg!(target_os = "macos") {
@@ -177,11 +187,22 @@ impl Launch {
 }
 
 fn launch(launch: &Launch) -> io::Result<()> {
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     if let Some(file) = &launch.select
         && muxy_ui::file_manager::select(file).is_ok()
     {
         return Ok(());
+    }
+    #[cfg(windows)]
+    if let Some(file) = &launch.select {
+        return shell::select(file);
+    }
+    #[cfg(windows)]
+    if launch.program.as_os_str().is_empty() {
+        return launch
+            .args
+            .iter()
+            .try_for_each(|target| shell::open(target));
     }
     process::launch(
         Command::new(&launch.program).args(&launch.args),
@@ -214,6 +235,20 @@ pub(crate) fn open_url(url: &str, app: Option<&Path>) -> io::Result<()> {
     }
     args.push(OsString::from(url));
     launch(&Launch::system(args))
+}
+
+/// Opens `url` with the system's handler for it, or with the browser at `app`.
+#[cfg(windows)]
+pub(crate) fn open_url(url: &str, app: Option<&Path>) -> io::Result<()> {
+    match app {
+        // A browser keeps running, so it isn't waited for.
+        Some(app) => Command::new(app)
+            .arg(url)
+            .spawn()
+            .map(drop)
+            .map_err(|error| missing(app, error)),
+        None => launch(&Launch::system([url.into()])),
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -250,8 +285,20 @@ pub(crate) fn open_with_default_app(path: &Path) -> io::Result<()> {
 }
 
 /// Opens a text file in this computer's text editor.
+#[cfg(not(windows))]
 pub(crate) fn open_in_text_editor(path: &Path) -> io::Result<()> {
     launch(&Launch::text_editor(path))
+}
+
+/// Opens a text file in the text editor every Windows has. `.toml` files
+/// usually have no app of their own there.
+#[cfg(windows)]
+pub(crate) fn open_in_text_editor(path: &Path) -> io::Result<()> {
+    Command::new("notepad.exe")
+        .arg(path)
+        .spawn()
+        .map(drop)
+        .map_err(|error| missing(Path::new("notepad.exe"), error))
 }
 
 /// Shows a path in the file manager: a file selected in its folder, or a
@@ -419,6 +466,7 @@ fn location_argument(file: &FileLocation) -> OsString {
     target
 }
 
+#[cfg(target_os = "macos")]
 fn executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.metadata()
@@ -430,8 +478,8 @@ fn editors() -> &'static [Editor] {
     static EDITORS: OnceLock<Vec<Editor>> = OnceLock::new();
     EDITORS.get_or_init(|| {
         let mut roots = vec![PathBuf::from("/Applications")];
-        if let Some(home) = std::env::var_os("HOME") {
-            roots.push(PathBuf::from(home).join("Applications"));
+        if let Ok(home) = muxy_core::paths::home_dir() {
+            roots.push(home.join("Applications"));
         }
         let mut found = Vec::new();
         let mut remaining = 4096;
@@ -590,10 +638,7 @@ fn editors() -> &'static [Editor] {
         .into_iter()
         .enumerate()
         .filter_map(|(rank, (bundle, command, name))| {
-            let path = directories
-                .iter()
-                .map(|directory| directory.join(command))
-                .find(|path| executable(path))?;
+            let path = muxy_core::executable::find_program(&directories, command)?;
             Some(Editor {
                 bundle: bundle.into(),
                 name: name.into(),

@@ -525,7 +525,11 @@ fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppC
     let (folders, opened) = async_channel::unbounded();
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |_, cx| AppModel::open_folders_from(opened, cx));
-    let url = |name: &str| format!("file://{}/{name}/", root.display()).replace(' ', "%20");
+    let url = |name: &str| {
+        reqwest::Url::from_directory_path(root.join(name))
+            .expect("url")
+            .to_string()
+    };
     folders.try_send(vec![url("Alpha")]).expect("send");
     cx.run_until_parked();
     view.update(cx, |model, cx| {
@@ -537,8 +541,10 @@ fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppC
     });
     folders
         .try_send(vec![
-            format!("file://{}/notes.txt", root.display()),
-            format!("file://{}/Missing/", root.display()),
+            reqwest::Url::from_file_path(root.join("notes.txt"))
+                .expect("url")
+                .to_string(),
+            url("Missing"),
             "https://example.com/".into(),
             url("Beta Gamma"),
         ])
@@ -553,7 +559,10 @@ fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppC
         assert_eq!(model.state.current_project().tabs.len(), 1);
         assert!(model.error.is_none());
     });
+    #[cfg(unix)]
     std::os::unix::fs::symlink(root.join("Alpha"), root.join("Alias")).expect("symlink");
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(root.join("Alpha"), root.join("Alias")).expect("symlink");
     for name in ["Alias", "Beta Gamma"] {
         folders.try_send(vec![url(name)]).expect("send");
         cx.run_until_parked();
@@ -569,6 +578,8 @@ fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppC
 }
 
 /// On another computer, as macOS file systems refuse such names here.
+/// Windows paths are always text.
+#[cfg(unix)]
 #[gpui::test]
 fn a_project_whose_folder_name_is_not_text_opens_like_any_other(cx: &mut TestAppContext) {
     use std::os::unix::ffi::OsStringExt;
@@ -602,7 +613,11 @@ fn folders_opened_at_launch_find_projects_added_while_the_app_was_closed(cx: &mu
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |_, cx| AppModel::open_folders_from(opened, cx));
     folders
-        .try_send(vec![format!("file://{}/Shared/", root.display())])
+        .try_send(vec![
+            reqwest::Url::from_directory_path(root.join("Shared"))
+                .expect("url")
+                .to_string(),
+        ])
         .expect("send");
     cx.run_until_parked();
     view.update(cx, |model, cx| {

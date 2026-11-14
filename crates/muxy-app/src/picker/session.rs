@@ -12,7 +12,8 @@ pub(crate) enum InputMode {
 
 impl InputMode {
     pub(crate) fn resolve(input: &str) -> Self {
-        let value = input.trim();
+        let value = super::path_service::from_native(input.trim());
+        let value = value.as_str();
         let explicit = value.starts_with('/')
             || value == "~"
             || value.starts_with("~/")

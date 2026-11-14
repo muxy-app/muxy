@@ -89,9 +89,10 @@ impl Jobs {
                     .catalog
                     .project(request.project)
                     .and_then(|project| {
-                        execute(&request, project.directory.as_path(), &cancelled, || {
-                            output.is_closed()
-                        })
+                        let root = project.directory.to_path_buf().map_err(|code| {
+                            ServerError::new(code, "project folder is not valid here")
+                        })?;
+                        execute(&request, &root, &cancelled, || output.is_closed())
                     });
                 active
                     .lock()
@@ -116,13 +117,20 @@ impl Jobs {
     }
 }
 
-/// The user's login-shell PATH, which a server started from the app doesn't inherit.
+/// The user's login-shell PATH, which a server started from the app doesn't
+/// inherit. Windows has no login shell; the registry holds `PATH` there.
 pub(crate) fn login_path() -> Option<&'static str> {
-    static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    PATH.get_or_init(|| read_login_path(&crate::process::user_shell()))
-        .as_deref()
+    #[cfg(unix)]
+    {
+        static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+        PATH.get_or_init(|| read_login_path(&crate::process::user_shell()))
+            .as_deref()
+    }
+    #[cfg(windows)]
+    None
 }
 
+#[cfg(unix)]
 fn read_login_path(shell: &Path) -> Option<String> {
     let request = ExecRequest {
         job: 1,
@@ -157,18 +165,94 @@ fn error(cause: impl std::fmt::Display) -> ServerError {
 /// Launch failures read like main's, since extensions match on the text.
 fn launch_failed(request: &ExecRequest, cause: &io::Error) -> ServerError {
     ServerError::spawn_failed(match request.argv.first() {
-        Some(program) if !program.contains('/') && !on_path(program, request.env.get("PATH")) => {
+        Some(program)
+            if !program.contains(['/', std::path::MAIN_SEPARATOR])
+                && !on_path(program, request.env.get("PATH")) =>
+        {
             format!("command not found: {program}")
         }
         _ => format!("spawn process: {}", os_message(cause)),
     })
 }
 
-/// Whether `program` is an executable file in one of the `PATH` folders,
-/// which is how main finds a command before launching it.
+/// Whether `program` is a program file in one of the `PATH` folders, which is
+/// how main finds a command before launching it. On Windows a name without
+/// an extension also matches each extension in `PATHEXT`.
 fn on_path(program: &str, path: Option<&String>) -> bool {
     let path = path.map_or_else(|| std::env::var_os("PATH").unwrap_or_default(), Into::into);
-    crate::process::find_executable(program, std::env::split_paths(&path)).is_some()
+    find_program(program, std::env::split_paths(&path)).is_some()
+}
+
+/// The first program file `name` names in `folders`, skipping empty entries.
+/// On Windows a name without an extension also matches each extension in
+/// `PATHEXT`.
+pub(crate) fn find_program(
+    name: &str,
+    folders: impl IntoIterator<Item = PathBuf>,
+) -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        crate::process::find_executable(name, folders)
+    }
+    #[cfg(windows)]
+    {
+        folders
+            .into_iter()
+            .filter(|folder| !folder.as_os_str().is_empty())
+            .find_map(|folder| program_in(&folder, name))
+    }
+}
+
+#[cfg(windows)]
+fn program_in(folder: &Path, name: &str) -> Option<PathBuf> {
+    let file = folder.join(name);
+    if Path::new(name).extension().is_some() {
+        return (has_program_extension(&file) && crate::spawn::exists(&file)).then_some(file);
+    }
+    program_extensions()
+        .into_iter()
+        .map(|extension| folder.join(format!("{name}{extension}")))
+        .find(|file| crate::spawn::exists(file))
+}
+
+/// Whether `Command` can start `path` by its extension, which `PATHEXT`
+/// lists; `.js` and `.vbs` need another program.
+#[cfg(windows)]
+pub(crate) fn has_program_extension(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| {
+        program_extensions().iter().any(|known| {
+            known
+                .get(1..)
+                .is_some_and(|known| extension.eq_ignore_ascii_case(known))
+        })
+    })
+}
+
+#[cfg(windows)]
+fn program_extensions() -> Vec<String> {
+    std::env::var("PATHEXT")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into())
+        .split(';')
+        .filter(|extension| {
+            [".com", ".exe", ".bat", ".cmd"]
+                .iter()
+                .any(|startable| extension.eq_ignore_ascii_case(startable))
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A command that runs `script` with `cmd.exe /d /s /c`, which keeps the
+/// script exactly as written between the outer quotes.
+#[cfg(windows)]
+pub(crate) fn cmd_script(script: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    let mut command = Command::new(Path::new(&system).join(r"System32\cmd.exe"));
+    command.raw_arg("/d /s /c").raw_arg(format!("\"{script}\""));
+    command
 }
 
 /// The system's description of an error, without Rust's "(os error N)".
@@ -183,16 +267,19 @@ fn os_message(error: &io::Error) -> String {
 
 /// Where a command runs: `~` is the home folder, and relative paths start in
 /// the project folder.
-fn working_directory(root: &Path, cwd: Option<&ServerPath>) -> PathBuf {
-    let Some(path) = cwd.map(ServerPath::as_path) else {
-        return root.to_owned();
+fn working_directory(root: &Path, cwd: Option<&ServerPath>) -> Result<PathBuf, ServerError> {
+    let Some(path) = cwd else {
+        return Ok(root.to_owned());
     };
+    let path = path
+        .to_path_buf()
+        .map_err(|code| ServerError::new(code, "working directory is not valid here"))?;
     if let Ok(relative) = path.strip_prefix("~")
-        && let Some(home) = std::env::home_dir()
+        && let Ok(home) = muxy_core::paths::home_dir()
     {
-        return home.join(relative);
+        return Ok(home.join(relative));
     }
-    root.join(path)
+    Ok(root.join(path))
 }
 
 fn utf8(bytes: &[u8], truncated: &mut bool) -> String {
@@ -226,17 +313,20 @@ fn execute(
         });
     }
     let mut command = if let Some(shell) = &request.shell {
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", shell]);
-        command
+        script_command(shell)
     } else {
-        let mut command = Command::new(&request.argv[0]);
+        let path = request
+            .env
+            .iter()
+            .rfind(|(name, _)| crate::spawn::same_name(std::ffi::OsStr::new(name), "PATH"))
+            .map(|(_, value)| value);
+        let mut command = Command::new(program(&request.argv[0], path));
         command.args(&request.argv[1..]);
         command
     };
     command
         .envs(&request.env)
-        .current_dir(working_directory(root, request.cwd.as_ref()));
+        .current_dir(working_directory(root, request.cwd.as_ref())?);
     let stopped = || cancelled.load(Ordering::Acquire) || disconnected();
     let limits = Limits {
         timeout: Duration::from_millis(u64::from(request.timeout_ms)),
@@ -260,6 +350,37 @@ fn execute(
         truncated,
         cancelled: output.cancelled,
     })
+}
+
+/// The program file a command names. Windows looks a bare name up in
+/// `PATH` with each `PATHEXT` extension, so `.cmd` shims run as they do in a
+/// shell; Unix leaves that to the system.
+fn program(name: &str, path: Option<&String>) -> PathBuf {
+    #[cfg(windows)]
+    if !name.contains(['/', '\\']) {
+        let path = path.map_or_else(|| std::env::var_os("PATH").unwrap_or_default(), Into::into);
+        if let Some(file) = find_program(
+            name,
+            std::env::split_paths(&path).filter(|folder| folder.is_absolute()),
+        ) {
+            return file;
+        }
+    }
+    #[cfg(unix)]
+    let _ = path;
+    PathBuf::from(name)
+}
+
+#[cfg(unix)]
+fn script_command(script: &str) -> Command {
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", script]);
+    command
+}
+
+#[cfg(windows)]
+fn script_command(script: &str) -> Command {
+    cmd_script(script)
 }
 
 #[cfg(test)]
@@ -302,6 +423,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn login_path_comes_from_the_fallback_shell() {
         let path = read_login_path(Path::new("/bin/sh")).unwrap();
@@ -327,5 +449,28 @@ mod tests {
             jobs.cancel(job);
         }
         assert!(jobs.cancelled.lock().unwrap().len() <= 128);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_programs_are_found_with_pathext_and_missing_ones_read_like_main() {
+        let root = TestDirectory::new();
+        std::fs::write(root.path().join("tool.cmd"), "@echo shim %1").unwrap();
+        let path = root.path().to_str().unwrap().to_owned();
+        assert!(on_path("tool", Some(&path)));
+        assert!(on_path("TOOL.CMD", Some(&path)));
+        assert!(!on_path("tool.txt", Some(&path)));
+        let mut request = request("");
+        request.shell = None;
+        request.argv = vec!["tool".into(), "argument".into()];
+        request.env.insert("PATH".into(), path);
+        let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
+        assert_eq!(result.stdout.trim_end(), "shim argument");
+        request.argv = vec!["missing-muxy-tool".into()];
+        let missing = execute(&request, root.path(), &AtomicBool::new(false), || false);
+        assert_eq!(
+            missing.unwrap_err().message(),
+            "command not found: missing-muxy-tool"
+        );
     }
 }

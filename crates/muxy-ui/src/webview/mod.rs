@@ -4,6 +4,7 @@
 pub mod assets;
 #[cfg(target_os = "macos")]
 pub(crate) mod host;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 mod rules;
 
 use std::path::Path;

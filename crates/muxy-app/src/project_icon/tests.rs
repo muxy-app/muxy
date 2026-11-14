@@ -346,6 +346,7 @@ fn skips_broken_candidates_and_uses_stable_priority() {
     assert!(discover(&source).is_none());
 }
 
+#[cfg(unix)]
 #[test]
 fn skips_files_outside_project_and_oversized_or_nonregular_candidates() {
     let root = tempfile::tempdir().expect("directory");

@@ -8,6 +8,9 @@ import sys
 import unittest
 from unittest.mock import patch
 
+if sys.platform == "win32":
+    raise unittest.SkipTest("The macOS guard raises POSIX resource limits")
+
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("desktop_macos", ROOT / "scripts/check-desktop-macos.py")
 GUARD = importlib.util.module_from_spec(SPEC)

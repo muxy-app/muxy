@@ -89,11 +89,14 @@ pub(super) fn collect(directory: &Path, roots: &[&str]) -> Result<Files> {
             }
             continue;
         }
+        // Archives name files with `/`, whatever this computer separates them with.
         let name = path
             .strip_prefix(directory)?
-            .to_str()
+            .components()
+            .map(|component| component.as_os_str().to_str())
+            .collect::<Option<Vec<_>>>()
             .ok_or_else(|| failure(&tr!("Configuration filenames must be UTF-8")))?
-            .to_owned();
+            .join("/");
         if !allowed(&name, roots) {
             return Err(failure(&tr!("Invalid configuration path")));
         }
@@ -241,22 +244,17 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
 }
 
 pub(super) fn materialize(directory: &Path, files: &Files) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     for (name, bytes) in files {
         if !allowed(name, ROOTS) {
             return Err(failure(&tr!("Invalid restore path")));
         }
         let path = directory.join(name);
         if let Some(parent) = path.parent() {
-            fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(parent)?;
+            muxy_core::files::private_dir(parent)?;
         }
-        let mut file = fs::OpenOptions::new()
+        let mut file = muxy_core::files::private_file()
             .write(true)
             .create_new(true)
-            .mode(0o600)
             .open(path)?;
         file.write_all(bytes)?;
         file.sync_all()?;

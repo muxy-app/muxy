@@ -199,7 +199,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("if: github.event_name == 'pull_request'", self.job("scope"))
 
     def test_a_failed_or_skipped_scope_job_still_runs_the_whole_workspace(self):
-        for name in ["macos", "linux", "linux-desktop"]:
+        for name in ["macos", "linux", "linux-desktop", "windows"]:
             job = self.job(name)
             with self.subTest(job=name):
                 self.assertIn("needs: scope", job)
@@ -218,7 +218,8 @@ class WorkflowTests(unittest.TestCase):
     def test_the_ghostty_build_is_cached_once_and_saved_only_from_main(self):
         self.assertIn("LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR: ${{ github.workspace }}/.zig-cache", WORKFLOW)
         self.assertNotIn("actions/cache@", WORKFLOW)
-        for name, runner in [("macos", "macos-15"), ("linux", "${{ matrix.runner }}"), ("linux-desktop", "${{ matrix.runner }}")]:
+        for name, runner in [("macos", "macos-15"), ("linux", "ubuntu-22.04"), ("linux-desktop", "ubuntu-24.04"),
+                             ("windows", "windows-latest")]:
             job = self.job(name)
             with self.subTest(job=name):
                 self.assertIn("use-cache: false", job)

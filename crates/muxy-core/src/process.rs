@@ -1,15 +1,26 @@
 //! Running a child process with a time limit and bounded output, and waiting
-//! for one to exit. The exit and the pipes wake the same wait, so nothing
-//! sleeps on a timer.
+//! for one to exit. On Unix the exit and the pipes wake the same wait, so
+//! nothing sleeps on a timer.
 
+#[cfg(unix)]
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io;
+#[cfg(unix)]
+use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
-use std::process::{Child, Command, ExitStatus, Stdio};
+#[cfg(unix)]
+use std::process::Stdio;
+use std::process::{Child, Command, ExitStatus};
+#[cfg(unix)]
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
+#[cfg(unix)]
 use rustix::process::{Pid, Signal};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -20,8 +31,15 @@ use linux as platform;
 mod macos;
 #[cfg(target_vendor = "apple")]
 use macos as platform;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows;
+#[cfg(windows)]
+use windows as platform;
 
 pub use platform::ExitWatch;
+#[cfg(windows)]
+pub use platform::{Group, Running};
 
 /// How long output is still read after the command exits, while helpers it
 /// started keep its pipes open.
@@ -57,10 +75,11 @@ pub struct Limits<'a> {
     /// Stops the command once it returns true.
     pub cancelled: Option<&'a dyn Fn() -> bool>,
     /// How long a command being stopped gets between TERM and KILL. Zero
-    /// sends KILL at once.
+    /// sends KILL at once. Windows has no TERM, so there it is always KILL.
     pub term_grace: Duration,
-    /// Kills whatever the command left running in its process group once it
-    /// exits, instead of waiting for those to close its output.
+    /// Kills whatever the command left running in its process group (its job
+    /// object on Windows) once it exits, instead of waiting for those to close
+    /// its output.
     pub kill_leftovers: bool,
 }
 
@@ -127,6 +146,7 @@ pub fn wait_timeout(child: &mut Child, timeout: Duration) -> io::Result<Option<E
     child.try_wait()
 }
 
+#[cfg(unix)]
 /// A command started by [`Running::start`]. Dropping it before
 /// [`Running::wait`] kills its process group.
 #[derive(Debug)]
@@ -137,6 +157,7 @@ pub struct Running<'a> {
     started: Instant,
 }
 
+#[cfg(unix)]
 impl<'a> Running<'a> {
     pub fn start(command: &mut Command, limits: Limits<'a>) -> io::Result<Self> {
         let child = command
@@ -243,6 +264,7 @@ impl<'a> Running<'a> {
     }
 }
 
+#[cfg(unix)]
 impl Drop for Running<'_> {
     fn drop(&mut self) {
         self.group.kill();
@@ -251,11 +273,13 @@ impl Drop for Running<'_> {
     }
 }
 
+#[cfg(unix)]
 /// A started command's process group. Signals reach it only until its leader
 /// is reaped, after which its ID may belong to another process.
 #[derive(Clone, Debug)]
 pub struct Group(Arc<Mutex<Option<Pid>>>);
 
+#[cfg(unix)]
 impl Group {
     fn of(child: &Child) -> Self {
         Self(Arc::new(Mutex::new(Some(Pid::from_child(child)))))
@@ -282,12 +306,14 @@ impl Group {
     }
 }
 
+#[cfg(unix)]
 impl PartialEq for Group {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }
 
+#[cfg(unix)]
 /// Why and since when a command is being stopped.
 #[derive(Default)]
 struct Stop {
@@ -297,6 +323,7 @@ struct Stop {
     cancelled: bool,
 }
 
+#[cfg(unix)]
 impl Stop {
     fn begun(&self) -> bool {
         self.since.is_some()
@@ -337,6 +364,7 @@ impl Stop {
     }
 }
 
+#[cfg(unix)]
 /// The descriptors still worth waiting on, and whether the exit still is.
 struct Watch<'a> {
     exit: bool,
@@ -345,6 +373,7 @@ struct Watch<'a> {
     stdin: Option<BorrowedFd<'a>>,
 }
 
+#[cfg(unix)]
 fn watch<'a>(
     exited: Option<Instant>,
     stdout: &'a Pipe,
@@ -359,6 +388,7 @@ fn watch<'a>(
     }
 }
 
+#[cfg(unix)]
 #[derive(Default)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -371,6 +401,7 @@ struct Ready {
     stdin: bool,
 }
 
+#[cfg(unix)]
 /// An output stream, closed once it ends.
 struct Pipe {
     file: Option<File>,
@@ -378,6 +409,7 @@ struct Pipe {
     captured: Captured,
 }
 
+#[cfg(unix)]
 impl Pipe {
     fn new(pipe: Option<impl Into<OwnedFd>>, cap: Cap) -> io::Result<Self> {
         let file = pipe.map(|pipe| File::from(pipe.into()));
@@ -421,6 +453,7 @@ impl Pipe {
     }
 }
 
+#[cfg(unix)]
 /// The bytes still to write to stdin. It closes once they are written, or
 /// once the command stops reading.
 struct Input<'a> {
@@ -428,6 +461,7 @@ struct Input<'a> {
     bytes: &'a [u8],
 }
 
+#[cfg(unix)]
 impl<'a> Input<'a> {
     fn new(pipe: Option<impl Into<OwnedFd>>, bytes: &'a [u8]) -> io::Result<Self> {
         let file = pipe
@@ -462,5 +496,5 @@ impl<'a> Input<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;

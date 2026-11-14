@@ -5,7 +5,6 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::io::{self, BufRead, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::process::ExitCode;
 use std::thread;
@@ -40,10 +39,9 @@ fn pair(link: &str, file: &Path) -> Result {
     let invite =
         PairingInvite::parse_link(link).map_err(|code| format!("invalid link: {code:?}"))?;
     // The file will hold the device token: create it private before pairing.
-    let mut output = fs::OpenOptions::new()
+    let mut output = muxy_core::files::private_file()
         .write(true)
         .create_new(true)
-        .mode(0o600)
         .open(file)?;
     let (_client, paired) = match Client::pair(&invite, "Example device", DeviceKind::Phone) {
         Ok(paired) => paired,

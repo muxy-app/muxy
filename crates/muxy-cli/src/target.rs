@@ -20,7 +20,10 @@ pub(crate) enum Target {
     },
     /// The server on another computer. The TUI still keeps its layouts in the
     /// local profile.
-    Ssh { profile: PathBuf, host: SshTarget },
+    Ssh {
+        profile: PathBuf,
+        host: Box<SshTarget>,
+    },
 }
 
 impl Target {
@@ -28,7 +31,10 @@ impl Target {
     pub(crate) fn new(host: Option<SshTarget>) -> io::Result<Self> {
         let profile = muxy_core::dirs::muxy_dir()?;
         Ok(match host {
-            Some(host) => Self::Ssh { profile, host },
+            Some(host) => Self::Ssh {
+                profile,
+                host: Box::new(host),
+            },
             None => Self::Local {
                 profile,
                 executable: muxy_client::local::server_executable()?,

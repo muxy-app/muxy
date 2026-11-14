@@ -1,4 +1,6 @@
-use super::servers::{connect_remote, entry, page, work};
+#[cfg(not(windows))]
+use super::servers::work;
+use super::servers::{connect_remote, entry, page};
 use super::*;
 use muxy_protocol::{ProjectSession, ProjectSessions, SessionStatus};
 
@@ -10,6 +12,7 @@ fn info(project: ProjectId, id: u64) -> SessionInfo {
     }
 }
 
+#[cfg(not(windows))]
 fn asked_for_sessions(
     requests: &std::sync::mpsc::Receiver<(u64, Work)>,
     project: ProjectId,
@@ -103,6 +106,7 @@ fn two_servers_in(
     (view, cx, requests, remotes, home)
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn every_servers_projects_are_listed_and_only_this_computers_are_searched_for_other_clients(
     cx: &mut TestAppContext,
@@ -375,6 +379,7 @@ fn hiding_other_servers_leaves_only_this_computer_in_the_sidebar(cx: &mut TestAp
     });
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn a_disconnected_servers_empty_terminal_offers_connect(cx: &mut TestAppContext) {
     let (remote, api) = (ServerId::new(), ProjectId::new());
@@ -432,6 +437,7 @@ fn each_server_counts_its_own_projects_without_tabs(cx: &mut TestAppContext) {
     );
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn editing_a_disconnected_servers_project_connects_it(cx: &mut TestAppContext) {
     let (remote, api) = (ServerId::new(), ProjectId::new());
@@ -517,6 +523,7 @@ fn settings_and_going_back_expand_the_server_they_open_on(cx: &mut TestAppContex
     });
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn the_agents_panel_shows_every_servers_agents(cx: &mut TestAppContext) {
     let (remote, api) = (ServerId::new(), ProjectId::new());

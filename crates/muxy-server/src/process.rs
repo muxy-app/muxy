@@ -9,10 +9,51 @@ const FALLBACK_SHELL: &str = "/bin/zsh";
 const FALLBACK_SHELL: &str = "/bin/sh";
 
 /// `$SHELL` when it names an executable file, otherwise the system's default shell.
+#[cfg(unix)]
 pub(crate) fn user_shell() -> PathBuf {
     shell_or_fallback(std::env::var_os("SHELL"))
 }
 
+/// `SHELL` when it names an existing `.exe`, then `pwsh.exe` on `PATH`, then
+/// `powershell.exe` from the system.
+#[cfg(windows)]
+pub(crate) fn user_shell() -> PathBuf {
+    windows_shell(
+        std::env::var_os("SHELL"),
+        std::env::var_os("PATH"),
+        std::env::var_os("SystemRoot"),
+    )
+}
+
+#[cfg(windows)]
+fn windows_shell(
+    inherited: Option<OsString>,
+    path: Option<OsString>,
+    system_root: Option<OsString>,
+) -> PathBuf {
+    inherited
+        .map(PathBuf::from)
+        .filter(|shell| {
+            shell.is_absolute()
+                && shell
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+                && is_executable(shell)
+        })
+        .or_else(|| {
+            find_executable(
+                "pwsh.exe",
+                std::env::split_paths(&path.unwrap_or_default())
+                    .filter(|folder| folder.is_absolute()),
+            )
+        })
+        .unwrap_or_else(|| {
+            PathBuf::from(system_root.unwrap_or_else(|| r"C:\Windows".into()))
+                .join(r"System32\WindowsPowerShell\v1.0\powershell.exe")
+        })
+}
+
+#[cfg(unix)]
 fn shell_or_fallback(inherited: Option<OsString>) -> PathBuf {
     inherited
         .map(PathBuf::from)
@@ -33,11 +74,18 @@ pub(crate) fn find_executable(
         .find(|path| is_executable(path))
 }
 
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     path.is_file() && rustix::fs::access(path, rustix::fs::Access::EXEC_OK).is_ok()
 }
 
-#[cfg(test)]
+/// Windows has no execute permission; any file counts.
+#[cfg(windows)]
+fn is_executable(path: &Path) -> bool {
+    crate::spawn::exists(path)
+}
+
+#[cfg(all(test, unix))]
 mod tests {
     #![allow(
         clippy::unwrap_used,
@@ -108,5 +156,47 @@ mod tests {
         assert_eq!(find_executable("tool", directories()), Some(tool));
         assert_eq!(find_executable("folder", directories()), Some(folder));
         assert_eq!(find_executable("missing", directories()), None);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    #![allow(
+        clippy::unwrap_used,
+        reason = "Tests fail immediately on fixture errors"
+    )]
+    use super::*;
+
+    #[test]
+    fn windows_shell_prefers_an_exe_shell_then_pwsh_on_path() {
+        let root =
+            std::env::temp_dir().join(format!("muxy-shell-{}", muxy_protocol::OperationId::new()));
+        let folder = root.join("bin");
+        std::fs::create_dir_all(&folder).unwrap();
+        let system = OsString::from(r"C:\Windows");
+        let fallback = PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe");
+        assert_eq!(
+            windows_shell(None, Some(folder.clone().into()), Some(system.clone())),
+            fallback
+        );
+        std::fs::write(folder.join("pwsh.exe"), "").unwrap();
+        assert_eq!(
+            windows_shell(None, Some(folder.clone().into()), Some(system.clone())),
+            folder.join("pwsh.exe")
+        );
+        let script = root.join("shell.cmd");
+        std::fs::write(&script, "").unwrap();
+        assert_eq!(
+            windows_shell(Some(script.into()), None, Some(system.clone())),
+            fallback,
+            "SHELL is ignored unless it names an existing .exe"
+        );
+        let shell = root.join("nu.exe");
+        std::fs::write(&shell, "").unwrap();
+        assert_eq!(
+            windows_shell(Some(shell.clone().into()), None, Some(system)),
+            shell
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

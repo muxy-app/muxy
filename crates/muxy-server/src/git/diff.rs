@@ -1,4 +1,4 @@
-use super::{Result, command, error, read, safe_path};
+use super::{Result, command, error, path, read, safe_path};
 use muxy_protocol::{GitDiff, GitDiffKind, GitDiffRequest, GitDiffRow, GitRawDiff, GitReply};
 use std::ffi::OsString;
 use std::path::Path;
@@ -49,7 +49,7 @@ pub(super) fn read(repository: &Path, request: &GitDiffRequest) -> Result<GitRep
         args.push("/dev/null".into());
     }
     if let Some(relative) = &request.path {
-        args.push(relative.as_path().as_os_str().to_owned());
+        args.push(path(relative)?.into_os_string());
     }
     let (bytes, truncated) = command::diff(repository, &args, no_index)?;
     let raw = bounded(&bytes, truncated, request.line_limit);

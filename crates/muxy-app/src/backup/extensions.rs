@@ -197,15 +197,20 @@ fn remove_dir(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Keeps only relative links that stay inside `root`, and only regular files.
+/// Keeps only regular files, and on Unix relative links that stay inside
+/// `root`. Windows needs a privilege to make links, so it drops them.
+#[cfg_attr(windows, allow(clippy::only_used_in_recursion))]
 fn copy(from: &Path, to: &Path, root: &Path, dropped: &mut usize) -> io::Result<()> {
     let metadata = fs::symlink_metadata(from)?;
     if metadata.file_type().is_symlink() {
-        let target = fs::read_link(from)?;
-        if target.is_relative()
-            && fs::canonicalize(from).is_ok_and(|resolved| resolved.starts_with(root))
+        #[cfg(unix)]
         {
-            return std::os::unix::fs::symlink(target, to);
+            let target = fs::read_link(from)?;
+            if target.is_relative()
+                && fs::canonicalize(from).is_ok_and(|resolved| resolved.starts_with(root))
+            {
+                return std::os::unix::fs::symlink(target, to);
+            }
         }
         *dropped += 1;
         return Ok(());

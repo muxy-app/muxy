@@ -356,6 +356,7 @@ fn what_gets_sent_is_what_was_there_when_the_user_was_asked() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn staging_refuses_what_changed_since_it_was_listed() {
     let linked_files = |change: &str| {
@@ -380,6 +381,7 @@ fn staging_refuses_what_changed_since_it_was_listed() {
     assert!(stage(&link, &files).is_err(), "a linked folder is refused");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_link_doesnt_count_as_a_required_file_and_pipes_are_never_sent() {
     let folder = tempfile::tempdir().unwrap();

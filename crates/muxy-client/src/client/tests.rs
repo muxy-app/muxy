@@ -1,7 +1,7 @@
-use std::os::unix::net::UnixStream;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
+use muxy_protocol::transport::LocalStream;
 use muxy_protocol::wire::{Decoder, Encoder};
 use muxy_protocol::{
     AttachSnapshot, CONTROL, ChannelId, Cursor, Message, Modes, ReplyBody, RequestBody, RequestId,
@@ -15,8 +15,8 @@ const SIZE: Size = Size { cols: 10, rows: 2 };
 const CHANNEL: ChannelId = ChannelId(1);
 
 struct Server {
-    decoder: Decoder<UnixStream>,
-    encoder: Encoder<UnixStream>,
+    decoder: Decoder<LocalStream>,
+    encoder: Encoder<LocalStream>,
 }
 
 impl Server {

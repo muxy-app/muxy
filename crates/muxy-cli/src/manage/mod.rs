@@ -314,12 +314,5 @@ fn path_text(path: &ServerPath) -> String {
     String::from_utf8_lossy(&path.0).into_owned()
 }
 fn absolute(path: &Path) -> Result<PathBuf> {
-    let path = if path == Path::new("~") {
-        PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?)
-    } else if let Ok(rest) = path.strip_prefix("~/") {
-        PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?).join(rest)
-    } else {
-        path.to_owned()
-    };
-    Ok(std::path::absolute(path)?)
+    Ok(std::path::absolute(muxy_core::paths::expand_tilde(path)?)?)
 }

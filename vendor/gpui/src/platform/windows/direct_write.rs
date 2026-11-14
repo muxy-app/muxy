@@ -198,7 +198,8 @@ impl DirectWriteTextSystem {
                 .factory
                 .CreateFontCollectionFromFontSet(&custom_font_set)?
         };
-        let system_ui_font_name = get_system_ui_font_name();
+        let system_ui_font_name =
+            available_system_ui_font(&system_font_collection, get_system_ui_font_name());
 
         Ok(Self(RwLock::new(DirectWriteState {
             components,
@@ -1837,6 +1838,26 @@ fn get_system_ui_font_name() -> SharedString {
         };
         log::info!("Use {} as UI font.", font_family);
         font_family
+    }
+}
+
+/// The system's UI font, or Segoe UI when the system names a family that
+/// DirectWrite doesn't have, such as the `MS Shell Dlg` alias.
+fn available_system_ui_font(
+    collection: &IDWriteFontCollection1,
+    name: SharedString,
+) -> SharedString {
+    let mut index = 0;
+    let mut exists = BOOL(0);
+    // SAFETY: both out pointers are live locals.
+    let found = unsafe {
+        collection.FindFamilyName(&HSTRING::from(name.as_ref()), &mut index, &mut exists)
+    };
+    if found.is_ok() && exists.as_bool() {
+        name
+    } else {
+        log::warn!("{name} is not an installed font family; using Segoe UI.");
+        "Segoe UI".into()
     }
 }
 

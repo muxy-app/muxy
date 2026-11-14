@@ -1,8 +1,7 @@
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fs::{self, File};
-use std::io::Read;
-use std::os::unix::ffi::OsStrExt;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use muxy_app_core::{AppError, AppState, PaneId, ProjectId, ServerId, TabId, WindowBounds, store};
@@ -193,18 +192,19 @@ fn overlapping_save_preserves_the_active_writer_and_previous_state() -> TestResu
     let state = populated()?;
     store::save(fixture.path(), &state)?;
     let old_bytes = fs::read(fixture.path())?;
-    let active_writer = File::create(fixture.temporary())?;
+    let mut active_writer = File::create(fixture.temporary())?;
     active_writer.lock()?;
-    fs::write(fixture.temporary(), "active write")?;
+    active_writer.write_all(b"active write")?;
     let error = store::save(fixture.path(), &state)
         .err()
         .ok_or("overlapping save was accepted")?;
     assert!(
         matches!(error, AppError::Io { source, .. } if source.kind() == std::io::ErrorKind::WouldBlock)
     );
+    // Windows locks are mandatory, so the file is read once the lock is gone.
+    drop(active_writer);
     assert_eq!(fs::read(fixture.temporary())?, b"active write");
     assert_eq!(fs::read(fixture.path())?, old_bytes);
-    drop(active_writer);
     store::save(fixture.path(), &state)?;
     assert_eq!(store::load(fixture.path())?, state);
     Ok(())
@@ -259,7 +259,26 @@ fn older_files_keep_everything_and_move_server_state_to_the_local_entry() -> Tes
         }
         let mut expected = legacy.clone();
         let home = std::env::home_dir().ok_or("home directory")?;
-        expected["projects"][0]["directory"] = json!(home.as_os_str().as_bytes());
+        #[cfg(unix)]
+        let directory = {
+            use std::os::unix::ffi::OsStrExt;
+            json!(home.as_os_str().as_bytes())
+        };
+        #[cfg(windows)]
+        let directory = json!(home.to_str().ok_or("home directory")?);
+        expected["projects"][0]["directory"] = directory;
+        // Windows saves directories as text.
+        #[cfg(windows)]
+        for project in expected["projects"].as_array_mut().ok_or("projects")? {
+            if let Some(bytes) = project["directory"].as_array() {
+                let bytes: Vec<u8> = bytes
+                    .iter()
+                    .map(|byte| byte.as_u64().and_then(|byte| u8::try_from(byte).ok()))
+                    .collect::<Option<_>>()
+                    .ok_or("directory bytes")?;
+                project["directory"] = json!(String::from_utf8(bytes)?);
+            }
+        }
         for key in [
             "projects",
             "quick_terminal",

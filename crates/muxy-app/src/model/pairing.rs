@@ -61,11 +61,14 @@ fn pairing_failure(error: &ClientError) -> String {
 
 /// This computer as the other one lists it among its paired devices.
 fn computer_name() -> String {
+    #[cfg(unix)]
     let name = rustix::system::uname()
         .nodename()
         .to_string_lossy()
         .trim()
         .to_owned();
+    #[cfg(windows)]
+    let name = std::env::var("COMPUTERNAME").unwrap_or_default();
     let mut label = String::new();
     for character in name
         .strip_suffix(".local")

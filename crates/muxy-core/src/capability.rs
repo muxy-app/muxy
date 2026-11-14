@@ -16,10 +16,12 @@ pub enum Feature {
     CommandLineTool,
     Updates,
     AppHiding,
+    BrowserPanes,
+    SshRemotes,
 }
 
 impl Feature {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::ExtensionScripts,
         Self::ExtensionWebviews,
         Self::QuickTerminal,
@@ -28,6 +30,8 @@ impl Feature {
         Self::CommandLineTool,
         Self::Updates,
         Self::AppHiding,
+        Self::BrowserPanes,
+        Self::SshRemotes,
     ];
 
     /// Why a build without a backend for the feature cannot offer it.
@@ -53,6 +57,8 @@ impl Feature {
             }
             Self::Updates => tr!("Automatic updates are not available on this platform yet."),
             Self::AppHiding => tr!("Hiding apps is not available on this platform."),
+            Self::BrowserPanes => tr!("Browser tabs are not available on this platform yet."),
+            Self::SshRemotes => tr!("Remote servers are not available on this platform yet."),
         }
     }
 }
@@ -90,7 +96,7 @@ impl Capability {
     }
 }
 
-const _: () = assert!(Feature::ALL.len() == Feature::AppHiding as usize + 1);
+const _: () = assert!(Feature::ALL.len() == Feature::SshRemotes as usize + 1);
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Capabilities([Capability; Feature::ALL.len()]);

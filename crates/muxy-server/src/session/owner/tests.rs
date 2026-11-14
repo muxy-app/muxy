@@ -25,7 +25,11 @@ impl Fixture {
         let published = Arc::new(crate::session::Published::new(&info, notifier.clone()));
         let terminal = Terminal::new(size, 1024 * 1024)?;
         let pty = Pty::spawn(SpawnRequest {
-            program: "/bin/cat".into(),
+            program: if cfg!(windows) {
+                crate::test_support::shell()
+            } else {
+                "/bin/cat".into()
+            },
             args: Vec::new(),
             cwd: directory,
             env: Vec::new(),
@@ -37,7 +41,11 @@ impl Fixture {
         let owner = Owner {
             metadata: Metadata::new(info.directory.clone()),
             info,
-            pty,
+            shell: Shell {
+                pty,
+                #[cfg(windows)]
+                job: crate::platform::windows::Job::killed_on_drop()?,
+            },
             terminal,
             published,
             activity: Arc::new(crate::activity::Activity::new(notifier)),
@@ -99,8 +107,8 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = self.owner.pty.kill();
-        let _ = self.owner.pty.wait();
+        let _ = self.owner.shell.pty.kill();
+        let _ = self.owner.shell.pty.wait();
     }
 }
 

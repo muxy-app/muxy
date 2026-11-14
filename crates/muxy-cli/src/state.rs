@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use muxy_app_core::{Branch, Direction, Layout, PaneId};
@@ -579,10 +578,7 @@ impl Store {
     /// Loads the layout kept in `directory`, creating the folder, private to
     /// this user, if it is missing.
     pub(crate) fn load(directory: &Path, catalog: &CatalogPage) -> Result<Self> {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(directory)
+        muxy_core::files::private_dir(directory)
             .map_err(|error| format!("Cannot create {}: {error}", directory.display()))?;
         let path = directory.join("tui-state.json");
         let _guard = state_lock(&path)?;
@@ -653,12 +649,11 @@ impl Store {
 }
 
 fn state_lock(path: &Path) -> Result<File> {
-    let file = OpenOptions::new()
+    let file = muxy_core::files::private_file()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(0o600)
         .open(path.with_file_name("tui.lock"))
         .map_err(|error| error.to_string())?;
     muxy_core::file_lock::acquire_file(&file, std::time::Duration::from_secs(2))
@@ -811,10 +806,10 @@ mod tests {
     fn invalid_state_is_reported_without_overwriting_it() -> Result {
         let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
         let path = directory.path().join("tui-state.json");
-        fs::write(&path, b"not json").map_err(|error| error.to_string())?;
+        std::fs::write(&path, b"not json").map_err(|error| error.to_string())?;
         assert!(Store::load(directory.path(), &catalog()).is_err());
         assert_eq!(
-            fs::read(&path).map_err(|error| error.to_string())?,
+            std::fs::read(&path).map_err(|error| error.to_string())?,
             b"not json"
         );
         Ok(())

@@ -265,8 +265,9 @@ fn build_vendored(link_mode: LinkMode, target: &str) {
 
     // Pass -Dtarget only for non-iOS cross targets; native builds let zig
     // auto-detect the host. iOS builds run host-native inside the xcframework
-    // emit, so they must not pass -Dtarget or a global --sysroot.
-    if target != host && ios_platform.is_none() {
+    // emit, so they must not pass -Dtarget or a global --sysroot. Zig's native
+    // Windows default is the GNU ABI, so MSVC is always explicit.
+    if (target != host || target.ends_with("-windows-msvc")) && ios_platform.is_none() {
         let zig_target = zig_target(target);
         build.arg(format!("-Dtarget={zig_target}"));
     }

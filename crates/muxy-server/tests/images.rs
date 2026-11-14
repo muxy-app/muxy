@@ -1,3 +1,6 @@
+//! The fixtures are POSIX shell scripts.
+#![cfg(unix)]
+
 use muxy_protocol::{HistoryCursor, ImageFrame, PlaybackState, ProjectId, Size};
 use muxy_server::{Registry, ServerSettings, SessionCommand, SessionHandle};
 use std::fs;

@@ -171,6 +171,11 @@ impl Published {
         }
     }
 
+    #[cfg(windows)]
+    fn metadata(&self) -> SessionMetadata {
+        self.lock().1.clone()
+    }
+
     pub(crate) fn set_metadata(&self, metadata: SessionMetadata) {
         let mut state = self.lock();
         if state.1 != metadata {
@@ -236,6 +241,12 @@ impl SessionHandle {
             project: self.published.project(),
             ..self.info.clone()
         }
+    }
+
+    /// The title, folder and program the session last reported.
+    #[cfg(windows)]
+    pub(crate) fn metadata(&self) -> SessionMetadata {
+        self.published.metadata()
     }
 
     /// Records that the session belongs to another project now.

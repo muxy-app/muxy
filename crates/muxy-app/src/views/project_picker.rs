@@ -301,9 +301,9 @@ impl ProjectPicker {
                                 SEARCH_RESULT_LIMIT,
                                 &cancelled,
                             );
-                            snapshot
-                                .results
-                                .retain(|result| Path::new(&result.path).is_dir());
+                            snapshot.results.retain(|result| {
+                                Path::new(&path_service::to_native(&result.path)).is_dir()
+                            });
                             snapshot
                         })
                         .await;
@@ -857,7 +857,7 @@ impl AppModel {
                     && self.project_listed(project)
                     && !project.is_remote_home()
             })
-            .map(|project| project.directory.to_string_lossy().into_owned())
+            .map(|project| path_service::from_native(&project.directory.to_string_lossy()))
             .collect()
     }
 
@@ -899,7 +899,7 @@ impl AppModel {
                     } => {
                         model.open_terminal_at(
                             ServerId::local(),
-                            Path::new(&path_service::standardize(path)),
+                            Path::new(&path_service::to_native(&path_service::standardize(path))),
                             cx,
                         );
                     }
@@ -911,7 +911,10 @@ impl AppModel {
                         model.confirm_project_path(path, *create_if_missing, cx);
                     }
                     PickerEvent::ChooseFolder { directory } => {
-                        model.choose_project_folder(PathBuf::from(directory), cx);
+                        model.choose_project_folder(
+                            PathBuf::from(path_service::to_native(directory)),
+                            cx,
+                        );
                     }
                     PickerEvent::Dismiss => model.dismiss_overlay(cx),
                 }),
@@ -1122,7 +1125,7 @@ impl AppModel {
         create_if_missing: bool,
         cx: &mut Context<Self>,
     ) {
-        let path = PathBuf::from(path_service::standardize(path));
+        let path = PathBuf::from(path_service::to_native(&path_service::standardize(path)));
         if !path.exists() && create_if_missing {
             let message = tr!(
                 "Muxy will create \"%@\" and add it as a project.",
@@ -1209,7 +1212,7 @@ impl AppModel {
     }
 
     fn open_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
-        let canonical = folder.canonicalize().ok();
+        let canonical = muxy_core::files::canonicalize(&folder).ok();
         let existing = self
             .state
             .projects()
@@ -1217,7 +1220,7 @@ impl AppModel {
             .find(|project| {
                 project.server_id.is_local()
                     && canonical.is_some()
-                    && project.directory.canonicalize().ok() == canonical
+                    && muxy_core::files::canonicalize(&project.directory).ok() == canonical
             })
             .map(|project| project.id);
         match existing {
@@ -1248,13 +1251,21 @@ impl AppModel {
     }
 
     fn project_at(&self, server: ServerId, path: &str) -> Option<muxy_app_core::ProjectId> {
-        let path = path_service::standardize(path);
+        // Windows folder names ignore case.
+        let key = |path: &str| {
+            let path = path_service::standardize(&path_service::from_native(path));
+            if cfg!(windows) && server == ServerId::local() {
+                path.to_lowercase()
+            } else {
+                path
+            }
+        };
+        let path = key(path);
         self.state
             .projects()
             .iter()
             .find(|project| {
-                project.server_id == server
-                    && path_service::standardize(&project.directory.to_string_lossy()) == path
+                project.server_id == server && key(&project.directory.to_string_lossy()) == path
             })
             .map(|project| project.id)
     }
@@ -1388,16 +1399,11 @@ fn placeholder(purpose: Purpose, remote: Option<&str>, computer: Option<&str>) -
 }
 
 pub(crate) fn display_path(path: &Path) -> String {
-    if let Some(home) = std::env::home_dir()
-        && let Ok(relative) = path.strip_prefix(home)
-    {
-        if relative.as_os_str().is_empty() {
-            "~".into()
-        } else {
-            format!("~/{}", relative.display())
-        }
-    } else {
-        path.to_string_lossy().into_owned()
+    match muxy_core::paths::home_dir() {
+        Ok(home) => muxy_core::paths::shorten_home(path, &home)
+            .to_string_lossy()
+            .into_owned(),
+        Err(_) => path.to_string_lossy().into_owned(),
     }
 }
 

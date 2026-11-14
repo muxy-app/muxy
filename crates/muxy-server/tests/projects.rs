@@ -4,9 +4,10 @@ use muxy_protocol::{
 };
 use muxy_server::{LegacyImport, Registry, ServerSettings};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
+
+mod support;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -21,7 +22,7 @@ impl Fixture {
         let (events, _) = mpsc::channel();
         Ok(Registry::persistent_with_import(
             ServerSettings {
-                default_shell: Some("/bin/sh".into()),
+                default_shell: Some(support::shell()),
                 ..ServerSettings::default()
             },
             events,
@@ -83,13 +84,17 @@ fn exact_identity_duplicate_paths_private_catalog_and_idempotent_mutations() -> 
             .code(),
         ErrorCode::CatalogChanged
     );
-    assert_eq!(
-        fs::metadata(fixture.0.join("sessions/catalog.json"))?
-            .permissions()
-            .mode()
-            & 0o777,
-        0o600
-    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(fixture.0.join("sessions/catalog.json"))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
     drop(registry);
     let reopened = fixture.registry(LegacyImport::default())?;
     let after = reopened.read_catalog(None, None)?;
@@ -153,7 +158,7 @@ fn logo_heavy_catalog_pages_fit_the_wire_and_continue_without_losing_projects() 
     logo.resize(muxy_protocol::MAX_PROJECT_LOGO_BYTES, 0);
     let logo: Arc<[u8]> = logo.into();
     for _ in 0..60 {
-        let mut project = project(Path::new("/tmp"));
+        let mut project = project(&support::folder());
         project.logo = Some(logo.clone());
         registry.mutate_project(&intent(ProjectMutation::Create(project)))?;
     }

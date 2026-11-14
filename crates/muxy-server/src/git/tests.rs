@@ -7,6 +7,7 @@
 use super::*;
 use crate::connection::Connection;
 use muxy_protocol::{Message, OperationId, ProjectDescriptor, ProjectIntent, ProjectMutation};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -23,7 +24,7 @@ impl Repository {
     pub(super) fn new() -> Self {
         let path = std::env::temp_dir().join(format!("muxy-git-{}", OperationId::new()));
         std::fs::create_dir(&path).unwrap();
-        let path = path.canonicalize().unwrap();
+        let path = muxy_core::files::canonicalize(&path).unwrap();
         std::fs::write(path.join(".gitignore"), "target/\n").unwrap();
         for args in [
             &["init", "--quiet", "--initial-branch=main"][..],
@@ -53,7 +54,7 @@ impl Repository {
                 mutation: ProjectMutation::Create(ProjectDescriptor {
                     id: project,
                     home: false,
-                    directory: ServerPath::from(&path),
+                    directory: server_path(&path).unwrap(),
                     name: "Test".into(),
                     icon: None,
                     logo: None,
@@ -116,6 +117,7 @@ fn every_subscriber_shares_one_watch_until_the_last_leaves() {
     assert_eq!(registry.git.watches.watching(), 0);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failed_remote_lookup_waits_before_asking_again() {
     let mut repository = Repository::new();
@@ -161,6 +163,7 @@ fn a_failed_remote_lookup_waits_before_asking_again() {
     assert!(asked() > first);
 }
 
+#[cfg(unix)]
 #[test]
 fn output_past_the_limit_fails_unless_it_may_be_cut_short() {
     let flood = || {
@@ -175,13 +178,14 @@ fn output_past_the_limit_fails_unless_it_may_be_cut_short() {
     assert_eq!((kept, truncated), (vec![0; 10], true));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failing_hook_reports_the_hook_not_git() {
     let repository = Repository::new();
     let project = ProjectDescriptor {
         id: ProjectId::new(),
         home: false,
-        directory: ServerPath::from(&repository.path),
+        directory: server_path(&repository.path).unwrap(),
         name: "Test".into(),
         icon: None,
         logo: None,

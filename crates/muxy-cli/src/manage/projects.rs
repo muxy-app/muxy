@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use muxy_app_core::project_selector::{Mismatch, pick, same_name};
 use muxy_app_core::settings::{Settings, WorktreeSettings};
 use muxy_client::{AddedWorktree, Client};
+use muxy_core::files::canonicalize;
+use muxy_core::paths::path_eq;
 use muxy_protocol::{
     GitWorktree, OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation,
     ProjectPatch, ServerPath, WorktreeAction, WorktreeHook, WorktreeIntent, WorktreeOptions,
@@ -31,7 +33,7 @@ fn select(
     let (path, canonical) = match paths {
         Paths::Local => {
             let path = absolute(Path::new(selector))?;
-            let canonical = path.canonicalize().ok();
+            let canonical = canonicalize(&path).ok();
             (path, canonical)
         }
         Paths::Remote => (PathBuf::from(selector), None),
@@ -39,10 +41,10 @@ fn select(
     let exact = |project: &ProjectDescriptor| {
         let directory = project.directory.as_path().to_path_buf();
         project.name == selector
-            || directory == path
+            || path_eq(&directory, &path)
             || canonical
                 .as_ref()
-                .is_some_and(|path| directory.canonicalize().ok().as_ref() == Some(path))
+                .is_some_and(|path| canonicalize(&directory).ok().as_ref() == Some(path))
     };
     let loose = |project: &ProjectDescriptor| same_name(&project.name, selector);
     match pick(&projects, exact, loose) {
@@ -96,7 +98,7 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
                 make_directory(client, &directory, paths)?;
             }
             if paths == Paths::Local {
-                directory = directory.canonicalize()?;
+                directory = canonicalize(&directory)?;
                 if !directory.is_dir() {
                     return Err("project directory must exist".into());
                 }
@@ -190,9 +192,9 @@ fn existing<'a>(
     projects
         .iter()
         .filter(|project| {
-            let path = project.directory.as_path().to_path_buf();
-            path == directory
-                || (paths == Paths::Local && path.canonicalize().ok().as_deref() == Some(directory))
+            let path = project.directory.as_path();
+            path_eq(path, directory)
+                || (paths == Paths::Local && canonicalize(path).ok().as_deref() == Some(directory))
         })
         .min_by_key(|project| project.parent_id.is_some())
 }
@@ -494,9 +496,12 @@ mod tests {
     #[test]
     fn remote_project_reuse_does_not_follow_local_symlinks() -> Result {
         let directory = tempfile::tempdir()?;
-        let target = directory.path().canonicalize()?;
+        let target = canonicalize(directory.path())?;
         let alias = directory.path().join("alias");
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&target, &alias)?;
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&target, &alias)?;
         let projects = [
             project("Alias", alias.to_str().ok_or("alias path")?),
             project("Target", target.to_str().ok_or("target path")?),

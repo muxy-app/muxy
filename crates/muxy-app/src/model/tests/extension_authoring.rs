@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{Focusable, Modifiers, VisualTestContext};
 use muxy_app_core::extensions::workspace;
@@ -59,7 +59,9 @@ fn call(
     })
     .detach();
     cx.executor().allow_parking();
-    for _ in 0..2_000 {
+    // Validation runs real file checks, which a busy CI runner can take a while over.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
         cx.run_until_parked();
         if let Ok(result) = replied.try_recv() {
             return result;
@@ -290,7 +292,12 @@ fn an_agent_starts_in_a_home_tab_at_the_workspace_with_its_prompt(cx: &mut TestA
             .startup_command(pane)
             .expect("command")
             .to_owned();
-        assert!(command.starts_with("/test/agent '"), "{command}");
+        let start = if cfg!(windows) {
+            "& '/test/agent' '"
+        } else {
+            "/test/agent '"
+        };
+        assert!(command.starts_with(start), "{command}");
         assert!(
             command.contains(&workspace::skill_file(&root).display().to_string()),
             "{command}"

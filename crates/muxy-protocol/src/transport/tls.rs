@@ -1,14 +1,13 @@
 //! TLS 1.3 over TCP for paired devices, pinned to the server's certificate.
 //!
 //! A rustls connection needs exclusive access for both reading and writing, so
-//! one pump thread moves bytes between TLS and one end of a Unix socket pair.
+//! one pump thread moves bytes between TLS and one end of a local socket pair.
 //! The other end is the byte stream callers split, exactly like a local socket.
 
 use std::error::Error;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
-use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -21,16 +20,18 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, Serve
 use rustls::{CertificateError, DigitallySignedStruct, SignatureScheme};
 
 use crate::transport::accepting::Accepting;
-use crate::transport::unix::socket_pair;
-use crate::transport::{ByteStream, Listener, StreamCancellation};
+use crate::transport::unix::{interrupt, shut_down, socket_pair};
+use crate::transport::{ByteStream, Listener, LocalStream, StreamCancellation};
 
 const ALPN: &[u8] = b"muxy/1";
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a pump that has closed its side waits on a peer that went quiet.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 const BUFFER: usize = 64 * 1024;
 const KEEPALIVE_IDLE: Duration = Duration::from_secs(30);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const KEEPALIVE_PROBES: u32 = 3;
+const IDLE: Duration = Duration::from_millis(10);
 
 /// A server certificate and its PKCS#8 private key, both DER encoded.
 #[derive(Clone, Eq, PartialEq)]
@@ -146,8 +147,8 @@ pub fn connect(
 struct PendingTls {
     tcp: TcpStream,
     config: Arc<rustls::ServerConfig>,
-    app: UnixStream,
-    pump: UnixStream,
+    app: LocalStream,
+    pump: LocalStream,
     pumping: Arc<AtomicBool>,
 }
 
@@ -197,16 +198,17 @@ impl ByteStream for PendingTls {
 /// ends at once. Afterwards only the app end closes, so the pump still flushes
 /// what the connection wrote last.
 struct PendingCancellation {
-    app: UnixStream,
+    app: LocalStream,
     tcp: TcpStream,
     pumping: Arc<AtomicBool>,
 }
 
 impl StreamCancellation for PendingCancellation {
     fn cancel(&self) {
-        let _ = self.app.shutdown(Shutdown::Both);
+        shut_down(&self.app);
         if !self.pumping.load(Ordering::Acquire) {
             let _ = self.tcp.shutdown(Shutdown::Both);
+            interrupt(&self.tcp);
         }
     }
 }
@@ -365,7 +367,7 @@ fn remaining(deadline: Instant) -> io::Result<Duration> {
 fn start(
     mut connection: rustls::Connection,
     tcp: TcpStream,
-    pump: UnixStream,
+    pump: LocalStream,
     pumping: &AtomicBool,
 ) -> io::Result<()> {
     tcp.set_nodelay(true)?;
@@ -407,7 +409,7 @@ enum Flow {
 struct Pump {
     tls: rustls::Connection,
     tcp: TcpStream,
-    app: UnixStream,
+    app: LocalStream,
     /// Decrypted bytes not yet accepted by the app end.
     received: Vec<u8>,
     buffer: Vec<u8>,
@@ -444,6 +446,9 @@ impl Pump {
             match self.tls.read_tls(&mut self.tcp) {
                 Ok(0) => self.inbound = Flow::Draining,
                 Ok(_) => {
+                    if self.deadline.is_some() {
+                        self.deadline = Some(Instant::now() + CLOSE_TIMEOUT);
+                    }
                     self.tls
                         .process_new_packets()
                         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -565,7 +570,7 @@ impl Pump {
             descriptors.push(PollFd::new(&self.app, local));
         }
         if descriptors.is_empty() {
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(IDLE);
             return Ok(());
         }
         let timeout = self
@@ -574,6 +579,20 @@ impl Pump {
             .transpose()
             .map_err(io::Error::other)?;
         match rustix::event::poll(&mut descriptors, timeout.as_ref()) {
+            // Windows keeps reporting a hang-up once the peer stops writing,
+            // even while nothing asked for is ready, so wait a little instead.
+            #[cfg(windows)]
+            Ok(ready)
+                if ready > 0
+                    && descriptors.iter().all(|descriptor| {
+                        !descriptor
+                            .revents()
+                            .intersects(PollFlags::IN | PollFlags::OUT)
+                    }) =>
+            {
+                thread::sleep(IDLE);
+                Ok(())
+            }
             Ok(_) | Err(rustix::io::Errno::INTR) => Ok(()),
             Err(error) => Err(error.into()),
         }

@@ -223,7 +223,6 @@ fn connect(endpoint: &RemoteEndpoint) -> Result<Box<dyn ByteStream>, ClientError
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::net::UnixStream;
     use std::sync::mpsc;
     use std::thread;
 
@@ -246,7 +245,7 @@ mod tests {
     fn server(
         features: Vec<Feature>,
     ) -> Result<(Client, mpsc::Receiver<PairRequest>), ClientError> {
-        let (near, far) = UnixStream::pair()?;
+        let (near, far) = muxy_protocol::transport::socket_pair()?;
         let (requests, received) = mpsc::channel();
         thread::spawn(move || -> Result<(), muxy_protocol::wire::WireError> {
             let (read, write) = (far.try_clone()?, far);

@@ -4,6 +4,8 @@
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(windows)]
+mod windows;
 
 #[cfg(any(test, feature = "test-support"))]
 use std::sync::{Arc, Mutex, PoisonError};
@@ -13,6 +15,10 @@ use async_channel::Receiver;
 use async_channel::Sender;
 use muxy_core::capability::Capability;
 
+#[cfg(windows)]
+use self::windows::Service;
+#[cfg(windows)]
+pub use self::windows::{ACTIVATION_ARGUMENT, CAPABILITY, identify_process};
 #[cfg(target_os = "linux")]
 pub use linux::CAPABILITY;
 #[cfg(target_os = "linux")]

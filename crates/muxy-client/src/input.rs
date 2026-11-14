@@ -12,9 +12,10 @@ pub fn paste(text: &str, modes: Modes) -> Vec<u8> {
     bracket(text.into_bytes(), modes)
 }
 
-/// Absolute paths quoted for a shell and separated by spaces, as a paste.
-/// Returns `None` for a path that isn't absolute, holds a NUL byte, or is
-/// longer than `MAX_PATH`.
+/// Absolute paths quoted for a POSIX shell and separated by spaces, as a
+/// paste. Returns `None` for a path that isn't absolute, holds a NUL byte, or
+/// is longer than `MAX_PATH`.
+#[cfg(not(windows))]
 pub fn paths(paths: &[PathBuf], modes: Modes) -> Option<Vec<u8>> {
     let mut text = Vec::new();
     for path in paths {
@@ -48,6 +49,35 @@ pub fn paths(paths: &[PathBuf], modes: Modes) -> Option<Vec<u8>> {
         text.push(b'\'');
     }
     Some(bracket(text, modes))
+}
+
+/// Absolute paths as words of the shell Windows sessions start with, in its
+/// single quotes, separated by spaces, as a paste. That shell reads the curly
+/// single quotes as quotes too. Returns `None` for a path that isn't absolute
+/// or holds a control character.
+#[cfg(windows)]
+pub fn paths(paths: &[PathBuf], modes: Modes) -> Option<Vec<u8>> {
+    let mut words = Vec::new();
+    for path in paths {
+        validate_absolute_path(&ServerPath::from(path)).ok()?;
+        let text = path.to_str()?;
+        if text.chars().any(char::is_control) {
+            return None;
+        }
+        let mut word = String::from("'");
+        for character in text.chars() {
+            if matches!(
+                character,
+                '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}'
+            ) {
+                word.push(character);
+            }
+            word.push(character);
+        }
+        word.push('\'');
+        words.push(word);
+    }
+    Some(bracket(words.join(" ").into_bytes(), modes))
 }
 
 fn bracket(text: Vec<u8>, modes: Modes) -> Vec<u8> {
@@ -85,6 +115,7 @@ mod tests {
         assert!(paste("", modes(true)).is_empty());
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn paths_quote_for_a_shell() {
         let dropped = [PathBuf::from("/tmp/it's"), PathBuf::from("/tmp/a\x1bb")];
@@ -92,6 +123,25 @@ mod tests {
             paths(&dropped, modes(false)).as_deref(),
             Some(b"'/tmp/it'\\''s' $'/tmp/a\\x1bb'".as_slice())
         );
+        assert_eq!(paths(&[PathBuf::from("relative")], modes(false)), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn paths_quote_for_powershell() {
+        let dropped = [
+            PathBuf::from(r"C:\Users\me\it's"),
+            PathBuf::from("C:\\Users\\me\\\u{2019}x y"),
+        ];
+        assert_eq!(
+            paths(&dropped, modes(false)).as_deref(),
+            Some("'C:\\Users\\me\\it''s' 'C:\\Users\\me\\\u{2019}\u{2019}x y'".as_bytes())
+        );
+        assert_eq!(
+            paths(&[PathBuf::from(r"C:\a\x1bb")], modes(false)),
+            Some(b"'C:\\a\\x1bb'".to_vec())
+        );
+        assert_eq!(paths(&[PathBuf::from("C:\\a\x1bb")], modes(false)), None);
         assert_eq!(paths(&[PathBuf::from("relative")], modes(false)), None);
     }
 }

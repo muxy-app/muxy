@@ -3,6 +3,9 @@ use muxy_app_core::Direction;
 use muxy_app_core::settings::ProxySettings;
 use muxy_protocol::Feature;
 
+/// A folder at the root of this computer's file system.
+const TMP: &str = if cfg!(windows) { r"C:\tmp" } else { "/tmp" };
+
 fn proxy(global: bool) -> ProxySettings {
     ProxySettings {
         host: "127.0.0.1".into(),
@@ -255,7 +258,7 @@ fn a_split_made_while_disconnected_keeps_its_folder_and_proxy_after_a_restart(
     let (saved, new) = view.update(cx, |model, cx| {
         model.servers.local.connection = ConnectionState::Ready;
         let mut data = attachment();
-        data.directory = muxy_protocol::ServerPath(b"/tmp".to_vec());
+        data.directory = muxy_protocol::ServerPath::from(TMP);
         model.receive(
             local(
                 1,
@@ -284,7 +287,7 @@ fn a_split_made_while_disconnected_keeps_its_folder_and_proxy_after_a_restart(
         let _ = requests.try_iter().count();
         model.start_attach(new, Size { cols: 80, rows: 24 }, cx);
         let (directory, environment) = new_terminal(&requests, new);
-        assert_eq!(directory, PathBuf::from("/tmp"));
+        assert_eq!(directory, PathBuf::from(TMP));
         assert_eq!(environment["http_proxy"], "http://127.0.0.1:8080");
         assert!(model.pane_uses_proxy(new));
     });

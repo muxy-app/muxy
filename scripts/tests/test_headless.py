@@ -25,6 +25,7 @@ SMOKE = module("smoke-headless")
 
 
 class HeadlessTests(unittest.TestCase):
+    @unittest.skipIf(sys.platform == "win32", "The Linux smoke test checks POSIX file modes")
     def test_smoke_waits_for_the_restarted_servers_socket_not_its_retained_catalog(self):
         profile = None
 
@@ -56,6 +57,7 @@ class HeadlessTests(unittest.TestCase):
         self.assertEqual(spawn.call_count, 2)
         self.assertEqual(wait.call_count, 2)
 
+    @unittest.skipIf(sys.platform == "win32", "The Zig wrapper is a POSIX shell script")
     def test_zig_build_uses_baseline_cpu_and_preserves_other_arguments(self):
         with tempfile.TemporaryDirectory(prefix="zig test ") as temporary:
             zig = Path(temporary) / "real zig"

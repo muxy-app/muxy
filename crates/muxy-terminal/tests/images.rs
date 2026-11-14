@@ -1,6 +1,4 @@
 use std::path::Path;
-use std::sync::mpsc;
-use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -157,6 +155,9 @@ fn kitty_queries_answer_ok_for_the_file_medium() -> Result {
 #[cfg(unix)]
 #[test]
 fn kitty_file_transfer_refuses_fifos_and_folders_without_blocking() -> Result {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
     let folder = tempfile::tempdir()?;
     let fifo = folder.path().join("fifo");
     let status = std::process::Command::new("mkfifo").arg(&fifo).status()?;

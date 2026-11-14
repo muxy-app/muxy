@@ -62,11 +62,13 @@ impl AppModel {
             dark,
             cx,
         ));
-        registry.register(with_shortcut(
-            self,
-            ShortcutId::ShowServers,
-            super::remote_servers::command(self, cx),
-        ));
+        if self.supports(muxy_core::capability::Feature::SshRemotes) {
+            registry.register(with_shortcut(
+                self,
+                ShortcutId::ShowServers,
+                super::remote_servers::command(self, cx),
+            ));
+        }
         self.register_extension_commands(&mut registry);
         self.register_custom_commands(&mut registry);
         registry

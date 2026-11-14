@@ -46,9 +46,10 @@ pub fn validate_path(path: &ServerPath) -> Result<(), ErrorCode> {
     }
 }
 
-/// A place on the server: absolute, without NUL, at most `MAX_PATH` bytes.
+/// A place on the server: absolute on a Unix or a Windows server, without
+/// NUL, at most `MAX_PATH` bytes.
 pub fn validate_absolute_path(path: &ServerPath) -> Result<(), ErrorCode> {
-    if path.0.starts_with(b"/") && bounded(path) {
+    if path.is_absolute() && bounded(path) {
         Ok(())
     } else {
         Err(ErrorCode::BadPath)

@@ -214,7 +214,7 @@ impl Workers {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn with_probe(
         self,
         probe: impl Fn(&SshTarget) -> Result<String, ProbeFailure> + Send + Sync + 'static,
@@ -225,7 +225,7 @@ impl Workers {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn with_run(
         self,
         run: impl Fn(&SshTarget, &str, Option<&std::path::Path>) -> Result<String, String>

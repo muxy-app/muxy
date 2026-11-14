@@ -1,6 +1,5 @@
 //! Headless AI providers. Callers own their prompts and any resulting actions.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -207,8 +206,7 @@ impl Provider {
         let mut directories: Vec<PathBuf> = std::env::var_os("PATH")
             .map(|path| std::env::split_paths(&path).collect())
             .unwrap_or_default();
-        if let Some(home) = std::env::var_os("HOME") {
-            let home = PathBuf::from(home);
+        if let Ok(home) = muxy_core::paths::home_dir() {
             for relative in [
                 ".local/bin",
                 ".npm-global/bin",
@@ -220,7 +218,10 @@ impl Provider {
                 directories.push(home.join(relative));
             }
         }
+        #[cfg(unix)]
         directories.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].map(PathBuf::from));
+        #[cfg(windows)]
+        directories.extend(std::env::var_os("APPDATA").map(|data| PathBuf::from(data).join("npm")));
         if let Some(login) = LOGIN_PATH.get() {
             directories.extend(login.iter().cloned());
         }
@@ -228,7 +229,14 @@ impl Provider {
         directories
     }
 
-    #[cfg(not(test))]
+    /// Windows apps start with the user's whole `PATH`, so only Unix asks a
+    /// login shell for it.
+    #[cfg(all(windows, not(test)))]
+    pub(crate) fn discover() -> Vec<Self> {
+        Self::installed()
+    }
+
+    #[cfg(all(unix, not(test)))]
     pub(crate) fn discover() -> Vec<Self> {
         LOGIN_PATH.get_or_init(|| {
             let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
@@ -297,6 +305,10 @@ impl Provider {
         let executable = self
             .executable_path()
             .ok_or_else(|| tr!("%@ CLI is not installed", self.name).to_string())?;
+        #[cfg(windows)]
+        if let Some(reason) = command_line_problem(&executable, prompt, self.name) {
+            return Err(reason);
+        }
         let mut command = Command::new(executable);
         command
             .args(self.arguments)
@@ -331,11 +343,31 @@ impl Provider {
     }
 }
 
+/// Why Windows can't hand `prompt` to the provider at `executable` on its
+/// command line: a line break in an argument to a `.cmd` or `.bat` launcher,
+/// as npm installs, or a line longer than Windows takes: `cmd.exe` runs those
+/// launchers and takes 8191 characters, other programs 32767.
+#[cfg(windows)]
+fn command_line_problem(executable: &Path, prompt: &str, name: &str) -> Option<String> {
+    let batch = executable.extension().is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+    });
+    let limit = if batch { 7_500 } else { 32_000 };
+    if batch && prompt.contains(['\r', '\n']) {
+        return Some(
+            tr!(
+                "%@ is installed with a command launcher, which Windows can't hand a prompt of several lines to.",
+                name
+            )
+            .to_string(),
+        );
+    }
+    (prompt.encode_utf16().count() > limit)
+        .then(|| tr!("The prompt is too long for Windows to hand to %@.", name).to_string())
+}
+
 fn executable_in(name: &str, search: &[PathBuf]) -> Option<PathBuf> {
-    search.iter().map(|dir| dir.join(name)).find(|path| {
-        path.metadata()
-            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
-    })
+    muxy_core::executable::find_program(search, name)
 }
 
 /// A program installed on this computer, including in the usual folders that
@@ -497,5 +529,21 @@ pub(crate) fn run<T: Send + 'static>(
             .recv()
             .await
             .unwrap_or_else(|_| Err(tr!("AI worker stopped").to_string()))
+    }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn prompts_windows_cannot_pass_are_refused_with_a_reason() {
+        let shim = Path::new(r"C:\npm\codex.CMD");
+        let program = Path::new(r"C:\bin\codex.exe");
+        assert!(command_line_problem(shim, "one line", "Codex").is_none());
+        assert!(command_line_problem(shim, "two\nlines", "Codex").is_some());
+        assert!(command_line_problem(program, "two\nlines", "Codex").is_none());
+        assert!(command_line_problem(program, &"x".repeat(40_000), "Codex").is_some());
     }
 }

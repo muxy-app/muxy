@@ -1,5 +1,4 @@
 use std::collections::{HashSet, VecDeque};
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use gpui::Context;
@@ -113,11 +112,11 @@ pub(super) fn listed(worktree: &GitWorktree, own: &Path, local: bool) -> bool {
 /// A folder the way Git reports it, with symlinks and letter case resolved
 /// on this computer. Another computer's folders can't be resolved here.
 pub(super) fn resolved(directory: &ServerPath, local: bool) -> PathBuf {
-    let path = directory.as_path();
+    let path = directory.as_path().to_path_buf();
     if !local {
-        return path.to_owned();
+        return path;
     }
-    path.canonicalize().unwrap_or_else(|_| path.to_owned())
+    muxy_core::files::canonicalize(&path).unwrap_or(path)
 }
 
 /// Registers the worktrees `root` doesn't show yet and returns the ones it lists.
@@ -154,7 +153,7 @@ pub(super) async fn prune_candidates<
     for (project, directory) in candidates {
         if worktrees.iter().any(|worktree| {
             worktree.registered == Some(project)
-                || worktree.directory.0 == directory.as_os_str().as_bytes()
+                || worktree.directory == ServerPath::from(&directory)
         }) || !folder_gone(project, &directory).await
         {
             continue;
@@ -512,7 +511,8 @@ impl AppModel {
                             && !registered.contains(&project.id)
                             && project.parent_id == Some(root)
                             && project.tabs.is_empty()
-                            && !directories.contains(project.directory.as_os_str().as_bytes())
+                            && !directories
+                                .contains(ServerPath::from(&project.directory).0.as_slice())
                     })
                     .map(|project| project.id)
                     .collect();

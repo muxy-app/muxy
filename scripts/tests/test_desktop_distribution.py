@@ -1,4 +1,3 @@
-import fcntl
 import gzip
 import hashlib
 import importlib.util
@@ -6,10 +5,16 @@ import io
 import json
 import os
 from pathlib import Path
+import sys
 import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
+
+if sys.platform == "win32":
+    raise unittest.SkipTest("Linux desktop installs rely on POSIX locks, links and modes")
+
+import fcntl
 
 ROOT = Path(__file__).resolve().parents[2]
 
