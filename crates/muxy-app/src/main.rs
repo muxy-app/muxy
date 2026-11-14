@@ -14,6 +14,8 @@ mod extensions;
 mod favicon;
 #[cfg(any(target_os = "linux", windows))]
 mod instance;
+#[cfg(test)]
+mod localization_tests;
 mod model;
 mod navigation;
 mod opener;

@@ -215,7 +215,7 @@ fn older_files_keep_everything_and_move_server_state_to_the_local_entry() -> Tes
     let fixture = Fixture::new()?;
     for version in [1, 2] {
         let mut legacy: Value =
-            serde_json::from_str(include_str!("fixtures/desktop-state-v2.json"))?;
+            serde_json::from_str(include_str!("../fixtures/desktop-state-v2.json"))?;
         legacy["version"] = json!(version);
         fixture.write(&legacy)?;
         let state = store::load(fixture.path())?;

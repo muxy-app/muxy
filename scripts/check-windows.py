@@ -23,7 +23,7 @@ PARTS = {
         ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
     ],
     "test": [
-        ["cargo", "test", "--locked", "--workspace", "--all-features", "--timings"],
+        ["cargo", "test", "--locked", "--workspace", "--all-features", "--tests", "--timings"],
     ],
 }
 

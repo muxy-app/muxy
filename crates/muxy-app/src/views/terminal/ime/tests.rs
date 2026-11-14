@@ -1,5 +1,3 @@
-#![cfg(target_os = "linux")]
-
 #[test]
 fn x11_input_method_text_outside_utf8_is_decoded() -> Result<(), xim_ctext::DecodeError> {
     assert_eq!(xim_ctext::compound_text_to_utf8(&[0xDF])?, "ß");

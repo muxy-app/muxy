@@ -15,7 +15,7 @@ SCOPES = (FULL, DESKTOP)
 DESKTOP_CRATES = ("muxy-app", "muxy-ui")
 DESKTOP_TEST = [
     "cargo", "test", "--locked", *(arg for crate in DESKTOP_CRATES for arg in ("-p", crate)),
-    "--all-features", "--timings",
+    "--all-features", "--tests", "--timings",
 ]
 
 

@@ -69,7 +69,7 @@ def main():
     run("cargo", "clean", "-p", "libghostty-vt-sys")
     package_args = [arg for name in selected for arg in ("-p", name)]
     run("cargo", "clippy", "--locked", *package_args, "--all-targets", "--all-features", "--", "-D", "warnings")
-    run("cargo", "test", "--locked", *package_args, "--all-features", "--no-fail-fast")
+    run("cargo", "test", "--locked", *package_args, "--all-features", "--tests", "--no-fail-fast")
     run("cargo", "build", "--locked", "-p", "muxy-cli", "-p", "muxy-server")
     binary = ROOT / "target/debug/muxy"
     for executable in [binary, binary.with_name("muxy-server")]:
