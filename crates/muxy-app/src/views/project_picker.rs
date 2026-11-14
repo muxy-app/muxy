@@ -1251,15 +1251,21 @@ impl AppModel {
     }
 
     fn project_at(&self, server: ServerId, path: &str) -> Option<muxy_app_core::ProjectId> {
-        let path = path_service::standardize(&path_service::from_native(path));
+        // Windows folder names ignore case.
+        let key = |path: &str| {
+            let path = path_service::standardize(&path_service::from_native(path));
+            if cfg!(windows) && server == ServerId::local() {
+                path.to_lowercase()
+            } else {
+                path
+            }
+        };
+        let path = key(path);
         self.state
             .projects()
             .iter()
             .find(|project| {
-                project.server_id == server
-                    && path_service::standardize(&path_service::from_native(
-                        &project.directory.to_string_lossy(),
-                    )) == path
+                project.server_id == server && key(&project.directory.to_string_lossy()) == path
             })
             .map(|project| project.id)
     }
