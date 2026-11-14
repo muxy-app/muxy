@@ -1,5 +1,10 @@
 #[cfg(target_os = "macos")]
-#[allow(unsafe_code, unreachable_pub)]
+#[allow(unsafe_code, dead_code)]
+#[path = "../src/appkit.rs"]
+mod appkit;
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code, unreachable_pub, dead_code)]
 mod adapter {
     include!("../src/native_scroll.rs");
 
@@ -30,7 +35,7 @@ mod adapter {
         window.setTitle(&NSString::from_str("Muxy Native Scroll Probe"));
         let positions = Rc::new(RefCell::new(Vec::new()));
         let received = Rc::clone(&positions);
-        let native = NativeScrollView::new("Muxy Native Scroll Probe", move |position| {
+        let native = NativeScrollView::in_window(window.clone(), move |position| {
             received.borrow_mut().push(position);
         })
         .ok_or("native scroll view missing")?;

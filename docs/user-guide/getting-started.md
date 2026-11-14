@@ -122,7 +122,7 @@ Debian packages and AppImages do not use the in-app updater.
 
 ### Remove
 
-Stop the local server in **Settings → Server**, then quit Muxy. Stopping the
+Stop the local server in **Settings → Servers**, then quit Muxy. Stopping the
 server ends its running terminals. Removal keeps your settings, projects and
 saved session data.
 
@@ -212,8 +212,12 @@ with separate settings and session data.
 
 ## First steps
 
-1. **Add a project.** Choose **Add Project** at the bottom of the sidebar, or
-   press `Cmd+O`, and pick a folder.
+The first launch opens a short welcome tour that sets up the essentials. Skip it
+anytime, and replay it with **Welcome Tour** at the top of Settings. These are the
+basics either way:
+
+1. **Add a project.** Choose **Add Project** in the sidebar, or press `Cmd+O`,
+   and pick a folder.
 2. **Open a terminal.** `Cmd+T` opens a tab in the project. `Cmd+N` opens one
    in Home.
 3. **Split it.** `Cmd+D` splits right, `Cmd+Shift+D` splits down.

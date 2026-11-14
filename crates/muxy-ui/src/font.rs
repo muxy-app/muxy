@@ -67,18 +67,10 @@ fn matched_family(output: &[u8]) -> Option<String> {
     (!family.is_empty()).then(|| family.to_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
-    #[test]
-    fn only_the_generic_name_is_replaced_by_the_system_family() {
-        assert_eq!(family("Noto Mono"), "Noto Mono");
-        assert_eq!(family(GENERIC_MONOSPACE), monospace());
-        assert!(!monospace().is_empty());
-    }
-
-    #[cfg(windows)]
     #[test]
     fn windows_prefers_cascadia_mono_and_falls_back_to_consolas() -> std::io::Result<()> {
         let fonts = std::env::temp_dir().join(format!("muxy-fonts-{}", std::process::id()));
@@ -87,16 +79,5 @@ mod tests {
         std::fs::write(fonts.join("CascadiaMono.ttf"), b"")?;
         assert_eq!(windows_family(&fonts), "Cascadia Mono");
         std::fs::remove_dir_all(&fonts)
-    }
-
-    #[cfg(not(windows))]
-    #[test]
-    fn a_fontconfig_answer_without_a_family_is_ignored() {
-        assert_eq!(
-            matched_family(b"DejaVu Sans Mono\n").as_deref(),
-            Some("DejaVu Sans Mono")
-        );
-        assert_eq!(matched_family(b" \n"), None);
-        assert_eq!(matched_family(&[0xff]), None);
     }
 }

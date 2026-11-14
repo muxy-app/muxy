@@ -3,49 +3,50 @@
     clippy::panic,
     reason = "Test fixtures and assertions fail immediately"
 )]
+
 use super::*;
-use muxy_protocol::{
-    OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation, WorktreeAction,
-    WorktreeIntent,
-};
+use crate::connection::Connection;
+use muxy_protocol::{Message, OperationId, ProjectDescriptor, ProjectIntent, ProjectMutation};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::sync::mpsc;
-mod worktree_concurrency;
-mod worktree_hooks;
-mod worktree_pruning;
+use std::time::{Duration, Instant};
 
-/// Lets Git run `hook`. Git for Windows runs hooks through its own shell,
-/// whatever their mode.
-fn make_executable(hook: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    #[cfg(windows)]
-    let _ = hook;
-}
-
-struct Repo {
-    path: PathBuf,
+pub(super) struct Repository {
+    pub(super) path: PathBuf,
     registry: Registry,
     project: ProjectId,
 }
-impl Repo {
-    fn new(commit: bool) -> Self {
-        let path = std::env::temp_dir().join(format!("muxy-git-test-{}", OperationId::new()));
+
+impl Repository {
+    /// A committed repository that ignores `target/`, with an `origin` that
+    /// can't be reached.
+    pub(super) fn new() -> Self {
+        let path = std::env::temp_dir().join(format!("muxy-git-{}", OperationId::new()));
         std::fs::create_dir(&path).unwrap();
-        run(&path, &["init", "-b", "main"]).unwrap();
-        run(&path, &["config", "user.name", "Test"]).unwrap();
-        run(&path, &["config", "user.email", "test@example.invalid"]).unwrap();
-        run(&path, &["config", "commit.gpgsign", "false"]).unwrap();
-        // Git for Windows turns LF into CRLF on checkout by default.
-        run(&path, &["config", "core.autocrlf", "false"]).unwrap();
-        if commit {
-            run(&path, &["commit", "--allow-empty", "-m", "initial"]).unwrap();
+        let path = muxy_core::files::canonicalize(&path).unwrap();
+        std::fs::write(path.join(".gitignore"), "target/\n").unwrap();
+        for args in [
+            &["init", "--quiet", "--initial-branch=main"][..],
+            &[
+                "-c",
+                "user.name=Muxy",
+                "-c",
+                "user.email=muxy@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--quiet",
+                "--allow-empty",
+                "-m",
+                "Start",
+            ],
+            &["remote", "add", "origin", "/nonexistent/muxy/origin.git"],
+        ] {
+            run(&path, args).unwrap();
         }
         let (send, _) = mpsc::channel();
-        let mut registry = Registry::new(crate::ServerSettings::default(), send);
-        registry.git.hook_config = Some(path.join("machine-worktree.json"));
+        let registry = Registry::new(crate::ServerSettings::default(), send);
         let project = ProjectId::new();
         registry
             .mutate_project(&ProjectIntent {
@@ -69,508 +70,150 @@ impl Repo {
             project,
         }
     }
-    fn git(&self, action: GitAction) -> Result<GitReply> {
-        self.registry.git(&GitRequest {
-            project: self.project,
-            action,
-        })
-    }
-    fn summary(&self) -> muxy_protocol::GitSummary {
-        let GitReply::Summary(Some(s)) = self.git(GitAction::Summary).unwrap() else {
-            panic!()
-        };
-        s
-    }
-    fn create(&self) -> (ProjectId, PathBuf, GitRequest) {
-        let id = ProjectId::new();
-        let directory = self.path.join("checkout");
-        let request = GitRequest {
-            project: self.project,
-            action: GitAction::Worktree(WorktreeIntent {
-                options: None,
-                operation: OperationId::new(),
-                action: WorktreeAction::Create {
-                    project: id,
-                    directory: server_path(&directory).unwrap(),
-                    branch: "feature".into(),
-                    base: Some("main".into()),
-                },
-            }),
-        };
-        self.registry.git(&request).unwrap();
-        (id, directory, request)
-    }
 }
-impl Drop for Repo {
+
+impl Drop for Repository {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.path);
     }
 }
 
 #[test]
-fn unborn_stage_unstage_and_literal_unix_paths() {
-    let repo = Repo::new(false);
-    #[cfg(target_os = "linux")]
-    let relative = ServerPath(b"odd\xff\n[*].txt".to_vec());
-    #[cfg(target_os = "macos")]
-    let relative = ServerPath(b"odd\n[*].txt".to_vec());
-    #[cfg(windows)]
-    let relative = ServerPath(b"odd [x] #.txt".to_vec());
-    std::fs::write(repo.path.join(path(&relative).unwrap()), b"one\ntwo\n").unwrap();
-    assert!(repo.summary().head.is_none());
-    assert_eq!(repo.summary().untracked, 1);
-    repo.git(GitAction::Stage(vec![relative.clone()])).unwrap();
-    assert_eq!(repo.summary().staged, 1);
-    repo.git(GitAction::Unstage(vec![relative.clone()]))
-        .unwrap();
-    assert_eq!(repo.summary().untracked, 1);
-    repo.git(GitAction::Discard(vec![relative.clone()]))
-        .unwrap();
-    assert!(!repo.path.join(path(&relative).unwrap()).exists());
-}
-
-#[test]
-fn discard_validates_the_whole_selection_before_removing_files() {
-    let repo = Repo::new(true);
-    std::fs::write(repo.path.join("keep"), "untracked\n").unwrap();
-    assert!(
-        repo.git(GitAction::Discard(vec![
-            ServerPath(b"keep".to_vec()),
-            ServerPath(b"../outside".to_vec()),
-        ]))
-        .is_err()
-    );
-    assert_eq!(
-        std::fs::read_to_string(repo.path.join("keep")).unwrap(),
-        "untracked\n"
-    );
-}
-
-#[test]
-fn discard_preserves_index_and_rejects_traversal() {
-    let repo = Repo::new(true);
-    let file = ServerPath(b"file".to_vec());
-    std::fs::write(repo.path.join("file"), "staged\n").unwrap();
-    repo.git(GitAction::Stage(vec![file.clone()])).unwrap();
-    std::fs::write(repo.path.join("file"), "unstaged\n").unwrap();
-    assert_eq!(repo.summary().changed, 1);
-    assert_eq!(repo.summary().staged, 1);
-    assert_eq!(repo.summary().unstaged, 1);
-    repo.git(GitAction::Discard(vec![file])).unwrap();
-    assert_eq!(
-        std::fs::read_to_string(repo.path.join("file")).unwrap(),
-        "staged\n"
-    );
-    assert!(
-        repo.git(GitAction::Discard(vec![ServerPath(b"../outside".to_vec())]))
-            .is_err()
-    );
-}
-
-#[test]
-fn worktree_creation_registration_removal_and_retries() {
-    let repo = Repo::new(true);
-    let (id, directory, request) = repo.create();
-    assert_eq!(
-        repo.registry.git(&request).unwrap(),
-        repo.registry.git(&request).unwrap()
-    );
-    assert!(directory.join(".git").is_file());
-    let GitReply::Worktrees(entries) = repo.git(GitAction::Worktrees).unwrap() else {
-        panic!()
-    };
-    assert_eq!(entries.len(), 2);
-    assert!(entries.iter().any(|w| w.registered == Some(id)));
-    let GitReply::Removal(expected) = repo
-        .registry
-        .git(&GitRequest {
-            project: id,
-            action: GitAction::InspectRemoval,
-        })
-        .unwrap()
-    else {
-        panic!()
-    };
-    let remove = GitRequest {
-        project: id,
-        action: GitAction::Worktree(WorktreeIntent {
-            options: None,
-            operation: OperationId::new(),
-            action: WorktreeAction::Remove { expected },
-        }),
-    };
-    repo.registry.git(&remove).unwrap();
-    repo.registry.git(&remove).unwrap();
-    assert!(!directory.exists());
-    assert!(repo.registry.catalog.project(id).is_err());
-    assert!(repo.path.join(".git").exists());
-}
-
-#[test]
-fn creating_a_worktree_in_an_existing_folder_says_so_and_keeps_it() {
-    let repo = Repo::new(true);
-    let taken = repo.path.join("taken");
-    std::fs::create_dir(&taken).unwrap();
-    std::fs::write(taken.join("keep"), "keep me").unwrap();
-    assert!(
-        repo.git(GitAction::Worktree(WorktreeIntent {
-            options: None,
-            operation: OperationId::new(),
-            action: WorktreeAction::Create {
-                project: ProjectId::new(),
-                directory: server_path(&taken).unwrap(),
-                branch: "feature".into(),
-                base: Some("HEAD".into()),
-            },
-        }))
-        .is_err()
-    );
-    assert!(taken.join("keep").exists());
-}
-
-#[test]
-fn stale_dirty_removal_confirmation_preserves_files() {
-    let repo = Repo::new(true);
-    let (id, directory, _) = repo.create();
-    let GitReply::Removal(expected) = repo
-        .registry
-        .git(&GitRequest {
-            project: id,
-            action: GitAction::InspectRemoval,
-        })
-        .unwrap()
-    else {
-        panic!()
-    };
-    std::fs::write(directory.join("new"), "keep me").unwrap();
-    assert!(
-        repo.registry
-            .git(&GitRequest {
-                project: id,
-                action: GitAction::Worktree(WorktreeIntent {
-                    options: None,
-                    operation: OperationId::new(),
-                    action: WorktreeAction::Remove { expected }
-                })
-            })
-            .is_err()
-    );
-    assert!(directory.join("new").exists());
-}
-
-/// Windows can't find processes by working directory; see
-/// `windows_removal_sets_the_folder_aside_only_once_nothing_holds_a_file_in_it`.
-#[cfg(unix)]
-#[test]
-fn removal_stops_local_processes_and_preserves_other_registrations() {
-    let repo = Repo::new(true);
-    let (id, directory, _) = repo.create();
-    let other = ProjectId::new();
-    let parent = repo.registry.catalog.project(repo.project).unwrap();
-    let mut duplicate = parent.clone();
-    duplicate.id = other;
-    repo.registry
-        .mutate_project(&ProjectIntent {
-            operation: OperationId::new(),
-            mutation: ProjectMutation::Create(duplicate),
-        })
-        .unwrap();
-    let child = ProjectId::new();
-    repo.registry
-        .git(&GitRequest {
-            project: other,
-            action: GitAction::Worktree(WorktreeIntent {
-                options: None,
-                operation: OperationId::new(),
-                action: WorktreeAction::Register {
-                    project: child,
-                    directory: server_path(&directory).unwrap(),
-                },
-            }),
-        })
-        .unwrap();
-    let mut process = std::process::Command::new("/bin/sleep")
-        .arg("30")
-        .current_dir(&directory)
-        .spawn()
-        .unwrap();
-    let GitReply::Removal(expected) = repo
-        .registry
-        .git(&GitRequest {
-            project: id,
-            action: GitAction::InspectRemoval,
-        })
-        .unwrap()
-    else {
-        panic!()
-    };
-    let result = repo.registry.git(&GitRequest {
-        project: id,
-        action: GitAction::Worktree(WorktreeIntent {
-            options: None,
-            operation: OperationId::new(),
-            action: WorktreeAction::Remove { expected },
-        }),
-    });
-    let ended = process.try_wait().unwrap().is_some();
-    let _ = process.kill();
-    let _ = process.wait();
-    result.unwrap();
-    assert!(ended);
-    assert!(repo.registry.catalog.project(child).is_ok());
-    assert!(
-        repo.registry
-            .git(&GitRequest {
-                project: child,
-                action: GitAction::Summary
-            })
-            .is_err()
-    );
-}
-
-#[test]
-fn recovery_reconciles_git_success_before_catalog_commit() {
-    let repo = Repo::new(true);
-    let (id, directory, request) = repo.create();
-    let GitAction::Worktree(intent) = &request.action else {
-        panic!()
-    };
-    let mut receipt = repo.registry.catalog.git_receipt(intent.operation).unwrap();
-    repo.registry
-        .mutate_project(&ProjectIntent {
-            operation: OperationId::new(),
-            mutation: ProjectMutation::Delete(id),
-        })
-        .unwrap();
-    receipt.applied = false;
-    receipt.reply = None;
-    repo.registry.catalog.save_git(receipt).unwrap();
-    repo.registry.resume_git();
-    assert!(repo.registry.catalog.project(id).is_ok());
-    assert!(directory.exists());
-    assert_eq!(read::worktrees(&repo.path).unwrap().len(), 2);
-}
-
-#[test]
-fn untracked_directory_and_symlink_traversal_are_never_recursively_deleted() {
-    let repo = Repo::new(true);
-    let outside = repo.path.join("outside");
-    std::fs::create_dir(&outside).unwrap();
-    std::fs::write(outside.join("keep"), "keep").unwrap();
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&outside, repo.path.join("link")).unwrap();
-    #[cfg(windows)]
-    if std::os::windows::fs::symlink_dir(&outside, repo.path.join("link")).is_err() {
-        // Without Developer Mode, a junction is the link Windows allows.
-        assert!(
-            std::process::Command::new("cmd")
-                .args(["/d", "/c", "mklink", "/J"])
-                .arg(repo.path.join("link"))
-                .arg(&outside)
-                .stdout(std::process::Stdio::null())
-                .status()
+fn every_subscriber_shares_one_watch_until_the_last_leaves() {
+    let repository = Repository::new();
+    let registry = &repository.registry;
+    let connections = [
+        Arc::new(Connection::new(Arc::default())),
+        Arc::new(Connection::new(Arc::default())),
+    ];
+    let mut subscriptions: Vec<_> = connections
+        .iter()
+        .map(|connection| {
+            registry
+                .watch_git(repository.project, connection)
                 .unwrap()
-                .success()
-        );
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(registry.git.watches.watching(), 1);
+
+    std::fs::write(repository.path.join("notes.txt"), "changed").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut notified = [false; 2];
+    while notified.contains(&false) && Instant::now() < deadline {
+        for (connection, notified) in connections.iter().zip(&mut notified) {
+            *notified |= connection
+                .take_control()
+                .iter()
+                .any(|message| matches!(message, Message::GitChanged { .. }));
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(safe_path(&repo.path, &ServerPath(b"link/keep".to_vec())).is_err());
-    assert!(
-        repo.git(GitAction::Discard(vec![ServerPath(b"outside".to_vec())]))
-            .is_err()
-    );
-    assert!(outside.join("keep").is_file());
+    assert_eq!(notified, [true; 2]);
+
+    subscriptions.pop();
+    assert_eq!(registry.git.watches.watching(), 1);
+    subscriptions.clear();
+    assert_eq!(registry.git.watches.watching(), 0);
 }
 
-#[test]
-fn checkout_hook_failure_reconciles_the_created_worktree() {
-    let repo = Repo::new(true);
-    let hook = repo.path.join(".git/hooks/post-checkout");
-    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
-    make_executable(&hook);
-    let (id, directory, request) = repo.create();
-    assert!(repo.registry.catalog.project(id).is_ok());
-    assert!(directory.join(".git").exists());
-    assert!(matches!(
-        repo.registry.git(&request).unwrap(),
-        GitReply::Project(_)
-    ));
-}
-
-#[test]
-fn removal_recovery_cleans_up_the_exact_missing_worktree_registration() {
-    let repo = Repo::new(true);
-    let (id, directory, _) = repo.create();
-    let GitReply::Removal(expected) = repo
-        .registry
-        .git(&GitRequest {
-            project: id,
-            action: GitAction::InspectRemoval,
-        })
-        .unwrap()
-    else {
-        panic!()
-    };
-    let intent = WorktreeIntent {
-        options: None,
-        operation: OperationId::new(),
-        action: WorktreeAction::Remove {
-            expected: expected.clone(),
-        },
-    };
-    let receipt = crate::catalog::GitReceipt {
-        owner: id,
-        intent: intent.clone(),
-        project: repo.registry.catalog.project(id).unwrap(),
-        device: expected.device,
-        inode: expected.inode,
-        hooks_started: false,
-        hooks_finished: false,
-        hook_error: None,
-        applied: false,
-        failed: None,
-        reply: None,
-        set_aside: None,
-    };
-    repo.registry.catalog.save_git(receipt).unwrap();
-    std::fs::remove_dir_all(&directory).unwrap();
-    repo.registry.resume_git();
-    assert_eq!(read::worktrees(&repo.path).unwrap().len(), 1);
-    assert!(repo.registry.catalog.project(id).is_err());
-    assert_eq!(
-        repo.registry
-            .git(&GitRequest {
-                project: id,
-                action: GitAction::Worktree(intent)
-            })
-            .unwrap(),
-        GitReply::Done
-    );
-}
-
-/// Replaces the storage folder while the server uses it, which Windows
-/// refuses while files in it are open.
 #[cfg(unix)]
 #[test]
-fn durable_receipts_recover_after_restart_and_recheck_storage_on_replay() {
-    let repo = Repo::new(true);
-    let (id, _, request) = repo.create();
-    let GitAction::Worktree(intent) = &request.action else {
-        panic!()
-    };
-    let mut receipt = repo.registry.catalog.git_receipt(intent.operation).unwrap();
-    receipt.applied = false;
-    receipt.reply = None;
-    let storage = repo.path.join("server-state");
-    std::fs::create_dir(&storage).unwrap();
-    let (send, _) = mpsc::channel();
-    let persistent =
-        Registry::persistent(crate::ServerSettings::default(), send, &storage).unwrap();
-    persistent
-        .mutate_project(&ProjectIntent {
-            operation: OperationId::new(),
-            mutation: ProjectMutation::Create(repo.registry.catalog.project(repo.project).unwrap()),
-        })
-        .unwrap();
-    persistent.catalog.save_git(receipt).unwrap();
-    drop(persistent);
-    let (send, _) = mpsc::channel();
-    let restored = Registry::persistent(crate::ServerSettings::default(), send, &storage).unwrap();
-    assert!(restored.catalog.project(id).is_ok());
-    let moved = repo.path.join("moved-server-state");
-    std::fs::rename(&storage, &moved).unwrap();
-    std::fs::write(&storage, "not a directory").unwrap();
-    assert_eq!(
-        restored.git(&request).unwrap_err().code(),
-        muxy_protocol::ErrorCode::PersistenceFailed
-    );
-    std::fs::remove_file(&storage).unwrap();
-    std::fs::rename(&moved, &storage).unwrap();
-    assert!(matches!(
-        restored.git(&request).unwrap(),
-        GitReply::Project(_)
-    ));
-}
-
-mod extensions;
-mod review;
-
-#[test]
-fn repository_reads_overlap_and_mutations_wait_for_readers() {
-    let repo = Repo::new(true);
-    let lock = repo.registry.git.lock_for(&repo.path).unwrap();
-    let guard = lock.read().unwrap();
-    let repo = &repo;
-    std::thread::scope(|scope| {
-        let (read, completed) = mpsc::channel();
-        scope.spawn(move || {
-            let _ = read.send(repo.git(GitAction::Summary));
-        });
-        let result = completed.recv_timeout(std::time::Duration::from_secs(3));
-        let (write, written) = mpsc::channel();
-        scope.spawn(move || {
-            let _ = write.send(repo.git(GitAction::CreateBranch("parallel".into())));
-        });
-        let early_write = written.recv_timeout(std::time::Duration::from_millis(100));
-        drop(guard);
-        assert!(matches!(
-            result.unwrap().unwrap(),
-            GitReply::Summary(Some(_))
-        ));
-        assert!(early_write.is_err());
-        assert!(matches!(
-            written
-                .recv_timeout(std::time::Duration::from_secs(3))
-                .unwrap()
-                .unwrap(),
-            GitReply::Done
-        ));
-    });
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_removal_sets_the_folder_aside_only_once_nothing_holds_a_file_in_it() {
-    let repo = Repo::new(true);
-    let (id, directory, _) = repo.create();
-    let remove = || {
-        let GitReply::Removal(expected) = repo
+fn a_failed_remote_lookup_waits_before_asking_again() {
+    let mut repository = Repository::new();
+    let calls = repository.path.join("gh-calls");
+    let cli = repository.path.join("gh");
+    std::fs::write(
+        &cli,
+        format!("#!/bin/sh\necho \"$@\" >> '{}'\nexit 1\n", calls.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+    repository.registry.git.github = github::Github::with_cli(cli);
+    let status = |fresh| {
+        let GitReply::Status(status) = repository
             .registry
             .git(&GitRequest {
-                project: id,
-                action: GitAction::InspectRemoval,
+                project: repository.project,
+                action: GitAction::Status {
+                    local: false,
+                    fresh,
+                },
             })
             .unwrap()
         else {
-            panic!()
+            panic!("expected a status");
         };
-        repo.registry.git(&GitRequest {
-            project: id,
-            action: GitAction::Worktree(WorktreeIntent {
-                options: None,
-                operation: OperationId::new(),
-                action: WorktreeAction::Remove { expected },
-            }),
-        })
+        assert!(status.pull_request.is_none());
+        assert!(status.default_branch.is_none());
     };
-    let held = std::fs::File::create(directory.join("held.txt")).unwrap();
+    let asked = || {
+        std::fs::read_to_string(&calls)
+            .unwrap_or_default()
+            .lines()
+            .count()
+    };
+
+    status(false);
+    let first = asked();
+    assert!(first > 0);
+    status(false);
+    assert_eq!(asked(), first);
+    status(true);
+    assert!(asked() > first);
+}
+
+#[cfg(unix)]
+#[test]
+fn output_past_the_limit_fails_unless_it_may_be_cut_short() {
+    let flood = || {
+        let mut command = std::process::Command::new("/bin/sh");
+        command.args(["-c", "head -c 5000000 /dev/zero"]);
+        command
+    };
+    let failed = command::capture(flood()).unwrap_err();
+    assert_eq!(failed.message(), "Git output exceeds the limit");
+    let (kept, truncated) =
+        command::capture_with(flood(), Duration::from_secs(20), Some(10), false).unwrap();
+    assert_eq!((kept, truncated), (vec![0; 10], true));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failing_hook_reports_the_hook_not_git() {
+    let repository = Repository::new();
+    let project = ProjectDescriptor {
+        id: ProjectId::new(),
+        home: false,
+        directory: server_path(&repository.path).unwrap(),
+        name: "Test".into(),
+        icon: None,
+        logo: None,
+        color: "#ffffff".into(),
+        kind: None,
+        parent_id: None,
+    };
+    let failure = |command: &str| {
+        let hook = muxy_protocol::WorktreeHook {
+            command: command.into(),
+            name: Some("Setup".into()),
+            project: true,
+        };
+        hooks::run(&repository.path, &project, "main", &[hook])
+            .unwrap_err()
+            .message()
+            .to_owned()
+    };
     assert_eq!(
-        remove().unwrap_err().message(),
-        "Processes are still using this worktree; files were preserved"
+        failure("echo broken >&2; exit 3"),
+        "Worktree hook failed (Setup): broken"
     );
-    assert!(directory.join("held.txt").exists());
-    assert!(validate_member(&repo.path, &directory).is_ok());
-    assert!(repo.registry.catalog.project(id).is_ok());
-    drop(held);
-    remove().unwrap();
-    assert!(!directory.exists());
-    assert_eq!(read::worktrees(&repo.path).unwrap().len(), 1);
-    assert!(repo.registry.catalog.project(id).is_err());
-    let parent = directory.parent().unwrap();
-    assert!(std::fs::read_dir(parent).unwrap().all(|entry| {
-        !entry
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .contains(".muxy-removing-")
-    }));
+    assert_eq!(
+        failure("exit 3"),
+        "Worktree hook failed (Setup): it exited with code 3"
+    );
+    assert_eq!(
+        failure("head -c 5000000 /dev/zero"),
+        "Worktree hook failed (Setup): its output exceeds 4 MiB"
+    );
 }

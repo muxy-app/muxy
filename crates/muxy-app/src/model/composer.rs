@@ -71,21 +71,19 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         if self.composer.view.is_some() {
             self.close_composer(cx);
             return;
         }
-        self.close_voice(cx);
         self.dismiss_overlay(cx);
         self.open_composer(cx);
         self.blur_webviews(cx);
         if let Some(view) = &self.composer.view {
-            view.focus_handle(cx).focus(window);
+            self.focus_owner.place(&view.focus_handle(cx), window);
         }
-        self.focus_requested = false;
     }
 
     fn place_composer_panel(&mut self, view: &Entity<Composer>, cx: &mut Context<Self>) {
@@ -125,7 +123,6 @@ impl AppModel {
         view.update(cx, |view, _| {
             view.error = error;
             view.sending = self.composer.submission.is_some();
-            view.dictation = self.capabilities.get(Feature::Voice).clone();
         });
         self.place_composer_panel(&view, cx);
         self.composer.subscription = Some(cx.subscribe(&view, |model, _, event, cx| match event {
@@ -164,15 +161,70 @@ impl AppModel {
         cx.notify();
     }
 
+    /// The draft's text: the open composer's, or the one saved for this project.
+    pub(crate) fn composer_text(&self, cx: &gpui::App) -> String {
+        if let Some(view) = &self.composer.view {
+            return view.read(cx).draft.text.clone();
+        }
+        let key = self.composer_key();
+        self.composer
+            .store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .draft(&key)
+            .map(|draft| draft.text.clone())
+            .unwrap_or_default()
+    }
+
+    /// Opens the composer when it is closed and replaces its text.
+    pub(crate) fn set_composer_text(
+        &mut self,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self.composer.view.is_none() {
+            self.toggle_composer(window, cx);
+        }
+        let view = self
+            .composer
+            .view
+            .clone()
+            .ok_or("the composer cannot open now")?;
+        view.update(cx, |view, cx| {
+            let mut draft = view.draft.clone();
+            draft.text = text;
+            view.set_draft(draft, cx);
+        });
+        self.save_composer_draft(cx)
+    }
+
+    /// Sends the open composer's draft as Send does, or with `enter` unset as
+    /// Insert does.
+    pub(crate) fn send_composer(
+        &mut self,
+        enter: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self.composer.view.is_none() {
+            return Err("the composer is closed".into());
+        }
+        if self.composer.submission.is_some() {
+            return Err("the composer is already sending".into());
+        }
+        if self.composer_targets(cx)?.is_empty() {
+            return Err("open a live terminal before sending".into());
+        }
+        self.submit_composer(enter, cx);
+        Ok(())
+    }
+
     pub(crate) fn close_composer(&mut self, cx: &mut Context<Self>) {
         self.dismiss_composer(self.settings.composer.clear_on_close, cx);
     }
 
     pub(super) fn dismiss_composer(&mut self, clear: bool, cx: &mut Context<Self>) {
         self.close_composer_menu(cx);
-        if let Some(view) = &self.composer.view {
-            view.update(cx, Composer::cancel_voice);
-        }
         if clear && let Some(key) = &self.composer.key {
             let result = self
                 .composer
@@ -208,7 +260,7 @@ impl AppModel {
         self.composer.subscription = None;
         self.composer.key = None;
         self.composer.pane = None;
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         cx.notify();
     }
 
@@ -221,15 +273,24 @@ impl AppModel {
             self.open_composer(cx);
         } else if self.composer.pane != self.active_pane() {
             if let Some(view) = &self.composer.view {
-                view.update(cx, Composer::cancel_voice);
+                view.update(cx, |view, cx| {
+                    view.error = None;
+                    cx.notify();
+                });
             }
             self.composer.pane = self.active_pane();
         }
     }
 
     fn composer_changed(&mut self, cx: &mut Context<Self>) {
+        let _ = self.save_composer_draft(cx);
+    }
+
+    /// Saves the open composer's draft, answering the store's error, which
+    /// the composer also shows.
+    fn save_composer_draft(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
         let (Some(key), Some(view)) = (&self.composer.key, &self.composer.view) else {
-            return;
+            return Ok(());
         };
         let draft = view.read(cx).draft.clone();
         let result = {
@@ -242,14 +303,21 @@ impl AppModel {
                 .edit_content(key.clone(), draft.text, draft.file_attachments)
                 .map(|_| store.draft(key).cloned().unwrap_or_default())
         };
-        match result {
-            Ok(draft) => view.update(cx, |view, cx| {
-                view.draft = draft;
-                cx.notify();
-            }),
-            Err(error) => self.composer_error(error.to_string(), cx),
-        }
+        let saved = match result {
+            Ok(draft) => {
+                view.update(cx, |view, cx| {
+                    view.draft = draft;
+                    cx.notify();
+                });
+                Ok(())
+            }
+            Err(error) => {
+                self.composer_error(error.to_string(), cx);
+                Err(error.to_string())
+            }
+        };
         self.save_composer(cx);
+        saved
     }
 
     pub(super) fn save_composer(&mut self, cx: &mut Context<Self>) {
@@ -287,9 +355,6 @@ impl AppModel {
 
     pub(super) fn flush_composer(&mut self, cx: &mut Context<Self>) -> Task<()> {
         self.composer.save = None;
-        if let Some(view) = &self.composer.view {
-            view.update(cx, Composer::cancel_voice);
-        }
         let store = self.composer.store.clone();
         let settings = self.settings.clone();
         let path = self.path.with_file_name("settings.toml");
@@ -563,9 +628,8 @@ impl AppModel {
                 if let Some((_, command)) = selected.and_then(|index| choices.get(index)) {
                     active.update(cx, |view, cx| view.menu_action(*command, cx));
                 }
-                let focus = active.focus_handle(cx);
-                let _ = model.window.update(cx, |_, window, _| focus.focus(window));
-                model.focus_requested = false;
+                model.focus_owner.request(&active.focus_handle(cx));
+                cx.notify();
             });
         })
         .detach();
@@ -586,7 +650,9 @@ impl AppModel {
         {
             self.dismiss_overlay(cx);
         }
-        self.focus_return = None;
+        if let Some(view) = &self.composer.view {
+            self.focus_owner.forget(&view.focus_handle(cx));
+        }
     }
 
     /// The composer's menu, drawn by the app where the system pops up none.
@@ -626,9 +692,8 @@ impl AppModel {
         menu.drops_from = Some(button);
         menu.returns_focus_to = Some(view.focus_handle(cx).downgrade());
         self.overlay_subscription = None;
-        self.overlay = Some(crate::views::overlays::Overlay::Menu(menu));
-        let focus = self.overlay_focus.clone();
-        let _ = self.window.update(cx, |_, window, _| focus.focus(window));
+        self.open_overlay(crate::views::overlays::Overlay::Menu(menu), cx);
+        self.focus_owner.request(&self.overlay_focus);
         cx.notify();
     }
 }
@@ -702,7 +767,7 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
 
 /// Paths quoted for a shell, as a terminal paste.
 fn quoted(paths: &[PathBuf]) -> Option<String> {
-    let bytes = crate::views::terminal::clipboard::paths(paths, Modes::default())?;
+    let bytes = muxy_client::input::paths(paths, Modes::default())?;
     String::from_utf8(bytes).ok()
 }
 
@@ -717,7 +782,8 @@ async fn send_remote(
 ) -> Result<String, String> {
     let (files, session) = model
         .update(cx, |model, cx| {
-            let session = model
+            let (_, session) = model
+                .state
                 .pane_session(pane)
                 .ok_or_else(|| tr!("The terminal closed before sending.").to_string())?;
             Ok::<_, String>((model.remote_files(server, cx)?, session))
@@ -770,10 +836,12 @@ impl AppModel {
         let mut sessions = std::collections::HashSet::new();
         let mut targets = Vec::new();
         for id in requested {
-            let Some((session, attachment, modes)) = self.pane_session(id).and_then(|session| {
-                let pane = self.grids.get(&id)?.view.read(cx);
-                Some((session, pane.attachment()?, pane.grid.as_ref()?.modes))
-            }) else {
+            let Some((session, attachment, modes)) =
+                self.state.pane_session(id).and_then(|(_, session)| {
+                    let pane = self.grids.get(&id)?.view.read(cx);
+                    Some((session, pane.attachment()?, pane.grid.as_ref()?.modes))
+                })
+            else {
                 return Err(
                     tr!("Every target must have a live terminal before sending.").to_string(),
                 );
@@ -794,9 +862,6 @@ impl AppModel {
         cx: &gpui::App,
     ) -> Option<(u64, SubmissionPlan)> {
         let composer = view.read(cx);
-        if composer.recording() {
-            return None;
-        }
         let revision = self
             .composer
             .store
@@ -877,18 +942,18 @@ impl AppModel {
                         let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, cx)).unwrap_or(false);
                         if !current { return Err(tr!("Composer target changed; sending stopped.").to_string()); }
                         match step {
-                            Step::Text(text) => payload.extend(crate::views::terminal::clipboard::paste(text, *modes)),
+                            Step::Text(text) => payload.extend(muxy_client::input::paste(text, *modes)),
                             Step::File(path) if !server.is_local() => {
                                 let remote = send_remote(&model, cx, *pane, server, Upload::Files(vec![path.clone()])).await?;
-                                payload.extend(crate::views::terminal::clipboard::paste(&remote, *modes));
+                                payload.extend(muxy_client::input::paste(&remote, *modes));
                             }
                             Step::File(path) => {
                                 let text = quoted(std::slice::from_ref(path)).ok_or_else(|| tr!("Invalid attachment path").to_string())?;
-                                payload.extend(crate::views::terminal::clipboard::paste(&text, *modes));
+                                payload.extend(muxy_client::input::paste(&text, *modes));
                             }
                             Step::Image(png) if !server.is_local() => {
                                 let remote = send_remote(&model, cx, *pane, server, Upload::Image(png.clone(), "png")).await?;
-                                payload.extend(crate::views::terminal::clipboard::paste(&remote, *modes));
+                                payload.extend(muxy_client::input::paste(&remote, *modes));
                             }
                             Step::Image(png) => {
                                 if !payload.is_empty() { deliver(worker, generation, channel, std::mem::take(&mut payload)).await?; }

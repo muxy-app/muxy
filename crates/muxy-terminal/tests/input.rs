@@ -50,8 +50,8 @@ fn modify_other_keys_and_kitty_modes_encode_press_repeat_release_and_text() -> R
     event.modifiers = KeyModifiers::CTRL;
     assert_eq!(terminal.encode_key(event.clone())?, b"\x01");
     terminal.feed(b"\x1b[>4;2m");
-    // Ghostty preserves C0 shortcuts; modified printable keys use modifyOtherKeys.
-    assert_eq!(terminal.encode_key(event.clone())?, b"\x01");
+    // Like xterm, modifyOtherKeys 2 encodes control-modified characters too.
+    assert_eq!(terminal.encode_key(event.clone())?, b"\x1b[27;5;97~");
     let mut modified = key("h");
     modified.text = "H".into();
     modified.modifiers = KeyModifiers(KeyModifiers::CTRL.0 | KeyModifiers::SHIFT.0);

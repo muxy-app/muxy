@@ -6,10 +6,9 @@ pub mod assets;
 pub(crate) mod host;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod rules;
-#[cfg(target_os = "macos")]
-pub(crate) use macos::parent_view;
 
 use std::path::Path;
+use std::rc::Rc;
 
 use async_channel::Receiver;
 use gpui::{Bounds, CursorStyle, Keystroke, Modifiers, MouseButton, Pixels, Point, Rgba, Window};
@@ -144,20 +143,22 @@ impl NativeWebview {
     pub const DRAWN_BY_APP: bool = backend::DRAWN_BY_APP;
 
     /// Loads `source` with `script` run at the start of each of its documents.
+    /// The engine draws no background of its own, so what the app draws
+    /// behind the page shows until the page paints and wherever it leaves
+    /// its background unset.
     pub fn new(
         window: &Window,
         source: Source,
         script: &str,
         background: Rgba,
-        transparent_background: bool,
     ) -> Result<(Self, Receiver<Event>), String> {
-        backend::NativeWebview::new(window, source, script, background, transparent_background)
+        backend::NativeWebview::new(window, source, script, background)
             .map(|(view, events)| (Self(view), events))
     }
 
     /// Which keys the app takes back from the page: Escape while `modal`, and
     /// `shortcuts` where the system gives the page its keys first.
-    pub fn set_shortcuts(&self, modal: bool, shortcuts: Vec<Keystroke>) {
+    pub fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<Keystroke>>) {
         self.0.set_shortcuts(modal, shortcuts);
     }
 
@@ -176,6 +177,28 @@ impl NativeWebview {
     /// Keeps the pointer from the page, for a drag that crosses it.
     pub fn set_mouse_passthrough(&self, enabled: bool) {
         self.0.set_mouse_passthrough(enabled);
+    }
+
+    /// Where the page takes the pointer, in points from its top left corner.
+    /// Elsewhere the pointer reaches what is under the page. `None` takes it
+    /// everywhere.
+    pub fn set_hit_regions(&self, regions: Option<&[Bounds<Pixels>]>) {
+        self.0.set_hit_regions(regions);
+    }
+
+    /// Moves the page into `window`, keeping it loaded with its state, for a
+    /// pane that is now drawn there. It shows again once synced and made
+    /// visible in that window, and takes the keyboard back on
+    /// [`Self::focus`].
+    pub fn move_to_window(&self, window: &Window) -> Result<(), String> {
+        self.0.move_to_window(window)
+    }
+
+    /// Shows these pages above every other page in their window, the last
+    /// one in front. Pages in different windows are ordered per window.
+    pub fn order_front(views: &[&Self]) {
+        let views: Vec<_> = views.iter().map(|view| &view.0).collect();
+        backend::NativeWebview::order_front(&views);
     }
 
     /// Counts the documents the page has shown. A request or snapshot from an
@@ -217,6 +240,12 @@ impl NativeWebview {
     /// App content drawn above the page, in window coordinates.
     pub fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
         self.0.occlude(occlusions);
+    }
+
+    /// Adds `bounds` to what covers the page this frame, for app content
+    /// drawn after the frame's occlusions were applied, such as a tooltip.
+    pub fn occlude_also(&self, bounds: Bounds<Pixels>) {
+        self.0.occlude_also(bounds);
     }
 
     /// A hidden page stays loaded and stops drawing.

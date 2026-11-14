@@ -6,8 +6,8 @@ use muxy_app_core::settings::WorktreeLocation;
 use muxy_app_core::{ProjectStatus, ServerId};
 use muxy_client::{Client, ClientError};
 use muxy_protocol::{
-    GitAction, GitReply, GitRequest, GitWorktree, OperationId, ProjectId, ReplyBody, ServerPath,
-    WorktreeAction, WorktreeIntent,
+    GitAction, GitRequest, GitWorktree, OperationId, ProjectId, ServerPath, WorktreeAction,
+    WorktreeIntent,
 };
 use muxy_ui::tr;
 
@@ -54,16 +54,7 @@ pub(super) async fn list(
     client: &Client,
     root: ProjectId,
 ) -> Result<Vec<GitWorktree>, ClientError> {
-    let request = GitRequest {
-        project: root,
-        action: GitAction::Worktrees,
-    };
-    match client.git_async(request).await? {
-        GitReply::Worktrees(worktrees) => Ok(worktrees),
-        reply => Err(ClientError::UnexpectedReply(Box::new(ReplyBody::Git(
-            reply,
-        )))),
-    }
+    client.git_worktrees_async(root).await
 }
 
 /// Registers every worktree `root` doesn't show yet. A failure only counts if
@@ -83,18 +74,15 @@ pub(super) async fn register(
         .iter()
         .filter(|worktree| listed(worktree, &own, local) && worktree.registered.is_none())
     {
-        let request = GitRequest {
-            project: root,
-            action: GitAction::Worktree(WorktreeIntent {
-                options: None,
-                operation: OperationId::new(),
-                action: WorktreeAction::Register {
-                    project: ProjectId::new(),
-                    directory: worktree.directory.clone(),
-                },
-            }),
+        let intent = WorktreeIntent {
+            options: None,
+            operation: OperationId::new(),
+            action: WorktreeAction::Register {
+                project: ProjectId::new(),
+                directory: worktree.directory.clone(),
+            },
         };
-        if let Err(error) = client.git_async(request).await {
+        if let Err(error) = client.git_add_worktree_async(root, intent).await {
             failures.push((&worktree.directory, error));
         }
     }
@@ -124,7 +112,7 @@ pub(super) fn listed(worktree: &GitWorktree, own: &Path, local: bool) -> bool {
 /// A folder the way Git reports it, with symlinks and letter case resolved
 /// on this computer. Another computer's folders can't be resolved here.
 pub(super) fn resolved(directory: &ServerPath, local: bool) -> PathBuf {
-    let path = super::remote_files::local_path(directory);
+    let path = directory.as_path().to_path_buf();
     if !local {
         return path;
     }
@@ -165,7 +153,7 @@ pub(super) async fn prune_candidates<
     for (project, directory) in candidates {
         if worktrees.iter().any(|worktree| {
             worktree.registered == Some(project)
-                || worktree.directory == super::remote_files::wire_path(&directory)
+                || worktree.directory == ServerPath::from(&directory)
         }) || !folder_gone(project, &directory).await
         {
             continue;
@@ -189,12 +177,7 @@ fn folder_gone(
     directory: &Path,
 ) -> impl Future<Output = bool> + use<> {
     let here = local.then(|| directory.try_exists().is_ok_and(|exists| !exists));
-    let there = (!local).then(|| {
-        client.files_async(muxy_protocol::FilesRequest {
-            project,
-            action: muxy_protocol::FilesAction::Stat(ServerPath(Vec::new())),
-        })
-    });
+    let there = (!local).then(|| client.file_info_async(project, ServerPath(Vec::new())));
     async move {
         match (here, there) {
             (Some(gone), _) => gone,
@@ -490,7 +473,7 @@ impl AppModel {
             && project.status() == ProjectStatus::Available
             && (self.worktrees_visible(root) || self.git.worktrees.unchecked.contains(&root))
             && !self.state.project_creation_pending(root))
-        .then(|| super::remote_files::wire_path(&project.directory))
+        .then(|| ServerPath::from(&project.directory))
     }
 
     /// Takes the worktrees `root` lists, as `import` returns them.
@@ -528,11 +511,8 @@ impl AppModel {
                             && !registered.contains(&project.id)
                             && project.parent_id == Some(root)
                             && project.tabs.is_empty()
-                            && !directories.contains(
-                                super::remote_files::wire_path(&project.directory)
-                                    .0
-                                    .as_slice(),
-                            )
+                            && !directories
+                                .contains(ServerPath::from(&project.directory).0.as_slice())
                     })
                     .map(|project| project.id)
                     .collect();

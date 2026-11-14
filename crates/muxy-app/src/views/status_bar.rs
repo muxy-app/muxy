@@ -1,11 +1,13 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled, canvas, div, px,
+    AccessibleAction, AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, canvas,
+    div, px,
 };
 use muxy_app_core::extensions::Side;
 use muxy_protocol::{GitAction, GitPullRequestAction, WorktreeAction, WorktreeIntent};
-use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph, Tooltip};
+use muxy_ui::accessibility;
+use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::popover::PopoverAnchor;
 use muxy_ui::tr;
@@ -19,6 +21,10 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
     let m = model.metrics;
     let theme = &model.theme;
     div()
+        .id("project-status-bar")
+        .role(Role::Group)
+        .accessibility_id("project-status-bar")
+        .aria_label(tr!("Status Bar"))
         .debug_selector(|| "project-status-bar".into())
         .flex()
         .flex_none()
@@ -33,10 +39,11 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
                 .flex_grow()
                 .min_w(px(0.0))
                 .items_center()
-                .gap(px(8.0))
+                .gap(m.scaled(8.0))
                 .h_full()
-                .px(px(10.0))
+                .px(m.scaled(10.0))
                 .child(path_chip(model, cx))
+                .children(path_actions(model, cx))
                 .children(git_controls(model, cx))
                 .children(
                     model
@@ -50,11 +57,12 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap(px(8.0))
+                .gap(m.scaled(8.0))
                 .h_full()
-                .px(px(10.0))
+                .px(m.scaled(10.0))
                 .children(update_control(model, cx))
                 .children(super::disconnected::status(model, cx))
+                .child(super::proxy::control(model, cx))
                 .child(super::server_status::control(model, cx))
                 .children(
                     model
@@ -88,19 +96,24 @@ fn update_control(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyEle
     } else {
         theme.accent
     };
-    let label = details.map_or_else(|| tr!("Updates").to_string(), |details| details.label);
+    let label = SharedString::from(
+        details.map_or_else(|| tr!("Updates").to_string(), |details| details.label),
+    );
     let anchor = model.update_anchor();
     Some(
         div()
             .id("beta-update-status")
+            .role(Role::Button)
+            .accessibility_id("beta-update-status")
+            .aria_label(label.clone())
             .debug_selector(|| "beta-update-status".into())
             .relative()
             .flex()
             .flex_none()
             .items_center()
             .h_full()
-            .gap(px(6.0))
-            .pl(px(8.0))
+            .gap(m.scaled(6.0))
+            .pl(m.scaled(8.0))
             .border_l_1()
             .border_color(theme.border)
             .text_color(theme.fg_muted)
@@ -135,12 +148,63 @@ fn update_control(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyEle
     )
 }
 
+/// What a status bar item is called, with the value it's showing.
+fn folder_name(path: &str) -> SharedString {
+    tr!("Folder: %@", path)
+}
+
+fn branch_name(branch: &str) -> SharedString {
+    tr!("Branch: %@", branch)
+}
+
+fn changes_name(changes: &str) -> SharedString {
+    tr!("Git Changes: %@", changes)
+}
+
+fn pull_request_name(number: u64, checks: Option<SharedString>) -> SharedString {
+    let pull_request = tr!("PR #%lld", number);
+    match checks {
+        Some(checks) => format!("{pull_request} · {checks}").into(),
+        None => pull_request,
+    }
+}
+
+/// Opens the menu the folder's right click opens.
+fn path_actions(model: &AppModel, cx: &Context<AppModel>) -> Option<AnyElement> {
+    let project = model.state.current_project();
+    let id = project.id;
+    let local = project.server_id.is_local();
+    (project.status() == muxy_app_core::ProjectStatus::Available).then(|| {
+        super::sidebar::client_button(
+            "status-path-actions",
+            tr!("Actions for %@", tr!("Folder").as_ref()),
+            cx,
+            move |model, position, window, cx| {
+                model.open_menu(path_items(id, local), position, window, cx);
+            },
+        )
+        .into_any_element()
+    })
+}
+
+fn path_items(project: muxy_app_core::ProjectId, local: bool) -> Vec<Item> {
+    let mut items = vec![Item::action(tr!("Copy Path"), Command::CopyPath(project))];
+    if local {
+        items.push(Item::action(
+            crate::opener::reveal_label(),
+            Command::RevealPath(project),
+        ));
+    }
+    items
+}
+
 fn path_chip(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
     let project = model.state.current_project();
     let id = project.id;
     let available = project.status() == muxy_app_core::ProjectStatus::Available;
     let local = project.server_id.is_local();
     let display = model.project_path_label(project);
+    let name = folder_name(&display);
     let count = display.chars().count();
     let display = if count > 40 {
         format!("…{}", display.chars().skip(count - 39).collect::<String>())
@@ -149,12 +213,16 @@ fn path_chip(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
     };
     div()
         .id("status-path")
+        .role(Role::Button)
+        .accessibility_id("status-path")
+        .aria_label(name)
+        .aria_disabled(!(available && local))
         .debug_selector(|| "status-path".into())
         .flex()
         .flex_initial()
         .min_w(px(0.0))
         .items_center()
-        .gap(px(4.0))
+        .gap(model.metrics.scaled(4.0))
         .h_full()
         .text_color(model.theme.fg_muted)
         .when(available, |path| {
@@ -169,14 +237,7 @@ fn path_chip(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
                 .on_mouse_down(
                     MouseButton::Right,
                     cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
-                        let mut items = vec![Item::action(tr!("Copy Path"), Command::CopyPath(id))];
-                        if local {
-                            items.push(Item::action(
-                                crate::opener::reveal_label(),
-                                Command::RevealPath(id),
-                            ));
-                        }
-                        model.open_menu(items, event.position, window, cx);
+                        model.open_menu(path_items(id, local), event.position, window, cx);
                     }),
                 )
         })
@@ -292,25 +353,6 @@ fn git_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Vec<AnyElement>
     controls
 }
 
-pub(super) fn tooltip(
-    text: String,
-    model: &AppModel,
-) -> impl Fn(&mut gpui::Window, &mut gpui::App) -> gpui::AnyView + 'static {
-    let theme = model.theme.clone();
-    move |_, cx| {
-        cx.new(|_| {
-            Tooltip::new(
-                text.clone(),
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
-        })
-        .into()
-    }
-}
-
 #[allow(
     clippy::too_many_lines,
     reason = "Split action button with independent hover targets"
@@ -333,7 +375,9 @@ fn ai_action_chip(
     };
     let m = model.metrics;
     let theme = &model.theme;
-    let label = step.map_or_else(|| action.title(), |step| step.title(action));
+    let label =
+        muxy_ui::l10n::translate(step.map_or_else(|| action.title(), |step| step.title(action)));
+    let title = muxy_ui::l10n::translate(action.title());
     let id = match action {
         AiAction::Commit => "ai-commit-status",
         AiAction::CreatePullRequest => "ai-create-pr-status",
@@ -362,7 +406,7 @@ fn ai_action_chip(
             .flex_none()
             .items_center()
             .h_full()
-            .gap(px(4.0))
+            .gap(m.scaled(4.0))
             .child(
                 canvas(
                     move |bounds, _, _| anchor.set(Some(bounds)),
@@ -374,11 +418,15 @@ fn ai_action_chip(
             .child(
                 div()
                     .id(id)
+                    .role(Role::Button)
+                    .accessibility_id(id)
+                    .aria_label(label.clone())
+                    .aria_disabled(!can_run)
                     .debug_selector(move || id.into())
                     .flex()
                     .items_center()
                     .h_full()
-                    .gap(px(4.0))
+                    .gap(m.scaled(4.0))
                     .text_color(color)
                     .when(can_run, |button| {
                         button
@@ -402,18 +450,22 @@ fn ai_action_chip(
                         div()
                             .text_size(m.font_footnote())
                             .font_weight(FontWeight::MEDIUM)
-                            .child(muxy_ui::l10n::translate(label)),
+                            .child(label),
                     ),
             )
             .child(
                 div()
                     .id(menu_id)
+                    .role(Role::Button)
+                    .accessibility_id(menu_id)
+                    .aria_label(tr!("Choose Provider for %@", title.as_ref()))
+                    .aria_disabled(!menu_enabled)
                     .debug_selector(move || menu_id.into())
                     .flex()
                     .items_center()
                     .justify_center()
                     .h_full()
-                    .px(px(2.0))
+                    .px(m.scaled(2.0))
                     .text_color(menu_color)
                     .when(menu_enabled, |button| {
                         button
@@ -459,14 +511,17 @@ fn progress_label(action: &GitAction) -> Option<SharedString> {
 }
 
 fn progress(label: SharedString, model: &AppModel) -> AnyElement {
-    div()
+    let region = div()
+        .id("git-progress-status")
+        .accessibility_id("git-progress")
         .debug_selector(|| "git-progress".into())
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(4.0))
+        .gap(model.metrics.scaled(4.0))
         .h_full()
-        .text_color(model.theme.fg_muted)
+        .text_color(model.theme.fg_muted);
+    accessibility::announced(region, label.clone(), false)
         .child(super::tab_activity::spinner(
             "git-progress",
             model.metrics.font_caption(),
@@ -513,12 +568,16 @@ fn pull_request_chip(
     };
     div()
         .id("git-pr-status")
+        .role(Role::Button)
+        .accessibility_id("git-pr-status")
+        .aria_label(pull_request_name(number, checks_label.clone()))
+        .aria_disabled(!enabled)
         .debug_selector(|| "git-pr-status".into())
         .relative()
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(4.0))
+        .gap(model.metrics.scaled(4.0))
         .h_full()
         .text_color(color)
         .when(enabled, |chip| {
@@ -559,17 +618,21 @@ fn pull_request_unavailable(model: &AppModel, cx: &mut Context<AppModel>) -> Any
     let project = model.state.current_project().id;
     div()
         .id("git-pr-unavailable")
+        .role(Role::Button)
+        .accessibility_id("git-pr-unavailable")
+        .aria_label(tr!("Retry Pull Request Status"))
+        .aria_description(tr!("Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI."))
         .debug_selector(|| "git-pr-unavailable".into())
         .flex()
         .flex_none()
         .items_center()
         .h_full()
-        .px(px(2.0))
+        .px(model.metrics.scaled(2.0))
         .cursor_pointer()
         .hover(|style| style.text_color(model.theme.fg))
-        .tooltip(tooltip(
+        .tooltip(muxy_ui::components::tooltip(
             tr!("Pull request status is unavailable. Click to retry. GitHub pull requests require an installed and authenticated gh CLI.").to_string(),
-            model,
+            &model.theme,
         ))
         .button_interaction(
             cx.listener(move |model, _, _, cx| model.refresh_pull_request(project, cx)),
@@ -604,14 +667,22 @@ fn repository_chip(
     };
     let project = model.state.current_project().id;
     let color = if enabled { color } else { model.theme.fg_dim };
+    let name = match kind {
+        Kind::Branches => branch_name(&label),
+        Kind::Changes => changes_name(&label),
+    };
     div()
         .id(id)
+        .role(Role::Button)
+        .accessibility_id(id)
+        .aria_label(name)
+        .aria_disabled(!enabled)
         .debug_selector(move || id.into())
         .relative()
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(4.0))
+        .gap(model.metrics.scaled(4.0))
         .h_full()
         .text_color(color)
         .when(enabled, |chip| {
@@ -620,6 +691,12 @@ fn repository_chip(
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |model, _, window, cx| {
+                        model.open_git_picker(project, kind, window, cx);
+                    }),
+                )
+                .on_a11y_action(
+                    AccessibleAction::Click,
+                    super::sidebar::client_press(cx, move |model, window, cx| {
                         model.open_git_picker(project, kind, window, cx);
                     }),
                 )
@@ -640,4 +717,21 @@ fn repository_chip(
                 .child(label),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_item_names_the_value_it_is_showing() {
+        assert_eq!(folder_name("~/code/gamma").as_ref(), "Folder: ~/code/gamma");
+        assert_eq!(branch_name("main").as_ref(), "Branch: main");
+        assert_eq!(changes_name("Clean").as_ref(), "Git Changes: Clean");
+        assert_eq!(pull_request_name(12, None).as_ref(), "PR #12");
+        assert_eq!(
+            pull_request_name(12, Some("1 failing".into())).as_ref(),
+            "PR #12 · 1 failing",
+        );
+    }
 }

@@ -3,15 +3,18 @@ mod owner;
 
 use std::fmt;
 use std::sync::mpsc::{SendError, Sender};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use muxy_protocol::{
-    AttachSnapshot, ChannelId, ExitReason, ForegroundProcess, HistoryCursor, HistoryPage,
-    MetadataEvent, MouseEvent, ScreenFrame, SearchPage, SessionId, SessionInfo, Size,
-    TerminalColors,
+    AttachSnapshot, ChannelId, ExitReason, ForegroundProcess, HistoryCursor, HistoryPage, Message,
+    MetadataEvent, MouseEvent, ProjectId, ScreenFrame, SearchPage, SessionId, SessionInfo,
+    SessionMetadata, SessionProgress, Size, TerminalColors,
 };
 
+use crate::connection::Connection;
 use crate::error::ServerError;
-use owner::OwnerEvent;
+use crate::notifier::Notifier;
+pub(crate) use owner::OwnerEvent;
 
 pub(crate) use owner::start;
 
@@ -54,6 +57,11 @@ pub enum SessionCommand {
         max_rows: u16,
         reply: Sender<Result<HistoryPage, ServerError>>,
     },
+    ImageFrames {
+        image: u32,
+        keys: Vec<u64>,
+        reply: Sender<Result<Vec<muxy_protocol::ImageFrame>, ServerError>>,
+    },
     End,
     Search {
         query: String,
@@ -68,7 +76,7 @@ pub enum SessionCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AttachmentEvent {
     Snapshot {
-        snapshot: AttachSnapshot,
+        snapshot: Box<AttachSnapshot>,
         process: Option<ForegroundProcess>,
     },
     Metadata(MetadataEvent),
@@ -114,15 +122,95 @@ impl fmt::Debug for AttachmentSink {
     }
 }
 
-pub(super) type SharedMetadata = std::sync::Arc<std::sync::Mutex<muxy_protocol::SessionMetadata>>;
+/// A session's progress and metadata as connections last heard them, and
+/// the project it belongs to now.
+///
+/// Changes are pushed while the lock is held, so a connection that starts
+/// referencing the session never receives an older value after a newer one.
+#[derive(Debug)]
+pub(crate) struct Published {
+    session: SessionId,
+    project: Mutex<ProjectId>,
+    state: Mutex<(SessionProgress, SessionMetadata)>,
+    notifier: Arc<Notifier>,
+}
 
-pub(super) type SharedProgress = std::sync::Arc<std::sync::Mutex<muxy_protocol::SessionProgress>>;
+impl Published {
+    pub(crate) fn new(info: &SessionInfo, notifier: Arc<Notifier>) -> Self {
+        Self {
+            session: info.id,
+            project: Mutex::new(info.project),
+            state: Mutex::new((
+                SessionProgress::default(),
+                SessionMetadata {
+                    title: String::new(),
+                    directory: info.directory.clone(),
+                    process: None,
+                },
+            )),
+            notifier,
+        }
+    }
+
+    pub(crate) fn project(&self) -> ProjectId {
+        *self.project.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn set_project(&self, project: ProjectId) {
+        *self.project.lock().unwrap_or_else(PoisonError::into_inner) = project;
+    }
+
+    pub(crate) fn set_progress(&self, progress: SessionProgress) {
+        let mut state = self.lock();
+        if state.0 != progress {
+            state.0 = progress;
+            self.notifier.broadcast(&Message::Progress {
+                session: self.session,
+                progress,
+            });
+        }
+    }
+
+    #[cfg(windows)]
+    fn metadata(&self) -> SessionMetadata {
+        self.lock().1.clone()
+    }
+
+    pub(crate) fn set_metadata(&self, metadata: SessionMetadata) {
+        let mut state = self.lock();
+        if state.1 != metadata {
+            state.1.clone_from(&metadata);
+            self.notifier.broadcast(&Message::SessionMetadata {
+                session: self.session,
+                metadata,
+            });
+        }
+    }
+
+    /// Queues the current state for a connection that just started referencing the session.
+    pub(crate) fn introduce(&self, connection: &Connection) {
+        let state = self.lock();
+        connection.push_control(Message::SessionMetadata {
+            session: self.session,
+            metadata: state.1.clone(),
+        });
+        if state.0 != SessionProgress::default() {
+            connection.push_control(Message::Progress {
+                session: self.session,
+                progress: state.0,
+            });
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, (SessionProgress, SessionMetadata)> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct SessionHandle {
     info: SessionInfo,
-    progress: SharedProgress,
-    metadata: SharedMetadata,
+    published: Arc<Published>,
     commands: Sender<OwnerEvent>,
 }
 
@@ -130,37 +218,40 @@ impl SessionHandle {
     pub(crate) fn new(
         info: SessionInfo,
         commands: Sender<OwnerEvent>,
-        progress: SharedProgress,
-        metadata: SharedMetadata,
+        published: Arc<Published>,
     ) -> Self {
         Self {
             info,
-            progress,
-            metadata,
+            published,
             commands,
         }
     }
 
-    pub(crate) fn metadata(&self) -> muxy_protocol::SessionMetadata {
-        self.metadata
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
-    }
-
-    pub(crate) fn progress(&self) -> muxy_protocol::SessionProgress {
-        *self
-            .progress
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    /// Queues this session's progress and metadata for a connection that just referenced it.
+    pub(crate) fn introduce(&self, connection: &Connection) {
+        self.published.introduce(connection);
     }
 
     pub fn id(&self) -> SessionId {
         self.info.id
     }
 
-    pub fn info(&self) -> &SessionInfo {
-        &self.info
+    pub fn info(&self) -> SessionInfo {
+        SessionInfo {
+            project: self.published.project(),
+            ..self.info.clone()
+        }
+    }
+
+    /// Records that the session belongs to another project now.
+    /// The title, folder and program the session last reported.
+    #[cfg(windows)]
+    pub(crate) fn metadata(&self) -> SessionMetadata {
+        self.published.metadata()
+    }
+
+    pub(crate) fn move_to(&self, project: ProjectId) {
+        self.published.set_project(project);
     }
 
     pub fn send(&self, command: SessionCommand) -> Result<(), ServerError> {
@@ -176,22 +267,13 @@ impl SessionHandle {
     /// A handle whose commands arrive on the returned receiver instead of a session thread.
     #[cfg(test)]
     pub(crate) fn fake() -> (Self, std::sync::mpsc::Receiver<OwnerEvent>) {
-        let directory = muxy_protocol::ServerPath(b"/tmp".to_vec());
+        let info = SessionInfo {
+            project: ProjectId::from_u128(1),
+            id: SessionId::from(std::num::NonZeroU64::MIN),
+            directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+        };
         let (commands, received) = std::sync::mpsc::channel();
-        let handle = Self::new(
-            SessionInfo {
-                project: muxy_protocol::ProjectId::from_u128(1),
-                id: SessionId::from(std::num::NonZeroU64::MIN),
-                directory: directory.clone(),
-            },
-            commands,
-            SharedProgress::default(),
-            std::sync::Arc::new(std::sync::Mutex::new(muxy_protocol::SessionMetadata {
-                title: String::new(),
-                directory,
-                process: None,
-            })),
-        );
-        (handle, received)
+        let published = Arc::new(Published::new(&info, Arc::default()));
+        (Self::new(info, commands, published), received)
     }
 }

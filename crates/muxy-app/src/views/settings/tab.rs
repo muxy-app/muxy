@@ -1,0 +1,752 @@
+use gpui::{
+    AnyElement, App, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, WeakEntity, Window, div,
+};
+
+use muxy_ui::command_palette::{CommandPalette, CommandPaletteEvent};
+use muxy_ui::l10n::translate;
+use muxy_ui::picker::{Picker, PickerConfig, PickerEvent, PickerItem, PickerRow};
+use muxy_ui::tr;
+
+use super::{PickerRequest, SettingsEvent, SettingsView, pickers};
+use crate::model::AppModel;
+use crate::model::preferences::Change;
+use crate::views::{
+    command_palette::Handler,
+    font_picker::{FontEvent, FontPicker},
+    theme_picker, workspace,
+};
+
+pub(crate) enum SettingsOverlay {
+    Themes {
+        picker: Entity<CommandPalette<Handler>>,
+        source: PickerRequest,
+    },
+    Fonts {
+        picker: Entity<FontPicker>,
+        source: PickerRequest,
+    },
+    Providers {
+        picker: Entity<Picker>,
+        source: PickerRequest,
+    },
+}
+
+impl SettingsOverlay {
+    pub(crate) fn source(&self) -> &PickerRequest {
+        match self {
+            Self::Themes { source, .. }
+            | Self::Fonts { source, .. }
+            | Self::Providers { source, .. } => source,
+        }
+    }
+}
+
+pub(crate) struct SettingsTab {
+    pub(super) model: WeakEntity<AppModel>,
+    pub(crate) view: Entity<SettingsView>,
+    pub(crate) overlay: Option<SettingsOverlay>,
+    pub(crate) overlay_view: Entity<crate::views::cached::CachedView<Self>>,
+    overlay_subscription: Option<Subscription>,
+    active: bool,
+    servers_shown: bool,
+    _subscriptions: Vec<Subscription>,
+}
+
+impl SettingsTab {
+    pub(crate) fn new(
+        model: WeakEntity<AppModel>,
+        view: Entity<SettingsView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let events = cx.subscribe_in(&view, window, |root: &mut Self, _, event, window, cx| {
+            root.handle_event(event, window, cx);
+        });
+        let appearance = cx.observe(&view, |root: &mut Self, _, cx| {
+            let view = root.view.read(cx);
+            let theme = view.theme.clone();
+            let metrics = view.metrics;
+            let servers_shown = view.servers_shown();
+            if root.servers_shown != servers_shown {
+                root.servers_shown = servers_shown;
+                let _ = root.model.update(cx, |model, cx| {
+                    model.set_servers_page_open(servers_shown, cx);
+                });
+            }
+            if let Some(overlay) = &root.overlay {
+                match overlay {
+                    SettingsOverlay::Themes { picker, source } => {
+                        let model = root.model.upgrade();
+                        let active =
+                            source
+                                .kind
+                                .theme()
+                                .zip(model)
+                                .map(|((target, dark), model)| {
+                                    theme_picker::current(model.read(cx), target, dark)
+                                });
+                        picker.update(cx, |picker, cx| {
+                            picker.set_appearance(theme, metrics, cx);
+                            if let Some(active) = &active {
+                                picker.set_current(active, cx);
+                            }
+                        });
+                    }
+                    SettingsOverlay::Fonts { picker, .. } => {
+                        picker.update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
+                    }
+                    SettingsOverlay::Providers { .. } => (),
+                }
+            }
+            cx.notify();
+        });
+        let focus_lost = cx.on_focus_lost(window, |root: &mut Self, window, cx| {
+            if root.active {
+                root.focus(window, cx);
+            }
+        });
+        let activation = cx.observe_window_activation(window, |root, window, cx| {
+            if window.is_window_active() && root.active {
+                root.reload_terminal(cx);
+            } else {
+                root.view.update(cx, |view, cx| {
+                    view.cancel_quick_recording(cx);
+                });
+            }
+        });
+        let mut subscriptions = vec![events, appearance, focus_lost, activation];
+        if let Some(model) = model.upgrade() {
+            subscriptions.push(cx.observe(&model, |root: &mut Self, model, cx| {
+                let error = model.read(cx).visible_error().map(str::to_owned);
+                root.view.update(cx, |view, cx| {
+                    if view.errors.get("application") != error.as_ref() {
+                        view.set_error("application", error.as_deref(), cx);
+                    }
+                });
+            }));
+        }
+        Self {
+            model,
+            view,
+            overlay: None,
+            overlay_view: crate::views::cached::CachedView::new(|root, _, cx| root.overlay(cx), cx),
+            overlay_subscription: None,
+            active: false,
+            servers_shown: false,
+            _subscriptions: subscriptions,
+        }
+    }
+
+    pub(crate) fn focus(&self, window: &mut Window, cx: &App) {
+        match &self.overlay {
+            Some(SettingsOverlay::Themes { picker, .. }) => picker.focus_handle(cx).focus(window),
+            Some(SettingsOverlay::Fonts { picker, .. }) => picker.focus_handle(cx).focus(window),
+            Some(SettingsOverlay::Providers { picker, .. }) => {
+                picker.focus_handle(cx).focus(window);
+            }
+            None => {
+                let focus = &self.view.read(cx).focus;
+                if !focus.contains_focused(window, cx) {
+                    focus.focus(window);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn dismiss_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.overlay = None;
+        self.overlay_subscription = None;
+        self.focus(window, cx);
+        cx.notify();
+    }
+
+    fn open_picker(&mut self, request: PickerRequest, window: &mut Window, cx: &mut Context<Self>) {
+        if request.anchor.get().is_none() {
+            return;
+        }
+        let _ = self.model.update(cx, AppModel::flush_preferences);
+        let theme = self.view.read(cx).theme.clone();
+        let metrics = self.view.read(cx).metrics;
+        match request.kind {
+            super::PickerKind::Font(slot) => {
+                let active = self.view.read(cx).active_font(slot);
+                let picker = cx.new(|cx| FontPicker::new(active, theme, metrics, cx));
+                self.overlay_subscription = Some(cx.subscribe_in(
+                    &picker,
+                    window,
+                    move |root, _, event, window, cx| {
+                        if let FontEvent::Selected(name) = event {
+                            root.view
+                                .update(cx, |view, cx| view.select_font(slot, name.clone(), cx));
+                        }
+                        root.dismiss_overlay(window, cx);
+                    },
+                ));
+                self.overlay = Some(SettingsOverlay::Fonts {
+                    picker,
+                    source: request,
+                });
+            }
+            super::PickerKind::Theme(_) | super::PickerKind::QuickTheme(_) => {
+                let Some((target, dark)) = request.kind.theme() else {
+                    return;
+                };
+                let Ok(registry) = self.model.update(cx, |model, cx| match target {
+                    theme_picker::ThemeTarget::App => model.command_registry(dark, cx),
+                    theme_picker::ThemeTarget::QuickTerminal => {
+                        model.reload_themes(cx);
+                        let mut registry = muxy_ui::command_palette::Registry::default();
+                        registry.register(theme_picker::command(model, target, dark, cx));
+                        registry
+                    }
+                }) else {
+                    return;
+                };
+                let picker = cx.new(|cx| CommandPalette::dropdown(registry, theme, metrics, cx));
+                picker.update(cx, |picker, cx| {
+                    picker.open_root_page(target.page_id(), cx);
+                });
+                self.overlay_subscription = Some(cx.subscribe_in(
+                    &picker,
+                    window,
+                    move |root, picker, event, window, cx| {
+                        let keep_open = matches!(event, CommandPaletteEvent::Applied(_));
+                        if !keep_open {
+                            root.dismiss_overlay(window, cx);
+                        }
+                        if let CommandPaletteEvent::Selected(handler)
+                        | CommandPaletteEvent::Applied(handler) = event
+                            && let Some(model) = root.model.upgrade()
+                        {
+                            let workspace = model.read(cx).window;
+                            let handler = handler.clone();
+                            let picker = picker.clone();
+                            cx.defer(move |cx| {
+                                let _ = workspace.update(cx, |_, window, cx| {
+                                    model.update(cx, |model, cx| {
+                                        handler(model, window, cx);
+                                        if keep_open {
+                                            let active = theme_picker::current(model, target, dark);
+                                            picker.update(cx, |picker, cx| {
+                                                picker.set_current(&active, cx);
+                                            });
+                                        }
+                                    });
+                                });
+                            });
+                        }
+                    },
+                ));
+                self.overlay = Some(SettingsOverlay::Themes {
+                    picker,
+                    source: request,
+                });
+            }
+            super::PickerKind::Terminal(id) => self.open_terminal_picker(id, request, window, cx),
+            super::PickerKind::AiProvider(action) => {
+                self.open_provider_picker(action, request, window, cx);
+            }
+            super::PickerKind::ExtensionSidebar => self.open_sidebar_picker(request, window, cx),
+            super::PickerKind::FileOpener => self.open_file_opener_picker(request, window, cx),
+            super::PickerKind::AppLanguage => self.open_app_language_picker(request, window, cx),
+        }
+        cx.notify();
+    }
+
+    fn open_terminal_picker(
+        &mut self,
+        id: &'static str,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let (selected, choices) = super::terminal::choices(view, id);
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover(id, tr!("Search options…")),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = choices
+            .into_iter()
+            .map(|(id, label)| {
+                let mut row = PickerRow::new(id, label);
+                row.current = id == selected;
+                PickerItem::Row(row)
+            })
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    root.view.update(cx, |view, cx| {
+                        view.choose_terminal_option(id, &selection.id, cx);
+                    });
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
+            picker,
+            source: request,
+        });
+    }
+
+    /// Chooses between the built-in sidebar and enabled extension sidebars. A
+    /// chosen sidebar that is no longer available stays listed, disabled.
+    fn open_sidebar_picker(
+        &mut self,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let current = view.snapshot.settings.appearance.extension_sidebar.clone();
+        let mut sidebars = vec![(String::new(), tr!("Built-in").to_string())];
+        sidebars.extend(view.snapshot.sidebars.iter().cloned());
+        let unavailable = !sidebars.iter().any(|(id, _)| *id == current);
+        if unavailable {
+            let label = super::appearance::sidebar_label(&view.snapshot, &current);
+            sidebars.push((current.clone(), label));
+        }
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover("extension-sidebar", tr!("Search sidebars…")),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = sidebars
+            .into_iter()
+            .map(|(id, label)| {
+                let disabled = unavailable && id == current;
+                let mut row = PickerRow::new(id.clone(), label);
+                row.current = id == current;
+                PickerItem::Row(row).disabled(disabled)
+            })
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    let owner = selection.id.to_string();
+                    let _ = root.model.update(cx, |model, cx| {
+                        model.change_preference(Change::ExtensionSidebar(owner), cx);
+                    });
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
+            picker,
+            source: request,
+        });
+    }
+
+    /// Chooses what opens files clicked in a terminal: a built-in opener or
+    /// an enabled extension's.
+    fn open_file_opener_picker(
+        &mut self,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let current = view.snapshot.settings.openers.file.clone();
+        let mut openers: Vec<(String, String)> = super::appearance::FILE_OPENERS
+            .iter()
+            .map(|&(id, label)| (id.to_owned(), translate(label).to_string()))
+            .chain(view.snapshot.file_openers.iter().cloned())
+            .collect();
+        let unavailable = !openers.iter().any(|(id, _)| *id == current);
+        if unavailable {
+            let label = super::appearance::unavailable_file_opener(&current);
+            openers.push((current.clone(), label));
+        }
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover("file-opener", tr!("Search openers…")),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = openers
+            .into_iter()
+            .map(|(id, label)| {
+                let disabled = unavailable && id == current;
+                PickerItem::Row(PickerRow::new(id, label)).disabled(disabled)
+            })
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    let opener = selection.id.to_string();
+                    let _ = root.model.update(cx, |model, cx| {
+                        model.change_preference(Change::FileOpener(opener), cx);
+                    });
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
+            picker,
+            source: request,
+        });
+    }
+
+    /// Chooses English or a language an enabled extension provides. A chosen
+    /// language that is no longer available stays listed, disabled.
+    fn open_app_language_picker(
+        &mut self,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let current = view.snapshot.settings.appearance.language.clone();
+        let mut languages = vec![(String::new(), tr!("English").to_string())];
+        languages.extend(view.snapshot.languages.iter().cloned());
+        let unavailable = !languages.iter().any(|(id, _)| *id == current);
+        if unavailable {
+            let label = super::appearance::language_label(&view.snapshot, &current);
+            languages.push((current.clone(), label));
+        }
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover("app-language", tr!("Search languages…")),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = languages
+            .into_iter()
+            .map(|(id, label)| {
+                let disabled = unavailable && id == current;
+                let mut row = PickerRow::new(id.clone(), label);
+                row.current = id == current;
+                PickerItem::Row(row).disabled(disabled)
+            })
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    let language = selection.id.to_string();
+                    let _ = root.model.update(cx, |model, cx| {
+                        model.change_preference(Change::Language(language), cx);
+                    });
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
+            picker,
+            source: request,
+        });
+    }
+
+    fn open_provider_picker(
+        &mut self,
+        action: crate::repository_actions::Action,
+        request: PickerRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.view.read(cx);
+        let installed = view.snapshot.ai_installed.clone();
+        let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker = cx.new(|cx| {
+            Picker::new(
+                PickerConfig::popover("ai-provider", tr!("Search providers…")),
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let items = std::iter::once(PickerItem::Row(PickerRow::new("", tr!("Auto"))))
+            .chain(crate::ai::PROVIDERS.iter().map(|provider| {
+                let title = if installed.contains(&provider.id) {
+                    SharedString::from(provider.name)
+                } else {
+                    tr!("%@ · Not installed", provider.name)
+                };
+                PickerItem::Row(PickerRow::new(provider.id, title))
+            }))
+            .collect();
+        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        self.overlay_subscription = Some(cx.subscribe_in(
+            &picker,
+            window,
+            move |root, _, event, window, cx| match event {
+                PickerEvent::Confirmed(selection) => {
+                    let id = selection.id.to_string();
+                    let _ = root
+                        .model
+                        .update(cx, |model, cx| model.set_ai_provider(action, &id, cx));
+                    root.dismiss_overlay(window, cx);
+                }
+                PickerEvent::Dismissed => root.dismiss_overlay(window, cx),
+                _ => (),
+            },
+        ));
+        picker.focus_handle(cx).focus(window);
+        self.overlay = Some(SettingsOverlay::Providers {
+            picker,
+            source: request,
+        });
+    }
+
+    pub(crate) fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if self.active == active {
+            return;
+        }
+        self.active = active;
+        let root = cx.weak_entity();
+        cx.defer(move |cx| {
+            let _ = root.update(cx, |root, cx| {
+                if root.active {
+                    root.reload_terminal(cx);
+                } else {
+                    root.overlay = None;
+                    root.overlay_subscription = None;
+                    root.view.update(cx, SettingsView::cancel_quick_recording);
+                    let _ = root.model.update(cx, AppModel::flush_preferences);
+                }
+                cx.notify();
+            });
+        });
+    }
+
+    fn close(&mut self, cx: &mut Context<Self>) {
+        let _ = self.model.update(cx, |model, cx| {
+            if let Some((_, tab)) = model.state.settings_tab() {
+                model.close_tab(tab, cx);
+            }
+        });
+    }
+
+    fn handle_event(&mut self, event: &SettingsEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match event {
+            SettingsEvent::QuickRecording(recording) => {
+                let _ = self
+                    .model
+                    .update(cx, |model, cx| model.record_quick_shortcut(*recording, cx));
+            }
+            SettingsEvent::Backup(action) => self.backup_action(*action, cx),
+            SettingsEvent::PreviewTerminal(id, value) => {
+                let _ = self.model.update(cx, |model, cx| {
+                    model.preview_terminal_preference(id, value, cx);
+                });
+            }
+            SettingsEvent::Change(change) => {
+                let _ = self
+                    .model
+                    .update(cx, |model, cx| model.change_preference(change.clone(), cx));
+            }
+            SettingsEvent::ResetTerminal => {
+                let _ = self.model.update(cx, |model, cx| {
+                    model.confirm_terminal_reset(window.window_handle(), cx);
+                });
+            }
+            SettingsEvent::Picker(kind, anchor) => {
+                self.open_picker(
+                    PickerRequest {
+                        kind: *kind,
+                        anchor: anchor.clone(),
+                    },
+                    window,
+                    cx,
+                );
+            }
+            SettingsEvent::ServerControl { restart } => {
+                let _ = self.model.update(cx, |model, cx| {
+                    model.confirm_server_control(
+                        muxy_app_core::ServerId::local(),
+                        *restart,
+                        window.window_handle(),
+                        cx,
+                    );
+                });
+            }
+            SettingsEvent::OpenLoginItems => {
+                let _ = self.model.update(cx, AppModel::open_login_items);
+            }
+            SettingsEvent::ReadServer => {
+                let _ = self.model.update(cx, AppModel::read_server_settings);
+            }
+            SettingsEvent::CheckExtensionUpdates => {
+                let _ = self.model.update(cx, AppModel::check_extension_updates);
+            }
+            SettingsEvent::CheckForUpdates => {
+                let _ = self
+                    .model
+                    .update(cx, |model, cx| model.check_for_updates(true, cx));
+            }
+            SettingsEvent::Connect => {
+                let _ = self.model.update(cx, AppModel::connect);
+            }
+            SettingsEvent::OpenConfiguration(filename) => {
+                self.open_configuration(filename, cx);
+            }
+            SettingsEvent::DismissProblem => {
+                let _ = self.model.update(cx, AppModel::dismiss_problem);
+            }
+            SettingsEvent::ShowWelcomeTour => {
+                let _ = self.model.update(cx, AppModel::open_onboarding);
+            }
+            SettingsEvent::AskAgent => {
+                let _ = self.model.update(cx, AppModel::open_settings_agent);
+            }
+        }
+    }
+
+    fn reload_terminal(&self, cx: &mut Context<Self>) {
+        if let Ok(Some(error)) = self.model.update(cx, |model, cx| {
+            model.configuration_path("terminal.toml").exists().then(|| {
+                model.reload_configuration(cx);
+                model.configuration_error.clone()
+            })
+        }) {
+            self.view.update(cx, |view, cx| {
+                view.set_error("configuration", error.as_deref(), cx);
+            });
+        }
+    }
+
+    fn open_configuration(&self, filename: &'static str, cx: &mut Context<Self>) {
+        let Ok(path) = self
+            .model
+            .update(cx, |model, _| model.configuration_path(filename))
+        else {
+            return;
+        };
+        cx.spawn(async move |root, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)?;
+                    crate::opener::open_in_text_editor(&path)
+                })
+                .await;
+            let _ = root.update(cx, |root, cx| {
+                root.view.update(cx, |view, cx| {
+                    view.set_error(
+                        "configuration",
+                        result
+                            .err()
+                            .map(|error| {
+                                tr!("Could not open %@: %@", filename, error.to_string())
+                                    .to_string()
+                            })
+                            .as_deref(),
+                        cx,
+                    );
+                });
+            });
+        })
+        .detach();
+    }
+
+    fn overlay(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(overlay) = &self.overlay else {
+            return div().into_any_element();
+        };
+        let picker = match overlay {
+            SettingsOverlay::Themes { picker, .. } => picker.clone().into_any_element(),
+            SettingsOverlay::Fonts { picker, .. } => picker.clone().into_any_element(),
+            SettingsOverlay::Providers { picker, .. } => picker.clone().into_any_element(),
+        };
+        let picker = pickers::dropdown(picker, overlay.source().clone(), cx);
+        Self::actions(cx)
+            .id("settings-tab-picker")
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .child(
+                div()
+                    .id("settings-picker-backdrop")
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(|root, _, window, cx| {
+                        root.dismiss_overlay(window, cx);
+                        cx.stop_propagation();
+                    }))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|root, _, window, cx| {
+                            root.dismiss_overlay(window, cx);
+                            cx.stop_propagation();
+                        }),
+                    ),
+            )
+            .child(picker)
+            .into_any_element()
+    }
+
+    fn actions(cx: &Context<Self>) -> gpui::Div {
+        div()
+            .key_context("SettingsTab")
+            .on_action(cx.listener(|root, _: &super::CloseSettings, _, cx| root.close(cx)))
+            .on_action(
+                cx.listener(|root, _: &workspace::OpenSettings, window, cx| root.focus(window, cx)),
+            )
+            .on_action(
+                cx.listener(|root, _: &workspace::OpenConfiguration, _, cx| {
+                    let file = root.view.read(cx).configuration_file();
+                    root.open_configuration(file, cx);
+                }),
+            )
+    }
+}
+
+impl Render for SettingsTab {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        Self::actions(cx)
+            .id("settings-tab")
+            .relative()
+            .size_full()
+            .overflow_hidden()
+            .child(self.view.clone())
+    }
+}

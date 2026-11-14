@@ -378,7 +378,7 @@ impl Drop for Event<'_> {
     }
 }
 
-#[repr(u32)]
+#[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 #[non_exhaustive]
 #[expect(missing_docs, reason = "self-explanatory")]
@@ -562,7 +562,7 @@ pub enum Key {
 }
 
 /// Key event action type.
-#[repr(u32)]
+#[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 #[non_exhaustive]
 pub enum Action {
@@ -578,7 +578,7 @@ pub enum Action {
 ///
 /// Determines whether the "option" key on macOS is treated as "alt" or not.
 /// See the Ghostty `macos-option-as-alt` configuration option for more details.
-#[repr(u32)]
+#[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 pub enum OptionAsAlt {
     /// Option key is not treated as alt.

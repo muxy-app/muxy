@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use muxy_core::quick_terminal::QuickTerminalShortcut;
+use muxy_core::quick_terminal::{QuickTerminalShortcut, limits};
 use serde::{Deserialize, Serialize};
 
 use crate::settings::{Error, Result};
@@ -13,29 +13,59 @@ pub struct QuickTerminalSettings {
     pub height: u16,
     pub transparency: u8,
     pub blur: u8,
+    pub pinned: bool,
     pub shortcut: QuickTerminalShortcut,
+    /// Empty uses the app's dark theme.
+    pub dark_theme: String,
+    /// Empty uses the app's light theme.
+    pub light_theme: String,
 }
 
 impl Default for QuickTerminalSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            width: 720,
-            height: 430,
-            transparency: 18,
-            blur: 70,
+            width: limits::DEFAULT_WIDTH,
+            height: limits::DEFAULT_HEIGHT,
+            transparency: limits::DEFAULT_TRANSPARENCY,
+            blur: limits::DEFAULT_BLUR,
+            pinned: false,
             shortcut: QuickTerminalShortcut::Unassigned,
+            dark_theme: String::new(),
+            light_theme: String::new(),
         }
     }
 }
 
 impl QuickTerminalSettings {
+    /// The theme chosen for the Quick Terminal, or `None` to use the app's.
+    pub fn theme(&self, dark: bool) -> Option<&str> {
+        let name = if dark {
+            &self.dark_theme
+        } else {
+            &self.light_theme
+        };
+        (!name.is_empty()).then_some(name.as_str())
+    }
+
+    pub fn set_theme(&mut self, dark: bool, name: Option<String>) {
+        let name = name.unwrap_or_default();
+        if dark {
+            self.dark_theme = name;
+        } else {
+            self.light_theme = name;
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         for (name, valid) in [
-            ("width", (480..=1200).contains(&self.width)),
-            ("height", (280..=800).contains(&self.height)),
-            ("transparency", self.transparency <= 55),
-            ("blur", self.blur <= 100),
+            ("width", limits::WIDTH.contains(&self.width)),
+            ("height", limits::HEIGHT.contains(&self.height)),
+            (
+                "transparency",
+                limits::TRANSPARENCY.contains(&self.transparency),
+            ),
+            ("blur", limits::BLUR.contains(&self.blur)),
             (
                 "shortcut",
                 !matches!(self.shortcut, QuickTerminalShortcut::KeyCombo { .. })
@@ -83,7 +113,10 @@ mod tests {
                 height: 600,
                 transparency: 25,
                 blur: 40,
+                pinned: false,
                 shortcut: QuickTerminalShortcut::Unassigned,
+                dark_theme: String::new(),
+                light_theme: String::new(),
             }
         );
         settings.quick_terminal.save(&path).unwrap();
@@ -97,6 +130,51 @@ mod tests {
                 .unwrap()
                 .quick_terminal,
             settings.quick_terminal
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn themes_default_to_the_app_and_round_trip() {
+        let directory =
+            std::env::temp_dir().join(format!("muxy-quick-themes-{}", crate::ProjectId::new()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("settings.toml");
+        let mut settings = QuickTerminalSettings::default();
+        assert_eq!(settings.theme(true), None);
+        assert_eq!(settings.theme(false), None);
+        settings.set_theme(true, Some("Dracula".into()));
+        settings.save(&path).unwrap();
+        let loaded = crate::settings::Settings::load(&path)
+            .unwrap()
+            .quick_terminal;
+        assert_eq!(loaded.theme(true), Some("Dracula"));
+        assert_eq!(loaded.theme(false), None);
+        settings.set_theme(true, None);
+        settings.save(&path).unwrap();
+        let loaded = crate::settings::Settings::load(&path)
+            .unwrap()
+            .quick_terminal;
+        assert_eq!(loaded.theme(true), None);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn pin_round_trips() {
+        let directory =
+            std::env::temp_dir().join(format!("muxy-quick-pinned-{}", crate::ProjectId::new()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("settings.toml");
+        let settings = QuickTerminalSettings {
+            pinned: true,
+            ..QuickTerminalSettings::default()
+        };
+        settings.save(&path).unwrap();
+        assert_eq!(
+            crate::settings::Settings::load(&path)
+                .unwrap()
+                .quick_terminal,
+            settings
         );
         std::fs::remove_dir_all(directory).unwrap();
     }

@@ -25,6 +25,7 @@ pub(crate) fn accept(
             },
         )) => {
             validate_versions(&versions).map_err(ClientError::Invalid)?;
+            server.validate().map_err(ClientError::Invalid)?;
             if versions.iter().any(|version| SUPPORTED.contains(version)) {
                 Ok((server, features))
             } else {
@@ -60,6 +61,27 @@ mod tests {
                 features: vec![Feature(7)],
             },
         )
+    }
+
+    #[test]
+    fn a_server_reporting_too_many_unreadable_files_is_rejected() {
+        let file = muxy_protocol::UnreadableFile {
+            kept_as: "/state/catalog.json.unreadable-1".into(),
+            error: "expected value".into(),
+        };
+        let server = ServerInfo {
+            unreadable: vec![file; muxy_protocol::MAX_UNREADABLE_FILES + 1],
+            ..ServerInfo::current()
+        };
+        let reply = Message::HelloReply {
+            versions: vec![muxy_protocol::CURRENT],
+            server,
+            features: Vec::new(),
+        };
+        assert!(matches!(
+            accept(Ok((CONTROL, reply))),
+            Err(ClientError::Invalid(ErrorCode::BadRequest))
+        ));
     }
 
     #[test]

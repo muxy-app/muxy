@@ -2,8 +2,6 @@ mod background;
 mod block;
 mod box_drawing;
 mod cache;
-#[cfg(test)]
-mod cache_tests;
 mod decoration;
 mod dots;
 mod glyph;
@@ -39,10 +37,6 @@ struct RowPainting {
 
 #[derive(Default)]
 struct Painting {
-    #[cfg(test)]
-    unbatched: bool,
-    #[cfg(test)]
-    sequential_quads: bool,
     rows: Vec<Rc<RowPainting>>,
     thicken: f32,
     shade_sprites: Vec<shade::Sprite>,
@@ -101,9 +95,21 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                 });
             }
             let physical_cell = physical_cell(cell, window.scale_factor());
+            let header = view.read(cx).displayed_grid().and_then(|grid| {
+                let start = view.read(cx).visible_start(grid);
+                padding::screen_background(
+                    (start..).map_while(|row| grid.content_row(row)),
+                    Size {
+                        cols: viewport.cols.min(grid.size.cols),
+                        rows: viewport.rows.min(grid.size.rows),
+                    },
+                    &palette,
+                )
+            });
             let weak = view.downgrade();
             window.defer(cx, move |_, cx| {
                 let _ = weak.update(cx, |pane, cx| {
+                    pane.set_header_background(header, cx);
                     pane.cell_height = f32::from(cell.height);
                     pane.set_viewport(viewport, cx);
                     pane.geometry = Some((frame.content, cell));
@@ -151,9 +157,17 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                                     + px(pane.scroll.pixel_remainder(f32::from(cell.height))),
                             );
                         let graphics = grid.graphics.clone();
-                        painting.images = pane.images.prepare(&graphics, origin, cell);
+                        let now = cx.background_executor().now();
+                        let fetch = pane.state == super::pane::PaneState::Live;
+                        let prepared = pane.images.prepare(&graphics, origin, cell, now, fetch);
+                        painting.images = prepared.placements;
                         for image in pane.images.retired() {
                             cx.drop_image(image, Some(window));
+                        }
+                        pane.animate_images(prepared.next, cx);
+                        TerminalPane::convert_images(prepared.conversions, cx);
+                        for (image, keys) in prepared.wanted {
+                            cx.emit(super::pane::PaneEvent::ImageFrames { image, keys });
                         }
                     }
                 }
@@ -170,7 +184,6 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
         },
         move |bounds, (painting, frame, padding, scrollbar), window, cx| {
             let _span = crate::profiler::span(crate::profiler::Metric::TerminalPaint);
-            let focus_border = mouse_view.read(cx).focus_border;
             let focus = mouse_view.read(cx).focus.clone();
             window.handle_input(
                 &focus,
@@ -219,9 +232,6 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                 let mut color: Hsla = rgb(palette.foreground).into();
                 color.a = 0.4;
                 window.paint_quad(fill(thumb, color).corner_radii(thumb.size.width / 2.0));
-            }
-            if let Some(color) = focus_border {
-                window.paint_quad(gpui::outline(bounds, color, gpui::BorderStyle::Solid));
             }
         },
     )
@@ -874,9 +884,6 @@ fn push_quad(quads: &mut Vec<(Bounds<Pixels>, Hsla)>, bounds: Bounds<Pixels>, co
     reason = "Keep the terminal paint order explicit"
 )]
 fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut App) {
-    #[cfg(test)]
-    let layered = !painting.unbatched;
-    #[cfg(not(test))]
     let layered = true;
     images::paint(&painting.images, i64::MIN..i64::from(i32::MIN / 2), window);
     for row in &painting.rows {
@@ -904,11 +911,6 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
         window.paint_quad(fill(bounds, color));
     }
     for row in &painting.rows {
-        #[cfg(test)]
-        if painting.sequential_quads {
-            layers::quads(&row.blocks, 1.0, layered, window);
-            continue;
-        }
         row.block_layers.paint(&row.blocks, None, layered, window);
     }
     shade::paint(&painting.shade_sprites, window);
@@ -1008,13 +1010,6 @@ fn paint(painting: Painting, palette: &Palette, window: &mut Window, cx: &mut Ap
                         row.paths.paint(Some(painting.cursor_text), layered, window);
                     }
                     for row in &painting.rows {
-                        #[cfg(test)]
-                        if painting.sequential_quads {
-                            for &(bounds, _) in &row.blocks {
-                                window.paint_quad(fill(bounds, painting.cursor_text));
-                            }
-                            continue;
-                        }
                         row.block_layers.paint(
                             &row.blocks,
                             Some(painting.cursor_text),
@@ -1039,27 +1034,24 @@ fn link_highlight(
     let Some(grid) = view.displayed_grid() else {
         return;
     };
-    if view.link_hover.target.is_some()
-        && let Some(link) = &view.link_hover.candidate
-        && isize::try_from(index)
+    if view.link_hover.target.is_some() {
+        let row = isize::try_from(index)
             .ok()
-            .and_then(|index| index.checked_sub(isize::try_from(grid.history.len()).ok()?))
-            == Some(link.row)
-    {
-        painting.decorations.push((
-            Bounds::new(
-                position
-                    + point(
-                        cell.width * f32::from(link.columns.start),
-                        cell.height - px(2.0),
-                    ),
-                size(
-                    cell.width * f32::from(link.columns.end - link.columns.start),
-                    px(1.0),
+            .and_then(|index| index.checked_sub(isize::try_from(grid.history.len()).ok()?));
+        for (_, columns) in view
+            .link_hover
+            .spans
+            .iter()
+            .filter(|(span, _)| Some(*span) == row)
+        {
+            painting.decorations.push((
+                Bounds::new(
+                    position + point(cell.width * f32::from(columns.start), cell.height - px(2.0)),
+                    size(cell.width * f32::from(columns.end - columns.start), px(1.0)),
                 ),
-            ),
-            rgb(palette.foreground).into(),
-        ));
+                rgb(palette.foreground).into(),
+            ));
+        }
     }
 }
 

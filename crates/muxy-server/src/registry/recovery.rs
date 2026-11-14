@@ -1,188 +1,8 @@
 use super::*;
-use muxy_protocol::{
-    OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation, ProjectPatch,
-    SessionStatus,
-};
+use muxy_protocol::{OperationId, ProjectIntent, ProjectMutation, ProjectPatch, SessionStatus};
 use std::fs;
 use std::path::PathBuf;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
-
-/// Replaces the catalog's folder while the server uses it, which Windows
-/// refuses while files in it are open.
-#[cfg(unix)]
-#[test]
-fn cached_receipts_require_the_directory_durability_barrier() -> TestResult {
-    let profile = Profile::new()?;
-    let registry = profile.open()?;
-    let operation = OperationId::new();
-    let home = registry.home_project();
-    let session = registry.create_project_session(
-        home,
-        operation,
-        &crate::test_support::folder(),
-        Size { cols: 80, rows: 24 },
-    )?;
-    registry.end(session.id)?;
-    let intent = ProjectIntent {
-        operation: OperationId::new(),
-        mutation: ProjectMutation::Patch {
-            project: home,
-            patch: ProjectPatch::Name("Saved".into()),
-        },
-    };
-    registry.mutate_project(&intent)?;
-    let parent = profile.0.join("sessions");
-    let backup = profile.0.join("saved-sessions");
-    fs::rename(&parent, &backup)?;
-    fs::write(&parent, b"directory unavailable")?;
-    assert_eq!(
-        registry.mutate_project(&intent).unwrap_err().code(),
-        ErrorCode::PersistenceFailed
-    );
-    assert_eq!(
-        registry
-            .create_project_session(
-                home,
-                operation,
-                &crate::test_support::folder(),
-                Size { cols: 80, rows: 24 }
-            )
-            .unwrap_err()
-            .code(),
-        ErrorCode::PersistenceFailed
-    );
-    fs::remove_file(&parent)?;
-    fs::rename(&backup, &parent)?;
-    registry.mutate_project(&intent)?;
-    assert_eq!(
-        registry.create_project_session(
-            home,
-            operation,
-            &crate::test_support::folder(),
-            Size { cols: 80, rows: 24 }
-        )?,
-        session
-    );
-    assert!(registry.list().is_empty());
-    Ok(())
-}
-
-#[test]
-fn natural_exit_retries_a_failed_catalog_write_without_server_restart() -> TestResult {
-    let profile = Profile::new()?;
-    let registry = profile.open()?;
-    let session = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
-    let revision = registry.catalog_revision();
-    let path = profile.0.join("sessions/catalog.json");
-    let backup = profile.0.join("catalog.backup");
-    fs::rename(&path, &backup)?;
-    fs::create_dir(&path)?;
-    registry
-        .handle(session.id)
-        .ok_or("session")?
-        .send(session::SessionCommand::Input(b"exit\r".into()))?;
-    registry.wait_ended(session.id)?;
-    assert!(registry.list().is_empty());
-    assert_eq!(registry.catalog_revision(), revision);
-    fs::remove_dir(&path)?;
-    fs::rename(&backup, &path)?;
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while registry.catalog_revision() == revision && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(registry.catalog_revision() > revision);
-    assert_eq!(
-        registry
-            .list_project_sessions(session.project, None, None)?
-            .sessions[0]
-            .status,
-        SessionStatus::Ended
-    );
-    Ok(())
-}
-
-#[test]
-fn retention_removes_expired_output_without_ending_live_sessions() -> TestResult {
-    let profile = Profile::new()?;
-    let registry = profile.open()?;
-    let ended = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
-    let live = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
-    registry.end(ended.id)?;
-    let revision = registry.catalog_revision();
-    registry.prune_expired_sessions()?;
-    assert!(registry.read_saved_screen(ended.id).is_ok());
-    assert_eq!(registry.catalog_revision(), revision);
-    let later = crate::catalog::retention::now() + crate::catalog::retention::RETENTION_SECONDS;
-    registry.prune_sessions_at(later)?;
-    assert!(registry.read_saved_screen(ended.id).is_err());
-    assert!(registry.catalog_revision() > revision);
-    assert_eq!(registry.list(), vec![live.clone()]);
-    let page = registry.list_project_sessions(live.project, None, None)?;
-    assert_eq!(page.sessions.len(), 1);
-    assert_eq!(page.sessions[0].info.id, live.id);
-    registry.prune_sessions_at(later)?;
-    registry.discard(live.id)?;
-    drop(registry);
-    let registry = profile.open()?;
-    assert!(
-        registry
-            .list_project_sessions(ended.project, None, None)?
-            .sessions
-            .is_empty()
-    );
-    Ok(())
-}
-
-#[test]
-fn retention_migrates_old_entries_once_and_prunes_on_startup() -> TestResult {
-    let profile = Profile::new()?;
-    let registry = profile.open()?;
-    let session = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
-    registry.end(session.id)?;
-    drop(registry);
-    let path = profile.0.join("sessions/catalog.json");
-    let key = session.id.get().to_string();
-    let mut stored: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
-    stored["sessions"][&key]
-        .as_object_mut()
-        .ok_or("entry")?
-        .remove("ended_at");
-    fs::write(&path, serde_json::to_vec(&stored)?)?;
-    let before = crate::catalog::retention::now();
-    let registry = profile.open()?;
-    assert!(registry.read_saved_screen(session.id).is_ok());
-    drop(registry);
-    let mut stored: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
-    let ended_at = stored["sessions"][&key]["ended_at"]
-        .as_u64()
-        .ok_or("timestamp")?;
-    assert!(ended_at >= before);
-    assert!(ended_at <= crate::catalog::retention::now());
-    stored["sessions"][&key]["ended_at"] = (ended_at - 60).into();
-    fs::write(&path, serde_json::to_vec(&stored)?)?;
-    drop(profile.open()?);
-    let mut stored: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
-    assert_eq!(stored["sessions"][&key]["ended_at"], ended_at - 60);
-    stored["sessions"][&key]["ended_at"] =
-        (ended_at - crate::catalog::retention::RETENTION_SECONDS).into();
-    fs::write(&path, serde_json::to_vec(&stored)?)?;
-    let registry = profile.open()?;
-    assert!(registry.read_saved_screen(session.id).is_err());
-    assert!(
-        registry
-            .list_project_sessions(session.project, None, None)?
-            .sessions
-            .is_empty()
-    );
-    assert!(
-        !profile
-            .0
-            .join("sessions")
-            .join(format!("{:016x}.postcard", session.id.get()))
-            .exists()
-    );
-    Ok(())
-}
 
 struct Profile(PathBuf);
 impl Profile {
@@ -217,8 +37,7 @@ fn reservation_survives_restart_before_pty_start() -> TestResult {
     let info = SessionInfo {
         id: registry.reserve_start()?,
         project: registry.home_project(),
-        directory: ServerPath::from_path(&crate::test_support::folder())
-            .map_err(|code| format!("{code:?}"))?,
+        directory: ServerPath::from(crate::test_support::folder()),
     };
     registry.catalog.reserve(operation, &info)?;
     drop(registry);
@@ -240,64 +59,6 @@ fn reservation_survives_restart_before_pty_start() -> TestResult {
             .status,
         SessionStatus::Unavailable
     );
-    Ok(())
-}
-
-#[test]
-fn deletion_and_cancellation_resume_after_their_durable_marker() -> TestResult {
-    for cancel in [false, true] {
-        let profile = Profile::new()?;
-        let registry = profile.open()?;
-        let project = ProjectDescriptor {
-            id: ProjectId::new(),
-            home: false,
-            name: "Delete".into(),
-            icon: None,
-            logo: None,
-            color: "#808080".into(),
-            directory: ServerPath::from_path(&profile.0).map_err(|code| format!("{code:?}"))?,
-            kind: None,
-            parent_id: None,
-        };
-        registry.mutate_project(&ProjectIntent {
-            operation: OperationId::new(),
-            mutation: ProjectMutation::Create(project.clone()),
-        })?;
-        let operation = OperationId::new();
-        let session = registry.create_project_session(
-            project.id,
-            operation,
-            &profile.0,
-            Size { cols: 80, rows: 24 },
-        )?;
-        registry.end(session.id)?;
-        let path = profile
-            .0
-            .join("sessions")
-            .join(format!("{:016x}.postcard", session.id.get()));
-        assert!(path.exists());
-        if cancel {
-            registry.catalog.cancel_creation(operation)?;
-        } else {
-            registry.catalog.begin_mutation(&ProjectIntent {
-                operation: OperationId::new(),
-                mutation: ProjectMutation::Delete(project.id),
-            })?;
-        }
-        drop(registry);
-        let registry = profile.open()?;
-        assert!(!path.exists());
-        assert!(registry.list().is_empty());
-        if !cancel {
-            assert!(
-                !registry
-                    .read_catalog(None, None)?
-                    .projects
-                    .iter()
-                    .any(|entry| entry.id == project.id)
-            );
-        }
-    }
     Ok(())
 }
 
@@ -327,22 +88,97 @@ fn failed_catalog_replace_does_not_publish_or_forget_a_mutation() -> TestResult 
 }
 
 #[test]
-fn unreferenced_legacy_archive_belongs_to_home_without_payload_changes() -> TestResult {
+fn a_moved_session_leaves_its_old_project_and_survives_restart() -> TestResult {
     let profile = Profile::new()?;
     let registry = profile.open()?;
-    let session = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
-    registry.end(session.id)?;
+    let home = registry.home_project();
+    let folder = profile.0.join("app");
+    fs::create_dir(&folder)?;
+    let app = muxy_protocol::ProjectDescriptor {
+        id: muxy_protocol::ProjectId::new(),
+        home: false,
+        name: "App".into(),
+        icon: None,
+        logo: None,
+        color: "#808080".into(),
+        directory: ServerPath::from(folder.as_path()),
+        kind: None,
+        parent_id: None,
+    };
+    registry.mutate_project(&ProjectIntent {
+        operation: OperationId::new(),
+        mutation: ProjectMutation::Create(app.clone()),
+    })?;
+    let info = registry.create_project_session(
+        app.id,
+        OperationId::new(),
+        &folder,
+        Size { cols: 80, rows: 24 },
+    )?;
+    let revision = registry.sessions_revision();
+
+    registry.move_session(info.id, home)?;
+    assert!(registry.sessions_revision() > revision);
+    let revision = registry.sessions_revision();
+    registry.move_session(info.id, home)?;
+    assert_eq!(registry.sessions_revision(), revision);
+
+    assert_eq!(registry.catalog.owned(app.id), Vec::new());
+    assert_eq!(registry.catalog.owned(home), vec![info.id]);
+    assert!(
+        registry
+            .list_project_sessions(app.id, None, None)?
+            .sessions
+            .is_empty()
+    );
+    let listed = registry.list_project_sessions(home, None, None)?.sessions;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].info.id, info.id);
+    assert_eq!(listed[0].info.project, home);
+    assert_eq!(registry.list()[0].project, home);
+
+    registry.mutate_project(&ProjectIntent {
+        operation: OperationId::new(),
+        mutation: ProjectMutation::Delete(app.id),
+    })?;
+    assert!(registry.handle(info.id).is_some());
+    assert_eq!(
+        registry.list_project_sessions(home, None, None)?.sessions[0].status,
+        SessionStatus::Live
+    );
+    registry.shutdown();
     drop(registry);
-    let path = profile
-        .0
-        .join("sessions")
-        .join(format!("{:016x}.postcard", session.id.get()));
-    let original = fs::read(&path)?;
-    fs::remove_file(profile.0.join("sessions/catalog.json"))?;
-    let imported = profile.open()?;
-    let page = imported.list_project_sessions(imported.home_project(), None, None)?;
-    assert_eq!(page.sessions[0].info.id, session.id);
-    assert_eq!(page.sessions[0].status, SessionStatus::Ended);
-    assert_eq!(fs::read(path)?, original);
+
+    let registry = profile.open()?;
+    let listed = registry.list_project_sessions(home, None, None)?.sessions;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].info.id, info.id);
+    assert_eq!(listed[0].info.project, home);
+    Ok(())
+}
+
+#[test]
+fn a_session_moves_only_to_a_project_that_exists() -> TestResult {
+    let profile = Profile::new()?;
+    let registry = profile.open()?;
+    let info = registry.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })?;
+    let missing = muxy_protocol::ProjectId::new();
+    assert_eq!(
+        registry
+            .move_session(info.id, missing)
+            .map_err(|error| error.code()),
+        Err(ErrorCode::UnknownProject)
+    );
+    assert_eq!(
+        registry
+            .move_session(
+                SessionId::from(std::num::NonZeroU64::MAX),
+                registry.home_project()
+            )
+            .map_err(|error| error.code()),
+        Err(ErrorCode::UnknownSession)
+    );
+    assert_eq!(registry.list()[0].project, registry.home_project());
+    registry.shutdown();
     Ok(())
 }

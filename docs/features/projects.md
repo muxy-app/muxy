@@ -6,13 +6,28 @@ workspaces, and project order are kept by each app.
 
 ## Projects
 
-- Add one with **Add Project** at the bottom of the sidebar, **File → Open
-  Project…**, or `Cmd+O`. Type to search folders, or type a path. With remote
-  servers set up, choose **Local** or a server.
-- `muxy <folder>` in a shell opens a folder in the desktop app.
+- Add one with **Add Project** below the project list or in the sidebar's filter
+  menu when focused on one project, **File → Open Project…**, or `Cmd+O`. Type to search folders, type a
+  path, or choose **Finder…** (**Browse…** on Linux) to pick a folder in the
+  system dialog. Each server's **Add Project** adds to that server, and
+  `Cmd+O` to the current project's. On another computer's server, browse its
+  folders or type a path there instead; Finder and Browse only reach this
+  computer.
+- `muxy <folder>` in a shell opens a terminal in that folder's project in the
+  desktop app, adding the project if needed. On macOS, so does dropping a folder
+  on the Dock icon or using **Open With**.
 - Right-click a project to rename it, or change its icon, logo, or color.
+- Projects automatically use a favicon or logo from their folder when no custom
+  icon or logo is set. Muxy checks the root first, then common folders such as
+  `public`, `static`, `app`, `src/app`, `src/assets`, and `assets`. It supports
+  SVG, ICO, PNG, JPEG, WebP, GIF, and ICNS up to 5 MiB each, including projects on
+  remote servers.
+  Icons refresh when you return to Muxy, and a remote project's when its server
+  connects again; unreadable images fall back to the usual project tile. Home keeps its built-in icon.
 - **Remove Project…** removes it from every app and ends its terminals. Files
   stay on disk.
+- **Add Project → Recently Removed** brings back one of the last 10 removed
+  projects with its name, icon, and color.
 - If a project's folder disappears, it shows as missing and can only be
   removed.
 
@@ -26,7 +41,12 @@ can't be removed. `Cmd+N` opens a tab in Home.
   - **Project Focused** (default): projects, with worktrees under them.
   - **Tab Focused**: projects with their tabs listed in the sidebar.
   - **Agents Focused**: only tabs running an [AI agent](ai-agents.md).
+- In Tab Focused and Agents Focused, projects without tabs hide behind **N more
+  projects** at the bottom. Turn on **Settings → Appearance → Remember shown
+  projects without tabs** to keep them shown after a restart.
 - Sort by **Manual Order** and drag to reorder, or by **Name**.
+- Drop a dragged tab or pane on a project to move it there as a new tab. See
+  [Moving tabs and panes](../product/app-model.md#moving-tabs-and-panes).
 - `Ctrl+1`–`Ctrl+9` jumps to a project. Hold a modifier to see the numbers.
 
 ## Workspaces

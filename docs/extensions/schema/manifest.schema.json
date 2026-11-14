@@ -50,7 +50,7 @@
         },
         "events": {
           "type": "array",
-          "description": "Workspace events this extension may subscribe to (pane.created, pane.closed, pane.focused, tab.created, tab.updated, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, modal.opened, modal.closed, project.switched, projects.changed, worktree.switched, worktree.headChanged, notification.posted, agent.status, file.changed). worktree.offline is not emitted in Muxy 2. Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
+          "description": "Workspace events this extension may subscribe to (pane.created, pane.closed, pane.focused, tab.created, tab.updated, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, modal.opened, modal.closed, project.switched, projects.changed, worktree.switched, worktree.headChanged, notification.posted, agent.status, file.changed, settings.changed, theme.changed, ui.changed, preferences.changed). worktree.offline is not emitted in Muxy 2. Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
           "items": { "type": "string" },
           "uniqueItems": true
         },
@@ -96,6 +96,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/topbarItem" }
         },
+        "railItems": {
+          "type": "array",
+          "description": "Icons on the rail, a column on the right edge of the window. They move to the top bar when the user turns the rail off.",
+          "items": { "$ref": "#/$defs/topbarItem" }
+        },
         "statusBarItems": {
           "type": "array",
           "items": { "$ref": "#/$defs/statusBarItem" }
@@ -112,7 +117,7 @@
         },
         "marketplace": {
           "type": "object",
-          "description": "Listing metadata used by the marketplace. Required: icon + at least one screenshot. Ignored by the app loader. The pricing key is reserved for a future paid-extensions feature and is not yet enforced.",
+          "description": "Listing metadata used by the marketplace. Required: icon + at least one screenshot. Settings → Extensions shows the installed copy's icon and screenshots from these paths; a malformed block never stops the extension loading. The pricing key is reserved for a future paid-extensions feature and is not yet enforced.",
           "additionalProperties": false,
           "required": ["icon", "screenshots"],
           "properties": {
@@ -164,6 +169,7 @@
         "worktrees:read",
         "worktrees:write",
         "agents:read",
+        "agents:write",
         "git:read",
         "git:write",
         "gh:read",
@@ -176,7 +182,18 @@
         "commands:run-script",
         "commands:exec",
         "shortcuts:register",
-        "remote:serve"
+        "remote:serve",
+        "ui:write",
+        "commands:read",
+        "commands:run",
+        "composer:write",
+        "layouts:read",
+        "layouts:write",
+        "preferences:read",
+        "preferences:write",
+        "clipboard:read",
+        "clipboard:write",
+        "system:open"
       ]
     },
     "icon": {
@@ -275,11 +292,48 @@
         "icon": { "$ref": "#/$defs/icon" },
         "entry": { "type": "string", "minLength": 1 },
         "position": { "enum": ["right", "bottom"] },
-        "mode": { "enum": ["pinned", "floating"] },
+        "mode": {
+          "enum": ["pinned", "floating", "detached"],
+          "description": "pinned sits beside the workspace, floating slides over its edge, and detached floats anywhere over the window beside other panels."
+        },
         "hiddenControls": {
           "type": "array",
-          "items": { "enum": ["icon", "title", "close", "pin", "position"] },
+          "items": { "enum": ["icon", "title", "close", "pin", "mode", "position", "detach"] },
           "uniqueItems": true
+        },
+        "frame": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Where a detached panel first opens, from the window's top left corner, in the page's CSS pixels.",
+          "properties": {
+            "x": { "type": "number", "minimum": -16384, "maximum": 16384 },
+            "y": { "type": "number", "minimum": -16384, "maximum": 16384 },
+            "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 16384 },
+            "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 16384 }
+          }
+        },
+        "minSize": { "$ref": "#/$defs/panelSize" },
+        "maxSize": { "$ref": "#/$defs/panelSize" },
+        "chrome": {
+          "enum": ["standard", "none"],
+          "default": "standard",
+          "description": "standard draws a card with a header; none leaves the whole frame to the page."
+        },
+        "transparent": {
+          "type": "boolean",
+          "description": "Draw nothing behind the page, so what is under it shows where the page is transparent. Defaults to true with chrome none, false otherwise."
+        },
+        "clickThrough": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let clicks pass through to what is under the panel, except over its hit regions."
+        },
+        "movable": { "type": "boolean", "default": true },
+        "resizable": { "type": "boolean", "default": true },
+        "scope": {
+          "enum": ["global", "project"],
+          "default": "global",
+          "description": "global shows a detached panel in every project; project only in the one it was opened in."
         },
         "headerButtons": {
           "type": "array",
@@ -291,6 +345,15 @@
           "description": "Hide the entire panel header (icon, title, controls, and header buttons). The webview fills the whole panel."
         },
         "defaultData": {}
+      }
+    },
+    "panelSize": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "number", "minimum": 0, "maximum": 16384 },
+        "height": { "type": "number", "minimum": 0, "maximum": 16384 }
       }
     },
     "panelHeaderButton": {

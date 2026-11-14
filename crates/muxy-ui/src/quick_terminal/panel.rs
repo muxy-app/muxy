@@ -2,6 +2,7 @@ use gpui::WindowBackgroundAppearance;
 use muxy_core::quick_terminal::geometry::{
     Rect, Size, collapsed_rect, cutout_rect, panel_frame, preferred_screen_index,
 };
+use muxy_core::quick_terminal::limits;
 use muxy_core::quick_terminal::presentation::{
     PresentationState, PresentationTransition, should_capture_focus, should_restore_focus,
 };
@@ -30,10 +31,10 @@ impl Default for QuickTerminalConfiguration {
     fn default() -> Self {
         Self {
             enabled: true,
-            width: 720,
-            height: 430,
-            transparency: 18,
-            blur: 70,
+            width: i64::from(limits::DEFAULT_WIDTH),
+            height: i64::from(limits::DEFAULT_HEIGHT),
+            transparency: i64::from(limits::DEFAULT_TRANSPARENCY),
+            blur: i64::from(limits::DEFAULT_BLUR),
         }
     }
 }
@@ -43,10 +44,22 @@ impl QuickTerminalConfiguration {
     pub fn normalized(self) -> Self {
         Self {
             enabled: self.enabled,
-            width: self.width.clamp(480, 1200),
-            height: self.height.clamp(280, 800),
-            transparency: self.transparency.clamp(0, 55),
-            blur: self.blur.clamp(0, 100),
+            width: self.width.clamp(
+                i64::from(*limits::WIDTH.start()),
+                i64::from(*limits::WIDTH.end()),
+            ),
+            height: self.height.clamp(
+                i64::from(*limits::HEIGHT.start()),
+                i64::from(*limits::HEIGHT.end()),
+            ),
+            transparency: self.transparency.clamp(
+                i64::from(*limits::TRANSPARENCY.start()),
+                i64::from(*limits::TRANSPARENCY.end()),
+            ),
+            blur: self.blur.clamp(
+                i64::from(*limits::BLUR.start()),
+                i64::from(*limits::BLUR.end()),
+            ),
         }
     }
 

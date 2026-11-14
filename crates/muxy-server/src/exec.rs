@@ -1,20 +1,19 @@
 use std::collections::{BTreeSet, HashMap};
-use std::io::{self, Read, Write};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 use std::sync::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicBool, Ordering},
-    mpsc,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use muxy_core::process::{Cap, Limits, Running};
 use muxy_protocol::{
     ErrorCode, ExecRequest, ExecResult, MAX_EXEC_OUTPUT, Message, ReplyBody, RequestId, ServerPath,
 };
 
-use crate::platform::ProcessGroup;
-use crate::{Registry, ServerError, connection::Outbox};
+use crate::{Registry, ServerError, connection::Connection};
 
 #[derive(Default)]
 pub(crate) struct Jobs {
@@ -73,7 +72,7 @@ impl Jobs {
         mut request: ExecRequest,
         id: RequestId,
         registry: Arc<Registry>,
-        output: Arc<Outbox>,
+        output: Arc<Connection>,
     ) -> Result<(), ServerError> {
         let job = request.job;
         let cancelled = self.register(job)?;
@@ -124,37 +123,39 @@ pub(crate) fn login_path() -> Option<&'static str> {
     #[cfg(unix)]
     {
         static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-        PATH.get_or_init(|| {
-            let request = ExecRequest {
-                job: 1,
-                project: muxy_protocol::ProjectId::new(),
-                argv: vec![
-                    std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()),
-                    "-lc".into(),
-                    "printf '\\0%s\\0' \"$PATH\"".into(),
-                ],
-                shell: None,
-                cwd: None,
-                env: std::collections::BTreeMap::new(),
-                stdin: Vec::new(),
-                timeout_ms: 3_000,
-            };
-            let result =
-                execute(&request, Path::new("/"), &AtomicBool::new(false), || false).ok()?;
-            if result.exit_code != 0 || result.timed_out {
-                return None;
-            }
-            result
-                .stdout
-                .split('\0')
-                .nth(1)
-                .filter(|path| !path.is_empty())
-                .map(str::to_owned)
-        })
-        .as_deref()
+        PATH.get_or_init(|| read_login_path(&crate::process::user_shell()))
+            .as_deref()
     }
     #[cfg(windows)]
     None
+}
+
+#[cfg(unix)]
+fn read_login_path(shell: &Path) -> Option<String> {
+    let request = ExecRequest {
+        job: 1,
+        project: muxy_protocol::ProjectId::new(),
+        argv: vec![
+            shell.to_str()?.to_owned(),
+            "-lc".into(),
+            "printf '\\0%s\\0' \"$PATH\"".into(),
+        ],
+        shell: None,
+        cwd: None,
+        env: std::collections::BTreeMap::new(),
+        stdin: Vec::new(),
+        timeout_ms: 3_000,
+    };
+    let result = execute(&request, Path::new("/"), &AtomicBool::new(false), || false).ok()?;
+    if result.exit_code != 0 || result.timed_out {
+        return None;
+    }
+    result
+        .stdout
+        .split('\0')
+        .nth(1)
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
 }
 
 fn error(cause: impl std::fmt::Display) -> ServerError {
@@ -179,30 +180,39 @@ fn launch_failed(request: &ExecRequest, cause: &io::Error) -> ServerError {
 /// an extension also matches each extension in `PATHEXT`.
 fn on_path(program: &str, path: Option<&String>) -> bool {
     let path = path.map_or_else(|| std::env::var_os("PATH").unwrap_or_default(), Into::into);
-    std::env::split_paths(&path)
-        .filter(|folder| !folder.as_os_str().is_empty())
-        .any(|folder| program_in(&folder, program).is_some())
+    find_program(program, std::env::split_paths(&path)).is_some()
 }
 
-/// The program file `name` names in `folder`.
-pub(crate) fn program_in(folder: &Path, name: &str) -> Option<PathBuf> {
+/// The first program file `name` names in `folders`, skipping empty entries.
+/// On Windows a name without an extension also matches each extension in
+/// `PATHEXT`.
+pub(crate) fn find_program(
+    name: &str,
+    folders: impl IntoIterator<Item = PathBuf>,
+) -> Option<PathBuf> {
     #[cfg(unix)]
     {
-        let file = folder.join(name);
-        (file.is_file() && rustix::fs::access(&file, rustix::fs::Access::EXEC_OK).is_ok())
-            .then_some(file)
+        crate::process::find_executable(name, folders)
     }
     #[cfg(windows)]
     {
-        let file = folder.join(name);
-        if Path::new(name).extension().is_some() {
-            return (has_program_extension(&file) && crate::spawn::exists(&file)).then_some(file);
-        }
-        program_extensions()
+        folders
             .into_iter()
-            .map(|extension| folder.join(format!("{name}{extension}")))
-            .find(|file| crate::spawn::exists(file))
+            .filter(|folder| !folder.as_os_str().is_empty())
+            .find_map(|folder| program_in(&folder, name))
     }
+}
+
+#[cfg(windows)]
+fn program_in(folder: &Path, name: &str) -> Option<PathBuf> {
+    let file = folder.join(name);
+    if Path::new(name).extension().is_some() {
+        return (has_program_extension(&file) && crate::spawn::exists(&file)).then_some(file);
+    }
+    program_extensions()
+        .into_iter()
+        .map(|extension| folder.join(format!("{name}{extension}")))
+        .find(|file| crate::spawn::exists(file))
 }
 
 /// Whether Windows runs `path` by its extension, which `PATHEXT` lists.
@@ -267,50 +277,6 @@ fn working_directory(root: &Path, cwd: Option<&ServerPath>) -> Result<PathBuf, S
     Ok(root.join(path))
 }
 
-/// The command and every process it starts, ended when dropped.
-struct Process {
-    child: Child,
-    group: ProcessGroup,
-}
-
-impl Drop for Process {
-    fn drop(&mut self) {
-        self.group.kill();
-        let _ = self.child.wait();
-    }
-}
-
-/// Reads `pipe` until it closes, sending each chunk as `stream`, then `None`.
-fn forward(
-    stream: usize,
-    mut pipe: impl Read + Send + 'static,
-    chunks: mpsc::Sender<(usize, Option<Vec<u8>>)>,
-) -> io::Result<()> {
-    std::thread::Builder::new()
-        .name("extension-command-output".into())
-        .spawn(move || {
-            let mut buffer = [0; 16 * 1024];
-            loop {
-                match pipe.read(&mut buffer) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        if chunks.send((stream, Some(buffer[..n].to_vec()))).is_err() {
-                            return;
-                        }
-                    }
-                }
-            }
-            let _ = chunks.send((stream, None));
-        })
-        .map(drop)
-}
-
-fn keep(bytes: &mut Vec<u8>, chunk: &[u8], truncated: &mut bool) {
-    let take = chunk.len().min(MAX_EXEC_OUTPUT.saturating_sub(bytes.len()));
-    bytes.extend_from_slice(&chunk[..take]);
-    *truncated |= take < chunk.len();
-}
-
 fn utf8(bytes: &[u8], truncated: &mut bool) -> String {
     let mut text = String::from_utf8_lossy(bytes).into_owned();
     if text.len() > MAX_EXEC_OUTPUT {
@@ -350,13 +316,30 @@ fn execute(
     };
     command
         .envs(&request.env)
-        .current_dir(working_directory(root, request.cwd.as_ref())?)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let (child, group) =
-        ProcessGroup::spawn(&mut command).map_err(|cause| launch_failed(request, &cause))?;
-    supervise(Process { child, group }, request, cancelled, disconnected).map_err(error)
+        .current_dir(working_directory(root, request.cwd.as_ref())?);
+    let stopped = || cancelled.load(Ordering::Acquire) || disconnected();
+    let limits = Limits {
+        timeout: Duration::from_millis(u64::from(request.timeout_ms)),
+        stdout: Cap::TruncateAt(MAX_EXEC_OUTPUT),
+        stderr: Cap::TruncateAt(MAX_EXEC_OUTPUT),
+        stdin: Some(&request.stdin),
+        cancelled: Some(&stopped),
+        term_grace: Duration::from_millis(150),
+        kill_leftovers: true,
+    };
+    let output = Running::start(&mut command, limits)
+        .map_err(|cause| launch_failed(request, &cause))?
+        .wait()
+        .map_err(error)?;
+    let mut truncated = output.stdout.truncated || output.stderr.truncated;
+    Ok(ExecResult {
+        stdout: utf8(&output.stdout.bytes, &mut truncated),
+        stderr: utf8(&output.stderr.bytes, &mut truncated),
+        exit_code: output.status.code().unwrap_or(-1),
+        timed_out: output.timed_out,
+        truncated,
+        cancelled: output.cancelled,
+    })
 }
 
 /// The program file a command names. Windows looks a bare name up in
@@ -366,10 +349,10 @@ fn program(name: &str, path: Option<&String>) -> PathBuf {
     #[cfg(windows)]
     if !name.contains(['/', '\\']) {
         let path = path.map_or_else(|| std::env::var_os("PATH").unwrap_or_default(), Into::into);
-        if let Some(file) = std::env::split_paths(&path)
-            .filter(|folder| folder.is_absolute())
-            .find_map(|folder| program_in(&folder, name))
-        {
+        if let Some(file) = find_program(
+            name,
+            std::env::split_paths(&path).filter(|folder| folder.is_absolute()),
+        ) {
             return file;
         }
     }
@@ -388,95 +371,6 @@ fn script_command(script: &str) -> Command {
 #[cfg(windows)]
 fn script_command(script: &str) -> Command {
     cmd_script(script)
-}
-
-/// Feeds stdin and collects output until the command exits, is cancelled, or
-/// runs out of time. Pipes are read and written on their own threads, since
-/// Windows pipes can't be non-blocking.
-fn supervise(
-    mut process: Process,
-    request: &ExecRequest,
-    cancelled: &AtomicBool,
-    disconnected: impl Fn() -> bool,
-) -> io::Result<ExecResult> {
-    let mut input = process
-        .child
-        .stdin
-        .take()
-        .ok_or_else(|| io::Error::other("missing stdin"))?;
-    let output = process
-        .child
-        .stdout
-        .take()
-        .ok_or_else(|| io::Error::other("missing stdout"))?;
-    let errors = process
-        .child
-        .stderr
-        .take()
-        .ok_or_else(|| io::Error::other("missing stderr"))?;
-    let (sender, chunks) = mpsc::channel();
-    forward(0, output, sender.clone())?;
-    forward(1, errors, sender)?;
-    let stdin = request.stdin.clone();
-    std::thread::Builder::new()
-        .name("extension-command-input".into())
-        .spawn(move || {
-            let _ = input.write_all(&stdin);
-        })?;
-    let mut streams = [Vec::new(), Vec::new()];
-    let mut open = [true, true];
-    let mut truncated = false;
-    let mut timed_out = false;
-    let mut was_cancelled = false;
-    let start = Instant::now();
-    let mut stopping = None;
-    let mut exited = None;
-    let mut code = -1;
-    loop {
-        match chunks.recv_timeout(Duration::from_millis(5)) {
-            Ok((stream, Some(chunk))) => keep(&mut streams[stream], &chunk, &mut truncated),
-            Ok((stream, None)) => open[stream] = false,
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-        }
-        was_cancelled |= cancelled.load(Ordering::Acquire) || disconnected();
-        timed_out |= start.elapsed() >= Duration::from_millis(u64::from(request.timeout_ms));
-        if (was_cancelled || timed_out) && stopping.is_none() {
-            process.group.terminate();
-            stopping = Some(Instant::now());
-        }
-        if stopping.is_some_and(|time| time.elapsed() >= Duration::from_millis(150)) {
-            process.group.kill();
-        }
-        if exited.is_none()
-            && let Some(status) = process.child.try_wait()?
-        {
-            code = status.code().unwrap_or(-1);
-            exited = Some(Instant::now());
-            process.group.kill();
-        }
-        if exited.is_some_and(|time| {
-            open == [false, false] || time.elapsed() >= Duration::from_millis(250)
-        }) {
-            break;
-        }
-    }
-    for (stream, chunk) in chunks.try_iter() {
-        if let Some(chunk) = chunk {
-            keep(&mut streams[stream], &chunk, &mut truncated);
-        }
-    }
-    let [stdout, stderr] = streams;
-    Ok(ExecResult {
-        stdout: utf8(&stdout, &mut truncated),
-        stderr: utf8(&stderr, &mut truncated),
-        exit_code: code,
-        timed_out,
-        truncated,
-        cancelled: was_cancelled,
-    })
 }
 
 #[cfg(test)]
@@ -519,6 +413,13 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn login_path_comes_from_the_fallback_shell() {
+        let path = read_login_path(Path::new("/bin/sh")).unwrap();
+        assert!(std::env::split_paths(&path).any(|folder| folder == Path::new("/usr/bin")));
+    }
+
     #[test]
     fn cancel_before_registration_never_launches_the_command() {
         let root = TestDirectory::new();
@@ -538,127 +439,6 @@ mod tests {
             jobs.cancel(job);
         }
         assert!(jobs.cancelled.lock().unwrap().len() <= 128);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn command_streams_stdin_and_reports_exit_and_working_directory() {
-        let root = TestDirectory::new();
-        let mut request = request("cat; pwd; printf problem >&2; exit 7");
-        request.stdin = b"input\n".to_vec();
-        let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
-        assert!(result.stdout.starts_with("input\n"));
-        assert!(
-            result
-                .stdout
-                .contains(root.path().file_name().unwrap().to_str().unwrap())
-        );
-        assert_eq!(result.stderr, "problem");
-        assert_eq!(result.exit_code, 7);
-        assert!(!result.timed_out);
-        assert!(!result.cancelled);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn timeout_and_disconnect_stop_commands_even_when_descendants_keep_pipes_open() {
-        let root = TestDirectory::new();
-        let mut request = request("trap '' TERM; sleep 30 & wait");
-        request.timeout_ms = 50;
-        let started = Instant::now();
-        let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
-        assert!(result.timed_out);
-        assert!(started.elapsed() < Duration::from_secs(3));
-        request.timeout_ms = 3000;
-        let started = Instant::now();
-        let result = execute(&request, root.path(), &AtomicBool::new(false), || {
-            started.elapsed() > Duration::from_millis(30)
-        })
-        .unwrap();
-        assert!(result.cancelled);
-        assert!(started.elapsed() < Duration::from_secs(3));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn output_is_bounded_while_both_pipes_are_drained() {
-        let root = TestDirectory::new();
-        let mut request = request("head -c 5000000 /dev/zero; head -c 5000000 /dev/zero >&2");
-        request.timeout_ms = 30_000;
-        let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
-        assert_eq!(result.stdout.len(), MAX_EXEC_OUTPUT);
-        assert_eq!(result.stderr.len(), MAX_EXEC_OUTPUT);
-        assert!(result.truncated);
-        assert_eq!(result.exit_code, 0);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_command_streams_stdin_and_reports_exit_and_working_directory() {
-        let root = TestDirectory::new();
-        let mut request = request("findstr \"^\" & cd & (echo problem)1>&2 & exit /b 7");
-        request.stdin = b"input\r\n".to_vec();
-        let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
-        assert!(
-            result.stdout.starts_with("input\r\n"),
-            "{:?}",
-            result.stdout
-        );
-        assert!(
-            result
-                .stdout
-                .contains(root.path().file_name().unwrap().to_str().unwrap())
-        );
-        assert_eq!(result.stderr.trim_end(), "problem");
-        assert_eq!(result.exit_code, 7);
-        assert!(!result.timed_out);
-        assert!(!result.cancelled);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_timeout_and_disconnect_stop_commands_even_when_descendants_keep_pipes_open() {
-        let root = TestDirectory::new();
-        let mut request = request("start /b ping -n 30 127.0.0.1 >nul & ping -n 30 127.0.0.1 >nul");
-        request.timeout_ms = 50;
-        let started = Instant::now();
-        let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
-        assert!(result.timed_out);
-        assert!(started.elapsed() < Duration::from_secs(3));
-        request.timeout_ms = 3000;
-        let started = Instant::now();
-        let result = execute(&request, root.path(), &AtomicBool::new(false), || {
-            started.elapsed() > Duration::from_millis(30)
-        })
-        .unwrap();
-        assert!(result.cancelled);
-        assert!(started.elapsed() < Duration::from_secs(3));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_command_grandchild_ends_with_its_job() {
-        let root = TestDirectory::new();
-        let request =
-            request("start /b cmd /d /c \"ping -n 3 127.0.0.1 >nul & echo late> grandchild.txt\"");
-        let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
-        assert_eq!(result.exit_code, 0);
-        std::thread::sleep(Duration::from_secs(4));
-        assert!(!root.path().join("grandchild.txt").exists());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_output_is_bounded_while_both_pipes_are_drained() {
-        let root = TestDirectory::new();
-        std::fs::write(root.path().join("big.txt"), vec![b'0'; 5_000_000]).unwrap();
-        let mut request = request("type big.txt & type big.txt 1>&2");
-        request.timeout_ms = 30_000;
-        let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
-        assert_eq!(result.stdout.len(), MAX_EXEC_OUTPUT);
-        assert_eq!(result.stderr.len(), MAX_EXEC_OUTPUT);
-        assert!(result.truncated);
-        assert_eq!(result.exit_code, 0);
     }
 
     #[cfg(windows)]

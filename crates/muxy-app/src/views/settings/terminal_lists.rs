@@ -6,7 +6,8 @@ use muxy_ui::{controls, form, tr};
 
 use super::pickers::FontSlot;
 use super::terminal::change_button;
-use super::{Change, PickerKind, SettingsEvent, SettingsView};
+use super::{PickerKind, SettingsEvent, SettingsView};
+use crate::model::preferences::Change;
 
 pub(super) const BINDING_ACTION: &str = "keybind-action";
 pub(super) const BINDING_CHORD: &str = "keybind-chord";
@@ -97,11 +98,15 @@ pub(super) fn action_choices(pane: &SettingsView) -> (String, Vec<(&'static str,
     )
 }
 
-fn list_row(label: String, controls: impl IntoIterator<Item = AnyElement>) -> gpui::Div {
+fn list_row(
+    pane: &SettingsView,
+    label: String,
+    controls: impl IntoIterator<Item = AnyElement>,
+) -> gpui::Div {
     div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .child(div().flex_1().min_w(px(0.0)).child(label))
         .children(controls)
 }
@@ -113,24 +118,36 @@ fn editor_buttons(
 ) -> gpui::Div {
     div()
         .flex()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .child(controls::button(
             pane.style(),
             &format!("{field}-save"),
-            &tr!("Save"),
-            true,
+            controls::Button::secondary(&tr!("Save")),
             cx.listener(move |pane, _, _, cx| pane.save_terminal_editor(field, cx)),
         ))
         .child(controls::button(
             pane.style(),
             &format!("{field}-cancel"),
-            &tr!("Cancel"),
-            true,
+            controls::Button::secondary(&tr!("Cancel")),
             cx.listener(move |pane, _, _, cx| pane.cancel_terminal_editor(field, cx)),
         ))
 }
 
-pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+/// A list setting's Add control, and its entries when there are any.
+type ListControl = (AnyElement, Option<AnyElement>);
+
+fn entries(pane: &SettingsView, rows: Vec<gpui::Div>) -> Option<AnyElement> {
+    (!rows.is_empty()).then(|| {
+        div()
+            .flex()
+            .flex_col()
+            .gap(pane.layout_metrics.scaled(6.0))
+            .children(rows)
+            .into_any_element()
+    })
+}
+
+pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> ListControl {
     let names = pane
         .snapshot
         .terminal
@@ -151,12 +168,14 @@ pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
             let mut removed = names.clone();
             removed.remove(index);
             list_row(
+                pane,
                 format!("{}. {name}", index + 1),
                 [
                     change_button(
                         pane,
                         &format!("fallback-up-{index}"),
                         "↑",
+                        &tr!("Move %@ Up", name),
                         index > 0,
                         moved(index.saturating_sub(1)),
                         cx,
@@ -165,6 +184,7 @@ pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
                         pane,
                         &format!("fallback-down-{index}"),
                         "↓",
+                        &tr!("Move %@ Down", name),
                         index < last,
                         moved((index + 1).min(last)),
                         cx,
@@ -173,6 +193,7 @@ pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
                         pane,
                         &format!("fallback-remove-{index}"),
                         &tr!("Remove"),
+                        &tr!("Remove %@", name),
                         true,
                         Change::TerminalEdit(TerminalEdit::Fallbacks(removed)),
                         cx,
@@ -181,20 +202,13 @@ pub(super) fn fallbacks(pane: &SettingsView, cx: &mut Context<SettingsView>) -> 
             )
         })
         .collect();
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(6.0))
-        .children(rows)
-        .child(div().flex().child(pane.picker(
-            PickerKind::Font(FontSlot::Fallback),
-            &tr!("Add Font…"),
-            cx,
-        )))
-        .into_any_element()
+    (
+        pane.picker(PickerKind::Font(FontSlot::Fallback), &tr!("Add Font…"), cx),
+        entries(pane, rows),
+    )
 }
 
-pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>) -> ListControl {
     let editing = pane.codepoint_editor.is_some();
     let rows: Vec<_> = pane
         .snapshot
@@ -205,14 +219,17 @@ pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>
         .enumerate()
         .map(|(index, map)| {
             let edit = map.clone();
+            let row = format!("{} → {}", range_text(map), map.family);
             list_row(
-                format!("{} → {}", range_text(map), map.family),
+                pane,
+                row.clone(),
                 [
                     controls::button(
                         pane.style(),
                         &format!("codepoint-edit-{index}"),
-                        &tr!("Edit"),
-                        !editing,
+                        controls::Button::secondary(&tr!("Edit"))
+                            .named(&tr!("Edit %@", &row))
+                            .enabled(!editing),
                         cx.listener(move |pane, _, window, cx| {
                             pane.edit_codepoint_map(Some(edit.clone()), window, cx);
                         }),
@@ -222,6 +239,7 @@ pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>
                         pane,
                         &format!("codepoint-delete-{index}"),
                         &tr!("Delete"),
+                        &tr!("Delete %@", &row),
                         !editing,
                         Change::TerminalEdit(TerminalEdit::CodepointMap {
                             previous: Some(map.clone()),
@@ -233,29 +251,21 @@ pub(super) fn codepoint_maps(pane: &SettingsView, cx: &mut Context<SettingsView>
             )
         })
         .collect();
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(6.0))
-        .children(rows)
-        .child(if editing {
-            codepoint_editor(pane, cx)
-        } else {
-            div()
-                .flex()
-                .child(controls::button(
-                    pane.style(),
-                    "codepoint-add",
-                    &tr!("Add Map"),
-                    true,
-                    cx.listener(|pane, _, window, cx| pane.edit_codepoint_map(None, window, cx)),
-                ))
-                .into_any_element()
-        })
-        .into_any_element()
+    let add = controls::button(
+        pane.style(),
+        "codepoint-add",
+        controls::Button::secondary(&tr!("Add Map")).enabled(!editing),
+        cx.listener(|pane, _, window, cx| pane.edit_codepoint_map(None, window, cx)),
+    )
+    .into_any_element();
+    let rows = rows
+        .into_iter()
+        .chain(editing.then(|| codepoint_editor(pane, cx)))
+        .collect();
+    (add, entries(pane, rows))
 }
 
-fn codepoint_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+fn codepoint_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> gpui::Div {
     let family = pane
         .codepoint_editor
         .as_ref()
@@ -283,10 +293,9 @@ fn codepoint_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyE
             pane.compact,
         ))
         .child(editor_buttons(pane, CODEPOINT_RANGE, cx))
-        .into_any_element()
 }
 
-pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> ListControl {
     let editing = pane.binding_editor.is_some();
     let bindings = &pane.snapshot.terminal.keybindings.bindings;
     let rows: Vec<_> = bindings
@@ -301,14 +310,17 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
                 format!("{label}: {parameter}")
             };
             let edit = (chord.clone(), action.clone());
+            let row = format!("{chord}  ·  {description}");
             list_row(
-                format!("{chord}  ·  {description}"),
+                pane,
+                row.clone(),
                 [
                     controls::button(
                         pane.style(),
                         &format!("keybind-edit-{index}"),
-                        &tr!("Edit"),
-                        !editing,
+                        controls::Button::secondary(&tr!("Edit"))
+                            .named(&tr!("Edit %@", &row))
+                            .enabled(!editing),
                         cx.listener(move |pane, _, window, cx| {
                             pane.edit_binding(Some(edit.clone()), window, cx);
                         }),
@@ -318,6 +330,7 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
                         pane,
                         &format!("keybind-delete-{index}"),
                         &tr!("Delete"),
+                        &tr!("Delete %@", &row),
                         !editing,
                         Change::TerminalEdit(TerminalEdit::Binding {
                             previous: Some(chord.clone()),
@@ -329,34 +342,30 @@ pub(super) fn bindings(pane: &SettingsView, cx: &mut Context<SettingsView>) -> A
             )
         })
         .collect();
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(6.0))
-        .when(bindings.is_empty() && !editing, |list| {
-            list.child(pane.note(&tr!("No custom key bindings yet."), false))
-        })
-        .children(rows)
-        .child(if editing {
-            binding_editor(pane, cx)
-        } else {
-            div()
-                .flex()
-                .child(controls::button(
-                    pane.style(),
-                    "keybind-add",
-                    &tr!("Add Binding"),
-                    true,
-                    cx.listener(|pane, _, window, cx| pane.edit_binding(None, window, cx)),
-                ))
-                .into_any_element()
-        })
-        .into_any_element()
+    let add = controls::button(
+        pane.style(),
+        "keybind-add",
+        controls::Button::secondary(&tr!("Add Binding")).enabled(!editing),
+        cx.listener(|pane, _, window, cx| pane.edit_binding(None, window, cx)),
+    )
+    .into_any_element();
+    let empty = (bindings.is_empty() && !editing).then(|| {
+        div().child(pane.readable_note(
+            "settings-no-key-bindings",
+            &tr!("No custom key bindings yet."),
+        ))
+    });
+    let rows = empty
+        .into_iter()
+        .chain(rows)
+        .chain(editing.then(|| binding_editor(pane, cx)))
+        .collect();
+    (add, entries(pane, rows))
 }
 
-fn binding_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+fn binding_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> gpui::Div {
     let Some(editor) = &pane.binding_editor else {
-        return div().into_any_element();
+        return div();
     };
     let key = if pane.recording.as_deref() == Some(BINDING_CHORD) {
         tr!("Press a key…")
@@ -383,8 +392,7 @@ fn binding_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEle
             controls::button(
                 pane.style(),
                 BINDING_CHORD,
-                &key,
-                true,
+                controls::Button::secondary(&key).named(&tr!("Key: %@", &key)),
                 cx.listener(|pane, _, window, cx| pane.begin_recording(BINDING_CHORD, window, cx)),
             )
             .into_any_element(),
@@ -411,10 +419,13 @@ fn binding_editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEle
             ))
         })
         .when_some(pane.errors.get(BINDING_CHORD), |body, error| {
-            body.child(pane.note(error, true))
+            body.child(super::announced_error(
+                pane.note(error, true),
+                BINDING_CHORD,
+                error,
+            ))
         })
         .child(editor_buttons(pane, BINDING_PARAMETER, cx))
-        .into_any_element()
 }
 
 impl SettingsView {

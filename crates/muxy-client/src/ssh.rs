@@ -1,28 +1,23 @@
 //! Servers on other computers, reached through ssh or a custom command that
 //! runs the bridge there.
 
-use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fmt;
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{ChildStderr, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::str::FromStr;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::thread;
 use std::time::Duration;
 
 use muxy_protocol::transport::ChildStream;
 
 use crate::bridge::{self, BridgeExit, Start};
-use crate::{Client, ClientError, RemoteReason};
+use crate::{Client, ClientError, ErrorTail, RemoteReason};
 
 /// Covers ssh's 10 s connect timeout, logging in, and starting the server.
-const READY_TIMEOUT: Duration = Duration::from_secs(20);
+const CONNECT_AND_START_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long a failed ssh gets to exit and finish its error output.
 const EXIT_TIMEOUT: Duration = Duration::from_secs(1);
-/// How much of ssh's error output is kept for messages.
-const STDERR_TAIL: usize = 8 * 1024;
 /// Keepalives end a dead connection instead of hanging. A shared master
 /// would keep running with our pipes, and the user's remote command and
 /// forwards belong to interactive sessions, not to the bridge.
@@ -44,7 +39,32 @@ pub struct SshTarget {
     custom_arguments: Option<Vec<String>>,
     identity: Option<PathBuf>,
     askpass: Option<Askpass>,
+    proxy: Option<ProxyCommand>,
     host_key_prompt: bool,
+}
+
+/// A program that connects ssh to the computer, such as through a proxy. ssh
+/// runs it with the host and port after `arguments` and talks to it over its
+/// standard input and output.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ProxyCommand {
+    pub program: PathBuf,
+    pub arguments: Vec<String>,
+    /// More environment for the program, such as which proxy to use.
+    pub environment: Vec<(OsString, OsString)>,
+}
+
+impl ProxyCommand {
+    /// ssh expands `%` tokens, then runs the line with the user's shell.
+    fn option(&self) -> String {
+        let quote = |value: &str| format!("'{}'", value.replace('\'', r"'\''").replace('%', "%%"));
+        let mut line = quote(&self.program.to_string_lossy());
+        for argument in &self.arguments {
+            line.push(' ');
+            line.push_str(&quote(argument));
+        }
+        format!("ProxyCommand={line} %h %p")
+    }
 }
 
 /// A program that answers ssh's prompts, such as for a saved password. ssh
@@ -79,6 +99,7 @@ impl SshTarget {
             custom_arguments: None,
             identity: None,
             askpass: None,
+            proxy: None,
             host_key_prompt: false,
         })
     }
@@ -94,6 +115,7 @@ impl SshTarget {
             custom_arguments: Some(arguments.collect()),
             identity: None,
             askpass: None,
+            proxy: None,
             host_key_prompt: false,
         })
     }
@@ -114,6 +136,12 @@ impl SshTarget {
     #[must_use]
     pub fn with_askpass(mut self, askpass: Askpass) -> Self {
         self.askpass = Some(askpass);
+        self
+    }
+
+    #[must_use]
+    pub fn with_proxy(mut self, proxy: ProxyCommand) -> Self {
+        self.proxy = Some(proxy);
         self
     }
 
@@ -148,6 +176,12 @@ impl SshTarget {
         })
     }
 
+    /// Whether ssh's config already reaches this destination its own way,
+    /// with `ProxyJump` or `ProxyCommand`.
+    pub fn has_own_route(&self) -> io::Result<bool> {
+        Ok(route_from(&self.config()?))
+    }
+
     pub fn default_identity(&self) -> io::Result<Option<PathBuf>> {
         let config = self.config()?;
         Ok(std::env::home_dir().and_then(|home| identity_from(&config, &home)))
@@ -179,16 +213,20 @@ impl SshTarget {
     /// such as an installer. Its output is the caller's to read.
     pub fn command(&self, remote: &str) -> io::Result<Command> {
         let program = program(self.program.as_deref(), std::env::var_os("MUXY_SSH"))?;
+        let proxy = self
+            .proxy
+            .as_ref()
+            .filter(|_| !self.has_own_route().unwrap_or(false));
         let mut command = Command::new(program);
         command
-            .args(self.arguments_for(remote))
-            .envs(self.environment());
+            .args(self.arguments_for(remote, proxy))
+            .envs(self.environment(proxy));
         Ok(command)
     }
 
     /// Prompts only reach an askpass program, since nobody may be there to
     /// answer them.
-    fn arguments_for(&self, remote: &str) -> Vec<OsString> {
+    fn arguments_for(&self, remote: &str, proxy: Option<&ProxyCommand>) -> Vec<OsString> {
         if let Some(arguments) = &self.custom_arguments {
             return arguments
                 .iter()
@@ -214,6 +252,14 @@ impl SshTarget {
                 arguments.extend(["-o".into(), option.into()]);
             }
         }
+        if let Some(proxy) = proxy {
+            arguments.extend([
+                "-o".into(),
+                "ControlPath=none".into(),
+                "-o".into(),
+                proxy.option().into(),
+            ]);
+        }
         if let Some(identity) = &self.identity {
             arguments.extend([
                 "-i".into(),
@@ -228,12 +274,15 @@ impl SshTarget {
 
     /// `SSH_ASKPASS_REQUIRE=force` makes ssh use the program even without
     /// a display or a terminal.
-    fn environment(&self) -> Vec<(OsString, OsString)> {
+    fn environment(&self, proxy: Option<&ProxyCommand>) -> Vec<(OsString, OsString)> {
         if self.is_custom_command() {
             return Vec::new();
         }
+        let proxy = proxy
+            .into_iter()
+            .flat_map(|proxy| proxy.environment.iter().cloned());
         let Some(askpass) = &self.askpass else {
-            return Vec::new();
+            return proxy.collect();
         };
         [
             (
@@ -244,6 +293,7 @@ impl SshTarget {
         ]
         .into_iter()
         .chain(askpass.environment.iter().cloned())
+        .chain(proxy)
         .collect()
     }
 }
@@ -264,6 +314,14 @@ impl fmt::Display for SshTarget {
 
 /// `user@host` from `ssh -G` output. ssh names a host key alias in its
 /// prompts instead of the host name, when there is one.
+fn route_from(config: &str) -> bool {
+    config.lines().any(|line| {
+        line.split_once(' ').is_some_and(|(key, value)| {
+            matches!(key, "proxyjump" | "proxycommand") && value.trim() != "none"
+        })
+    })
+}
+
 fn login_from(config: &str) -> Option<String> {
     let value = |key: &str| {
         config.lines().find_map(|line| {
@@ -332,84 +390,19 @@ impl Client {
         })?;
         let stderr = ErrorTail::drain(stream.take_stderr())?;
         let process = stream.process();
-        Self::connect_bridge(Box::new(stream), &target.destination, READY_TIMEOUT, || {
-            BridgeExit {
+        Self::connect_bridge(
+            Box::new(stream),
+            &target.destination,
+            CONNECT_AND_START_TIMEOUT,
+            || BridgeExit {
                 status: process
                     .wait_timeout(EXIT_TIMEOUT)
                     .ok()
                     .flatten()
                     .and_then(|status| status.code()),
-                stderr: stderr.wait(EXIT_TIMEOUT),
-            }
-        })
-    }
-}
-
-/// The end of a child's error output. A thread drains it for the child's
-/// whole life, so the child never blocks on a full pipe.
-#[derive(Default)]
-struct ErrorTail {
-    state: Mutex<TailState>,
-    ended: Condvar,
-}
-
-#[derive(Default)]
-struct TailState {
-    bytes: VecDeque<u8>,
-    ended: bool,
-}
-
-impl ErrorTail {
-    fn drain(stderr: Option<ChildStderr>) -> io::Result<Arc<Self>> {
-        let tail = Arc::new(Self::default());
-        let filling = Arc::clone(&tail);
-        match stderr {
-            Some(stderr) => {
-                thread::Builder::new()
-                    .name("muxy-ssh-stderr".into())
-                    .spawn(move || filling.fill(stderr))?;
-            }
-            None => filling.finish(),
-        }
-        Ok(tail)
-    }
-
-    fn fill(&self, mut stderr: impl Read) {
-        let mut chunk = [0; 4096];
-        loop {
-            match stderr.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(read) => self.push(&chunk[..read]),
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                Err(_) => break,
-            }
-        }
-        self.finish();
-    }
-
-    fn push(&self, bytes: &[u8]) {
-        let mut state = self.lock();
-        state.bytes.extend(bytes);
-        let excess = state.bytes.len().saturating_sub(STDERR_TAIL);
-        state.bytes.drain(..excess);
-    }
-
-    fn finish(&self) {
-        self.lock().ended = true;
-        self.ended.notify_all();
-    }
-
-    /// Waits up to `timeout` for the output to end, then returns its tail.
-    fn wait(&self, timeout: Duration) -> String {
-        let (mut state, _) = self
-            .ended
-            .wait_timeout_while(self.lock(), timeout, |state| !state.ended)
-            .unwrap_or_else(PoisonError::into_inner);
-        String::from_utf8_lossy(state.bytes.make_contiguous()).into_owned()
-    }
-
-    fn lock(&self) -> MutexGuard<'_, TailState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+                stderr: stderr.wait(EXIT_TIMEOUT).stderr,
+            },
+        )
     }
 }
 
@@ -445,20 +438,48 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(unix)]
+    fn proxy() -> ProxyCommand {
+        ProxyCommand {
+            program: "/usr/bin/printf".into(),
+            arguments: vec!["%s|".into(), "it's".into()],
+            environment: vec![("MUXY_PROXY".into(), "secret".into())],
+        }
+    }
+
     #[test]
-    fn custom_command_arguments_are_not_evaluated_by_a_local_shell() -> io::Result<()> {
-        let target = SshTarget::custom_command(
-            r"/usr/bin/printf '%s\n' '$(exit 91)' '$HOME' '*' '; exit 92'",
-        )?;
-        let remote = "sh -c 'printf \"%s\" \"$HOME\"'; exit 93";
-        let output = target.command(remote)?.output()?;
-        assert!(output.status.success());
-        assert_eq!(
-            output.stdout,
-            format!("$(exit 91)\n$HOME\n*\n; exit 92\n{remote}\n").as_bytes()
+    fn a_proxy_reaches_ssh_as_an_option_and_its_environment() -> io::Result<()> {
+        let target = SshTarget::new("box")?
+            .with_program("/usr/bin/true")
+            .with_proxy(proxy());
+        let command = target.command("true")?;
+        let arguments: Vec<_> = command.get_args().collect();
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-o", "ControlPath=none"])
         );
+        assert!(arguments.windows(2).any(|pair| pair
+            == [
+                "-o",
+                r"ProxyCommand='/usr/bin/printf' '%%s|' 'it'\''s' %h %p"
+            ]));
+        assert_eq!(
+            command.get_envs().collect::<Vec<_>>(),
+            [("MUXY_PROXY".as_ref(), Some("secret".as_ref()))]
+        );
+        let custom = SshTarget::custom_command("vm ssh box")?.with_proxy(proxy());
+        let command = custom.command("true")?;
+        assert!(command.get_args().all(|argument| argument != "-o"));
+        assert_eq!(command.get_envs().count(), 0);
         Ok(())
+    }
+
+    #[test]
+    fn jump_hosts_and_proxy_commands_in_ssh_config_are_their_own_route() {
+        assert!(route_from("user me\nproxyjump bastion.example\nport 22\n"));
+        assert!(route_from("proxycommand nc -X 5 %h %p\n"));
+        assert!(!route_from("user me\nproxycommand none\nport 22\n"));
+        assert!(!route_from("user me\nhostname box\n"));
     }
 
     #[test]
@@ -482,7 +503,7 @@ mod tests {
     #[test]
     fn host_key_prompts_keep_verification_and_disable_shared_connections() -> io::Result<()> {
         let target = SshTarget::new("ssh://dev@box:2222")?.with_host_key_prompt();
-        let args = target.arguments_for(bridge::command(Start::IfNeeded));
+        let args = target.arguments_for(bridge::command(Start::IfNeeded), None);
         for option in [
             "StrictHostKeyChecking=ask",
             "FingerprintHash=sha256",

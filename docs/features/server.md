@@ -18,7 +18,7 @@ flowchart LR
   start it yourself.
 - It keeps running until you stop it, even with no app open.
 - Stopping or restarting it ends every terminal. Saved screens and history are
-  kept. Use the status bar, **Settings → Server**, or
+  kept. Use the status bar, **Settings → Servers**, or
   `muxy server stop --force`.
 - Muxy never restarts it on its own while terminals are running. After an
   update, the desktop app replaces this computer's server once no terminals are
@@ -48,7 +48,7 @@ flowchart LR
 ## Settings
 
 Server settings apply to everyone using that server. Change them in
-**Settings → Server**, with `muxy settings set`, or in `server.toml`:
+**Settings → Servers**, with `muxy settings set`, or in `server.toml`:
 
 | Setting | `server.toml` key | Default |
 | --- | --- | --- |
@@ -75,7 +75,11 @@ fi
 ```
 
 Every terminal gets `TERM=xterm-256color`, `COLORTERM=truecolor`,
-`TERM_PROGRAM=muxy`, `MUXY_SERVER_ID`, and `MUXY_SESSION_ID`.
+`TERM_PROGRAM=muxy`, `MUXY_SERVER_ID`, and `MUXY_SESSION_ID`. If `LANG`,
+`LC_ALL`, and `LC_CTYPE` are all unset or empty, Muxy sets `LANG` to an
+installed UTF-8 locale for the system language and region, or else `C.UTF-8` or
+`en_US.UTF-8`, so non-ASCII text displays correctly. If none of these is
+installed, it leaves them unset.
 
 ## Files
 
@@ -92,7 +96,7 @@ Everything lives in one profile folder:
 | `server.log` | Server log |
 | `server.sock` | The socket apps connect to |
 | `sessions/` | Projects, sessions, and saved terminal output |
-| `remote.json` | Mobile access settings and paired phones |
+| `remote.json` | Mobile access settings, paired phones, and their push notification registrations |
 | `settings.toml`, `terminal.toml`, `themes/` | Desktop app settings, see [Settings](../user-guide/settings.md) |
 | `tui-state.json` | Terminal UI layouts |
 

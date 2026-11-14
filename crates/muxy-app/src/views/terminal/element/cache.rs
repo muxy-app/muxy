@@ -2,8 +2,6 @@ use super::{Palette, Pixels, Point, Rc, RowPainting, RowRenderer, Run};
 
 #[derive(Default)]
 pub(crate) struct Rows {
-    #[cfg(test)]
-    pub(super) bypass: bool,
     configuration: Option<Configuration>,
     entries: Vec<Option<Row>>,
 }
@@ -71,8 +69,6 @@ impl Rows {
         renderer: &mut RowRenderer<'_>,
     ) -> Rc<RowPainting> {
         let bypass = crate::profiler::bypass_row_cache();
-        #[cfg(test)]
-        let bypass = bypass || self.bypass;
         if bypass {
             crate::profiler::count(crate::profiler::Metric::RowCacheMiss, 1);
             let mut painting = RowPainting::default();

@@ -101,11 +101,13 @@ mod tests {
             Action::Activity(vec![id])
         );
         let history = history(&HistoryPage {
+            links: None,
             prompts: Vec::new(),
             rows: Vec::new(),
             next: Some(HistoryCursor(id)),
             total_rows: 0,
             screen: None,
+            graphics: None,
         });
         let search = search(&SearchPage {
             matches: Vec::new(),

@@ -50,18 +50,29 @@ impl AppModel {
         self.control_enabled(self.status_server())
     }
 
-    pub(super) fn control_enabled(&self, server: ServerId) -> bool {
+    pub(crate) fn control_enabled(&self, server: ServerId) -> bool {
         self.server_actions_enabled(server) && self.ready(server)
     }
 
+    /// A paired computer's server can be stopped from here but not started
+    /// again, so it can't be restarted.
+    pub(crate) fn restartable(&self, server: ServerId) -> bool {
+        self.settings
+            .server(server)
+            .is_none_or(|entry| entry.paired.is_none())
+    }
+
     pub(crate) fn server_connect_enabled(&self) -> bool {
-        let server = self.status_server();
+        self.connect_enabled(self.status_server())
+    }
+
+    pub(crate) fn connect_enabled(&self, server: ServerId) -> bool {
         self.server_actions_enabled(server)
             && self.connection(server) == ConnectionState::Disconnected
     }
 
     fn server_actions_enabled(&self, server: ServerId) -> bool {
-        let idle = self.quitting == Quitting::Idle && self.close_prompt.is_none();
+        let idle = self.quitting == Quitting::Idle;
         if server.is_local() {
             idle && !self.server_preferences.control_busy
                 && !self.server_preferences.busy
@@ -76,7 +87,7 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_server_popover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         if matches!(self.overlay, Some(Overlay::Server)) {
@@ -84,7 +95,7 @@ impl AppModel {
             return;
         }
         self.dismiss_overlay(cx);
-        self.overlay = Some(Overlay::Server);
+        self.open_overlay(Overlay::Server, cx);
         self.overlay_focus.focus(window);
         cx.notify();
     }

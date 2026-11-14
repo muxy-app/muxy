@@ -1,0 +1,524 @@
+use super::preferences::settings_tab;
+use super::servers::{connect_remote, entry, page, work};
+use super::*;
+use crate::views::settings::SettingsEvent;
+use muxy_app_core::settings::{ServerEntry, Settings};
+
+mod client_access;
+mod commands;
+mod forms;
+mod groups;
+mod pairing;
+mod tab;
+
+/// A stub boot listing `servers`, both in settings and in its settings.toml.
+fn boot_with(servers: Vec<ServerEntry>) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>, Remotes) {
+    let (boot, local, remotes) = remote_boot(AppState::bootstrap().expect("state"), servers);
+    let path = boot.state_path.with_file_name("settings.toml");
+    std::fs::create_dir_all(path.parent().expect("profile")).expect("profile");
+    let mut file = Settings::default();
+    for server in &boot.settings.servers {
+        file.add_server(server.clone(), &path).expect("listed");
+    }
+    (boot, local, remotes)
+}
+
+fn form(name: &str, host: &str) -> ServerFields {
+    ServerFields {
+        name: name.into(),
+        host: host.into(),
+        ..ServerFields::default()
+    }
+}
+
+fn listed(path: &std::path::Path) -> Vec<ServerEntry> {
+    Settings::load(path).expect("settings").servers
+}
+
+fn connect_local(model: &mut AppModel, cx: &mut Context<AppModel>) {
+    model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
+    acknowledge_catalog(model, cx);
+}
+
+#[gpui::test]
+fn remote_devices_are_added_edited_and_forgotten_in_settings_and_the_runtime(
+    cx: &mut TestAppContext,
+) {
+    let other = ServerId::new();
+    let (boot, _, remotes) = boot_with(vec![entry(other, "other")]);
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let (other_home, other_api) = (ProjectId::new(), ProjectId::new());
+    let device = view.update(cx, |model, cx| {
+        connect_local(model, cx);
+        assert_eq!(
+            model.connection(other),
+            ConnectionState::Disconnected,
+            "a listed server waits to be connected"
+        );
+        model.connect_server(other, cx);
+        model.receive((other, 1, Update::Connected(vec![])), cx);
+        let catalog = page(3, other_home, &[(other_api, "api")]);
+        model.receive((other, 1, Update::Catalog(Ok(catalog))), cx);
+
+        let invalid = model.save_remote_server(None, &form("box", "-oProxyCommand=sh"), cx);
+        assert!(invalid.is_err());
+        assert_eq!(listed(&path).len(), 1);
+
+        let device = model
+            .save_remote_server(None, &form(" ", " dev@box "), cx)
+            .expect("added");
+        let saved = listed(&path);
+        let added = saved
+            .iter()
+            .find(|entry| entry.id == device)
+            .expect("saved");
+        assert_eq!(
+            (added.name.as_str(), added.ssh.as_str()),
+            ("dev@box", "dev@box")
+        );
+        assert_eq!(model.connection(device), ConnectionState::Connecting);
+        device
+    });
+    let first = remotes.borrow_mut().remove(&device).expect("worker");
+    assert!(
+        first
+            .try_iter()
+            .any(|(generation, work)| generation == 1 && matches!(work, Work::Connect))
+    );
+
+    view.update(cx, |model, cx| {
+        let home = connect_remote(model, device, vec![], &[], cx);
+        work(&first);
+        model
+            .save_remote_server(Some(device), &form("box", "dev@box"), cx)
+            .expect("renamed");
+        assert_eq!(model.server_name(device), Some("box"));
+        assert!(model.ready(device), "a new name keeps the connection");
+        assert!(
+            !work(&first)
+                .iter()
+                .any(|work| matches!(work, Work::Stop | Work::Connect))
+        );
+
+        model
+            .save_remote_server(Some(device), &form("box", "dev@box2"), cx)
+            .expect("moved");
+        assert_eq!(listed(&path)[1].ssh, "dev@box2");
+        assert_eq!(model.connection(device), ConnectionState::Connecting);
+        assert_eq!(
+            model.state.server_home(device).map(|home| home.id),
+            Some(home)
+        );
+    });
+    assert!(first.try_iter().any(|(_, work)| matches!(work, Work::Stop)));
+    let second = remotes.borrow_mut().remove(&device).expect("new worker");
+    assert!(
+        second
+            .try_iter()
+            .any(|(generation, work)| generation == 3 && matches!(work, Work::Connect)),
+        "the new worker counts on past the old one's generation"
+    );
+
+    view.update(cx, |model, cx| {
+        model
+            .forget_remote_servers(&[device], cx)
+            .expect("forgotten");
+        assert!(listed(&path).iter().all(|entry| entry.id != device));
+        assert!(model.server_name(device).is_none());
+        assert!(model.servers.get(device).is_none());
+        assert!(model.state.server_home(device).is_none());
+        assert!(
+            model.state.project(other_api).is_some(),
+            "other servers keep their projects"
+        );
+    });
+    assert!(
+        second
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::Stop))
+    );
+}
+
+fn click(cx: &mut VisualTestContext, selector: &'static str) {
+    cx.run_until_parked();
+    let bounds = cx.debug_bounds(selector).expect(selector);
+    cx.simulate_click(bounds.center(), Modifiers::none());
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn the_status_bar_shows_and_restarts_the_current_projects_server(cx: &mut TestAppContext) {
+    let remote = ServerId::new();
+    let (boot, local_work, remotes) = boot_with(vec![entry(remote, "box")]);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        connect_local(model, cx);
+        let api = ProjectId::new();
+        connect_remote(model, remote, vec![], &[(api, "api")], cx);
+        model.receive(
+            (
+                remote,
+                1,
+                Update::ServerInfo(muxy_protocol::ServerInfo::current(), Vec::new()),
+            ),
+            cx,
+        );
+        assert_eq!(model.status_server(), ServerId::local());
+        model.select_project(api, cx);
+        assert_eq!(model.status_server(), remote);
+        assert_eq!(model.server_status(), ServerStatus::Connected);
+        assert_eq!(model.server_label(remote), "box");
+        assert_eq!(
+            model.server_version(remote),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+    });
+    let remote_work = remotes.borrow_mut().remove(&remote).expect("worker");
+    work(&remote_work);
+    work(&local_work);
+    cx.simulate_resize(size(px(1000.0), px(700.0)));
+    click(cx, "project-connection-status");
+    assert!(cx.debug_bounds("server-popover-name").is_some());
+    click(cx, "restart-project-server");
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("Restart");
+    cx.run_until_parked();
+    assert!(
+        work(&remote_work)
+            .iter()
+            .any(|work| matches!(work, Work::StopServer { restart: true }))
+    );
+    assert!(
+        !work(&local_work)
+            .iter()
+            .any(|work| matches!(work, Work::StopServer { .. })),
+        "this computer's server keeps running"
+    );
+    view.update(cx, |model, cx| {
+        assert_eq!(model.server_status(), ServerStatus::Stopping);
+        assert!(!model.server_control_enabled());
+        let stopped = Update::ServerStopped {
+            restart: true,
+            result: Ok(()),
+        };
+        model.receive((remote, 1, stopped), cx);
+        assert_eq!(model.server_status(), ServerStatus::Connecting);
+    });
+    assert!(
+        remote_work
+            .try_iter()
+            .any(|(generation, work)| generation == 2 && matches!(work, Work::Connect))
+    );
+}
+
+#[gpui::test]
+fn saving_a_device_also_takes_in_devices_edited_by_hand(cx: &mut TestAppContext) {
+    let (boot, _, remotes) = boot_with(vec![]);
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let by_hand = entry(ServerId::new(), "by hand");
+    Settings::default()
+        .add_server(by_hand.clone(), &path)
+        .expect("hand edit");
+    let saved = view.update(cx, |model, cx| {
+        let saved = model
+            .save_remote_server(None, &form("y", "dev@y"), cx)
+            .expect("added");
+        assert_eq!(
+            model.connection(by_hand.id),
+            ConnectionState::Disconnected,
+            "a server edited in by hand waits to be connected"
+        );
+        assert_eq!(
+            model.connection(saved),
+            ConnectionState::Connecting,
+            "the one added here connects"
+        );
+        saved
+    });
+    let worker = remotes.borrow_mut().remove(&by_hand.id).expect("worker");
+    assert!(
+        !worker
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::Connect))
+    );
+
+    Settings::default()
+        .remove_servers(&[by_hand.id], &path)
+        .expect("hand edit");
+    view.update(cx, |model, cx| {
+        model
+            .save_remote_server(Some(saved), &form("renamed", "dev@y"), cx)
+            .expect("renamed");
+        assert!(model.servers.get(by_hand.id).is_none());
+        assert!(model.servers.get(saved).is_some());
+    });
+    assert!(
+        worker
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::Stop))
+    );
+}
+
+#[gpui::test]
+fn settings_server_control_stays_on_this_computer_while_a_remote_project_is_open(
+    cx: &mut TestAppContext,
+) {
+    let remote = ServerId::new();
+    let (boot, local_work, remotes) = boot_with(vec![entry(remote, "box")]);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = settings_tab(boot, cx);
+    view.update(cx, |model, cx| {
+        connect_local(model, cx);
+        let api = ProjectId::new();
+        connect_remote(model, remote, vec![], &[(api, "api")], cx);
+        let loaded = muxy_protocol::ServerSettingsDoc {
+            default_shell: None,
+            history_budget_bytes: 0,
+            shell_integration: true,
+        };
+        model.receive_server_settings(Ok(loaded), cx);
+        model.select_project(api, cx);
+        assert_eq!(model.status_server(), remote);
+    });
+    let remote_work = remotes.borrow_mut().remove(&remote).expect("worker");
+    work(&remote_work);
+    work(&local_work);
+    let settings = view.read_with(cx, |model, _| {
+        model.settings_tab.as_ref().expect("settings").view.clone()
+    });
+    settings.update(cx, |_, cx| {
+        cx.emit(SettingsEvent::ServerControl { restart: false });
+    });
+    cx.run_until_parked();
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("Stop");
+    cx.run_until_parked();
+    assert!(
+        work(&local_work)
+            .iter()
+            .any(|work| matches!(work, Work::StopServer { restart: false }))
+    );
+    assert!(
+        !work(&remote_work)
+            .iter()
+            .any(|work| matches!(work, Work::StopServer { .. }))
+    );
+}
+
+#[test]
+fn the_editor_builds_ssh_destinations_from_host_user_and_port() {
+    let joined = |host, user, port| join_destination(host, user, port);
+    assert_eq!(joined(" box ", "", "").as_deref(), Ok("box"));
+    assert_eq!(joined("dev@box", "", "").as_deref(), Ok("dev@box"));
+    assert_eq!(joined("box", "dev", "").as_deref(), Ok("dev@box"));
+    assert_eq!(joined("box", "", "2222").as_deref(), Ok("ssh://box:2222"));
+    assert_eq!(
+        joined("fe80::1", "dev", "22").as_deref(),
+        Ok("ssh://dev@[fe80::1]:22")
+    );
+    for (host, user, port) in [
+        ("", "", ""),
+        ("-oProxyCommand=sh", "", ""),
+        ("dev@box", "other", ""),
+        ("box", "a@b", ""),
+        ("box", "", "0"),
+        ("box", "", "70000"),
+    ] {
+        assert!(joined(host, user, port).is_err(), "{host} {user} {port}");
+    }
+    for destination in [
+        "box",
+        "dev@box",
+        "ssh://box:2222",
+        "ssh://dev@box:2222",
+        "ssh://dev@[fe80::1]:22",
+    ] {
+        let (host, user, port) = split_destination(destination);
+        assert_eq!(
+            join_destination(&host, &user, &port).as_deref(),
+            Ok(destination)
+        );
+    }
+}
+
+fn short_socket() -> (tempfile::TempDir, PathBuf) {
+    let directory = tempfile::Builder::new()
+        .prefix("askpass")
+        .tempdir_in("/tmp")
+        .expect("socket folder");
+    let socket = directory.path().join("askpass.sock");
+    (directory, socket)
+}
+
+#[gpui::test]
+fn passwords_are_asked_when_connecting_and_forgotten_when_refused(cx: &mut TestAppContext) {
+    let (_directory, socket) = short_socket();
+    let remote = ServerId::new();
+    let mut server = entry(remote, "box");
+    server.password_login = true;
+    let (boot, _, remotes) = boot_with(vec![server]);
+    cx.update(|cx| {
+        crate::views::workspace::bind_keys(&boot.settings.keymap, cx);
+        cx.bind_keys(muxy_ui::text_input::key_bindings());
+    });
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let worker = remotes.borrow_mut().remove(&remote).expect("worker");
+    assert!(
+        work(&worker).is_empty(),
+        "launching neither connects nor asks"
+    );
+    view.update(cx, |model, cx| {
+        model.servers.passwords.set_socket(socket);
+        assert!(model.overlay.is_none());
+        assert!(model.remote_servers()[0].needs_password);
+        model.connect_remote_server(remote, cx);
+        assert!(matches!(model.overlay, Some(Overlay::Password(_))));
+    });
+    cx.run_until_parked();
+    cx.simulate_input("hunter2");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        assert!(model.overlay.is_none());
+        assert!(!model.remote_servers()[0].needs_password);
+        assert_eq!(model.connection(remote), ConnectionState::Connecting);
+        let refused = Update::ConnectFailed(
+            "Permission denied".into(),
+            Some(muxy_client::RemoteReason::AuthenticationFailed),
+        );
+        model.receive((remote, 1, refused), cx);
+        assert!(
+            model.remote_servers()[0].needs_password,
+            "a refused password is forgotten"
+        );
+        assert!(model.server_failed_login(remote));
+        assert_eq!(model.error, None);
+        model.connect_remote_server(remote, cx);
+        assert!(
+            matches!(model.overlay, Some(Overlay::Password(_))),
+            "connecting asks again"
+        );
+    });
+    let connects = work(&worker)
+        .iter()
+        .filter(|work| matches!(work, Work::Connect))
+        .count();
+    assert_eq!(connects, 1, "only the typed password connected");
+}
+
+#[gpui::test]
+fn a_remote_home_tab_waits_for_the_password_and_opens_once_connected(cx: &mut TestAppContext) {
+    let (_directory, socket) = short_socket();
+    let remote = ServerId::new();
+    let mut server = entry(remote, "box");
+    server.password_login = true;
+    let (boot, _, remotes) = boot_with(vec![server]);
+    cx.update(|cx| {
+        crate::views::workspace::bind_keys(&boot.settings.keymap, cx);
+        cx.bind_keys(muxy_ui::text_input::key_bindings());
+    });
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let worker = remotes.borrow_mut().remove(&remote).expect("worker");
+    view.update(cx, |model, cx| {
+        model.servers.passwords.set_socket(socket);
+        connect_local(model, cx);
+        model.new_remote_home_tab(remote, cx);
+        assert!(matches!(model.overlay, Some(Overlay::Password(_))));
+    });
+    cx.run_until_parked();
+    cx.simulate_input("hunter2");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(
+        work(&worker)
+            .iter()
+            .any(|work| matches!(work, Work::Connect))
+    );
+    view.update(cx, |model, cx| {
+        let home = connect_remote(model, remote, vec![], &[], cx);
+        let current = model.state.current_project();
+        assert_eq!((current.id, current.tabs.len()), (home, 1));
+        assert!(model.project_listed(current));
+        assert!(model.server_expanded(remote), "a Home tab there expands it");
+
+        let later = muxy_protocol::CatalogPage {
+            revision: 2,
+            ..page(2, home, &[])
+        };
+        model.receive((remote, 1, Update::Catalog(Ok(later))), cx);
+        let tabs = model.state.project(home).expect("Home").tabs.len();
+        assert_eq!(tabs, 1, "a later catalog opens no other tab");
+
+        model
+            .forget_remote_servers(&[remote], cx)
+            .expect("forgotten");
+        assert_eq!(model.state.current_project().id, model.state.home().id);
+        assert!(model.project_listed(model.state.current_project()));
+    });
+}
+
+#[gpui::test]
+fn a_new_key_file_or_login_reconnects_through_a_new_worker(cx: &mut TestAppContext) {
+    let (_directory, socket) = short_socket();
+    let (boot, _, remotes) = boot_with(vec![]);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let device = view.update(cx, |model, cx| {
+        model.servers.passwords.set_socket(socket);
+        model
+            .save_remote_server(None, &form("box", "dev@box"), cx)
+            .expect("added")
+    });
+    let mut worker = remotes.borrow_mut().remove(&device).expect("worker");
+    let restarted = |worker: &mut std::sync::mpsc::Receiver<(u64, Work)>| {
+        let stopped = worker
+            .try_iter()
+            .any(|(_, work)| matches!(work, Work::Stop));
+        if let Some(new) = remotes.borrow_mut().remove(&device) {
+            *worker = new;
+        }
+        stopped
+    };
+    let save = |form: &ServerFields, cx: &mut VisualTestContext| {
+        view.update(cx, |model, cx| {
+            model
+                .save_remote_server(Some(device), form, cx)
+                .expect("saved");
+        });
+    };
+    let keyed = ServerFields {
+        identity_file: "~/.ssh/box".into(),
+        ..form("box", "dev@box")
+    };
+    save(&keyed, cx);
+    assert!(restarted(&mut worker), "a new key file");
+    let renamed = ServerFields {
+        name: "renamed".into(),
+        ..keyed.clone()
+    };
+    save(&renamed, cx);
+    assert!(!restarted(&mut worker), "a rename keeps the worker");
+    let password = ServerFields {
+        password_login: true,
+        password: "hunter2".into(),
+        ..keyed.clone()
+    };
+    save(&password, cx);
+    assert!(restarted(&mut worker), "logging in with a password");
+    view.read_with(cx, |model, _| {
+        assert!(!model.remote_servers()[0].needs_password);
+    });
+    let kept = ServerFields {
+        password: String::new(),
+        ..password
+    };
+    save(&kept, cx);
+    assert!(
+        !restarted(&mut worker),
+        "an empty field keeps the typed password"
+    );
+    save(&keyed, cx);
+    assert!(restarted(&mut worker), "back to keys");
+    view.read_with(cx, |model, _| assert!(!model.servers.passwords.has(device)));
+}

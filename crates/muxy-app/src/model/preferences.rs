@@ -1,17 +1,130 @@
-use gpui::{
-    AppContext, Bounds, Context, Entity, TitlebarOptions, Window, WindowBounds, WindowHandle,
-    WindowOptions, point, px, size,
-};
+use gpui::{AppContext, Context, Entity, Subscription, Window};
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::TerminalEdit;
 use muxy_ui::tr;
 
 use super::{AppModel, Overlay, Quitting};
 use crate::boot::Work;
-use crate::views::settings::window::SettingsWindow;
-use crate::views::settings::{BrowserChange, Change, SettingsView, Snapshot};
+use crate::views::settings::tab::SettingsTab;
+use crate::views::settings::{SettingsView, Snapshot};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+#[derive(Clone, Debug)]
+pub(crate) enum Change {
+    Composer(ComposerToggle, bool),
+    QuickTerminal(muxy_app_core::settings::QuickTerminalSettings),
+    /// One Quick Terminal number, such as `quick-width`, set on the saved settings.
+    QuickNumber(&'static str, u16),
+    Theme(bool, String),
+    Sidebar(bool),
+    SidebarVibrancy(bool),
+    /// The extension whose sidebar replaces the built-in one; empty for built-in.
+    ExtensionSidebar(String),
+    /// The app language as `<extension>:<localization>`; empty for English.
+    Language(String),
+    Worktrees(WorktreeToggle, bool),
+    SidebarCollapsedStyle(muxy_app_core::settings::SidebarCollapsedStyle),
+    InterfaceSize(muxy_app_core::settings::InterfaceSize),
+    AgentsPanel(bool),
+    AgentsPanelGrouping(muxy_app_core::settings::AgentsPanelGrouping),
+    AgentsPanelIcon(muxy_app_core::settings::AgentsPanelIcon),
+    AgentsPanelDensity(muxy_app_core::settings::AgentsPanelDensity),
+    AgentsPanelOption(AgentsPanelToggle, bool),
+    StatusBar(bool),
+    Rail(bool),
+    PaneHeaders(bool),
+    Tips(bool),
+    RememberProjectsWithoutTabs(bool),
+    SidebarServers(bool),
+    ConfirmProcess(bool),
+    UsagePing(bool),
+    CloseBehavior(muxy_app_core::settings::CloseBehavior),
+    Terminal(&'static str, String),
+    TerminalEdit(TerminalEdit),
+    ResetTerminal,
+    /// `[openers] file`: a built-in opener, or `<extension>:<opener>`.
+    FileOpener(String),
+    /// `[openers] project_target`: the app the Open in IDE control opens.
+    ProjectTarget(String),
+    Directory(muxy_app_core::settings::NewPaneDirectory),
+    Field(&'static str, String),
+    Binding(String, Option<muxy_app_core::settings::KeyChord>),
+    Command(muxy_app_core::settings::CustomCommand),
+    RemoveCommand(String),
+    /// Removes an extension command's shortcut.
+    Unassign(String),
+    ShellIntegration(bool),
+    Browser(BrowserChange),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum BrowserChange {
+    Enabled(bool),
+    TerminalLinks(bool),
+    SearchEngine(muxy_app_core::browser::SearchEngine),
+    DefaultProfile(String),
+    AddProfile(String),
+    RenameProfile(String, String),
+    ClearProfile(String),
+    DeleteProfile(String),
+    /// Imports from the listed browser at `source` into the default profile.
+    Import {
+        source: usize,
+        cookies: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum WorktreeToggle {
+    AutoExpand,
+    Unread,
+    RecentOrder,
+}
+
+impl WorktreeToggle {
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Self::AutoExpand => "auto-expand-worktrees",
+            Self::Unread => "worktree-unread",
+            Self::RecentOrder => "worktree-recent-order",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum AgentsPanelToggle {
+    Grouped,
+    ProjectColors,
+    IdleTime,
+}
+
+impl AgentsPanelToggle {
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Self::Grouped => "agents-panel-grouped",
+            Self::ProjectColors => "agents-panel-project-colors",
+            Self::IdleTime => "agents-panel-idle-time",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ComposerToggle {
+    ClearAfter,
+    ClearClose,
+    Images,
+}
+
+impl ComposerToggle {
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Self::ClearAfter => "composer-clear-after",
+            Self::ClearClose => "composer-clear-close",
+            Self::Images => "composer-images",
+        }
+    }
+}
 
 #[derive(Default)]
 pub(super) struct ServerPreferences {
@@ -22,9 +135,12 @@ pub(super) struct ServerPreferences {
     pub(super) pending: std::collections::VecDeque<Change>,
 }
 
-pub(crate) struct SettingsWindowState {
-    pub(crate) window: WindowHandle<SettingsWindow>,
+pub(crate) struct SettingsTabState {
+    pub(crate) root: Entity<SettingsTab>,
     pub(crate) view: Entity<SettingsView>,
+    pub(crate) overlay: Entity<crate::views::cached::CachedView<SettingsTab>>,
+    overlay_open: bool,
+    _subscription: Subscription,
 }
 
 pub(super) struct TerminalPreview {
@@ -40,129 +156,197 @@ pub(super) struct TerminalBackground {
 }
 
 impl AppModel {
-    pub(crate) fn open_settings(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        self.show_settings(cx);
+    pub(crate) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_settings(window, cx);
+    }
+
+    pub(crate) fn show_extensions_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.show_settings(window, cx) {
+            return;
+        }
+        if let Some(settings) = &self.settings_tab {
+            settings.view.update(cx, SettingsView::show_extensions);
+        }
+    }
+
+    pub(crate) fn show_about_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.show_settings(window, cx) {
+            return;
+        }
+        if let Some(settings) = &self.settings_tab {
+            settings.view.update(cx, SettingsView::show_about);
+        }
+    }
+
+    pub(crate) fn show_keyboard_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.show_settings(window, cx) {
+            return;
+        }
+        if let Some(settings) = &self.settings_tab {
+            settings.view.update(cx, SettingsView::show_keyboard);
+        }
     }
 
     /// Opens Settings at Browser, where profiles are managed.
-    pub(crate) fn show_browser_settings(&mut self, cx: &mut Context<Self>) {
-        self.show_settings(cx);
-        if let Some(settings) = &self.settings_window {
+    pub(crate) fn show_browser_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_settings(window, cx);
+        if let Some(settings) = &self.settings_tab {
             settings.view.update(cx, SettingsView::show_browser);
         }
     }
 
-    pub(super) fn show_settings(&mut self, cx: &mut Context<Self>) {
-        if self.quitting != Quitting::Idle || self.close_prompt.is_some() {
+    /// Opens Settings at Servers and reads which clients may reach this computer.
+    pub(crate) fn show_servers_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.show_settings(window, cx) {
+            return;
+        }
+        if let Some(settings) = &self.settings_tab {
+            settings.view.update(cx, SettingsView::show_servers);
+        }
+        self.client_access.show_page();
+        self.sync_servers_page(true, cx);
+    }
+
+    /// Opens Settings at `category`.
+    pub(crate) fn show_settings_category(
+        &mut self,
+        category: crate::views::settings::Category,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::views::settings::Category;
+        match category {
+            Category::Servers => self.show_servers_settings(window, cx),
+            Category::Extensions => self.show_extensions_settings(window, cx),
+            Category::About => self.show_about_settings(window, cx),
+            category => {
+                if !self.show_settings(window, cx) {
+                    return;
+                }
+                if let Some(settings) = &self.settings_tab {
+                    settings.view.update(cx, |view, cx| {
+                        view.select_category(category, None, window, cx);
+                    });
+                }
+            }
+        }
+    }
+
+    pub(super) fn show_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.quitting != Quitting::Idle || self.dialogs.is_open() {
+            return false;
+        }
+        let project = self.state.current_project().id;
+        match self.transact(
+            |state| state.show_settings_tab(project, &tr!("Settings")),
+            cx,
+        ) {
+            Ok(Some(_)) => {}
+            Ok(None) => return false,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return false;
+            }
+        }
+        if let Some(server) = self
+            .state
+            .settings_tab()
+            .and_then(|(project, _)| self.state.project_server(project))
+        {
+            self.reveal_server(server, cx);
+        }
+        self.dismiss_overlay(cx);
+        self.changed(cx);
+        self.ensure_settings_tab(window, cx);
+        self.focus_active(window, cx);
+        self.focus_owner.settle();
+        window.activate_window();
+        true
+    }
+
+    pub(crate) fn ensure_settings_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.settings_tab().is_none() {
+            return;
+        }
+        if let Some(settings) = &self.settings_tab {
+            let active = self
+                .active_pane()
+                .is_some_and(|pane| self.state.is_settings_pane(pane));
+            settings
+                .root
+                .update(cx, |root, cx| root.set_active(active, cx));
             return;
         }
         self.refresh_browser_profiles();
         self.browsers.import_sources = Self::browser_import_sources();
-        if let Some(settings) = &self.settings_window
-            && settings
-                .window
-                .update(cx, |root, window, cx| {
-                    window.activate_window();
-                    root.focus(window, cx);
-                })
-                .is_ok()
-        {
-            return;
-        }
-        self.retain_extension_updates(cx);
-        self.settings_window = None;
         let snapshot = self.preferences_snapshot();
         self.refresh_theme(cx);
         let model = cx.weak_entity();
-        let extensions = self.pending_extension_updates.take().unwrap_or_else(|| {
-            cx.new(|cx| {
-                crate::views::settings::extensions::ExtensionsView::new(
-                    model,
-                    self.theme.clone(),
-                    muxy_ui::theme::Metrics::new(1.15),
-                    cx,
-                )
-            })
-        });
-        extensions.update(cx, |view, cx| view.sync_theme(self.theme.clone(), cx));
-        let view = cx.new(|cx| {
-            let mut view = SettingsView::new(
-                snapshot,
+        let extensions = cx.new(|cx| {
+            crate::views::settings::extensions::ExtensionsView::new(
+                model,
                 self.theme.clone(),
-                muxy_ui::theme::Metrics::new(1.15),
+                crate::views::settings::content_metrics(self.metrics),
                 cx,
-            );
-            view.extensions = Some(extensions.clone());
+            )
+        });
+        let servers = crate::views::cached::CachedView::new(
+            |model, _, cx| crate::views::servers_page::render(model, cx),
+            cx,
+        );
+        let view = cx.new(|cx| {
+            let mut view = SettingsView::new(snapshot, self.theme.clone(), self.metrics, cx);
+            view.extensions = Some(extensions);
+            view.servers = Some(servers);
             view.set_backup_pending(self.path.with_file_name("pending-import.muxy").exists());
             view
         });
         let weak = cx.weak_entity();
         let content = view.clone();
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                None,
-                size(px(1040.0), px(780.0)),
-                cx,
-            ))),
-            window_min_size: Some(size(px(740.0), px(480.0))),
-            #[cfg(target_os = "linux")]
-            window_decorations: Some(gpui::WindowDecorations::Client),
-            #[cfg(target_os = "linux")]
-            window_background: gpui::WindowBackgroundAppearance::Transparent,
-            is_movable: !cfg!(target_os = "macos"),
-            titlebar: Some(TitlebarOptions {
-                title: Some(tr!("Muxy Settings")),
-                appears_transparent: true,
-                traffic_light_position: Some(point(px(14.0), px(16.0))),
-            }),
-            ..crate::window_options()
-        };
-        match cx.open_window(options, move |window, cx| {
-            #[cfg(target_os = "linux")]
-            window.set_window_title(&tr!("Muxy Settings"));
-            let model = weak.clone();
-            window.on_window_should_close(cx, move |_, cx| {
-                let _ = model.update(cx, |model, cx| {
-                    model.settings_closed(cx);
-                });
-                true
-            });
-            cx.new(|cx| SettingsWindow::new(weak, content, window, cx))
-        }) {
-            Ok(window) => {
-                self.settings_window = Some(SettingsWindowState { window, view });
-                self.dismiss_overlay(cx);
-                self.read_server_settings(cx);
-                self.read_remote_access(cx);
+        let active = self
+            .active_pane()
+            .is_some_and(|pane| self.state.is_settings_pane(pane));
+        let root = cx.new(|cx| SettingsTab::new(weak, content, window, cx));
+        root.update(cx, |root, cx| root.set_active(active, cx));
+        let overlay = root.read(cx).overlay_view.clone();
+        let subscription = cx.observe(&root, |model, root, cx| {
+            let open = root.read(cx).overlay.is_some();
+            if let Some(settings) = &mut model.settings_tab
+                && settings.overlay_open != open
+            {
+                settings.overlay_open = open;
+                cx.notify();
             }
-            Err(error) => {
-                if extensions.read(cx).updating_all() {
-                    self.pending_extension_updates = Some(extensions);
-                }
-                self.fail(
-                    tr!("Could not open Settings: %@", error.to_string()).to_string(),
-                    cx,
-                );
-            }
+        });
+        self.settings_tab = Some(SettingsTabState {
+            root,
+            view,
+            overlay,
+            overlay_open: false,
+            _subscription: subscription,
+        });
+        if active {
+            self.focus_owner.request_active_pane();
+        }
+        self.read_server_settings(cx);
+    }
+
+    pub(super) fn sync_settings_tab(&mut self, cx: &mut Context<Self>) {
+        if self.settings_tab.is_some() && self.state.settings_tab().is_none() {
+            self.record_quick_shortcut(false, cx);
+            self.flush_preferences(cx);
+            self.settings_tab = None;
+            self.client_access.hide_page();
         }
     }
 
-    pub(crate) fn settings_closed(&mut self, cx: &mut Context<Self>) {
-        self.record_quick_shortcut(false, cx);
-        self.flush_preferences(cx);
-        self.withdraw_pairing(cx);
-        self.retain_extension_updates(cx);
-        self.settings_window = None;
-        cx.notify();
-    }
-
-    fn retain_extension_updates(&mut self, cx: &Context<Self>) {
-        if let Some(settings) = &self.settings_window
-            && let Some(extensions) = &settings.view.read(cx).extensions
-            && extensions.read(cx).updating_all()
-        {
-            self.pending_extension_updates = Some(extensions.clone());
-        }
+    pub(crate) fn settings_picker_open(&self) -> bool {
+        self.settings_tab
+            .as_ref()
+            .is_some_and(|settings| settings.overlay_open)
+            && self
+                .active_pane()
+                .is_some_and(|pane| self.state.is_settings_pane(pane))
     }
 
     fn preferences_snapshot(&self) -> Snapshot {
@@ -180,16 +364,13 @@ impl AppModel {
                 || self.server_preferences.control_busy
                 || self.updates.replacing(),
             pending_server_fields: self.pending_server_fields(),
-            mobile: self.mobile.state.clone(),
-            mobile_pairing: self.mobile.pairing.clone(),
-            mobile_busy: self.mobile.busy,
-            mobile_error: self.mobile.error.clone(),
             ai_installed: self
                 .ai
                 .installed
                 .iter()
                 .map(|provider| provider.id)
                 .collect(),
+            extensions_loaded: self.extensions_loaded(),
             sidebars: self.extension_sidebars(),
             file_openers: self.extension_file_openers(),
             languages: self.app_languages(),
@@ -223,13 +404,7 @@ impl AppModel {
     }
 
     pub(crate) fn flush_preferences(&mut self, cx: &mut Context<Self>) {
-        let changes = self
-            .settings_window
-            .as_ref()
-            .map_or_else(Vec::new, |settings| {
-                settings.view.update(cx, |view, cx| view.take_changes(cx))
-            });
-        for change in changes {
+        for change in self.take_pending_preferences(cx) {
             self.change_preference(change, cx);
         }
     }
@@ -247,15 +422,20 @@ impl AppModel {
     }
 
     pub(super) fn sync_preferences(&self, cx: &mut Context<Self>) {
-        if let Some(settings) = &self.settings_window {
+        if let Some(settings) = &self.settings_tab {
             settings.view.update(cx, |view, cx| {
-                view.sync(self.preferences_snapshot(), self.theme.clone(), cx);
+                view.sync(
+                    self.preferences_snapshot(),
+                    self.theme.clone(),
+                    self.metrics,
+                    cx,
+                );
             });
         }
     }
 
     pub(crate) fn preference_result(&self, id: &str, error: Option<&str>, cx: &mut Context<Self>) {
-        if let Some(settings) = &self.settings_window {
+        if let Some(settings) = &self.settings_tab {
             settings
                 .view
                 .update(cx, |view, cx| view.set_error(id, error, cx));
@@ -264,6 +444,25 @@ impl AppModel {
 
     pub(crate) fn configuration_path(&self, filename: &str) -> std::path::PathBuf {
         self.path.with_file_name(filename)
+    }
+
+    /// Applies a change made outside Settings and answers whether it saved.
+    pub(crate) fn try_change_preference(
+        &mut self,
+        change: Change,
+        cx: &mut Context<Self>,
+    ) -> std::result::Result<(), String> {
+        if self.quitting != Quitting::Idle {
+            return Err("the app is quitting".into());
+        }
+        let id = change_id(&change).to_owned();
+        let result = self
+            .apply_preference(change, cx)
+            .map_err(|error| error.to_string());
+        self.preference_result(&id, result.as_ref().err().map(String::as_str), cx);
+        self.sync_preferences(cx);
+        cx.notify();
+        result
     }
 
     pub(crate) fn change_preference(&mut self, change: Change, cx: &mut Context<Self>) {
@@ -279,12 +478,6 @@ impl AppModel {
         let id = change_id(&change).to_owned();
         if matches!(
             &change,
-            Change::MobileAccess(_) | Change::Field("mobile-port", _)
-        ) {
-            let result = self.write_mobile_preference(change, cx);
-            self.preference_result(&id, result.err().as_deref(), cx);
-        } else if matches!(
-            &change,
             Change::ShellIntegration(_) | Change::Field("default-shell" | "history-budget", _)
         ) {
             if self.server_preferences.busy {
@@ -297,11 +490,19 @@ impl AppModel {
             }
         } else {
             let theme_change = matches!(change, Change::Theme(..));
+            let target_change = matches!(change, Change::ProjectTarget(_));
             let result = self.apply_preference(change, cx);
             let error = result.err().map(|error| error.to_string());
             self.preference_result(&id, error.as_deref(), cx);
-            if theme_change && let Some(error) = error {
-                self.fail(tr!("Could not save theme: %@", &error).to_string(), cx);
+            if let Some(error) = error {
+                if theme_change {
+                    self.fail(tr!("Could not save theme: %@", &error).to_string(), cx);
+                } else if target_change {
+                    self.fail(
+                        tr!("Could not save the default app: %@", &error).to_string(),
+                        cx,
+                    );
+                }
             }
         }
         self.sync_preferences(cx);
@@ -313,9 +514,10 @@ impl AppModel {
         reason = "Exhaustive preference change dispatch"
     )]
     fn apply_preference(&mut self, change: Change, cx: &mut Context<Self>) -> Result<()> {
-        let composer = matches!(&change, Change::Composer(..))
-            || matches!(&change, Change::Field(id, _) if id.starts_with("composer-"));
-        if composer {
+        if matches!(
+            &change,
+            Change::Composer(..) | Change::Field("composer-font" | "composer-line-height", _)
+        ) {
             return self.apply_composer_preference(change, cx);
         }
         let path = self.path.with_file_name("settings.toml");
@@ -330,6 +532,13 @@ impl AppModel {
                 | Change::RemoveCommand(_)
         );
         match change {
+            Change::QuickNumber(id, value) => {
+                self.apply_quick_settings(
+                    quick_number(&self.settings.quick_terminal, id, value),
+                    cx,
+                )?;
+                return Ok(());
+            }
             Change::QuickTerminal(quick) => {
                 self.apply_quick_settings(quick, cx)?;
                 return Ok(());
@@ -363,12 +572,13 @@ impl AppModel {
                 }
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
-            Change::Worktrees(key, value) => {
-                match key {
-                    "auto-expand-worktrees" => settings.appearance.auto_expand_worktrees = value,
-                    "worktree-unread" => settings.appearance.worktree_show_unread = value,
-                    "worktree-recent-order" => settings.appearance.worktree_recent_order = value,
-                    _ => return Ok(()),
+            Change::Worktrees(toggle, value) => {
+                match toggle {
+                    WorktreeToggle::AutoExpand => settings.appearance.auto_expand_worktrees = value,
+                    WorktreeToggle::Unread => settings.appearance.worktree_show_unread = value,
+                    WorktreeToggle::RecentOrder => {
+                        settings.appearance.worktree_recent_order = value;
+                    }
                 }
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
@@ -380,12 +590,16 @@ impl AppModel {
                 settings.appearance.sidebar_collapsed_style = style;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
+            Change::InterfaceSize(size) => {
+                settings.appearance.interface_size = size;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
             Change::AgentsPanel(value) => {
                 settings.appearance.agents_panel_visible = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
                 if !settings.appearance.agents_panel_visible {
                     self.agents_panel.drag = None;
-                    self.focus_requested = true;
+                    self.focus_owner.request_active_pane();
                     if matches!(self.overlay, Some(Overlay::Agents)) {
                         self.dismiss_overlay(cx);
                     }
@@ -393,6 +607,28 @@ impl AppModel {
             }
             Change::AgentsPanelGrouping(grouping) => {
                 settings.appearance.agents_panel_grouping = grouping;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::AgentsPanelIcon(icon) => {
+                settings.appearance.agents_panel_icon = icon;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::AgentsPanelDensity(density) => {
+                settings.appearance.agents_panel_density = density;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::AgentsPanelOption(toggle, value) => {
+                match toggle {
+                    AgentsPanelToggle::Grouped => {
+                        settings.appearance.agents_panel_grouped = value;
+                    }
+                    AgentsPanelToggle::ProjectColors => {
+                        settings.appearance.agents_panel_project_colors = value;
+                    }
+                    AgentsPanelToggle::IdleTime => {
+                        settings.appearance.agents_panel_idle_time = value;
+                    }
+                }
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
             Change::SidebarVibrancy(value) => {
@@ -421,8 +657,29 @@ impl AppModel {
                 settings.appearance.status_bar_visible = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
+            Change::Rail(value) => {
+                settings.appearance.rail_enabled = value;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::PaneHeaders(value) => {
+                settings.appearance.pane_headers = value;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
             Change::Tips(value) => {
                 settings.appearance.tips_visible = value;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+                if !value {
+                    self.hide_tip(cx);
+                }
+            }
+            Change::RememberProjectsWithoutTabs(value) => {
+                settings.appearance.remember_projects_without_tabs = value;
+                settings.appearance.projects_without_tabs_shown =
+                    value && self.projects_without_tabs_shown;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::SidebarServers(value) => {
+                settings.appearance.sidebar_remote_servers = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
             Change::ConfirmProcess(value) => {
@@ -433,8 +690,16 @@ impl AppModel {
                 settings.window.close_behavior = value;
                 settings.save_window(&path)?;
             }
+            Change::UsagePing(value) => {
+                settings.privacy.usage_ping = value;
+                settings.save_privacy(&path)?;
+            }
             Change::FileOpener(value) => {
                 settings.openers.file = value;
+                settings.save_openers(&path)?;
+            }
+            Change::ProjectTarget(value) => {
+                settings.openers.project_target = Some(value);
                 settings.save_openers(&path)?;
             }
             Change::Directory(value) => {
@@ -531,13 +796,34 @@ impl AppModel {
             }
             _ => return Err(tr!("Unknown app setting").to_string().into()),
         }
+        self.adopt_settings(settings, theme_changed, bindings_changed, cx);
+        Ok(())
+    }
+
+    /// Makes `settings`, already saved, the ones the app runs with.
+    fn adopt_settings(
+        &mut self,
+        settings: muxy_app_core::settings::Settings,
+        theme_changed: bool,
+        bindings_changed: bool,
+        cx: &mut Context<Self>,
+    ) {
         let theme_changed = theme_changed
             || self.appearance.dark_theme != settings.appearance.dark_theme
-            || self.appearance.light_theme != settings.appearance.light_theme;
+            || self.appearance.light_theme != settings.appearance.light_theme
+            || self.appearance.interface_size != settings.appearance.interface_size;
         let language_changed = self.appearance.language != settings.appearance.language;
+        if settings.appearance.remember_projects_without_tabs
+            && settings.appearance.projects_without_tabs_shown
+                != self.appearance.projects_without_tabs_shown
+        {
+            self.projects_without_tabs_shown = settings.appearance.projects_without_tabs_shown;
+        }
         self.appearance = settings.appearance.clone();
         self.settings = settings;
         self.sync_agents_panel(cx);
+        self.sync_agent_sessions(cx);
+        self.filter_agent_sessions(cx);
         self.invalidate_webview_shortcuts();
         if bindings_changed {
             self.bind_extension_keys(cx);
@@ -554,6 +840,100 @@ impl AppModel {
                 cx.notify();
             });
         }
+    }
+
+    /// Applies `settings.toml` and `terminal.toml` as they are on disk now,
+    /// after something other than this app changed them, such as
+    /// `muxy config`. Remote servers keep the list the app connected.
+    pub(crate) fn reload_settings(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> std::result::Result<(), String> {
+        if self.quitting != Quitting::Idle {
+            return Err("Muxy is closing".to_owned());
+        }
+        if self.composer.preferences_dirty {
+            self.settings
+                .save_composer(&self.path.with_file_name("settings.toml"))
+                .map_err(|error| error.to_string())?;
+            self.composer.preferences_dirty = false;
+        }
+        let (sliders, edits): (Vec<_>, Vec<_>) = self
+            .take_pending_preferences(cx)
+            .into_iter()
+            .partition(|change| matches!(change, Change::Terminal(..)));
+        for change in sliders {
+            self.change_preference(change, cx);
+        }
+        let reloaded = self.adopt_saved_settings(cx);
+        for change in edits {
+            self.change_preference(change, cx);
+        }
+        reloaded
+    }
+
+    /// Settings edits not saved yet, such as text still being typed.
+    fn take_pending_preferences(&mut self, cx: &mut Context<Self>) -> Vec<Change> {
+        self.settings_tab
+            .as_ref()
+            .map_or_else(Vec::new, |settings| {
+                settings.view.update(cx, |view, cx| view.take_changes(cx))
+            })
+    }
+
+    fn adopt_saved_settings(&mut self, cx: &mut Context<Self>) -> std::result::Result<(), String> {
+        let loaded =
+            muxy_app_core::settings::Settings::load(&self.path.with_file_name("settings.toml"))
+                .and_then(|loaded| {
+                    let terminal = muxy_app_core::settings::TerminalSettings::load_native(
+                        &self.path.with_file_name("terminal.toml"),
+                    )?;
+                    loaded.validate_command_shortcuts(&terminal)?;
+                    Ok((loaded, terminal))
+                })
+                .map_err(|error| error.to_string())
+                .and_then(|(loaded, terminal)| {
+                    Self::quick_keymap_conflict(&loaded.keymap, &loaded.quick_terminal)?;
+                    Ok((loaded, terminal))
+                });
+        let (mut loaded, terminal) = match loaded {
+            Ok(loaded) => loaded,
+            Err(error) => {
+                self.configuration_failed(&error, cx);
+                return Err(error);
+            }
+        };
+        if self.terminal_preview.is_none() {
+            self.adopt_terminal(terminal, cx);
+        }
+        loaded.servers.clone_from(&self.settings.servers);
+        let mut current = self.settings.clone();
+        current.appearance = self.appearance.clone();
+        if loaded == current {
+            return Ok(());
+        }
+        let quick = std::mem::replace(&mut loaded.quick_terminal, current.quick_terminal.clone());
+        let bindings_changed =
+            loaded.keymap != current.keymap || loaded.commands != current.commands;
+        let composer_changed = loaded.composer != current.composer;
+        self.adopt_settings(loaded, false, bindings_changed, cx);
+        if bindings_changed {
+            cx.set_menus(crate::menus());
+        }
+        if composer_changed {
+            self.composer.preferences_dirty = false;
+            if let Some(view) = &self.composer.view {
+                view.update(cx, |view, cx| {
+                    view.settings = self.settings.composer.clone();
+                    view.refresh_style(cx);
+                });
+            }
+        }
+        if quick != current.quick_terminal {
+            self.adopt_quick_settings(quick, false, cx)?;
+        }
+        self.sync_preferences(cx);
+        cx.notify();
         Ok(())
     }
 
@@ -561,33 +941,23 @@ impl AppModel {
         let path = self.path.with_file_name("settings.toml");
         let mut settings = self.settings.clone();
         match change {
-            Change::Composer(id, value) => {
-                match id {
-                    "composer-clear-after" => settings.composer.clear_after_sending = value,
-                    "composer-clear-close" => settings.composer.clear_on_close = value,
-                    "voice-auto-send" => settings.composer.voice_auto_send = value,
-                    "composer-images" => {
+            Change::Composer(toggle, value) => {
+                match toggle {
+                    ComposerToggle::ClearAfter => settings.composer.clear_after_sending = value,
+                    ComposerToggle::ClearClose => settings.composer.clear_on_close = value,
+                    ComposerToggle::Images => {
                         settings.composer.image_strategy = if value {
                             muxy_app_core::composer::submission::ImageSubmissionStrategy::Clipboard
                         } else {
                             muxy_app_core::composer::submission::ImageSubmissionStrategy::InlinePath
                         }
                     }
-                    _ => return Err(tr!("Unknown composer preference").to_string().into()),
                 }
                 settings.save_composer(&path)?;
             }
-            Change::Field(
-                id @ ("composer-font"
-                | "composer-line-height"
-                | "composer-language"
-                | "composer-voice-model"),
-                value,
-            ) => {
+            Change::Field(id @ ("composer-font" | "composer-line-height"), value) => {
                 match id {
                     "composer-font" => settings.composer.font_family = value,
-                    "composer-language" => settings.composer.language = value,
-                    "composer-voice-model" => settings.composer.voice_model = value,
                     _ => settings.composer.line_height = value.parse()?,
                 }
                 settings.save_composer(&path)?;
@@ -627,7 +997,7 @@ impl AppModel {
         self.set_terminal_vibrancy_available(self.terminal_background.native.is_some(), cx);
     }
 
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(all(target_os = "macos", not(test)))]
     pub(super) fn set_terminal_vibrancy_available(
         &mut self,
         available: bool,
@@ -653,21 +1023,20 @@ impl AppModel {
         window: gpui::AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        if self.quitting != Quitting::Idle || self.close_prompt.is_some() {
+        if self.quitting != Quitting::Idle {
             return;
         }
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = crate::views::confirm::prompt_reset_terminal(window, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
-                match response {
-                    Ok(true) => model.change_preference(Change::ResetTerminal, cx),
-                    Ok(false) => {}
-                    Err(error) => model.preference_result("terminal-reset", Some(&error), cx),
-                }
-                cx.notify();
-            });
-        }));
+        self.ask_once(
+            super::dialogs::Question::TerminalReset,
+            window,
+            async |parent, cx| crate::views::confirm::prompt_reset_terminal(parent, cx).await,
+            |model, response, cx| match response {
+                Ok(true) => model.change_preference(Change::ResetTerminal, cx),
+                Ok(false) => {}
+                Err(error) => model.preference_result("terminal-reset", Some(&error), cx),
+            },
+            cx,
+        );
     }
 
     pub(crate) fn preview_terminal_preference(
@@ -693,7 +1062,49 @@ impl AppModel {
                     .map(|(id, pane)| (*id, pane.view.read(cx).terminal.font_size))
                     .collect(),
             });
-        self.apply_terminal_preferences(next, false, cx);
+        self.preview_terminal_preferences(next, cx);
+    }
+
+    /// Shows `next` in the terminals while a slider moves, without the work a
+    /// saved change does: the theme stays resolved and Settings keeps the
+    /// value it shows itself until the slider is released.
+    fn preview_terminal_preferences(
+        &mut self,
+        next: muxy_app_core::settings::TerminalSettings,
+        cx: &mut Context<Self>,
+    ) {
+        let changed_size = self.terminal.font_size.to_bits() != next.font_size.to_bits();
+        self.terminal = next;
+        let previous_colors = self.palette.terminal_colors();
+        let palette = self.palette.with_options(&self.terminal.options);
+        let palette_changed = palette != self.palette;
+        self.palette = palette;
+        if previous_colors != self.palette.terminal_colors() {
+            for server in self.servers.ids() {
+                if self.ready(server) {
+                    self.send(server, Work::Colors(self.palette.terminal_colors()), cx);
+                }
+            }
+        }
+        for (id, pane) in &self.grids {
+            let quick = self.is_quick_terminal(*id);
+            pane.view.update(cx, |pane, cx| {
+                let zoom = pane.terminal.font_size;
+                pane.terminal = self.terminal.clone();
+                pane.configured_font_size = self.terminal.font_size;
+                if !changed_size {
+                    pane.terminal.font_size = zoom;
+                }
+                if palette_changed && !quick {
+                    pane.palette = self.palette;
+                }
+                cx.notify();
+            });
+        }
+        if palette_changed {
+            self.refresh_quick_terminal(cx);
+        }
+        cx.notify();
     }
 
     fn save_terminal(
@@ -703,14 +1114,13 @@ impl AppModel {
             &mut muxy_app_core::settings::TerminalSettings,
         ) -> muxy_app_core::settings::Result<()>,
     ) -> Result<()> {
-        let result = (|| {
-            let path = self.path.with_file_name("terminal.toml");
-            let mut requested = muxy_app_core::settings::TerminalSettings::load_native(&path)?;
-            edit(&mut requested)?;
-            self.settings.validate_command_shortcuts(&requested)?;
-            requested.save_native(&path)?;
-            Ok(requested)
-        })();
+        let result = muxy_app_core::settings::TerminalSettings::edit_native(
+            &self.path.with_file_name("terminal.toml"),
+            |requested| {
+                edit(requested)?;
+                self.settings.validate_command_shortcuts(requested)
+            },
+        );
         let preview = self.terminal_preview.take();
         match result {
             Ok(requested) => {
@@ -730,7 +1140,7 @@ impl AppModel {
                     self.apply_terminal_preferences(preview.settings, false, cx);
                     self.restore_terminal_zoom(preview.zoom, cx);
                 }
-                Err(error)
+                Err(error.into())
             }
         }
     }
@@ -760,7 +1170,7 @@ impl AppModel {
             reset_zoom || self.terminal.font_size.to_bits() != effective.font_size.to_bits();
         self.terminal = effective;
         if reset_zoom {
-            self.font_sizes.clear();
+            self.clear_pane_zooms();
         }
         for pane in self.grids.values() {
             pane.view.update(cx, |pane, cx| {
@@ -805,7 +1215,7 @@ impl AppModel {
             Change::ShellIntegration(value) => settings.shell_integration = value,
             Change::Field("default-shell", value) => {
                 settings.default_shell =
-                    (!value.is_empty()).then(|| muxy_protocol::ServerPath(value.into_bytes()));
+                    (!value.is_empty()).then(|| muxy_protocol::ServerPath::from(value));
             }
             Change::Field("history-budget", value) => {
                 settings.history_budget_bytes = value
@@ -902,12 +1312,14 @@ impl AppModel {
         self.dismiss_overlay(cx);
         let generation = self.generation(server);
         let name = (!server.is_local()).then(|| self.server_label(server));
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response =
-                crate::views::confirm::prompt_server(window, restart, name.as_deref(), cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
-                model.focus_requested = true;
+        self.ask_once(
+            super::dialogs::Question::ServerControl(server, restart),
+            window,
+            async move |parent, cx| {
+                crate::views::confirm::prompt_server(parent, restart, name.as_deref(), cx).await
+            },
+            move |model, response, cx| {
+                model.focus_owner.request_active_pane();
                 if generation == model.generation(server) {
                     match response {
                         Ok(true) => model.stop_server(server, restart, cx),
@@ -918,9 +1330,9 @@ impl AppModel {
                         Err(error) => model.fail(error, cx),
                     }
                 }
-                cx.notify();
-            });
-        }));
+            },
+            cx,
+        );
     }
 
     fn stop_server(&mut self, server: ServerId, restart: bool, cx: &mut Context<Self>) {
@@ -941,6 +1353,7 @@ fn terminal_field(id: &str) -> bool {
     matches!(
         id,
         "font-feature"
+            | "selection-word-chars"
             | "background"
             | "foreground"
             | "cursor-color"
@@ -960,20 +1373,31 @@ fn change_id(change: &Change) -> &str {
         Change::SidebarVibrancy(_) => "sidebar-vibrancy",
         Change::ExtensionSidebar(_) => "extension-sidebar",
         Change::Language(_) => "app-language",
-        Change::Worktrees(key, _) => key,
+        Change::Worktrees(toggle, _) => toggle.id(),
+        Change::AgentsPanelOption(toggle, _) => toggle.id(),
         Change::SidebarCollapsedStyle(_) => "sidebar-collapsed-style",
+        Change::InterfaceSize(_) => "interface-size",
         Change::AgentsPanel(_) => "agents-panel",
         Change::AgentsPanelGrouping(_) => "agents-panel-grouping",
+        Change::AgentsPanelIcon(_) => "agents-panel-icon",
+        Change::AgentsPanelDensity(_) => "agents-panel-density",
         Change::StatusBar(_) => "status-bar",
+        Change::Rail(_) => "rail",
+        Change::PaneHeaders(_) => "pane-headers",
         Change::Tips(_) => "tips",
+        Change::RememberProjectsWithoutTabs(_) => "remember-projects-without-tabs",
+        Change::SidebarServers(_) => "sidebar-servers",
         Change::ConfirmProcess(_) => "confirm-process",
+        Change::UsagePing(_) => "usage-ping",
         Change::CloseBehavior(_) => "close-behavior",
         Change::FileOpener(_) => "file-opener",
+        Change::ProjectTarget(_) => "project-target",
         Change::Directory(_) => "directory",
         Change::Terminal("padding-left" | "padding-right", _) => "window-padding-x",
         Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",
         Change::Terminal("dismiss-import-notes", _) => "terminal-import-notes",
-        Change::Terminal(id, _) | Change::Composer(id, _) | Change::Field(id, _) => id,
+        Change::Composer(toggle, _) => toggle.id(),
+        Change::Terminal(id, _) | Change::Field(id, _) | Change::QuickNumber(id, _) => id,
         Change::ResetTerminal => "terminal-reset",
         Change::TerminalEdit(edit) => match edit {
             TerminalEdit::Fallbacks(_) => "font-fallbacks",
@@ -982,7 +1406,6 @@ fn change_id(change: &Change) -> &str {
         },
         Change::Binding(id, _) | Change::Unassign(id) => id,
         Change::ShellIntegration(_) => "shell-integration",
-        Change::MobileAccess(_) => "mobile-access",
         Change::Browser(change) => match change {
             BrowserChange::Enabled(_) => "browser-enabled",
             BrowserChange::TerminalLinks(_) => "browser-terminal-links",
@@ -1010,4 +1433,23 @@ fn browser_settings(
         _ => {}
     }
     browser
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "Transparency and vibrancy stay between 0 and 100"
+)]
+fn quick_number(
+    current: &muxy_app_core::settings::QuickTerminalSettings,
+    id: &str,
+    value: u16,
+) -> muxy_app_core::settings::QuickTerminalSettings {
+    let mut next = current.clone();
+    match id {
+        "quick-width" => next.width = value,
+        "quick-height" => next.height = value,
+        "quick-transparency" => next.transparency = value.min(255) as u8,
+        _ => next.blur = value.min(255) as u8,
+    }
+    next
 }

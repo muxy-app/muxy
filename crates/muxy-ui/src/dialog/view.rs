@@ -1,14 +1,15 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, PromptButton, Render, StatefulInteractiveElement, Styled,
-    Subscription, Window, div, px,
+    IntoElement, ParentElement, PromptButton, Render, Role, StatefulInteractiveElement, Styled,
+    Subscription, Toggled, Window, div, px,
 };
 
 use super::{Answer, Request};
 use crate::{
     controls::{self, Style},
     text_input::{InputEvent, InputStyle, TextInput},
+    theme::Metrics,
 };
 
 pub(super) struct Dialog {
@@ -23,6 +24,24 @@ pub(super) struct Dialog {
 }
 
 impl Dialog {
+    /// The card's background and one scaled point.
+    #[cfg(test)]
+    pub(super) fn look(&self) -> (gpui::Hsla, gpui::Pixels) {
+        (self.request.theme.bg, self.request.metrics.scaled(1.0))
+    }
+
+    #[cfg(test)]
+    pub(super) fn danger(&self) -> Option<usize> {
+        self.request.danger
+    }
+
+    #[cfg(test)]
+    pub(super) fn tick(&mut self, index: usize) {
+        if let Some(checkbox) = self.request.choices.checkboxes.get_mut(index) {
+            checkbox.checked = true;
+        }
+    }
+
     pub(super) fn new(
         title: &str,
         message: Option<&str>,
@@ -43,6 +62,7 @@ impl Dialog {
                 let mut field =
                     TextInput::new(InputStyle::field(&request.theme, &request.metrics), cx);
                 field.set_text(value.clone(), cx);
+                field.set_accessible_name(title.to_owned());
                 field.set_placeholder(placeholder.clone());
                 field
             })
@@ -134,17 +154,21 @@ impl Render for Dialog {
     )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.dismissed && !self.focus.contains_focused(window, cx) {
-            window.focus(&self.focus_handle(cx));
+            // After this frame, since what had focus already reported it in this one.
+            let focus = self.focus_handle(cx);
+            window.defer(cx, move |window, _| window.focus(&focus));
         }
         let theme = &self.request.theme;
         let metrics = &self.request.metrics;
+        let window_metrics = Metrics::of_window(window);
         let style = Style { theme, metrics };
         let mut body = div()
             .id("dialog-body")
             .flex()
             .flex_col()
             .gap(metrics.spacing5())
-            .max_h(px(480.0))
+            .max_h(window_metrics.scaled(480.0))
+            .min_h(px(0.0))
             .overflow_y_scroll()
             .child(
                 div()
@@ -156,25 +180,44 @@ impl Render for Dialog {
             body = body.child(controls::text_field(style, "dialog-input", input, None));
         }
         if let Some(picker) = &self.request.choices.picker {
-            body = body.child(div().child(picker.label.clone()));
+            let mut choices = div()
+                .id("dialog-choices")
+                .role(Role::RadioGroup)
+                .aria_label(picker.label.clone())
+                .flex()
+                .flex_col()
+                .gap(metrics.spacing5())
+                .child(div().child(picker.label.clone()));
             for (index, label) in picker.items.iter().enumerate() {
                 let selected = picker.selected == index;
                 let weak = cx.entity().downgrade();
-                body = body.child(controls::button(
-                    style,
-                    &format!("dialog-choice-{index}"),
-                    &format!("{} {label}", if selected { "●" } else { "○" }),
-                    true,
-                    move |_, _, cx| {
-                        let _ = weak.update(cx, |view, cx| {
-                            if let Some(picker) = &mut view.request.choices.picker {
-                                picker.selected = index;
-                            }
-                            cx.notify();
-                        });
-                    },
-                ));
+                choices = choices.child(
+                    controls::button(
+                        style,
+                        &format!("dialog-choice-{index}"),
+                        controls::Button::secondary(&format!(
+                            "{} {label}",
+                            if selected { "●" } else { "○" }
+                        ))
+                        .named(label),
+                        move |_, _, cx| {
+                            let _ = weak.update(cx, |view, cx| {
+                                if let Some(picker) = &mut view.request.choices.picker {
+                                    picker.selected = index;
+                                }
+                                cx.notify();
+                            });
+                        },
+                    )
+                    .role(Role::RadioButton)
+                    .aria_toggled(if selected {
+                        Toggled::True
+                    } else {
+                        Toggled::False
+                    }),
+                );
             }
+            body = body.child(choices);
         }
         for (index, checkbox) in self.request.choices.checkboxes.iter().enumerate() {
             let weak = cx.entity().downgrade();
@@ -186,28 +229,34 @@ impl Render for Dialog {
                     .items_center()
                     .gap(metrics.spacing4())
                     .when(!enabled, |row| row.opacity(0.5))
-                    .child(controls::toggle(
-                        style,
-                        &format!("dialog-checkbox-{index}"),
-                        checked,
-                        move |_, _, cx| {
-                            if enabled {
-                                let _ = weak.update(cx, |view, cx| {
-                                    if let Some(checkbox) =
-                                        view.request.choices.checkboxes.get_mut(index)
-                                    {
-                                        checkbox.checked = !checkbox.checked;
-                                    }
-                                    cx.notify();
-                                });
-                            }
-                        },
-                    ))
+                    .child(
+                        controls::toggle(
+                            style,
+                            &format!("dialog-checkbox-{index}"),
+                            &checkbox.label,
+                            checked,
+                            move |_, _, cx| {
+                                if enabled {
+                                    let _ = weak.update(cx, |view, cx| {
+                                        if let Some(checkbox) =
+                                            view.request.choices.checkboxes.get_mut(index)
+                                        {
+                                            checkbox.checked = !checkbox.checked;
+                                        }
+                                        cx.notify();
+                                    });
+                                }
+                            },
+                        )
+                        .aria_disabled(!enabled),
+                    )
                     .child(checkbox.label.clone()),
             );
         }
         let mut buttons = div()
+            .debug_selector(|| "dialog-buttons".into())
             .flex()
+            .flex_none()
             .flex_wrap()
             .when(self.buttons.len() > 3, Styled::flex_col)
             .justify_end()
@@ -217,8 +266,11 @@ impl Render for Dialog {
             buttons = buttons.child(controls::button(
                 style,
                 &format!("dialog-answer-{index}"),
-                button.label(),
-                true,
+                if self.request.danger == Some(index) {
+                    controls::Button::danger(button.label())
+                } else {
+                    controls::Button::secondary(button.label())
+                },
                 move |_, _, cx| {
                     let _ = weak.update(cx, |view, cx| view.finish(Some(index), cx));
                 },
@@ -229,14 +281,19 @@ impl Render for Dialog {
             .flex()
             .items_center()
             .justify_center()
-            .bg(gpui::black().opacity(0.5))
+            .bg(theme.backdrop)
             .occlude()
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
                 div()
+                    .id("dialog-card")
+                    .role(Role::Dialog)
+                    .aria_label(self.title.clone())
+                    .aria_description(self.message.clone())
                     .track_focus(&self.focus)
-                    .w(px(520.0))
+                    .w(window_metrics.scaled(520.0))
                     .max_w_full()
+                    .max_h((window.viewport_size().height - px(16.0)).max(px(0.0)))
                     .p(metrics.spacing8())
                     .flex()
                     .flex_col()

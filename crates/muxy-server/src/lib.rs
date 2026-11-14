@@ -8,6 +8,8 @@ pub mod connection;
 mod error;
 mod exec;
 mod platform;
+mod process;
+mod references;
 mod registry;
 mod search;
 mod session;
@@ -27,11 +29,15 @@ pub use catalog::LegacyImport;
 
 mod files;
 mod git;
+mod notifier;
+mod unreadable;
 mod uploads;
+mod watch;
 
 mod activity;
 mod detection;
 
+mod push;
 #[cfg(test)]
 mod test_support;
 

@@ -5,6 +5,7 @@
 //! Framing, messages, sessions, and application policy are deliberately
 //! outside this crate.
 
+mod accepting;
 mod error;
 mod stdio;
 mod stream;

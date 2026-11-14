@@ -71,9 +71,6 @@ impl PanelAdapter {
     pub(super) fn show(&mut self, _duration: std::time::Duration) {}
     pub(super) fn begin_hide(&mut self, _duration: std::time::Duration) {}
     pub(super) fn finish_hide(&mut self, _restores_focus: bool) {}
-    pub(super) fn install_accessibility(
-        &mut self,
-        _nodes: &[crate::quick_terminal::view::AccessibilityNode],
-    ) {
-    }
+    pub(super) fn forget_previous_focus(&mut self) {}
+    pub(super) fn set_pinned(&self, _pinned: bool) {}
 }

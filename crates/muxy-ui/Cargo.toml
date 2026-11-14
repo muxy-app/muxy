@@ -26,15 +26,11 @@ polybrowser = { git = "https://github.com/saeedvaziry/polybrowser", branch = "ma
 objc2-javascript-core = { version = "=0.3.2", default-features = false, features = ["std", "JSBase", "JSContextRef", "JSObjectRef", "JSStringRef", "JSValueRef"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "WKWebView", "WKWebViewConfiguration", "WKUserContentController", "WKUserScript", "WKContentWorld", "WKScriptMessage", "WKScriptMessageHandlerWithReply", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKUIDelegate", "WKWindowFeatures", "WKURLSchemeHandler", "WKURLSchemeTask", "WKSnapshotConfiguration"] }
 dispatch2 = "0.3"
-objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "dispatch2", "AVMediaFormat", "AVCaptureSession", "AVCaptureInput", "AVCaptureOutputBase", "AVCaptureDevice", "AVCaptureAudioDataOutput", "objc2-core-media"] }
-objc2-speech = { version = "0.3", default-features = false, features = ["std", "block2", "SFSpeechRecognizer", "SFSpeechRecognitionRequest", "SFSpeechRecognitionResult", "SFSpeechRecognitionTask", "SFSpeechRecognitionTaskHint", "SFTranscription", "objc2-core-media"] }
-objc2-core-media = { version = "0.3", default-features = false, features = ["std", "CMSampleBuffer", "objc2"] }
-objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "block2", "dispatch2", "objc2-core-audio-types", "objc2"] }
 objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 block2 = "0.6"
 objc2 = "0.6"
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGColor", "CGColorSpace", "CGContext", "CGImage", "CGBitmapContext", "CGPath", "CGAffineTransform", "CGEvent", "CGEventTypes", "CGRemoteOperation"] }
-objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CAAnimation", "CALayer", "CAMediaTiming", "CAMediaTimingFunction", "CAShapeLayer", "CATransaction", "objc2-core-foundation", "objc2-core-graphics"] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CAAnimation", "CAFrameRateRange", "CALayer", "CAMediaTiming", "CAMediaTimingFunction", "CAShapeLayer", "CATransaction", "objc2-core-foundation", "objc2-core-graphics"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSJSONSerialization", "NSURLRequest", "NSURLResponse", "NSNull", "NSKeyValueCoding", "NSValue", "NSDictionary", "NSData", "NSGeometry", "NSString", "NSURL", "NSNotification", "NSBundle", "NSError", "NSOperation", "NSArray", "NSEnumerator", "NSUserDefaults", "block2"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSMenu", "NSMenuItem", "NSPasteboard", "NSPasteboardItem", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "NSFontDescriptor", "objc2-core-foundation", "NSAlert", "NSTextField", "NSText", "NSTextView", "NSTextContainer", "NSFont", "NSOpenPanel", "NSPanel", "NSPopUpButton", "NSSavePanel", "NSApplication", "NSButton", "NSButtonCell", "NSActionCell", "NSLayoutConstraint", "NSCell", "NSControl", "NSResponder", "NSView", "NSWindow", "NSCursor", "NSScrollView", "NSScroller", "NSClipView", "NSEvent", "NSAppearance", "NSVisualEffectView", "block2", "NSAccessibility", "NSAccessibilityConstants", "NSAccessibilityProtocols", "libc", "NSAccessibilityElement", "NSColor", "NSScreen", "NSWorkspace", "NSRunningApplication", "NSTextInputContext", "objc2-core-graphics", "objc2-quartz-core"] }
 
@@ -66,6 +62,4 @@ workspace = true
 
 [dev-dependencies]
 gpui = { version = "=0.2.2", default-features = false, features = ["test-support"] }
-
-[target.'cfg(target_os = "linux")'.dev-dependencies]
-x11rb = { version = "0.13", features = ["xtest"] }
+muxy-core = { path = "../muxy-core", features = ["test-support"] }

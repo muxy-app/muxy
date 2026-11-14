@@ -52,10 +52,21 @@ pub fn optimize_mode() -> Result<OptimizeMode> {
 }
 
 /// The full version string (e.g. "1.2.3" or "1.2.3-dev+abcdef").
-pub fn version_string() -> Result<&'static str> {
-    build_info::<ffi::String>(Info::VERSION_STRING)
-        // SAFETY: API guarantees
-        .map(|s| unsafe { s.to_str() })
+///
+/// The bytes are not guaranteed to be valid UTF-8.
+///
+/// # Example
+/// ```rust
+/// use libghostty_vt::build_info::*;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let version = version_string()?;
+/// // Validate it yourself if you need a `&str`.
+/// println!("libghostty-vt {}", std::str::from_utf8(version)?);
+/// # Ok(())
+/// # }
+/// ```
+pub fn version_string() -> Result<&'static [u8]> {
+    build_string(Info::VERSION_STRING)
 }
 /// The major version number.
 pub fn major_version() -> Result<usize> {
@@ -72,18 +83,29 @@ pub fn patch_version() -> Result<usize> {
 /// The pre metadata string (e.g. "alpha", "beta", "dev").
 ///
 /// Has zero length if no pre metadata is present.
-pub fn pre_version() -> Result<&'static str> {
-    build_info::<ffi::String>(Info::VERSION_PRE)
-        // SAFETY: API guarantees
-        .map(|s| unsafe { s.to_str() })
+///
+/// The bytes are not guaranteed to be valid UTF-8.
+pub fn pre_version() -> Result<&'static [u8]> {
+    build_string(Info::VERSION_PRE)
 }
 /// The build metadata string (e.g. commit hash).
 ///
 /// Has zero length if no build metadata is present.
-pub fn build_version() -> Result<&'static str> {
-    build_info::<ffi::String>(Info::VERSION_BUILD)
-        // SAFETY: API guarantees
-        .map(|s| unsafe { s.to_str() })
+///
+/// The bytes are not guaranteed to be valid UTF-8.
+pub fn build_version() -> Result<&'static [u8]> {
+    build_string(Info::VERSION_BUILD)
+}
+
+/// Query one of the `GhosttyString` build info fields as raw bytes.
+fn build_string(tag: ffi::BuildInfo::Type) -> Result<&'static [u8]> {
+    build_info::<ffi::String>(tag)
+        // SAFETY: libghostty fills these strings from its comptime build
+        // options (`terminal_options`), or from a `""` literal when the
+        // pre/build metadata is absent. Both live in the library's static
+        // data, so they're valid for `'static`. Upstream makes no UTF-8 or
+        // NUL-termination promise, so we hand out the bytes as-is.
+        .map(|s| unsafe { s.to_bytes() })
 }
 
 fn build_info<T>(tag: ffi::BuildInfo::Type) -> Result<T> {
@@ -95,7 +117,7 @@ fn build_info<T>(tag: ffi::BuildInfo::Type) -> Result<T> {
 }
 
 /// The optimization mode libghostty is compiled with.
-#[repr(u32)]
+#[repr(i32)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, int_enum::IntEnum)]
 pub enum OptimizeMode {
     /// Debug mode.

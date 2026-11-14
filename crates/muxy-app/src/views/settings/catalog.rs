@@ -94,7 +94,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         id: "backup-files",
         label: tr_key!("Configuration files"),
         description: tr_key!(
-            "Open configuration files in the system editor. Restart Muxy after editing app settings. Terminal settings reload when Muxy or Settings becomes active."
+            "Open configuration files in the system editor. After editing app settings, run muxy config reload or restart Muxy. Terminal settings reload when Muxy or Settings becomes active."
         ),
         category: Category::Backup,
         section: tr_key!("Configuration"),
@@ -134,31 +134,6 @@ pub(super) const SETTINGS: &[Setting] = &[
         ),
         category: Category::Ai,
         section: tr_key!("Create Pull Request"),
-    },
-    Setting {
-        id: "voice-auto-send",
-        label: tr_key!("Send after recording"),
-        description: tr_key!(
-            "Press Return after inserting standalone voice dictation into the terminal."
-        ),
-        category: Category::Composer,
-        section: tr_key!("Voice"),
-    },
-    Setting {
-        id: "composer-language",
-        label: tr_key!("Dictation language"),
-        description: tr_key!("Choose an installed on-device speech language."),
-        category: Category::Composer,
-        section: tr_key!("Voice"),
-    },
-    Setting {
-        id: "composer-voice-model",
-        label: tr_key!("Offline voice model"),
-        description: tr_key!(
-            "Path to a local multilingual Whisper model. Used by Linux dictation."
-        ),
-        category: Category::Composer,
-        section: tr_key!("Voice"),
     },
     Setting {
         id: "composer-clear-after",
@@ -205,6 +180,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("General"),
     },
     Setting {
+        id: "quick-pinned",
+        label: tr_key!("Pin Quick Terminal"),
+        description: tr_key!(
+            "Keep Quick Terminal open and above other windows when it loses focus. Same as its pin button."
+        ),
+        category: Category::QuickTerminal,
+        section: tr_key!("General"),
+    },
+    Setting {
         id: "quick-shortcut",
         label: tr_key!("Open Quick Terminal"),
         description: tr_key!("Record a system-wide shortcut to open Quick Terminal."),
@@ -217,6 +201,24 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!("Width 480–1200; height 280–800 pixels."),
         category: Category::QuickTerminal,
         section: tr_key!("Size"),
+    },
+    Setting {
+        id: "quick-light-theme",
+        label: tr_key!("Light theme"),
+        description: tr_key!(
+            "Colors for Quick Terminal when macOS uses light appearance. Same as App follows the app's light theme."
+        ),
+        category: Category::QuickTerminal,
+        section: tr_key!("Appearance"),
+    },
+    Setting {
+        id: "quick-dark-theme",
+        label: tr_key!("Dark theme"),
+        description: tr_key!(
+            "Colors for Quick Terminal when macOS uses dark appearance. Same as App follows the app's dark theme."
+        ),
+        category: Category::QuickTerminal,
+        section: tr_key!("Appearance"),
     },
     Setting {
         id: "quick-transparency",
@@ -296,6 +298,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Worktrees"),
     },
     Setting {
+        id: "usage-ping",
+        label: tr_key!("Send an anonymous daily ping"),
+        description: tr_key!(
+            "Once a day, tells muxy.app the app version, operating system, and processor type, so we can count active installs per version. Nothing identifies you or this computer. Starting Muxy with DO_NOT_TRACK=1 also turns it off."
+        ),
+        category: Category::General,
+        section: tr_key!("Privacy"),
+    },
+    Setting {
         id: "app-language",
         label: tr_key!("App language"),
         description: tr_key!(
@@ -330,6 +341,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Themes"),
     },
     Setting {
+        id: "interface-size",
+        label: tr_key!("Size"),
+        description: tr_key!("Controls the scale of the app interface."),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "sidebar",
         label: tr_key!("Expand sidebar"),
         description: tr_key!("Show project names alongside their icons in the workspace sidebar."),
@@ -346,11 +364,36 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
+        id: "rail",
+        label: tr_key!("Show rail"),
+        description: tr_key!(
+            "Keep extension icons that ask for the rail in a column on the right, opened from the top bar. Off puts them in the top bar."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
+        id: "pane-headers",
+        label: tr_key!("Show pane headers"),
+        description: tr_key!(
+            "Show each pane's icon, title and actions above it, in the color of what it shows."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "sidebar-collapsed-style",
         label: tr_key!("Collapsed sidebar style"),
         description: tr_key!(
             "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed."
         ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
+        id: "extension-sidebar",
+        label: tr_key!("Active sidebar"),
+        description: tr_key!("Show an enabled extension's sidebar in place of the built-in one."),
         category: Category::Appearance,
         section: tr_key!("Interface"),
     },
@@ -373,7 +416,27 @@ pub(super) const SETTINGS: &[Setting] = &[
     Setting {
         id: "tips",
         label: tr_key!("Show tips"),
-        description: tr_key!("Show Muxy tips at the bottom of the built-in sidebar."),
+        description: tr_key!(
+            "Show a Muxy tip from time to time in the bottom-right corner of the window."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
+        id: "remember-projects-without-tabs",
+        label: tr_key!("Remember shown projects without tabs"),
+        description: tr_key!(
+            "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
+        id: "sidebar-servers",
+        label: tr_key!("Show other servers in the sidebar"),
+        description: tr_key!(
+            "List other computers' servers and their projects under this computer's. When off, the sidebar shows only this computer's projects; the Servers button still manages the others."
+        ),
         category: Category::Appearance,
         section: tr_key!("Interface"),
     },
@@ -401,13 +464,6 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
-        id: "extension-sidebar",
-        label: tr_key!("Active sidebar"),
-        description: tr_key!("Show an enabled extension's sidebar in place of the built-in one."),
-        category: Category::Appearance,
-        section: tr_key!("Interface"),
-    },
-    Setting {
         id: "agents-panel",
         label: tr_key!("Show agents panel"),
         description: tr_key!("Show the agents panel, or its button when the sidebar is collapsed."),
@@ -420,6 +476,43 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!(
             "List each agent and open its pane, or each project and worktree running agents and open it."
         ),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
+        id: "agents-panel-icon",
+        label: tr_key!("Agents panel icon"),
+        description: tr_key!("Show each agent's icon, or the icon of the project it runs in."),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
+        id: "agents-panel-density",
+        label: tr_key!("Agents panel density"),
+        description: tr_key!(
+            "Show each agent on two lines with its agent and status, or fit more on one line each."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
+        id: "agents-panel-grouped",
+        label: tr_key!("Group by project"),
+        description: tr_key!("List agents under a heading naming their project."),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
+        id: "agents-panel-project-colors",
+        label: tr_key!("Show project colors"),
+        description: tr_key!("Mark each agent with the color of the project it runs in."),
+        category: Category::Appearance,
+        section: tr_key!("Agents Panel"),
+    },
+    Setting {
+        id: "agents-panel-idle-time",
+        label: tr_key!("Show idle time"),
+        description: tr_key!("Show how long ago each completed or idle agent finished working."),
         category: Category::Appearance,
         section: tr_key!("Agents Panel"),
     },
@@ -689,6 +782,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Selection"),
     },
     Setting {
+        id: "selection-word-chars",
+        label: tr_key!("Word selection characters"),
+        description: tr_key!(
+            "Extra characters kept with letters and numbers when double-clicking terminal text. Leave empty to select only letters and numbers. Whitespace always separates words."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Selection"),
+    },
+    Setting {
         id: "selection-clear-on-typing",
         label: tr_key!("Clear selection when typing"),
         description: tr_key!("Remove the selected range when sending text to the terminal."),
@@ -750,9 +852,9 @@ pub(super) const SETTINGS: &[Setting] = &[
     },
     Setting {
         id: "directory",
-        label: tr_key!("New pane directory"),
+        label: tr_key!("Keep working directory"),
         description: tr_key!(
-            "Start new splits in the project folder or the current pane's working directory."
+            "Start new tabs and splits in the focused pane's working directory instead of the project folder."
         ),
         category: Category::Terminal,
         section: tr_key!("Input"),
@@ -795,9 +897,20 @@ pub(super) const SETTINGS: &[Setting] = &[
     },
     Setting {
         id: "server",
-        label: tr_key!("Current device"),
-        description: tr_key!("Manage the local server that keeps your terminal sessions running."),
-        category: Category::Server,
+        label: tr_key!("This computer's server"),
+        description: tr_key!(
+            "The server that keeps this computer's terminals running. Restarting or stopping it ends all of them."
+        ),
+        category: Category::Servers,
+        section: tr_key!("Connection"),
+    },
+    Setting {
+        id: "background-activity",
+        label: tr_key!("Keep terminals running after quitting"),
+        description: tr_key!(
+            "macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings."
+        ),
+        category: Category::Servers,
         section: tr_key!("Connection"),
     },
     Setting {
@@ -806,7 +919,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!(
             "Shell for new sessions. Leave empty to use $SHELL, falling back to /bin/zsh."
         ),
-        category: Category::Server,
+        category: Category::Servers,
         section: tr_key!("Sessions"),
     },
     Setting {
@@ -815,7 +928,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!(
             "Retained terminal history, from 0 to 65536 MiB. Saved-history changes take effect at the next server start."
         ),
-        category: Category::Server,
+        category: Category::Servers,
         section: tr_key!("Sessions"),
     },
     Setting {
@@ -824,66 +937,42 @@ pub(super) const SETTINGS: &[Setting] = &[
         description: tr_key!(
             "Enable working-directory tracking and prompt navigation in new sessions."
         ),
-        category: Category::Server,
+        category: Category::Servers,
         section: tr_key!("Sessions"),
-    },
-    Setting {
-        id: "Stop Server",
-        label: tr_key!("Stop Server"),
-        description: tr_key!(
-            "End all sessions on this device and stop the server. A confirmation is required."
-        ),
-        category: Category::Server,
-        section: tr_key!("Server control"),
-    },
-    Setting {
-        id: "Restart Server",
-        label: tr_key!("Restart Server"),
-        description: tr_key!(
-            "End all sessions and start the server again. Saved terminal records are preserved."
-        ),
-        category: Category::Server,
-        section: tr_key!("Server control"),
-    },
-    Setting {
-        id: "mobile-access",
-        label: tr_key!("Allow mobile devices"),
-        description: tr_key!(
-            "Let paired phones reach this device's server over the local network or a VPN. A paired phone gets full terminal access."
-        ),
-        category: Category::Mobile,
-        section: tr_key!("Access"),
-    },
-    Setting {
-        id: "mobile-port",
-        label: tr_key!("Port"),
-        description: tr_key!("Network port phones connect to, from 1024 to 65535."),
-        category: Category::Mobile,
-        section: tr_key!("Access"),
-    },
-    Setting {
-        id: "mobile-status",
-        label: tr_key!("Status"),
-        description: tr_key!("Whether phones can reach this device right now."),
-        category: Category::Mobile,
-        section: tr_key!("Access"),
-    },
-    Setting {
-        id: "mobile-pair",
-        label: tr_key!("Pair a phone"),
-        description: tr_key!("Show a one-time code to scan with the Muxy app."),
-        category: Category::Mobile,
-        section: tr_key!("Pairing"),
-    },
-    Setting {
-        id: "mobile-devices",
-        label: tr_key!("Paired devices"),
-        description: tr_key!("Phones that can connect. Revoking one disconnects it immediately."),
-        category: Category::Mobile,
-        section: tr_key!("Devices"),
     },
 ];
 
+/// The `tr_key!` literal accessibility clients read for the control `id`, which is
+/// the setting's label, or for a field inside a setting, what that field holds.
+pub(super) fn control_label(id: &str) -> Option<&'static str> {
+    setting(id).map(|setting| setting.label).or(match id {
+        "command-name" => Some(tr_key!("Name")),
+        "command-text" => Some(tr_key!("Command")),
+        "quick-width" => Some(tr_key!("Width")),
+        "quick-height" => Some(tr_key!("Height")),
+        "browser-profile-name" => Some(tr_key!("Profile name")),
+        "codepoint-range" => Some(tr_key!("Range")),
+        "keybind-parameter" => Some(tr_key!("Value")),
+        "keybind-action" => Some(tr_key!("Action")),
+        "padding-left" => Some(tr_key!("Left padding")),
+        "padding-right" => Some(tr_key!("Right padding")),
+        "padding-top" => Some(tr_key!("Top padding")),
+        "padding-bottom" => Some(tr_key!("Bottom padding")),
+        _ => None,
+    })
+}
+
 pub(super) fn setting(id: &str) -> Option<&'static Setting> {
     SETTINGS.iter().find(|setting| setting.id == id)
+}
+
+/// Other words people search for a setting by.
+pub(super) fn search_aliases(id: &str) -> &'static str {
+    match id {
+        "interface-size" => "zoom density",
+        "extension-sidebar" => "custom replace",
+        "usage-ping" => "telemetry analytics tracking statistics",
+        "server" => "stop restart connect local mac computer",
+        _ => "",
+    }
 }

@@ -4,7 +4,9 @@
 use std::time::{Duration, SystemTime};
 
 use gpui::{Context, SharedString, Window};
-use muxy_app_core::extensions::{AuditEntry, Choice, Consent, Gate, Request, Rule, timestamp};
+use muxy_app_core::extensions::{
+    AuditEntry, Choice, Consent, Gate, Request, Rule, TRUSTED, timestamp,
+};
 use muxy_ui::dialog::ConsentResponse;
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::tr;
@@ -88,7 +90,7 @@ fn denial(verb: &str, request: &Request) -> String {
 /// What the audit log records for a prompt answer, as main names it.
 fn decision(choice: Choice) -> &'static str {
     match choice {
-        Choice::AllowAndRemember | Choice::Allow => "allow",
+        Choice::AllowAndRemember | Choice::Allow | Choice::Trust => "allow",
         Choice::Cancel | Choice::DenyAndRemember => "deny",
         Choice::Block => "blocked",
     }
@@ -101,7 +103,16 @@ fn choice(response: ConsentResponse) -> Choice {
         ConsentResponse::Cancel => Choice::Cancel,
         ConsentResponse::DenyAndRemember => Choice::DenyAndRemember,
         ConsentResponse::Block => Choice::Block,
+        ConsentResponse::Trust => Choice::Trust,
     }
+}
+
+/// How the audit log names the rule a prompt answer applied.
+fn answered_rule(request: &Request, choice: Choice) -> Option<String> {
+    if choice == Choice::Trust {
+        return Some(TRUSTED.into());
+    }
+    request.rule(choice).as_ref().map(Rule::id)
 }
 
 fn clamp(text: &str) -> String {
@@ -122,6 +133,7 @@ fn purpose(gate: Gate, owner: &str) -> SharedString {
         Gate::FilesWrite => tr!("%@ wants to modify workspace files.", owner),
         Gate::HttpFetch => tr!("%@ wants to make a network request.", owner),
         Gate::ProjectsDelete => tr!("%@ wants to delete a project.", owner),
+        Gate::ClipboardRead => tr!("%@ wants to read the clipboard.", owner),
     }
 }
 
@@ -137,14 +149,60 @@ fn block_label(gate: Gate) -> SharedString {
         Gate::FilesWrite => tr!("Block all file changes from this extension"),
         Gate::HttpFetch => tr!("Block all network requests from this extension"),
         Gate::ProjectsDelete => tr!("Block all project deletions from this extension"),
+        Gate::ClipboardRead => tr!("Block all clipboard reads from this extension"),
     }
 }
 
 impl AppModel {
+    fn log_unanswered(&mut self, call: &Call, request: &Request) {
+        self.extension_log(
+            &call.owner,
+            format!(
+                "[muxy] {} denied: nobody answered the prompt within {} seconds",
+                request.gate.name(),
+                PROMPT_TIMEOUT.as_secs()
+            ),
+        );
+    }
+
+    /// How many of `owner`'s calls wait for the user to answer a prompt.
+    pub(super) fn waiting_prompts(&self, owner: &str) -> usize {
+        self.extensions
+            .waiting
+            .iter()
+            .filter(|waiting| {
+                matches!(waiting, Waiting::Consent { .. }) && waiting.owner() == owner
+            })
+            .count()
+            + usize::from(
+                self.extensions
+                    .sheet
+                    .as_ref()
+                    .is_some_and(|sheet| !sheet.dialog && sheet.owner == owner),
+            )
+    }
+
+    /// The second question before an extension is always allowed.
+    pub(crate) fn trust_question(owner: &str) -> (SharedString, SharedString) {
+        (
+            tr!("Always allow %@?", owner),
+            tr!(
+                "%@ will be able to run shell commands, type into and read terminals, change files and git repositories, make network requests, read the clipboard, and delete projects without asking. Only do this for an extension you trust.\n\nTo undo it, choose Stop Always Allowing under Permission rules in Settings → Extensions.",
+                owner
+            ),
+        )
+    }
+
+    /// The trust question's buttons, Cancel first so it is the default.
+    pub(crate) fn trust_buttons() -> [SharedString; 2] {
+        [tr!("Cancel"), tr!("Always Allow")]
+    }
+
     /// What the saved rules decide for a gated call, and the deciding rule.
     /// Without readable rules every gated call is denied.
     fn consent(&self, owner: &str, request: &Request) -> (Consent, Option<String>) {
         match &self.extensions.grants {
+            Ok(grants) if grants.trusted(owner) => (Consent::Allow, Some(TRUSTED.into())),
             Ok(grants) => grants
                 .rule(owner, request)
                 .map_or((Consent::Ask, None), |rule| (rule.consent, Some(rule.id()))),
@@ -233,6 +291,13 @@ impl AppModel {
                 }
                 self.extensions.next += 1;
                 let id = self.extensions.next;
+                self.extension_log(
+                    &call.owner,
+                    format!(
+                        "[muxy] {} is waiting for the user to allow it in Muxy",
+                        request.gate.name()
+                    ),
+                );
                 self.extensions
                     .waiting
                     .push_back(Waiting::Consent { id, call, request });
@@ -254,6 +319,7 @@ impl AppModel {
             position.and_then(|index| self.extensions.waiting.remove(index))
         {
             self.audit(&call, &request, "deny", None, Some("timeout"));
+            self.log_unanswered(&call, &request);
             call.reply.send(Err(denial(&call.verb, &request)), cx);
         } else if self
             .extensions
@@ -328,6 +394,10 @@ impl AppModel {
             &tr!("Allow %@?", &call.owner),
             &message,
             &block_label(request.gate),
+            muxy_ui::controls::Style {
+                theme: &self.theme,
+                metrics: &self.metrics,
+            },
             move |response| {
                 let _ = sender.try_send(response);
             },
@@ -342,31 +412,89 @@ impl AppModel {
                 return;
             }
         }
-        self.await_consent(id, call, request, receiver, cx);
+        self.await_consent(id, call, request, receiver, false, cx);
     }
 
-    /// Applies the user's choice once it arrives. A remembered choice is saved
-    /// only while the call is still live.
-    pub(super) fn await_consent(
+    /// Asks again before trusting an extension with every gated action.
+    /// Declining returns to the request's own prompt.
+    fn confirm_trust(
+        &mut self,
+        id: u64,
+        call: Call,
+        request: Request,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (sender, receiver) = async_channel::bounded(1);
+        let (title, message) = Self::trust_question(&call.owner);
+        let [cancel, allow] = Self::trust_buttons();
+        let options = muxy_ui::dialog::DialogOptions {
+            title: title.into(),
+            message: message.into(),
+            buttons: vec![cancel.to_string(), allow.to_string()],
+            cancel_button: Some(cancel.into()),
+            style: "critical".into(),
+            ..muxy_ui::dialog::DialogOptions::default()
+        };
+        let sheet = muxy_ui::dialog::present(
+            window,
+            cx,
+            options,
+            muxy_ui::controls::Style {
+                theme: &self.theme,
+                metrics: &self.metrics,
+            },
+            move |label| {
+                let _ = sender.try_send(if label.as_deref() == Some(allow.as_ref()) {
+                    ConsentResponse::Trust
+                } else {
+                    ConsentResponse::Cancel
+                });
+            },
+        );
+        match sheet {
+            Ok(sheet) => {
+                self.extensions.sheet = Some(Sheet::new(id, &call.owner, false, Box::new(sheet)));
+                self.await_consent(id, call, request, receiver, true, cx);
+            }
+            Err(error) => {
+                self.audit(&call, &request, "deny", None, Some("cancelled"));
+                call.reply.send(Err(error.to_string()), cx);
+                self.next_prompt(window, cx);
+            }
+        }
+    }
+
+    /// Applies the user's choice once it arrives. A remembered choice is saved,
+    /// and the call runs, only while the call is live and its prompt is still
+    /// on screen, so an answer racing the timeout does neither.
+    /// `confirming_trust` is set when the answer comes from the second question
+    /// before trusting the extension.
+    fn await_consent(
         &mut self,
         id: u64,
         call: Call,
         request: Request,
         receiver: async_channel::Receiver<ConsentResponse>,
+        confirming_trust: bool,
         cx: &mut Context<Self>,
     ) {
         let handle = self.window;
         let local = self.extensions.local.clone();
         cx.spawn(async move |model, cx| {
             let choice = choice(receiver.recv().await.unwrap_or(ConsentResponse::Cancel));
-            let live = model
-                .update(cx, |model, cx| model.call_live(&call, cx))
+            let unconfirmed_trust = choice == Choice::Trust && !confirming_trust;
+            let current = model
+                .update(cx, |model, cx| {
+                    model.call_live(&call, cx)
+                        && model
+                            .extensions
+                            .sheet
+                            .as_ref()
+                            .is_some_and(|sheet| sheet.id == id)
+                })
                 .unwrap_or(false);
-            let remembered = if live
-                && matches!(
-                    choice,
-                    Choice::AllowAndRemember | Choice::DenyAndRemember | Choice::Block
-                ) {
+            let remembered = if current && choice.remembers() && !unconfirmed_trust {
                 let owner = call.owner.clone();
                 let rule = request.clone();
                 local
@@ -395,6 +523,17 @@ impl AppModel {
                     if answered {
                         model.extensions.sheet = None;
                     }
+                    if answered && model.call_live(&call, cx) {
+                        if unconfirmed_trust {
+                            model.confirm_trust(id, call, request, window, cx);
+                            return;
+                        }
+                        if confirming_trust && choice == Choice::Cancel {
+                            model.prompt(id, call, request, window, cx);
+                            model.next_prompt(window, cx);
+                            return;
+                        }
+                    }
                     match remembered {
                         Ok(snapshot) => {
                             if let Some(snapshot) = snapshot {
@@ -407,16 +546,17 @@ impl AppModel {
                                 }
                                 (true, false) => {
                                     model.audit(&call, &request, "deny", None, Some("timeout"));
+                                    model.log_unanswered(&call, &request);
                                 }
                                 (true, true) => model.audit(
                                     &call,
                                     &request,
                                     decision(choice),
-                                    request.rule(choice).as_ref().map(Rule::id),
+                                    answered_rule(&request, choice),
                                     None,
                                 ),
                             }
-                            if choice.allows() && live {
+                            if choice.allows() && live && answered {
                                 let mut call = call;
                                 call.approved = true;
                                 model.dispatch_extension(call, window, cx);
@@ -500,7 +640,11 @@ impl AppModel {
             dialog_options(&call.verb, &call.args).map_or_else(
                 |error| Err(std::io::Error::other(error)),
                 |options| {
-                    muxy_ui::dialog::present(window, cx, options, move |value| {
+                    let style = muxy_ui::controls::Style {
+                        theme: &self.theme,
+                        metrics: &self.metrics,
+                    };
+                    muxy_ui::dialog::present(window, cx, options, style, move |value| {
                         let _ = sender.try_send(Ok(value));
                     })
                     .map(|sheet| Box::new(sheet) as Box<dyn std::any::Any>)

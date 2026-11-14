@@ -1,8 +1,31 @@
 use crate::model::AppModel;
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div};
+use crate::model::extensions::Placement;
+use crate::views::overlays::{Mark, OverlayView};
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div};
 
-/// The open extension popover, below its topbar item or above its status-bar item.
-pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+/// The open extension popover.
+pub(crate) struct ExtensionPopover;
+
+impl OverlayView for ExtensionPopover {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        _: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render(model, cx)
+    }
+
+    /// Outside clicks and toggles close it without asking the page.
+    fn on_close(&self, model: &mut AppModel, cx: &mut Context<AppModel>) {
+        model.close_extension_popover(cx);
+    }
+}
+
+/// The open extension popover: below its topbar item, left of its rail item,
+/// or above its status-bar item.
+fn render(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let Some(popover) = &model.webviews.popover else {
         return div().into_any_element();
     };
@@ -19,16 +42,21 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement
         .overflow_hidden()
         .child(popover.surface.view.clone())
         .into_any_element();
-    if popover.above && !model.appearance.status_bar_visible {
-        popover.anchor.set(None);
-    }
     let weak = cx.entity().downgrade();
-    let lost = move |_: &mut gpui::Window, cx: &mut gpui::App| {
+    if !model.extension_item_shown(&popover.anchor_key, popover.placement) {
+        popover.anchor.set(None);
+        let weak = weak.clone();
+        cx.defer(move |cx| {
+            let _ = weak.update(cx, AppModel::close_extension_popover);
+        });
+    }
+    let lost = move |_: &mut Window, cx: &mut gpui::App| {
         let _ = weak.update(cx, AppModel::close_extension_popover);
     };
-    if popover.above {
-        muxy_ui::popover::anchored_popover_above(popover.anchor.clone(), content, lost)
-    } else {
-        muxy_ui::popover::anchored_popover(popover.anchor.clone(), content, lost)
+    let anchor = popover.anchor.clone();
+    match popover.placement {
+        Placement::Topbar => muxy_ui::popover::anchored_popover(anchor, content, lost),
+        Placement::Rail => muxy_ui::popover::anchored_popover_left(anchor, content, lost),
+        Placement::StatusBar => muxy_ui::popover::anchored_popover_above(anchor, content, lost),
     }
 }

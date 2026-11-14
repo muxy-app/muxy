@@ -6,7 +6,7 @@ How apps and the server talk. The exact messages live in `crates/muxy-protocol`.
 
 - The connection is a reliable byte stream: a Unix socket on the same computer,
   SSH to `muxy stdio` on another computer, or TLS for
-  [paired phones](./mobile.md).
+  [paired phones and computers](./mobile.md).
 - Traffic is split into channels. Channel 0 carries control messages, and each
   attached session gets its own channel for screen updates and input.
 - Every frame starts with a small header: length, protocol version, channel, and
@@ -44,6 +44,25 @@ sequenceDiagram
 - Frames carry only the visible rows that changed. A resize sends the whole
   screen.
 - History is never pushed. Apps page through it and search it on request.
+  A page, and the history an attach starts with, also list the images
+  placed on those rows, as stills, with each placement's row counted from
+  the first of them. Older servers list none.
+- Image pixels go out once. The desktop app asks the server to stream
+  images: a screen carries the pixels of an image's frame on show the first
+  time it lists that frame, and later screens list it without them. The
+  server decides as each screen goes out, so an app that falls behind gets
+  only the newest images, as with rows. The app acknowledges a screen once
+  the images it brought can be drawn, and keeps showing the old picture until
+  then, so programs that replace images quickly, such as video players, never
+  flash. A screen lists each image's frames by key, with the time each one
+  shows. The app reads the other frames of an animation, and any it lost,
+  on request, and plays animations itself. Moving an image or playing an
+  animation sends no pixels.
+- Apps that draw no images, and older desktop builds, ask the server to leave
+  pixels out and read the frames they draw on request. An app that asks for
+  neither, such as an older build still, gets the pixels of the frame on show
+  with every screen that changes an image. Saved screens always carry their
+  pixels.
 
 ## Flow control
 

@@ -1,10 +1,12 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, DispatchPhase, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, SharedString,
+    MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Role, SharedString,
     StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
-use muxy_app_core::settings::AgentsPanelDock;
+use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelDock, AgentsPanelIcon};
+use muxy_core::shortcuts::ShortcutId;
+use muxy_ui::accessibility::{self, OnPress};
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::panel::{PanelFrame, PanelSizeBounds, PanelSizing, PanelStyle};
@@ -14,24 +16,16 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 use crate::model::agents_panel::{
-    AgentStatus, Drag, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, Placement, RunningAgent,
+    AgentStatus, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, PANEL, Placement, RunningAgent,
+    starts_project_group,
 };
+use crate::views::overlays::{Mark, OverlayView};
 
 const DOCKED_MAX_HEIGHT: f32 = 260.0;
 const POPUP_WIDTH: f32 = 300.0;
 const POPUP_MAX_HEIGHT: f32 = 380.0;
 const RESIZE_GRIP: f32 = 18.0;
 const RESIZE_EDGE: f32 = 6.0;
-const FLOATING_GROUP: &str = "agents-panel-floating";
-
-fn status_label(status: AgentStatus) -> SharedString {
-    match status {
-        AgentStatus::Blocked => tr!("Needs input"),
-        AgentStatus::Working => tr!("Working"),
-        AgentStatus::Completed => tr!("Completed"),
-        AgentStatus::Idle => tr!("Idle"),
-    }
-}
 
 fn status_color(status: AgentStatus, model: &AppModel) -> Hsla {
     match status {
@@ -41,34 +35,36 @@ fn status_color(status: AgentStatus, model: &AppModel) -> Hsla {
     }
 }
 
+/// The agent's status as its terminal tab shows it, when the tab shows one.
 fn status_glyph(
-    key: EntryKey,
-    status: AgentStatus,
+    agent: &RunningAgent,
     owner: gpui::EntityId,
     model: &AppModel,
-) -> AnyElement {
+) -> Option<AnyElement> {
     let m = model.metrics;
-    let glyph = if status == AgentStatus::Working {
-        super::tab_activity::spinner_in(format!("agents-panel-{key}"), m.icon_sm(), owner, model)
-    } else {
-        let color = status_color(status, model);
+    let key = EntryKey::Agent(agent.server, agent.session);
+    let status = super::tab_activity::agent_status(agent, model);
+    if status == super::tab_activity::Status::None {
+        return None;
+    }
+    Some(
         div()
-            .size(m.scaled(7.0))
-            .rounded_full()
-            .when(status == AgentStatus::Idle, |dot| {
-                dot.border_1().border_color(color)
-            })
-            .when(status != AgentStatus::Idle, |dot| dot.bg(color))
-            .into_any_element()
-    };
-    div()
-        .flex_none()
-        .w(m.icon_md())
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(glyph)
-        .into_any_element()
+            .debug_selector(move || format!("agents-panel-status-{key}"))
+            .flex_none()
+            .size(m.icon_sm())
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(super::tab_activity::status_glyph_in(
+                format!("agents-panel-{key}"),
+                status,
+                m.icon_sm(),
+                Some(owner),
+                None,
+                model,
+            ))
+            .into_any_element(),
+    )
 }
 
 impl AppModel {
@@ -86,59 +82,257 @@ impl AppModel {
     }
 }
 
-fn trailing(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
-    let m = model.metrics;
-    match entry {
-        Entry::Agent(_) => None,
-        Entry::Worktree { counts, .. } => Some(
-            div()
-                .flex()
-                .flex_none()
-                .gap(m.spacing2())
-                .children(
-                    AgentStatus::ALL
-                        .into_iter()
-                        .zip(counts)
-                        .filter(|(_, count)| **count > 0)
-                        .map(|(status, count)| {
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(m.spacing1())
-                                .text_size(m.font_footnote())
-                                .text_color(status_color(status, model))
-                                .child(
-                                    div()
-                                        .size(m.scaled(6.0))
-                                        .rounded_full()
-                                        .bg(status_color(status, model)),
-                                )
-                                .child(count.to_string())
-                        }),
-                )
-                .into_any_element(),
-        ),
+fn compact(model: &AppModel) -> bool {
+    model.appearance.agents_panel_density == AgentsPanelDensity::Compact
+}
+
+fn status_name(status: AgentStatus) -> SharedString {
+    match status {
+        AgentStatus::Blocked => tr!("Needs input"),
+        AgentStatus::Working => tr!("Working"),
+        AgentStatus::Completed => tr!("Completed"),
+        AgentStatus::Idle => tr!("Idle"),
     }
 }
 
-fn leading(entry: &Entry, owner: gpui::EntityId, model: &AppModel) -> AnyElement {
+/// How many agents a worktree has in each status, as clients read it.
+fn counts_description(counts: &[usize; 4]) -> String {
+    AgentStatus::ALL
+        .into_iter()
+        .zip(counts)
+        .filter(|(_, count)| **count > 0)
+        .map(|(status, count)| format!("{count} {}", status_name(status)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// What a row's icons and colors say, for clients that can't see them.
+fn entry_description(entry: &Entry, model: &AppModel) -> String {
+    match entry {
+        Entry::Agent(agent) => format!(
+            "{}, {}",
+            model.agents_location(agent.project),
+            status_name(agent.status)
+        ),
+        Entry::Worktree { counts, .. } => counts_description(counts),
+    }
+}
+
+/// How long ago the agent finished, when the panel shows idle time.
+fn idle_age(agent: &RunningAgent, model: &AppModel) -> Option<SharedString> {
+    if !model.appearance.agents_panel_idle_time {
+        return None;
+    }
+    let finished_at = agent.finished_at?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    Some(super::agent_sessions::age_label(
+        now.saturating_sub(finished_at),
+    ))
+}
+
+fn idle_time(agent: &RunningAgent, model: &AppModel) -> Option<AnyElement> {
+    let age = idle_age(agent, model)?;
+    let key = EntryKey::Agent(agent.server, agent.session);
+    Some(
+        div()
+            .debug_selector(move || format!("agents-panel-idle-{key}"))
+            .flex_none()
+            .text_size(model.metrics.font_footnote())
+            .text_color(model.theme.fg_dim)
+            .child(age)
+            .into_any_element(),
+    )
+}
+
+/// The second line of a normal row: where the agent runs, unless its
+/// project's heading says so, which agent it is, unless the title names it,
+/// and what it's doing. A worktree's counts already sit on its right.
+fn details(entry: &Entry, title: &str, model: &AppModel) -> Option<String> {
+    let Entry::Agent(agent) = entry else {
+        return None;
+    };
+    let provider = agent.provider.name();
+    Some(
+        [
+            if model.agents_panel_headings() {
+                String::new()
+            } else {
+                model.agents_location(agent.project)
+            },
+            if title == provider {
+                String::new()
+            } else {
+                provider.to_owned()
+            },
+            status_name(agent.status).to_string(),
+        ]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · "),
+    )
+}
+
+fn trailing(entry: &Entry, owner: gpui::EntityId, model: &AppModel) -> AnyElement {
     let m = model.metrics;
-    let key = entry.key();
     match entry {
         Entry::Agent(agent) => div()
-            .flex_none()
             .flex()
+            .flex_none()
             .items_center()
             .gap(m.spacing2())
-            .child(status_glyph(key, agent.status, owner, model))
-            .child(super::tab_activity::provider_icon(
-                agent.provider,
-                m.icon_sm(),
+            .children(status_glyph(agent, owner, model))
+            .children(idle_time(agent, model))
+            .into_any_element(),
+        Entry::Worktree { counts, .. } => div()
+            .flex()
+            .flex_none()
+            .gap(m.spacing2())
+            .children(
+                AgentStatus::ALL
+                    .into_iter()
+                    .zip(counts)
+                    .filter(|(_, count)| **count > 0)
+                    .map(|(status, count)| {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(m.spacing1())
+                            .text_size(m.font_footnote())
+                            .text_color(status_color(status, model))
+                            .child(
+                                div()
+                                    .size(m.scaled(7.0))
+                                    .rounded_full()
+                                    .bg(status_color(status, model)),
+                            )
+                            .child(count.to_string())
+                    }),
+            )
+            .into_any_element(),
+    }
+}
+
+fn root_project<'a>(entry: &Entry, model: &'a AppModel) -> Option<&'a muxy_app_core::Project> {
+    let project = match entry {
+        Entry::Agent(agent) => agent.project,
+        Entry::Worktree { project, .. } => *project,
+    };
+    let project = model.state.project(project)?;
+    Some(
+        project
+            .parent_id
+            .and_then(|parent| model.state.project(parent))
+            .unwrap_or(project),
+    )
+}
+
+/// The project's color as a bar down the row's leading edge, spanning it.
+fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
+    if !model.appearance.agents_panel_project_colors
+        || !model.appearance.agents_panel_colors_apply()
+    {
+        return None;
+    }
+    let root = root_project(entry, model)?;
+    let m = model.metrics;
+    let key = entry.key();
+    Some(
+        div()
+            .debug_selector(move || format!("agents-panel-color-{key}"))
+            .absolute()
+            .left(m.spacing1())
+            .top(m.spacing2())
+            .bottom(m.spacing2())
+            .w(m.scaled(3.0))
+            .rounded_full()
+            .bg(super::sidebar::project_color(root, model))
+            .into_any_element(),
+    )
+}
+
+/// How big a row's leading icon is: larger beside two lines of text.
+fn icon_size(model: &AppModel) -> gpui::Pixels {
+    if compact(model) {
+        model.metrics.icon_sm()
+    } else {
+        model.metrics.icon_lg()
+    }
+}
+
+fn project_icon(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
+    let root = root_project(entry, model)?;
+    let key = entry.key();
+    Some(
+        div()
+            .debug_selector(move || format!("agents-panel-project-{key}"))
+            .flex_none()
+            .child(super::sidebar::project_tile(
+                root,
                 model,
+                icon_size(model),
+                None,
             ))
             .into_any_element(),
-        Entry::Worktree { .. } => status_glyph(key, entry.status(), owner, model),
+    )
+}
+
+fn leading(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
+    match (model.appearance.agents_panel_icon, entry) {
+        (AgentsPanelIcon::Project, _) => project_icon(entry, model),
+        (AgentsPanelIcon::Agent, Entry::Agent(agent)) => {
+            let key = entry.key();
+            Some(
+                div()
+                    .debug_selector(move || format!("agents-panel-icon-{key}"))
+                    .flex_none()
+                    .child(super::tab_activity::provider_icon(
+                        agent.provider,
+                        icon_size(model),
+                        model,
+                    ))
+                    .into_any_element(),
+            )
+        }
+        (AgentsPanelIcon::Agent, Entry::Worktree { .. }) => None,
     }
+}
+
+/// A row's title, with its details under it in a normal row.
+fn row_text(entry: &Entry, title: String, model: &AppModel) -> gpui::Div {
+    let m = model.metrics;
+    let theme = &model.theme;
+    let key = entry.key();
+    let details = (!compact(model))
+        .then(|| details(entry, &title, model))
+        .flatten();
+    let title = div()
+        .debug_selector(move || format!("agents-panel-title-{key}"))
+        .when(details.is_none(), |title| title.flex_1().min_w(px(0.0)))
+        .truncate()
+        .text_size(m.font_body())
+        .text_color(theme.fg)
+        .child(title);
+    let Some(details) = details else {
+        return title;
+    };
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w(px(0.0))
+        .child(title)
+        .child(
+            div()
+                .debug_selector(move || format!("agents-panel-details-{key}"))
+                .truncate()
+                .text_size(m.font_footnote())
+                .text_color(theme.fg_dim)
+                .child(details),
+        )
 }
 
 fn entry_row(
@@ -151,70 +345,68 @@ fn entry_row(
     let m = model.metrics;
     let theme = &model.theme;
     let key = entry.key();
-    let (title, detail) = match entry {
-        Entry::Agent(agent) => {
-            let title = model
-                .state
-                .project(agent.project)
-                .and_then(|project| project.tabs.iter().find(|tab| tab.id == agent.tab))
-                .map(|tab| tab.title(Some(agent.pane)).trim().to_owned())
-                .filter(|title| !title.is_empty())
-                .unwrap_or_else(|| agent.provider.name().to_owned());
-            (title, Some(model.agents_location(agent.project)))
-        }
-        Entry::Worktree { project, .. } => (model.agents_location(*project), None),
+    let compact = compact(model);
+    let title = match entry {
+        Entry::Agent(agent) => model
+            .state
+            .project(agent.project)
+            .and_then(|project| project.tabs.iter().find(|tab| tab.id == agent.tab))
+            .map(|tab| tab.title(Some(agent.pane)).trim().to_owned())
+            .filter(|title| !title.is_empty())
+            .unwrap_or_else(|| agent.provider.name().to_owned()),
+        Entry::Worktree { project, .. } => model.agents_location(*project),
     };
-    let trailing = trailing(entry, model);
-    let leading = leading(entry, model.agents_panel.owner.entity_id(), model);
+    let trailing = trailing(entry, model.agents_panel.owner.entity_id(), model);
+    let leading = leading(entry, model);
+    let stripe = project_stripe(entry, model);
+    let label = title.clone();
+    let text = row_text(entry, title, model);
     div()
         .id(SharedString::from(format!("agents-panel-row-{key}")))
+        .role(Role::TreeItem)
+        .aria_label(label)
+        .aria_description(entry_description(entry, model))
+        .aria_selected(active)
         .debug_selector(move || format!("agents-panel-row-{key}"))
+        .relative()
         .flex()
         .flex_none()
+        .w_full()
+        .min_w(px(0.0))
         .items_center()
         .gap(m.spacing3())
-        .px(m.spacing3())
-        .py(m.spacing2())
+        .pl(m.spacing4())
+        .pr(m.spacing2())
         .rounded(m.radius_md())
+        .h(if compact {
+            m.control_medium()
+        } else {
+            m.control_large() + m.spacing2()
+        })
         .cursor_pointer()
         .when(active, |row| row.bg(theme.surface))
         .when(selected, |row| row.bg(theme.hover))
         .hover(|style| style.bg(theme.hover))
-        .on_click(cx.listener(move |model, _, window, cx| {
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |model, _, _, cx| {
+                model.agents_panel.selected = Some(key);
+                cx.notify();
+            }),
+        )
+        .on_press(cx.listener(move |model, _, window, cx| {
             model.open_agents_entry(key, window, cx);
         }))
-        .child(leading)
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.0))
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .debug_selector(move || format!("agents-panel-title-{key}"))
-                        .text_ellipsis()
-                        .line_clamp(1)
-                        .text_size(m.font_body())
-                        .text_color(theme.fg)
-                        .child(title),
-                )
-                .children(detail.filter(|detail| !detail.is_empty()).map(|detail| {
-                    div()
-                        .debug_selector(move || format!("agents-panel-detail-{key}"))
-                        .text_ellipsis()
-                        .line_clamp(1)
-                        .text_size(m.font_footnote())
-                        .text_color(theme.fg_muted)
-                        .child(detail)
-                })),
-        )
-        .children(trailing)
+        .children(stripe)
+        .children(leading)
+        .child(text)
+        .child(trailing)
         .into_any_element()
 }
 
 fn rows(
     entries: &[Entry],
+    inset: gpui::Pixels,
     model: &AppModel,
     cx: &mut Context<AppModel>,
     window: &Window,
@@ -230,12 +422,14 @@ fn rows(
     };
     let mut list = div()
         .id("agents-panel-rows")
+        .role(Role::Tree)
+        .aria_label(tr!("Agents"))
         .flex()
         .flex_col()
         .flex_1()
         .min_h(px(0.0))
-        .gap(m.scaled(1.0))
-        .px(m.spacing2())
+        .gap(m.spacing1())
+        .px(inset)
         .pb(m.spacing2())
         .overflow_y_scroll()
         .track_scroll(&model.agents_panel.scroll);
@@ -243,29 +437,36 @@ fn rows(
         return list
             .child(
                 div()
-                    .px(m.spacing3())
+                    .px(m.spacing4())
                     .py(m.spacing3())
                     .text_size(m.font_footnote())
-                    .text_color(theme.fg_muted)
-                    .child(tr!("No agents running")),
+                    .text_color(theme.fg_dim)
+                    .child(accessibility::label(
+                        "agents-panel-empty",
+                        tr!("No agents running"),
+                    )),
             )
             .into_any_element();
     }
-    let mut previous = None;
-    for entry in entries {
-        let status = entry.status();
-        if previous != Some(status) {
+    let headings = model.agents_panel_headings();
+    for (index, entry) in entries.iter().enumerate() {
+        if let Entry::Agent(agent) = entry
+            && headings
+            && starts_project_group(entries, index)
+        {
+            let project = agent.project;
             list = list.child(
                 div()
-                    .px(m.spacing3())
-                    .pt(m.spacing2())
-                    .text_size(m.font_micro())
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(theme.fg_dim)
-                    .child(status_label(status).to_uppercase()),
+                    .h(m.control_medium())
+                    .pl(m.spacing4())
+                    .flex()
+                    .items_center()
+                    .child(
+                        super::tab_sidebar::group_label(model.agents_location(project), model)
+                            .debug_selector(move || format!("agents-panel-heading-{project}")),
+                    ),
             );
         }
-        previous = Some(status);
         let is_active = active == Some(entry.key());
         let is_selected = selected == Some(entry.key());
         list = list.child(entry_row(entry, is_active, is_selected, model, cx));
@@ -287,13 +488,14 @@ fn header_buttons(detached: bool, model: &AppModel, cx: &mut Context<AppModel>) 
     let button = |id: &'static str, icon: Icon, tooltip: SharedString| {
         IconButton::new(
             id,
+            tooltip,
             icon,
             m.icon_xs(),
             m.control_small(),
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(tooltip, theme.raised(), theme.fg, theme.border, theme.bg)
+        .tooltip(theme)
     };
     let right = model.appearance.agents_panel_dock == AgentsPanelDock::Right;
     let move_dock = button(
@@ -369,6 +571,16 @@ fn header_buttons(detached: bool, model: &AppModel, cx: &mut Context<AppModel>) 
     })
 }
 
+/// Space between the panel's edges and its rows. Docked, the sidebar's own
+/// margin already lines rows up with the sidebar's tabs.
+fn inset(placement: Placement, model: &AppModel) -> gpui::Pixels {
+    if placement == Placement::Docked {
+        px(0.0)
+    } else {
+        model.metrics.spacing3()
+    }
+}
+
 fn header(
     placement: Placement,
     agents: &[RunningAgent],
@@ -401,8 +613,8 @@ fn header(
         .flex_none()
         .items_center()
         .gap(m.spacing2())
-        .pl(m.spacing4())
-        .pr(m.spacing2())
+        .pl(inset(placement, model) + m.spacing4())
+        .pr(inset(placement, model))
         .h(m.control_large())
         .when(detached, |header| {
             header.cursor(gpui::CursorStyle::OpenHand).on_mouse_down(
@@ -417,6 +629,7 @@ fn header(
         })
         .child(
             div()
+                .debug_selector(|| "agents-panel-name".into())
                 .flex_none()
                 .text_size(m.font_caption())
                 .font_weight(FontWeight::SEMIBOLD)
@@ -430,7 +643,9 @@ fn header(
                 .truncate()
                 .text_size(m.font_footnote())
                 .text_color(theme.fg_dim)
-                .child(summary),
+                .when(!summary.is_empty(), |text| {
+                    text.child(accessibility::label("agents-panel-summary", summary))
+                }),
         )
         .child(
             div()
@@ -452,13 +667,16 @@ fn body(
     let entries = model.agents_panel_entries_from(agents.clone());
     div()
         .id("agents-panel")
+        .role(Role::Group)
+        .accessibility_id("agents-panel")
+        .aria_label(tr!("Agents"))
         .debug_selector(|| "agents-panel".into())
         .track_focus(&model.agents_panel.focus)
         .key_context("Picker")
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(|model, _, window, cx| {
-                model.focus_agents_panel(window);
+                model.focus_owner.place(&model.agents_panel.focus, window);
                 cx.notify();
             }),
         )
@@ -484,7 +702,7 @@ fn body(
         .flex_col()
         .min_h(px(0.0))
         .child(header(placement, &agents, model, cx))
-        .child(rows(&entries, model, cx, window))
+        .child(rows(&entries, inset(placement, model), model, cx, window))
         .child(drag_tracker(cx))
 }
 
@@ -498,8 +716,11 @@ pub(crate) fn right_panel_content(
         return content;
     }
     let m = model.metrics;
-    let scale = f32::from(m.scaled(1.0));
-    let maximum = f32::from(window.viewport_size().width) - model.sidebar_width() - 100.0;
+    let scale = m.multiplier();
+    let maximum = f32::from(window.viewport_size().width)
+        - model.sidebar_width()
+        - super::rail::width(model)
+        - 100.0;
     let placement = AppModel::agents_right_placement();
     let sizing = PanelSizing::new(
         &placement,
@@ -566,7 +787,6 @@ pub(crate) fn docked(
         .map(|height| model.clamp_docked_height(height, window.viewport_size()));
     let measured = model.agents_panel.docked_height.clone();
     let start = measured.clone();
-    let active = matches!(model.agents_panel.drag, Some(Drag::Docked { .. }));
     let background = model.sidebar_background();
     let separator = Hsla::from(contrasting_foreground(background.into())).opacity(0.08);
     let panel = div()
@@ -593,7 +813,6 @@ pub(crate) fn docked(
             div()
                 .id("agents-panel-docked-resize")
                 .debug_selector(|| "agents-panel-docked-resize".into())
-                .group("agents-panel-docked-resize")
                 .absolute()
                 .top(-m.scaled(RESIZE_EDGE / 2.0))
                 .left(-m.spacing3())
@@ -607,16 +826,6 @@ pub(crate) fn docked(
                         window.prevent_default();
                         cx.stop_propagation();
                     }),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top(m.scaled(RESIZE_EDGE / 2.0) - px(1.0))
-                        .w_full()
-                        .h(px(1.0))
-                        .group_hover("agents-panel-docked-resize", |line| {
-                            line.bg(model.theme.accent)
-                        }),
                 ),
         );
     Some(
@@ -625,7 +834,6 @@ pub(crate) fn docked(
             .bg(background)
             .border_t_1()
             .border_color(separator)
-            .when(active, |panel| panel.border_color(model.theme.accent))
             .child(panel)
             .into_any_element(),
     )
@@ -728,7 +936,12 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
     Some(
         div()
             .id("agents-panel-button")
+            .role(Role::Button)
+            .accessibility_id("agents-panel-button")
+            .aria_label(tr!("Agents"))
+            .aria_expanded(open)
             .debug_selector(|| "agents-panel-button".into())
+            .group("agents-panel-button")
             .relative()
             .flex()
             .flex_none()
@@ -736,12 +949,15 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
             .justify_center()
             .mx_auto()
             .mb(m.spacing2())
-            .size(m.scaled(34.0))
+            .size(super::sidebar::collapsed_item_size(model))
             .rounded(m.radius_xl())
-            .bg(if open { theme.hover } else { theme.surface })
+            .when(open, |button| button.bg(theme.hover))
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover))
-            .tooltip(super::status_bar::tooltip(tr!("Agents").to_string(), model))
+            .tooltip(muxy_ui::components::tooltip(
+                model.tooltip(tr!("Agents"), ShortcutId::ToggleAgentsPanel),
+                &model.theme,
+            ))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|model, _, window, cx| {
                 if matches!(model.overlay, Some(super::overlays::Overlay::Agents)) {
@@ -750,11 +966,14 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
                     model.toggle_agents_panel(window, cx);
                 }
             }))
-            .child(IconGlyph::new(
-                Icon::TerminalStack,
-                m.font_body(),
-                theme.fg_muted,
-            ))
+            .child(
+                IconGlyph::new(
+                    Icon::TerminalStack,
+                    m.font_body(),
+                    if open { theme.fg } else { theme.fg_muted },
+                )
+                .hover_in_group("agents-panel-button", theme.fg),
+            )
             .children(urgent.map(|status| {
                 div()
                     .absolute()
@@ -768,7 +987,31 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
     )
 }
 
-pub(crate) fn popup(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
+/// The Agents panel as a popup beside the sidebar.
+pub(crate) struct AgentsPopup;
+
+impl OverlayView for AgentsPopup {
+    fn render(
+        &self,
+        mark: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        popup(mark, model, window, cx)
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+}
+
+fn popup(
+    mark: Option<Mark>,
+    model: &AppModel,
+    window: &Window,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
     let bottom = if model.appearance.status_bar_visible {
@@ -792,7 +1035,7 @@ pub(crate) fn popup(model: &AppModel, window: &Window, cx: &mut Context<AppModel
         .occlude()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(body(Placement::Popup, model, window, cx).flex_1())
-        .child(model.webview_occlusion_except(Some(model.agents_panel.owner.entity_id())))
+        .children(mark.map(|mark| mark.of_except(model, model.agents_panel.owner.entity_id())))
         .into_any_element()
 }
 
@@ -803,7 +1046,6 @@ fn resize_handle(
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let m = model.metrics;
-    let theme = &model.theme;
     div()
         .id(id)
         .debug_selector(move || id.into())
@@ -825,20 +1067,7 @@ fn resize_handle(
                 .right_0()
                 .bottom_0()
                 .size(m.scaled(RESIZE_GRIP))
-                .cursor(gpui::CursorStyle::ResizeUpLeftDownRight)
-                .child(
-                    div()
-                        .invisible()
-                        .group_hover(FLOATING_GROUP, Styled::visible)
-                        .absolute()
-                        .right(m.scaled(4.0))
-                        .bottom(m.scaled(4.0))
-                        .size(m.scaled(7.0))
-                        .border_r_2()
-                        .border_b_2()
-                        .rounded_br(m.scaled(2.0))
-                        .border_color(theme.fg_dim),
-                ),
+                .cursor(gpui::CursorStyle::ResizeUpLeftDownRight),
         })
         .on_mouse_down(
             MouseButton::Left,
@@ -893,6 +1122,7 @@ fn drag_tracker(cx: &mut Context<AppModel>) -> AnyElement {
     .into_any_element()
 }
 
+/// The detached agents panel's card, for the floating layer.
 pub(crate) fn floating(
     model: &AppModel,
     window: &Window,
@@ -906,9 +1136,7 @@ pub(crate) fn floating(
     let m = model.metrics;
     let theme = &model.theme;
     let [x, y, width, height] = model.agents_panel_frame(window.viewport_size());
-    let dragging = model.agents_panel.drag.is_some();
     let panel = div()
-        .group(FLOATING_GROUP)
         .absolute()
         .left(m.scaled(x))
         .top(m.scaled(y))
@@ -922,6 +1150,9 @@ pub(crate) fn floating(
         .bg(theme.raised())
         .shadow_lg()
         .occlude()
+        .capture_any_mouse_down(cx.listener(|model, _, _, cx| {
+            model.raise_floating(&muxy_ui::panel::PanelId::new(PANEL), cx);
+        }))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(body(Placement::Floating, model, window, cx).flex_1())
         .child(resize_handle(
@@ -943,14 +1174,16 @@ pub(crate) fn floating(
             cx,
         ))
         .child(model.webview_occlusion_except(Some(model.agents_panel.owner.entity_id())));
-    Some(
-        div()
-            .absolute()
-            .inset_0()
-            .when(dragging, |layer| {
-                layer.child(div().absolute().inset_0().occlude())
-            })
-            .child(panel)
-            .into_any_element(),
-    )
+    Some(panel.into_any_element())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::counts_description;
+
+    #[test]
+    fn a_worktree_reads_only_the_statuses_it_has() {
+        assert_eq!(counts_description(&[2, 0, 0, 1]), "2 Needs input, 1 Idle");
+        assert_eq!(counts_description(&[0, 0, 0, 0]), "");
+    }
 }

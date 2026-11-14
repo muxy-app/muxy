@@ -119,6 +119,9 @@ fn show(output: &mut impl Write, state: &AppState) -> io::Result<()> {
                         browser.url.as_deref().unwrap_or("start page")
                     )?,
                     PaneContent::Settings => writeln!(output, "    Pane {} — settings", pane.id)?,
+                    PaneContent::Servers => {
+                        writeln!(output, "    Pane {} — remote servers", pane.id)?;
+                    }
                 }
             }
         }

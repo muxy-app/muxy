@@ -14,6 +14,7 @@ pub struct Settings {
     pub composer: super::ComposerSettings,
     pub commands: Vec<super::CustomCommand>,
     pub panel_pins: BTreeMap<String, BTreeMap<String, bool>>,
+    pub panel_layouts: BTreeMap<String, BTreeMap<String, PanelLayout>>,
     pub quick_terminal: crate::settings::QuickTerminalSettings,
     pub appearance: Appearance,
     pub window: WindowSettings,
@@ -24,8 +25,20 @@ pub struct Settings {
     pub clipboard: ClipboardSettings,
     pub openers: OpenerSettings,
     pub browser: super::BrowserSettings,
+    pub privacy: PrivacySettings,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub servers: Vec<super::ServerEntry>,
+}
+
+/// What the user chose for one extension panel: whether it floats detached,
+/// and where it last was while it did.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PanelLayout {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detached: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame: Option<[f32; 4]>,
 }
 
 /// Per-action AI choices. Hand edits are expected here, so unknown keys and
@@ -101,6 +114,10 @@ pub enum NewPaneDirectory {
 #[serde(default, deny_unknown_fields)]
 pub struct ProjectSettings {
     pub search_root: Option<PathBuf>,
+    /// Folders the project picker lists but never searches inside, on top of
+    /// the built-in skips. Relative entries are taken from the search root.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub search_skip: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -117,6 +134,21 @@ pub enum CloseBehavior {
     #[default]
     CloseSession,
     Detach,
+}
+
+/// What the app may send about itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PrivacySettings {
+    /// A once-a-day ping with only the app version, OS, and architecture,
+    /// so active installs can be counted per version.
+    pub usage_ping: bool,
+}
+
+impl Default for PrivacySettings {
+    fn default() -> Self {
+        Self { usage_ping: true }
+    }
 }
 
 impl Default for WindowSettings {
@@ -161,6 +193,41 @@ impl Settings {
         crate::settings::appearance::save_entries(path, "ai", table, entries)
             .and_then(|saved| saved.try_into().map_err(Into::into))
             .map_err(|error| Error::new("ai", error))
+    }
+
+    pub fn panel_layout(&self, owner: &str, panel: &str) -> PanelLayout {
+        self.panel_layouts
+            .get(owner)
+            .and_then(|panels| panels.get(panel))
+            .copied()
+            .map(|layout| PanelLayout {
+                frame: layout
+                    .frame
+                    .filter(|frame| frame.iter().all(|value| value.is_finite())),
+                ..layout
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn set_panel_layout(
+        &mut self,
+        owner: &str,
+        panel: &str,
+        layout: PanelLayout,
+        path: &Path,
+    ) -> Result<()> {
+        if self.panel_layout(owner, panel) == layout {
+            return Ok(());
+        }
+        let mut layouts = self.panel_layouts.clone();
+        layouts
+            .entry(owner.into())
+            .or_default()
+            .insert(panel.into(), layout);
+        crate::settings::appearance::save_section(path, "panel_layouts", &layouts)
+            .map_err(|error| Error::new("panel_layouts", error))?;
+        self.panel_layouts = layouts;
+        Ok(())
     }
 
     pub fn panel_pinned(&self, owner: &str, panel: &str, default: bool) -> bool {
@@ -252,6 +319,11 @@ impl Settings {
         self.validate()?;
         crate::settings::appearance::save_section(path, "window", &self.window)
             .map_err(|error| Error::new("window", error))
+    }
+
+    pub fn save_privacy(&self, path: &Path) -> Result<()> {
+        crate::settings::appearance::save_section(path, "privacy", &self.privacy)
+            .map_err(|error| Error::new("privacy", error))
     }
 
     pub fn save_clipboard(&self, path: &Path) -> Result<()> {
@@ -376,6 +448,25 @@ mod tests {
             "Project instructions"
         );
         assert_eq!(Settings::load(&path)?.ai, saved);
+        Ok(())
+    }
+
+    #[test]
+    fn settings_from_before_voice_input_was_removed_still_load() -> Result<()> {
+        let directory = tempfile::tempdir().map_err(|error| Error::new("test", error))?;
+        let path = directory.path().join("settings.toml");
+        fs::write(
+            &path,
+            "[composer]\nlanguage = \"fr-FR\"\nvoice_model = \"/models/ggml-base.bin\"\nvoice_auto_send = true\nclear_on_close = true\n[keymap]\ntoggle_voice_recording = \"cmd-shift-i\"\n\"voice.pause\" = \"space\"\n",
+        )
+        .map_err(|error| Error::new("test", error))?;
+        let mut loaded = Settings::load(&path)?;
+        assert!(loaded.composer.clear_on_close);
+        assert!(loaded.keymap.binding("toggle_voice_recording").is_none());
+
+        loaded.composer.clear_after_sending = true;
+        loaded.save_composer(&path)?;
+        assert!(Settings::load(&path)?.composer.clear_after_sending);
         Ok(())
     }
 }

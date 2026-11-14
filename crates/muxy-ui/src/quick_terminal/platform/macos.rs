@@ -6,7 +6,6 @@ use crate::quick_terminal::platform::SystemMutation;
 use crate::quick_terminal::shortcut_service::{
     ShortcutBackend, ShortcutBackendFactory, ShortcutState,
 };
-use crate::quick_terminal::view::{AccessibilityNode, AccessibilityRole};
 use crate::quick_terminal::{ShortcutCapture, ShortcutRecordingEvent};
 use crate::tr;
 use block2::RcBlock;
@@ -15,11 +14,9 @@ use muxy_core::quick_terminal::QuickTerminalShortcut;
 use muxy_core::quick_terminal::geometry::{Point, Rect};
 use muxy_core::quick_terminal::keys::{COMMAND, CONTROL, KeyCombo, OPTION, SHIFT};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, ProtocolObject, Sel};
+use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::{
-    NSAccessibility, NSAccessibilityButtonRole, NSAccessibilityElement, NSAccessibilityGroupRole,
-    NSAccessibilityPostNotification, NSAccessibilityStaticTextRole,
-    NSAccessibilityValueChangedNotification, NSApplication, NSApplicationActivationOptions,
+    NSApplication, NSApplicationActivationOptions,
     NSApplicationDidChangeScreenParametersNotification, NSColor, NSEvent, NSEventMask,
     NSEventModifierFlags, NSRunningApplication, NSScreen, NSStatusWindowLevel,
     NSTextInputContextKeyboardSelectionDidChangeNotification, NSView, NSWindow,
@@ -29,14 +26,12 @@ use objc2_app_kit::{
 use objc2_core_graphics::CGEvent;
 use objc2_foundation::{
     MainThreadMarker, NSArray, NSNotification, NSNotificationCenter, NSObjectProtocol,
-    NSOperationQueue, NSPoint, NSRect, NSSize, NSString,
+    NSOperationQueue, NSPoint, NSRect, NSSize,
 };
 use objc2_quartz_core::{CACornerMask, CALayer, CATransaction, kCACornerCurveContinuous};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use std::sync::OnceLock;
 
 #[derive(Debug)]
 struct SystemObserver {
@@ -238,45 +233,6 @@ fn special_key_name(virtual_key_code: u16) -> Option<&'static str> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "Readback of independent native window flags"
-)]
-pub struct PanelProperties {
-    pub borderless: bool,
-    pub nonactivating: bool,
-    pub status_level: bool,
-    pub moves_to_active_space: bool,
-    pub joins_all_applications: bool,
-    pub full_screen_auxiliary: bool,
-    pub ignores_cycle: bool,
-    pub floating: bool,
-    pub visible_on_deactivate: bool,
-    pub movable: bool,
-    pub transparent: bool,
-    pub key_capable: bool,
-    pub main_capable: bool,
-}
-
-impl PanelProperties {
-    pub fn satisfies_contract(self) -> bool {
-        self.borderless
-            && self.nonactivating
-            && self.status_level
-            && self.moves_to_active_space
-            && self.joins_all_applications
-            && self.full_screen_auxiliary
-            && self.ignores_cycle
-            && self.floating
-            && self.visible_on_deactivate
-            && !self.movable
-            && self.transparent
-            && self.key_capable
-            && !self.main_capable
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct PanelTelemetry {
     pub screen_index: usize,
@@ -295,8 +251,6 @@ struct FocusSnapshot {
 #[derive(Debug)]
 pub struct PanelAdapter {
     window: Retained<NSWindow>,
-    original_window_class: &'static AnyClass,
-    view: Retained<NSView>,
     mask_host: Retained<NSView>,
     reveal_mask: Retained<CALayer>,
     target_frame: Option<NSRect>,
@@ -304,7 +258,6 @@ pub struct PanelAdapter {
     collapsed_mask_radius: f64,
     telemetry: Option<PanelTelemetry>,
     focus_snapshot: Option<FocusSnapshot>,
-    accessibility_children: Vec<Retained<AnyObject>>,
 }
 
 impl PanelAdapter {
@@ -312,25 +265,18 @@ impl PanelAdapter {
         MainThreadMarker::new().ok_or_else(|| {
             "Quick Terminal panel must be configured on the main thread".to_owned()
         })?;
-        let handle = HasWindowHandle::window_handle(window)
-            .map_err(|error| format!("GPUI did not provide a native panel handle: {error}"))?;
-        let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
-            return Err("GPUI Quick Terminal window is not backed by AppKit".to_owned());
-        };
-        let view = unsafe { Retained::retain(handle.ns_view.as_ptr().cast::<NSView>()) }
-            .ok_or_else(|| "GPUI Quick Terminal view is unavailable".to_owned())?;
+        let view = crate::appkit::gpui_view(window).map_err(|error| match error.as_str() {
+            "expected AppKit window" => {
+                "GPUI Quick Terminal window is not backed by AppKit".to_owned()
+            }
+            "missing native view" => "GPUI Quick Terminal view is unavailable".to_owned(),
+            _ => format!("GPUI did not provide a native panel handle: {error}"),
+        })?;
         let native_window = view
             .window()
             .ok_or_else(|| "GPUI Quick Terminal view is detached".to_owned())?;
-        let original_window_class = native_window.class();
-        let class = panel_class(original_window_class)?;
         native_window.setStyleMask(NSWindowStyleMask::NonactivatingPanel);
-        native_window.setCollectionBehavior(
-            NSWindowCollectionBehavior::MoveToActiveSpace
-                | NSWindowCollectionBehavior::CanJoinAllApplications
-                | NSWindowCollectionBehavior::FullScreenAuxiliary
-                | NSWindowCollectionBehavior::IgnoresCycle,
-        );
+        native_window.setCollectionBehavior(collection_behavior(false));
         native_window.setHidesOnDeactivate(false);
         native_window.setMovable(false);
         native_window.setOpaque(false);
@@ -339,9 +285,6 @@ impl PanelAdapter {
         native_window.setExcludedFromWindowsMenu(true);
         let _: () = unsafe { objc2::msg_send![&native_window, setFloatingPanel: true] };
         native_window.setLevel(NSStatusWindowLevel);
-        unsafe {
-            AnyObject::set_class(&native_window, class);
-        }
         native_window.makeFirstResponder(Some(&view));
         let mask_host = unsafe { view.superview() }
             .ok_or_else(|| "GPUI Quick Terminal content view is detached".to_owned())?;
@@ -363,10 +306,8 @@ impl PanelAdapter {
         unsafe {
             layer.setMask(Some(&reveal_mask));
         }
-        let adapter = Self {
+        Ok(Self {
             window: native_window,
-            original_window_class,
-            view,
             mask_host,
             reveal_mask,
             target_frame: None,
@@ -374,15 +315,7 @@ impl PanelAdapter {
             collapsed_mask_radius: 14.0,
             telemetry: None,
             focus_snapshot: None,
-            accessibility_children: Vec::new(),
-        };
-        let properties = adapter.properties();
-        if !properties.satisfies_contract() {
-            return Err(format!(
-                "GPUI panel property readback did not satisfy the contract: {properties:?}"
-            ));
-        }
-        Ok(adapter)
+        })
     }
 
     #[allow(
@@ -574,6 +507,15 @@ impl PanelAdapter {
         }
     }
 
+    pub fn forget_previous_focus(&mut self) {
+        self.focus_snapshot = None;
+    }
+
+    pub fn set_pinned(&self, pinned: bool) {
+        self.window
+            .setCollectionBehavior(collection_behavior(pinned));
+    }
+
     pub fn telemetry(&self) -> Option<&PanelTelemetry> {
         self.telemetry.as_ref()
     }
@@ -591,88 +533,8 @@ impl PanelAdapter {
         rect_from_ns(self.window.frame())
     }
 
-    pub fn install_accessibility(&mut self, nodes: &[AccessibilityNode]) {
-        let frame = self.window.frame();
-        let children = nodes
-            .iter()
-            .map(|node| {
-                let label = NSString::from_str(&node.label);
-                let role = unsafe {
-                    match node.role {
-                        AccessibilityRole::Group => NSAccessibilityGroupRole,
-                        AccessibilityRole::Status => NSAccessibilityStaticTextRole,
-                        AccessibilityRole::Button => NSAccessibilityButtonRole,
-                    }
-                };
-                let element = unsafe {
-                    NSAccessibilityElement::accessibilityElementWithRole_frame_label_parent(
-                        role,
-                        frame,
-                        Some(&label),
-                        Some(&self.view),
-                    )
-                };
-                if !node.value.is_empty() {
-                    let value = NSString::from_str(&node.value);
-                    let _: () =
-                        unsafe { objc2::msg_send![&element, setAccessibilityValue: &*value] };
-                }
-                if node.announces_changes {
-                    unsafe {
-                        NSAccessibilityPostNotification(
-                            &element,
-                            NSAccessibilityValueChangedNotification,
-                        );
-                    };
-                }
-                element
-            })
-            .collect::<Vec<_>>();
-        let array = NSArray::from_retained_slice(&children);
-        unsafe {
-            self.view.setAccessibilityChildren(Some(&array));
-        }
-        self.accessibility_children = children;
-    }
-
     pub fn is_visible(&self) -> bool {
         self.window.isVisible()
-    }
-
-    pub fn properties(&self) -> PanelProperties {
-        let style = self.window.styleMask();
-        let behavior = self.window.collectionBehavior();
-        let floating: bool = unsafe { objc2::msg_send![&self.window, isFloatingPanel] };
-        PanelProperties {
-            borderless: !style.intersects(
-                NSWindowStyleMask::Titled
-                    | NSWindowStyleMask::Closable
-                    | NSWindowStyleMask::Miniaturizable
-                    | NSWindowStyleMask::Resizable,
-            ),
-            nonactivating: style.contains(NSWindowStyleMask::NonactivatingPanel),
-            status_level: self.window.level() == NSStatusWindowLevel,
-            moves_to_active_space: behavior.contains(NSWindowCollectionBehavior::MoveToActiveSpace),
-            joins_all_applications: behavior
-                .contains(NSWindowCollectionBehavior::CanJoinAllApplications),
-            full_screen_auxiliary: behavior
-                .contains(NSWindowCollectionBehavior::FullScreenAuxiliary),
-            ignores_cycle: behavior.contains(NSWindowCollectionBehavior::IgnoresCycle),
-            floating,
-            visible_on_deactivate: !self.window.hidesOnDeactivate(),
-            movable: self.window.isMovable(),
-            transparent: !self.window.isOpaque(),
-            key_capable: self.window.canBecomeKeyWindow(),
-            main_capable: self.window.canBecomeMainWindow(),
-        }
-    }
-}
-
-impl Drop for PanelAdapter {
-    fn drop(&mut self) {
-        unsafe {
-            AnyObject::set_class(&self.window, self.original_window_class);
-        }
     }
 }
 
@@ -713,6 +575,19 @@ pub fn accessibility_preferences() -> AccessibilityPreferences {
         reduce_transparency: workspace.accessibilityDisplayShouldReduceTransparency(),
         increase_contrast: workspace.accessibilityDisplayShouldIncreaseContrast(),
     }
+}
+
+/// A pinned panel stays on every Space; otherwise it opens on the active one.
+fn collection_behavior(pinned: bool) -> NSWindowCollectionBehavior {
+    let spaces = if pinned {
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+    } else {
+        NSWindowCollectionBehavior::MoveToActiveSpace
+    };
+    spaces
+        | NSWindowCollectionBehavior::CanJoinAllApplications
+        | NSWindowCollectionBehavior::FullScreenAuxiliary
+        | NSWindowCollectionBehavior::IgnoresCycle
 }
 
 fn screen_index(screens: &NSArray<NSScreen>, candidate: &NSScreen) -> Option<usize> {
@@ -766,35 +641,6 @@ fn set_mask_frame(
     layer.setCornerRadius(corner_radius);
     layer.setOpacity(if visible { 1.0 } else { 0.0 });
     CATransaction::commit();
-}
-
-fn panel_class(superclass: &AnyClass) -> Result<&'static AnyClass, String> {
-    static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
-    if let Some(class) = CLASS.get() {
-        return Ok(class);
-    }
-    if let Some(class) = AnyClass::get(c"MuxyQuickTerminalGPUIPanel") {
-        let _ = CLASS.set(class);
-        return Ok(class);
-    }
-    let mut builder = ClassBuilder::new(c"MuxyQuickTerminalGPUIPanel", superclass)
-        .ok_or_else(|| "failed to allocate the Quick Terminal panel subclass".to_owned())?;
-    unsafe {
-        builder.add_method::<AnyObject, _>(
-            objc2::sel!(canBecomeMainWindow),
-            quick_terminal_panel_cannot_become_main as extern "C-unwind" fn(_, _) -> _,
-        );
-    }
-    let class = builder.register();
-    let _ = CLASS.set(class);
-    Ok(class)
-}
-
-extern "C-unwind" fn quick_terminal_panel_cannot_become_main(
-    _object: &AnyObject,
-    _selector: Sel,
-) -> Bool {
-    Bool::NO
 }
 
 struct CarbonHotKeyBackend {
@@ -1042,4 +888,20 @@ unsafe extern "C-unwind" {
     ) -> i32;
     #[link_name = "UnregisterEventHotKey"]
     fn unregister_event_hot_key(hot_key: EventHotKeyRef) -> i32;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collection_behavior;
+    use objc2_app_kit::NSWindowCollectionBehavior;
+
+    #[test]
+    fn pinned_panel_joins_every_space_instead_of_moving_to_the_active_one() {
+        let pinned = collection_behavior(true);
+        assert!(pinned.contains(NSWindowCollectionBehavior::CanJoinAllSpaces));
+        assert!(!pinned.contains(NSWindowCollectionBehavior::MoveToActiveSpace));
+        let unpinned = collection_behavior(false);
+        assert!(unpinned.contains(NSWindowCollectionBehavior::MoveToActiveSpace));
+        assert!(!unpinned.contains(NSWindowCollectionBehavior::CanJoinAllSpaces));
+    }
 }

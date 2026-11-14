@@ -52,25 +52,45 @@ pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
         "exec" | "execAsync" | "exec.start" | "exec.cancel" => "commands:exec",
         "runScript" => "commands:run-script",
         "tabs.list" => "tabs:read",
-        "tabs.switch" | "tabs.new" | "tabs.next" | "tabs.previous" | "tabs.open"
-        | "tabs.setTitle" | "tabs.setIcon" => "tabs:write",
+        v if v.starts_with("tabs.") => "tabs:write",
         "panes.list" | "panes.readScreen" => "panes:read",
-        "panes.send" | "panes.sendKeys" | "panes.close" | "panes.rename" => "panes:write",
-        "projects.list" | "workspaces.list" => "projects:read",
+        v if v.starts_with("panes.") => "panes:write",
+        "projects.list" | "projects.removed" | "workspaces.list" => "projects:read",
         "projects.delete" => "projects:delete",
+        "projects.apps" | "projects.openIn" | "projects.reveal" | "app.openExternal" => {
+            "system:open"
+        }
         v if v.starts_with("projects.") || v.starts_with("workspaces.") => "projects:write",
         "worktrees.list" => "worktrees:read",
         "worktrees.switch" | "worktrees.refresh" => "worktrees:write",
         "agents.list" => "agents:read",
+        "agents.focus" => "agents:write",
+        "ui.state" | "app.info" => return None,
+        v if v.starts_with("ui.") => "ui:write",
+        "commands.list" => "commands:read",
+        v if v.starts_with("commands.") => "commands:run",
+        v if v.starts_with("composer.") => "composer:write",
+        "layouts.list" => "layouts:read",
+        "layouts.apply" => "layouts:write",
+        "preferences.get" | "preferences.themes" => "preferences:read",
+        "preferences.set" => "preferences:write",
+        "clipboard.readText" => "clipboard:read",
+        "clipboard.writeText" => "clipboard:write",
         "browser.wait" if waits_on_a_function(args) => "browser:write",
         v if BROWSER_READS.contains(&v) => "browser:read",
         v if v.starts_with("browser.") => "browser:write",
         "panels.open"
         | "panels.toggle"
         | "panels.close"
+        | "panels.update"
+        | "panels.list"
+        | "panel.update"
+        | "panel.get"
+        | "panel.raise"
         | "popover.close"
         | "popover.resize"
         | "topbar.set"
+        | "rail.set"
         | "statusbar.set"
         | "modal.openWebview"
         | "modal.submitWebview"
@@ -95,6 +115,7 @@ fn waits_on_a_function(args: &Value) -> bool {
 pub fn event_permission(event: &str) -> Option<&'static str> {
     match event {
         "agent.status" => Some("agents:read"),
+        "preferences.changed" => Some("preferences:read"),
         "file.changed" => Some("files:read"),
         "projects.changed" => Some("projects:read"),
         "worktree.headChanged" => Some("worktrees:read"),
@@ -115,10 +136,11 @@ pub enum Gate {
     FilesWrite,
     HttpFetch,
     ProjectsDelete,
+    ClipboardRead,
 }
 
 impl Gate {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::Exec,
         Self::PanesSend,
         Self::PanesSendKeys,
@@ -129,6 +151,7 @@ impl Gate {
         Self::FilesWrite,
         Self::HttpFetch,
         Self::ProjectsDelete,
+        Self::ClipboardRead,
     ];
 
     fn parse(name: &str) -> Option<Self> {
@@ -147,6 +170,7 @@ impl Gate {
             Self::FilesWrite => "files.write",
             Self::HttpFetch => "http.fetch",
             Self::ProjectsDelete => "projects.delete",
+            Self::ClipboardRead => "clipboard.read",
         }
     }
 
@@ -163,6 +187,7 @@ impl Gate {
             Self::FilesWrite => "file changes",
             Self::HttpFetch => "network requests",
             Self::ProjectsDelete => "project deletions",
+            Self::ClipboardRead => "clipboard reads",
         }
     }
 
@@ -178,6 +203,7 @@ impl Gate {
             Self::FilesWrite => "wants to modify workspace files",
             Self::HttpFetch => "wants to make a network request",
             Self::ProjectsDelete => "wants to delete a project",
+            Self::ClipboardRead => "wants to read the clipboard",
         }
     }
 }
@@ -224,6 +250,18 @@ impl Request {
                     vec![format!("pane: {pane}")],
                 ))
             }
+            "composer.submit" | "composer.insert" => Some(Self::new(
+                Gate::PanesSend,
+                ANY.into(),
+                format!("{} the composer's draft", &verb["composer.".len()..]),
+                vec!["target: the composer's terminals".into()],
+            )),
+            "clipboard.readText" => Some(Self::new(
+                Gate::ClipboardRead,
+                ANY.into(),
+                "read the clipboard".into(),
+                Vec::new(),
+            )),
             "tabs.open" => Self::tab(owner, args),
             "files.write" | "files.mkdir" | "files.rename" | "files.move" | "files.delete" => {
                 let operation = &verb["files.".len()..];
@@ -328,6 +366,19 @@ impl Request {
         )
     }
 
+    /// Running one of the user's custom commands opens a terminal that runs it.
+    pub fn custom_command(name: &str, command: &str) -> Self {
+        Self::new(
+            Gate::TabsRunCommand,
+            format!("command:{command}"),
+            command.into(),
+            vec![
+                format!("custom command: {name}"),
+                format!("command: {command}"),
+            ],
+        )
+    }
+
     pub fn project_delete(name: &str, path: &str) -> Self {
         Self::new(
             Gate::ProjectsDelete,
@@ -348,7 +399,7 @@ impl Request {
             Choice::AllowAndRemember => (self.pattern.as_str(), Consent::Allow),
             Choice::DenyAndRemember => (self.pattern.as_str(), Consent::Deny),
             Choice::Block => (ANY, Consent::Blocked),
-            Choice::Allow | Choice::Cancel => return None,
+            Choice::Allow | Choice::Cancel | Choice::Trust => return None,
         };
         Some(Rule {
             gate: self.gate,
@@ -402,13 +453,23 @@ pub enum Choice {
     Cancel,
     DenyAndRemember,
     Block,
+    /// Allows every gated action of the extension from now on.
+    Trust,
 }
 
 impl Choice {
     pub fn allows(self) -> bool {
-        matches!(self, Self::AllowAndRemember | Self::Allow)
+        matches!(self, Self::AllowAndRemember | Self::Allow | Self::Trust)
+    }
+
+    /// Whether the choice is saved for later requests.
+    pub fn remembers(self) -> bool {
+        !matches!(self, Self::Allow | Self::Cancel)
     }
 }
+
+/// How the audit log names the trust that allowed a request.
+pub const TRUSTED: &str = "trusted";
 
 /// Remembered consent rules, keyed `owner:gate:pattern`.
 #[derive(Clone, Debug)]
@@ -419,6 +480,10 @@ pub struct Grants {
 
 fn key(owner: &str, gate: Gate, pattern: &str) -> String {
     format!("{owner}:{}:{pattern}", gate.name())
+}
+
+fn trust_key(owner: &str) -> String {
+    format!("{owner}:{TRUSTED}")
 }
 
 /// Rewrites keys saved before gated verbs were grouped (`files:files.write`).
@@ -470,8 +535,27 @@ impl Grants {
     }
 
     pub fn decision(&self, owner: &str, request: &Request) -> Consent {
+        if self.trusted(owner) {
+            return Consent::Allow;
+        }
         self.rule(owner, request)
             .map_or(Consent::Ask, |rule| rule.consent)
+    }
+
+    /// Whether the extension may do every gated action without asking. Trust
+    /// outranks its saved rules, which apply again once trust is removed.
+    pub fn trusted(&self, owner: &str) -> bool {
+        self.rules.get(&trust_key(owner)) == Some(&Consent::Allow)
+    }
+
+    pub fn set_trusted(&mut self, owner: &str, trusted: bool) -> Result<(), String> {
+        let mut rules = self.rules.clone();
+        if trusted {
+            rules.insert(trust_key(owner), Consent::Allow);
+        } else {
+            rules.remove(&trust_key(owner));
+        }
+        self.save(rules)
     }
 
     /// An extension's remembered rules.
@@ -504,6 +588,9 @@ impl Grants {
         request: &Request,
         choice: Choice,
     ) -> Result<(), String> {
+        if choice == Choice::Trust {
+            return self.set_trusted(owner, true);
+        }
         let Some(rule) = request.rule(choice) else {
             return Ok(());
         };

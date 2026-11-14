@@ -1,10 +1,13 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, Div, ElementId, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, Context, Div, ElementId, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Pixels, Point, Role, SharedString, Stateful, StatefulInteractiveElement, Styled,
+    Window, div, point, px,
 };
-use muxy_ui::components::{IconGlyph, Tooltip};
+use muxy_core::shortcuts::ShortcutId;
+use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
+use muxy_ui::theme::Metrics;
 use muxy_ui::tr;
 
 use crate::model::AppModel;
@@ -16,7 +19,7 @@ pub(crate) mod linux;
 #[cfg(windows)]
 pub(crate) mod windows;
 
-pub(crate) fn content_size(window: &Window) -> gpui::Size<gpui::Pixels> {
+pub(crate) fn content_size(window: &Window) -> gpui::Size<Pixels> {
     #[cfg(target_os = "linux")]
     return frame::bounds(window).size;
     #[cfg(not(target_os = "linux"))]
@@ -44,8 +47,6 @@ pub(super) fn top_corners<T: Styled>(element: T, window: &Window, left: bool, ri
 }
 
 pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> (Div, f32) {
-    #[cfg(target_os = "macos")]
-    let _ = window;
     let project = model.state.current_project();
     let available = project.status() == muxy_app_core::ProjectStatus::Available;
     let existing_count = if available {
@@ -57,23 +58,44 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
     let layouts = available && model.has_project_layouts();
     let zoom_tab = project.tabs.iter().find(|tab| {
         available
+            && !model.appearance.pane_headers
             && Some(tab.id) == model.active_tab()
             && (tab.zoomed.is_some() || tab.panes.len() > 1)
     });
+    let settings = !model.sidebar_footer_shown();
+    let rail = super::rail::toggle(model, cx);
     let controls = 1
+        + u8::from(settings)
+        + u8::from(rail.is_some())
         + u8::from(existing_count > 0)
         + u8::from(browser)
         + u8::from(zoom_tab.is_some())
         + u8::from(layouts);
-    let width = f32::from(controls)
+    let mut width = f32::from(controls)
         * f32::from(model.metrics.control_medium() + model.metrics.spacing2())
         + model.extension_toolbar_width();
+    #[cfg(target_os = "linux")]
+    let window_controls = linux::controls_width(window, model.metrics);
+    #[cfg(windows)]
+    let window_controls = windows::controls_width() + f32::from(model.metrics.spacing2());
+    #[cfg(target_os = "macos")]
+    let window_controls = 0.0;
+    let room = f32::from(content_size(window).width)
+        - navigation_width(model, window).max(model.sidebar_width())
+        - width
+        - window_controls;
+    let project_apps =
+        super::project_apps::control(model, room, window, cx).map(|(control, used)| {
+            width += used;
+            control
+        });
     let bar = div()
         .debug_selector(|| "titlebar-actions".into())
         .flex()
         .flex_none()
         .items_center()
         .when(!cfg!(target_os = "macos"), Styled::h_full)
+        .children(project_apps)
         .when(existing_count > 0, |bar| {
             bar.child(super::tab_strip::existing_terminals_button(
                 existing_count,
@@ -95,16 +117,21 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
             bar.child(super::project_layouts::button(model, cx))
         })
         .child(model.extension_toolbar(cx))
-        .child(super::tab_strip::settings_button(model, cx));
+        .child(super::agent_sessions::button(model, cx))
+        .when(settings, |bar| {
+            bar.child(super::tab_strip::settings_button(model, cx))
+        })
+        .children(rail);
     #[cfg(target_os = "linux")]
     if let Some(controls) = linux::controls(
         window,
         &model.theme,
+        model.metrics,
         cx.listener(|model, _, _, cx| model.quit(cx)),
     ) {
         return (
             bar.child(controls.border_l_1().border_color(model.theme.border)),
-            width + linux::controls_width(window) + 1.0,
+            width + linux::controls_width(window, model.metrics) + 1.0,
         );
     }
     #[cfg(windows)]
@@ -128,15 +155,28 @@ pub(crate) fn begin_window_move(
 ) {
     #[cfg(target_os = "macos")]
     let _ = &window;
-    if model.overlay.is_some() || model.close_prompt.is_some() {
+    if !model.window_can_move() {
         return;
+    }
+    #[cfg(test)]
+    {
+        model.window_moves_begun += 1;
     }
     #[cfg(target_os = "macos")]
     if let Some(drag) = &model.window_drag {
         drag.begin();
     }
     #[cfg(not(target_os = "macos"))]
+    start_window_move(window);
+}
+
+/// The test platform has no window to move.
+#[cfg(not(target_os = "macos"))]
+fn start_window_move(window: &Window) {
+    #[cfg(not(test))]
     window.start_window_move();
+    #[cfg(test)]
+    let _ = window;
 }
 
 /// Empty titlebar space, which moves the window. On Windows, Windows itself
@@ -154,13 +194,24 @@ pub(crate) fn background(id: &'static str) -> Stateful<Div> {
 
 #[cfg(not(windows))]
 pub(crate) fn background(id: &'static str) -> Stateful<Div> {
+    background_with(id, |_, window, cx| {
+        window.dispatch_action(Box::new(BeginWindowMove), cx);
+    })
+}
+
+/// Empty space that behaves like the titlebar's, with `begin_move` called for
+/// a single press.
+pub(crate) fn background_with(
+    id: &'static str,
+    begin_move: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
     let background = div()
         .id(id)
         .debug_selector(move || id.into())
-        .on_mouse_down(MouseButton::Left, |event, window, cx| {
+        .on_mouse_down(MouseButton::Left, move |event, window, cx| {
             cx.stop_propagation();
             if event.click_count == 1 {
-                window.dispatch_action(Box::new(BeginWindowMove), cx);
+                begin_move(event, window, cx);
             }
         })
         .on_click(background_click);
@@ -174,8 +225,7 @@ pub(crate) fn background(id: &'static str) -> Stateful<Div> {
     background
 }
 
-#[cfg(not(windows))]
-fn background_click(event: &gpui::ClickEvent, window: &mut Window, cx: &mut gpui::App) {
+fn background_click(event: &gpui::ClickEvent, window: &mut Window, cx: &mut App) {
     if event.click_count() == 2 {
         cx.stop_propagation();
         window.dispatch_action(Box::new(super::workspace::Zoom), cx);
@@ -188,33 +238,35 @@ pub(crate) fn action_button(
     model: &AppModel,
 ) -> Stateful<Div> {
     let m = model.metrics;
-    let theme = model.theme.clone();
+    let hover = model.theme.hover;
     let tooltip = tooltip.into();
-    div()
-        .id(id)
-        .relative()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(m.control_medium())
-        .mr(m.spacing2())
-        .rounded(m.radius_sm())
-        .cursor_pointer()
-        .hover(|style| style.bg(theme.hover))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .tooltip(move |_, cx| {
-            cx.new(|_| {
-                Tooltip::new(
-                    tooltip.clone(),
-                    theme.raised(),
-                    theme.fg,
-                    theme.border,
-                    theme.bg,
-                )
-            })
-            .into()
-        })
+    with_tooltip(
+        div()
+            .id(id)
+            .role(Role::Button)
+            .aria_label(tooltip.clone())
+            .relative()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(m.control_medium())
+            .mr(m.spacing2())
+            .rounded(m.radius_sm())
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()),
+        tooltip,
+        model,
+    )
+}
+
+pub(super) fn with_tooltip(
+    element: Stateful<Div>,
+    tooltip: impl Into<SharedString>,
+    model: &AppModel,
+) -> Stateful<Div> {
+    element.tooltip(muxy_ui::components::tooltip(tooltip, &model.theme))
 }
 
 pub(super) fn icon_button(
@@ -302,24 +354,36 @@ fn sidebar_toggle(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
         .child(
             muxy_ui::components::IconButton::new(
                 "toggle-sidebar",
+                tr!("Toggle Sidebar"),
                 Icon::PanelLeft,
                 m.font_body(),
                 m.scaled(22.0),
                 theme.fg_muted,
                 theme.fg,
             )
-            .tooltip(
-                tr!("Toggle Sidebar"),
-                theme.raised(),
-                theme.fg,
-                theme.border,
-                theme.bg,
-            )
+            .expanded(model.appearance.sidebar_expanded)
+            .tooltip(theme)
+            .shortcut(model.shortcut_label(ShortcutId::ToggleSidebar))
             .on_click(cx.listener(|model, _, window, cx| {
                 cx.stop_propagation();
                 model.toggle_sidebar(window, cx);
             })),
         )
+}
+
+/// Where the macOS traffic lights sit: centered in the title bar, on the
+/// nearest device pixel.
+pub(crate) fn traffic_light_position(metrics: Metrics, scale_factor: f32) -> Point<Pixels> {
+    const INSET: f32 = 9.0;
+    let growth = metrics.title_bar_height() - Metrics::new(1.0).title_bar_height();
+    let y = INSET + f32::from(growth) / 2.0;
+    point(px(INSET), px((y * scale_factor).round() / scale_factor))
+}
+
+pub(crate) fn initial_traffic_lights(
+    appearance: &muxy_app_core::settings::Appearance,
+) -> Point<Pixels> {
+    traffic_light_position(Metrics::new(appearance.interface_size.multiplier()), 1.0)
 }
 
 pub(super) fn navigation_width(model: &AppModel, _: &Window) -> f32 {
@@ -358,6 +422,10 @@ fn arrow(model: &AppModel, forward: bool, cx: &mut Context<AppModel>) -> AnyElem
     );
     let arrow = div()
         .id(id)
+        .role(Role::Button)
+        .accessibility_id(id)
+        .aria_label(if forward { tr!("Forward") } else { tr!("Back") })
+        .aria_disabled(!enabled)
         .debug_selector(move || id.into())
         .group(id)
         .flex()
@@ -366,6 +434,15 @@ fn arrow(model: &AppModel, forward: bool, cx: &mut Context<AppModel>) -> AnyElem
         .justify_center()
         .size(m.scaled(22.0))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+    let arrow = with_tooltip(
+        arrow,
+        if forward {
+            model.tooltip(tr!("Forward"), ShortcutId::NavigateForward)
+        } else {
+            model.tooltip(tr!("Back"), ShortcutId::NavigateBack)
+        },
+        model,
+    );
     if enabled {
         arrow
             .cursor_pointer()
@@ -380,5 +457,26 @@ fn arrow(model: &AppModel, forward: bool, cx: &mut Context<AppModel>) -> AnyElem
             .on_click(|_, _, cx| cx.stop_propagation())
             .child(glyph)
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod traffic_light_tests {
+    use super::*;
+
+    #[test]
+    fn traffic_lights_stay_centered_as_the_title_bar_grows() {
+        for (multiplier, scale_factor, y) in [
+            (1.0, 2.0, 9.0),
+            (1.12, 2.0, 11.0),
+            (1.24, 2.0, 13.0),
+            (1.40, 2.0, 15.5),
+            (1.40, 1.0, 15.0),
+        ] {
+            assert_eq!(
+                traffic_light_position(Metrics::new(multiplier), scale_factor),
+                point(px(9.0), px(y)),
+            );
+        }
     }
 }

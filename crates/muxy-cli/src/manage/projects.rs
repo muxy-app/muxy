@@ -1,19 +1,19 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use muxy_app_core::settings::Settings;
-use muxy_client::Client;
+use muxy_app_core::project_selector::{Mismatch, pick, same_name};
+use muxy_app_core::settings::{Settings, WorktreeSettings};
+use muxy_client::{AddedWorktree, Client};
 use muxy_core::files::canonicalize;
 use muxy_core::paths::path_eq;
 use muxy_protocol::{
-    GitAction, GitReply, GitRequest, GitWorktree, OperationId, ProjectDescriptor, ProjectId,
-    ProjectIntent, ProjectMutation, ProjectPatch, WorktreeAction, WorktreeHook, WorktreeIntent,
-    WorktreeOptions,
+    GitWorktree, OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation,
+    ProjectPatch, ServerPath, WorktreeAction, WorktreeHook, WorktreeIntent, WorktreeOptions,
 };
 use serde_json::{Value, json};
 
 use super::args::{Project, Worktree};
-use super::{Output, Paths, Result, absolute, local_path, path_text, server_path};
+use super::{Output, Paths, Result, absolute, path_text};
 
 pub(super) fn resolve(client: &Client, selector: &str, paths: Paths) -> Result<ProjectDescriptor> {
     select(client.catalog()?.projects, selector, paths)
@@ -38,22 +38,22 @@ fn select(
         }
         Paths::Remote => (PathBuf::from(selector), None),
     };
-    let mut matches = projects.into_iter().filter(|project| {
-        project.name.eq_ignore_ascii_case(selector)
-            || local_path(&project.directory).is_ok_and(|directory| {
-                path_eq(&directory, &path)
-                    || canonical
-                        .as_ref()
-                        .is_some_and(|path| canonicalize(&directory).ok().as_ref() == Some(path))
-            })
-    });
-    let found = matches
-        .next()
-        .ok_or_else(|| format!("project not found: {selector}"))?;
-    if matches.next().is_some() {
-        return Err(format!("ambiguous project: {selector}; use its ID").into());
+    let exact = |project: &ProjectDescriptor| {
+        let directory = project.directory.as_path().to_path_buf();
+        project.name == selector
+            || path_eq(&directory, &path)
+            || canonical
+                .as_ref()
+                .is_some_and(|path| canonicalize(&directory).ok().as_ref() == Some(path))
+    };
+    let loose = |project: &ProjectDescriptor| same_name(&project.name, selector);
+    match pick(&projects, exact, loose) {
+        Ok(project) => Ok(project.clone()),
+        Err(Mismatch::NotFound) => Err(format!("project not found: {selector}").into()),
+        Err(Mismatch::Ambiguous) => {
+            Err(format!("ambiguous project: {selector}; use its ID").into())
+        }
     }
-    Ok(found)
 }
 
 pub(super) fn record(project: &ProjectDescriptor) -> Value {
@@ -72,6 +72,20 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
                 .map(record)
                 .collect::<Vec<_>>(),
             &["id", "name", "directory"],
+            "No projects. Add one with muxy project add <directory>.",
+        ),
+        Project::Inspect(selector) => output.inspect(
+            &record(&resolve(client, &selector, paths)?),
+            &[
+                "id",
+                "name",
+                "directory",
+                "home",
+                "parent_id",
+                "kind",
+                "color",
+                "icon",
+            ],
         ),
         Project::Add {
             directory,
@@ -94,7 +108,7 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
                 return output.record(&record(existing), &["id", "name"]);
             }
             let mut project = ProjectDescriptor::new(
-                server_path(&directory)?,
+                ServerPath::from(&directory),
                 projects.iter().map(|project| project.color.as_str()),
             );
             if let Some(name) = name {
@@ -129,7 +143,7 @@ pub(crate) fn folder_project(client: &Client, folder: &Path) -> Result<ProjectId
         return Ok(project.id);
     }
     let project = ProjectDescriptor::new(
-        server_path(folder)?,
+        ServerPath::from(folder),
         projects.iter().map(|project| project.color.as_str()),
     );
     mutate(client, ProjectMutation::Create(project.clone()))?;
@@ -178,11 +192,9 @@ fn existing<'a>(
     projects
         .iter()
         .filter(|project| {
-            local_path(&project.directory).is_ok_and(|path| {
-                path_eq(&path, directory)
-                    || (paths == Paths::Local
-                        && canonicalize(&path).ok().as_deref() == Some(directory))
-            })
+            let path = project.directory.as_path();
+            path_eq(path, directory)
+                || (paths == Paths::Local && canonicalize(path).ok().as_deref() == Some(directory))
         })
         .min_by_key(|project| project.parent_id.is_some())
 }
@@ -223,16 +235,11 @@ pub(super) fn worktree(
     match command {
         Worktree::List(selector) => {
             let root = root(client, &selector, paths)?;
-            let GitReply::Worktrees(worktrees) = client.git(GitRequest {
-                project: root.id,
-                action: GitAction::Worktrees,
-            })?
-            else {
-                return Err("unexpected worktree list reply".into());
-            };
+            let worktrees = client.git_worktrees(root.id)?;
             output.list(
                 &worktrees.iter().map(worktree_record).collect::<Vec<_>>(),
                 &["project_id", "branch", "directory"],
+                "No worktrees.",
             )
         }
         Worktree::Create {
@@ -253,7 +260,7 @@ pub(super) fn worktree(
                 &root,
                 WorktreeAction::Create {
                     project: ProjectId::new(),
-                    directory: server_path(&directory)?,
+                    directory: ServerPath::from(&directory),
                     branch,
                     base,
                 },
@@ -280,7 +287,7 @@ pub(super) fn worktree(
                 &root,
                 WorktreeAction::CheckoutPullRequest {
                     project: ProjectId::new(),
-                    directory: server_path(&directory)?,
+                    directory: ServerPath::from(&directory),
                     number,
                 },
                 name,
@@ -290,20 +297,17 @@ pub(super) fn worktree(
         }
         Worktree::Register { project, directory } => {
             let root = root(client, &project, paths)?;
-            let reply = client.git(GitRequest {
-                project: root.id,
-                action: intent(
+            let added = client.git_add_worktree(
+                root.id,
+                intent(
                     WorktreeAction::Register {
                         project: ProjectId::new(),
-                        directory: server_path(&paths.directory(&directory)?)?,
+                        directory: ServerPath::from(&paths.directory(&directory)?),
                     },
                     None,
                 ),
-            })?;
-            let GitReply::Project(project) = reply else {
-                return Err("unexpected worktree registration reply".into());
-            };
-            output.record(&record(&project), &["id", "name", "directory"])
+            )?;
+            output.record(&record(&added.project), &["id", "name", "directory"])
         }
         Worktree::Remove {
             worktree,
@@ -320,28 +324,16 @@ fn remove(client: &Client, project: &ProjectDescriptor, force: bool, hooks: bool
     if project.parent_id.is_none() {
         return Err("project is not a worktree".into());
     }
-    let GitReply::Removal(expected) = client.git(GitRequest {
-        project: project.id,
-        action: GitAction::InspectRemoval,
-    })?
-    else {
-        return Err("unexpected worktree inspection reply".into());
-    };
+    let expected = client.git_inspect_removal(project.id)?;
     if expected.dirty && !force {
         return Err("worktree has uncommitted changes; use --force to discard them".into());
     }
-    let options = WorktreeOptions {
-        name: None,
-        hooks: if hooks {
-            Some(approve(client, project.id, true)?)
-        } else {
-            None
-        },
+    let hooks = if hooks {
+        Some(approve(client, project.id, true)?)
+    } else {
+        None
     };
-    client.git(GitRequest {
-        project: project.id,
-        action: intent(WorktreeAction::Remove { expected }, Some(options)),
-    })?;
+    client.git_remove_worktree(project.id, expected, hooks)?;
     Ok(())
 }
 
@@ -366,18 +358,8 @@ fn default_directory(
     branch: &str,
     paths: Paths,
 ) -> Result<PathBuf> {
-    let path = Settings::default_path()?;
-    let settings = if path.exists() {
-        Settings::load(&path)?
-    } else {
-        Settings::default()
-    };
-    let location = settings
-        .worktrees
-        .projects
-        .get(&root.id)
-        .cloned()
-        .unwrap_or_default();
+    let settings = WorktreeSettings::load(&Settings::default_path()?)?;
+    let location = settings.projects.get(&root.id).cloned().unwrap_or_default();
     let home = match paths {
         Paths::Local => None,
         Paths::Remote => client
@@ -385,12 +367,11 @@ fn default_directory(
             .projects
             .iter()
             .find(|project| project.home)
-            .map(|home| local_path(&home.directory))
-            .transpose()?,
+            .map(|home| home.directory.as_path().to_path_buf()),
     };
-    Ok(settings.worktrees.directory_in(
+    Ok(settings.directory_in(
         &root.name,
-        &local_path(&root.directory)?,
+        root.directory.as_path(),
         &location,
         name,
         branch,
@@ -415,14 +396,10 @@ fn create(
             None
         },
     };
-    let (mut project, failure) = match client.git(GitRequest {
-        project: root.id,
-        action: intent(action, Some(options)),
-    })? {
-        GitReply::Project(project) => (project, None),
-        GitReply::WorktreeSetupFailed { project, message } => (project, Some(message)),
-        _ => return Err("unexpected worktree creation reply".into()),
-    };
+    let AddedWorktree {
+        mut project,
+        setup_failure,
+    } = client.git_add_worktree(root.id, intent(action, Some(options)))?;
     if let Some(name) = name.filter(|name| requested.is_none() && *name != project.name) {
         mutate(
             client,
@@ -434,7 +411,7 @@ fn create(
         project.name = name;
     }
     output.record(&record(&project), &["id", "name", "directory"])?;
-    match failure {
+    match setup_failure {
         Some(message) => Err(format!("worktree created, but setup failed: {message}").into()),
         None => Ok(()),
     }
@@ -453,13 +430,7 @@ fn requested_name(action: &WorktreeAction, name: Option<String>) -> Option<Strin
 /// The setup or teardown commands configured for `project`, printed as they
 /// are approved.
 fn approve(client: &Client, project: ProjectId, teardown: bool) -> Result<Vec<WorktreeHook>> {
-    let GitReply::WorktreeHooks(hooks) = client.git(GitRequest {
-        project,
-        action: GitAction::WorktreeHooks { teardown },
-    })?
-    else {
-        return Err("unexpected worktree hooks reply".into());
-    };
+    let hooks = client.git_worktree_hooks(project, teardown)?;
     let stage = if teardown { "teardown" } else { "setup" };
     let mut stderr = io::stderr().lock();
     for hook in &hooks {
@@ -475,25 +446,24 @@ fn worktree_record(worktree: &GitWorktree) -> Value {
         "detached":worktree.detached, "prunable":worktree.prunable})
 }
 
-fn intent(action: WorktreeAction, options: Option<WorktreeOptions>) -> GitAction {
-    GitAction::Worktree(WorktreeIntent {
+fn intent(action: WorktreeAction, options: Option<WorktreeOptions>) -> WorktreeIntent {
+    WorktreeIntent {
         options,
         operation: OperationId::new(),
         action,
-    })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use muxy_protocol::ServerPath;
 
     fn project(name: &str, directory: &str) -> ProjectDescriptor {
         ProjectDescriptor {
             id: ProjectId::new(),
             home: false,
             name: name.into(),
-            directory: ServerPath(directory.as_bytes().to_vec()),
+            directory: ServerPath::from(Path::new(directory)),
             icon: None,
             logo: None,
             color: "#808080".into(),
@@ -504,7 +474,7 @@ mod tests {
 
     #[test]
     fn pull_request_worktrees_are_named_only_after_checkout() {
-        let directory = ServerPath(b"/tmp/w".to_vec());
+        let directory = ServerPath::from(Path::new("/tmp/w"));
         let checkout = WorktreeAction::CheckoutPullRequest {
             project: ProjectId::new(),
             directory: directory.clone(),
@@ -545,6 +515,25 @@ mod tests {
             Some(&projects[0])
         );
         assert!(existing(&projects[..1], &target, Paths::Remote).is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn exact_names_win_over_ones_that_differ_in_case() -> Result {
+        let upper = project("App", "/tmp/upper");
+        let lower = project("app", "/tmp/lower");
+        let projects = vec![upper.clone(), lower.clone()];
+        for paths in [Paths::Local, Paths::Remote] {
+            assert_eq!(select(projects.clone(), "app", paths)?, lower);
+            assert_eq!(select(projects.clone(), "App", paths)?, upper);
+            assert_eq!(
+                select(projects.clone(), "APP", paths)
+                    .map_err(|error| error.to_string())
+                    .unwrap_err(),
+                "ambiguous project: APP; use its ID"
+            );
+            assert_eq!(select(vec![upper.clone()], "app", paths)?, upper);
+        }
         Ok(())
     }
 

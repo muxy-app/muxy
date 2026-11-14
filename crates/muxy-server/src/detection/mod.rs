@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use muxy_protocol::{AgentProvider, AgentState};
+use muxy_terminal::{ProgramState, ProgramStatus};
 use regex::Regex;
 use serde::Deserialize;
 
@@ -134,6 +135,7 @@ const MANIFESTS: &[(AgentProvider, &str)] = &[
         include_str!("manifests/antigravity.toml"),
     ),
     (AgentProvider::OhMyPi, include_str!("manifests/omp.toml")),
+    (AgentProvider::Hermes, include_str!("manifests/hermes.toml")),
 ];
 
 fn compile(source: &str) -> Result<Vec<CompiledRule>, String> {
@@ -245,6 +247,27 @@ impl Detector {
                 return false;
             }
         }
+        self.settle(next)
+    }
+
+    /// Takes the state the agent reported itself (OSC 7501), which needs no
+    /// confirmation and outranks what the screen shows.
+    pub(crate) fn report(&mut self, provider: AgentProvider, state: ProgramState) -> bool {
+        if self.provider != Some(provider) {
+            *self = Self {
+                provider: Some(provider),
+                ..Self::default()
+            };
+        }
+        self.last_input = None;
+        self.settle(match state {
+            ProgramState::Working => AgentState::Working,
+            ProgramState::Blocked => AgentState::Blocked,
+            ProgramState::Idle | ProgramState::Done | ProgramState::Error => AgentState::Idle,
+        })
+    }
+
+    fn settle(&mut self, next: AgentState) -> bool {
         self.pending = None;
         let completed = self.cycle && next == AgentState::Idle;
         if next == AgentState::Working {
@@ -255,6 +278,28 @@ impl Detector {
         }
         self.state = next;
         completed
+    }
+}
+
+/// The agent to update and the status report it made, from the agent
+/// running in the foreground, the agent last seen, and the latest report
+/// (OSC 7501). A report naming another program, or another agent, is not
+/// the agent's; one naming an agent recognizes it even behind SSH.
+pub(crate) fn reporting_agent(
+    running: Option<AgentProvider>,
+    previous: Option<AgentProvider>,
+    status: Option<ProgramStatus>,
+) -> (Option<AgentProvider>, Option<ProgramStatus>) {
+    let Some(status) = status else {
+        return (running, None);
+    };
+    if status.app.is_empty() {
+        return (running.or(previous), Some(status));
+    }
+    match (running, alias(&status.app)) {
+        (_, None) => (running, None),
+        (Some(running), Some(named)) if running != named => (Some(running), None),
+        (_, named) => (named, Some(status)),
     }
 }
 
@@ -273,6 +318,11 @@ pub(crate) fn identify(name: &str, argv: &[String]) -> Option<AgentProvider> {
     ) && !runtime.starts_with("python3.")
     {
         return None;
+    }
+    if let Some(program) = python_program(runtime, argv) {
+        return program
+            .contains("hermes_cli.main")
+            .then_some(AgentProvider::Hermes);
     }
     // Only inspect the executable/script position, never arbitrary prompt arguments.
     let script = argv.get(1)?;
@@ -298,6 +348,40 @@ pub(crate) fn identify(name: &str, argv: &[String]) -> Option<AgentProvider> {
     })
 }
 
+/// The program text a Python interpreter runs with `-c`, found by reading only
+/// the interpreter's own options, so arguments passed to the program are never
+/// read. Installers such as Hermes's launch their agent this way.
+fn python_program<'a>(runtime: &str, argv: &'a [String]) -> Option<&'a str> {
+    if !runtime.starts_with("python") {
+        return None;
+    }
+    let mut options = argv.iter().skip(1);
+    while let Some(option) = options.next() {
+        match option.as_str() {
+            "-c" => return options.next().map(String::as_str),
+            "-X" | "-W" => {
+                options.next();
+            }
+            option if option.starts_with('-') && option != "-" && option != "--" => {}
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// The agent a member of a foreground process group runs. A one-shot
+/// `claude -p` under another program is that program's helper, not a session
+/// in this terminal; one the terminal runs directly still counts.
+pub(crate) fn identify_member(name: &str, argv: &[String], leader: bool) -> Option<AgentProvider> {
+    let provider = identify(name, argv)?;
+    let one_shot = provider == AgentProvider::Claude
+        && argv
+            .iter()
+            .skip(1)
+            .any(|arg| arg == "-p" || arg == "--print");
+    (leader || !one_shot).then_some(provider)
+}
+
 fn basename(value: &str) -> &str {
     value.rsplit('/').next().unwrap_or(value)
 }
@@ -316,6 +400,7 @@ fn alias(value: &str) -> Option<AgentProvider> {
         "xal" | "xal-dev" => AgentProvider::Xal,
         "agy" | "antigravity" | "antigravity-cli" => AgentProvider::Antigravity,
         "omp" | "oh-my-pi" => AgentProvider::OhMyPi,
+        "hermes" | "hermes-agent" => AgentProvider::Hermes,
         _ => return None,
     })
 }

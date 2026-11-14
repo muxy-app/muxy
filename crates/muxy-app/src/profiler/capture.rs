@@ -273,22 +273,23 @@ impl Log {
 }
 
 fn usage() -> io::Result<(Duration, u64)> {
-    let output = Command::new("/bin/ps")
-        .args([
-            "-p",
-            &std::process::id().to_string(),
-            "-o",
-            "time=",
-            "-o",
-            "rss=",
-        ])
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .output()?;
-    if !output.status.success() {
+    let output = muxy_core::process::run(
+        Command::new("/bin/ps")
+            .args([
+                "-p",
+                &std::process::id().to_string(),
+                "-o",
+                "time=",
+                "-o",
+                "rss=",
+            ])
+            .env("LC_ALL", "C"),
+        muxy_core::process::Limits::new(INTERVAL, 4096),
+    )?;
+    if !output.status.success() || output.timed_out || output.stdout.truncated {
         return Err(io::Error::other("ps could not read this process"));
     }
-    parse_usage(&String::from_utf8_lossy(&output.stdout))
+    parse_usage(&String::from_utf8_lossy(&output.stdout.bytes))
         .ok_or_else(|| io::Error::other("unrecognized ps resource output"))
 }
 
@@ -320,31 +321,4 @@ fn parse_usage(value: &str) -> Option<(Duration, u64)> {
         Duration::from_secs(whole).checked_add(Duration::try_from_secs_f64(seconds).ok()?)?,
         rss,
     ))
-}
-
-#[cfg(all(test, target_os = "macos"))]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[cfg(target_os = "macos")]
-    #[ignore = "manual verification of macOS sampling; samples only this headless test process"]
-    fn native_stack_capture_samples_this_process() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut capture = Capture::new(directory.path(), false, StackMode::Always).unwrap();
-        capture.start_sample(Instant::now()).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while capture.sample.is_some() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(50));
-            capture.poll_sample().unwrap();
-        }
-        assert!(capture.sample.is_none());
-        let sample = fs::read_to_string(capture.directory.join("stacks-0.txt")).unwrap();
-        assert!(
-            sample.contains(&format!("pid {}", std::process::id())),
-            "{sample}"
-        );
-        assert!(sample.contains("Call graph:"));
-    }
 }

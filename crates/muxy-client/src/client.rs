@@ -8,27 +8,17 @@ use std::time::Duration;
 use muxy_protocol::transport::{ByteStream, StreamCancellation};
 use muxy_protocol::wire::{Decoder, Encoder};
 use muxy_protocol::{
-    CONTROL, ChannelId, ErrorCode, Feature, ForegroundProcess, HistoryCursor, HistoryPage, Message,
-    MouseEvent, ReplyBody, RequestBody, SavedScreen, SearchPage, SearchSource, ServerPath,
-    SessionId, SessionInfo, Size, TerminalColors,
+    CONTROL, ChannelId, ErrorCode, Feature, HistoryCursor, HistoryPage, Message, MouseEvent,
+    ReplyBody, RequestBody, SavedScreen, SearchPage, SearchSource, ServerPath, SessionId,
+    SessionInfo, Size, TerminalColors,
 };
 
+use crate::ClientError;
 use crate::events::{self, ClientEvent};
 use crate::handshake;
-use crate::requests::Pending;
-use crate::{ClientError, RunGrid};
+use crate::requests::{Attaching, Pending, Reply};
 
 pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Attachment {
-    pub channel: ChannelId,
-    pub server_input: bool,
-    pub grid: RunGrid,
-    pub title: String,
-    pub directory: ServerPath,
-    pub process: Option<ForegroundProcess>,
-}
 
 struct Shared {
     writer: Arc<Mutex<Encoder<Box<dyn Write + Send>>>>,
@@ -192,6 +182,11 @@ impl Client {
         &self.shared.server
     }
 
+    /// What the connected server offers; older servers lack newer features.
+    pub fn features(&self) -> &[Feature] {
+        &self.shared.features
+    }
+
     /// Whether the connected server offers `feature`; older servers lack newer features.
     pub fn supports(&self, feature: Feature) -> bool {
         self.shared.features.contains(&feature)
@@ -243,12 +238,37 @@ impl Client {
         directory: &Path,
         size: Size,
     ) -> Result<SessionInfo, ClientError> {
-        let directory = ServerPath::from_path(directory).map_err(ClientError::Invalid)?;
+        self.create_project_session_with_environment(
+            project,
+            operation,
+            directory,
+            size,
+            std::collections::BTreeMap::new(),
+            None,
+        )
+    }
+
+    /// Starts the shell with `environment` too, such as a proxy, and gives
+    /// the session its own `colors` from the start. Servers without
+    /// `Feature::SESSION_ENVIRONMENT` ignore the environment, and servers
+    /// from before `SetSessionColors` ignore the colors.
+    pub fn create_project_session_with_environment(
+        &self,
+        project: muxy_protocol::ProjectId,
+        operation: muxy_protocol::OperationId,
+        directory: &Path,
+        size: Size,
+        environment: std::collections::BTreeMap<String, String>,
+        colors: Option<TerminalColors>,
+    ) -> Result<SessionInfo, ClientError> {
+        let directory = ServerPath::from(directory);
         match self.request(RequestBody::CreateSession {
             project,
             operation,
             directory,
             size,
+            environment,
+            colors,
         })? {
             ReplyBody::SessionCreated(info) => Ok(info),
             other => Err(ClientError::UnexpectedReply(Box::new(other))),
@@ -303,6 +323,19 @@ impl Client {
         }
     }
 
+    /// Gives a live or saved session to another project. Requires
+    /// `Feature::SESSION_MOVE`; older servers reply `ErrorCode::Unsupported`.
+    pub fn move_session(
+        &self,
+        session: SessionId,
+        project: muxy_protocol::ProjectId,
+    ) -> Result<(), ClientError> {
+        match self.request(RequestBody::MoveSession { session, project })? {
+            ReplyBody::SessionMoved => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     pub fn discard_session(&self, id: SessionId) -> Result<(), ClientError> {
         match self.request(RequestBody::DiscardSession(id))? {
             ReplyBody::SessionDiscarded => Ok(()),
@@ -310,31 +343,42 @@ impl Client {
         }
     }
 
-    pub fn attach(&self, id: SessionId, size: Size) -> Result<Attachment, ClientError> {
-        self.attach_request(RequestBody::Attach { session: id, size })
+    /// Attaches and returns the channel. The terminal arrives on the event
+    /// stream as `ClientEvent::Attached` with `tag`, before any of its frames.
+    /// After an error the event may still arrive; detach what nobody waits for.
+    pub fn attach(&self, tag: u64, id: SessionId, size: Size) -> Result<ChannelId, ClientError> {
+        self.attach_request(tag, id, RequestBody::Attach { session: id, size })
     }
 
-    pub fn attach_without_resize(&self, id: SessionId) -> Result<Attachment, ClientError> {
-        self.attach_request(RequestBody::AttachWithoutResize(id))
+    /// Like `attach`, without resizing a session other clients show.
+    pub fn attach_without_resize(&self, tag: u64, id: SessionId) -> Result<ChannelId, ClientError> {
+        self.attach_request(tag, id, RequestBody::AttachWithoutResize(id))
     }
 
-    fn attach_request(&self, request: RequestBody) -> Result<Attachment, ClientError> {
-        let reply = self.request(request);
-        if matches!(&reply, Err(ClientError::Timeout)) {
-            self.disconnect();
-        }
-        let (snapshot, process) = match reply? {
-            ReplyBody::Attached { snapshot, process } => (*snapshot, process),
-            other => return Err(ClientError::UnexpectedReply(Box::new(other))),
+    fn attach_request(
+        &self,
+        tag: u64,
+        session: SessionId,
+        request: RequestBody,
+    ) -> Result<ChannelId, ClientError> {
+        let (id, reply) = self
+            .shared
+            .pending
+            .register_attach(Attaching { tag, session })?;
+        let reply = match self.exchange(id, &reply, request, self.timeout) {
+            Err(ClientError::Timeout) if !self.shared.pending.give_up_attach(id) => reply
+                .recv()
+                .map_err(|_| ClientError::Disconnected)
+                .and_then(|reply| match reply {
+                    Reply::Body(ReplyBody::Error(error)) => Err(ClientError::Server(error)),
+                    reply => Ok(reply),
+                }),
+            reply => reply,
         };
-        Ok(Attachment {
-            channel: snapshot.channel,
-            server_input: self.supports(Feature::TERMINAL_INPUT),
-            grid: RunGrid::from_snapshot(&snapshot),
-            title: snapshot.title,
-            directory: snapshot.directory,
-            process,
-        })
+        match reply? {
+            Reply::Attached(channel) => Ok(channel),
+            Reply::Body(body) => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
     }
 
     pub fn history_page(
@@ -366,6 +410,49 @@ impl Client {
     fn read_history(&self, request: RequestBody) -> Result<HistoryPage, ClientError> {
         match self.request(request)? {
             ReplyBody::HistoryPage(page) => Ok(page),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
+    /// Asks the server to leave image pixels out of the screens it sends from
+    /// now on. The app then reads the frames it draws with
+    /// [`Self::image_frames`]. Servers from before this answer `Unsupported`
+    /// and keep sending pixels.
+    pub fn defer_images(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::DeferImages)? {
+            ReplyBody::ImagesDeferred => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
+    /// Asks the server to send each image's pixels on show once per channel,
+    /// with the screen that first lists them, so images that change quickly
+    /// arrive without a request each. The app reads other frames, and any it
+    /// lost, with [`Self::image_frames`]. Servers from before this answer
+    /// `Unsupported`.
+    pub fn stream_images(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::StreamImages)? {
+            ReplyBody::ImagesStreamed => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
+    /// The pixels of frames of an image on the channel's screen, by their
+    /// keys: those the server still has and one reply holds, in the order
+    /// asked. A still image answers with the pixels it has now, whose key
+    /// may be newer than the one asked for.
+    pub fn image_frames(
+        &self,
+        channel: ChannelId,
+        image: u32,
+        keys: Vec<u64>,
+    ) -> Result<Vec<muxy_protocol::ImageFrame>, ClientError> {
+        match self.request(RequestBody::ImageFrames {
+            channel,
+            image,
+            keys,
+        })? {
+            ReplyBody::ImageFrames(frames) => Ok(frames),
             other => Err(ClientError::UnexpectedReply(Box::new(other))),
         }
     }
@@ -416,6 +503,48 @@ impl Client {
     pub fn set_terminal_colors(&self, colors: TerminalColors) -> Result<(), ClientError> {
         match self.request(RequestBody::SetTerminalColors(colors))? {
             ReplyBody::TerminalColorsSet => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
+    /// Gives one session its own colors on this connection, or with `None`
+    /// returns it to the connection's. Servers from before this answer `Unsupported`.
+    pub fn set_session_colors(
+        &self,
+        session: SessionId,
+        colors: Option<TerminalColors>,
+    ) -> Result<(), ClientError> {
+        match self.request(RequestBody::SetSessionColors { session, colors })? {
+            ReplyBody::SessionColorsSet => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
+    /// Names a session for every client, or with `None` removes its name.
+    /// With `replacing`, only while its name is still that one. Servers from
+    /// before this answer `Unsupported`.
+    pub fn set_session_name(
+        &self,
+        session: SessionId,
+        name: Option<String>,
+        replacing: Option<String>,
+    ) -> Result<(), ClientError> {
+        match self.request(RequestBody::SetSessionName {
+            session,
+            name,
+            replacing,
+        })? {
+            ReplyBody::SessionNameSet => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
+    /// Asks for every session's metadata now and as it changes, delivered as
+    /// [`crate::ClientEvent::SessionMetadata`]. Servers from before this
+    /// answer `Unsupported`.
+    pub fn watch_session_metadata(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::WatchSessionMetadata)? {
+            ReplyBody::SessionMetadataWatched => Ok(()),
             other => Err(ClientError::UnexpectedReply(Box::new(other))),
         }
     }
@@ -519,17 +648,33 @@ impl Client {
         timeout: Duration,
     ) -> Result<ReplyBody, ClientError> {
         let (id, reply) = self.shared.pending.register()?;
-        if let Err(error) = self.send(CONTROL, &Message::Request { id, body }) {
+        let reply = self.exchange(id, &reply, body, timeout);
+        if matches!(reply, Err(ClientError::Timeout)) {
             self.shared.pending.forget(id);
+        }
+        match reply? {
+            Reply::Body(body) => Ok(body),
+            Reply::Attached(_) => Err(ClientError::Protocol(
+                "an attach reply answered another request".into(),
+            )),
+        }
+    }
+
+    fn exchange(
+        &self,
+        id: muxy_protocol::RequestId,
+        reply: &Receiver<Reply>,
+        body: RequestBody,
+        timeout: Duration,
+    ) -> Result<Reply, ClientError> {
+        if let Err(error) = self.send(CONTROL, &Message::Request { id, body }) {
+            self.shared.pending.abandon(id);
             return Err(error);
         }
         match reply.recv_timeout(timeout) {
-            Ok(ReplyBody::Error(error)) => Err(ClientError::Server(error)),
-            Ok(body) => Ok(body),
-            Err(RecvTimeoutError::Timeout) => {
-                self.shared.pending.forget(id);
-                Err(ClientError::Timeout)
-            }
+            Ok(Reply::Body(ReplyBody::Error(error))) => Err(ClientError::Server(error)),
+            Ok(reply) => Ok(reply),
+            Err(RecvTimeoutError::Timeout) => Err(ClientError::Timeout),
             Err(RecvTimeoutError::Disconnected) => Err(ClientError::Disconnected),
         }
     }
@@ -555,3 +700,6 @@ fn session_channel(channel: ChannelId) -> Result<(), ClientError> {
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+#[cfg(test)]
+mod tests;

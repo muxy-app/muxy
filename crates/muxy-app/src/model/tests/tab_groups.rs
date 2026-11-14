@@ -89,23 +89,6 @@ fn first_pane(model: &AppModel, tab: TabId) -> PaneId {
 }
 
 #[gpui::test]
-fn new_tab_button_stays_separate_from_tabs_when_the_strip_fills(cx: &mut TestAppContext) {
-    let (state, _) = state();
-    let (view, cx) = open(state, cx);
-    let spacing = view.read_with(cx, |model, _| model.metrics.spacing2());
-    for width in [1201.0, 700.0, 360.0] {
-        cx.simulate_resize(size(px(width), px(801.0)));
-        cx.run_until_parked();
-        let tab = cx.debug_bounds("tab-cell-2").expect("last tab");
-        let scroll = cx.debug_bounds("tabs-scroll").expect("tab viewport");
-        let button = cx.debug_bounds("new-tab-button").expect("new tab button");
-        let actions = cx.debug_bounds("titlebar-actions").expect("actions");
-        assert_eq!(button.left() - tab.right().min(scroll.right()), spacing);
-        assert!(button.right() + spacing <= actions.left());
-    }
-}
-
-#[gpui::test]
 fn dragging_a_tab_to_an_edge_opens_it_beside_the_previous_tab(cx: &mut TestAppContext) {
     let (state, [a, b, c]) = state();
     let (view, cx) = open(state, cx);

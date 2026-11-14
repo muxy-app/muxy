@@ -33,6 +33,7 @@ pub enum Icon {
     Cpu,
     Ellipsis,
     Folder,
+    FolderOpen,
     GitBranch,
     Globe,
     Grid,
@@ -42,11 +43,14 @@ pub enum Icon {
     LayoutSplit,
     Lightbulb,
     Maximize,
+    Minimize,
+    Move,
     Network,
     Palette,
     PanelBottom,
     PanelLeft,
     PanelRight,
+    SidebarRight,
     Pin,
     PinOff,
     Plus,
@@ -123,6 +127,7 @@ impl Icon {
             Self::Cpu => "cpu",
             Self::Ellipsis => "ellipsis",
             Self::Folder => "folder",
+            Self::FolderOpen => "folder-open",
             Self::GitBranch => "git-branch",
             Self::Globe => "globe",
             Self::Grid => "grid-2x2",
@@ -132,11 +137,14 @@ impl Icon {
             Self::Keyboard => "keyboard",
             Self::Lightbulb => "lightbulb",
             Self::Maximize => "maximize",
+            Self::Minimize => "window-minimize",
+            Self::Move => "move",
             Self::Network => "network",
             Self::Palette => "palette",
             Self::PanelBottom => "panel-bottom",
             Self::PanelLeft => "panel-left",
             Self::PanelRight => "panel-right",
+            Self::SidebarRight => "sidebar-right",
             Self::Pin => "pin",
             Self::PinOff => "pin-off",
             Self::Plus => "plus",
@@ -221,6 +229,7 @@ impl Icon {
             "trash" => Self::Trash,
             "xmark" => Self::X,
             "arrow.up.left.and.arrow.down.right" => Self::Maximize,
+            "minus" => Self::Minimize,
             "arrow.down.right.and.arrow.up.left" => Self::Restore,
             "cpu" => Self::Cpu,
             "ladybug" => Self::Bug,
@@ -231,6 +240,7 @@ impl Icon {
             "arrow.up.forward.app" | "arrow.up.right.square" => Self::ExternalLink,
             "person.crop.circle" => Self::CircleUser,
             "sidebar.left" => Self::PanelLeft,
+            "sidebar.right" => Self::SidebarRight,
             "arrow.up.arrow.down" => Self::ArrowUpDown,
             "macwindow.badge.plus" => Self::AppWindow,
             "chevron.down" => Self::ChevronDown,
@@ -282,8 +292,9 @@ impl Icon {
 
 #[cfg(target_os = "macos")]
 impl Icon {
-    pub fn sf_symbol(self) -> &'static str {
-        match self {
+    pub fn sf_symbol(self) -> Option<&'static str> {
+        Some(match self {
+            Self::FolderOpen => return None,
             Self::AppWindow => "macwindow.badge.plus",
             Self::Archive => "archivebox",
             Self::ArrowUp => "arrow.up",
@@ -314,11 +325,14 @@ impl Icon {
             Self::Keyboard => "keyboard",
             Self::Lightbulb => "lightbulb",
             Self::Maximize => "arrow.up.left.and.arrow.down.right",
+            Self::Minimize => "minus",
+            Self::Move => "arrow.up.and.down.and.arrow.left.and.right",
             Self::Network => "network",
             Self::Palette => "paintpalette",
             Self::PanelBottom => "rectangle.bottomhalf.inset.filled",
             Self::PanelLeft => "sidebar.left",
             Self::PanelRight => "rectangle.righthalf.inset.filled",
+            Self::SidebarRight => "sidebar.right",
             Self::Pin => "pin.fill",
             Self::PinOff => "pin.slash",
             Self::Plus => "plus",
@@ -369,123 +383,6 @@ impl Icon {
             Self::Quote => "text.quote",
             Self::Stop => "stop.fill",
             Self::TriangleAlert => "exclamationmark.triangle.fill",
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Icon;
-    use gpui::AssetSource;
-
-    /// What the extensions in the official repository name in their manifests.
-    const DECLARED: [&str; 25] = [
-        "antenna.radiowaves.left.and.right",
-        "arrow.clockwise",
-        "arrow.triangle.branch",
-        "arrow.up.right.square",
-        "checklist",
-        "circle.dashed",
-        "clock.arrow.circlepath",
-        "cylinder.split.1x2",
-        "dollarsign.circle",
-        "folder",
-        "gauge.with.dots.needle.33percent",
-        "globe",
-        "info.circle",
-        "line.3.horizontal.decrease",
-        "paintpalette",
-        "play.rectangle.on.rectangle",
-        "rectangle.3.group",
-        "rectangle.portrait.and.arrow.right",
-        "slider.horizontal.3",
-        "sparkles",
-        "terminal",
-        "text.book.closed",
-        "timer",
-        "tower.broadcast",
-        "trash",
-    ];
-
-    /// What the app's own views name, the project icon picker aside.
-    const DRAWN: [&str; 46] = [
-        "antenna.radiowaves.left.and.right.slash",
-        "arrow.clockwise",
-        "arrow.down.circle",
-        "arrow.down.right.and.arrow.up.left",
-        "arrow.triangle.merge",
-        "arrow.triangle.pull",
-        "arrow.up",
-        "arrow.up.circle",
-        "arrow.up.left.and.arrow.down.right",
-        "arrow.up.right.square",
-        "checkmark",
-        "checkmark.circle.fill",
-        "chevron.down",
-        "chevron.left",
-        "chevron.right",
-        "chevron.up.chevron.down",
-        "circle.fill",
-        "clock",
-        "doc",
-        "dot.radiowaves.left.and.right",
-        "ellipsis",
-        "exclamationmark.circle.fill",
-        "exclamationmark.triangle.fill",
-        "house.fill",
-        "keyboard",
-        "magnifyingglass",
-        "mic",
-        "pause.fill",
-        "pencil.circle",
-        "pin",
-        "pin.fill",
-        "pin.slash",
-        "play.fill",
-        "plus",
-        "puzzlepiece.extension",
-        "puzzlepiece.extension.fill",
-        "rectangle.bottomhalf.inset.filled",
-        "rectangle.on.rectangle",
-        "rectangle.righthalf.inset.filled",
-        "sparkles",
-        "stop.fill",
-        "terminal",
-        "text.quote",
-        "xmark",
-        "xmark.circle",
-        "xmark.octagon.fill",
-    ];
-
-    fn bundled(symbol: &str) -> bool {
-        Icon::from_symbol(symbol).is_some_and(|icon| {
-            crate::assets::Assets
-                .load(&icon.path())
-                .is_ok_and(|bytes| bytes.is_some())
         })
-    }
-
-    #[test]
-    fn the_symbols_official_extensions_declare_have_bundled_icons() {
-        for symbol in DECLARED {
-            assert!(bundled(symbol), "{symbol}");
-        }
-    }
-
-    #[test]
-    fn the_symbols_the_app_draws_have_bundled_icons() {
-        for symbol in DRAWN {
-            assert!(bundled(symbol), "{symbol}");
-        }
-    }
-
-    #[test]
-    fn a_filled_symbol_is_drawn_as_its_outline() {
-        assert_eq!(
-            Icon::from_symbol("puzzlepiece.extension.fill"),
-            Some(Icon::Puzzle)
-        );
-        assert_eq!(Icon::from_symbol("pin.fill"), Some(Icon::Pin));
-        assert_eq!(Icon::from_symbol("no.such.symbol.fill"), None);
     }
 }

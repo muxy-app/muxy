@@ -1,6 +1,6 @@
 use gpui::{Context, InteractiveElement, IntoElement, ParentElement, Styled, div, px};
-use muxy_ui::controls;
 pub(crate) use muxy_ui::popover::PopoverAnchor as PickerAnchor;
+use muxy_ui::{controls, tr};
 
 use super::{SettingsEvent, SettingsView};
 
@@ -40,8 +40,8 @@ impl FontSlot {
 pub(crate) enum PickerKind {
     Font(FontSlot),
     Terminal(&'static str),
-    Language,
     Theme(bool),
+    QuickTheme(bool),
     AiProvider(crate::repository_actions::Action),
     ExtensionSidebar,
     FileOpener,
@@ -49,13 +49,24 @@ pub(crate) enum PickerKind {
 }
 
 impl PickerKind {
+    /// What a theme picker changes, and for which appearance.
+    pub(super) fn theme(self) -> Option<(crate::views::theme_picker::ThemeTarget, bool)> {
+        use crate::views::theme_picker::ThemeTarget;
+        match self {
+            Self::Theme(dark) => Some((ThemeTarget::App, dark)),
+            Self::QuickTheme(dark) => Some((ThemeTarget::QuickTerminal, dark)),
+            _ => None,
+        }
+    }
+
     pub(super) fn id(self) -> &'static str {
         match self {
             Self::Font(slot) => slot.id(),
             Self::Terminal(id) => id,
-            Self::Language => "composer-language",
             Self::Theme(false) => "light-theme",
             Self::Theme(true) => "dark-theme",
+            Self::QuickTheme(false) => "quick-light-theme",
+            Self::QuickTheme(true) => "quick-dark-theme",
             Self::AiProvider(action) => super::ai::provider_id(action),
             Self::ExtensionSidebar => "extension-sidebar",
             Self::FileOpener => "file-opener",
@@ -79,6 +90,13 @@ impl SettingsView {
     ) -> gpui::AnyElement {
         let anchor = self.picker_anchors[&kind].clone();
         let recorder = anchor.clone();
+        let name = match kind {
+            PickerKind::Font(FontSlot::Codepoint) => tr!("Font"),
+            PickerKind::Terminal(id) if id.starts_with("adjust-") => {
+                tr!("%@ unit", &super::control_name(id))
+            }
+            _ => super::control_name(kind.id()),
+        };
         div()
             .flex()
             .min_w(px(0.0))
@@ -86,6 +104,7 @@ impl SettingsView {
             .child(controls::picker_trigger(
                 self.style(),
                 kind.id(),
+                &name,
                 value,
                 (!self.compact).then_some(
                     if matches!(kind, PickerKind::Terminal(id) if id.starts_with("adjust-")) {
@@ -115,7 +134,7 @@ impl SettingsView {
 pub(crate) fn dropdown(
     picker: gpui::AnyElement,
     source: PickerRequest,
-    cx: &mut Context<super::window::SettingsWindow>,
+    cx: &mut Context<super::tab::SettingsTab>,
 ) -> gpui::AnyElement {
     let model = cx.weak_entity();
     muxy_ui::popover::anchored_popover(
@@ -129,7 +148,7 @@ pub(crate) fn dropdown(
                 if model
                     .overlay
                     .as_ref()
-                    .map(super::window::SettingsOverlay::source)
+                    .map(super::tab::SettingsOverlay::source)
                     .is_some_and(|current| current.kind == source.kind)
                 {
                     model.dismiss_overlay(window, cx);

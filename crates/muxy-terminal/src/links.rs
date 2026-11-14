@@ -2,6 +2,30 @@ use libghostty_vt::terminal::{Point, PointCoordinate, Terminal};
 
 pub use muxy_protocol::{LinkRow, LinkSpan, MAX_LINK_SPANS, MAX_LINK_URI};
 
+pub(crate) fn viewport(
+    engine: &Terminal<'_, '_>,
+    cols: u16,
+    rows: u16,
+    mut budget: usize,
+) -> Result<Vec<LinkRow>, libghostty_vt::Error> {
+    let mut links = Vec::new();
+    for row in 0..rows {
+        if budget == 0 {
+            break;
+        }
+        let mut cached = CachedRow::default();
+        cached.refresh(engine, row, cols, true, budget)?;
+        if !cached.spans.is_empty() {
+            budget -= cached.spans.len();
+            links.push(LinkRow {
+                row,
+                spans: cached.spans,
+            });
+        }
+    }
+    Ok(links)
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct CachedRow {
     pub(crate) spans: Vec<LinkSpan>,

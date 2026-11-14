@@ -315,7 +315,7 @@ fn screenshot(view: &Entity<BrowserView>, cx: &mut Context<AppModel>) -> Reply {
                 pixels
                     .write_to(&mut png, image::ImageFormat::Png)
                     .map_err(|error| error.to_string())?;
-                Ok(json!({ "png": crate::model::extensions::base64(png.get_ref()) }))
+                Ok(json!({ "png": muxy_core::base64::encode(png.get_ref()) }))
             })
             .await
     })

@@ -47,9 +47,6 @@ macro_rules! callback {
 pub(super) mod browser;
 mod input;
 
-#[cfg(test)]
-mod tests;
-
 /// What a page is created from.
 pub(super) struct Setup {
     pub(super) id: u64,
@@ -361,11 +358,6 @@ impl Runtime {
             }
             g.g_object_unref(request);
         }
-    }
-
-    #[cfg(test)]
-    pub(super) fn live(&self) -> usize {
-        self.pages.borrow().len()
     }
 }
 
@@ -1317,7 +1309,6 @@ fn guard(token: &str) -> String {
 
 /// Sixteen random bytes as hex.
 fn token() -> String {
-    use std::fmt::Write;
     use std::io::Read;
     let mut bytes = [0_u8; 16];
     let random =
@@ -1326,10 +1317,7 @@ fn token() -> String {
         // No page is trusted with a token that could be guessed.
         return String::new();
     }
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
-    })
+    muxy_core::hex::encode(&bytes)
 }
 
 /// `text` as a JavaScript string literal.

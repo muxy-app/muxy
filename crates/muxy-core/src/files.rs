@@ -92,7 +92,7 @@ pub fn lock_directory(directory: &Path, wait: Duration) -> io::Result<FileLock> 
 /// Which file a handle or path refers to: [`device`](Self::device) and
 /// [`index`](Self::index) are the device and inode on Unix, the volume
 /// serial number and file index on Windows.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct FileId {
     device: u64,
     index: u64,

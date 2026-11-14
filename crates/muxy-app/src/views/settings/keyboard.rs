@@ -1,6 +1,7 @@
-use super::{Category, Change, SettingsEvent, SettingsView};
+use super::{Category, SettingsEvent, SettingsView};
+use crate::model::preferences::Change;
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, Keystroke, ParentElement, Styled, div, px,
+    AnyElement, Context, InteractiveElement, IntoElement, Keystroke, ParentElement, Styled, div,
 };
 use muxy_ui::{controls, tr};
 
@@ -47,13 +48,12 @@ pub(super) fn extension_row(
     let control = div()
         .flex()
         .flex_wrap()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .child(
             controls::button(
                 pane.style(),
                 &id,
-                &label,
-                true,
+                controls::Button::secondary(&label).named(&tr!("%@: %@", &shortcut.title, &label)),
                 cx.listener(move |pane, _, window, cx| {
                     pane.begin_recording(&record, window, cx);
                 }),
@@ -64,8 +64,7 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &format!("reset-{id}"),
-                &tr!("Reset"),
-                true,
+                controls::Button::secondary(&tr!("Reset")).named(&tr!("Reset %@", &shortcut.title)),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Binding(reset.clone(), None)));
@@ -77,8 +76,8 @@ pub(super) fn extension_row(
             controls::button(
                 pane.style(),
                 &format!("unassign-{id}"),
-                &tr!("Unassign"),
-                true,
+                controls::Button::secondary(&tr!("Unassign"))
+                    .named(&tr!("Unassign %@", &shortcut.title)),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Unassign(unassign.clone())));
@@ -98,9 +97,10 @@ pub(super) fn extension_row(
 pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsView>) -> AnyElement {
     let shortcut = &muxy_core::shortcuts::ALL[index];
     let id = shortcut.id;
-    let unavailable = shortcut
+    let description = shortcut
         .feature()
-        .and_then(|feature| pane.snapshot.capabilities.reason(feature));
+        .and_then(|feature| pane.snapshot.capabilities.reason(feature))
+        .or_else(|| shortcut.description().map(muxy_core::l10n::translate));
     let recording = pane.recording.as_deref() == Some(id);
     let chord = pane.snapshot.settings.keymap.binding(id);
     let label = if recording {
@@ -111,16 +111,17 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             |chord| chord.as_str().to_owned().into(),
         )
     };
+    let name = muxy_core::l10n::translate(&pane.shortcut_names[index]);
+    let name = name.as_ref();
     let control = div()
         .flex()
         .flex_wrap()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .child(
             controls::button(
                 pane.style(),
                 id,
-                &label,
-                true,
+                controls::Button::secondary(&label).named(&tr!("%@: %@", name, &label)),
                 cx.listener(move |pane, _, window, cx| {
                     pane.begin_recording(id, window, cx);
                 }),
@@ -131,8 +132,7 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("reset-{id}"),
-                &tr!("Reset"),
-                true,
+                controls::Button::secondary(&tr!("Reset")).named(&tr!("Reset %@", name)),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Binding(id.into(), None)));
@@ -143,13 +143,25 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
     pane.row_with_description(
         id,
         &pane.shortcut_names[index],
-        unavailable.as_deref(),
+        description.as_deref(),
         control.into_any_element(),
         pane.compact,
     )
 }
 
 impl SettingsView {
+    pub(crate) fn show_keyboard(&mut self, cx: &mut Context<Self>) {
+        self.finish_slider(cx);
+        self.recording = None;
+        self.cancel_quick_recording(cx);
+        self.category = Category::Keyboard;
+        self.section = None;
+        self.query.clear();
+        self.results.reset();
+        self.search.update(cx, |input, cx| input.set_text("", cx));
+        cx.notify();
+    }
+
     pub(crate) fn begin_recording(
         &mut self,
         id: &str,

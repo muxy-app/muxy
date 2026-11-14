@@ -1,5 +1,5 @@
-//! Runtime changes to topbar and status-bar items (`topbar.set`,
-//! `statusbar.set`) and runtime shortcuts (`shortcuts.*`).
+//! Runtime changes to topbar, rail, and status-bar items (`topbar.set`,
+//! `rail.set`, `statusbar.set`) and runtime shortcuts (`shortcuts.*`).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -25,6 +25,7 @@ pub(crate) struct Override {
 #[derive(Default)]
 pub(crate) struct Items {
     pub(crate) topbar: HashMap<(String, String), Override>,
+    pub(crate) rail: HashMap<(String, String), Override>,
     pub(crate) status: HashMap<(String, String), Override>,
     anchors: RefCell<HashMap<String, PopoverAnchor>>,
     /// Template SVGs read from extension folders, keyed by resolved path.
@@ -35,6 +36,7 @@ impl Items {
     pub(super) fn clear(&mut self, owner: Option<&str>) {
         let keep = |key: &(String, String)| owner.is_some_and(|owner| key.0 != owner);
         self.topbar.retain(|key, _| keep(key));
+        self.rail.retain(|key, _| keep(key));
         self.status.retain(|key, _| keep(key));
     }
 
@@ -275,7 +277,8 @@ impl AppModel {
         }
     }
 
-    /// `topbar.set` / `statusbar.set`: session-only icon, text, and visibility.
+    /// `topbar.set` / `rail.set` / `statusbar.set`: session-only icon, text,
+    /// and visibility.
     pub(super) fn set_item(
         &mut self,
         call: &Call,
@@ -283,36 +286,46 @@ impl AppModel {
     ) -> Result<Value, String> {
         let status = call.verb == "statusbar.set";
         let id = call.args["id"].as_str().ok_or("missing argument 'id'")?;
-        let declared = self
-            .extensions
-            .registry
-            .enabled(&call.owner)
-            .is_some_and(|extension| {
-                if status {
+        let extension = self.extensions.registry.enabled(&call.owner);
+        let (declared, kind) = match call.verb.as_str() {
+            "statusbar.set" => (
+                extension.is_some_and(|extension| {
                     extension
                         .manifest
                         .status_bar_items
                         .iter()
                         .any(|item| item.id == id)
-                } else {
+                }),
+                "status bar",
+            ),
+            "rail.set" => (
+                extension.is_some_and(|extension| {
+                    extension
+                        .manifest
+                        .rail_items
+                        .iter()
+                        .any(|item| item.id == id)
+                }),
+                "rail",
+            ),
+            _ => (
+                extension.is_some_and(|extension| {
                     extension
                         .manifest
                         .topbar_items
                         .iter()
                         .any(|item| item.id == id)
-                }
-            });
+                }),
+                "topbar",
+            ),
+        };
         if !declared {
-            return Err(if status {
-                format!("unknown status bar item '{id}'")
-            } else {
-                format!("unknown topbar item '{id}'")
-            });
+            return Err(format!("unknown {kind} item '{id}'"));
         }
-        let items = if status {
-            &mut self.extensions.items.status
-        } else {
-            &mut self.extensions.items.topbar
+        let items = match call.verb.as_str() {
+            "statusbar.set" => &mut self.extensions.items.status,
+            "rail.set" => &mut self.extensions.items.rail,
+            _ => &mut self.extensions.items.topbar,
         };
         let entry = items.entry((call.owner.clone(), id.into())).or_default();
         if let Some(icon) = Icon::parse(&call.args["icon"]) {

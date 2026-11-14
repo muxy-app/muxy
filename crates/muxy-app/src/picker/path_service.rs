@@ -394,7 +394,7 @@ pub(crate) fn natural_compare(left: &str, right: &str) -> std::cmp::Ordering {
                     let left_number = take_number(&mut left_chars);
                     let right_number = take_number(&mut right_chars);
                     match left_number.cmp(&right_number) {
-                        std::cmp::Ordering::Equal => {}
+                        std::cmp::Ordering::Equal => continue,
                         order => return order,
                     }
                 }

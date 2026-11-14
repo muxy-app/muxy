@@ -206,9 +206,16 @@ mod probe {
         }
     }
 
+    /// What reaches GPUI while the page has the keyboard.
+    #[derive(Default)]
+    struct Heard {
+        modifiers: RefCell<Vec<gpui::Modifiers>>,
+        keys: RefCell<Vec<gpui::Keystroke>>,
+    }
+
     struct Probe {
         focus: gpui::FocusHandle,
-        modifiers: Rc<RefCell<Vec<gpui::Modifiers>>>,
+        heard: Rc<Heard>,
     }
 
     impl Render for Probe {
@@ -218,9 +225,12 @@ mod probe {
                 .on_modifiers_changed(cx.listener(
                     |probe, event: &gpui::ModifiersChangedEvent, window, _| {
                         assert_eq!(window.modifiers(), event.modifiers);
-                        probe.modifiers.borrow_mut().push(event.modifiers);
+                        probe.heard.modifiers.borrow_mut().push(event.modifiers);
                     },
                 ))
+                .on_key_down(cx.listener(|probe, event: &gpui::KeyDownEvent, _, _| {
+                    probe.heard.keys.borrow_mut().push(event.keystroke.clone());
+                }))
         }
     }
 
@@ -396,7 +406,12 @@ mod probe {
         receive(&receiver, cx).await.expect("JavaScript result")
     }
 
-    async fn check(window: &HiddenKeyWindow, page: &WKWebView, cx: &AsyncApp) {
+    async fn check(
+        window: &HiddenKeyWindow,
+        page: &WKWebView,
+        keys: &RefCell<Vec<gpui::Keystroke>>,
+        cx: &AsyncApp,
+    ) {
         assert!(!window.window.isVisible());
         assert_eq!(evaluate(page, "selectProbe()", cx).await, "1");
         cx.background_executor()
@@ -447,8 +462,41 @@ mod probe {
         window.key("a", 0, false, cx).await;
         window.key("P", 35, true, cx).await;
         assert_eq!(evaluate(page, "probeText()", cx).await, "remapped paste");
+        check_page_select_all(window, page, cx).await;
+        check_ignored_keys(window, page, keys, cx).await;
         check_navigation(window, page, cx).await;
         assert!(!window.window.isVisible());
+    }
+
+    async fn check_page_select_all(window: &HiddenKeyWindow, page: &WKWebView, cx: &AsyncApp) {
+        assert_eq!(
+            evaluate(page, "resetNavigationProbe() && ownSelectAll()", cx).await,
+            "1"
+        );
+        window.key("a", 0, false, cx).await;
+        assert_eq!(evaluate(page, "probeEvents()", cx).await, "select-all");
+        assert_eq!(
+            evaluate(page, "probeSelection()", cx).await,
+            "8:8",
+            "a page that handles select all keeps its own selection"
+        );
+    }
+
+    async fn check_ignored_keys(
+        window: &HiddenKeyWindow,
+        page: &WKWebView,
+        keys: &RefCell<Vec<gpui::Keystroke>>,
+        cx: &AsyncApp,
+    ) {
+        assert_eq!(evaluate(page, "resetNavigationProbe()", cx).await, "1");
+        keys.borrow_mut().clear();
+        window
+            .key_down("\u{f708}", 96, NSEventModifierFlags::Function, false, cx)
+            .await;
+        assert!(
+            keys.borrow().is_empty(),
+            "a key the page leaves alone must not reach Muxy's focus"
+        );
     }
 
     async fn check_navigation(window: &HiddenKeyWindow, page: &WKWebView, cx: &AsyncApp) {
@@ -564,7 +612,7 @@ mod probe {
                         entry: "webview_keyboard.html".into(),
                     };
                     let (page, events) =
-                        NativeWebview::new(window, source, "", gpui::rgb(0x00ff_ffff), false)
+                        NativeWebview::new(window, source, "", gpui::rgb(0x00ff_ffff))
                             .expect("webview");
                     let page = Rc::new(page);
                     let bounds =
@@ -576,6 +624,7 @@ mod probe {
                     let view = parent
                         .subviews()
                         .iter()
+                        .flat_map(|container| container.subviews())
                         .find_map(|view| view.downcast::<WKWebView>().ok())
                         .expect("WKWebView");
                     let asset_page = page.clone();
@@ -597,12 +646,12 @@ mod probe {
                         }
                     })
                     .detach();
-                    let modifiers = Rc::new(RefCell::new(Vec::new()));
-                    let delivered = modifiers.clone();
+                    let heard = Rc::new(Heard::default());
+                    let delivered = heard.clone();
                     cx.spawn(async move |cx| {
                         receive(&ready, cx).await.expect("page loaded");
-                        check_modifiers(&native, &view, &parent, &delivered, cx).await;
-                        check(&native, &view, cx).await;
+                        check_modifiers(&native, &view, &parent, &delivered.modifiers, cx).await;
+                        check(&native, &view, &delivered.keys, cx).await;
                         check_focus_owner(&native, &page, &view, &parent, cx).await;
                         drop(native);
                         cx.update(|cx| cx.quit()).expect("quit");
@@ -610,7 +659,7 @@ mod probe {
                     .detach();
                     let focus = cx.focus_handle();
                     focus.focus(window);
-                    cx.new(|_| Probe { focus, modifiers })
+                    cx.new(|_| Probe { focus, heard })
                 },
             )
             .expect("window");

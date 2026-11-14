@@ -34,9 +34,58 @@ pub fn validate_input(input: &[u8]) -> Result<(), ErrorCode> {
     }
 }
 
+pub const MAX_PATH: usize = 4096;
+
+/// Paths read from a peer. Lenient, so older peers keep working: only an
+/// empty path is rejected.
 pub fn validate_path(path: &ServerPath) -> Result<(), ErrorCode> {
     if path.0.is_empty() {
         Err(ErrorCode::BadPath)
+    } else {
+        Ok(())
+    }
+}
+
+/// A place on the server: absolute on a Unix or a Windows server, without
+/// NUL, at most `MAX_PATH` bytes.
+pub fn validate_absolute_path(path: &ServerPath) -> Result<(), ErrorCode> {
+    if path.is_absolute() && bounded(path) {
+        Ok(())
+    } else {
+        Err(ErrorCode::BadPath)
+    }
+}
+
+/// A place inside a folder the request names: relative, without NUL, at most
+/// `MAX_PATH` bytes. Empty names the folder itself.
+pub fn validate_relative_path(path: &ServerPath) -> Result<(), ErrorCode> {
+    if !path.0.starts_with(b"/") && bounded(path) {
+        Ok(())
+    } else {
+        Err(ErrorCode::BadPath)
+    }
+}
+
+fn bounded(path: &ServerPath) -> bool {
+    path.0.len() <= MAX_PATH && !path.0.contains(&0)
+}
+
+/// Variables a program starts with: at most 128, with names a process can
+/// hold, in 64 KiB together.
+pub fn validate_environment(
+    environment: &std::collections::BTreeMap<String, String>,
+) -> Result<(), ErrorCode> {
+    if environment.len() > 128
+        || environment
+            .iter()
+            .any(|(key, value)| key.is_empty() || key.contains(['=', '\0']) || value.contains('\0'))
+        || environment
+            .iter()
+            .map(|(key, value)| key.len() + value.len())
+            .sum::<usize>()
+            > 64 * 1024
+    {
+        Err(ErrorCode::BadRequest)
     } else {
         Ok(())
     }
@@ -53,8 +102,12 @@ pub fn validate_versions(versions: &[Version]) -> Result<(), ErrorCode> {
 impl Message {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         match self {
-            Self::Hello { versions, .. } | Self::HelloReply { versions, .. } => {
-                validate_versions(versions)
+            Self::Hello { versions } => validate_versions(versions),
+            Self::HelloReply {
+                versions, server, ..
+            } => {
+                validate_versions(versions)?;
+                server.validate()
             }
             Self::Request { body, .. } => validate_request(body),
             Self::Reply { body, .. } => validate_reply(body),
@@ -78,7 +131,9 @@ impl Message {
             Self::Metadata(MetadataEvent::ScreenPrompts { rows, .. }) => {
                 validate_prompts(rows, usize::from(MAX_ROWS))
             }
-            Self::Metadata(MetadataEvent::Links { rows, .. }) => validate_links(rows),
+            Self::Metadata(MetadataEvent::Links { rows, .. }) => {
+                validate_links(rows, usize::from(MAX_ROWS))
+            }
             Self::Metadata(MetadataEvent::Directory(path)) => validate_path(path),
             Self::Metadata(MetadataEvent::ClipboardWrite(text)) => {
                 if text.is_empty() || text.len() > MAX_CLIPBOARD_TEXT {
@@ -135,6 +190,10 @@ fn validate_mouse(event: &MouseEvent) -> Result<(), ErrorCode> {
     }
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep request validation exhaustive in one place"
+)]
 fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
     match body {
         RequestBody::ClearScreen(channel) => {
@@ -159,7 +218,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         }
         RequestBody::Git(request) => request.validate(),
         RequestBody::Files(request) => request.validate(),
-        RequestBody::ListFolders(path) => crate::validate_folder_path(path),
+        RequestBody::ListFolders(path) => validate_absolute_path(path),
         RequestBody::Upload(chunk) => chunk.validate(),
         RequestBody::Exec(request) => request.validate(),
         RequestBody::SyncSessionReferences { sessions, .. } => {
@@ -183,9 +242,13 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
             validate_search(query, *max_results)
         }
         RequestBody::CreateSession {
-            directory, size, ..
+            directory,
+            size,
+            environment,
+            ..
         } => {
             validate_path(directory)?;
+            validate_environment(environment)?;
             validate_size(*size)
         }
         RequestBody::Attach { size, .. } | RequestBody::Resize { size, .. } => validate_size(*size),
@@ -198,10 +261,28 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
             validate_page_size(*max_rows)
         }
         RequestBody::SavedHistoryPage { max_rows, .. } => validate_page_size(*max_rows),
+        RequestBody::ImageFrames { channel, keys, .. } => {
+            if *channel == crate::CONTROL {
+                return Err(ErrorCode::UnknownChannel);
+            }
+            if keys.is_empty() || keys.len() > crate::MAX_GRAPHICS_FRAMES {
+                return Err(ErrorCode::BadRequest);
+            }
+            Ok(())
+        }
         RequestBody::Pair(request) => request.validate(),
         RequestBody::WriteRemoteAccess(settings) => settings.validate(),
         RequestBody::StartPairingWithHosts(hosts) => crate::validate_pairing_hosts(hosts),
+        RequestBody::SetSessionName {
+            name, replacing, ..
+        } => validate_session_names(&[name, replacing]),
+        RequestBody::RegisterPush(token) => token.validate(),
         RequestBody::Authenticate(_)
+        | RequestBody::UnregisterPush
+        | RequestBody::SetPushNotifications(_)
+        | RequestBody::ResetPush(_)
+        | RequestBody::DeferImages
+        | RequestBody::StreamImages
         | RequestBody::ReadRemoteAccess
         | RequestBody::StartPairing
         | RequestBody::CancelPairing
@@ -212,6 +293,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         | RequestBody::ReadCatalog { .. }
         | RequestBody::ListProjectSessions { .. }
         | RequestBody::CloseSession { .. }
+        | RequestBody::MoveSession { .. }
         | RequestBody::CancelCreation(_)
         | RequestBody::ReadServerSettings
         | RequestBody::StopServerIfIdle
@@ -223,8 +305,17 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         | RequestBody::Ping
         | RequestBody::ReadSavedScreen(_)
         | RequestBody::DiscardSession(_)
-        | RequestBody::SetTerminalColors(_) => Ok(()),
+        | RequestBody::SetTerminalColors(_)
+        | RequestBody::SetSessionColors { .. }
+        | RequestBody::WatchSessionMetadata => Ok(()),
     }
+}
+
+fn validate_session_names(names: &[&Option<String>]) -> Result<(), ErrorCode> {
+    names
+        .iter()
+        .filter_map(|name| name.as_deref())
+        .try_for_each(crate::validate_session_name)
 }
 
 #[allow(
@@ -284,6 +375,9 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         ReplyBody::SessionCreated(session) => validate_path(&session.directory),
         ReplyBody::Attached { snapshot, .. } => {
             snapshot.graphics.validate()?;
+            if let Some(graphics) = &snapshot.history_graphics {
+                validate_page_graphics(graphics, snapshot.history.len())?;
+            }
             validate_size(snapshot.size)?;
             validate_path(&snapshot.directory)?;
             validate_history(
@@ -292,30 +386,46 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
                 snapshot.history_total,
                 200,
             )?;
+            validate_content_links(
+                snapshot.links.as_deref().unwrap_or_default(),
+                snapshot.history.len(),
+                snapshot.history.len() + usize::from(snapshot.size.rows),
+            )?;
             validate_prompts(
                 &snapshot.prompts,
                 snapshot.history.len() + usize::from(snapshot.size.rows),
             )
         }
+        ReplyBody::ImageFrames(frames) => crate::validate_image_frames(frames),
         ReplyBody::HistoryPage(page) => {
             validate_history(&page.rows, page.next, page.total_rows, 500)?;
             if let Some(screen) = &page.screen {
                 validate_saved_screen(screen)?;
             }
-            validate_prompts(
-                &page.prompts,
-                page.rows.len()
-                    + page
-                        .screen
-                        .as_ref()
-                        .map_or(0, |screen| usize::from(screen.size.rows)),
-            )
+            if let Some(graphics) = &page.graphics {
+                validate_page_graphics(graphics, page.rows.len())?;
+            }
+            let count = page.rows.len()
+                + page
+                    .screen
+                    .as_ref()
+                    .map_or(0, |screen| usize::from(screen.size.rows));
+            validate_content_links(
+                page.links.as_deref().unwrap_or_default(),
+                page.rows.len(),
+                count,
+            )?;
+            validate_prompts(&page.prompts, count)
         }
         ReplyBody::SavedScreen(screen) => validate_saved_screen(screen),
         ReplyBody::Paired(paired) => paired.validate(),
         ReplyBody::RemoteAccess(state) => state.validate(),
         ReplyBody::Pairing(offer) => offer.invite.validate(),
+        ReplyBody::PushRegistered(registration) => registration.validate(),
         ReplyBody::Authenticated
+        | ReplyBody::PushUnregistered
+        | ReplyBody::ImagesDeferred
+        | ReplyBody::ImagesStreamed
         | ReplyBody::ExecCancelled
         | ReplyBody::ActivityAcknowledged
         | ReplyBody::InputWritten
@@ -325,6 +435,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         | ReplyBody::SessionReferencesSynced
         | ReplyBody::ClientIdentified(_)
         | ReplyBody::SessionClosed
+        | ReplyBody::SessionMoved
         | ReplyBody::CreationCancelled
         | ReplyBody::ServerSettingsWritten
         | ReplyBody::ServerBusy
@@ -333,6 +444,9 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         | ReplyBody::Detached
         | ReplyBody::Resized
         | ReplyBody::TerminalColorsSet
+        | ReplyBody::SessionColorsSet
+        | ReplyBody::SessionNameSet
+        | ReplyBody::SessionMetadataWatched
         | ReplyBody::Pong
         | ReplyBody::Error(_)
         | ReplyBody::SessionDiscarded => Ok(()),
@@ -370,6 +484,20 @@ fn validate_history(
     }
 }
 
+/// Images a history page places on its own rows; each placement must cover at least one of them.
+fn validate_page_graphics(graphics: &crate::Graphics, rows: usize) -> Result<(), ErrorCode> {
+    graphics.validate()?;
+    let rows = i64::try_from(rows).map_err(|_| ErrorCode::BadRequest)?;
+    if graphics
+        .placements
+        .iter()
+        .any(|placement| !placement.covers(graphics.cell, rows))
+    {
+        return Err(ErrorCode::BadRequest);
+    }
+    Ok(())
+}
+
 fn validate_saved_screen(screen: &SavedScreen) -> Result<(), ErrorCode> {
     screen.graphics.validate()?;
     validate_size(screen.size)?;
@@ -388,12 +516,25 @@ fn validate_saved_screen(screen: &SavedScreen) -> Result<(), ErrorCode> {
     Ok(())
 }
 
-fn validate_links(rows: &[crate::LinkRow]) -> Result<(), ErrorCode> {
-    if rows.len() > usize::from(MAX_ROWS)
+fn validate_content_links(
+    rows: &[crate::LinkRow],
+    history: usize,
+    count: usize,
+) -> Result<(), ErrorCode> {
+    let split = rows
+        .iter()
+        .position(|row| usize::from(row.row) >= history)
+        .unwrap_or(rows.len());
+    validate_links(&rows[..split], history)?;
+    validate_links(&rows[split..], count)
+}
+
+fn validate_links(rows: &[crate::LinkRow], count: usize) -> Result<(), ErrorCode> {
+    if rows.len() > count
         || rows.iter().map(|row| row.spans.len()).sum::<usize>() > MAX_LINK_SPANS
         || rows.windows(2).any(|pair| pair[0].row >= pair[1].row)
         || rows.iter().any(|row| {
-            row.row >= MAX_ROWS
+            usize::from(row.row) >= count
                 || row.spans.is_empty()
                 || row.spans.windows(2).any(|pair| pair[0].end > pair[1].start)
                 || row.spans.iter().any(|span| {

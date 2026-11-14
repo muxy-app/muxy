@@ -1,6 +1,12 @@
 //! Reusable GPUI components. Shared shortcut definitions come from muxy-core;
 //! app settings resolve them through the registration interface.
 
+pub mod accessibility;
+#[cfg(target_os = "macos")]
+pub mod app_icon;
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+pub(crate) mod appkit;
 pub mod assets;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
@@ -16,6 +22,7 @@ pub mod dialog;
 mod dialog_types;
 #[cfg(target_os = "linux")]
 pub mod file_manager;
+pub mod floating;
 pub mod font;
 pub mod form;
 pub mod icon;
@@ -30,6 +37,7 @@ pub mod navigation;
 pub mod panel;
 pub mod picker;
 pub mod popover;
+pub mod screen;
 pub mod scrollbar;
 pub mod shortcuts;
 #[cfg(target_os = "macos")]
@@ -55,9 +63,6 @@ pub mod quick_terminal;
 )]
 pub mod notifications;
 
-#[allow(unsafe_code, reason = "Apple speech and capture framework adapter")]
-pub mod voice;
-
 #[allow(unsafe_code, reason = "Native clipboard item preservation")]
 pub mod pasteboard;
 
@@ -75,8 +80,6 @@ pub mod webview;
     reason = "The browser view is built inside a native container"
 )]
 pub mod browser;
-
-pub mod transcript;
 
 #[allow(
     unsafe_code,

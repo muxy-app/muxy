@@ -1,7 +1,7 @@
 //! `muxy browser`: drives the built-in browser tabs of the desktop app on
 //! this computer. Each command is one request to the app over its socket.
 
-mod args;
+pub(crate) mod args;
 
 use std::error::Error;
 use std::io::{self, Write};
@@ -10,7 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use muxy_app_core::browser::api::{self, CallError, Request};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use args::Output;
 pub(crate) use args::{Invocation, parse};
@@ -22,17 +22,32 @@ const APP_START_TIME: Duration = Duration::from_secs(20);
 const INVALID_REPLY: &str = "invalid reply from Muxy";
 
 pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
-    let socket = api::socket_path(&muxy_core::dirs::muxy_dir()?);
-    let timeout = reply_time()? + invocation.extra_time;
     let starts_app = invocation.verb == "browser.open";
-    let request = Request::new(invocation.verb, invocation.args);
+    let reply = call_app(
+        invocation.verb,
+        invocation.args,
+        starts_app,
+        invocation.extra_time,
+    )?;
+    print(invocation.output, invocation.out.as_deref(), reply)
+}
+
+pub(crate) fn call_app(
+    verb: &str,
+    args: Map<String, Value>,
+    starts_app: bool,
+    extra_time: Duration,
+) -> Result<Value, Box<dyn Error>> {
+    let socket = api::socket_path(&muxy_core::dirs::muxy_dir()?);
+    let timeout = reply_time()? + extra_time;
+    let request = Request::new(verb, args);
     let reply = match api::call(&socket, &request, timeout) {
         Err(CallError::NotRunning) if starts_app && start_app() => {
             call_once_listening(&socket, &request, timeout)
         }
         reply => reply,
     }?;
-    print(invocation.output, reply)
+    Ok(reply)
 }
 
 /// Starts the desktop app as `muxy <folder>` does, but never over SSH,
@@ -71,7 +86,7 @@ fn reply_time() -> Result<Duration, Box<dyn Error>> {
         .ok_or_else(|| "MUXY_CLI_TIMEOUT must be a whole number of seconds".into())
 }
 
-fn print(output: Output, reply: Value) -> Result<(), Box<dyn Error>> {
+fn print(output: Output, out: Option<&Path>, reply: Value) -> Result<(), Box<dyn Error>> {
     let mut stdout = io::stdout().lock();
     match output {
         Output::Ok => writeln!(stdout, "ok")?,
@@ -81,12 +96,35 @@ fn print(output: Output, reply: Value) -> Result<(), Box<dyn Error>> {
             other => writeln!(stdout, "{other}")?,
         },
         Output::Tabs => {
-            for tab in reply.as_array().ok_or(INVALID_REPLY)? {
-                let row: Vec<_> = ["tabId", "title", "url", "profile", "active"]
-                    .iter()
-                    .map(|key| cell(&tab[key]))
-                    .collect();
-                writeln!(stdout, "{}", row.join("\t"))?;
+            let display = crate::output::Display::stdout();
+            let columns = ["tabId", "title", "url", "profile", "active"];
+            let rows: Vec<Vec<_>> = reply
+                .as_array()
+                .ok_or(INVALID_REPLY)?
+                .iter()
+                .map(|tab| {
+                    columns
+                        .iter()
+                        .map(|key| {
+                            if display.terminal {
+                                crate::output::cell(&tab[key])
+                            } else {
+                                cell(&tab[key])
+                            }
+                        })
+                        .collect()
+                })
+                .collect();
+            if display.terminal {
+                write!(
+                    stdout,
+                    "{}",
+                    display.table(&columns, &rows, "No browser tabs.")
+                )?;
+            } else {
+                for row in rows {
+                    writeln!(stdout, "{}", row.join("\t"))?;
+                }
             }
         }
         Output::Page => writeln!(
@@ -96,7 +134,17 @@ fn print(output: Output, reply: Value) -> Result<(), Box<dyn Error>> {
             text(&reply["url"]),
             text(&reply["text"])
         )?,
-        Output::Screenshot => writeln!(stdout, "{}", reply["png"].as_str().ok_or(INVALID_REPLY)?)?,
+        Output::Screenshot => {
+            let png = reply["png"].as_str().ok_or(INVALID_REPLY)?;
+            match out {
+                Some(file) => {
+                    let bytes = muxy_core::base64::decode(png).ok_or(INVALID_REPLY)?;
+                    std::fs::write(file, bytes)?;
+                    writeln!(stdout, "{}", file.display())?;
+                }
+                None => writeln!(stdout, "{png}")?,
+            }
+        }
     }
     Ok(())
 }

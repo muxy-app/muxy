@@ -3,7 +3,7 @@ use muxy_ui::controls;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
-use super::{Category, SettingsEvent, SettingsView, window::SettingsWindow};
+use super::{Category, SettingsEvent, SettingsView, tab::SettingsTab};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Action {
@@ -17,7 +17,7 @@ pub(crate) enum Action {
 
 pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<AnyElement> {
     let mut rows = Vec::new();
-    for (id, label, actions) in [
+    for (id, row, actions) in [
         (
             "backup-export",
             tr_key!("Export backup"),
@@ -41,7 +41,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             ],
         ),
     ] {
-        if !view.matches(Category::Backup, label) {
+        if !view.matches(Category::Backup, row) {
             continue;
         }
         let mut control = div().flex().flex_wrap().gap(view.metrics.spacing2());
@@ -51,8 +51,9 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 controls::button(
                     view.style(),
                     &selector,
-                    &label,
-                    !view.backup_busy,
+                    controls::Button::secondary(&label)
+                        .named(&tr!("%@: %@", &muxy_ui::l10n::translate(row), &label))
+                        .enabled(!view.backup_busy),
                     cx.listener(move |_, _, _, cx| cx.emit(SettingsEvent::Backup(action))),
                 )
                 .debug_selector(move || selector.clone()),
@@ -62,26 +63,32 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             control = control.child(controls::button(
                 view.style(),
                 "backup-confirm",
-                &tr!("Restore on next launch"),
-                !view.backup_busy && view.backup_import.is_some(),
+                controls::Button::secondary(&tr!("Restore on next launch"))
+                    .enabled(!view.backup_busy && view.backup_import.is_some()),
                 cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Backup(Action::Confirm))),
             ));
             control = control.child(controls::button(
                 view.style(),
                 "backup-cancel",
-                &tr!("Cancel import"),
-                !view.backup_busy,
+                controls::Button::secondary(&tr!("Cancel import")).enabled(!view.backup_busy),
                 cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Backup(Action::Cancel))),
             ));
         }
-        rows.push(view.row(id, label, control.into_any_element()));
+        rows.push(view.row(id, row, control.into_any_element()));
         if id == "backup-restore" {
             let status = view
                 .backup_import
                 .as_ref()
                 .map_or(view.backup_status.as_str(), |import| &import.summary);
             if !status.is_empty() {
-                rows.push(view.note(status, false).into_any_element());
+                rows.push(
+                    muxy_ui::accessibility::announced(
+                        view.note(status, false).id("settings-backup-status"),
+                        status.to_owned(),
+                        false,
+                    )
+                    .into_any_element(),
+                );
             }
         }
     }
@@ -91,8 +98,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             control = control.child(controls::button(
                 view.style(),
                 &format!("backup-edit-{name}"),
-                name,
-                true,
+                controls::Button::secondary(name),
                 cx.listener(move |_, _, _, cx| cx.emit(SettingsEvent::OpenConfiguration(name))),
             ));
         }
@@ -105,7 +111,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     rows
 }
 
-impl SettingsWindow {
+impl SettingsTab {
     #[allow(
         clippy::too_many_lines,
         reason = "Keep background backup actions and their completion handling together"

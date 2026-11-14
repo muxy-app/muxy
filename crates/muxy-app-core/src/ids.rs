@@ -46,6 +46,7 @@ id!(TabId);
 id!(GroupId);
 id!(PaneId);
 id!(WorkspaceId);
+id!(TabWindowId);
 
 impl ServerId {
     pub const fn local() -> Self {

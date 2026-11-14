@@ -40,38 +40,6 @@ fn logo_picker_uses_the_target_project_directory_and_cancel_keeps_its_logo(
 }
 
 #[gpui::test]
-fn logo_picker_does_not_use_a_remote_project_path_even_if_it_exists_locally(
-    cx: &mut TestAppContext,
-) {
-    let mut state = AppState::bootstrap().expect("state");
-    let server = ServerId::new();
-    state
-        .apply_catalog(server, &servers::page(2, ProjectId::new(), &[]))
-        .expect("remote catalog");
-    let project = state
-        .add_project(server, std::env::current_dir().expect("cwd"))
-        .expect("remote project");
-    let (boot, _requests, _remotes) = remote_boot(state, vec![servers::entry(server, "box")]);
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        model.choose_project_logo_with(
-            project,
-            |directory, _| {
-                assert!(directory.is_none());
-                std::future::ready(Ok(None))
-            },
-            cx,
-        );
-        assert!(model.project_logo_task.is_some());
-    });
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| {
-        assert!(model.overlay.is_none());
-        assert!(model.error.is_none());
-    });
-}
-
-#[gpui::test]
 fn rejected_project_intent_advances_fifo_but_storage_failure_preserves_it(cx: &mut TestAppContext) {
     let (state, _, _, _, _) = two_projects();
     let (boot, requests) = stub_boot(state);
@@ -115,6 +83,92 @@ fn rejected_project_intent_advances_fifo_but_storage_failure_preserves_it(cx: &m
             )
         );
         assert!(model.error.is_some());
+    });
+}
+
+#[gpui::test]
+fn rejected_remote_restoration_keeps_recovery_until_a_retry_is_accepted(cx: &mut TestAppContext) {
+    let server = ServerId::new();
+    let project = ProjectId::new();
+    let (boot, _requests, _remotes) = remote_boot(
+        AppState::bootstrap().expect("state"),
+        vec![servers::entry(server, "box")],
+    );
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive(local(1, Update::Connected(vec![])), cx);
+        acknowledge_catalog(model, cx);
+        let home = servers::connect_remote(model, server, vec![], &[(project, "api")], cx);
+        model
+            .state
+            .rename_project(project, "Custom name")
+            .expect("name");
+        model
+            .state
+            .set_project_icon(project, Some("sf:star".into()))
+            .expect("icon");
+        model
+            .state
+            .set_project_logo(
+                project,
+                Some(
+                    include_bytes!("../../../../muxy-protocol/tests/fixtures/project-logo.png")
+                        .as_slice()
+                        .into(),
+                ),
+            )
+            .expect("logo");
+        model
+            .state
+            .set_project_color(project, "#3e63dd".parse().expect("color"))
+            .expect("color");
+        model.remove_project_confirmed(project, cx);
+        while let Some(intent) = model.state.project_intents(server).first().cloned() {
+            model.receive_project_mutation(server, intent.operation, Ok(2), cx);
+        }
+        let mut page = servers::page(2, home, &[]);
+        page.revision = 2;
+        model.receive_catalog(server, Ok(page.clone()), cx);
+        let removed = model.state.removed_projects().to_vec();
+        assert_eq!(removed.len(), 1);
+
+        model.restore_removed_project(0, cx);
+        let restored = model.state.current_project().id;
+        let operation = model.state.project_intents(server)[0].operation;
+        model.receive_project_mutation(
+            server,
+            operation,
+            Err(muxy_client::ClientError::Server(
+                muxy_protocol::ErrorReply {
+                    code: ErrorCode::BadPath,
+                    message: "project folder does not exist".into(),
+                },
+            )),
+            cx,
+        );
+        model.receive_catalog(server, Ok(page), cx);
+        assert!(model.state.project(restored).is_none());
+        assert_eq!(model.state.removed_projects(), removed);
+        model.state = store::load(&model.path).expect("saved recovery");
+        assert_eq!(model.state.removed_projects(), removed);
+
+        model.restore_removed_project(0, cx);
+        let restored = model.state.current_project();
+        assert_eq!(restored.name, removed[0].name);
+        assert_eq!(restored.icon, removed[0].icon);
+        assert_eq!(restored.logo, removed[0].logo);
+        assert_eq!(restored.color, removed[0].color);
+        assert_eq!(restored.tabs.len(), 1);
+        assert_eq!(model.state.removed_projects(), removed);
+        let operation = model.state.project_intents(server)[0].operation;
+        model.receive_project_mutation(server, operation, Ok(3), cx);
+        assert!(model.state.removed_projects().is_empty());
+        assert!(
+            store::load(&model.path)
+                .expect("saved restoration")
+                .removed_projects()
+                .is_empty()
+        );
     });
 }
 
@@ -186,100 +240,6 @@ fn one_x_projects_join_the_running_app_and_keep_what_is_there(cx: &mut TestAppCo
     });
 }
 
-#[gpui::test]
-#[ignore = "requires a built server and a fresh MUXY_DIR under /tmp/muxy-catalog-"]
-fn server_first_legacy_migration_walkthrough(cx: &mut TestAppContext) {
-    migration_walkthrough(cx, true).expect("server-first migration");
-}
-
-#[gpui::test]
-#[ignore = "requires a built server and a fresh MUXY_DIR under /tmp/muxy-catalog-"]
-fn desktop_first_legacy_migration_walkthrough(cx: &mut TestAppContext) {
-    migration_walkthrough(cx, false).expect("desktop-first migration");
-}
-
-fn migration_walkthrough(cx: &mut TestAppContext, server_first: bool) -> Result {
-    let directory = PathBuf::from(std::env::var("MUXY_DIR")?);
-    assert!(
-        directory
-            .to_string_lossy()
-            .starts_with("/tmp/muxy-catalog-")
-    );
-    assert!(!directory.join("state.json").exists());
-    let mut state = AppState::bootstrap()?;
-    for id in [501, 502] {
-        let project = state.add_project(ServerId::local(), directory.clone())?;
-        state.open_terminal_tab(project)?;
-        state.set_pane_session(
-            state.current_project().tabs[0].panes[0].id,
-            SessionId::new(id),
-        )?;
-    }
-    while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
-        state.complete_project_intent(ServerId::local(), intent.operation)?;
-    }
-    let mut legacy = serde_json::to_value(&state)?;
-    legacy["version"] = 1.into();
-    for project in legacy["projects"].as_array_mut().ok_or("projects")? {
-        let bytes: Vec<u8> = serde_json::from_value(project["directory"].clone())?;
-        project["directory"] = String::from_utf8(bytes)?.into();
-    }
-    let original = serde_json::to_vec(&legacy)?;
-    std::fs::write(directory.join("state.json"), &original)?;
-    let socket = directory.join("server.sock");
-    if server_first {
-        let probe = crate::server::ensure_server_running(&socket)?;
-        assert_eq!(probe.catalog()?.home, state.home().id);
-        assert_eq!(probe.catalog()?.projects.len(), 3);
-        assert!(probe.list_sessions()?.is_empty());
-    }
-    let boot = Boot::load()?;
-    assert_eq!(boot.state.window(), state.window());
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    wait(cx, &view, |model, _| {
-        model.servers.local.connection == ConnectionState::Ready
-            && model.servers.local.catalog.restore.is_none()
-            && !model.servers.local.catalog.pending
-            && model.state.catalog_revision(ServerId::local()) > 0
-    })?;
-    for session in state.session_references(ServerId::local()) {
-        state.close_session_panes(ServerId::local(), session)?;
-    }
-    view.read_with(cx, |model, _| {
-        assert_eq!(model.state.projects(), state.projects());
-        let mut expected = state.window().clone();
-        expected.bounds = model.state.window().bounds;
-        assert!(expected.bounds.is_some());
-        assert_eq!(model.state.window(), &expected);
-    });
-    let probe = Client::connect(&socket)?;
-    assert!(probe.list_sessions()?.is_empty());
-    let saved = store::load(directory.join("desktop-state.json"))?;
-    assert_eq!(saved.projects(), state.projects());
-    assert_eq!(std::fs::read(directory.join("state.json"))?, original);
-    let deleted = state.projects()[1].id;
-    probe.mutate_project(muxy_protocol::ProjectIntent {
-        operation: muxy_protocol::OperationId::new(),
-        mutation: muxy_protocol::ProjectMutation::Delete(deleted),
-    })?;
-    wait(cx, &view, |model, _| model.state.project(deleted).is_none())?;
-    assert!(directory.is_dir());
-    assert_eq!(std::fs::read(directory.join("state.json"))?, original);
-    view.update(cx, |model, _| model.stop_workers());
-    crate::server::stop_server(&probe, &socket)?;
-    let restarted = crate::server::ensure_server_running(&socket)?;
-    assert!(
-        !restarted
-            .catalog()?
-            .projects
-            .iter()
-            .any(|project| project.id == deleted)
-    );
-    assert!(restarted.list_sessions()?.is_empty());
-    crate::server::stop_server(&restarted, &socket)?;
-    report("Catalog legacy migration, dead pane cleanup, shared deletion and restart: PASS")
-}
-
 pub(super) fn two_projects() -> (AppState, ProjectId, ProjectId, PaneId, PaneId) {
     let mut state = AppState::bootstrap().expect("state");
     let first = state
@@ -321,7 +281,7 @@ fn switching_projects_detaches_and_reattaches_in_the_owning_directory(cx: &mut T
         assert!(work.iter().any(|work| matches!(work, Work::Attach { pane, session: Some(session), directory, .. } if *pane == second_pane && *session == second_session && *directory == std::env::current_dir().expect("cwd"))));
         assert_eq!(model.grids.len(), 1);
         assert!(model.grids.contains_key(&second_pane));
-        assert!(model.snapshots.contains_key(&first_pane));
+        assert!(model.hidden_screen(first_pane).is_some());
         model.navigate(false, cx);
         assert_eq!(model.state.current_project().id, first);
         model.navigate(true, cx);
@@ -375,7 +335,8 @@ fn tab_close_confirmation_keeps_its_target_after_project_switch(cx: &mut TestApp
         model.servers.local.connection = ConnectionState::Ready;
         model.close_tab(tab, cx);
         model.select_project(second, cx);
-        model.receive_close_checked(tab, session, Ok(None), cx);
+        let check = model.pending_close.expect("close check");
+        model.receive_close_checked(check, session, Ok(None), cx);
         assert!(model.state.project(first).expect("first").tabs.is_empty());
         assert_eq!(model.state.project(second).expect("second").tabs.len(), 1);
         assert_eq!(model.state.current_project().id, second);
@@ -508,160 +469,6 @@ fn removal_save_failure_keeps_projects_and_never_discards(cx: &mut TestAppContex
 }
 
 #[gpui::test]
-#[ignore = "requires a built muxy CLI and a fresh MUXY_DIR under /tmp/muxy-phase24-"]
-fn projects_live_walkthrough(cx: &mut TestAppContext) {
-    run_projects_live_walkthrough(cx).expect("phase 24 walkthrough");
-}
-
-fn run_projects_live_walkthrough(cx: &mut TestAppContext) -> Result {
-    let directory = PathBuf::from(std::env::var("MUXY_DIR")?);
-    assert!(
-        directory
-            .to_string_lossy()
-            .starts_with("/tmp/muxy-phase24-")
-    );
-    assert!(!directory.join("state.json").exists());
-    let first_path = directory.join("Alpha");
-    let second_path = directory.join("Beta");
-    std::fs::create_dir_all(&first_path)?;
-    std::fs::create_dir_all(&second_path)?;
-    std::fs::write(first_path.join("keep.txt"), "keep")?;
-    let boot = Boot::load()?;
-    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    let first = view.update(cx, |model, cx| {
-        assert!(model.add_project(first_path.clone(), cx).is_some());
-        assert!(model.state.current_project().tabs.is_empty());
-        model.new_tab(cx);
-        model.state.current_project().id
-    });
-    wait_live(cx, &view)?;
-    shell(cx, "printf 'PROJECT_DIR_%s\\n' \"$PWD\"");
-    wait_text(
-        cx,
-        &view,
-        &format!("PROJECT_DIR_{}", first_path.canonicalize()?.display()),
-    )?;
-    let first_session = active_session(&view, cx)?;
-    let second = view.update(cx, |model, cx| {
-        assert!(model.add_project(second_path.clone(), cx).is_some());
-        assert!(model.state.current_project().tabs.is_empty());
-        model.new_tab(cx);
-        model.state.current_project().id
-    });
-    wait_live(cx, &view)?;
-    let second_session = active_session(&view, cx)?;
-    shell(cx, "printf 'PROJECT_DIR_%s\\n' \"$PWD\"");
-    wait_text(
-        cx,
-        &view,
-        &format!("PROJECT_DIR_{}", second_path.canonicalize()?.display()),
-    )?;
-    let probe = Client::connect(&directory.join("server.sock"))?;
-    assert_eq!(probe.list_sessions()?.len(), 2);
-    report("24.1: two projects start empty; new tabs run in their respective folders")?;
-    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
-        "cmd-alt-["
-    } else {
-        "ctrl-alt-{"
-    });
-    wait(cx, &view, |model, cx| {
-        model.state.current_project().id == first && active_grid(model, cx).is_some()
-    })?;
-    assert_eq!(active_session(&view, cx)?, first_session);
-    view.update(cx, |model, cx| {
-        model.edit_project(
-            |state| {
-                state.rename_project(first, "Frontend")?;
-                state.set_project_icon(first, Some("👩🏽‍💻".into()))?;
-                state.set_project_color(first, "#bb9af7".parse()?)?;
-                state.move_project(second, 1)
-            },
-            cx,
-        );
-    });
-    let saved = view.read_with(cx, |model, _| store::load(&model.path))?;
-    assert_eq!(saved.projects()[1].id, second);
-    assert_eq!(saved.project(first).ok_or("first")?.name, "Frontend");
-    assert_eq!(
-        saved.project(first).ok_or("first")?.icon.as_deref(),
-        Some("👩🏽‍💻")
-    );
-    report("24.2: switching restores the same session; name, emoji, color and order persist")?;
-    view.update(cx, |model, _| model.stop_workers());
-    cx.update(|window, _| window.remove_window());
-    drop(view);
-    cx.run_until_parked();
-    let boot = Boot::load()?;
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    wait_live(cx, &view)?;
-    assert_eq!(active_session(&view, cx)?, first_session);
-    view.update(cx, |model, cx| model.select_project(second, cx));
-    wait_live(cx, &view)?;
-    assert_eq!(active_session(&view, cx)?, second_session);
-    assert_eq!(probe.list_sessions()?.len(), 2);
-    report("24.3: relaunch restores both projects and attaches to their original sessions")?;
-    verify_removal(cx, &view, &probe, &directory, first, second, first_session)
-}
-
-fn verify_removal(
-    cx: &mut VisualTestContext,
-    view: &Entity<AppModel>,
-    probe: &Client,
-    directory: &std::path::Path,
-    first: ProjectId,
-    second: ProjectId,
-    first_session: SessionId,
-) -> Result {
-    let first_path = directory.join("Alpha");
-    let second_path = directory.join("Beta");
-    let moved = directory.join("Alpha-moved");
-    std::fs::rename(&first_path, &moved)?;
-    view.update(cx, AppModel::refresh_project_statuses);
-    assert_eq!(
-        view.read_with(cx, |model, _| model
-            .state
-            .project(first)
-            .map(muxy_app_core::Project::status)),
-        Some(ProjectStatus::Missing)
-    );
-    view.update(cx, |model, cx| model.confirm_remove_project(first, cx));
-    cx.run_until_parked();
-    cx.simulate_prompt_answer("Remove");
-    wait(cx, view, |model, _| {
-        model.state.project(first).is_none()
-            && model.state.pending_discards(ServerId::local()).is_empty()
-    })?;
-    assert_eq!(std::fs::read_to_string(moved.join("keep.txt"))?, "keep");
-    assert!(
-        probe
-            .list_sessions()?
-            .iter()
-            .all(|session| session.id != first_session)
-    );
-    report(
-        "24.4: moved folder becomes Missing; confirmed removal preserves its files and ends its session",
-    )?;
-    shell(cx, "sleep 60");
-    wait(cx, view, |model, cx| {
-        active_process(model, cx).is_some_and(|process| process.name == "sleep")
-    })?;
-    view.update(cx, |model, cx| model.confirm_remove_project(second, cx));
-    cx.run_until_parked();
-    cx.simulate_prompt_answer("Remove");
-    wait(cx, view, |model, _| {
-        model.state.project(second).is_none()
-            && model.state.pending_discards(ServerId::local()).is_empty()
-    })?;
-    assert!(probe.list_sessions()?.is_empty());
-    assert!(second_path.is_dir());
-    report(
-        "24.5: confirmed removal ends a running sleep session, discards its saved output, and keeps the folder",
-    )?;
-    report("Phase 24 GPUI/live-server walkthrough: PASS")
-}
-
-#[gpui::test]
 fn command_o_opens_the_picker_and_existing_paths_select_the_project(cx: &mut TestAppContext) {
     let root = std::env::temp_dir().join(format!("muxy-open-project-{}", ProjectId::new()));
     std::fs::create_dir_all(root.join("Alpha")).expect("mkdir");
@@ -688,11 +495,7 @@ fn command_o_opens_the_picker_and_existing_paths_select_the_project(cx: &mut Tes
     cx.simulate_input(&root.join("Alpha").to_string_lossy());
     cx.executor().advance_clock(Duration::from_millis(125));
     cx.run_until_parked();
-    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
-        "cmd-enter"
-    } else {
-        "ctrl-shift-enter"
-    });
+    cx.simulate_keystrokes("enter");
     cx.run_until_parked();
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.current_project().id, project);
@@ -708,7 +511,7 @@ fn command_o_opens_the_picker_and_existing_paths_select_the_project(cx: &mut Tes
 }
 
 #[gpui::test]
-fn folders_from_the_command_line_select_their_project_or_add_it(cx: &mut TestAppContext) {
+fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppContext) {
     let root = std::env::temp_dir().join(format!("muxy-cli-folder-{}", ProjectId::new()));
     std::fs::create_dir_all(root.join("Alpha")).expect("mkdir");
     std::fs::create_dir_all(root.join("Beta Gamma")).expect("mkdir");
@@ -734,6 +537,7 @@ fn folders_from_the_command_line_select_their_project_or_add_it(cx: &mut TestApp
         acknowledge_catalog(model, cx);
         assert_eq!(model.state.current_project().id, alpha);
         assert_eq!(model.state.projects().len(), 2);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
     });
     folders
         .try_send(vec![
@@ -752,6 +556,7 @@ fn folders_from_the_command_line_select_their_project_or_add_it(cx: &mut TestApp
             root.join("Beta Gamma")
         );
         assert_eq!(model.state.projects().len(), 3);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
         assert!(model.error.is_none());
     });
     #[cfg(unix)]
@@ -767,6 +572,7 @@ fn folders_from_the_command_line_select_their_project_or_add_it(cx: &mut TestApp
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.current_project().id, alpha);
         assert_eq!(model.state.projects().len(), 3);
+        assert_eq!(model.state.current_project().tabs.len(), 3);
     });
     std::fs::remove_dir_all(root).expect("cleanup");
 }
@@ -865,21 +671,38 @@ fn folders_arriving_after_connection_failure_open_with_saved_projects(cx: &mut T
         assert!(!model.servers.local.catalog.identified);
     });
     requests.try_iter().for_each(drop);
-    for folder in [&existing, &new] {
-        let url = reqwest::Url::from_directory_path(folder).expect("file URL");
-        folders.try_send(vec![url.into()]).expect("send");
-        cx.run_until_parked();
-        view.read_with(cx, |model, _| {
-            assert_eq!(&model.state.current_project().directory, folder);
-            assert!(model.pending_folders.is_empty());
-        });
-    }
-    view.read_with(cx, |model, _| assert_eq!(model.state.projects().len(), 3));
+    let url = |folder: &PathBuf| -> String {
+        reqwest::Url::from_directory_path(folder)
+            .expect("file URL")
+            .into()
+    };
+    folders.try_send(vec![url(&existing)]).expect("send");
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.current_project().directory, existing);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
+        assert!(model.pending_folders.is_empty());
+    });
     assert!(
-        !requests
+        requests
             .try_iter()
             .any(|(_, work)| matches!(work, Work::Connect))
     );
+    folders.try_send(vec![url(&new)]).expect("send");
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        assert_eq!(model.state.current_project().directory, existing);
+        assert_eq!(model.pending_folders, std::slice::from_ref(&new));
+        let generation = model.servers.local.generation;
+        model.receive(
+            local(generation, Update::ConnectFailed("offline".into(), None)),
+            cx,
+        );
+        assert_eq!(model.state.current_project().directory, new);
+        assert_eq!(model.state.current_project().tabs.len(), 1);
+        assert!(model.pending_folders.is_empty());
+        assert_eq!(model.state.projects().len(), 3);
+    });
 }
 
 #[gpui::test]
@@ -898,11 +721,7 @@ fn creating_a_project_folder_requires_the_explicit_create_confirmation(cx: &mut 
     cx.simulate_input(&root.join("New").to_string_lossy());
     cx.executor().advance_clock(Duration::from_millis(125));
     cx.run_until_parked();
-    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
-        "cmd-enter"
-    } else {
-        "ctrl-shift-enter"
-    });
+    cx.simulate_keystrokes("enter");
     cx.run_until_parked();
     assert!(cx.has_pending_prompt());
     assert!(!root.join("New").exists());
@@ -913,19 +732,142 @@ fn creating_a_project_folder_requires_the_explicit_create_confirmation(cx: &mut 
         view.read_with(cx, |model, _| model.state.projects().len()),
         1
     );
-    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
-        "cmd-enter"
-    } else {
-        "ctrl-shift-enter"
-    });
+    cx.simulate_keystrokes("enter");
     cx.run_until_parked();
     cx.simulate_prompt_answer("Create & Add");
     cx.run_until_parked();
     assert!(root.join("New").is_dir());
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.current_project().directory, root.join("New"));
-        assert!(model.state.current_project().tabs.is_empty());
+        assert_eq!(model.state.current_project().tabs.len(), 1);
+        assert!(model.active_pane().is_some());
+        assert_eq!(store::load(&model.path).expect("saved state"), model.state);
         assert!(model.overlay.is_none());
     });
     std::fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[gpui::test]
+fn add_project_restores_a_recently_removed_project_with_a_terminal(cx: &mut TestAppContext) {
+    let (mut state, first, _, _, _) = two_projects();
+    state.rename_project(first, "Removed").expect("rename");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.appearance.sidebar_expanded = true;
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    cx.run_until_parked();
+    let add_project = cx.debug_bounds("add-project").expect("add project");
+    cx.simulate_click(add_project.center(), Modifiers::none());
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("menu-label-Folder…").is_some());
+    assert!(cx.debug_bounds("menu-label-Recently Removed").is_none());
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+
+    view.update(cx, |model, cx| model.remove_project_confirmed(first, cx));
+    cx.run_until_parked();
+    let add_project = cx.debug_bounds("add-project").expect("add project");
+    cx.simulate_click(add_project.center(), Modifiers::none());
+    cx.run_until_parked();
+    let removed = cx
+        .debug_bounds("menu-label-Recently Removed")
+        .expect("Recently Removed");
+    cx.simulate_click(removed.center(), Modifiers::none());
+    cx.run_until_parked();
+    let entry = cx
+        .debug_bounds("menu-label-Removed")
+        .expect("removed entry");
+    cx.simulate_click(entry.center(), Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        let project = model.state.current_project();
+        assert_eq!(project.name, "Removed");
+        assert_eq!(project.directory, std::env::temp_dir());
+        assert_eq!(project.tabs.len(), 1);
+        assert_eq!(model.state.removed_projects().len(), 1);
+        assert!(model.overlay.is_none());
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let add_project = cx.debug_bounds("add-project").expect("add project");
+    cx.simulate_click(add_project.center(), Modifiers::none());
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        let Some(Overlay::Menu(menu)) = &model.overlay else {
+            panic!("Add Project menu");
+        };
+        assert_eq!(menu.items.len(), 1, "only Folder…, the project is back");
+        acknowledge_catalog(model, cx);
+        assert!(model.state.removed_projects().is_empty());
+    });
+}
+
+#[gpui::test]
+fn restoration_acknowledgements_dismiss_stale_recovery_menus(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("temporary folder");
+    let mut state = AppState::bootstrap().expect("state");
+    for name in ["C", "B", "A"] {
+        let directory = root.path().join(name);
+        std::fs::create_dir(&directory).expect("mkdir");
+        let project = state
+            .add_project(ServerId::local(), directory)
+            .expect("project");
+        state.remove_project(project).expect("remove");
+    }
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.appearance.sidebar_expanded = true;
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        acknowledge_catalog(model, cx);
+        model.restore_removed_project(0, cx);
+        assert_eq!(model.state.current_project().name, "A");
+    });
+    cx.run_until_parked();
+    let open_removed = |cx: &mut VisualTestContext| {
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        let add_project = cx.debug_bounds("add-project").expect("add project");
+        cx.simulate_click(add_project.center(), Modifiers::none());
+        cx.run_until_parked();
+        let removed = cx
+            .debug_bounds("menu-label-Recently Removed")
+            .expect("Recently Removed");
+        cx.simulate_click(removed.center(), Modifiers::none());
+        cx.run_until_parked();
+    };
+    open_removed(cx);
+    view.read_with(cx, |model, _| {
+        assert!(
+            matches!(&model.overlay, Some(Overlay::Menu(menu)) if menu.restores_removed_projects())
+        );
+    });
+    let entry = cx.debug_bounds("menu-label-B").expect("B");
+    view.update(cx, |model, cx| {
+        let operation = model.state.project_intents(ServerId::local())[0].operation;
+        model.receive_project_mutation(ServerId::local(), operation, Ok(2), cx);
+        assert_eq!(model.state.removed_projects().len(), 2);
+        assert_eq!(model.state.removed_projects()[0].name, "B");
+        assert!(model.overlay.is_none());
+    });
+    cx.run_until_parked();
+    cx.simulate_click(entry.center(), Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.current_project().name, "A");
+        assert_eq!(model.state.projects().len(), 2);
+        assert!(model.overlay.is_none());
+    });
+    open_removed(cx);
+    let entry = cx.debug_bounds("menu-label-B").expect("B");
+    cx.simulate_click(entry.center(), Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state.current_project().name, "B");
+        assert_eq!(
+            model.state.current_project().directory,
+            root.path().join("B")
+        );
+    });
 }

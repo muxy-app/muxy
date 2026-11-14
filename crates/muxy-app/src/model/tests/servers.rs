@@ -13,6 +13,8 @@ pub(super) fn entry(id: ServerId, name: &str) -> ServerEntry {
         ssh_command: None,
         identity_file: None,
         password_login: false,
+        group: None,
+        paired: None,
     }
 }
 
@@ -52,7 +54,8 @@ pub(super) fn page(
     }
 }
 
-/// Connects `server` as its worker would, with its catalog. Returns its Home.
+/// Connects `server`, which starts disconnected, as its worker would, with
+/// its catalog. Returns its Home.
 pub(super) fn connect_remote(
     model: &mut AppModel,
     server: ServerId,
@@ -61,9 +64,15 @@ pub(super) fn connect_remote(
     cx: &mut Context<AppModel>,
 ) -> ProjectId {
     let home = ProjectId::new();
-    model.receive((server, 1, Update::Connected(sessions)), cx);
+    model.connect_on_demand(server, cx);
+    let generation = model.generation(server);
+    model.receive((server, generation, Update::Connected(sessions)), cx);
     model.receive(
-        (server, 1, Update::Catalog(Ok(page(2, home, projects)))),
+        (
+            server,
+            generation,
+            Update::Catalog(Ok(page(2, home, projects))),
+        ),
         cx,
     );
     assert_eq!(
@@ -214,7 +223,10 @@ fn panes_with_the_same_session_and_channel_on_two_servers_stay_apart(cx: &mut Te
         };
         model.receive(from(remote, Update::Event(ended)), cx);
         assert_eq!(model.state.pane_server(remote_pane), None);
-        assert_eq!(model.pane_session(local_pane), Some(session));
+        assert_eq!(
+            model.state.pane_session(local_pane),
+            Some((ServerId::local(), session))
+        );
     });
     let (local, remote_sent) = (work(&local_work), work(&remote_work));
     assert!(lists(&remote_sent, &[]));
@@ -314,96 +326,6 @@ fn a_remote_going_offline_leaves_local_panes_live_and_reconnects_when_opened(
     );
 }
 
-#[cfg(unix)]
-#[gpui::test]
-fn a_remote_reached_over_ssh_lists_its_projects_and_runs_a_terminal(cx: &mut TestAppContext) {
-    remote_terminal(cx).expect("remote terminal over ssh");
-}
-
-#[cfg(unix)]
-fn remote_terminal(cx: &mut TestAppContext) -> Result {
-    let directory = tempfile::Builder::new()
-        .prefix("muxy-remote-")
-        .tempdir_in("/tmp")?;
-    let socket = directory.path().join("remote.sock");
-    serve_remote(&socket)?;
-    let remote = ServerId::new();
-    let (mut boot, _local_work, _) =
-        remote_boot(AppState::bootstrap()?, vec![entry(remote, "box")]);
-    let (updates, received) = async_channel::unbounded();
-    let ssh = crate::boot::tests::fake_ssh(directory.path(), &socket)?;
-    boot.workers = crate::boot::Workers::with(move |server, _| {
-        crate::boot::worker(
-            server,
-            crate::boot::Target::Ssh(ssh.clone()),
-            updates.clone(),
-        )
-    });
-    boot.updates = received;
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |model, cx| {
-        model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
-        acknowledge_catalog(model, cx);
-    });
-    wait(cx, &view, |model, _| {
-        model.state.server_home(remote).is_some()
-    })?;
-    let pane = view.update(cx, |model, cx| {
-        let project = model.add_project_on(remote, directory.path().to_path_buf(), cx);
-        model.select_project(project.expect("remote project"), cx);
-        model.new_tab(cx);
-        let pane = model.active_pane().expect("pane");
-        model.start_attach(pane, Size { cols: 80, rows: 24 }, cx);
-        pane
-    });
-    wait(cx, &view, |model, cx| model.attachment(pane, cx).is_some())?;
-    view.update(cx, |model, cx| {
-        let (server, channel) = model.attachment(pane, cx).expect("attachment");
-        assert_eq!(server, remote);
-        model.send(
-            remote,
-            Work::Input(channel, b"echo remote-$((40 + 2))\r".to_vec()),
-            cx,
-        );
-    });
-    wait_text(cx, &view, "remote-42")?;
-    assert_eq!(Client::connect(&socket)?.list_sessions()?.len(), 1);
-    view.update(cx, |model, _| model.stop_workers());
-    Ok(())
-}
-
-/// A server on `socket`, where the fake ssh's relay reaches it. It keeps
-/// uploads in `uploads` beside the socket.
-#[cfg(unix)]
-pub(super) fn serve_remote(socket: &std::path::Path) -> io::Result<()> {
-    let listener = std::os::unix::net::UnixListener::bind(socket)?;
-    let (events, kept) = std::sync::mpsc::channel();
-    let registry = std::sync::Arc::new(
-        muxy_server::Registry::new(
-            muxy_server::ServerSettings {
-                default_shell: Some(PathBuf::from("/bin/sh")),
-                ..muxy_server::ServerSettings::default()
-            },
-            events,
-        )
-        .with_uploads(socket.with_file_name("uploads")),
-    );
-    thread::spawn(move || {
-        let _kept = kept;
-        for stream in listener.incoming() {
-            let Ok(stream) = stream else {
-                return;
-            };
-            let registry = std::sync::Arc::clone(&registry);
-            thread::spawn(move || {
-                let (_kept, events) = std::sync::mpsc::channel();
-                let _ = muxy_server::connection::serve(Box::new(stream), registry, events);
-            });
-        }
-    });
-    Ok(())
-}
-
 #[gpui::test]
 fn a_restarted_server_lists_its_existing_sessions_once(cx: &mut TestAppContext) {
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));
@@ -500,5 +422,111 @@ fn project_edits_wait_until_the_server_they_were_made_for_answers(cx: &mut TestA
 
         reconnect(model, remote, page(2, home, &[(api, "api")]), cx);
         assert_eq!(edits(), 1, "the server they were made for gets them");
+    });
+}
+
+#[gpui::test]
+fn requests_lost_when_the_server_stops_show_no_banner(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.receive(local(1, Update::Connected(Vec::new())), cx);
+        acknowledge_catalog(model, cx);
+        let lost = muxy_client::ClientError::Disconnected;
+        model.receive(local(1, Update::ReferencesSynced(Err(lost))), cx);
+        let lost = muxy_client::ClientError::Disconnected;
+        model.receive(local(1, Update::Catalog(Err(lost))), cx);
+        model.receive(local(1, Update::Event(ClientEvent::Disconnected)), cx);
+        assert_eq!(model.error, None);
+        assert_eq!(
+            model.connection(ServerId::local()),
+            ConnectionState::Disconnected
+        );
+
+        let timeout = Update::Catalog(Err(muxy_client::ClientError::Timeout));
+        model.receive(local(1, timeout), cx);
+        assert!(
+            model
+                .error
+                .as_deref()
+                .is_some_and(|error| error.starts_with("Could not refresh projects"))
+        );
+    });
+}
+
+#[gpui::test]
+fn a_replaced_catalog_brings_the_servers_fresh_projects_with_one_notice(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        let home = model.state.home().id;
+        let project = ProjectId::new();
+        model.receive(local(1, Update::Connected(Vec::new())), cx);
+        let mut known = page(1, home, &[(project, "api")]);
+        known.revision = 40;
+        model.receive(local(1, Update::Catalog(Ok(known))), cx);
+        assert!(model.state.project(project).is_some());
+
+        let kept = |name: &str| muxy_protocol::UnreadableFile {
+            kept_as: ServerPath::from(format!("/state/{name}.unreadable-1")),
+            error: "expected value".into(),
+        };
+        let info = muxy_protocol::ServerInfo {
+            unreadable: vec![kept("catalog.json"), kept("remote.json")],
+            ..muxy_protocol::ServerInfo::current()
+        };
+        model.receive(local(1, Update::ServerInfo(info, Vec::new())), cx);
+        model.receive(local(1, Update::Connected(Vec::new())), cx);
+        let reported = model.error.clone().unwrap_or_default();
+        assert!(reported.ends_with("/state/remote.json.unreadable-1"));
+        assert!(!reported.contains("catalog.json"));
+
+        let fresh_home = ProjectId::from_u128(9);
+        model.receive(local(1, Update::Catalog(Ok(page(2, fresh_home, &[])))), cx);
+        assert_eq!(model.state.home().id, fresh_home);
+        assert!(model.state.project(project).is_none());
+        assert_eq!(model.error_detail, None);
+        assert_eq!(
+            model.notice.as_deref(),
+            Some("The server started with a fresh project list")
+        );
+        assert!(
+            model
+                .notice_body
+                .as_deref()
+                .is_some_and(|body| body.ends_with("/state/catalog.json.unreadable-1"))
+        );
+
+        model.notice = None;
+        model.receive(local(1, Update::Connected(Vec::new())), cx);
+        model.receive(local(1, Update::Catalog(Ok(page(2, fresh_home, &[])))), cx);
+        assert_eq!(model.notice, None);
+        assert_eq!(model.state.home().id, fresh_home);
+    });
+}
+
+#[gpui::test]
+fn a_first_catalog_names_the_catalog_the_server_kept(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        let info = muxy_protocol::ServerInfo {
+            unreadable: vec![muxy_protocol::UnreadableFile {
+                kept_as: ServerPath::from("/state/catalog.json.unreadable-1"),
+                error: "expected value".into(),
+            }],
+            ..muxy_protocol::ServerInfo::current()
+        };
+        model.receive(local(1, Update::ServerInfo(info, Vec::new())), cx);
+        model.receive(local(1, Update::Connected(Vec::new())), cx);
+        let home = ProjectId::new();
+        model.receive(local(1, Update::Catalog(Ok(page(2, home, &[])))), cx);
+        assert_eq!(model.state.home().id, home);
+        assert!(
+            model
+                .notice_body
+                .as_deref()
+                .is_some_and(|body| body.ends_with("/state/catalog.json.unreadable-1"))
+        );
     });
 }

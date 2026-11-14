@@ -1,5 +1,6 @@
+use std::collections::BTreeMap;
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use muxy_protocol::ErrorCode;
@@ -8,10 +9,6 @@ use muxy_terminal::pty::{Pty, PtySize, SpawnRequest};
 use crate::error::ServerError;
 use crate::settings::ServerSettings;
 
-#[cfg(target_os = "macos")]
-const FALLBACK_SHELL: &str = "/bin/zsh";
-#[cfg(target_os = "linux")]
-const FALLBACK_SHELL: &str = "/bin/sh";
 const TERMINAL_ENV: [(&str, &str); 3] = [
     ("TERM", "xterm-256color"),
     ("COLORTERM", "truecolor"),
@@ -32,6 +29,7 @@ pub(crate) fn spawn_shell(
     directory: &Path,
     size: PtySize,
     identity: (muxy_protocol::ServerIdentity, muxy_protocol::SessionId),
+    extra: &BTreeMap<String, String>,
 ) -> Result<Shell, ServerError> {
     if !directory.is_dir() {
         return Err(ServerError::new(
@@ -44,7 +42,7 @@ pub(crate) fn spawn_shell(
         args: shell_arguments(&program),
         program,
         cwd: directory.to_path_buf(),
-        env: environment(identity),
+        env: environment(identity, extra),
         size,
     };
     request.env.retain(|(name, _)| !same_name(name, "SHELL"));
@@ -99,85 +97,28 @@ fn shell_arguments(program: &Path) -> Vec<OsString> {
 }
 
 fn resolve_shell(settings: &ServerSettings) -> PathBuf {
-    #[cfg(unix)]
-    {
-        select_shell(
-            settings.default_shell.clone(),
-            env::var_os("SHELL"),
-            cfg!(target_os = "linux"),
-        )
-    }
-    #[cfg(windows)]
-    {
-        select_windows_shell(
-            settings.default_shell.clone(),
-            env::var_os("SHELL"),
-            env::var_os("PATH"),
-            env::var_os("SystemRoot"),
-        )
-    }
+    settings
+        .default_shell
+        .clone()
+        .unwrap_or_else(crate::process::user_shell)
 }
 
-#[cfg(unix)]
-fn select_shell(configured: Option<PathBuf>, inherited: Option<OsString>, linux: bool) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    configured
-        .or_else(|| {
-            inherited
-                .filter(|shell| !shell.is_empty())
-                .map(PathBuf::from)
-                .filter(|shell| {
-                    !linux
-                        || (shell.is_absolute()
-                            && shell.metadata().is_ok_and(|metadata| {
-                                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-                            }))
-                })
-        })
-        .unwrap_or_else(|| PathBuf::from(if linux { "/bin/sh" } else { FALLBACK_SHELL }))
-}
-
-/// The configured shell, then `SHELL` when it names an existing `.exe`, then
-/// `pwsh.exe` on `PATH`, then `powershell.exe` from the system.
-#[cfg(windows)]
-fn select_windows_shell(
-    configured: Option<PathBuf>,
-    inherited: Option<OsString>,
-    path: Option<OsString>,
-    system_root: Option<OsString>,
-) -> PathBuf {
-    let inherited = inherited.map(PathBuf::from).filter(|shell| {
-        shell.is_absolute()
-            && shell
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-            && exists(shell)
-    });
-    configured
-        .or(inherited)
-        .or_else(|| {
-            env::split_paths(&path.unwrap_or_default())
-                .filter(|folder| folder.is_absolute())
-                .map(|folder| folder.join("pwsh.exe"))
-                .find(|shell| exists(shell))
-        })
-        .unwrap_or_else(|| {
-            PathBuf::from(system_root.unwrap_or_else(|| r"C:\Windows".into()))
-                .join(r"System32\WindowsPowerShell\v1.0\powershell.exe")
-        })
-}
-
-/// Whether `path` exists, counting the Store's app execution aliases, which
-/// can't be opened as files.
-#[cfg(windows)]
-pub(crate) fn exists(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.is_dir())
-}
-
+/// `extra`, such as a proxy, replaces inherited variables but never Muxy's own.
 fn environment(
     identity: (muxy_protocol::ServerIdentity, muxy_protocol::SessionId),
+    extra: &BTreeMap<String, String>,
 ) -> Vec<(OsString, OsString)> {
-    let mut env: Vec<_> = env::vars_os().filter(|(name, _)| inherited(name)).collect();
+    let mut env: Vec<_> = env::vars_os()
+        .filter(|(name, _)| inherited(name) && !extra.keys().any(|key| same_name(name, key)))
+        .collect();
+    env.extend(
+        extra
+            .iter()
+            .map(|(key, value)| (OsString::from(key), OsString::from(value))),
+    );
+    env.retain(|(name, _)| {
+        !same_name(name, "MUXY_SERVER_ID") && !same_name(name, "MUXY_SESSION_ID")
+    });
     env.push(("MUXY_SERVER_ID".into(), identity.0.to_string().into()));
     env.push((
         "MUXY_SESSION_ID".into(),
@@ -188,20 +129,19 @@ fn environment(
             .iter()
             .map(|(key, value)| (OsString::from(key), OsString::from(value))),
     );
+    apply_utf8_locale(&mut env);
     env
 }
 
 /// Whether a session inherits the server's variable `name`. On Windows the
 /// pseudoconsole reads `PATH` from the registry instead, so a change to it
 /// reaches new sessions without restarting the server.
-fn inherited(name: &OsString) -> bool {
-    !(same_name(name, "MUXY_SERVER_ID")
-        || same_name(name, "MUXY_SESSION_ID")
-        || (cfg!(windows) && same_name(name, "PATH")))
+fn inherited(name: &OsStr) -> bool {
+    !(cfg!(windows) && same_name(name, "PATH"))
 }
 
 /// Windows variable names ignore case; Unix ones do not.
-pub(crate) fn same_name(name: &OsString, expected: &str) -> bool {
+pub(crate) fn same_name(name: &OsStr, expected: &str) -> bool {
     if cfg!(windows) {
         name.eq_ignore_ascii_case(expected)
     } else {
@@ -209,66 +149,285 @@ pub(crate) fn same_name(name: &OsString, expected: &str) -> bool {
     }
 }
 
-#[cfg(all(test, windows))]
+/// Whether `path` exists, counting the Store's app execution aliases, which
+/// can't be opened as files.
+#[cfg(windows)]
+pub(crate) fn exists(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.is_dir())
+}
+
+const CHARSET_LOCALE_KEYS: [&str; 3] = ["LC_ALL", "LC_CTYPE", "LANG"];
+const FALLBACK_UTF8_LOCALES: [&str; 2] = ["C.UTF-8", "en_US.UTF-8"];
+
+fn apply_utf8_locale(env: &mut Vec<(OsString, OsString)>) {
+    ensure_utf8_locale(env, system_locale().as_deref(), locale_installed);
+}
+
+fn ensure_utf8_locale(
+    env: &mut Vec<(OsString, OsString)>,
+    system: Option<&str>,
+    installed: impl FnMut(&str) -> bool,
+) {
+    if locale_is_set(env) {
+        return;
+    }
+    let Some(value) = preferred_utf8_locale(system, installed) else {
+        return;
+    };
+    for (name, item) in env.iter_mut() {
+        if is_charset_locale_key(name) && is_blank(item) {
+            item.clear();
+        }
+    }
+    set_env(env, "LANG", &value);
+}
+
+fn preferred_utf8_locale(
+    system: Option<&str>,
+    mut installed: impl FnMut(&str) -> bool,
+) -> Option<String> {
+    system
+        .and_then(language_and_region)
+        .map(|locale| format!("{locale}.UTF-8"))
+        .into_iter()
+        .chain(FALLBACK_UTF8_LOCALES.map(String::from))
+        .find(|name| installed(name))
+}
+
+fn language_and_region(identifier: &str) -> Option<String> {
+    let head = identifier.split(['@', '.']).next()?.trim();
+    let mut subtags = head.split(['-', '_']);
+    let language = subtags.next()?;
+    let region = subtags.find(|subtag| !is_script(subtag))?;
+    let valid = (2..=3).contains(&language.len())
+        && language.bytes().all(|byte| byte.is_ascii_alphabetic())
+        && (2..=3).contains(&region.len())
+        && region.bytes().all(|byte| byte.is_ascii_alphanumeric());
+    valid.then(|| format!("{language}_{region}"))
+}
+
+fn is_script(subtag: &str) -> bool {
+    subtag.len() == 4 && subtag.bytes().all(|byte| byte.is_ascii_alphabetic())
+}
+
+fn locale_is_set(env: &[(OsString, OsString)]) -> bool {
+    CHARSET_LOCALE_KEYS.iter().any(|key| {
+        env.iter()
+            .rev()
+            .find(|(name, _)| name == key)
+            .is_some_and(|(_, value)| !is_blank(value))
+    })
+}
+
+fn is_charset_locale_key(name: &OsStr) -> bool {
+    CHARSET_LOCALE_KEYS.iter().any(|key| name == *key)
+}
+
+fn is_blank(value: &OsStr) -> bool {
+    value.to_str().is_some_and(|text| text.trim().is_empty())
+}
+
+fn set_env(env: &mut Vec<(OsString, OsString)>, key: &str, value: &str) {
+    env.retain(|(name, _)| name != key);
+    env.push((OsString::from(key), OsString::from(value)));
+}
+
+#[cfg(unix)]
+#[allow(
+    unsafe_code,
+    reason = "the C library is the only authority on which locales it can load"
+)]
+fn locale_installed(name: &str) -> bool {
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return false;
+    };
+    // SAFETY: `name` is a valid C string and a null base asks for a new locale.
+    let locale =
+        unsafe { libc::newlocale(libc::LC_CTYPE_MASK, name.as_ptr(), std::ptr::null_mut()) };
+    if locale.is_null() {
+        return false;
+    }
+    // SAFETY: `locale` came from `newlocale` and is freed once.
+    unsafe { libc::freelocale(locale) };
+    true
+}
+
+/// Windows programs don't take their character set from these variables.
+#[cfg(windows)]
+fn locale_installed(_name: &str) -> bool {
+    false
+}
+
+fn system_locale() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let identifier = objc2_foundation::NSLocale::currentLocale()
+            .localeIdentifier()
+            .to_string();
+        (!identifier.is_empty()).then_some(identifier)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    #![allow(
-        clippy::unwrap_used,
-        reason = "Tests fail immediately on fixture errors"
-    )]
     use super::*;
 
-    #[test]
-    fn windows_shell_prefers_settings_then_an_exe_shell_then_pwsh_on_path() {
-        let root =
-            env::temp_dir().join(format!("muxy-shell-{}", muxy_protocol::OperationId::new()));
-        let folder = root.join("bin");
-        std::fs::create_dir_all(&folder).unwrap();
-        let system = OsString::from(r"C:\Windows");
-        let fallback = PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe");
-        assert_eq!(
-            select_windows_shell(
-                None,
-                None,
-                Some(folder.clone().into()),
-                Some(system.clone())
-            ),
-            fallback
-        );
-        std::fs::write(folder.join("pwsh.exe"), "").unwrap();
-        assert_eq!(
-            select_windows_shell(
-                None,
-                None,
-                Some(folder.clone().into()),
-                Some(system.clone())
-            ),
-            folder.join("pwsh.exe")
-        );
-        let script = root.join("shell.cmd");
-        std::fs::write(&script, "").unwrap();
-        assert_eq!(
-            select_windows_shell(None, Some(script.into()), None, Some(system.clone())),
-            fallback,
-            "SHELL is ignored unless it names an existing .exe"
-        );
-        let shell = root.join("nu.exe");
-        std::fs::write(&shell, "").unwrap();
-        assert_eq!(
-            select_windows_shell(None, Some(shell.clone().into()), None, Some(system.clone())),
-            shell
-        );
-        let configured = PathBuf::from(r"C:\Tools\shell.exe");
-        assert_eq!(
-            select_windows_shell(
-                Some(configured.clone()),
-                Some(shell.into()),
-                None,
-                Some(system)
-            ),
-            configured
-        );
-        std::fs::remove_dir_all(root).unwrap();
+    fn last<'a>(env: &'a [(OsString, OsString)], name: &str) -> Option<&'a OsString> {
+        env.iter()
+            .rev()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value)
     }
+
+    #[test]
+    fn requested_variables_replace_inherited_ones_but_not_muxys_own() {
+        let session = muxy_protocol::SessionId::new(7).expect("non-zero");
+        let extra = BTreeMap::from([
+            ("PATH".to_owned(), "/proxy/bin".to_owned()),
+            ("http_proxy".to_owned(), "http://proxy:8080".to_owned()),
+            ("LC_ALL".to_owned(), "C".to_owned()),
+            ("MUXY_SESSION_ID".to_owned(), "1".to_owned()),
+            ("TERM".to_owned(), "dumb".to_owned()),
+        ]);
+        let env = environment(
+            (muxy_protocol::ServerIdentity::from_u128(1), session),
+            &extra,
+        );
+        assert_eq!(env.iter().filter(|(key, _)| key == "PATH").count(), 1);
+        assert_eq!(last(&env, "PATH"), Some(&OsString::from("/proxy/bin")));
+        assert_eq!(
+            last(&env, "http_proxy"),
+            Some(&OsString::from("http://proxy:8080"))
+        );
+        assert_eq!(last(&env, "LC_ALL"), Some(&OsString::from("C")));
+        assert_eq!(last(&env, "MUXY_SESSION_ID"), Some(&OsString::from("7")));
+        assert_eq!(last(&env, "TERM"), Some(&OsString::from("xterm-256color")));
+    }
+
+    fn pairs(values: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
+        values
+            .iter()
+            .map(|(key, value)| (OsString::from(*key), OsString::from(*value)))
+            .collect()
+    }
+
+    fn value<'a>(env: &'a [(OsString, OsString)], key: &str) -> Option<&'a str> {
+        env.iter()
+            .rev()
+            .find(|(name, _)| name == key)
+            .and_then(|(_, item)| item.to_str())
+    }
+
+    fn chinese_installed(name: &str) -> bool {
+        name == "zh_CN.UTF-8" || name == "C.UTF-8"
+    }
+
+    #[test]
+    fn apple_locale_becomes_installed_utf8_locale() {
+        assert_eq!(
+            preferred_utf8_locale(Some("zh_CN"), chinese_installed).as_deref(),
+            Some("zh_CN.UTF-8")
+        );
+        assert_eq!(
+            preferred_utf8_locale(Some(" zh_CN.GB2312 "), chinese_installed).as_deref(),
+            Some("zh_CN.UTF-8")
+        );
+        assert_eq!(
+            preferred_utf8_locale(Some("en_US@rg=cnzzzz"), |name| name == "en_US.UTF-8").as_deref(),
+            Some("en_US.UTF-8")
+        );
+        assert_eq!(
+            preferred_utf8_locale(Some("zh-Hant_CN"), chinese_installed).as_deref(),
+            Some("zh_CN.UTF-8")
+        );
+        assert_eq!(
+            preferred_utf8_locale(Some("sr-Latn_RS"), |name| name == "sr_RS.UTF-8").as_deref(),
+            Some("sr_RS.UTF-8")
+        );
+    }
+
+    #[test]
+    fn unknown_locale_uses_installed_c_utf8() {
+        assert_eq!(
+            preferred_utf8_locale(Some("../tmp"), |_| true).as_deref(),
+            Some("C.UTF-8")
+        );
+        assert_eq!(
+            preferred_utf8_locale(Some("zz_ZZ"), |name| name == "C.UTF-8").as_deref(),
+            Some("C.UTF-8")
+        );
+        assert_eq!(
+            preferred_utf8_locale(Some("zh-Hans"), chinese_installed).as_deref(),
+            Some("C.UTF-8")
+        );
+        assert_eq!(
+            preferred_utf8_locale(None, |name| name == "C.UTF-8").as_deref(),
+            Some("C.UTF-8")
+        );
+        assert_eq!(preferred_utf8_locale(None, |_| false), None);
+    }
+
+    #[test]
+    fn uninstalled_language_and_region_without_c_utf8_uses_en_us() {
+        let mut env = pairs(&[("LANG", ""), ("LC_MESSAGES", "C")]);
+        ensure_utf8_locale(&mut env, Some("en_UA"), |name| name == "en_US.UTF-8");
+        assert_eq!(value(&env, "LANG"), Some("en_US.UTF-8"));
+        assert_eq!(value(&env, "LC_MESSAGES"), Some("C"));
+    }
+
+    #[test]
+    fn explicit_locale_is_preserved() {
+        let mut posix = pairs(&[("LANG", "C"), ("TERM", "xterm-256color")]);
+        ensure_utf8_locale(&mut posix, Some("zh_CN"), |_| true);
+        assert_eq!(value(&posix, "LANG"), Some("C"));
+
+        let mut utf8 = pairs(&[("LC_CTYPE", "en_US.UTF-8")]);
+        ensure_utf8_locale(&mut utf8, Some("zh_CN"), |_| true);
+        assert_eq!(value(&utf8, "LANG"), None);
+        assert_eq!(value(&utf8, "LC_CTYPE"), Some("en_US.UTF-8"));
+
+        let mut forced = pairs(&[("LC_ALL", "C"), ("LANG", "zh_CN.UTF-8")]);
+        ensure_utf8_locale(&mut forced, Some("en_US"), |_| true);
+        assert_eq!(value(&forced, "LC_ALL"), Some("C"));
+        assert_eq!(value(&forced, "LANG"), Some("zh_CN.UTF-8"));
+    }
+
+    #[test]
+    fn blank_locale_variables_are_replaced() {
+        let mut env = pairs(&[
+            ("LC_ALL", ""),
+            ("LC_CTYPE", "   "),
+            ("LANG", ""),
+            ("LC_MESSAGES", "C"),
+            ("TERM", "dumb"),
+            ("http_proxy", "http://proxy:8080"),
+        ]);
+        ensure_utf8_locale(&mut env, Some("zh_CN"), chinese_installed);
+        assert_eq!(value(&env, "LANG"), Some("zh_CN.UTF-8"));
+        assert_eq!(value(&env, "LC_ALL"), Some(""));
+        assert_eq!(value(&env, "LC_CTYPE"), Some(""));
+        assert_eq!(value(&env, "LC_MESSAGES"), Some("C"));
+        assert_eq!(value(&env, "http_proxy"), Some("http://proxy:8080"));
+        assert_eq!(value(&env, "TERM"), Some("dumb"));
+        assert_eq!(env.iter().filter(|(key, _)| key == "LANG").count(), 1);
+    }
+
+    #[test]
+    fn missing_locale_stays_unset_when_nothing_is_installed() {
+        let mut env = pairs(&[("PATH", "/usr/bin"), ("LANG", "")]);
+        ensure_utf8_locale(&mut env, Some("zh_CN"), |_| false);
+        assert_eq!(value(&env, "LANG"), Some(""));
+        assert_eq!(value(&env, "PATH"), Some("/usr/bin"));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
 
     #[test]
     fn store_pwsh_alias_counts_as_an_existing_shell() {
@@ -285,9 +444,20 @@ mod tests {
 
     #[test]
     fn sessions_read_path_from_the_registry_and_match_names_without_case() {
-        assert!(!inherited(&"Path".into()));
-        assert!(!inherited(&"muxy_session_id".into()));
-        assert!(inherited(&"TEMP".into()));
-        assert!(same_name(&"shell".into(), "SHELL"));
+        assert!(!inherited(OsStr::new("Path")));
+        assert!(inherited(OsStr::new("TEMP")));
+        assert!(same_name(OsStr::new("shell"), "SHELL"));
+        let session = muxy_protocol::SessionId::new(7).expect("non-zero");
+        let extra = BTreeMap::from([("muxy_session_id".to_owned(), "1".to_owned())]);
+        let env = environment(
+            (muxy_protocol::ServerIdentity::from_u128(1), session),
+            &extra,
+        );
+        let ids: Vec<_> = env
+            .iter()
+            .filter(|(name, _)| same_name(name, "MUXY_SESSION_ID"))
+            .map(|(_, value)| value)
+            .collect();
+        assert_eq!(ids, [&OsString::from("7")]);
     }
 }

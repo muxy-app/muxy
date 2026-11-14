@@ -2,6 +2,7 @@
 //!
 //! Server-owned settings and presentation code stay with their owners.
 
+pub mod agent;
 mod appearance;
 mod browser;
 mod chord;
@@ -11,6 +12,10 @@ mod config;
 mod error;
 mod ghostty;
 mod keymap;
+pub mod keys;
+mod paired;
+mod private_file;
+mod proxy;
 mod quick_terminal;
 mod servers;
 mod worktrees;
@@ -21,7 +26,8 @@ pub use worktrees::{
 };
 
 pub use appearance::{
-    AgentsPanelDock, AgentsPanelGrouping, AppLayout, Appearance, ProjectOrder,
+    AgentSessionsPosition, AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping,
+    AgentsPanelIcon, AppLayout, Appearance, ExtensionsLayout, InterfaceSize, ProjectOrder,
     SidebarCollapsedStyle,
 };
 pub use browser::BrowserSettings;
@@ -30,7 +36,7 @@ pub use commands::CustomCommand;
 pub use composer::{ComposerPosition, ComposerPresentation, ComposerSettings};
 pub use config::{
     ClipboardSettings, CloseBehavior, CommitChoices, NewPaneDirectory, OpenerSettings,
-    PaneSettings, ProjectSettings, Settings, WindowSettings,
+    PaneSettings, PanelLayout, PrivacySettings, ProjectSettings, Settings, WindowSettings,
 };
 pub use error::{Error, Result};
 pub use ghostty::{
@@ -38,5 +44,7 @@ pub use ghostty::{
     TerminalColor, TerminalEdit, TerminalOptions, TerminalSettings,
 };
 pub use keymap::Keymap;
+pub use paired::PairingTokens;
+pub use proxy::{DEFAULT_PROXY_BYPASS, ProxyKind, ProxySettings};
 pub use quick_terminal::QuickTerminalSettings;
-pub use servers::ServerEntry;
+pub use servers::{PairedServer, ServerEntry};

@@ -3,9 +3,11 @@
 use std::fmt::{self, Write};
 
 use minicbor::{Decode, Encode};
+use muxy_core::hex;
 use serde::{Deserialize, Serialize};
 
 use crate::wire::cbor::open::{self, Variant};
+use crate::wire::cbor::open_enum;
 use crate::{DeviceId, ErrorCode, ServerIdentity};
 
 pub const DEFAULT_REMOTE_PORT: u16 = 7419;
@@ -84,6 +86,18 @@ impl<'b, C> Decode<'b, C> for ListenerStatus {
     }
 }
 
+open_enum! {
+    /// What a paired device is, which decides what it may ask the server for.
+    /// Unrecognized kinds get a phone's rights.
+    #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+    pub enum DeviceKind {
+        #[default]
+        Phone = 0,
+        /// Another computer's desktop app, with the rights of one on this computer.
+        Computer = 1,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct PairedDevice {
     #[n(0)]
@@ -98,6 +112,16 @@ pub struct PairedDevice {
     pub last_seen: Option<u64>,
     #[n(4)]
     pub connected: bool,
+    #[n(5)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub kind: DeviceKind,
+    /// Whether the phone gets push notifications, when it registered for them.
+    /// `Disabled` while they are off for every phone and its registration is kept.
+    #[n(6)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub push: Option<crate::PushStatus>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -113,6 +137,18 @@ pub struct RemoteAccessState {
     pub pairing_expires_at: Option<u64>,
     #[n(4)]
     pub devices: Vec<PairedDevice>,
+    /// The server-wide switch for push notifications. Older servers, without
+    /// `Feature::PUSH_NOTIFICATIONS`, send none.
+    #[n(5)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub push_notifications: bool,
+    /// Unix seconds. While push notifications are off, when the phones'
+    /// kept registrations are forgotten.
+    #[n(6)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub push_kept_until: Option<u64>,
 }
 
 impl RemoteAccessState {
@@ -152,7 +188,7 @@ impl fmt::Debug for PairingInvite {
             .debug_struct("PairingInvite")
             .field("hosts", &self.hosts)
             .field("port", &self.port)
-            .field("fingerprint", &hex(&self.fingerprint))
+            .field("fingerprint", &hex::encode(&self.fingerprint))
             .finish_non_exhaustive()
     }
 }
@@ -177,8 +213,8 @@ impl PairingInvite {
             link,
             "&p={}&f={}&s={}",
             self.port,
-            hex(&self.fingerprint),
-            hex(&self.secret)
+            hex::encode(&self.fingerprint),
+            hex::encode(&self.secret)
         );
         link
     }
@@ -202,8 +238,12 @@ impl PairingInvite {
                     false
                 }
                 "p" => port.replace(parse_port(value)?).is_some(),
-                "f" => fingerprint.replace(unhex(value)?).is_some(),
-                "s" => secret.replace(unhex(value)?).is_some(),
+                "f" => fingerprint
+                    .replace(hex::decode(value).ok_or(ErrorCode::BadRequest)?)
+                    .is_some(),
+                "s" => secret
+                    .replace(hex::decode(value).ok_or(ErrorCode::BadRequest)?)
+                    .is_some(),
                 _ => return Err(ErrorCode::BadRequest),
             };
             if repeated {
@@ -240,6 +280,12 @@ pub struct PairRequest {
     pub secret: [u8; 16],
     #[n(1)]
     pub name: String,
+    /// A computer requires `Feature::PAIRED_COMPUTERS`; older servers ignore
+    /// it and pair a phone.
+    #[n(2)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub kind: DeviceKind,
 }
 
 impl fmt::Debug for PairRequest {
@@ -247,6 +293,7 @@ impl fmt::Debug for PairRequest {
         formatter
             .debug_struct("PairRequest")
             .field("name", &self.name)
+            .field("kind", &self.kind)
             .finish_non_exhaustive()
     }
 }
@@ -329,28 +376,4 @@ fn parse_port(value: &str) -> Result<u16, ErrorCode> {
         return Err(ErrorCode::BadRequest);
     }
     value.parse().map_err(|_| ErrorCode::BadRequest)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
-    })
-}
-
-fn unhex<const N: usize>(value: &str) -> Result<[u8; N], ErrorCode> {
-    let digits = value.as_bytes();
-    if digits.len() != N * 2 {
-        return Err(ErrorCode::BadRequest);
-    }
-    let mut bytes = [0; N];
-    for (byte, pair) in bytes.iter_mut().zip(digits.chunks_exact(2)) {
-        let high = char::from(pair[0]).to_digit(16);
-        let low = char::from(pair[1]).to_digit(16);
-        let (Some(high), Some(low)) = (high, low) else {
-            return Err(ErrorCode::BadRequest);
-        };
-        *byte = u8::try_from(high * 16 + low).map_err(|_| ErrorCode::BadRequest)?;
-    }
-    Ok(bytes)
 }

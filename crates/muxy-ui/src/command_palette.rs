@@ -142,9 +142,10 @@ impl<A> Command<A> {
         row.swatches.clone_from(&self.swatches);
         row.current = self.current;
         row.badge.clone_from(&self.badge);
-        row.trailing = match self.target {
-            Target::Action(_) => self.shortcut.clone(),
-            Target::List(_) => Some("›".into()),
+        row.trailing = match (&self.target, &self.shortcut) {
+            (Target::Action(_), shortcut) => shortcut.clone(),
+            (Target::List(_), Some(shortcut)) => Some(format!("{shortcut}  ›").into()),
+            (Target::List(_), None) => Some("›".into()),
         };
         PickerItem::Row(row)
     }
@@ -189,7 +190,18 @@ impl<A> Registry<A> {
         self.commands.iter().find(|command| command.id == id)
     }
 
-    fn items(&self, query: &str) -> Vec<PickerItem> {
+    pub fn action(&self, id: &str) -> Option<&A> {
+        let command = self
+            .commands
+            .iter()
+            .find(|command| command.id == id && !command.disabled)?;
+        match &command.target {
+            Target::Action(action) => Some(action),
+            Target::List(_) => None,
+        }
+    }
+
+    pub fn items(&self, query: &str) -> Vec<PickerItem> {
         let query = query.to_lowercase();
         self.commands
             .iter()

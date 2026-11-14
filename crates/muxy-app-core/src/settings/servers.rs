@@ -6,7 +6,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use super::{Error, Result, Settings};
 use crate::ServerId;
 
-/// Another computer whose Muxy server this app reaches over SSH.
+/// Another computer whose Muxy server this app reaches over SSH, or over the
+/// network after pairing with it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServerEntry {
@@ -26,6 +27,53 @@ pub struct ServerEntry {
     /// Logs in with a password, which the app asks for and never saves.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub password_login: bool,
+    /// The group the app lists it under; `None` leaves it ungrouped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// Reached over the network as a paired computer instead of over SSH.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paired: Option<PairedServer>,
+}
+
+/// Where a paired server listens and the certificate it must present. Its
+/// token for this computer is kept apart, in `paired-servers.toml`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PairedServer {
+    pub hosts: Vec<String>,
+    pub port: u16,
+    /// SHA-256 of its TLS certificate, in hex.
+    pub fingerprint: String,
+    /// This computer's ID there.
+    pub device: muxy_protocol::DeviceId,
+}
+
+impl PairedServer {
+    pub fn fingerprint(&self) -> Option<[u8; 32]> {
+        muxy_core::hex::decode(&self.fingerprint)
+    }
+
+    /// Whether it presents `fingerprint`, however its hex is spelled.
+    pub fn has_certificate(&self, fingerprint: &[u8; 32]) -> bool {
+        self.fingerprint().as_ref() == Some(fingerprint)
+    }
+
+    fn validate(&self) -> Result<()> {
+        let invalid = || {
+            Error::new(
+                "servers",
+                "a paired server needs its addresses, port, and fingerprint",
+            )
+        };
+        if self.hosts.is_empty()
+            || self.port < 1024
+            || self.fingerprint().is_none()
+            || muxy_protocol::validate_pairing_hosts(&self.hosts).is_err()
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
 }
 
 impl ServerEntry {
@@ -37,11 +85,26 @@ impl ServerEntry {
             ssh_command: None,
             identity_file: None,
             password_login: false,
+            group: None,
+            paired: None,
         }
     }
 
+    pub fn paired(name: String, paired: PairedServer) -> Self {
+        Self {
+            paired: Some(paired),
+            ..Self::new(name, String::new())
+        }
+    }
+
+    /// How the user knows where it is: its SSH destination or command, or
+    /// the first address it was paired at.
     pub fn destination(&self) -> &str {
-        self.ssh_command.as_deref().unwrap_or(&self.ssh)
+        match (&self.paired, &self.ssh_command) {
+            (Some(paired), _) => paired.hosts.first().map_or("", String::as_str),
+            (None, Some(command)) => command,
+            (None, None) => &self.ssh,
+        }
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -51,16 +114,20 @@ impl ServerEntry {
                 "this computer's server ID cannot be listed",
             ));
         }
-        if self.name.trim().is_empty()
-            || self.name.len() > 256
-            || self.name.chars().any(char::is_control)
-        {
-            return Err(Error::new(
-                "servers",
-                "enter a name of 1–256 bytes without control characters",
-            ));
-        }
-        if let Some(command) = &self.ssh_command {
+        Self::validate_name(&self.name)?;
+        if let Some(paired) = &self.paired {
+            if !self.ssh.is_empty()
+                || self.ssh_command.is_some()
+                || self.identity_file.is_some()
+                || self.password_login
+            {
+                return Err(Error::new(
+                    "servers",
+                    "a paired server cannot also have an SSH destination, command, identity file, or password login",
+                ));
+            }
+            paired.validate()?;
+        } else if let Some(command) = &self.ssh_command {
             if !self.ssh.is_empty() || self.identity_file.is_some() || self.password_login {
                 return Err(Error::new(
                     "servers",
@@ -83,6 +150,29 @@ impl ServerEntry {
             return Err(Error::new(
                 "servers",
                 "enter an identity file path without control characters",
+            ));
+        }
+        if let Some(group) = &self.group {
+            Self::validate_group(group)?;
+        }
+        Ok(())
+    }
+
+    pub fn validate_name(name: &str) -> Result<()> {
+        if name.trim().is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+            return Err(Error::new(
+                "servers",
+                "enter a name of 1–256 bytes without control characters",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn validate_group(group: &str) -> Result<()> {
+        if group.trim().is_empty() || group.len() > 256 || group.chars().any(char::is_control) {
+            return Err(Error::new(
+                "servers",
+                "enter a group name of 1–256 bytes without control characters",
             ));
         }
         Ok(())
@@ -115,12 +205,71 @@ impl Settings {
         Ok(())
     }
 
-    pub fn remove_server(&mut self, id: ServerId, path: &Path) -> Result<()> {
+    pub fn remove_servers(&mut self, ids: &[ServerId], path: &Path) -> Result<()> {
         self.servers = edit_servers(path, |servers| {
-            servers.retain(|server| server.id != id);
+            servers.retain(|server| !ids.contains(&server.id));
             Ok(())
         })?;
         Ok(())
+    }
+
+    /// Moves the listed servers into `group`, or out of theirs, in their
+    /// order, before `before` or at the end. Servers no longer listed are
+    /// skipped.
+    pub fn place_servers(
+        &mut self,
+        ids: &[ServerId],
+        group: Option<&str>,
+        before: Option<ServerId>,
+        path: &Path,
+    ) -> Result<()> {
+        self.servers = edit_servers(path, |servers| {
+            let (mut moved, mut kept): (Vec<_>, Vec<_>) = std::mem::take(servers)
+                .into_iter()
+                .partition(|server| ids.contains(&server.id));
+            for server in &mut moved {
+                server.group = group.map(str::to_owned);
+            }
+            let at = before
+                .and_then(|before| kept.iter().position(|server| server.id == before))
+                .unwrap_or(kept.len());
+            kept.splice(at..at, moved);
+            *servers = kept;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// Puts each listed server in `group`, or none, where it is. Servers no
+    /// longer listed are skipped.
+    pub fn set_servers_group(
+        &mut self,
+        ids: &[ServerId],
+        group: Option<&str>,
+        path: &Path,
+    ) -> Result<()> {
+        self.servers = edit_servers(path, |servers| {
+            for server in servers.iter_mut().filter(|server| ids.contains(&server.id)) {
+                server.group = group.map(str::to_owned);
+            }
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// Every group a server is in, in the order they are listed.
+    pub fn server_groups(&self) -> Vec<&str> {
+        let mut groups = Vec::new();
+        for group in self
+            .servers
+            .iter()
+            .filter_map(|server| server.group.as_deref())
+        {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+        groups
     }
 
     pub(super) fn validate_servers(&self) -> Result<()> {
@@ -152,6 +301,7 @@ fn edit_servers(
     path: &Path,
     change: impl FnOnce(&mut Vec<ServerEntry>) -> Result<()>,
 ) -> Result<Vec<ServerEntry>> {
+    let _lock = super::appearance::lock(path).map_err(|error| Error::new("servers", error))?;
     let mut document =
         super::appearance::read_document(path).map_err(|error| Error::new("servers", error))?;
     let mut servers: Vec<ServerEntry> = document
@@ -167,7 +317,7 @@ fn edit_servers(
             toml::Value::try_from(&servers).map_err(|error| Error::new("servers", error))?;
         document.insert("servers".into(), value);
     }
-    super::appearance::write_document(path, &document)
-        .map_err(|error| Error::new("servers", error))?;
+    let source = toml::to_string_pretty(&document).map_err(|error| Error::new("servers", error))?;
+    super::appearance::atomic_write(path, &source).map_err(|error| Error::new("servers", error))?;
     Ok(servers)
 }

@@ -31,6 +31,9 @@ impl Layout {
         edge: Direction,
         level: usize,
     ) -> Option<Self> {
+        if !self.contains(pane) {
+            return None;
+        }
         let mut root = Node::from(self);
         let target = root.levels(anchor, edge).into_iter().nth(level)?;
         if root.dock(pane, &target, edge)? {
@@ -38,6 +41,25 @@ impl Layout {
         } else {
             Some(self.clone())
         }
+    }
+
+    /// Adds `pane`, which comes from another layout, at the `edge` of
+    /// `anchor`, or of the enclosing row or column that `level` picks from
+    /// [`Layout::dock_depths`].
+    pub fn inserted(
+        &self,
+        pane: PaneId,
+        anchor: PaneId,
+        edge: Direction,
+        level: usize,
+    ) -> Option<Self> {
+        if self.contains(pane) {
+            return None;
+        }
+        let mut root = Node::from(self);
+        let target = root.levels(anchor, edge).into_iter().nth(level)?;
+        root.dock(pane, &target, edge)?;
+        root.into_layout()
     }
 
     /// Gives every member of each row and column an equal share of it.
@@ -173,12 +195,15 @@ impl Node {
                 }
             },
         };
-        let mut source = self.find(pane)?;
+        let source = self.find(pane);
         let share = 1.0 / (self.at(&container)?.lanes(axis, pane) + 1.0);
         let Self::Group(group) = self.at_mut(&container)? else {
             return None;
         };
-        if source.len() == container.len() + 1 && source.starts_with(&container) {
+        if let Some(source) = &source
+            && source.len() == container.len() + 1
+            && source.starts_with(&container)
+        {
             let from = source[container.len()];
             let to = if from < index { index - 1 } else { index };
             if from == to {
@@ -200,6 +225,9 @@ impl Node {
             },
         );
         group.shape = None;
+        let Some(mut source) = source else {
+            return Some(true);
+        };
         if source.starts_with(&container) && source[container.len()] >= index {
             source[container.len()] += 1;
         }

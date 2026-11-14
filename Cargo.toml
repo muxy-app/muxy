@@ -17,7 +17,7 @@ members = [
 # this table and the affected crate-level documentation together.
 [workspace.metadata.architecture.allowed-dependencies]
 muxy-core = []
-muxy-protocol = []
+muxy-protocol = ["muxy-core"]
 muxy-terminal = ["muxy-protocol"]
 muxy-server = ["muxy-core", "muxy-protocol", "muxy-terminal"]
 muxy-app-core = ["muxy-core", "muxy-protocol"]
@@ -28,16 +28,13 @@ muxy-ui = ["muxy-core"]
 muxy-mobile = ["muxy-client", "muxy-protocol"]
 
 [workspace.metadata.architecture.allowed-dev-dependencies]
-muxy-app = ["muxy-server", "muxy-terminal"]
-muxy-client = ["muxy-server"]
-muxy-cli = ["muxy-terminal"]
-muxy-mobile = ["muxy-server"]
+muxy-app = ["muxy-terminal"]
 
 [workspace.package]
 version = "2.0.0-beta-0"
 edition = "2024"
 rust-version = "1.92"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/muxy-app/muxy"
 authors = ["Saeed Vaziry"]
 publish = false
@@ -80,4 +77,4 @@ libghostty-vt = { path = "vendor/libghostty-vt" }
 libghostty-vt-sys = { path = "vendor/libghostty-vt-sys" }
 core-text = { path = "vendor/core-text" }
 xim-ctext = { path = "vendor/xim-ctext" }
-gpui = { git = "https://github.com/muxy-app/gpui", rev = "0f0fecb8f3b125df633598973d78cd81a7880e87" }
+gpui = { path = "vendor/gpui" }

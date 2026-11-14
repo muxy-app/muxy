@@ -4,9 +4,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
-use gpui::{Context, Task};
+use gpui::{Context, Task, Window};
 use muxy_app_core::{PaneContent, PaneId, Project, ProjectId, Tab, TabId};
-use muxy_protocol::{AgentProvider, AgentState, FilesAction, FilesRequest};
+use muxy_protocol::{AgentProvider, AgentState};
 use serde_json::{Map, Value, json};
 
 use super::AppModel;
@@ -14,9 +14,17 @@ use super::AppModel;
 /// How long a terminal title must hold before events report it, as on main.
 const TITLE_DEBOUNCE: Duration = Duration::from_millis(500);
 
+/// The tab context keys whose change sends `tab.updated`.
+const TAB_UPDATES: [&str; 6] = ["title", "projectPath", "cwd", "data", "isPinned", "color"];
+
 #[derive(Default)]
 pub(super) struct Tracker {
     initialized: bool,
+    /// A sync waits for the next frame, so a burst of changes syncs once.
+    scheduled: bool,
+    /// The names of the events sent, for tests.
+    #[cfg(test)]
+    pub(super) sent: std::cell::RefCell<Vec<String>>,
     root: Option<ProjectId>,
     current: Option<ProjectId>,
     projects: Value,
@@ -30,6 +38,9 @@ pub(super) struct Tracker {
     pending_titles: HashMap<PaneId, (String, Task<()>)>,
     branches: BTreeMap<ProjectId, String>,
     agents: BTreeMap<String, Value>,
+    ui: Value,
+    theme: Value,
+    preferences: Value,
     pub(super) watched: BTreeSet<ProjectId>,
     pub(super) watch_pending: bool,
     watch_epoch: u64,
@@ -54,6 +65,47 @@ pub(super) fn strings<'a>(pairs: impl IntoIterator<Item = (&'a str, String)>) ->
     )
 }
 
+/// A value as a payload string: text as is, anything else as JSON.
+fn text(value: &Value) -> String {
+    value
+        .as_str()
+        .map_or_else(|| value.to_string(), str::to_owned)
+}
+
+/// An object with every value made a payload string.
+fn text_values(value: &Value) -> Value {
+    Value::Object(
+        value
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(key, value)| (key.clone(), Value::String(text(value))))
+            .collect(),
+    )
+}
+
+/// The `(extension, key)` of every stored setting value that differs, for
+/// `settings.changed`.
+pub(super) fn changed_settings(
+    before: &BTreeMap<String, Map<String, Value>>,
+    after: &BTreeMap<String, Map<String, Value>>,
+) -> Vec<(String, String)> {
+    let empty = Map::new();
+    let mut changed = Vec::new();
+    for owner in before.keys().chain(after.keys()).collect::<BTreeSet<_>>() {
+        let (old, new) = (
+            before.get(owner).unwrap_or(&empty),
+            after.get(owner).unwrap_or(&empty),
+        );
+        for key in old.keys().chain(new.keys()).collect::<BTreeSet<_>>() {
+            if old.get(key) != new.get(key) {
+                changed.push((owner.clone(), key.clone()));
+            }
+        }
+    }
+    changed
+}
+
 pub(super) fn provider_id(provider: AgentProvider) -> &'static str {
     match provider {
         AgentProvider::Claude => "claude",
@@ -68,6 +120,7 @@ pub(super) fn provider_id(provider: AgentProvider) -> &'static str {
         AgentProvider::Xal => "xal",
         AgentProvider::Antigravity => "antigravity",
         AgentProvider::OhMyPi => "omp",
+        AgentProvider::Hermes => "hermes",
         AgentProvider::Unrecognized(_) => "other",
     }
 }
@@ -100,6 +153,10 @@ impl AppModel {
         put("areaID", project.id.to_string());
         put("title", self.event_title(tab, cx));
         put("projectPath", project.directory.display().to_string());
+        put("isPinned", tab.pinned.to_string());
+        if let Some(color) = &tab.color {
+            put("color", color.as_str().to_owned());
+        }
         match pane.map(|pane| (pane.id, &pane.content)) {
             Some((id, PaneContent::Webview(descriptor))) => {
                 put("kind", "extensionWebView".into());
@@ -152,12 +209,11 @@ impl AppModel {
     fn debounce_titles(&mut self, cx: &mut Context<Self>) {
         let live: HashMap<PaneId, String> = self
             .state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .filter(|pane| matches!(pane.content, PaneContent::Terminal { .. }))
-            .map(|pane| (pane.id, pane.title.clone()))
+            .panes()
+            .filter(|placed| {
+                placed.tab.is_some() && matches!(placed.pane.content, PaneContent::Terminal { .. })
+            })
+            .map(|placed| (placed.pane.id, placed.pane.title.clone()))
             .collect();
         let events = &mut self.extensions.events;
         events.titles.retain(|pane, _| live.contains_key(pane));
@@ -215,6 +271,12 @@ impl AppModel {
                         extension.allows_event(event) || self.runtime_command_event(name, event)
                     })
         };
+        #[cfg(test)]
+        self.extensions
+            .events
+            .sent
+            .borrow_mut()
+            .push(event.to_owned());
         let source = format!("globalThis.__muxyEvent?.({}, {payload});", json!(event));
         for view in self.extension_views() {
             if permitted(&view.read(cx).source.owner) {
@@ -261,6 +323,31 @@ impl AppModel {
             .ok_or("background script unavailable")?;
         background.script.evaluate(source);
         Ok(())
+    }
+
+    /// Syncs events and reopens a restored panel before the next frame, once
+    /// however many changes come before it.
+    pub(in crate::model) fn schedule_extension_events(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if std::mem::replace(&mut self.extensions.events.scheduled, true) {
+            return;
+        }
+        cx.on_next_frame(window, Self::flush_extension_events);
+    }
+
+    /// Sends the events for what changed since the last sync, and creates the
+    /// page of a panel its project's return reopened.
+    pub(in crate::model) fn flush_extension_events(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.extensions.events.scheduled = false;
+        self.sync_extension_events(cx);
+        self.open_restored_panel(window, cx);
     }
 
     pub(in crate::model) fn sync_extension_events(&mut self, cx: &mut Context<Self>) {
@@ -313,9 +400,7 @@ impl AppModel {
                 emit(self, "tab.closed", context.clone());
             }
         }
-        let visible = |context: &Value| {
-            ["title", "projectPath", "cwd", "data"].map(|key| context.get(key).cloned())
-        };
+        let visible = |context: &Value| TAB_UPDATES.map(|key| context.get(key).cloned());
         for (id, context) in &tabs {
             if previous
                 .get(id)
@@ -363,6 +448,7 @@ impl AppModel {
             );
         }
         self.sync_agent_events(&mut emit);
+        self.sync_app_events(&mut emit);
         self.extensions.events.initialized = true;
         self.sync_extension_file_watches(cx);
     }
@@ -497,6 +583,33 @@ impl AppModel {
         self.extensions.events.agents = agents;
     }
 
+    /// `ui.changed`, `theme.changed`, and one `preferences.changed` per
+    /// preference that changed.
+    fn sync_app_events(&mut self, emit: &mut impl FnMut(&Self, &str, Value)) {
+        let ui = self.ui_state();
+        if self.extensions.events.ui != ui {
+            emit(self, "ui.changed", text_values(&ui));
+            self.extensions.events.ui = ui;
+        }
+        let theme = self.theme_state();
+        if self.extensions.events.theme != theme {
+            emit(self, "theme.changed", text_values(&theme));
+            self.extensions.events.theme = theme;
+        }
+        let preferences = self.preference_values();
+        let previous =
+            std::mem::replace(&mut self.extensions.events.preferences, preferences.clone());
+        for (key, value) in preferences.as_object().into_iter().flatten() {
+            if previous.get(key) != Some(value) {
+                emit(
+                    self,
+                    "preferences.changed",
+                    strings([("key", key.clone()), ("value", text(value))]),
+                );
+            }
+        }
+    }
+
     fn sync_extension_file_watches(&mut self, cx: &mut Context<Self>) {
         if self.extensions.events.watch_pending {
             return;
@@ -546,13 +659,9 @@ impl AppModel {
         );
         let requests: Vec<_> = removed
             .into_iter()
-            .map(|project| (project, FilesAction::Unwatch))
-            .chain(
-                added
-                    .into_iter()
-                    .map(|project| (project, FilesAction::Watch)),
-            )
-            .filter_map(|(project, action)| Some((client(self, project)?, project, action)))
+            .map(|project| (project, false))
+            .chain(added.into_iter().map(|project| (project, true)))
+            .filter_map(|(project, watch)| Some((client(self, project)?, project, watch)))
             .collect();
         self.extensions.events.watched = desired;
         self.extensions.events.watch_pending = true;
@@ -560,8 +669,13 @@ impl AppModel {
         let task = cx.spawn(async move |_, _| {
             trace.stage(format_args!("phase=started"));
             let mut errors = Vec::new();
-            for (client, project, action) in requests {
-                if let Err(error) = client.files_async(FilesRequest { project, action }).await {
+            for (client, project, watch) in requests {
+                let request = if watch {
+                    client.watch_files_async(project)
+                } else {
+                    client.unwatch_files_async(project)
+                };
+                if let Err(error) = request.await {
                     errors.push(error.to_string());
                 }
             }

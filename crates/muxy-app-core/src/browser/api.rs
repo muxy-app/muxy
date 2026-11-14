@@ -1,7 +1,7 @@
-//! How `muxy browser` reaches the desktop app: one JSON request and one JSON
-//! reply over a Unix socket in the profile folder that only this user can
-//! open. The client closes its side after the request, so each side reads to
-//! the end.
+//! How `muxy browser` and `muxy session show` reach the desktop app: one JSON
+//! request and one JSON reply over a Unix socket in the profile folder that
+//! only this user can open. The client closes its side after the request, so
+//! each side reads to the end.
 
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
@@ -15,6 +15,7 @@ use serde_json::{Map, Value, json};
 pub const SOCKET: &str = "app.sock";
 pub const MAX_REQUEST_BYTES: u64 = 8 * 1024 * 1024;
 pub const MAX_REPLY_BYTES: u64 = 128 * 1024 * 1024;
+pub const NOT_READY: &str = "Muxy hasn't loaded that terminal's project yet";
 
 pub fn socket_path(muxy_dir: &Path) -> PathBuf {
     muxy_dir.join(SOCKET)
@@ -138,6 +139,36 @@ mod tests {
         assert!(decode_reply(b"not json").is_err());
     }
 
+    /// Released command-line tools read these replies, so a change here breaks
+    /// them. Compared as JSON: key order follows the build's `serde_json` features.
+    #[test]
+    fn replies_keep_their_wire_format() {
+        let ok = r#"{"ok":true,"value":{"title":"Docs"}}"#;
+        let failed = r#"{"ok":false,"error":"nope"}"#;
+        let encoded = |result| serde_json::from_slice::<Value>(&encode_reply(&result)).ok();
+        let literal = |text| serde_json::from_str::<Value>(text).ok();
+        assert_eq!(encoded(Ok(json!({"title": "Docs"}))), literal(ok));
+        assert_eq!(encoded(Err("nope".into())), literal(failed));
+        assert_eq!(decode_reply(ok.as_bytes()), Ok(json!({"title": "Docs"})));
+        assert_eq!(decode_reply(failed.as_bytes()), Err("nope".to_owned()));
+    }
+
+    /// Released command-line tools retry `session show` on this exact text.
+    #[test]
+    fn not_ready_keeps_its_text() {
+        assert_eq!(NOT_READY, "Muxy hasn't loaded that terminal's project yet");
+    }
+
+    #[test]
+    fn requests_keep_their_wire_format() -> io::Result<()> {
+        let literal = br#"{"verb":"session.show","args":{"session":"1","project":"p"}}"#;
+        let request = Request::read(literal.as_slice())?;
+        assert_eq!(request.verb, "session.show");
+        assert_eq!(request.args["session"], json!("1"));
+        assert_eq!(request.args["project"], json!("p"));
+        Ok(())
+    }
+
     #[test]
     fn requests_are_read_to_the_end() -> io::Result<()> {
         let request = Request::new("browser.list", Map::new());
@@ -145,18 +176,6 @@ mod tests {
         assert_eq!(Request::read(bytes.as_slice())?, request);
         let defaulted = Request::read(br#"{"verb":"browser.list"}"#.as_slice())?;
         assert!(defaulted.args.is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn a_missing_socket_means_the_app_is_not_running() -> io::Result<()> {
-        let directory = tempfile::tempdir()?;
-        let result = call(
-            &socket_path(directory.path()),
-            &Request::new("browser.list", Map::new()),
-            Duration::from_secs(1),
-        );
-        assert!(matches!(result, Err(CallError::NotRunning)));
         Ok(())
     }
 }

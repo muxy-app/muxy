@@ -16,16 +16,40 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   LIBGHOSTTY_VT_SYS_OPTIMIZE: ReleaseFast
+  LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR: ${{ github.workspace }}/.zig-cache
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
+  scope:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: scope
+        run: python3 scripts/ci_scope.py >> "$GITHUB_OUTPUT"
+
   macos:
+    needs: scope
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [lint, test]
     runs-on: macos-15
     timeout-minutes: 60
+    env:
+      SCOPE: ${{ needs.scope.outputs.scope || 'full' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: python3 scripts/protocol_fixtures.py append-only --base "$PROTOCOL_BASE"
+      - if: matrix.part == 'lint'
+        run: python3 scripts/protocol_fixtures.py append-only --base "$PROTOCOL_BASE"
         env:
           PROTOCOL_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
       - uses: dtolnay/rust-toolchain@stable
@@ -34,16 +58,37 @@ jobs:
           components: rustfmt, clippy
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.17.0
+          use-cache: false
+      - id: zig-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .zig-cache
+          key: zig-macos-15-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: python3 scripts/check-desktop-macos.py
-      - run: python3 scripts/protocol_fixtures.py last-release
-      - run: python3 scripts/smoke-desktop-tui.py
+      - run: python3 scripts/check-desktop-macos.py --part "${{ matrix.part }}" --scope "$SCOPE"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
+      - if: matrix.part == 'test' && env.SCOPE != 'desktop'
+        run: python3 scripts/protocol_fixtures.py last-release
+      - if: matrix.part == 'test' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-timings-macos
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: ignore
+          retention-days: 7
 
   linux:
+    needs: scope
+    if: ${{ !cancelled() && needs.scope.outputs.scope != 'desktop' }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,24 +101,40 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config zsh fish binutils vim-tiny less
+      - run: bash scripts/apt-install.sh build-essential pkg-config binutils
+        timeout-minutes: 15
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0
           components: clippy
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.17.0
+          use-cache: false
+      - id: zig-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .zig-cache
+          key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: python3 scripts/check-headless.py --target "${{ matrix.target }}"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
 
   linux-desktop:
+    needs: scope
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        part: [lint, test]
         include:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
@@ -81,31 +142,56 @@ jobs:
             target: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    env:
+      SCOPE: ${{ needs.scope.outputs.scope || 'full' }}
     steps:
       - uses: actions/checkout@v4
       - run: >-
-          sudo apt-get update && sudo apt-get install -y
+          bash scripts/apt-install.sh
           build-essential pkg-config clang cmake libssl-dev libfontconfig1-dev libfreetype-dev
           libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev libvulkan-dev
-          libwebkit2gtk-4.1-0 xvfb
-          zsh fish binutils vim-tiny less unzip
+          binutils unzip
+        timeout-minutes: 15
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.92.0
           components: rustfmt, clippy
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.17.0
+          use-cache: false
+      - id: zig-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .zig-cache
+          key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: xvfb-run -a python3 scripts/check-desktop-linux.py --target "${{ matrix.target }}"
+      - run: python3 scripts/check-desktop-linux.py --target "${{ matrix.target }}" --part "${{ matrix.part }}" --scope "$SCOPE"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
+      - if: matrix.part == 'test' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-timings-${{ matrix.target }}
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: ignore
+          retention-days: 7
 
   windows:
+    needs: scope
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
+        runner: [windows-latest, windows-11-arm]
+        part: [lint, test]
         include:
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
@@ -113,6 +199,8 @@ jobs:
             target: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    env:
+      SCOPE: ${{ needs.scope.outputs.scope || 'full' }}
     defaults:
       run:
         shell: pwsh
@@ -127,7 +215,13 @@ jobs:
           components: rustfmt, clippy
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.17.0
+          use-cache: false
+      - id: zig-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .zig-cache
+          key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       # ring builds its ARM64 assembly with clang.
       - run: |
           if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
@@ -138,6 +232,19 @@ jobs:
       - run: clang --version
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: python scripts/check-windows.py --target "${{ matrix.target }}"
+      - run: python scripts/check-windows.py --target "${{ matrix.target }}" --part "${{ matrix.part }}" --scope "$env:SCOPE"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
+      - if: matrix.part == 'test' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-timings-${{ matrix.target }}
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: ignore
+          retention-days: 7

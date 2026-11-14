@@ -18,13 +18,15 @@ mod files;
 mod git;
 mod keys;
 mod mouse;
+mod push;
 mod records;
 mod scrollback;
 mod terminal;
 mod terminals;
+mod titles;
 
 use muxy_client::Client;
-use muxy_protocol::{MAX_DEVICE_NAME, PairingInvite};
+use muxy_protocol::{DeviceKind, MAX_DEVICE_NAME, PairingInvite};
 
 pub use channel::{BridgeChannel, ChannelWriter, bridge_command};
 pub use connection::{Connection, ConnectionEvent, ConnectionListener};
@@ -38,6 +40,7 @@ pub use git::{
 };
 pub use keys::{Key, Modifiers};
 pub use mouse::{MouseButton, ScrollDirection};
+pub use push::{PushEnvironment, PushPlatform, PushRegistration, PushStatus};
 pub use records::{
     Activity, ActivityEvent, ActivityKind, Agent, AgentState, ClientKind, Cursor, CursorShape,
     Line, PairingLink, Project, Screen, ServerCredential, Session, SessionStatus, Span, Style,
@@ -62,7 +65,7 @@ pub fn parse_pairing_link(link: String) -> Result<PairingLink, MobileError> {
 #[uniffi::export]
 pub fn pair(link: String, device_name: String) -> Result<ServerCredential, MobileError> {
     let invite = invite(&link)?;
-    let (client, paired) = Client::pair(&invite, &device_label(&device_name))?;
+    let (client, paired) = Client::pair(&invite, &device_label(&device_name), DeviceKind::Phone)?;
     client.disconnect();
     Ok(ServerCredential {
         server_id: paired.server.to_string(),

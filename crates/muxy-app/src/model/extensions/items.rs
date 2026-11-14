@@ -1,15 +1,17 @@
-//! Extension topbar and status-bar items: their effective values, icons, and
-//! clicks. Items whose command opens a popover anchor it to themselves.
+//! Extension topbar, rail, and status-bar items: their effective values,
+//! icons, and clicks. Items whose command opens a popover anchor it to
+//! themselves.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels,
-    StatefulInteractiveElement, Styled, Window, canvas, div, px,
+    AnyElement, Context, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels,
+    StatefulInteractiveElement, Styled, Window, canvas, div,
 };
 use muxy_app_core::extensions::{Action, Extension, Icon, Side};
-use muxy_ui::components::{ButtonInteraction, SymbolGlyph, TemplateGlyph, Tooltip};
+use muxy_ui::components::{ButtonInteraction, SymbolGlyph, TemplateGlyph};
 
 use super::AppModel;
 use crate::views::titlebar;
@@ -17,9 +19,20 @@ use crate::views::titlebar;
 const FALLBACK: &str = "puzzlepiece.extension";
 const MAX_ICON_BYTES: u64 = 256 * 1024;
 
+/// Where an item shows, which also decides where its popover opens.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Placement {
+    Topbar,
+    Rail,
+    StatusBar,
+}
+
 /// One visible item after runtime overrides are applied.
 #[derive(Clone, Debug)]
 pub(crate) struct Item {
+    /// Names the item across the manifest list it was declared in.
+    pub key: String,
+    pub placement: Placement,
     pub owner: String,
     pub id: String,
     pub icon: Icon,
@@ -27,6 +40,15 @@ pub(crate) struct Item {
     pub tooltip: String,
     pub command: String,
     pub root: PathBuf,
+}
+
+/// An item's tooltip, with the key of the command it runs when that has one.
+fn item_tooltip(item: &Item, cx: &gpui::App) -> gpui::SharedString {
+    let name = gpui::SharedString::from(item.tooltip.clone());
+    match super::RunCommand::key(&item.owner, &item.command, cx) {
+        Some(key) => muxy_ui::shortcuts::with_key(&name, &key),
+        None => name,
+    }
 }
 
 /// The cache key an icon renders under and the validated file it loads from.
@@ -42,34 +64,91 @@ fn svg_path(extension: &Extension, icon: &Icon) -> Option<(PathBuf, PathBuf)> {
 }
 
 impl AppModel {
+    /// Topbar items, followed by each extension's rail items while the rail
+    /// is turned off.
     pub(crate) fn topbar_items(&self) -> Vec<Item> {
         let mut items = Vec::new();
         for extension in self.extensions.registry.active() {
-            for item in &extension.manifest.topbar_items {
-                let change = self
-                    .extensions
-                    .items
-                    .topbar
-                    .get(&(extension.name.clone(), item.id.clone()));
-                if change
-                    .and_then(|change| change.visible)
-                    .unwrap_or(item.visible)
-                {
-                    items.push(Item {
-                        owner: extension.name.clone(),
-                        id: item.id.clone(),
-                        icon: change
-                            .and_then(|change| change.icon.clone())
-                            .unwrap_or_else(|| item.icon.clone()),
-                        text: None,
-                        tooltip: item.tooltip.clone().unwrap_or_else(|| item.id.clone()),
-                        command: item.command.clone(),
-                        root: extension.directory.clone(),
-                    });
-                }
+            self.bar_items(extension, "top", Placement::Topbar, &mut items);
+            if !self.appearance.rail_enabled {
+                self.bar_items(extension, "rail", Placement::Topbar, &mut items);
             }
         }
         items
+    }
+
+    /// Rail items; none while the rail is turned off.
+    pub(crate) fn rail_items(&self) -> Vec<Item> {
+        let mut items = Vec::new();
+        if self.appearance.rail_enabled {
+            for extension in self.extensions.registry.active() {
+                self.bar_items(extension, "rail", Placement::Rail, &mut items);
+            }
+        }
+        items
+    }
+
+    /// The rail is open and has something to show.
+    pub(crate) fn rail_shown(&self) -> bool {
+        self.appearance.rail_expanded && !self.rail_items().is_empty()
+    }
+
+    pub(crate) fn toggle_rail(&mut self, cx: &mut Context<Self>) {
+        self.appearance.rail_expanded = !self.appearance.rail_expanded;
+        self.save_appearance(cx);
+        cx.notify();
+    }
+
+    /// The item named `key` is on screen at `placement`.
+    pub(crate) fn extension_item_shown(&self, key: &str, placement: Placement) -> bool {
+        let items = match placement {
+            Placement::Topbar => self.topbar_items(),
+            Placement::Rail if self.rail_shown() => self.rail_items(),
+            Placement::StatusBar if self.appearance.status_bar_visible => [Side::Left, Side::Right]
+                .into_iter()
+                .flat_map(|side| self.status_items(side))
+                .collect(),
+            Placement::Rail | Placement::StatusBar => Vec::new(),
+        };
+        items.iter().any(|item| item.key == key)
+    }
+
+    fn bar_items(
+        &self,
+        extension: &Extension,
+        list: &str,
+        placement: Placement,
+        items: &mut Vec<Item>,
+    ) {
+        let (declared, changes) = if list == "rail" {
+            (&extension.manifest.rail_items, &self.extensions.items.rail)
+        } else {
+            (
+                &extension.manifest.topbar_items,
+                &self.extensions.items.topbar,
+            )
+        };
+        for item in declared {
+            let change = changes.get(&(extension.name.clone(), item.id.clone()));
+            if change
+                .and_then(|change| change.visible)
+                .unwrap_or(item.visible)
+            {
+                items.push(Item {
+                    key: format!("{list}:{}:{}", extension.name, item.id),
+                    placement,
+                    owner: extension.name.clone(),
+                    id: item.id.clone(),
+                    icon: change
+                        .and_then(|change| change.icon.clone())
+                        .unwrap_or_else(|| item.icon.clone()),
+                    text: None,
+                    tooltip: item.tooltip.clone().unwrap_or_else(|| item.id.clone()),
+                    command: item.command.clone(),
+                    root: extension.directory.clone(),
+                });
+            }
+        }
     }
 
     pub(crate) fn status_items(&self, side: Side) -> Vec<Item> {
@@ -91,6 +170,8 @@ impl AppModel {
                     .unwrap_or(item.visible)
                 {
                     items.push(Item {
+                        key: format!("status:{}:{}", extension.name, item.id),
+                        placement: Placement::StatusBar,
                         owner: extension.name.clone(),
                         id: item.id.clone(),
                         icon: change
@@ -153,6 +234,7 @@ impl AppModel {
             let icons = manifest
                 .topbar_items
                 .iter()
+                .chain(&manifest.rail_items)
                 .map(|item| &item.icon)
                 .chain(manifest.status_bar_items.iter().map(|item| &item.icon))
                 .chain(
@@ -179,6 +261,7 @@ impl AppModel {
                 .items
                 .topbar
                 .iter()
+                .chain(&self.extensions.items.rail)
                 .chain(&self.extensions.items.status)
             {
                 if *owner == extension.name {
@@ -227,8 +310,6 @@ impl AppModel {
     pub(crate) fn click_extension_item(
         &mut self,
         item: &Item,
-        anchor: &str,
-        above: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -244,7 +325,14 @@ impl AppModel {
             });
         match popover {
             Some(popover) => {
-                self.toggle_extension_popover(&item.owner, &popover, anchor, above, window, cx);
+                self.toggle_extension_popover(
+                    &item.owner,
+                    &popover,
+                    &item.key,
+                    item.placement,
+                    window,
+                    cx,
+                );
             }
             None => self.run_extension_command(&item.owner, &item.command, window, cx),
         }
@@ -256,37 +344,61 @@ impl AppModel {
     }
 
     pub(crate) fn extension_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut bar = div().flex().flex_none().items_center();
-        for item in self.topbar_items() {
-            let key = format!("top:{}:{}", item.owner, item.id);
-            let anchor = self.extensions.items.anchor(&key);
-            let icon = self.extension_icon(
-                &item.root,
-                &item.icon,
-                self.metrics.icon_md(),
-                self.theme.fg_muted,
-            );
-            let element_id =
-                gpui::SharedString::from(format!("extension-toolbar-{}-{}", item.owner, item.id));
-            bar = bar.child(
-                titlebar::action_button(element_id, item.tooltip.clone(), self)
-                    .debug_selector(|| "extension-toolbar-item".into())
-                    .button_interaction(cx.listener(move |model, _, window, cx| {
-                        cx.stop_propagation();
-                        model.click_extension_item(&item, &key, false, window, cx);
-                    }))
-                    .child(
-                        canvas(
-                            move |bounds, _, _| anchor.set(Some(bounds)),
-                            |_, (), _, _| {},
-                        )
-                        .absolute()
-                        .size_full(),
-                    )
-                    .child(icon),
-            );
-        }
-        bar.into_any_element()
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .children(
+                self.topbar_items()
+                    .into_iter()
+                    .map(|item| self.item_button(item, cx)),
+            )
+            .into_any_element()
+    }
+
+    /// The rail's buttons, top to bottom.
+    pub(crate) fn rail_buttons(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        self.rail_items()
+            .into_iter()
+            .map(|item| self.item_button(item, cx))
+            .collect()
+    }
+
+    fn item_button(&self, item: Item, cx: &mut Context<Self>) -> AnyElement {
+        let anchor = self.extensions.items.anchor(&item.key);
+        let icon = self.extension_icon(
+            &item.root,
+            &item.icon,
+            self.metrics.icon_md(),
+            self.theme.fg_muted,
+        );
+        let rail = item.placement == Placement::Rail;
+        let element_id = gpui::SharedString::from(format!("extension-item-{}", item.key));
+        let tooltip = item_tooltip(&item, cx);
+        titlebar::action_button(element_id, tooltip, self)
+            .aria_label(item.tooltip.clone())
+            .debug_selector(move || {
+                if rail {
+                    "rail-item".into()
+                } else {
+                    "extension-toolbar-item".into()
+                }
+            })
+            .when(rail, Styled::mr_0)
+            .button_interaction(cx.listener(move |model, _, window, cx| {
+                cx.stop_propagation();
+                model.click_extension_item(&item, window, cx);
+            }))
+            .child(
+                canvas(
+                    move |bounds, _, _| anchor.set(Some(bounds)),
+                    |_, (), _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+            .child(icon)
+            .into_any_element()
     }
 
     /// Status-bar items for one side, each with the separator main draws.
@@ -298,10 +410,8 @@ impl AppModel {
         let metrics = self.metrics;
         let mut elements = Vec::new();
         for item in self.status_items(side) {
-            let key = format!("status:{}:{}", item.owner, item.id);
-            let anchor = self.extensions.items.anchor(&key);
-            let tooltip = item.tooltip.clone();
-            let theme = self.theme.clone();
+            let anchor = self.extensions.items.anchor(&item.key);
+            let tooltip = item_tooltip(&item, cx);
             let icon = self.extension_icon(
                 &item.root,
                 &item.icon,
@@ -319,27 +429,16 @@ impl AppModel {
                     .flex()
                     .flex_none()
                     .items_center()
-                    .gap(px(4.0))
+                    .gap(metrics.scaled(4.0))
                     .h_full()
-                    .px(px(4.0))
+                    .px(metrics.scaled(4.0))
                     .text_color(self.theme.fg_muted)
                     .cursor_pointer()
                     .hover(|style| style.text_color(self.theme.fg))
-                    .tooltip(move |_, cx| {
-                        cx.new(|_| {
-                            Tooltip::new(
-                                tooltip.clone(),
-                                theme.raised(),
-                                theme.fg,
-                                theme.border,
-                                theme.bg,
-                            )
-                        })
-                        .into()
-                    })
+                    .tooltip(muxy_ui::components::tooltip(tooltip, &self.theme))
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .button_interaction(cx.listener(move |model, _, window, cx| {
-                        model.click_extension_item(&item, &key, true, window, cx);
+                        model.click_extension_item(&item, window, cx);
                     }))
                     .child(
                         canvas(

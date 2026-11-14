@@ -69,8 +69,8 @@ fn new(client: &Client, directory: Option<PathBuf>) -> Result {
 
 fn attach(client: &Client, session: SessionId) -> Result {
     let events = client.events().ok_or("event stream already taken")?;
-    let mut attachment = client.attach(session, SIZE)?;
-    let channel = attachment.channel;
+    let channel = client.attach(0, session, SIZE)?;
+    let mut attachment = muxy_client::take_attached(&events, 0)?;
     writeln!(
         io::stdout(),
         "metadata: title={:?} directory={:?} process={:?}",
@@ -78,7 +78,7 @@ fn attach(client: &Client, session: SessionId) -> Result {
         String::from_utf8_lossy(&attachment.directory.0),
         attachment.process
     )?;
-    redraw(&attachment.grid)?;
+    redraw(&attachment.terminal.grid)?;
     let input = client.clone();
     thread::spawn(move || {
         if let Err(error) = forward_stdin(&input, channel) {
@@ -91,9 +91,9 @@ fn attach(client: &Client, session: SessionId) -> Result {
                 channel: received,
                 frame,
             } if received == channel => {
-                attachment.grid.apply(&frame);
-                redraw(&attachment.grid)?;
-                client.ack(channel, frame.seq)?;
+                let seq = attachment.terminal.apply(&frame);
+                redraw(&attachment.terminal.grid)?;
+                client.ack(channel, seq)?;
             }
             ClientEvent::Metadata {
                 channel: received,
@@ -101,7 +101,8 @@ fn attach(client: &Client, session: SessionId) -> Result {
             } if received == channel => {
                 writeln!(io::stdout(), "metadata: {event:?}")?;
             }
-            ClientEvent::SessionMetadata { .. }
+            ClientEvent::Attached { .. }
+            | ClientEvent::SessionMetadata { .. }
             | ClientEvent::ClipboardWrite { .. }
             | ClientEvent::ActivityChanged { .. }
             | ClientEvent::SessionsChanged { .. }
@@ -144,7 +145,8 @@ fn end(client: &Client, session: SessionId) -> Result {
             ClientEvent::ServerRestarting | ClientEvent::Disconnected => {
                 return Err("disconnected from server".into());
             }
-            ClientEvent::SessionMetadata { .. }
+            ClientEvent::Attached { .. }
+            | ClientEvent::SessionMetadata { .. }
             | ClientEvent::ClipboardWrite { .. }
             | ClientEvent::ActivityChanged { .. }
             | ClientEvent::SessionsChanged { .. }

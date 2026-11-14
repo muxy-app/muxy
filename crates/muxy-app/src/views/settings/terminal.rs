@@ -1,6 +1,8 @@
 use super::pickers::FontSlot;
+use super::slider::{Commit, Slider};
 use super::terminal_lists::{self, BINDING_ACTION};
-use super::{Category, Change, PickerKind, SettingsEvent, SettingsView, catalog};
+use super::{Category, PickerKind, SettingsEvent, SettingsView, catalog};
+use crate::model::preferences::Change;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
@@ -28,7 +30,6 @@ pub(super) const PICKERS: &[&str] = &[
     "cursor-style",
     "cursor-style-blink",
     "macos-option-as-alt",
-    "directory",
     "adjust-cell-height",
     "adjust-cell-width",
     "adjust-cursor-thickness",
@@ -70,28 +71,38 @@ pub(super) fn owns(id: &str) -> bool {
 }
 
 pub(super) fn fields() -> impl Iterator<Item = &'static str> {
-    std::iter::once("font-feature").chain(COLORS).chain(PALETTE)
+    ["font-feature", "selection-word-chars"]
+        .into_iter()
+        .chain(COLORS)
+        .chain(PALETTE)
 }
 
 pub(super) fn field_values(
     terminal: &TerminalSettings,
 ) -> impl Iterator<Item = (&'static str, String)> + '_ {
-    std::iter::once(("font-feature", terminal.font.feature_list()))
-        .chain(
-            COLORS
-                .into_iter()
-                .map(|id| (id, color(terminal, id).map_or_else(String::new, color_text))),
+    [
+        ("font-feature", terminal.font.feature_list()),
+        (
+            "selection-word-chars",
+            terminal.options.selection_word_chars.clone(),
+        ),
+    ]
+    .into_iter()
+    .chain(
+        COLORS
+            .into_iter()
+            .map(|id| (id, color(terminal, id).map_or_else(String::new, color_text))),
+    )
+    .chain(PALETTE.into_iter().zip(0_u8..).map(|(id, index)| {
+        (
+            id,
+            terminal
+                .options
+                .palette
+                .get(&index)
+                .map_or_else(String::new, |rgb| format!("#{rgb:06x}")),
         )
-        .chain(PALETTE.into_iter().zip(0_u8..).map(|(id, index)| {
-            (
-                id,
-                terminal
-                    .options
-                    .palette
-                    .get(&index)
-                    .map_or_else(String::new, |rgb| format!("#{rgb:06x}")),
-            )
-        }))
+    }))
 }
 
 fn color(terminal: &TerminalSettings, id: &str) -> Option<TerminalColor> {
@@ -115,9 +126,9 @@ fn color_text(color: TerminalColor) -> String {
 
 fn swatch(pane: &SettingsView, color: Option<TerminalColor>) -> AnyElement {
     div()
-        .size(px(16.0))
+        .size(pane.layout_metrics.scaled(16.0))
         .flex_none()
-        .rounded(px(3.0))
+        .rounded(pane.layout_metrics.scaled(3.0))
         .border_1()
         .border_color(pane.theme.border)
         .when_some(
@@ -130,10 +141,12 @@ fn swatch(pane: &SettingsView, color: Option<TerminalColor>) -> AnyElement {
         .into_any_element()
 }
 
+/// A button whose `name` says which row it acts on, when `label` alone doesn't.
 pub(super) fn change_button(
     pane: &SettingsView,
     id: &str,
     label: &str,
+    name: &str,
     enabled: bool,
     change: Change,
     cx: &mut Context<SettingsView>,
@@ -141,8 +154,9 @@ pub(super) fn change_button(
     controls::button(
         pane.style(),
         id,
-        label,
-        enabled,
+        controls::Button::secondary(label)
+            .named(name)
+            .enabled(enabled),
         cx.listener(move |pane, _, _, cx| {
             pane.recording = None;
             cx.emit(SettingsEvent::Change(change.clone()));
@@ -160,13 +174,14 @@ fn color_control(
     div()
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(swatch(pane, color))
         .child(pane.field(id))
         .child(change_button(
             pane,
             &format!("{id}-theme"),
             &tr!("Use Theme"),
+            &tr!("Use Theme for %@", &super::control_name(id)),
             color.is_some(),
             Change::Terminal(id, String::new()),
             cx,
@@ -179,21 +194,21 @@ fn palette_control(pane: &SettingsView) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(
             div()
                 .flex()
                 .flex_wrap()
-                .gap(px(8.0))
+                .gap(pane.layout_metrics.scaled(8.0))
                 .children(PALETTE.into_iter().zip(0_u8..).map(|(id, index)| {
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(4.0))
+                        .gap(pane.layout_metrics.scaled(4.0))
                         .child(
                             div()
-                                .w(px(18.0))
-                                .text_size(px(12.0))
+                                .w(pane.layout_metrics.scaled(18.0))
+                                .text_size(pane.layout_metrics.scaled(12.0))
                                 .text_color(pane.theme.fg_muted)
                                 .child(index.to_string()),
                         )
@@ -209,11 +224,11 @@ fn palette_control(pane: &SettingsView) -> AnyElement {
                         ))
                 })),
         )
-        .children(
-            PALETTE
-                .into_iter()
-                .filter_map(|id| pane.errors.get(id).map(|error| pane.note(error, true))),
-        )
+        .children(PALETTE.into_iter().filter_map(|id| {
+            pane.errors
+                .get(id)
+                .map(|error| super::announced_error(pane.note(error, true), id, error))
+        }))
         .into_any_element()
 }
 
@@ -229,7 +244,7 @@ fn style_font(pane: &SettingsView, slot: FontSlot, cx: &mut Context<SettingsView
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(pane.picker(
             PickerKind::Font(slot),
             current.map_or(default.as_ref(), String::as_str),
@@ -240,34 +255,13 @@ fn style_font(pane: &SettingsView, slot: FontSlot, cx: &mut Context<SettingsView
                 pane,
                 &format!("{}-default", slot.id()),
                 &tr!("Use Default"),
+                &tr!("Use Default for %@", &super::control_name(slot.id())),
                 true,
                 Change::Terminal(slot.id(), String::new()),
                 cx,
             ))
         })
         .into_any_element()
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct Slider {
-    id: &'static str,
-    min: f32,
-    max: f32,
-    step: f32,
-    suffix: &'static str,
-}
-
-pub(super) struct Drag {
-    slider: Slider,
-    bounds: gpui::Bounds<gpui::Pixels>,
-    value: Option<String>,
-}
-
-impl Drag {
-    pub(super) fn change(self) -> Option<Change> {
-        self.value
-            .map(|value| Change::Terminal(self.slider.id, value))
-    }
 }
 
 fn adjustment(terminal: &TerminalSettings, id: &str) -> CellHeight {
@@ -320,18 +314,6 @@ pub(super) fn choices(pane: &SettingsView, id: &str) -> (String, Vec<(&'static s
                 ("right", tr!("Right")),
             ],
         ),
-        "directory" => (
-            (if pane.snapshot.settings.panes.new_pane_directory == NewPaneDirectory::Current {
-                "current"
-            } else {
-                "project"
-            })
-            .to_owned(),
-            vec![
-                ("project", tr!("Project")),
-                ("current", tr!("Current pane")),
-            ],
-        ),
         "window-padding-color" => (
             match terminal.options.padding_color {
                 PaddingColor::Background => "background",
@@ -366,13 +348,6 @@ pub(super) fn choices(pane: &SettingsView, id: &str) -> (String, Vec<(&'static s
 }
 
 pub(super) fn choice_change(pane: &SettingsView, id: &'static str, value: &str) -> Change {
-    if id == "directory" {
-        return Change::Directory(if value == "current" {
-            NewPaneDirectory::Current
-        } else {
-            NewPaneDirectory::Project
-        });
-    }
     if id.starts_with("adjust-") {
         let amount = match adjustment(&pane.snapshot.terminal, id) {
             CellHeight::Natural => 0.0,
@@ -412,45 +387,14 @@ fn slider(
     suffix: &'static str,
     cx: &mut Context<SettingsView>,
 ) -> AnyElement {
-    let spec = Slider {
-        id,
-        min: range.0.min(value),
-        max: range.1.max(value),
-        step,
-        suffix,
-    };
-    let control = controls::slider(
-        pane.style(),
-        id,
+    let control = pane.slider(
+        Slider::new(id, range, step, suffix, Commit::Terminal),
         value,
-        (spec.min, spec.max),
-        cx.listener(move |view, grab: &controls::Grab, _, cx| {
-            view.finish_terminal_slider(cx);
-            view.terminal_slider = Some(Drag {
-                slider: spec,
-                bounds: grab.bounds,
-                value: None,
-            });
-            view.move_terminal_slider(grab.position, cx);
-        }),
+        cx,
     );
-    let display = if suffix == "%" {
-        format!("{value:.0}%")
-    } else if step >= 1.0 {
-        format!("{value:.0}")
-    } else {
-        format!("{value:.2}")
-            .trim_end_matches('0')
-            .trim_end_matches('.')
-            .to_owned()
-    };
     div()
         .debug_selector(move || format!("terminal-slider-{id}"))
-        .flex()
-        .items_center()
-        .gap(px(8.0))
         .child(control)
-        .child(div().min_w(px(44.0)).child(display))
         .into_any_element()
 }
 
@@ -473,7 +417,7 @@ fn adjustment_slider(
         .flex()
         .flex_wrap()
         .items_center()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(slider(pane, id, value, range, 1.0, suffix, cx))
         .child(picker(pane, id, cx))
         .into_any_element()
@@ -517,7 +461,20 @@ pub(super) fn rows(
             "keybind-clear-defaults" => Some(terminal.keybindings.clear_defaults),
             _ => None,
         };
-        let control = if let Some(value) = toggle {
+        let control = if id == "directory" {
+            let current =
+                pane.snapshot.settings.panes.new_pane_directory == NewPaneDirectory::Current;
+            pane.toggle(
+                id,
+                current,
+                Change::Directory(if current {
+                    NewPaneDirectory::Project
+                } else {
+                    NewPaneDirectory::Current
+                }),
+                cx,
+            )
+        } else if let Some(value) = toggle {
             pane.toggle(id, value, Change::Terminal(id, (!value).to_string()), cx)
         } else {
             match id {
@@ -533,7 +490,7 @@ pub(super) fn rows(
                 "font-family-bold" => style_font(pane, FontSlot::Bold, cx),
                 "font-family-italic" => style_font(pane, FontSlot::Italic, cx),
                 "font-family-bold-italic" => style_font(pane, FontSlot::BoldItalic, cx),
-                "font-feature" => pane.field(id),
+                "font-feature" | "selection-word-chars" => pane.field(id),
                 "font-thicken-strength" => slider(
                     pane,
                     id,
@@ -558,14 +515,17 @@ pub(super) fn rows(
                 | "cursor-text"
                 | "selection-foreground"
                 | "selection-background" => color_control(pane, id, cx),
-                "font-fallbacks" | "font-codepoint-map" | "palette" | "terminal-keybindings" => {
-                    let control = match id {
+                "font-fallbacks" | "font-codepoint-map" | "terminal-keybindings" => {
+                    let (action, items) = match id {
                         "font-fallbacks" => terminal_lists::fallbacks(pane, cx),
                         "font-codepoint-map" => terminal_lists::codepoint_maps(pane, cx),
-                        "palette" => palette_control(pane),
                         _ => terminal_lists::bindings(pane, cx),
                     };
-                    rows.push(pane.row_with(id, setting.label, control, true));
+                    rows.push(pane.list_row(id, setting.label, action, items));
+                    continue;
+                }
+                "palette" => {
+                    rows.push(pane.row_with(id, setting.label, palette_control(pane), true));
                     continue;
                 }
                 "background-transparency" => slider(
@@ -617,13 +577,13 @@ pub(super) fn rows(
                     div()
                         .flex()
                         .flex_col()
-                        .gap(px(8.0))
+                        .gap(pane.layout_metrics.scaled(8.0))
                         .children(items.into_iter().map(|(id, label, value)| {
                             div()
                                 .flex()
                                 .items_center()
-                                .gap(px(8.0))
-                                .child(div().w(px(60.0)).child(label))
+                                .gap(pane.layout_metrics.scaled(8.0))
+                                .child(div().w(pane.layout_metrics.scaled(60.0)).child(label))
                                 .child(slider(pane, id, value, (0.0, 64.0), 1.0, "", cx))
                         }))
                         .into_any_element()
@@ -631,7 +591,6 @@ pub(super) fn rows(
                 "cursor-style"
                 | "cursor-style-blink"
                 | "macos-option-as-alt"
-                | "directory"
                 | "window-padding-color" => picker(pane, id, cx),
                 "terminal-import-notes" if !terminal.diagnostics.is_empty() => {
                     let messages = terminal.diagnostics.iter().map(|note| {
@@ -643,19 +602,20 @@ pub(super) fn rows(
                         .min_w(px(0.0))
                         .flex()
                         .flex_col()
-                        .gap(px(8.0))
+                        .gap(pane.layout_metrics.scaled(8.0))
                         .children(messages.map(|text| div().min_w(px(0.0)).child(text.to_owned())))
                         .into_any_element();
                     let control = div()
                         .w_full()
                         .flex()
                         .flex_col()
-                        .gap(px(8.0))
+                        .gap(pane.layout_metrics.scaled(8.0))
                         .child(notes)
                         .child(div().flex().child(change_button(
                             pane,
                             "dismiss-import-notes",
                             &tr!("Dismiss"),
+                            &tr!("Dismiss %@", &super::control_name(id)),
                             true,
                             Change::Terminal("dismiss-import-notes", String::new()),
                             cx,
@@ -667,10 +627,13 @@ pub(super) fn rows(
                 "terminal-reset" => controls::button(
                     pane.style(),
                     id,
-                    &tr!("Reset"),
-                    *terminal != TerminalSettings::default()
-                        || pane.snapshot.settings.panes.new_pane_directory
-                            != NewPaneDirectory::default(),
+                    controls::Button::secondary(&tr!("Reset"))
+                        .named(&super::control_name(id))
+                        .enabled(
+                            *terminal != TerminalSettings::default()
+                                || pane.snapshot.settings.panes.new_pane_directory
+                                    != NewPaneDirectory::default(),
+                        ),
                     cx.listener(|pane, _, _, cx| {
                         pane.recording = None;
                         cx.emit(SettingsEvent::ResetTerminal);
@@ -722,43 +685,6 @@ impl SettingsView {
             self.choose_binding_action(value, cx);
         } else {
             cx.emit(SettingsEvent::Change(choice_change(self, id, value)));
-        }
-    }
-
-    pub(super) fn move_terminal_slider(
-        &mut self,
-        position: gpui::Point<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(drag) = &mut self.terminal_slider else {
-            return;
-        };
-        let spec = drag.slider;
-        let fraction = controls::fraction_at(drag.bounds, position);
-        let value = ((spec.min + fraction * (spec.max - spec.min)) / spec.step).round() * spec.step;
-        let value = value.clamp(spec.min, spec.max);
-        let value = format!(
-            "{}{}",
-            if spec.step >= 1.0 {
-                format!("{value:.0}")
-            } else {
-                format!("{value:.2}")
-            },
-            if spec.id.starts_with("adjust-") {
-                spec.suffix
-            } else {
-                ""
-            }
-        );
-        if drag.value.as_ref() != Some(&value) {
-            drag.value = Some(value.clone());
-            cx.emit(SettingsEvent::PreviewTerminal(spec.id, value));
-        }
-    }
-
-    pub(super) fn finish_terminal_slider(&mut self, cx: &mut Context<Self>) {
-        if let Some(change) = self.terminal_slider.take().and_then(Drag::change) {
-            cx.emit(SettingsEvent::Change(change));
         }
     }
 }

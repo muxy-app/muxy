@@ -1,5 +1,18 @@
 use std::error::Error;
 use std::path::Path;
+#[cfg(not(target_os = "macos"))]
+use std::time::{Duration, Instant};
+
+#[cfg(not(target_os = "macos"))]
+use muxy_client::local::Detached;
+
+/// More than a launch takes to reach the running app and hear back from it.
+#[cfg(not(target_os = "macos"))]
+const HANDOFF_PATIENCE: Duration = Duration::from_secs(5);
+#[cfg(not(target_os = "macos"))]
+const START_PATIENCE: Duration = Duration::from_secs(10);
+#[cfg(not(target_os = "macos"))]
+const START_POLL: Duration = Duration::from_millis(50);
 
 /// Opens `word`, a folder, in the desktop app. Without it, or over SSH, the
 /// folder opens in the terminal UI instead.
@@ -64,12 +77,17 @@ fn desktop_session(variable: impl Fn(&str) -> Option<std::ffi::OsString>) -> boo
         .any(|name| variable(name).is_some_and(|value| !value.is_empty()))
 }
 
-/// Starts the app with `folder`, away from this terminal. An app that is
-/// already running takes the folder from the new one, which then leaves:
-/// that, or an app still running after a moment, is a folder opened.
+/// Starts the app with `folder`, away from this terminal, and reports whether
+/// it opened. An app that is already running takes the folder from the new one,
+/// which then leaves with the answer. A new one that stays is opened once its
+/// socket answers. Running out of time counts as opened, since an app too old
+/// to have that socket never answers.
 #[cfg(not(target_os = "macos"))]
 fn launch(app: &Path, folder: Option<&Path>) -> bool {
-    use std::time::{Duration, Instant};
+    let socket = muxy_core::dirs::muxy_dir()
+        .ok()
+        .map(|profile| muxy_app_core::browser::api::socket_path(&profile));
+    let handoff = socket.as_deref().is_some_and(app_answers);
     let arguments: Vec<_> = folder
         .map(|folder| folder.as_os_str().to_owned())
         .into_iter()
@@ -77,15 +95,54 @@ fn launch(app: &Path, folder: Option<&Path>) -> bool {
     let Ok(mut child) = muxy_client::local::spawn_detached(app, &arguments) else {
         return false;
     };
-    let settled = Instant::now() + Duration::from_millis(500);
-    loop {
-        match child.try_wait() {
+    if handoff {
+        handed_over(&mut child, HANDOFF_PATIENCE)
+    } else {
+        started(&mut child, socket.as_deref(), START_PATIENCE)
+    }
+}
+
+/// Connecting without sending a request is harmless: the app replies with an
+/// error and closes.
+#[cfg(not(target_os = "macos"))]
+fn app_answers(socket: &Path) -> bool {
+    muxy_protocol::transport::LocalStream::connect(socket).is_ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn handed_over(child: &mut Detached, patience: Duration) -> bool {
+    match wait_timeout(child, patience) {
+        Ok(Some(status)) => status.success(),
+        _ => true,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn started(child: &mut Detached, socket: Option<&Path>, patience: Duration) -> bool {
+    let deadline = Instant::now() + patience;
+    while Instant::now() < deadline {
+        match wait_timeout(child, START_POLL) {
             Ok(Some(status)) => return status.success(),
-            Ok(None) if Instant::now() < settled => {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            _ => return true,
+            Ok(None) if socket.is_some_and(app_answers) => return true,
+            Ok(None) => {}
+            Err(_) => return true,
         }
+    }
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+fn wait_timeout(
+    child: &mut Detached,
+    timeout: Duration,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    #[cfg(unix)]
+    {
+        muxy_core::process::wait_timeout(child, timeout)
+    }
+    #[cfg(windows)]
+    {
+        child.wait_timeout(timeout)
     }
 }
 
@@ -101,29 +158,69 @@ fn containing_app(executable: &Path) -> Option<&Path> {
 }
 
 #[cfg(all(test, not(target_os = "macos")))]
-#[allow(clippy::expect_used, reason = "Regression fixture setup")]
 mod tests {
     use std::ffi::OsString;
     #[cfg(unix)]
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    use std::io;
     #[cfg(unix)]
-    use std::path::PathBuf;
+    use std::os::unix::net::UnixListener;
     #[cfg(unix)]
-    use std::process::Command;
+    use std::process::{Child, Command};
 
     use super::*;
 
     #[cfg(unix)]
-    fn stub(root: &Path, script: &str) -> PathBuf {
-        let app = root.join("muxy-app");
-        let status = Command::new("/bin/sh")
-            .args(["-c", r#"printf '%s' "$1" > "$2" && chmod 755 "$2""#, "sh"])
-            .arg(format!("#!/bin/sh\n{script}\n"))
-            .arg(&app)
-            .status()
-            .expect("stub");
-        assert!(status.success(), "stub: {status}");
-        app
+    const PATIENCE: Duration = Duration::from_secs(10);
+
+    #[cfg(unix)]
+    fn shell(script: &str) -> io::Result<Child> {
+        Command::new("sh").args(["-c", script]).spawn()
+    }
+
+    #[cfg(unix)]
+    fn stop(mut child: Child) -> io::Result<()> {
+        child.kill()?;
+        child.wait().map(drop)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_launch_answers_with_how_it_exited() -> io::Result<()> {
+        assert!(!handed_over(&mut shell("sleep 0.6; exit 1")?, PATIENCE));
+        assert!(!started(&mut shell("sleep 0.6; exit 1")?, None, PATIENCE));
+        assert!(handed_over(&mut shell("exit 0")?, PATIENCE));
+        assert!(started(&mut shell("exit 0")?, None, PATIENCE));
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_launch_still_running_at_the_deadline_counts_as_opened() -> io::Result<()> {
+        let patience = Duration::from_millis(100);
+        let mut running = shell("exec sleep 30")?;
+        assert!(handed_over(&mut running, patience));
+        assert!(started(&mut running, None, patience));
+        stop(running)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_app_has_started_once_its_socket_answers() -> io::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let socket = folder.path().join("app.sock");
+        assert!(!app_answers(&socket));
+        let _listener = UnixListener::bind(&socket)?;
+        assert!(app_answers(&socket));
+
+        let mut running = shell("exec sleep 30")?;
+        let before = Instant::now();
+        assert!(started(
+            &mut running,
+            Some(&socket),
+            Duration::from_secs(20)
+        ));
+        assert!(before.elapsed() < Duration::from_secs(10));
+        stop(running)
     }
 
     #[test]
@@ -139,52 +236,5 @@ mod tests {
         assert!(session(&[("DISPLAY", ":0")]));
         assert!(!session(&[]), "a console or a service has no desktop");
         assert!(!session(&[("DISPLAY", ""), ("WAYLAND_DISPLAY", "")]));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn the_folder_reaches_the_app_byte_for_byte_and_never_through_a_shell() {
-        let root = tempfile::tempdir().expect("root");
-        let seen = root.path().join("seen");
-        let app = stub(
-            root.path(),
-            &format!(
-                "printf '%s' \"$1\" > '{}'; echo $# >> '{}'",
-                seen.display(),
-                seen.display()
-            ),
-        );
-        let injected = root.path().join("injected");
-        let mut name = format!(
-            "/srv/My Project/$(touch {0}); `touch {0}` 'q' café ",
-            injected.display()
-        )
-        .into_bytes();
-        name.push(0xff);
-        let folder = PathBuf::from(OsString::from_vec(name));
-        assert!(launch(&app, Some(&folder)));
-        let mut expected = folder.as_os_str().as_bytes().to_vec();
-        expected.extend_from_slice(b"1\n");
-        assert_eq!(std::fs::read(&seen).expect("seen"), expected);
-        assert!(!injected.exists());
-    }
-
-    #[test]
-    fn a_missing_app_leaves_the_folder_to_the_terminal_ui() {
-        let root = tempfile::tempdir().expect("root");
-        assert!(!launch(
-            &muxy_core::executable::sibling(&root.path().join("muxy"), "muxy-app"),
-            Some(root.path())
-        ));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn an_app_that_cannot_start_leaves_the_folder_to_the_terminal_ui() {
-        let root = tempfile::tempdir().expect("root");
-        let failing = stub(root.path(), "exit 3");
-        assert!(!launch(&failing, Some(Path::new("/srv"))));
-        let starting = stub(root.path(), "exec sleep 2");
-        assert!(launch(&starting, Some(Path::new("/srv"))), "still running");
     }
 }

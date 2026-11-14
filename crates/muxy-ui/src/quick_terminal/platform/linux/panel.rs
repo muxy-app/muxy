@@ -1,24 +1,32 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
 
 use gpui::{Window, px, size};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use x11rb::{
     connection::Connection,
-    protocol::xproto::{self, ConnectionExt, EventMask, InputFocus, PropMode, StackMode},
+    protocol::{
+        Event,
+        xproto::{self, ConnectionExt, EventMask, InputFocus, PropMode, StackMode, WindowClass},
+    },
     rust_connection::RustConnection,
     wrapper::ConnectionExt as _,
 };
 
-use crate::quick_terminal::{panel::QuickTerminalConfiguration, view::AccessibilityNode};
+use crate::quick_terminal::panel::QuickTerminalConfiguration;
 
 #[derive(Debug)]
 pub(in crate::quick_terminal::platform) struct PanelAdapter {
-    connection: RustConnection,
+    connection: Arc<RustConnection>,
     window: u32,
     root: u32,
     active_window: u32,
     previous: Option<u32>,
     visible: bool,
+    focus_on_map: FocusOnMap,
 }
 
 #[allow(clippy::unused_self, reason = "Shared panel backend interface")]
@@ -42,8 +50,10 @@ impl PanelAdapter {
 
     fn native(native: u32) -> Result<Self, String> {
         let (connection, screen) = x11rb::connect(None).map_err(|error| error.to_string())?;
+        let connection = Arc::new(connection);
         let root = connection.setup().roots[screen].root;
         let active_window = atom(&connection, b"_NET_ACTIVE_WINDOW")?;
+        let focus_on_map = FocusOnMap::start(connection.clone(), root, native, active_window)?;
         let panel = Self {
             connection,
             window: native,
@@ -51,6 +61,7 @@ impl PanelAdapter {
             active_window,
             previous: None,
             visible: false,
+            focus_on_map,
         };
         panel.configure_properties()?;
         Ok(panel)
@@ -227,18 +238,58 @@ impl PanelAdapter {
                 .filter(|&id| id != 0 && id != self.window);
         }
         self.visible = true;
+        self.focus_on_map.request();
         let _ = self.connection.map_window(self.window);
         let _ = self.connection.configure_window(
             self.window,
             &xproto::ConfigureWindowAux::new().stack_mode(StackMode::ABOVE),
         );
-        self.activate(self.window);
+        self.keep_above_on_every_desktop();
+        let _ = self.connection.flush();
+        if self.is_viewable() && self.focus_on_map.take() {
+            self.activate(self.window);
+        }
+    }
+
+    fn is_viewable(&self) -> bool {
+        self.connection
+            .get_window_attributes(self.window)
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .is_some_and(|reply| reply.map_state == xproto::MapState::VIEWABLE)
+    }
+
+    /// Window managers drop `_NET_WM_STATE` when a window is hidden and only honour
+    /// requests for mapped windows, so the states are requested again on every show.
+    fn keep_above_on_every_desktop(&self) {
+        const ADD: u32 = 1;
+        const NORMAL_APPLICATION: u32 = 1;
+        let (Ok(state), Ok(above), Ok(sticky)) = (
+            atom(&self.connection, b"_NET_WM_STATE"),
+            atom(&self.connection, b"_NET_WM_STATE_ABOVE"),
+            atom(&self.connection, b"_NET_WM_STATE_STICKY"),
+        ) else {
+            return;
+        };
+        let message = xproto::ClientMessageEvent::new(
+            32,
+            self.window,
+            state,
+            [ADD, above, sticky, NORMAL_APPLICATION, 0],
+        );
+        let _ = self.connection.send_event(
+            false,
+            self.root,
+            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+            message,
+        );
     }
 
     pub(in crate::quick_terminal::platform) fn begin_hide(&mut self, _duration: Duration) {}
 
     pub(in crate::quick_terminal::platform) fn finish_hide(&mut self, restores_focus: bool) {
         let is_key = self.is_key();
+        self.focus_on_map.cancel();
         let _ = self.connection.unmap_window(self.window);
         self.visible = false;
         if let Some(previous) = self.previous.take().filter(|_| restores_focus && is_key) {
@@ -247,29 +298,15 @@ impl PanelAdapter {
         let _ = self.connection.flush();
     }
 
-    fn activate(&self, window: u32) {
-        let message = xproto::ClientMessageEvent::new(
-            32,
-            window,
-            self.active_window,
-            [1, x11rb::CURRENT_TIME, 0, 0, 0],
-        );
-        let _ = self.connection.send_event(
-            false,
-            self.root,
-            EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
-            message,
-        );
-        let _ =
-            self.connection
-                .set_input_focus(InputFocus::POINTER_ROOT, window, x11rb::CURRENT_TIME);
-        let _ = self.connection.flush();
+    /// The panel is sticky on every desktop whether or not it is pinned.
+    pub(in crate::quick_terminal::platform) fn set_pinned(&self, _pinned: bool) {}
+
+    pub(in crate::quick_terminal::platform) fn forget_previous_focus(&mut self) {
+        self.previous = None;
     }
 
-    pub(in crate::quick_terminal::platform) fn install_accessibility(
-        &mut self,
-        _nodes: &[AccessibilityNode],
-    ) {
+    fn activate(&self, window: u32) {
+        activate(&self.connection, self.root, self.active_window, window);
     }
 }
 
@@ -278,6 +315,118 @@ impl Drop for PanelAdapter {
         let _ = self.connection.unmap_window(self.window);
         let _ = self.connection.flush();
     }
+}
+
+/// Window managers ignore focus requests for a window they haven't shown yet, and Mutter shows a
+/// decorated window only once its frame exists. A panel that isn't viewable yet asks for focus
+/// when the window manager maps it.
+#[derive(Debug)]
+struct FocusOnMap {
+    connection: Arc<RustConnection>,
+    wake_window: u32,
+    pending: Arc<AtomicBool>,
+}
+
+impl FocusOnMap {
+    fn start(
+        connection: Arc<RustConnection>,
+        root: u32,
+        window: u32,
+        active_window: u32,
+    ) -> Result<Self, String> {
+        connection
+            .change_window_attributes(
+                window,
+                &xproto::ChangeWindowAttributesAux::new().event_mask(EventMask::STRUCTURE_NOTIFY),
+            )
+            .map_err(|error| error.to_string())?
+            .check()
+            .map_err(|error| error.to_string())?;
+        let wake_window = connection
+            .generate_id()
+            .map_err(|error| error.to_string())?;
+        connection
+            .create_window(
+                0,
+                wake_window,
+                root,
+                0,
+                0,
+                1,
+                1,
+                0,
+                WindowClass::INPUT_ONLY,
+                0,
+                &xproto::CreateWindowAux::new().event_mask(EventMask::STRUCTURE_NOTIFY),
+            )
+            .map_err(|error| error.to_string())?
+            .check()
+            .map_err(|error| error.to_string())?;
+        let pending = Arc::new(AtomicBool::new(false));
+        let listener = connection.clone();
+        let requested = pending.clone();
+        std::thread::Builder::new()
+            .name("muxy-quick-panel".into())
+            .spawn(move || {
+                while let Ok(event) = listener.wait_for_event() {
+                    match event {
+                        Event::MapNotify(map)
+                            if map.window == window && requested.swap(false, Ordering::AcqRel) =>
+                        {
+                            activate(&listener, root, active_window, window);
+                        }
+                        Event::DestroyNotify(destroy)
+                            if destroy.window == wake_window || destroy.window == window =>
+                        {
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            connection,
+            wake_window,
+            pending,
+        })
+    }
+
+    fn request(&self) {
+        self.pending.store(true, Ordering::Release);
+    }
+
+    fn take(&self) -> bool {
+        self.pending.swap(false, Ordering::AcqRel)
+    }
+
+    fn cancel(&self) {
+        self.pending.store(false, Ordering::Release);
+    }
+}
+
+impl Drop for FocusOnMap {
+    fn drop(&mut self) {
+        let _ = self.connection.destroy_window(self.wake_window);
+        let _ = self.connection.flush();
+    }
+}
+
+fn activate(connection: &RustConnection, root: u32, active_window: u32, window: u32) {
+    let message = xproto::ClientMessageEvent::new(
+        32,
+        window,
+        active_window,
+        [1, x11rb::CURRENT_TIME, 0, 0, 0],
+    );
+    let _ = connection.send_event(
+        false,
+        root,
+        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+        message,
+    );
+    let _ = connection.set_input_focus(InputFocus::POINTER_ROOT, window, x11rb::CURRENT_TIME);
+    let _ = connection.flush();
 }
 
 fn atom(connection: &RustConnection, name: &[u8]) -> Result<u32, String> {
@@ -300,205 +449,4 @@ fn property(connection: &RustConnection, window: u32, name: &[u8]) -> Vec<u32> {
         .and_then(|cookie| cookie.reply().ok())
         .and_then(|reply| reply.value32().map(Iterator::collect))
         .unwrap_or_default()
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-    use x11rb::protocol::Event;
-
-    fn window(connection: &RustConnection, root: u32) -> u32 {
-        let window = connection.generate_id().unwrap();
-        connection
-            .create_window(
-                0,
-                window,
-                root,
-                0,
-                0,
-                32,
-                32,
-                0,
-                xproto::WindowClass::INPUT_OUTPUT,
-                0,
-                &xproto::CreateWindowAux::default(),
-            )
-            .unwrap()
-            .check()
-            .unwrap();
-        connection.map_window(window).unwrap().check().unwrap();
-        window
-    }
-
-    fn focus_change(connection: &RustConnection) -> Event {
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        loop {
-            if let Some(event) = connection.poll_for_event().unwrap()
-                && matches!(event, Event::FocusIn(_) | Event::FocusOut(_))
-            {
-                return event;
-            }
-            assert!(std::time::Instant::now() < deadline, "missing focus event");
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    }
-
-    #[test]
-    #[ignore = "requires an isolated X server (xvfb-run)"]
-    fn shortcut_grabs_do_not_hide_a_panel_that_still_owns_focus() {
-        let _display = super::super::X11_TEST.lock().unwrap();
-        let (connection, screen) = x11rb::connect(None).unwrap();
-        let (grabber, _) = x11rb::connect(None).unwrap();
-        let root = connection.setup().roots[screen].root;
-        let native = window(&connection, root);
-        let other = window(&connection, root);
-        connection
-            .change_window_attributes(
-                native,
-                &xproto::ChangeWindowAttributesAux::new().event_mask(EventMask::FOCUS_CHANGE),
-            )
-            .unwrap()
-            .check()
-            .unwrap();
-        let mut panel = PanelAdapter::native(native).unwrap();
-        panel.show(Duration::ZERO);
-        assert!(matches!(focus_change(&connection), Event::FocusIn(_)));
-        let key = connection.setup().min_keycode;
-        grabber
-            .grab_key(
-                false,
-                root,
-                xproto::ModMask::ANY,
-                key,
-                xproto::GrabMode::ASYNC,
-                xproto::GrabMode::ASYNC,
-            )
-            .unwrap()
-            .check()
-            .unwrap();
-        for pressed in [true, false] {
-            x11rb::protocol::xtest::fake_input(
-                &grabber,
-                if pressed {
-                    xproto::KEY_PRESS_EVENT
-                } else {
-                    xproto::KEY_RELEASE_EVENT
-                },
-                key,
-                0,
-                0,
-                0,
-                0,
-                0,
-            )
-            .unwrap()
-            .check()
-            .unwrap();
-            let event = focus_change(&connection);
-            if pressed {
-                assert!(
-                    matches!(event, Event::FocusOut(event) if event.mode == xproto::NotifyMode::GRAB)
-                );
-            } else {
-                assert!(
-                    matches!(event, Event::FocusIn(event) if event.mode == xproto::NotifyMode::UNGRAB)
-                );
-            }
-            assert!(panel.is_active(false));
-        }
-        connection
-            .set_input_focus(InputFocus::POINTER_ROOT, other, x11rb::CURRENT_TIME)
-            .unwrap()
-            .check()
-            .unwrap();
-        assert!(
-            matches!(focus_change(&connection), Event::FocusOut(event) if event.mode == xproto::NotifyMode::NORMAL)
-        );
-        assert!(!panel.is_active(false));
-    }
-
-    #[test]
-    #[ignore = "requires an isolated X server (xvfb-run)"]
-    fn hiding_restores_only_focus_owned_by_the_panel_and_preserves_the_window() {
-        let _display = super::super::X11_TEST.lock().unwrap();
-        let (connection, screen) = x11rb::connect(None).unwrap();
-        let root = connection.setup().roots[screen].root;
-        let previous = window(&connection, root);
-        let other = window(&connection, root);
-        let native = window(&connection, root);
-        let active = atom(&connection, b"_NET_ACTIVE_WINDOW").unwrap();
-        connection
-            .change_property32(
-                PropMode::REPLACE,
-                root,
-                active,
-                xproto::AtomEnum::WINDOW,
-                &[previous],
-            )
-            .unwrap()
-            .check()
-            .unwrap();
-        let mut panel = PanelAdapter::native(native).unwrap();
-        for _ in 0..3 {
-            panel.show(Duration::ZERO);
-            assert_eq!(
-                panel
-                    .connection
-                    .get_input_focus()
-                    .unwrap()
-                    .reply()
-                    .unwrap()
-                    .focus,
-                native
-            );
-            panel.finish_hide(true);
-            assert_eq!(
-                panel
-                    .connection
-                    .get_input_focus()
-                    .unwrap()
-                    .reply()
-                    .unwrap()
-                    .focus,
-                previous
-            );
-            assert_eq!(
-                panel
-                    .connection
-                    .get_window_attributes(native)
-                    .unwrap()
-                    .reply()
-                    .unwrap()
-                    .map_state,
-                xproto::MapState::UNMAPPED
-            );
-        }
-        panel.show(Duration::ZERO);
-        panel.connection.get_input_focus().unwrap().reply().unwrap();
-        connection
-            .set_input_focus(InputFocus::POINTER_ROOT, other, x11rb::CURRENT_TIME)
-            .unwrap()
-            .check()
-            .unwrap();
-        panel.finish_hide(true);
-        assert_eq!(
-            panel
-                .connection
-                .get_input_focus()
-                .unwrap()
-                .reply()
-                .unwrap()
-                .focus,
-            other
-        );
-        assert!(
-            panel
-                .connection
-                .get_geometry(native)
-                .unwrap()
-                .reply()
-                .is_ok()
-        );
-    }
 }

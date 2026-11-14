@@ -11,7 +11,7 @@ pub(crate) fn text(path: &ServerPath) -> String {
 }
 
 pub(crate) fn server_path(path: String) -> ServerPath {
-    ServerPath(path.into_bytes())
+    ServerPath::from(path)
 }
 
 /// Everything the app keeps to reconnect; store it in the Keychain or Keystore.
@@ -106,10 +106,14 @@ pub struct Session {
     pub owner: Option<ClientKind>,
     /// Whether this device is attached.
     pub attached: bool,
+    /// What to call it, as the desktop app does: a renamed tab's title, else
+    /// the title its program set, else the running program's name, else its
+    /// folder. `TitleChanged` brings changes.
+    pub title: String,
 }
 
-impl From<&ProjectSession> for Session {
-    fn from(session: &ProjectSession) -> Self {
+impl Session {
+    pub(crate) fn listed(session: &ProjectSession, title: String) -> Self {
         Self {
             id: session.info.id.get(),
             project_id: session.info.project.to_string(),
@@ -129,6 +133,7 @@ impl From<&ProjectSession> for Session {
                 muxy_protocol::ClientKind::Unrecognized(_) => ClientKind::Other,
             }),
             attached: session.attached,
+            title,
         }
     }
 }

@@ -13,7 +13,7 @@ flowchart LR
     REMOTE["muxy-server<br/>on another computer"]
     DESKTOP <-->|"Unix socket"| SERVER
     TUI <-->|"Unix socket"| SERVER
-    DESKTOP <-->|"SSH · muxy stdio"| REMOTE
+    DESKTOP <-->|"SSH · muxy stdio, or TLS after pairing"| REMOTE
     TUI <-->|"SSH · muxy stdio"| REMOTE
     PHONE <-->|"TLS"| SERVER
     PHONE <-->|"SSH · muxy stdio"| REMOTE
@@ -38,5 +38,3 @@ The big ideas:
 2. [Protocol](./protocol.md): how apps and the server talk, and the
    compatibility rules.
 3. [Mobile](./mobile.md): how phones pair and connect.
-4. [Decisions](./decisions.md): the key choices and why they were made.
-5. [Constraints](./constraints.md): supported platforms and hard-won lessons.

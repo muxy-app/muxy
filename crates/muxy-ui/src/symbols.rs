@@ -10,771 +10,771 @@ pub struct Symbol {
 
 pub const SYMBOLS: [Symbol; 192] = [
     Symbol {
-        name: "Folder",
+        name: crate::l10n::tr_key!("Folder"),
         symbol: "folder",
     },
     Symbol {
-        name: "Folder Fill",
+        name: crate::l10n::tr_key!("Folder Fill"),
         symbol: "folder.fill",
     },
     Symbol {
-        name: "Terminal",
+        name: crate::l10n::tr_key!("Terminal"),
         symbol: "terminal",
     },
     Symbol {
-        name: "Terminal Fill",
+        name: crate::l10n::tr_key!("Terminal Fill"),
         symbol: "terminal.fill",
     },
     Symbol {
-        name: "Code",
+        name: crate::l10n::tr_key!("Code"),
         symbol: "chevron.left.forwardslash.chevron.right",
     },
     Symbol {
-        name: "Document",
+        name: crate::l10n::tr_key!("Document"),
         symbol: "doc",
     },
     Symbol {
-        name: "Document Fill",
+        name: crate::l10n::tr_key!("Document Fill"),
         symbol: "doc.fill",
     },
     Symbol {
-        name: "Document Text",
+        name: crate::l10n::tr_key!("Document Text"),
         symbol: "doc.text",
     },
     Symbol {
-        name: "Document Text Fill",
+        name: crate::l10n::tr_key!("Document Text Fill"),
         symbol: "doc.text.fill",
     },
     Symbol {
-        name: "Document on Clipboard",
+        name: crate::l10n::tr_key!("Document on Clipboard"),
         symbol: "doc.on.clipboard",
     },
     Symbol {
-        name: "List",
+        name: crate::l10n::tr_key!("List"),
         symbol: "list.bullet",
     },
     Symbol {
-        name: "List Rectangle",
+        name: crate::l10n::tr_key!("List Rectangle"),
         symbol: "list.bullet.rectangle",
     },
     Symbol {
-        name: "Pencil",
+        name: crate::l10n::tr_key!("Pencil"),
         symbol: "pencil",
     },
     Symbol {
-        name: "Pencil and Ruler",
+        name: crate::l10n::tr_key!("Pencil and Ruler"),
         symbol: "pencil.and.ruler",
     },
     Symbol {
-        name: "Ruler",
+        name: crate::l10n::tr_key!("Ruler"),
         symbol: "ruler",
     },
     Symbol {
-        name: "Swatchpalette",
+        name: crate::l10n::tr_key!("Swatchpalette"),
         symbol: "swatchpalette.fill",
     },
     Symbol {
-        name: "Paintpalette",
+        name: crate::l10n::tr_key!("Paintpalette"),
         symbol: "paintpalette.fill",
     },
     Symbol {
-        name: "Sparkle",
+        name: crate::l10n::tr_key!("Sparkle"),
         symbol: "sparkle",
     },
     Symbol {
-        name: "Star",
+        name: crate::l10n::tr_key!("Star"),
         symbol: "star",
     },
     Symbol {
-        name: "Star Fill",
+        name: crate::l10n::tr_key!("Star Fill"),
         symbol: "star.fill",
     },
     Symbol {
-        name: "Gear",
+        name: crate::l10n::tr_key!("Gear"),
         symbol: "gearshape",
     },
     Symbol {
-        name: "Gear Fill",
+        name: crate::l10n::tr_key!("Gear Fill"),
         symbol: "gearshape.fill",
     },
     Symbol {
-        name: "Wrench",
+        name: crate::l10n::tr_key!("Wrench"),
         symbol: "wrench",
     },
     Symbol {
-        name: "Wrench Fill",
+        name: crate::l10n::tr_key!("Wrench Fill"),
         symbol: "wrench.fill",
     },
     Symbol {
-        name: "Hammer",
+        name: crate::l10n::tr_key!("Hammer"),
         symbol: "hammer",
     },
     Symbol {
-        name: "Hammer Fill",
+        name: crate::l10n::tr_key!("Hammer Fill"),
         symbol: "hammer.fill",
     },
     Symbol {
-        name: "Screwdriver",
+        name: crate::l10n::tr_key!("Screwdriver"),
         symbol: "screwdriver",
     },
     Symbol {
-        name: "Screwdriver Fill",
+        name: crate::l10n::tr_key!("Screwdriver Fill"),
         symbol: "screwdriver.fill",
     },
     Symbol {
-        name: "Wand and Stars",
+        name: crate::l10n::tr_key!("Wand and Stars"),
         symbol: "wand.and.stars",
     },
     Symbol {
-        name: "Globe",
+        name: crate::l10n::tr_key!("Globe"),
         symbol: "globe",
     },
     Symbol {
-        name: "Globe Americas",
+        name: crate::l10n::tr_key!("Globe Americas"),
         symbol: "globe.americas",
     },
     Symbol {
-        name: "Network",
+        name: crate::l10n::tr_key!("Network"),
         symbol: "network",
     },
     Symbol {
-        name: "Server Rack",
+        name: crate::l10n::tr_key!("Server Rack"),
         symbol: "server.rack",
     },
     Symbol {
-        name: "External Drive",
+        name: crate::l10n::tr_key!("External Drive"),
         symbol: "externaldrive",
     },
     Symbol {
-        name: "External Drive Fill",
+        name: crate::l10n::tr_key!("External Drive Fill"),
         symbol: "externaldrive.fill",
     },
     Symbol {
-        name: "Optical Disc",
+        name: crate::l10n::tr_key!("Optical Disc"),
         symbol: "opticaldisc",
     },
     Symbol {
-        name: "Optical Disc Fill",
+        name: crate::l10n::tr_key!("Optical Disc Fill"),
         symbol: "opticaldisc.fill",
     },
     Symbol {
-        name: "Cloud",
+        name: crate::l10n::tr_key!("Cloud"),
         symbol: "cloud",
     },
     Symbol {
-        name: "Cloud Fill",
+        name: crate::l10n::tr_key!("Cloud Fill"),
         symbol: "cloud.fill",
     },
     Symbol {
-        name: "Square Grid 2x2",
+        name: crate::l10n::tr_key!("Square Grid 2x2"),
         symbol: "square.grid.2x2",
     },
     Symbol {
-        name: "Square Grid 2x2 Fill",
+        name: crate::l10n::tr_key!("Square Grid 2x2 Fill"),
         symbol: "square.grid.2x2.fill",
     },
     Symbol {
-        name: "Square Grid 3x2",
+        name: crate::l10n::tr_key!("Square Grid 3x2"),
         symbol: "square.grid.3x2",
     },
     Symbol {
-        name: "Square Grid 3x2 Fill",
+        name: crate::l10n::tr_key!("Square Grid 3x2 Fill"),
         symbol: "square.grid.3x2.fill",
     },
     Symbol {
-        name: "Rectangle Grid 1x2",
+        name: crate::l10n::tr_key!("Rectangle Grid 1x2"),
         symbol: "rectangle.grid.1x2",
     },
     Symbol {
-        name: "Rectangle Grid 1x2 Fill",
+        name: crate::l10n::tr_key!("Rectangle Grid 1x2 Fill"),
         symbol: "rectangle.grid.1x2.fill",
     },
     Symbol {
-        name: "Rectangle 3 Group",
+        name: crate::l10n::tr_key!("Rectangle 3 Group"),
         symbol: "rectangle.3.group",
     },
     Symbol {
-        name: "Rectangle 3 Group Fill",
+        name: crate::l10n::tr_key!("Rectangle 3 Group Fill"),
         symbol: "rectangle.3.group.fill",
     },
     Symbol {
-        name: "Square Stack",
+        name: crate::l10n::tr_key!("Square Stack"),
         symbol: "square.stack",
     },
     Symbol {
-        name: "Square Stack Fill",
+        name: crate::l10n::tr_key!("Square Stack Fill"),
         symbol: "square.stack.fill",
     },
     Symbol {
-        name: "Circle",
+        name: crate::l10n::tr_key!("Circle"),
         symbol: "circle",
     },
     Symbol {
-        name: "Circle Fill",
+        name: crate::l10n::tr_key!("Circle Fill"),
         symbol: "circle.fill",
     },
     Symbol {
-        name: "Diamond",
+        name: crate::l10n::tr_key!("Diamond"),
         symbol: "diamond",
     },
     Symbol {
-        name: "Diamond Fill",
+        name: crate::l10n::tr_key!("Diamond Fill"),
         symbol: "diamond.fill",
     },
     Symbol {
-        name: "Hexagon",
+        name: crate::l10n::tr_key!("Hexagon"),
         symbol: "hexagon",
     },
     Symbol {
-        name: "Hexagon Fill",
+        name: crate::l10n::tr_key!("Hexagon Fill"),
         symbol: "hexagon.fill",
     },
     Symbol {
-        name: "App",
+        name: crate::l10n::tr_key!("App"),
         symbol: "app",
     },
     Symbol {
-        name: "App Fill",
+        name: crate::l10n::tr_key!("App Fill"),
         symbol: "app.fill",
     },
     Symbol {
-        name: "App Badge",
+        name: crate::l10n::tr_key!("App Badge"),
         symbol: "app.badge",
     },
     Symbol {
-        name: "App Badge Fill",
+        name: crate::l10n::tr_key!("App Badge Fill"),
         symbol: "app.badge.fill",
     },
     Symbol {
-        name: "App Window",
+        name: crate::l10n::tr_key!("App Window"),
         symbol: "macwindow",
     },
     Symbol {
-        name: "Play",
+        name: crate::l10n::tr_key!("Play"),
         symbol: "play",
     },
     Symbol {
-        name: "Play Fill",
+        name: crate::l10n::tr_key!("Play Fill"),
         symbol: "play.fill",
     },
     Symbol {
-        name: "Play Rectangle",
+        name: crate::l10n::tr_key!("Play Rectangle"),
         symbol: "play.rectangle",
     },
     Symbol {
-        name: "Play Rectangle Fill",
+        name: crate::l10n::tr_key!("Play Rectangle Fill"),
         symbol: "play.rectangle.fill",
     },
     Symbol {
-        name: "Music Note",
+        name: crate::l10n::tr_key!("Music Note"),
         symbol: "music.note",
     },
     Symbol {
-        name: "Music Note List",
+        name: crate::l10n::tr_key!("Music Note List"),
         symbol: "music.note.list",
     },
     Symbol {
-        name: "Film",
+        name: crate::l10n::tr_key!("Film"),
         symbol: "film",
     },
     Symbol {
-        name: "Film Fill",
+        name: crate::l10n::tr_key!("Film Fill"),
         symbol: "film.fill",
     },
     Symbol {
-        name: "Photo",
+        name: crate::l10n::tr_key!("Photo"),
         symbol: "photo",
     },
     Symbol {
-        name: "Photo Fill",
+        name: crate::l10n::tr_key!("Photo Fill"),
         symbol: "photo.fill",
     },
     Symbol {
-        name: "Video",
+        name: crate::l10n::tr_key!("Video"),
         symbol: "video",
     },
     Symbol {
-        name: "Video Fill",
+        name: crate::l10n::tr_key!("Video Fill"),
         symbol: "video.fill",
     },
     Symbol {
-        name: "Message",
+        name: crate::l10n::tr_key!("Message"),
         symbol: "message",
     },
     Symbol {
-        name: "Message Fill",
+        name: crate::l10n::tr_key!("Message Fill"),
         symbol: "message.fill",
     },
     Symbol {
-        name: "Bubble Left",
+        name: crate::l10n::tr_key!("Bubble Left"),
         symbol: "bubble.left",
     },
     Symbol {
-        name: "Bubble Left Fill",
+        name: crate::l10n::tr_key!("Bubble Left Fill"),
         symbol: "bubble.left.fill",
     },
     Symbol {
-        name: "Envelope",
+        name: crate::l10n::tr_key!("Envelope"),
         symbol: "envelope",
     },
     Symbol {
-        name: "Envelope Fill",
+        name: crate::l10n::tr_key!("Envelope Fill"),
         symbol: "envelope.fill",
     },
     Symbol {
-        name: "Calendar",
+        name: crate::l10n::tr_key!("Calendar"),
         symbol: "calendar",
     },
     Symbol {
-        name: "Clock",
+        name: crate::l10n::tr_key!("Clock"),
         symbol: "clock",
     },
     Symbol {
-        name: "Clock Fill",
+        name: crate::l10n::tr_key!("Clock Fill"),
         symbol: "clock.fill",
     },
     Symbol {
-        name: "Timer",
+        name: crate::l10n::tr_key!("Timer"),
         symbol: "timer",
     },
     Symbol {
-        name: "Bell",
+        name: crate::l10n::tr_key!("Bell"),
         symbol: "bell",
     },
     Symbol {
-        name: "Bell Fill",
+        name: crate::l10n::tr_key!("Bell Fill"),
         symbol: "bell.fill",
     },
     Symbol {
-        name: "Bell Badge",
+        name: crate::l10n::tr_key!("Bell Badge"),
         symbol: "bell.badge",
     },
     Symbol {
-        name: "Bell Badge Fill",
+        name: crate::l10n::tr_key!("Bell Badge Fill"),
         symbol: "bell.badge.fill",
     },
     Symbol {
-        name: "Bookmark",
+        name: crate::l10n::tr_key!("Bookmark"),
         symbol: "bookmark",
     },
     Symbol {
-        name: "Bookmark Fill",
+        name: crate::l10n::tr_key!("Bookmark Fill"),
         symbol: "bookmark.fill",
     },
     Symbol {
-        name: "Flag",
+        name: crate::l10n::tr_key!("Flag"),
         symbol: "flag",
     },
     Symbol {
-        name: "Flag Fill",
+        name: crate::l10n::tr_key!("Flag Fill"),
         symbol: "flag.fill",
     },
     Symbol {
-        name: "Tag",
+        name: crate::l10n::tr_key!("Tag"),
         symbol: "tag",
     },
     Symbol {
-        name: "Tag Fill",
+        name: crate::l10n::tr_key!("Tag Fill"),
         symbol: "tag.fill",
     },
     Symbol {
-        name: "Book",
+        name: crate::l10n::tr_key!("Book"),
         symbol: "book",
     },
     Symbol {
-        name: "Book Fill",
+        name: crate::l10n::tr_key!("Book Fill"),
         symbol: "book.fill",
     },
     Symbol {
-        name: "Books Vertical",
+        name: crate::l10n::tr_key!("Books Vertical"),
         symbol: "books.vertical",
     },
     Symbol {
-        name: "Books Vertical Fill",
+        name: crate::l10n::tr_key!("Books Vertical Fill"),
         symbol: "books.vertical.fill",
     },
     Symbol {
-        name: "Magnifying Glass",
+        name: crate::l10n::tr_key!("Magnifying Glass"),
         symbol: "magnifyingglass",
     },
     Symbol {
-        name: "Lightbulb",
+        name: crate::l10n::tr_key!("Lightbulb"),
         symbol: "lightbulb",
     },
     Symbol {
-        name: "Lightbulb Fill",
+        name: crate::l10n::tr_key!("Lightbulb Fill"),
         symbol: "lightbulb.fill",
     },
     Symbol {
-        name: "Cube",
+        name: crate::l10n::tr_key!("Cube"),
         symbol: "cube",
     },
     Symbol {
-        name: "Cube Fill",
+        name: crate::l10n::tr_key!("Cube Fill"),
         symbol: "cube.fill",
     },
     Symbol {
-        name: "Cylinder",
+        name: crate::l10n::tr_key!("Cylinder"),
         symbol: "cylinder",
     },
     Symbol {
-        name: "Cylinder Fill",
+        name: crate::l10n::tr_key!("Cylinder Fill"),
         symbol: "cylinder.fill",
     },
     Symbol {
-        name: "Capsule",
+        name: crate::l10n::tr_key!("Capsule"),
         symbol: "capsule",
     },
     Symbol {
-        name: "Capsule Fill",
+        name: crate::l10n::tr_key!("Capsule Fill"),
         symbol: "capsule.fill",
     },
     Symbol {
-        name: "Pyramid",
+        name: crate::l10n::tr_key!("Pyramid"),
         symbol: "pyramid",
     },
     Symbol {
-        name: "Pyramid Fill",
+        name: crate::l10n::tr_key!("Pyramid Fill"),
         symbol: "pyramid.fill",
     },
     Symbol {
-        name: "Cone",
+        name: crate::l10n::tr_key!("Cone"),
         symbol: "cone",
     },
     Symbol {
-        name: "Cone Fill",
+        name: crate::l10n::tr_key!("Cone Fill"),
         symbol: "cone.fill",
     },
     Symbol {
-        name: "Key",
+        name: crate::l10n::tr_key!("Key"),
         symbol: "key",
     },
     Symbol {
-        name: "Key Fill",
+        name: crate::l10n::tr_key!("Key Fill"),
         symbol: "key.fill",
     },
     Symbol {
-        name: "Lock",
+        name: crate::l10n::tr_key!("Lock"),
         symbol: "lock",
     },
     Symbol {
-        name: "Lock Fill",
+        name: crate::l10n::tr_key!("Lock Fill"),
         symbol: "lock.fill",
     },
     Symbol {
-        name: "Lock Shield",
+        name: crate::l10n::tr_key!("Lock Shield"),
         symbol: "lock.shield",
     },
     Symbol {
-        name: "Lock Shield Fill",
+        name: crate::l10n::tr_key!("Lock Shield Fill"),
         symbol: "lock.shield.fill",
     },
     Symbol {
-        name: "Shield",
+        name: crate::l10n::tr_key!("Shield"),
         symbol: "shield",
     },
     Symbol {
-        name: "Shield Fill",
+        name: crate::l10n::tr_key!("Shield Fill"),
         symbol: "shield.fill",
     },
     Symbol {
-        name: "Bolt",
+        name: crate::l10n::tr_key!("Bolt"),
         symbol: "bolt",
     },
     Symbol {
-        name: "Bolt Fill",
+        name: crate::l10n::tr_key!("Bolt Fill"),
         symbol: "bolt.fill",
     },
     Symbol {
-        name: "Bolt Shield",
+        name: crate::l10n::tr_key!("Bolt Shield"),
         symbol: "bolt.shield",
     },
     Symbol {
-        name: "Bolt Shield Fill",
+        name: crate::l10n::tr_key!("Bolt Shield Fill"),
         symbol: "bolt.shield.fill",
     },
     Symbol {
-        name: "Waveform",
+        name: crate::l10n::tr_key!("Waveform"),
         symbol: "waveform",
     },
     Symbol {
-        name: "Waveform Path",
+        name: crate::l10n::tr_key!("Waveform Path"),
         symbol: "waveform.path",
     },
     Symbol {
-        name: "Chart Pie",
+        name: crate::l10n::tr_key!("Chart Pie"),
         symbol: "chart.pie",
     },
     Symbol {
-        name: "Chart Pie Fill",
+        name: crate::l10n::tr_key!("Chart Pie Fill"),
         symbol: "chart.pie.fill",
     },
     Symbol {
-        name: "Chart Bar",
+        name: crate::l10n::tr_key!("Chart Bar"),
         symbol: "chart.bar",
     },
     Symbol {
-        name: "Chart Bar Fill",
+        name: crate::l10n::tr_key!("Chart Bar Fill"),
         symbol: "chart.bar.fill",
     },
     Symbol {
-        name: "Chart Line",
+        name: crate::l10n::tr_key!("Chart Line"),
         symbol: "chart.line.uptrend.xyaxis",
     },
     Symbol {
-        name: "Gauge",
+        name: crate::l10n::tr_key!("Gauge"),
         symbol: "gauge",
     },
     Symbol {
-        name: "Speedometer",
+        name: crate::l10n::tr_key!("Speedometer"),
         symbol: "speedometer",
     },
     Symbol {
-        name: "Viewfinder",
+        name: crate::l10n::tr_key!("Viewfinder"),
         symbol: "viewfinder",
     },
     Symbol {
-        name: "Viewfinder Circle",
+        name: crate::l10n::tr_key!("Viewfinder Circle"),
         symbol: "viewfinder.circle",
     },
     Symbol {
-        name: "Camera",
+        name: crate::l10n::tr_key!("Camera"),
         symbol: "camera",
     },
     Symbol {
-        name: "Camera Fill",
+        name: crate::l10n::tr_key!("Camera Fill"),
         symbol: "camera.fill",
     },
     Symbol {
-        name: "Eye",
+        name: crate::l10n::tr_key!("Eye"),
         symbol: "eye",
     },
     Symbol {
-        name: "Eye Fill",
+        name: crate::l10n::tr_key!("Eye Fill"),
         symbol: "eye.fill",
     },
     Symbol {
-        name: "Eye Slash",
+        name: crate::l10n::tr_key!("Eye Slash"),
         symbol: "eye.slash",
     },
     Symbol {
-        name: "Eye Slash Fill",
+        name: crate::l10n::tr_key!("Eye Slash Fill"),
         symbol: "eye.slash.fill",
     },
     Symbol {
-        name: "Person",
+        name: crate::l10n::tr_key!("Person"),
         symbol: "person",
     },
     Symbol {
-        name: "Person Fill",
+        name: crate::l10n::tr_key!("Person Fill"),
         symbol: "person.fill",
     },
     Symbol {
-        name: "Person Circle",
+        name: crate::l10n::tr_key!("Person Circle"),
         symbol: "person.circle",
     },
     Symbol {
-        name: "Person Circle Fill",
+        name: crate::l10n::tr_key!("Person Circle Fill"),
         symbol: "person.circle.fill",
     },
     Symbol {
-        name: "Person 2",
+        name: crate::l10n::tr_key!("Person 2"),
         symbol: "person.2",
     },
     Symbol {
-        name: "Person 2 Fill",
+        name: crate::l10n::tr_key!("Person 2 Fill"),
         symbol: "person.2.fill",
     },
     Symbol {
-        name: "Person 3",
+        name: crate::l10n::tr_key!("Person 3"),
         symbol: "person.3",
     },
     Symbol {
-        name: "Person 3 Fill",
+        name: crate::l10n::tr_key!("Person 3 Fill"),
         symbol: "person.3.fill",
     },
     Symbol {
-        name: "Backpack",
+        name: crate::l10n::tr_key!("Backpack"),
         symbol: "backpack",
     },
     Symbol {
-        name: "Backpack Fill",
+        name: crate::l10n::tr_key!("Backpack Fill"),
         symbol: "backpack.fill",
     },
     Symbol {
-        name: "House",
+        name: crate::l10n::tr_key!("House"),
         symbol: "house",
     },
     Symbol {
-        name: "House Fill",
+        name: crate::l10n::tr_key!("House Fill"),
         symbol: "house.fill",
     },
     Symbol {
-        name: "Building",
+        name: crate::l10n::tr_key!("Building"),
         symbol: "building",
     },
     Symbol {
-        name: "Building Fill",
+        name: crate::l10n::tr_key!("Building Fill"),
         symbol: "building.fill",
     },
     Symbol {
-        name: "Building Columns",
+        name: crate::l10n::tr_key!("Building Columns"),
         symbol: "building.columns",
     },
     Symbol {
-        name: "Building Columns Fill",
+        name: crate::l10n::tr_key!("Building Columns Fill"),
         symbol: "building.columns.fill",
     },
     Symbol {
-        name: "Cart",
+        name: crate::l10n::tr_key!("Cart"),
         symbol: "cart",
     },
     Symbol {
-        name: "Cart Fill",
+        name: crate::l10n::tr_key!("Cart Fill"),
         symbol: "cart.fill",
     },
     Symbol {
-        name: "Bag",
+        name: crate::l10n::tr_key!("Bag"),
         symbol: "bag",
     },
     Symbol {
-        name: "Bag Fill",
+        name: crate::l10n::tr_key!("Bag Fill"),
         symbol: "bag.fill",
     },
     Symbol {
-        name: "Creditcard",
+        name: crate::l10n::tr_key!("Creditcard"),
         symbol: "creditcard",
     },
     Symbol {
-        name: "Creditcard Fill",
+        name: crate::l10n::tr_key!("Creditcard Fill"),
         symbol: "creditcard.fill",
     },
     Symbol {
-        name: "Link",
+        name: crate::l10n::tr_key!("Link"),
         symbol: "link",
     },
     Symbol {
-        name: "Link Circle",
+        name: crate::l10n::tr_key!("Link Circle"),
         symbol: "link.circle",
     },
     Symbol {
-        name: "Link Circle Fill",
+        name: crate::l10n::tr_key!("Link Circle Fill"),
         symbol: "link.circle.fill",
     },
     Symbol {
-        name: "Square and Arrow",
+        name: crate::l10n::tr_key!("Square and Arrow"),
         symbol: "square.and.arrow.up",
     },
     Symbol {
-        name: "Square and Arrow Fill",
+        name: crate::l10n::tr_key!("Square and Arrow Fill"),
         symbol: "square.and.arrow.up.fill",
     },
     Symbol {
-        name: "Square on Square",
+        name: crate::l10n::tr_key!("Square on Square"),
         symbol: "square.on.square",
     },
     Symbol {
-        name: "Square on Square Fill",
+        name: crate::l10n::tr_key!("Square on Square Fill"),
         symbol: "square.on.square.fill",
     },
     Symbol {
-        name: "Arrowshape",
+        name: crate::l10n::tr_key!("Arrowshape"),
         symbol: "arrowshape.turn.up.forward",
     },
     Symbol {
-        name: "Arrowshape Fill",
+        name: crate::l10n::tr_key!("Arrowshape Fill"),
         symbol: "arrowshape.turn.up.forward.fill",
     },
     Symbol {
-        name: "Arrow Up",
+        name: crate::l10n::tr_key!("Arrow Up"),
         symbol: "arrow.up",
     },
     Symbol {
-        name: "Arrow Down",
+        name: crate::l10n::tr_key!("Arrow Down"),
         symbol: "arrow.down",
     },
     Symbol {
-        name: "Arrow Left",
+        name: crate::l10n::tr_key!("Arrow Left"),
         symbol: "arrow.left",
     },
     Symbol {
-        name: "Arrow Right",
+        name: crate::l10n::tr_key!("Arrow Right"),
         symbol: "arrow.right",
     },
     Symbol {
-        name: "Arrow Up Circle",
+        name: crate::l10n::tr_key!("Arrow Up Circle"),
         symbol: "arrow.up.circle",
     },
     Symbol {
-        name: "Arrow Up Circle Fill",
+        name: crate::l10n::tr_key!("Arrow Up Circle Fill"),
         symbol: "arrow.up.circle.fill",
     },
     Symbol {
-        name: "Arrow Down Circle",
+        name: crate::l10n::tr_key!("Arrow Down Circle"),
         symbol: "arrow.down.circle",
     },
     Symbol {
-        name: "Arrow Down Circle Fill",
+        name: crate::l10n::tr_key!("Arrow Down Circle Fill"),
         symbol: "arrow.down.circle.fill",
     },
     Symbol {
-        name: "Arrow Left Circle",
+        name: crate::l10n::tr_key!("Arrow Left Circle"),
         symbol: "arrow.left.circle",
     },
     Symbol {
-        name: "Arrow Left Circle Fill",
+        name: crate::l10n::tr_key!("Arrow Left Circle Fill"),
         symbol: "arrow.left.circle.fill",
     },
     Symbol {
-        name: "Arrow Right Circle",
+        name: crate::l10n::tr_key!("Arrow Right Circle"),
         symbol: "arrow.right.circle",
     },
     Symbol {
-        name: "Arrow Right Circle Fill",
+        name: crate::l10n::tr_key!("Arrow Right Circle Fill"),
         symbol: "arrow.right.circle.fill",
     },
     Symbol {
-        name: "Arrow Left Right",
+        name: crate::l10n::tr_key!("Arrow Left Right"),
         symbol: "arrow.left.and.right",
     },
     Symbol {
-        name: "Arrow Up Down",
+        name: crate::l10n::tr_key!("Arrow Up Down"),
         symbol: "arrow.up.and.down",
     },
     Symbol {
-        name: "Arrows",
+        name: crate::l10n::tr_key!("Arrows"),
         symbol: "arrow.triangle.branch",
     },
     Symbol {
-        name: "Arrows Merge",
+        name: crate::l10n::tr_key!("Arrows Merge"),
         symbol: "arrow.triangle.merge",
     },
     Symbol {
-        name: "Arrows Swap",
+        name: crate::l10n::tr_key!("Arrows Swap"),
         symbol: "arrow.triangle.swap",
     },
     Symbol {
-        name: "Arrowshape Backward",
+        name: crate::l10n::tr_key!("Arrowshape Backward"),
         symbol: "arrowshape.backward",
     },
     Symbol {
-        name: "Arrowshape Forward",
+        name: crate::l10n::tr_key!("Arrowshape Forward"),
         symbol: "arrowshape.forward",
     },
     Symbol {
-        name: "Go Backward",
+        name: crate::l10n::tr_key!("Go Backward"),
         symbol: "gobackward",
     },
     Symbol {
-        name: "Go Forward",
+        name: crate::l10n::tr_key!("Go Forward"),
         symbol: "goforward",
     },
     Symbol {
-        name: "Forward",
+        name: crate::l10n::tr_key!("Forward"),
         symbol: "forward",
     },
     Symbol {
-        name: "Forward Fill",
+        name: crate::l10n::tr_key!("Forward Fill"),
         symbol: "forward.fill",
     },
 ];
@@ -786,7 +786,56 @@ pub fn matching(query: &str) -> Vec<&'static Symbol> {
         .filter(|symbol| {
             query.is_empty()
                 || symbol.name.to_lowercase().contains(&query)
+                || muxy_core::l10n::translate(symbol.name)
+                    .to_lowercase()
+                    .contains(&query)
                 || symbol.symbol.to_lowercase().contains(&query)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use muxy_core::l10n::{Language, PluralCategory, set_language};
+
+    fn matches(query: &str) -> Vec<&'static str> {
+        super::matching(query)
+            .iter()
+            .map(|symbol| symbol.symbol)
+            .collect()
+    }
+
+    #[test]
+    fn searches_names_and_symbol_identifiers() {
+        assert_eq!(super::matching("  ").len(), super::SYMBOLS.len());
+        assert_eq!(matches(" FOLDER "), ["folder", "folder.fill"]);
+        assert_eq!(matches(" Folder Fill "), ["folder.fill"]);
+        assert_eq!(matches(" FOLDER.FILL "), ["folder.fill"]);
+        assert!(matches("no such symbol").is_empty());
+    }
+
+    #[test]
+    fn searches_translated_names_without_losing_english_names_or_identifiers() {
+        set_language(Some(Arc::new(Language::new(
+            HashMap::from([
+                ("Folder".into(), "Dossier".into()),
+                ("Folder Fill".into(), "Dossier rempli".into()),
+            ]),
+            HashMap::new(),
+            |_| PluralCategory::Other,
+        ))));
+
+        assert_eq!(matches(" DOSSIER "), ["folder", "folder.fill"]);
+        assert_eq!(matches("dossier rempli"), ["folder.fill"]);
+        assert_eq!(matches("Folder Fill"), ["folder.fill"]);
+        assert_eq!(matches("folder.fill"), ["folder.fill"]);
+        assert_eq!(matches("Star Fill"), ["star.fill"]);
+        assert!(matches("folder d").is_empty());
+        assert!(matches("fill dossier").is_empty());
+
+        set_language(None);
+        assert!(matches("dossier").is_empty());
+    }
 }

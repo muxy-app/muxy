@@ -3,15 +3,20 @@
 mod args;
 mod browser;
 mod clipboard;
+mod completion;
+mod config;
+mod extension;
 mod input;
 mod manage;
 mod mobile;
 mod open;
+mod output;
 mod projects;
 mod scroll;
 mod selection;
 mod skills;
 mod state;
+mod status;
 mod target;
 mod terminal;
 mod tui;
@@ -37,8 +42,11 @@ fn main() -> ExitCode {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (host, command) = args::parse(&std::env::args_os().skip(1).collect::<Vec<_>>())?;
     match command {
-        Command::Help => writeln!(io::stdout(), "{}", manage::help::ROOT)?,
-        Command::Usage(usage) => writeln!(io::stdout(), "{usage}")?,
+        Command::Help => output::help(manage::help::ROOT)?,
+        Command::Usage(usage) => output::help(usage)?,
+        Command::DetailedUsage(usage) => output::help(&usage)?,
+        Command::Completion(shell) => write!(io::stdout(), "{}", shell.script())?,
+        Command::Complete(words) => completion::complete(&words)?,
         Command::Version => writeln!(io::stdout(), "muxy {}", env!("CARGO_PKG_VERSION"))?,
         Command::BuildInfo => {
             serde_json::to_writer(io::stdout().lock(), &muxy_protocol::BuildInfo::current())?;
@@ -46,7 +54,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::Interactive => tui::run(host, None).map_err(io::Error::other)?,
         Command::Manage(command) => manage::run(*command, host)?,
         Command::Open(folder) => open::run(&folder)?,
+        Command::Status(report) => status::run(&report)?,
         Command::Browser(invocation) => browser::run(*invocation)?,
+        Command::Extension(invocation) => extension::run(*invocation)?,
+        Command::ExtensionDev(dev) => extension::dev::run(&dev)?,
+        Command::Config(invocation) => config::run(invocation)?,
         Command::InstallSkills(directories) => {
             let home = std::env::home_dir();
             let mut stdout = io::stdout().lock();

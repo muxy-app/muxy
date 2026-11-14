@@ -1,9 +1,14 @@
-use super::{AppModel, ConnectionState, Work};
+use std::convert::Infallible;
+
+use super::{AppModel, ConnectionState, Overlay, Work};
 use gpui::Context;
-use muxy_app_core::{AppError, ServerId};
+use muxy_app_core::browser::api;
+use muxy_app_core::browser::automation::{Args, flag, string};
+use muxy_app_core::{AppError, LocalCatalog, PaneId, ServerId};
 use muxy_client::ClientError;
-use muxy_protocol::{CatalogPage, ErrorCode, OperationId, ProjectId, ProjectMutation};
+use muxy_protocol::{CatalogPage, ErrorCode, OperationId, ProjectId, ProjectMutation, SessionId};
 use muxy_ui::tr;
+use serde_json::Value;
 
 impl AppModel {
     fn created_project(&self, server: ServerId, operation: OperationId) -> Option<ProjectId> {
@@ -87,14 +92,22 @@ impl AppModel {
                 return;
             }
         }
-        let previous = self.state.clone();
-        if let Err(error) = self.state.complete_project_intent(server, operation) {
-            self.fail(error.to_string(), cx);
-            return;
+        let removed = self.state.removed_projects().len();
+        match self.transact(
+            |state| state.complete_project_intent(server, operation, accepted),
+            cx,
+        ) {
+            Ok(Some(())) => {}
+            Ok(None) => return,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return;
+            }
         }
-        if !self.save(cx) {
-            self.state = previous;
-            return;
+        if self.state.removed_projects().len() != removed
+            && matches!(&self.overlay, Some(Overlay::Menu(menu)) if menu.restores_removed_projects())
+        {
+            self.dismiss_overlay(cx);
         }
         if accepted {
             self.sync_git(cx);
@@ -111,7 +124,8 @@ impl AppModel {
 
     /// Another computer's catalog is read again once this computer's is
     /// known, so an entry that reaches this computer never claims its server
-    /// first.
+    /// first. A read lost with the connection shows nothing: the status
+    /// already says the server disconnected.
     pub(super) fn receive_catalog(
         &mut self,
         server: ServerId,
@@ -125,6 +139,7 @@ impl AppModel {
         runtime.catalog.pending = false;
         let page = match result {
             Ok(page) => page,
+            Err(ClientError::Disconnected) => return,
             Err(error) => {
                 self.server_problem(
                     server,
@@ -134,7 +149,14 @@ impl AppModel {
                 return;
             }
         };
-        if page.revision < self.state.catalog_revision(server) {
+        let replaced = server.is_local()
+            && self
+                .state
+                .server_identity(server)
+                .is_some_and(|identity| identity != page.server);
+        if replaced {
+            runtime.catalog.dirty = 0;
+        } else if page.revision < self.state.catalog_revision(server) {
             return;
         }
         if !server.is_local() && self.state.server_identity(local).is_none() {
@@ -149,18 +171,14 @@ impl AppModel {
             return;
         }
         let first = self.state.server_identity(server).is_none();
-        let previous = self.state.clone();
-        if let Err(error) = self.state.apply_catalog(server, &page) {
-            self.server_failed(server, &error, cx);
-            return;
-        }
-        if !self.save(cx) {
-            self.state = previous;
+        if !self.take_catalog(server, &page, cx) {
             return;
         }
         if let Some(runtime) = self.servers.get_mut(server) {
             runtime.catalog.identified = true;
         }
+        self.prune_dismissed(server, cx);
+        self.sync_session_names(cx);
         if server.is_local() && first {
             for remote in self.servers.ids() {
                 if self.state.server_identity(remote).is_none() {
@@ -213,10 +231,70 @@ impl AppModel {
         cx.notify();
     }
 
+    /// Applies and saves `server`'s catalog. A fresh catalog on this
+    /// computer's server is announced once, when it replaces the known one or
+    /// is the first one the app sees while the server kept the old one aside.
+    fn take_catalog(
+        &mut self,
+        server: ServerId,
+        page: &CatalogPage,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let previous = self.state.clone();
+        let kept = self.kept_catalog().filter(|_| server.is_local());
+        let first = self.state.server_identity(server).is_none();
+        let applied = if server.is_local() {
+            self.state.apply_local_catalog(page, kept.is_some())
+        } else {
+            self.state
+                .apply_catalog(server, page)
+                .map(|()| LocalCatalog::Applied)
+        };
+        let applied = match applied {
+            Ok(applied) => applied,
+            Err(error) => {
+                self.server_failed(server, &error, cx);
+                return false;
+            }
+        };
+        if !self.save(cx) {
+            self.state = previous;
+            return false;
+        }
+        if applied != LocalCatalog::Applied
+            && let Some(runtime) = self.servers.get_mut(server)
+        {
+            runtime.shown = None;
+        }
+        if applied == LocalCatalog::Fresh || (first && kept.is_some()) {
+            let kept =
+                kept.map(|kept| tr!("Your previous projects are kept in %@", kept).to_string());
+            self.show_toast(
+                tr!("The server started with a fresh project list").to_string(),
+                kept,
+                cx,
+            );
+        }
+        self.forget_expired_calls(cx);
+        true
+    }
+
     /// A catalog this app can't take keeps the state as it was. For another
-    /// computer, the reason shows in the sidebar's Remote section instead.
+    /// computer, the reason shows in the sidebar's Servers section instead.
     fn server_failed(&mut self, server: ServerId, error: &AppError, cx: &mut Context<Self>) {
-        self.server_problem(server, error.to_string(), cx);
+        // A replaced catalog has a new identity; keep what the server couldn't read in view.
+        let cause = matches!(error, AppError::ServerChanged(_))
+            .then(|| self.unreadable_message(server))
+            .flatten();
+        self.server_problem(server, cause.unwrap_or_else(|| error.to_string()), cx);
+    }
+
+    /// Where this computer's server kept a catalog it couldn't read, which
+    /// could bring a set-aside view back.
+    fn kept_catalog(&self) -> Option<String> {
+        let info = self.servers.get(ServerId::local())?.info.as_ref()?;
+        let file = info.unreadable.iter().find(|file| file.is_catalog())?;
+        Some(file.kept_as.as_path().display().to_string())
     }
 }
 
@@ -244,11 +322,13 @@ impl AppModel {
         }
         match result {
             Ok(()) => {
-                let previous = self.state.clone();
-                self.state.complete_cancellation(server, operation);
-                if !self.save(cx) {
-                    self.state = previous;
-                }
+                let _ = self.transact(
+                    |state| {
+                        state.complete_cancellation(server, operation);
+                        Ok::<_, Infallible>(())
+                    },
+                    cx,
+                );
             }
             Err(error) => self.fail(
                 tr!("Closed pane cleanup is pending: %@", error.to_string()).to_string(),
@@ -259,7 +339,7 @@ impl AppModel {
     pub(super) fn receive_discarded(
         &mut self,
         server: ServerId,
-        session: muxy_protocol::SessionId,
+        session: SessionId,
         result: Result<(), ClientError>,
         cx: &mut Context<Self>,
     ) {
@@ -268,11 +348,13 @@ impl AppModel {
         }
         match result {
             Ok(()) => {
-                let previous = self.state.clone();
-                self.state.complete_discard(server, session);
-                if !self.save(cx) {
-                    self.state = previous;
-                }
+                let _ = self.transact(
+                    |state| {
+                        state.complete_discard(server, session);
+                        Ok::<_, Infallible>(())
+                    },
+                    cx,
+                );
             }
             Err(ClientError::Disconnected) => self.disconnect(server, cx),
             Err(error) => self.fail(
@@ -343,26 +425,115 @@ impl AppModel {
         ) {
             return;
         }
-        let previous = self.state.clone();
-        let result = self.state.open_terminal_tab(project).and_then(|_| {
-            let pane = self
-                .state
-                .window()
-                .active_pane
-                .ok_or_else(|| AppError::InvalidState("new terminal has no pane".into()))?;
-            self.state.set_pane_session(pane, Some(session.info.id))?;
-            Ok(pane)
-        });
-        if let Err(error) = result {
-            self.state = previous;
-            self.fail(error.to_string(), cx);
-            return;
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return;
-        }
-        self.dismiss_overlay(cx);
-        self.sync_visible(cx);
+        let _ = self.open_session_tab(project, session.info.id, Opening::Selected, cx);
     }
+
+    pub(crate) fn show_session(
+        &mut self,
+        args: &Args,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        let server = ServerId::local();
+        let session = string(args, "session")?
+            .parse()
+            .ok()
+            .and_then(SessionId::new)
+            .ok_or("invalid session ID")?;
+        let project = string(args, "project")?;
+        let loading = !self.ready(server)
+            || self
+                .servers
+                .get(server)
+                .is_none_or(|runtime| runtime.catalog.restore.is_some() || runtime.catalog.pending);
+        if loading {
+            return Err(api::NOT_READY.into());
+        }
+        let opening = if flag(args, "background") {
+            Opening::Background
+        } else {
+            Opening::Selected
+        };
+        let shown = self
+            .session_pane(server, session)
+            .map(|(project, tab, pane)| (project.id, tab, pane));
+        if let (Some((_, _, pane)), Opening::Background) = (shown, opening) {
+            return Ok(pane.to_string().into());
+        }
+        let pane = if let Some((project, tab, pane)) = shown {
+            self.select_project(project, cx);
+            self.select_tab(tab, cx);
+            self.focus_pane(pane, cx);
+            pane
+        } else {
+            let project = self
+                .state
+                .projects()
+                .iter()
+                .find(|candidate| {
+                    candidate.server_id == server && candidate.id.to_string() == project
+                })
+                .map(|candidate| candidate.id)
+                .ok_or(api::NOT_READY)?;
+            self.open_session_tab(project, session, opening, cx)?
+        };
+        if opening == Opening::Selected {
+            self.dismiss_overlay(cx);
+            self.focus_owner.request_active_pane();
+        }
+        Ok(pane.to_string().into())
+    }
+
+    fn open_session_tab(
+        &mut self,
+        project: ProjectId,
+        session: SessionId,
+        opening: Opening,
+        cx: &mut Context<Self>,
+    ) -> Result<PaneId, String> {
+        if opening == Opening::Selected
+            && let Some(server) = self.state.project_server(project)
+        {
+            self.reveal_server(server, cx);
+        }
+        let opened = self.transact(
+            |state| {
+                let pane = match opening {
+                    Opening::Selected => {
+                        state.open_terminal_tab(project)?;
+                        state.window().active_pane.ok_or_else(|| {
+                            AppError::InvalidState("new terminal has no pane".into())
+                        })?
+                    }
+                    Opening::Background => state.open_background_terminal_tab(project)?,
+                };
+                state.set_pane_session(pane, Some(session))?;
+                if opening == Opening::Selected {
+                    state.reveal_current_project();
+                }
+                Ok::<_, AppError>(pane)
+            },
+            cx,
+        );
+        let pane = match opened {
+            Ok(Some(pane)) => pane,
+            Ok(None) => return Err("could not save tabs".into()),
+            Err(error) => {
+                let message = error.to_string();
+                self.fail(message.clone(), cx);
+                return Err(message);
+            }
+        };
+        if opening == Opening::Selected {
+            self.dismiss_overlay(cx);
+        }
+        self.sync_visible(cx);
+        Ok(pane)
+    }
+}
+
+/// Whether a session's new tab becomes the one the window shows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Opening {
+    Selected,
+    Background,
 }

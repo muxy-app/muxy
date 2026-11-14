@@ -8,8 +8,8 @@ use libghostty_vt::render::{
 use libghostty_vt::screen::{CellContentTag, CellWide, Screen, TrackedGridRef};
 use libghostty_vt::style::{PaletteIndex, RgbColor, StyleColor, Underline as EngineUnderline};
 use libghostty_vt::terminal::{
-    ClipboardLocation, ClipboardWriteError, ColorScheme, CompressionMode, Mode, Options, Point,
-    PointCoordinate, PointSpace, ScrollViewport, Terminal as Engine,
+    ClipboardLocation, ClipboardWriteError, ColorScheme, CompressionMode, Mode, Point,
+    PointCoordinate, PointSpace, ScrollViewport, SemanticPromptKind, Terminal as Engine,
 };
 use libghostty_vt::{key, mouse};
 
@@ -32,6 +32,66 @@ pub struct TerminalArchive {
     pub history: Vec<Vec<Run>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TerminalHistory {
+    pub rows: Vec<Row>,
+    pub prompts: Vec<u16>,
+    pub links: Vec<crate::LinkRow>,
+    /// The images placed on `rows`, rows counted from the first of them.
+    /// `None` when there are none.
+    pub graphics: Option<crate::Graphics>,
+}
+
+/// A copy of a terminal that can move to another thread and become an archive there.
+#[derive(Debug)]
+pub struct TerminalSnapshot {
+    bytes: Vec<u8>,
+    size: Size,
+    cell: crate::CellSize,
+}
+
+impl TerminalSnapshot {
+    /// Renders the copy, so converting history never blocks the live terminal.
+    pub fn archive(&self) -> Result<TerminalArchive, TerminalError> {
+        let failed = |error| TerminalError::wrap(TerminalStep::Snapshot, error);
+        let mut decoder = libghostty_vt::snapshot::Decoder::new_buf(&self.bytes).map_err(failed)?;
+        // A snapshot doesn't carry the image limit of the terminal that wrote
+        // it, and an image over the decoder's own limit is dropped.
+        decoder
+            .set_kitty_image_storage_limit(crate::graphics::STORAGE_LIMIT as u64)
+            .map_err(failed)?;
+        let mut decoder = decoder.ready().map_err(failed)?;
+        // Restored pages are counted uncompressed, so the live budget would drop older rows.
+        decoder
+            .terminal_mut()
+            .set_scrollback_max_bytes(None)
+            .map_err(failed)?;
+        while decoder.next().map_err(failed)?.is_some() {}
+        let engine = decoder.into_terminal();
+        let mut terminal = Terminal::wrap(
+            engine,
+            self.size,
+            Rc::default(),
+            Events::default(),
+            Rc::default(),
+        )?;
+        terminal.cell = self.cell;
+        terminal.graphics_cache.stills_only();
+        let graphics = terminal.graphics()?;
+        let rows = terminal.screen()?;
+        let cursor = terminal.cursor()?;
+        // The primary screen keeps its history while a program uses the alternate one.
+        terminal.engine.vt_write(b"\x1b[?47l");
+        Ok(TerminalArchive {
+            graphics,
+            size: self.size,
+            rows,
+            cursor,
+            history: terminal.capture_history()?,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct Terminal {
     engine: Engine<'static, 'static>,
@@ -40,14 +100,12 @@ pub struct Terminal {
     cells: CellIterator<'static>,
     pty_output: Rc<RefCell<Vec<u8>>>,
     events: Events,
-    progress: crate::progress::Progress,
+    progress: Rc<RefCell<crate::progress::Progress>>,
     row_hashes: Vec<Option<u64>>,
     links: Vec<crate::links::CachedRow>,
     text: String,
     redraw_all: bool,
     size: Size,
-    screen_switch: ScreenSwitch,
-    primary_history: Result<Vec<Vec<Run>>, String>,
     history_generation: u64,
     history_anchor: Option<(TrackedGridRef, PointCoordinate)>,
     history_screen: Screen,
@@ -57,22 +115,21 @@ pub struct Terminal {
     held_buttons: Vec<MouseButton>,
     keyboard: crate::input::Keyboard,
     graphics_cache: crate::graphics::Cache,
+    inline_images: crate::graphics::Interceptor,
     cell: crate::CellSize,
 }
 
 impl Terminal {
     pub fn new(size: Size, history_budget_bytes: usize) -> Result<Self, TerminalError> {
         let create = |error| TerminalError::wrap(TerminalStep::Create, error);
-        let mut engine = Engine::new(Options {
-            cols: size.cols,
-            rows: size.rows,
-            max_scrollback: history_budget_bytes,
-        })
-        .map_err(create)?;
+        crate::graphics::install_png_decoder().map_err(create)?;
+        let mut engine = Engine::new(size.cols, size.rows).map_err(create)?;
         engine
+            .set_scrollback_max_bytes(Some(history_budget_bytes))
+            .map_err(create)?
             .set_default_cursor_blink(Some(true))
             .map_err(create)?
-            .set_default_grapheme_cluster(Some(true))
+            .set_default_mode(Mode::GRAPHEME_CLUSTER, true)
             .map_err(create)?;
         crate::graphics::configure(&mut engine).map_err(create)?;
         engine.resize(size.cols, size.rows, 8, 16).map_err(create)?;
@@ -94,26 +151,59 @@ impl Terminal {
             .map_err(create)?;
         engine
             .on_clipboard_write(move |_, write| {
-                if write.location() != ClipboardLocation::Standard {
-                    return Err(ClipboardWriteError::Unsupported);
-                }
-                let Some(content) = write
-                    .contents()
-                    .find(|content| content.mime == b"text/plain")
-                else {
-                    return Err(ClipboardWriteError::Unsupported);
-                };
-                if content.data.is_empty() || content.data.len() > muxy_protocol::MAX_CLIPBOARD_TEXT
-                {
-                    return Err(ClipboardWriteError::InvalidData);
-                }
-                let text = std::str::from_utf8(content.data)
-                    .map_err(|_| ClipboardWriteError::InvalidData)?;
-                clipboard_write.borrow_mut().replace(text.to_owned());
-                Ok(())
+                let result = (|| {
+                    if write.location() != ClipboardLocation::Standard {
+                        return Err(ClipboardWriteError::Unsupported);
+                    }
+                    let Some(content) = write
+                        .contents()
+                        .find(|content| content.mime == b"text/plain")
+                    else {
+                        return Err(ClipboardWriteError::Unsupported);
+                    };
+                    if content.data.is_empty()
+                        || content.data.len() > muxy_protocol::MAX_CLIPBOARD_TEXT
+                    {
+                        return Err(ClipboardWriteError::InvalidData);
+                    }
+                    let text = std::str::from_utf8(content.data)
+                        .map_err(|_| ClipboardWriteError::InvalidData)?;
+                    clipboard_write.borrow_mut().replace(text.to_owned());
+                    Ok(())
+                })();
+                write.reply(result, false);
             })
             .map_err(create)?;
         engine.on_bell(move |_| bell.set(true)).map_err(create)?;
+        let progress = Rc::new(RefCell::new(crate::progress::Progress::default()));
+        let reports = Rc::clone(&progress);
+        engine
+            .on_progress_report(move |_, report| {
+                if let Ok(state) = report.state() {
+                    reports.borrow_mut().report(state, report.progress());
+                }
+            })
+            .map_err(create)?;
+        let programs = Rc::clone(&progress);
+        engine
+            .on_program_status(move |_, report| {
+                use crate::program_status::Change;
+                if let Some(change) = Change::of(report) {
+                    programs.borrow_mut().set_program(match change {
+                        Change::Replace(program) => Some(program),
+                        Change::Clear => None,
+                    });
+                }
+            })
+            .map_err(create)?;
+        let prompts = Rc::clone(&progress);
+        engine
+            .on_semantic_prompt(move |_, event| {
+                if let Ok(SemanticPromptKind::PromptStart) = event.kind() {
+                    prompts.borrow_mut().end_program();
+                }
+            })
+            .map_err(create)?;
         engine
             .on_color_scheme(|terminal| {
                 terminal
@@ -122,6 +212,17 @@ impl Terminal {
                     .map(|background| background.map_or(ColorScheme::Dark, color_scheme))
             })
             .map_err(create)?;
+        Self::wrap(engine, size, pty_output, events, progress)
+    }
+
+    fn wrap(
+        engine: Engine<'static, 'static>,
+        size: Size,
+        pty_output: Rc<RefCell<Vec<u8>>>,
+        events: Events,
+        progress: Rc<RefCell<crate::progress::Progress>>,
+    ) -> Result<Self, TerminalError> {
+        let create = |error| TerminalError::wrap(TerminalStep::Create, error);
         Ok(Self {
             engine,
             render: RenderState::new().map_err(create)?,
@@ -129,14 +230,12 @@ impl Terminal {
             cells: CellIterator::new().map_err(create)?,
             pty_output,
             events,
-            progress: crate::progress::Progress::default(),
+            progress,
             row_hashes: Vec::new(),
             links: Vec::new(),
             text: String::new(),
             redraw_all: true,
             size,
-            screen_switch: ScreenSwitch::default(),
-            primary_history: Ok(Vec::new()),
             history_generation: 0,
             history_anchor: None,
             history_screen: Screen::Primary,
@@ -149,7 +248,8 @@ impl Terminal {
             mouse_event: mouse::Event::new().map_err(create)?,
             held_buttons: Vec::new(),
             keyboard: crate::input::Keyboard::new().map_err(create)?,
-            graphics_cache: crate::graphics::Cache::default(),
+            graphics_cache: crate::graphics::Cache::new().map_err(create)?,
+            inline_images: crate::graphics::Interceptor::default(),
             cell: crate::CellSize::default(),
         })
     }
@@ -243,19 +343,23 @@ impl Terminal {
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
-        self.progress.feed(bytes);
-        let mut start = 0;
-        for (index, byte) in bytes.iter().copied().enumerate() {
-            if self.screen_switch.advance(byte) {
-                self.engine.vt_write(&bytes[start..index]);
-                start = index;
-                if matches!(self.engine.active_screen(), Ok(Screen::Primary)) {
-                    self.primary_history =
-                        self.capture_history().map_err(|error| error.to_string());
-                }
+        use crate::graphics::Piece;
+        let Self {
+            engine,
+            inline_images,
+            cell,
+            ..
+        } = self;
+        inline_images.feed(bytes, |piece| match piece {
+            Piece::Text(text) => {
+                engine.vt_write(text);
+                crate::graphics::attach_films(engine);
             }
-        }
-        self.engine.vt_write(&bytes[start..]);
+            Piece::Sixel { params, data } => {
+                crate::graphics::show_sixel(engine, *cell, params, data);
+            }
+            Piece::Iterm(file) => crate::graphics::show_iterm(engine, *cell, file),
+        });
     }
 
     /// Clear the primary screen and history; queue a shell redraw only at a semantic prompt.
@@ -271,7 +375,6 @@ impl Terminal {
         if self.engine.clear_screen() {
             self.pty_output.borrow_mut().push(0x0c);
         }
-        self.primary_history = Ok(Vec::new());
         self.history_generation = self.history_generation.wrapping_add(1);
         self.history_anchor = None;
         self.history_count = 0;
@@ -279,20 +382,38 @@ impl Terminal {
         Ok(true)
     }
 
+    /// The status the running program reported itself (OSC 7501), if any.
+    pub fn program_status(&self) -> Option<crate::ProgramStatus> {
+        self.progress.borrow().program().cloned()
+    }
+
+    /// How many program status reports have changed the status, so callers
+    /// can tell which program sent the latest one.
+    pub fn program_reports(&self) -> u64 {
+        self.progress.borrow().program_reports()
+    }
+
+    /// Ends the status of a program that has exited, keeping finished work.
+    pub fn end_program_status(&mut self) {
+        self.progress.borrow_mut().end_program();
+    }
+
     pub fn take_events(&mut self) -> Vec<TerminalEvent> {
         let mut events = Vec::new();
-        if let Some(progress) = self.progress.take(std::time::Instant::now()) {
+        if let Some(progress) = self.progress.borrow_mut().take(std::time::Instant::now()) {
             events.push(progress);
         }
         if self.events.title.replace(false)
             && let Ok(title) = self.engine.title()
         {
-            events.push(TerminalEvent::Title(title.to_owned()));
+            events.push(TerminalEvent::Title(
+                String::from_utf8_lossy(title).into_owned(),
+            ));
         }
         if self.events.directory.replace(false)
             && let Ok(directory) = self.engine.pwd()
         {
-            events.push(TerminalEvent::Directory(directory.to_owned()));
+            events.push(TerminalEvent::Directory(directory.to_vec()));
         }
         if let Some(text) = self.events.clipboard_write.borrow_mut().take() {
             events.push(TerminalEvent::ClipboardWrite(text));
@@ -323,7 +444,19 @@ impl Terminal {
 
     pub fn graphics(&mut self) -> Result<crate::Graphics, TerminalError> {
         self.graphics_cache
-            .snapshot(&self.engine, self.cell)
+            .snapshot(&self.engine, &mut self.render, self.cell)
+            .map_err(|error| TerminalError::wrap(TerminalStep::Render, error))
+    }
+
+    /// The pixels of frames of an image in the last `graphics`, by their
+    /// keys: as many as one reply holds, in the order asked.
+    pub fn image_frames(
+        &self,
+        image: u32,
+        keys: &[u64],
+    ) -> Result<Vec<muxy_protocol::ImageFrame>, TerminalError> {
+        self.graphics_cache
+            .frames(&self.engine, image, keys)
             .map_err(|error| TerminalError::wrap(TerminalStep::Render, error))
     }
 
@@ -604,6 +737,11 @@ impl Terminal {
             .collect()
     }
 
+    pub fn read_screen_links(&self, budget: usize) -> Result<Vec<crate::LinkRow>, TerminalError> {
+        crate::links::viewport(&self.engine, self.size.cols, self.size.rows, budget)
+            .map_err(|error| TerminalError::wrap(TerminalStep::Render, error))
+    }
+
     pub fn take_pty_output(&mut self) -> Vec<u8> {
         std::mem::take(&mut *self.pty_output.borrow_mut())
     }
@@ -621,24 +759,27 @@ impl Terminal {
             .map_err(|error| TerminalError::wrap(TerminalStep::History, error))
     }
 
-    pub fn archive(&mut self) -> Result<TerminalArchive, TerminalError> {
-        let history = match self
-            .engine
-            .active_screen()
-            .map_err(|error| TerminalError::wrap(TerminalStep::History, error))?
-        {
-            Screen::Primary => self.capture_history()?,
-            Screen::Alternate => self.primary_history.clone().map_err(|message| {
-                TerminalError::wrap(TerminalStep::History, std::io::Error::other(message))
-            })?,
-        };
-        Ok(TerminalArchive {
-            graphics: self.graphics()?,
+    /// Returns `None` while output stops inside an escape sequence or character.
+    pub fn snapshot(&mut self) -> Result<Option<TerminalSnapshot>, TerminalError> {
+        let failed = |error| TerminalError::wrap(TerminalStep::Snapshot, error);
+        if !self.engine.is_vt_ground().map_err(failed)? {
+            return Ok(None);
+        }
+        let mut bytes = Vec::new();
+        self.engine.encode_snapshot(&mut bytes).map_err(failed)?;
+        Ok(Some(TerminalSnapshot {
+            bytes,
             size: self.size,
-            rows: self.screen()?,
-            cursor: self.cursor()?,
-            history,
-        })
+            cell: self.cell,
+        }))
+    }
+
+    pub fn archive(&mut self) -> Result<TerminalArchive, TerminalError> {
+        self.snapshot()?
+            .ok_or_else(|| {
+                TerminalError::wrap(TerminalStep::Snapshot, "output stops inside a sequence")
+            })?
+            .archive()
     }
 
     pub fn history_generation(&mut self) -> Result<u64, TerminalError> {
@@ -680,6 +821,42 @@ impl Terminal {
         &mut self,
         range: Range<usize>,
     ) -> Result<(Vec<Row>, Vec<u16>), TerminalError> {
+        self.history_with_metadata(range, None, None)
+    }
+
+    pub fn history_with_links(
+        &mut self,
+        range: Range<usize>,
+    ) -> Result<TerminalHistory, TerminalError> {
+        let mut links = Vec::new();
+        let mut placed = Vec::new();
+        let (rows, prompts) =
+            self.history_with_metadata(range, Some(&mut links), Some(&mut placed))?;
+        let graphics = if placed.is_empty() {
+            None
+        } else {
+            Some(
+                crate::graphics::Cache::history(&self.engine, placed, self.cell)
+                    .map_err(|error| TerminalError::wrap(TerminalStep::History, error))?,
+            )
+            .filter(|graphics| !graphics.placements.is_empty())
+        };
+        Ok(TerminalHistory {
+            rows,
+            prompts,
+            links,
+            graphics,
+        })
+    }
+
+    /// History rows of `range`, their prompts and, when asked, their links
+    /// and the image placements on them, rows counted from the first row.
+    fn history_with_metadata(
+        &mut self,
+        range: Range<usize>,
+        links: Option<&mut Vec<crate::LinkRow>>,
+        placed: Option<&mut Vec<crate::graphics::Found>>,
+    ) -> Result<(Vec<Row>, Vec<u16>), TerminalError> {
         let end = range.end.min(self.history_rows()?);
         if range.start >= end {
             return Ok((Vec::new(), Vec::new()));
@@ -695,20 +872,79 @@ impl Terminal {
         let captured = (|| {
             let mut history = Vec::with_capacity(end - range.start);
             let mut prompts = Vec::new();
-            for start in (range.start..end).step_by(usize::from(self.size.rows)) {
+            let mut history_links = Vec::new();
+            let mut link_count = 0;
+            let mut viewed = Vec::new();
+            'viewports: for start in (range.start..end)
+                .step_by(usize::from(self.size.rows))
+                .rev()
+            {
                 self.engine.scroll_viewport(ScrollViewport::Row(start));
                 let (screen, screen_prompts) = self.screen_with_prompts()?;
-                prompts.extend(
-                    screen_prompts
-                        .into_iter()
-                        .filter(|row| usize::from(*row) < end - start)
-                        .filter_map(|row| u16::try_from(history.len() + usize::from(row)).ok()),
-                );
-                for mut row in screen.into_iter().take(end - start) {
-                    row.index = u16::try_from(history.len()).unwrap_or(u16::MAX);
+                if placed.is_some() {
+                    let found = self
+                        .graphics_cache
+                        .placed(&self.engine, &mut self.render)
+                        .map_err(query)?;
+                    viewed.push((start, found));
+                }
+                for row in screen.into_iter().take(end - start).rev() {
+                    if links.is_some() {
+                        let mut cached = crate::links::CachedRow::default();
+                        cached
+                            .refresh(
+                                &self.engine,
+                                row.index,
+                                self.size.cols,
+                                true,
+                                crate::MAX_LINK_SPANS,
+                            )
+                            .map_err(query)?;
+                        if link_count + cached.spans.len() > crate::MAX_LINK_SPANS {
+                            break 'viewports;
+                        }
+                        if !cached.spans.is_empty() {
+                            link_count += cached.spans.len();
+                            history_links.push((history.len(), cached.spans));
+                        }
+                    }
+                    if screen_prompts.binary_search(&row.index).is_ok() {
+                        prompts.push(history.len());
+                    }
                     history.push(row);
                 }
             }
+            history.reverse();
+            if let Some(placed) = placed {
+                let first = end - history.len();
+                placed.extend(crate::graphics::page_placements(
+                    viewed,
+                    first,
+                    history.len(),
+                    self.cell,
+                ));
+            }
+            for (index, row) in history.iter_mut().enumerate() {
+                row.index = u16::try_from(index).unwrap_or(u16::MAX);
+            }
+            if let Some(links) = links {
+                links.extend(
+                    history_links
+                        .into_iter()
+                        .rev()
+                        .filter_map(|(index, spans)| {
+                            Some(crate::LinkRow {
+                                row: u16::try_from(history.len() - index - 1).ok()?,
+                                spans,
+                            })
+                        }),
+                );
+            }
+            let prompts = prompts
+                .into_iter()
+                .rev()
+                .filter_map(|index| u16::try_from(history.len() - index - 1).ok())
+                .collect();
             Ok((history, prompts))
         })();
         self.engine.scroll_viewport(ScrollViewport::Bottom);
@@ -761,65 +997,6 @@ fn mouse_modifiers(modifiers: Modifiers) -> key::Mods {
     mods
 }
 
-#[derive(Debug, Default)]
-enum ScreenSwitch {
-    #[default]
-    Ground,
-    Escape,
-    Csi,
-    Private {
-        parameter: u32,
-        alternate: bool,
-    },
-}
-
-impl ScreenSwitch {
-    fn advance(&mut self, byte: u8) -> bool {
-        if byte == 0x1b {
-            *self = Self::Escape;
-            return false;
-        }
-        if byte == 0x9b {
-            *self = Self::Csi;
-            return false;
-        }
-        if matches!(byte, 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f) {
-            return false;
-        }
-        match self {
-            Self::Escape if byte == b'[' => *self = Self::Csi,
-            Self::Csi if byte == b'?' => {
-                *self = Self::Private {
-                    parameter: 0,
-                    alternate: false,
-                };
-            }
-            Self::Private { parameter, .. } if byte.is_ascii_digit() => {
-                *parameter = parameter
-                    .saturating_mul(10)
-                    .saturating_add(u32::from(byte - b'0'));
-            }
-            Self::Private {
-                parameter,
-                alternate,
-            } if byte == b';' => {
-                *alternate |= matches!(*parameter, 47 | 1047 | 1049);
-                *parameter = 0;
-            }
-            Self::Private {
-                parameter,
-                alternate,
-            } if byte == b'h' => {
-                let switch = *alternate || matches!(*parameter, 47 | 1047 | 1049);
-                *self = Self::Ground;
-                return switch;
-            }
-            _ => *self = Self::Ground,
-        }
-        false
-    }
-}
-
 fn row_runs(
     cells: &mut CellIterator<'static>,
     row: &RowIteration<'static, '_>,
@@ -836,7 +1013,9 @@ fn row_runs(
         };
         text.clear();
         cell.graphemes_utf8(text)?;
-        if text.is_empty() {
+        // Like Ghostty, a Kitty image placeholder is drawn as a blank under its image.
+        if text.is_empty() || text.starts_with(crate::graphics::PLACEHOLDER) {
+            text.clear();
             text.push(' ');
         }
         builder.push(text, width, cell_style(cell)?);

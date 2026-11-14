@@ -5,7 +5,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use muxy_core::files::{private_file, replace_file};
+use muxy_core::files::private_file;
 use serde::Serialize;
 
 pub const AUDIT_LOG: &str = "extension-audit.log";
@@ -63,14 +63,7 @@ fn trim(path: &Path) -> std::io::Result<()> {
         .iter()
         .position(|byte| *byte == b'\n')
         .map_or(kept.len(), |index| index + 1);
-    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
-    private_file()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&temporary)?
-        .write_all(&kept[start..])?;
-    replace_file(&temporary, path)
+    muxy_core::fs::write_atomic(path, &kept[start..], 0o600).map_err(Into::into)
 }
 
 /// `time` as an ISO 8601 UTC timestamp to the second, like main's log.
@@ -136,5 +129,17 @@ mod tests {
             text.lines()
                 .all(|line| serde_json::from_str::<serde_json::Value>(line).is_ok())
         );
+        let names: Vec<_> = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [AUDIT_LOG]);
+        #[cfg(unix)]
+        {
+            let mode = std::os::unix::fs::MetadataExt::mode(
+                &std::fs::metadata(directory.path().join(AUDIT_LOG)).unwrap(),
+            );
+            assert_eq!(mode & 0o777, 0o600);
+        }
     }
 }

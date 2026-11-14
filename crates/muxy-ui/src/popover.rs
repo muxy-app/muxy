@@ -2,8 +2,8 @@ use crate::theme::{Metrics, Theme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AvailableSpace, Bounds, ElementId, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Point, RenderOnce, Size, Styled, Window, canvas, div,
-    point, px, size,
+    IntoElement, ParentElement, Pixels, Point, RenderOnce, Size, StatefulInteractiveElement,
+    Styled, Window, canvas, div, point, px, size,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -28,6 +28,48 @@ pub fn surface(theme: &Theme, metrics: Metrics) -> gpui::Div {
         .shadow(crate::theme::Elevation::Elevated.shadow(theme.bg))
         .text_color(theme.fg)
         .text_size(metrics.font_body())
+}
+
+/// How far below the top of the window a modal dialog opens.
+pub const MODAL_TOP: f32 = 48.0;
+
+/// `content` as a modal dialog: centered across the window, near its top,
+/// above a dimmed backdrop.
+pub fn modal(theme: &Theme, metrics: Metrics, content: impl IntoElement) -> AnyElement {
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .flex_col()
+        .items_center()
+        .bg(theme.backdrop)
+        .pt(metrics.scaled(MODAL_TOP))
+        .child(content)
+        .into_any_element()
+}
+
+/// The card of a modal dialog: `width` wide, or as wide as the window allows,
+/// and scrolling when taller than the window. Clicks inside stay inside.
+/// Accessibility clients read it as a dialog with `title`.
+pub fn modal_card(
+    theme: &Theme,
+    metrics: Metrics,
+    window: Size<Pixels>,
+    id: impl Into<ElementId>,
+    title: impl Into<gpui::SharedString>,
+    width: Pixels,
+) -> gpui::Stateful<gpui::Div> {
+    surface(theme, metrics)
+        .shadow(crate::theme::Elevation::Modal.shadow(theme.bg))
+        .id(id)
+        .role(gpui::Role::Dialog)
+        .aria_label(title)
+        .w(width.min((window.width - px(16.0)).max(px(0.0))))
+        .max_h((window.height - metrics.scaled(80.0)).max(px(0.0)))
+        .overflow_y_scroll()
+        .p(metrics.spacing8())
+        .gap(metrics.scaled(14.0))
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
 }
 
 pub fn row(
@@ -124,6 +166,14 @@ pub fn anchored_popover_above(
     positioned_popover(anchor, content, above_origin, on_anchor_lost)
 }
 
+pub fn anchored_popover_left(
+    anchor: PopoverAnchor,
+    content: AnyElement,
+    on_anchor_lost: impl FnOnce(&mut Window, &mut App) + 'static,
+) -> AnyElement {
+    positioned_popover(anchor, content, left_origin, on_anchor_lost)
+}
+
 fn positioned_popover(
     anchor: PopoverAnchor,
     mut content: AnyElement,
@@ -190,13 +240,28 @@ pub fn contained_dropdown(
     .into_any_element()
 }
 
-fn above_origin(
+/// Where a panel opens above `anchor`, for a control at the bottom of the window.
+pub fn above_origin(
     anchor: Bounds<Pixels>,
     panel: Size<Pixels>,
     viewport: Size<Pixels>,
 ) -> Point<Pixels> {
     clamp_to_viewport(
         point(anchor.left(), anchor.top() - panel.height - px(4.0)),
+        panel,
+        viewport,
+    )
+}
+
+/// Where a panel opens beside `anchor` on its left, top edges aligned, for a
+/// control at the right edge of the window.
+pub fn left_origin(
+    anchor: Bounds<Pixels>,
+    panel: Size<Pixels>,
+    viewport: Size<Pixels>,
+) -> Point<Pixels> {
+    clamp_to_viewport(
+        point(anchor.left() - panel.width - px(4.0), anchor.top()),
         panel,
         viewport,
     )
@@ -286,5 +351,27 @@ impl std::fmt::Debug for PopoverSurface {
             .field("width", &self.width)
             .field("height", &self.height)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Bounds, size};
+
+    #[test]
+    fn a_left_popover_opens_beside_its_anchor_and_stays_on_screen() {
+        let viewport = size(px(1000.0), px(600.0));
+        let panel = size(px(200.0), px(300.0));
+        let anchor = Bounds::new(point(px(960.0), px(100.0)), size(px(28.0), px(28.0)));
+        assert_eq!(
+            left_origin(anchor, panel, viewport),
+            point(px(756.0), px(100.0))
+        );
+        let low = Bounds::new(point(px(960.0), px(500.0)), size(px(28.0), px(28.0)));
+        assert_eq!(
+            left_origin(low, panel, viewport),
+            point(px(756.0), px(292.0))
+        );
     }
 }

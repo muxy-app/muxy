@@ -149,10 +149,15 @@ def bundle_info(version, build):
         "NSHighResolutionCapable": True,
         "NSSupportsAutomaticGraphicsSwitching": True,
         "NSPrincipalClass": "NSApplication",
-        "NSMicrophoneUsageDescription": "Muxy uses your microphone to dictate text into Composer.",
-        "NSSpeechRecognitionUsageDescription": "Muxy transcribes your dictation on this device and inserts it into Composer.",
+        "NSMicrophoneUsageDescription": "Programs you run in Muxy terminals can use your microphone.",
         "NSLocalNetworkUsageDescription": "Commands you run in Muxy terminals can connect to devices on your local network.",
         "NSAppTransportSecurity": {"NSAllowsArbitraryLoadsInWebContent": True},
+        "CFBundleDocumentTypes": [{
+            "CFBundleTypeName": "Folder",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": ["public.folder"],
+        }],
         **sparkle,
     }
 

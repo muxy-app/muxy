@@ -1,13 +1,13 @@
-use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, Corner, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, App, Context, Corner, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point, px,
 };
-use muxy_ui::components::ButtonInteraction;
+use muxy_ui::accessibility;
 use muxy_ui::controls::{self, Choice, Style};
+use muxy_ui::form::{NextControl, PreviousControl};
 use muxy_ui::tr;
 
-use super::{AppModel, Form, Repository};
+use super::{AppModel, Form, Overlay, Repository};
 
 #[allow(clippy::too_many_lines, reason = "Declarative Git creation form")]
 pub(crate) fn render(
@@ -26,34 +26,39 @@ pub(crate) fn render(
         && (!form.worktree
             || (!form.name.read(cx).text().trim().is_empty()
                 && model.worktree_directory(form, cx).is_ok()));
-    let mut view = muxy_ui::popover::surface(theme, m)
-        .shadow(muxy_ui::theme::Elevation::Modal.shadow(theme.bg))
-        .id("git-form-scroll")
-        .debug_selector(|| "git-form".into())
-        .w(m.scaled(460.0)
-            .min((window.viewport_size().width - px(16.0)).max(px(0.0))))
-        .max_h((window.viewport_size().height - m.scaled(80.0)).max(px(0.0)))
-        .overflow_y_scroll()
-        .p(m.spacing8())
-        .gap(m.scaled(14.0))
-        .text_color(theme.fg)
-        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_key_down(cx.listener(|model, event: &gpui::KeyDownEvent, _, cx| {
-            if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
-                cx.stop_propagation();
-                model.dismiss_overlay(cx);
-            }
-        }))
-        .child(
-            div()
-                .text_size(m.font_headline())
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(if form.worktree {
-                    tr!("New Worktree")
-                } else {
-                    tr!("New Branch")
-                }),
-        );
+    let title = if form.worktree {
+        tr!("New Worktree")
+    } else {
+        tr!("New Branch")
+    };
+    let mut view = muxy_ui::popover::modal_card(
+        theme,
+        m,
+        window.viewport_size(),
+        "git-form-scroll",
+        title.clone(),
+        m.scaled(460.0),
+    )
+    .debug_selector(|| "git-form".into())
+    .key_context("Form")
+    .on_action(cx.listener(|model, _: &NextControl, window, cx| {
+        advance_focus(model, false, window, cx);
+    }))
+    .on_action(cx.listener(|model, _: &PreviousControl, window, cx| {
+        advance_focus(model, true, window, cx);
+    }))
+    .on_key_down(cx.listener(|model, event: &gpui::KeyDownEvent, _, cx| {
+        if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
+            cx.stop_propagation();
+            model.dismiss_overlay(cx);
+        }
+    }))
+    .child(
+        div()
+            .text_size(m.font_headline())
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(title),
+    );
     if form.worktree {
         view = view.child(field(
             &tr!("Name"),
@@ -70,6 +75,7 @@ pub(crate) fn render(
         view = view.child(controls::segmented(
             style,
             "worktree-branch-mode",
+            &tr!("Branch"),
             &choices,
             if form.existing { "existing" } else { "new" },
             cx.listener(|model, value: &SharedString, _, cx| {
@@ -100,25 +106,43 @@ pub(crate) fn render(
         .or_else(|| repository.and_then(|r| r.load_error(&muxy_protocol::GitAction::Branches)));
     if let Some(error) = error {
         view = view.child(
-            div()
-                .debug_selector(|| "git-form-error".into())
-                .text_size(m.font_footnote())
-                .text_color(theme.danger)
-                .child(error.clone()),
+            accessibility::announced(
+                div()
+                    .id("git-form-error")
+                    .accessibility_id("git-form-error")
+                    .debug_selector(|| "git-form-error".into())
+                    .text_size(m.font_footnote())
+                    .text_color(theme.danger),
+                error.clone(),
+                true,
+            )
+            .child(error.clone()),
         );
     } else if !ready {
+        let status = tr!("Connect to the server to create.");
         view = view.child(
-            div()
-                .text_size(m.font_footnote())
-                .text_color(theme.fg_muted)
-                .child(tr!("Connect to the server to create.")),
+            accessibility::announced(
+                div()
+                    .id("git-form-status")
+                    .text_size(m.font_footnote())
+                    .text_color(theme.fg_muted),
+                status.clone(),
+                false,
+            )
+            .child(status),
         );
     } else if busy && form.worktree {
+        let status = tr!("Wait for the running Git action to finish.");
         view = view.child(
-            div()
-                .text_size(m.font_footnote())
-                .text_color(theme.fg_muted)
-                .child(tr!("Wait for the running Git action to finish.")),
+            accessibility::announced(
+                div()
+                    .id("git-form-status")
+                    .text_size(m.font_footnote())
+                    .text_color(theme.fg_muted),
+                status.clone(),
+                false,
+            )
+            .child(status),
         );
     }
     view.child(
@@ -131,44 +155,33 @@ pub(crate) fn render(
                 controls::button(
                     style,
                     "git-cancel",
-                    &tr!("Cancel"),
-                    true,
+                    controls::Button::secondary(&tr!("Cancel")),
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 )
                 .debug_selector(|| "git-cancel".into()),
             )
             .child(
-                div()
-                    .id("git-submit")
-                    .debug_selector(|| "git-submit".into())
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .h(m.control_medium())
-                    .px(m.spacing5())
-                    .rounded(m.radius_sm())
-                    .bg(theme.accent)
-                    .text_color(theme.accent_foreground)
-                    .text_size(m.font_footnote())
-                    .font_weight(FontWeight::MEDIUM)
-                    .when(!valid || !ready || busy, |button| button.opacity(0.4))
-                    .when(valid && ready && !busy, |button| {
-                        button
-                            .cursor_pointer()
-                            .hover(|style| style.opacity(0.85))
-                            .button_interaction(
-                                cx.listener(|model, _, _, cx| model.submit_git_form(cx)),
-                            )
-                    })
-                    .child(if busy && !form.worktree {
+                controls::button(
+                    style,
+                    "git-submit",
+                    controls::Button::primary(&if busy && !form.worktree {
                         tr!("Creating…")
                     } else {
                         tr!("Create")
-                    }),
+                    })
+                    .enabled(valid && ready && !busy),
+                    cx.listener(|model, _, _, cx| model.submit_git_form(cx)),
+                )
+                .debug_selector(|| "git-submit".into()),
             ),
     )
     .into_any_element()
+}
+
+fn advance_focus(model: &AppModel, backwards: bool, window: &mut Window, cx: &App) {
+    if let Some(Overlay::GitForm(form)) = &model.overlay {
+        muxy_ui::form::advance_focus(&form.visible_fields(cx), backwards, window);
+    }
 }
 
 pub(crate) fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::Div {
@@ -218,6 +231,11 @@ fn branch_picker(
             metrics: &m,
         },
         if base { "git-base" } else { "git-existing" },
+        &if base {
+            tr!("Base branch")
+        } else {
+            tr!("Branch")
+        },
         placeholder.as_ref().map_or(value, SharedString::as_str),
         None,
         form.chooser.is_some(),
@@ -236,12 +254,7 @@ fn branch_picker(
                     .anchor(Corner::TopLeft)
                     .offset(point(px(0.0), m.control_medium() + m.spacing6()))
                     .snap_to_window_with_margin(px(8.0))
-                    .child(
-                        div()
-                            .relative()
-                            .child(chooser.clone())
-                            .child(model.webview_occlusion()),
-                    ),
+                    .child(chooser.clone()),
             )
             .with_priority(2),
         );

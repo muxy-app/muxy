@@ -1,13 +1,23 @@
-use super::{Category, Change, SettingsEvent, SettingsView};
+use super::slider::{Commit, Slider};
+use super::{Category, PickerKind, SettingsEvent, SettingsView};
+use crate::model::preferences::Change;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div,
 };
+use muxy_app_core::settings::QuickTerminalSettings;
 use muxy_core::capability::Feature;
 use muxy_core::quick_terminal::QuickTerminalShortcut;
+use muxy_core::quick_terminal::limits::{DEFAULT_HEIGHT, DEFAULT_WIDTH, HEIGHT, WIDTH};
 use muxy_ui::controls;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
+
+fn theme_label(settings: &QuickTerminalSettings, dark: bool) -> gpui::SharedString {
+    settings
+        .theme(dark)
+        .map_or_else(|| tr!("Same as App"), |name| name.to_owned().into())
+}
 
 /// The saved preferences without controls, while the Quick Terminal cannot run here.
 fn stored_rows(view: &SettingsView, reason: &str) -> Vec<AnyElement> {
@@ -18,6 +28,15 @@ fn stored_rows(view: &SettingsView, reason: &str) -> Vec<AnyElement> {
             "quick-enabled",
             tr_key!("Enable Quick Terminal"),
             if settings.enabled {
+                tr!("On")
+            } else {
+                tr!("Off")
+            },
+        ),
+        (
+            "quick-pinned",
+            tr_key!("Pin Quick Terminal"),
+            if settings.pinned {
                 tr!("On")
             } else {
                 tr!("Off")
@@ -35,6 +54,16 @@ fn stored_rows(view: &SettingsView, reason: &str) -> Vec<AnyElement> {
             "quick-size",
             tr_key!("Terminal size"),
             format!("{} × {}", settings.width, settings.height).into(),
+        ),
+        (
+            "quick-light-theme",
+            tr_key!("Light theme"),
+            theme_label(settings, false),
+        ),
+        (
+            "quick-dark-theme",
+            tr_key!("Dark theme"),
+            theme_label(settings, true),
         ),
         (
             "quick-transparency",
@@ -82,16 +111,32 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             rows.push(view.note(&tr!("The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved."), false).into_any_element());
         }
     }
+    if view.matches(Category::QuickTerminal, tr_key!("Pin Quick Terminal")) {
+        let mut next = settings.clone();
+        next.pinned = !next.pinned;
+        rows.push(view.row(
+            "quick-pinned",
+            tr_key!("Pin Quick Terminal"),
+            view.toggle(
+                "quick-pinned",
+                settings.pinned,
+                Change::QuickTerminal(next),
+                cx,
+            ),
+        ));
+    }
     if view.matches(Category::QuickTerminal, tr_key!("Open Quick Terminal")) {
-        let mut buttons = div().flex().flex_wrap().gap(px(8.0));
+        let mut buttons = div()
+            .flex()
+            .flex_wrap()
+            .gap(view.layout_metrics.scaled(8.0));
         let mut unassigned = settings.clone();
         unassigned.shortcut = QuickTerminalShortcut::Unassigned;
         buttons = buttons.child(
             controls::button(
                 view.style(),
                 "quick-unassigned",
-                &tr!("No Shortcut"),
-                true,
+                controls::Button::secondary(&tr!("No Shortcut")),
                 cx.listener(move |_: &mut SettingsView, _, _, cx| {
                     cx.emit(SettingsEvent::Change(Change::QuickTerminal(
                         unassigned.clone(),
@@ -108,12 +153,11 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             controls::button(
                 view.style(),
                 "quick-record",
-                &if view.quick_recording.is_some() {
+                controls::Button::secondary(&if view.quick_recording.is_some() {
                     tr!("Cancel Recording")
                 } else {
                     tr!("Record Shortcut…")
-                },
-                true,
+                }),
                 cx.listener(|view, _, window, cx| view.record_quick_shortcut(window, cx)),
             )
             .debug_selector(|| "settings-quick-record".to_owned()),
@@ -136,43 +180,85 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(8.0))
+                    .gap(view.layout_metrics.scaled(8.0))
                     .child(buttons)
-                    .children(label.map(|label| div().child(label)))
-                    .child(view.note(&status, false))
+                    .children(label.map(|label| {
+                        div().child(muxy_ui::accessibility::label(
+                            "settings-quick-shortcut",
+                            label,
+                        ))
+                    }))
+                    .child(muxy_ui::accessibility::announced(
+                        view.note(&status, false)
+                            .id("settings-quick-shortcut-status"),
+                        status.clone(),
+                        false,
+                    ))
                     .into_any_element(),
             ),
         );
     }
     if view.matches(Category::QuickTerminal, tr_key!("Terminal size")) {
         let mut next = settings.clone();
-        next.width = 720;
-        next.height = 430;
+        next.width = DEFAULT_WIDTH;
+        next.height = DEFAULT_HEIGHT;
+        let sizes = [
+            ("quick-width", tr!("Width"), settings.width, &WIDTH),
+            ("quick-height", tr!("Height"), settings.height, &HEIGHT),
+        ];
         rows.push(
             view.row(
                 "quick-size",
                 tr_key!("Terminal size"),
                 div()
                     .flex()
-                    .items_center()
-                    .flex_wrap()
-                    .gap(px(8.0))
-                    .child(tr!("Width"))
-                    .child(view.field("quick-width"))
-                    .child(tr!("Height"))
-                    .child(view.field("quick-height"))
-                    .child(controls::button(
-                        view.style(),
-                        "quick-size-reset",
-                        &tr!("Reset"),
-                        true,
-                        cx.listener(move |_: &mut SettingsView, _, _, cx| {
-                            cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
-                        }),
-                    ))
+                    .flex_col()
+                    .gap(view.layout_metrics.scaled(8.0))
+                    .children(sizes.into_iter().map(|(id, label, value, range)| {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(view.layout_metrics.scaled(8.0))
+                            .child(div().w(view.layout_metrics.scaled(60.0)).child(label))
+                            .child(view.slider(
+                                Slider::new(
+                                    id,
+                                    (f32::from(*range.start()), f32::from(*range.end())),
+                                    10.0,
+                                    "",
+                                    Commit::Quick,
+                                ),
+                                f32::from(value),
+                                cx,
+                            ))
+                    }))
+                    .child(
+                        div().flex().child(controls::button(
+                            view.style(),
+                            "quick-size-reset",
+                            controls::Button::secondary(&tr!("Reset"))
+                                .named(&tr!("Reset %@", &tr!("Terminal size"))),
+                            cx.listener(move |_: &mut SettingsView, _, _, cx| {
+                                cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
+                            }),
+                        )),
+                    )
                     .into_any_element(),
             ),
         );
+    }
+    for (dark, label) in [
+        (false, tr_key!("Light theme")),
+        (true, tr_key!("Dark theme")),
+    ] {
+        if view.matches(Category::QuickTerminal, label) {
+            let kind = PickerKind::QuickTheme(dark);
+            rows.push(view.row(
+                kind.id(),
+                label,
+                view.picker(kind, &theme_label(settings, dark), cx),
+            ));
+        }
     }
     for (id, label, value, max) in [
         (
@@ -189,22 +275,16 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
         ),
     ] {
         if view.matches(Category::QuickTerminal, label) {
-            let slider = controls::slider(
-                view.style(),
-                id,
+            let slider = view.slider(
+                Slider::new(id, (0.0, max), 1.0, "%", Commit::Quick),
                 f32::from(value),
-                (0.0, max),
-                cx.listener(move |view, grab: &controls::Grab, _, cx| {
-                    view.quick_slider = Some((id, grab.bounds));
-                    view.move_quick_slider(id, grab.bounds, grab.position, cx);
-                }),
+                cx,
             );
             let mut control = div()
                 .flex()
                 .items_center()
-                .gap(px(8.0))
-                .child(slider)
-                .child(tr!("%lld%%", value));
+                .gap(view.layout_metrics.scaled(8.0))
+                .child(slider);
             if id == "quick-blur" {
                 let mut next = settings.clone();
                 next.transparency = 18;
@@ -212,8 +292,8 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 control = control.child(controls::button(
                     view.style(),
                     "quick-appearance-reset",
-                    &tr!("Reset"),
-                    true,
+                    controls::Button::secondary(&tr!("Reset"))
+                        .named(&tr!("Reset %@", &tr!("Appearance"))),
                     cx.listener(move |_: &mut SettingsView, _, _, cx| {
                         cx.emit(SettingsEvent::Change(Change::QuickTerminal(next.clone())));
                     }),
@@ -227,32 +307,13 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
 
 impl SettingsView {
     pub(crate) fn show_quick_terminal(&mut self, cx: &mut Context<Self>) {
+        self.finish_slider(cx);
         self.category = Category::QuickTerminal;
         self.section = None;
         self.query.clear();
         self.search.update(cx, |search, cx| search.set_text("", cx));
         self.results.reset();
         cx.notify();
-    }
-
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub(super) fn move_quick_slider(
-        &mut self,
-        id: &'static str,
-        bounds: gpui::Bounds<gpui::Pixels>,
-        position: gpui::Point<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) {
-        let mut next = self.snapshot.settings.quick_terminal.clone();
-        let fraction = controls::fraction_at(bounds, position);
-        if id == "quick-transparency" {
-            next.transparency = (fraction * 55.0).round() as u8;
-        } else {
-            next.blur = (fraction * 100.0).round() as u8;
-        }
-        if next != self.snapshot.settings.quick_terminal {
-            cx.emit(SettingsEvent::Change(Change::QuickTerminal(next)));
-        }
     }
 
     fn record_quick_shortcut(&mut self, window: &mut Window, cx: &mut Context<Self>) {

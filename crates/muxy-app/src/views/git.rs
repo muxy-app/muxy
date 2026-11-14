@@ -6,12 +6,12 @@ pub(crate) use form::field as form_field;
 mod pr;
 mod worktree_form;
 pub(crate) use ai::AiConfirmation;
-pub(crate) use ai_provider::{AiProviderMenu, render_provider_menu};
-pub(crate) use pr::{PullRequestPopover, render_pr};
+pub(crate) use ai_provider::{AiProviderMenu, provider_icon_path};
+pub(crate) use pr::PullRequestPopover;
 
-use super::overlays::Overlay;
+use super::overlays::{Dismissal, Mark, Overlay, OverlayView, Placement};
 use crate::model::{AppModel, git::Repository};
-use gpui::{AppContext, Context, Entity, Focusable, Window};
+use gpui::{AnyElement, AppContext, Context, Entity, Focusable, IntoElement, Window};
 use muxy_protocol::{
     GitAction, OperationId, ProjectId, ServerPath, WorktreeAction, WorktreeIntent,
 };
@@ -22,6 +22,13 @@ use muxy_ui::picker::{
 };
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
+
+/// Replies to what a dismissed Git overlay asked for no longer open
+/// follow-ups such as confirmations.
+fn end_git_interaction(model: &mut AppModel) -> Dismissal {
+    model.git.interaction = model.git.interaction.wrapping_add(1);
+    Dismissal::Close
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Kind {
@@ -68,6 +75,51 @@ pub(crate) struct Form {
     error: Option<String>,
     suggested_branch: String,
 }
+
+impl OverlayView for GitPicker {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.picker.clone().into_any_element()
+    }
+
+    fn placement(&self, _: &AppModel) -> Placement {
+        Placement::Above(self.anchor.clone())
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+
+    fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        end_git_interaction(model)
+    }
+}
+
+impl OverlayView for Form {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        form::render(self, model, window, cx)
+    }
+
+    fn placement(&self, _: &AppModel) -> Placement {
+        Placement::Modal
+    }
+
+    fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        end_git_interaction(model)
+    }
+}
+
 impl AppModel {
     pub(crate) fn open_git_picker(
         &mut self,
@@ -115,13 +167,16 @@ impl AppModel {
                 PickerEvent::FooterAction(action) => model.git_footer(action.as_ref(), cx),
                 _ => (),
             }));
-        self.overlay = Some(Overlay::Git(GitPicker {
-            project,
-            kind,
-            picker,
-            anchor,
-            selected: vec![],
-        }));
+        self.open_overlay(
+            Overlay::Git(GitPicker {
+                project,
+                kind,
+                picker,
+                anchor,
+                selected: vec![],
+            }),
+            cx,
+        );
         self.queue_git_refresh(project, vec![GitAction::Summary, kind.action()], cx);
         self.update_git_picker(cx);
     }
@@ -300,8 +355,21 @@ impl AppModel {
             }
         };
         match &operation {
-            GitAction::DeleteBranch(branch) => self.confirm_git_action(project, operation.clone(), tr!("Permanently delete branch “%@”? Unmerged commits may become unreachable.", branch).into(), cx),
-            GitAction::Discard(paths) => self.confirm_git_action(project, operation.clone(), tr!("Discard changes to “%@”? Untracked files will be permanently deleted; staged changes are preserved.", String::from_utf8_lossy(&paths[0].0)).into(), cx),
+            GitAction::DeleteBranch(branch) => {
+                self.confirm_git_action(
+                    project,
+                    operation.clone(),
+                    tr!(
+                        "Permanently delete branch “%@”? Unmerged commits may become unreachable.",
+                        branch
+                    )
+                    .into(),
+                    cx,
+                );
+            }
+            GitAction::Discard(paths) => {
+                self.confirm_git_action(project, operation.clone(), tr!("Discard changes to “%@”? Untracked files will be permanently deleted; staged changes are preserved.", String::from_utf8_lossy(&paths[0].0)).into(), cx);
+            }
             _ => {
                 self.git_request(project, operation, cx);
             }
@@ -357,23 +425,19 @@ impl AppModel {
         mut action: GitAction,
         message: String,
         cx: &mut Context<Self>,
-    ) {
-        if self.close_prompt.is_some() {
-            return;
-        }
+    ) -> crate::model::dialogs::DialogId {
         let has_hooks = matches!(&action, GitAction::Worktree(intent) if intent.options.as_ref().and_then(|options| options.hooks.as_ref()).is_some_and(|hooks| !hooks.is_empty()));
-        let window = self.window;
         let context = self.git.interaction;
-        self.close_prompt = Some(cx.spawn(async move |this, cx| {
-            let confirmed = confirmation::prompt(window, &message, has_hooks, cx).await;
-            if confirmed == Some(false)
-                && let GitAction::Worktree(intent) = &mut action
-                && let Some(options) = &mut intent.options
-            {
-                options.hooks = None;
-            }
-            let _ = this.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| confirmation::prompt(parent, &message, has_hooks, cx).await,
+            move |model, confirmed, cx| {
+                if confirmed == Some(false)
+                    && let GitAction::Worktree(intent) = &mut action
+                    && let Some(options) = &mut intent.options
+                {
+                    options.hooks = None;
+                }
                 if confirmed.is_some()
                     && model.git.interaction == context
                     && model.state.project(project).is_some()
@@ -383,8 +447,9 @@ impl AppModel {
                         model.leave_worktree(project, cx);
                     }
                 }
-            });
-        }));
+            },
+            cx,
+        )
     }
 
     pub(crate) fn not_a_repository(&self, project: ProjectId) -> bool {
@@ -394,6 +459,7 @@ impl AppModel {
             .is_some_and(Repository::not_a_repository)
     }
 
+    #[allow(clippy::too_many_lines, reason = "Creates all of the form's inputs")]
     pub(crate) fn open_git_form(
         &mut self,
         project: ProjectId,
@@ -432,25 +498,37 @@ impl AppModel {
         let name = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_placeholder("feature-x")
+                .with_accessible_label(tr_key!("Name"))
+                .with_accessibility_id("settings-field-git-name")
         });
-        let existing_branch =
-            cx.new(|cx| TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx));
+        let existing_branch = cx.new(|cx| {
+            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
+                .with_accessible_label(tr_key!("Branch"))
+        });
         let template = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_placeholder(muxy_app_core::settings::SUGGESTED_WORKTREE_TEMPLATE)
+                .with_accessible_label(tr_key!("Template"))
+                .with_accessibility_id("settings-field-git-template")
                 .with_text(location.path_template)
         });
         let branch = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_placeholder("feature-x")
+                .with_accessible_label(tr_key!("Branch name"))
+                .with_accessibility_id("settings-field-git-branch")
         });
         let directory = cx.new(|cx| {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_placeholder("/path/to/worktrees")
+                .with_accessible_label(tr_key!("Folder"))
+                .with_accessibility_id("settings-field-git-directory")
                 .with_text(location.parent_path)
         });
         let base = cx.new(|cx| {
-            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx).with_text(default)
+            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
+                .with_accessible_label(tr_key!("Base branch"))
+                .with_text(default)
         });
         let mut subscriptions = Vec::new();
         for input in [
@@ -474,7 +552,7 @@ impl AppModel {
         };
         let _ = self.window.update(cx, |_, window, _| focus.focus(window));
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::GitForm(Box::new(Form {
+        let form = Form {
             project,
             worktree,
             existing: false,
@@ -492,7 +570,8 @@ impl AppModel {
             subscriptions,
             error: None,
             suggested_branch: String::new(),
-        })));
+        };
+        self.open_overlay(Overlay::GitForm(Box::new(form)), cx);
         if worktree {
             self.git_request(project, GitAction::Branches, cx);
             self.git_request(project, GitAction::WorktreeHooks { teardown: false }, cx);
@@ -537,7 +616,7 @@ impl AppModel {
         cx.notify();
     }
 
-    fn choose_worktree_branch(&mut self, base: bool, cx: &mut Context<Self>) {
+    pub(crate) fn choose_worktree_branch(&mut self, base: bool, cx: &mut Context<Self>) {
         let Some(Overlay::GitForm(form)) = &self.overlay else {
             return;
         };
@@ -711,7 +790,7 @@ impl AppModel {
             operation: OperationId::new(),
             action: WorktreeAction::Create {
                 project: ProjectId::new(),
-                directory: crate::model::remote_files::wire_path(&directory),
+                directory: ServerPath::from(directory),
                 branch,
                 base: (!form.existing).then_some(if base.is_empty() {
                     "HEAD".into()
@@ -724,8 +803,6 @@ impl AppModel {
         self.create_worktree(project, intent, location, cx);
     }
 }
-
-pub(crate) use form::render as render_form;
 
 fn picker_items(mut rows: Vec<PickerRow>, query: &str, group_by_status: bool) -> Vec<PickerItem> {
     rows.retain(|row| {
@@ -757,14 +834,5 @@ fn picker_items(mut rows: Vec<PickerRow>, query: &str, group_by_status: bool) ->
 }
 
 fn path_key(path: &ServerPath) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    path.0
-        .iter()
-        .flat_map(|byte| {
-            [
-                char::from(HEX[usize::from(byte >> 4)]),
-                char::from(HEX[usize::from(byte & 15)]),
-            ]
-        })
-        .collect()
+    muxy_core::hex::encode(&path.0)
 }

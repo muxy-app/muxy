@@ -20,11 +20,14 @@ WORKFLOW = (ROOT / ".github/workflows/ci.yml").read_text()
 
 
 class WindowsTests(unittest.TestCase):
-    def environment(self, system="Windows", host=TARGET, zig="C:\\zig\\zig.exe", env=None, builds=None):
+    def environment(self, system="Windows", host=TARGET, zig="C:\\zig\\zig.exe", env=None, builds=None,
+                    part=None, scope=None):
         builds = builds or {}
         stack = contextlib.ExitStack()
         self.addCleanup(stack.close)
-        stack.enter_context(patch.object(sys, "argv", ["check-windows.py", "--target", TARGET]))
+        arguments = ["--part", part] if part else []
+        arguments += ["--scope", scope] if scope else []
+        stack.enter_context(patch.object(sys, "argv", ["check-windows.py", "--target", TARGET, *arguments]))
         stack.enter_context(patch.object(CHECK.platform, "system", return_value=system))
         stack.enter_context(patch.object(CHECK.shutil, "which", return_value=zig))
         stack.enter_context(patch.dict(os.environ, {"RUSTDOCFLAGS": "--cfg regression_guard", **(env or {})},
@@ -37,7 +40,7 @@ class WindowsTests(unittest.TestCase):
             return json.dumps(builds.get(Path(command[0]).stem, BUILD)).encode()
 
         reports = stack.enter_context(patch.object(CHECK.subprocess, "check_output", side_effect=output))
-        return stack.enter_context(patch.object(CHECK.subprocess, "run")), reports
+        return stack.enter_context(patch.object(CHECK.slow_test_guard, "run")), reports
 
     def test_only_the_requested_native_windows_host_with_zig_can_run_the_check(self):
         for settings in [
@@ -63,21 +66,14 @@ class WindowsTests(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError):
                     CHECK.main()
                 self.assertEqual(run.call_count, failed_step + 1)
-                self.assertTrue(all(call.kwargs["check"] for call in run.call_args_list))
                 self.assertEqual(reports.call_count, 1)
                 self.doCleanups()
 
     def test_check_covers_the_whole_workspace_and_the_built_binaries(self):
         run, reports = self.environment(env={"CARGO_TARGET_DIR": "C:\\build"})
         CHECK.main()
-        self.assertEqual([call.args[0] for call in run.call_args_list], [
-            [sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests"],
-            ["cargo", "fmt", "--all", "--check"],
-            ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
-            ["cargo", "test", "--locked", "--workspace", "--all-features"],
-            ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
-            ["cargo", "build", "--locked", "-p", "muxy-app", "-p", "muxy-cli", "-p", "muxy-server"],
-        ])
+        self.assertEqual([call.args[0] for call in run.call_args_list], [*CHECK.PARTS["lint"], *CHECK.PARTS["test"],
+                                                                        CHECK.BUILD])
         for call in run.call_args_list:
             self.assertEqual(call.kwargs["cwd"], ROOT)
             self.assertEqual(call.kwargs["env"]["RUSTDOCFLAGS"], "--cfg regression_guard -D warnings")
@@ -87,6 +83,17 @@ class WindowsTests(unittest.TestCase):
             [binaries / "muxy.exe", "--build-info"],
             [binaries / "muxy-server.exe", "--build-info"],
         ])
+
+    def test_each_part_runs_alone_and_only_the_tests_build_the_binaries(self):
+        run, reports = self.environment(part="lint")
+        CHECK.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], CHECK.PARTS["lint"])
+        self.assertEqual(reports.call_count, 1)
+        self.doCleanups()
+        run, reports = self.environment(part="test", scope="desktop")
+        CHECK.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], [CHECK.ci_scope.DESKTOP_TEST, CHECK.BUILD])
+        self.assertEqual(reports.call_count, 1 + len(CHECK.BINARIES))
 
     def test_binaries_are_read_from_the_configured_target_directory(self):
         for env, directory in [({}, "target"), ({"CARGO_BUILD_TARGET_DIR": "C:\\other"}, "C:\\other")]:
@@ -106,12 +113,12 @@ class WindowsTests(unittest.TestCase):
 
     def test_ci_runs_the_windows_check_on_both_architectures(self):
         for expected in [
-            'python scripts/check-windows.py --target "${{ matrix.target }}"',
+            'python scripts/check-windows.py --target "${{ matrix.target }}" --part "${{ matrix.part }}"',
             "runner: windows-latest\n            target: x86_64-pc-windows-msvc\n",
             "runner: windows-11-arm\n            target: aarch64-pc-windows-msvc\n",
             "git config --global core.autocrlf false\n          git config --global core.longpaths true\n"
             "      - uses: actions/checkout@v4\n",
-            "'windows/**'",
+            "windows-platform",
         ]:
             self.assertIn(expected, WORKFLOW)
 

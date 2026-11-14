@@ -13,10 +13,7 @@ use gpui::Context;
 use muxy_app_core::opener::{FileLocation, Target};
 use muxy_app_core::{PaneId, ServerId};
 use muxy_client::{Client, ClientError};
-use muxy_protocol::{
-    ErrorCode, FilesAction, FilesReply, FilesRequest, MAX_UPLOAD_BYTES, ProjectId, ServerPath,
-    SessionId,
-};
+use muxy_protocol::{ErrorCode, MAX_UPLOAD_BYTES, ProjectId, ServerPath, SessionId};
 use muxy_ui::tr;
 
 use super::AppModel;
@@ -89,7 +86,7 @@ impl RemoteFiles {
 
     fn send(&self, session: SessionId, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
         match self.client.upload(session, name, bytes) {
-            Ok(path) => Ok(local_path(&path)),
+            Ok(path) => Ok(path.into()),
             Err(ClientError::Server(error)) if error.code == ErrorCode::Unsupported => Err(tr!(
                 "Muxy on %@ can't receive files. Update Muxy there.",
                 &self.name
@@ -140,41 +137,31 @@ impl RemoteFiles {
         })
     }
 
-    fn files(&self, path: &Path, action: fn(ServerPath) -> FilesAction) -> Option<FilesReply> {
-        let (project, relative) = self.locate(path)?;
-        self.client
-            .files(FilesRequest {
-                project,
-                action: action(wire_path(&relative)),
-            })
-            .ok()
-    }
-
     fn exists(&self, path: &Path) -> bool {
-        self.files(path, FilesAction::Stat).is_some()
+        self.locate(path).is_some_and(|(project, relative)| {
+            self.client
+                .file_info(project, ServerPath::from(&relative))
+                .is_ok()
+        })
     }
 
     /// Whether a project's folder is there, as this computer checks its own:
     /// a worktree also needs its `.git` file. `None` when the server
     /// couldn't say.
-    fn folder_available(&self, project: ProjectId, worktree: bool) -> Option<bool> {
-        let stat = |path: &[u8]| {
-            self.client.files(FilesRequest {
-                project,
-                action: FilesAction::Stat(ServerPath(path.to_vec())),
-            })
-        };
+    pub(crate) fn folder_available(&self, project: ProjectId, worktree: bool) -> Option<bool> {
+        let stat = |path: &[u8]| self.client.file_info(project, ServerPath(path.to_vec()));
         let missing = |error: &ClientError| matches!(error, ClientError::Server(error) if error.code == ErrorCode::BadPath);
         match stat(b"") {
-            Ok(_) => {}
+            Ok(info) if info.is_directory => {}
+            Ok(_) => return Some(false),
             Err(error) if missing(&error) => return Some(false),
-            Err(_) => return None,
+            _ => return None,
         }
         if !worktree {
             return Some(true);
         }
         match stat(b".git") {
-            Ok(FilesReply::Info(info)) => Some(!info.is_directory),
+            Ok(info) => Some(!info.is_directory),
             Err(error) if missing(&error) => Some(false),
             _ => None,
         }
@@ -189,13 +176,14 @@ impl RemoteFiles {
             )
             .to_string());
         };
-        let request = FilesRequest {
-            project,
-            action: FilesAction::ReadBytes(wire_path(&relative)),
-        };
-        match self.client.files(request) {
-            Ok(FilesReply::Bytes(file)) => Ok(file.bytes),
-            Ok(_) => Err(tr!("The server sent something other than the file.").to_string()),
+        match self
+            .client
+            .read_file_bytes(project, ServerPath::from(&relative))
+        {
+            Ok(file) => Ok(file.bytes),
+            Err(ClientError::UnexpectedReply(_)) => {
+                Err(tr!("The server sent something other than the file.").to_string())
+            }
             Err(ClientError::Server(error)) => Err(error.message),
             Err(error) => Err(error.to_string()),
         }
@@ -216,16 +204,6 @@ fn display_name(path: &Path) -> String {
         || path.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     )
-}
-
-/// A path the server refuses where this computer's can't travel, which is
-/// only a Windows path that isn't Unicode.
-pub(crate) fn wire_path(path: &Path) -> ServerPath {
-    ServerPath::from_path(path).unwrap_or_else(|_| ServerPath(Vec::new()))
-}
-
-pub(crate) fn local_path(path: &ServerPath) -> PathBuf {
-    path.to_path_buf().unwrap_or_default()
 }
 
 /// Copied files, or an image copied without text, which a terminal on
@@ -337,6 +315,10 @@ impl Default for RemoteLinks {
         }
     }
 }
+
+/// How many wider stretches of a row another computer's server is asked
+/// about: each one is a request to it.
+const REMOTE_LINK_TRIES: usize = 32;
 
 impl AppModel {
     /// Another computer's files, once its second connection is open. Asks
@@ -453,8 +435,8 @@ impl AppModel {
     /// Sends what was dropped or pasted on a terminal of another computer,
     /// then pastes where it landed there, if the terminal is still the same.
     pub(super) fn upload_to_pane(&mut self, pane: PaneId, upload: Upload, cx: &mut Context<Self>) {
-        let (Some(attachment), Some(session)) =
-            (self.attachment(pane, cx), self.pane_session(pane))
+        let (Some(attachment), Some((_, session))) =
+            (self.attachment(pane, cx), self.state.pane_session(pane))
         else {
             return;
         };
@@ -505,13 +487,14 @@ impl AppModel {
         let Ok(files) = self.remote_files(context.server, cx) else {
             return;
         };
-        let text = candidate.text.clone();
+        let mut wanted = candidate.clone();
+        wanted.wider.truncate(REMOTE_LINK_TRIES);
         let resolved = cx
             .background_executor()
-            .spawn(async move { files.resolve(&text, &context.directory) });
+            .spawn(async move { wanted.resolve(|text| files.resolve(text, &context.directory)) });
         cx.spawn(async move |_, cx| {
-            let target = resolved.await;
-            let _ = view.update(cx, |pane, cx| pane.link_resolved(&candidate, target, cx));
+            let found = resolved.await;
+            let _ = view.update(cx, |pane, cx| pane.link_resolved(&candidate, found, cx));
         })
         .detach();
     }

@@ -86,3 +86,22 @@ fn same_write_output_and_alternate_entry_save_the_new_primary_history() -> TestR
     );
     Ok(())
 }
+
+#[test]
+fn snapshots_wait_for_output_to_finish_a_sequence_or_character() -> TestResult {
+    let mut terminal = Terminal::new(SIZE, 1024 * 1024)?;
+    for partial in [
+        b"\x1b[3".as_slice(),
+        b"\x1b]0;title",
+        "界".as_bytes()[..2].as_ref(),
+    ] {
+        terminal.feed(partial);
+        assert!(terminal.snapshot()?.is_none());
+        terminal.feed(b"\x18");
+        assert!(terminal.snapshot()?.is_some());
+    }
+    terminal.feed(b"done");
+    let snapshot = terminal.snapshot()?.ok_or("output at ground")?;
+    assert_eq!(snapshot.archive()?.rows, terminal.screen()?);
+    Ok(())
+}

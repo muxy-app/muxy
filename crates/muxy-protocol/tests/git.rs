@@ -1,6 +1,7 @@
 use muxy_protocol::{
     GitAction, GitDiff, GitDiffRequest, GitMergeMethod, GitPullRequestAction as Pr,
-    GitPullRequestFilter, GitPushDestination, GitRequest, ProjectId, ServerPath,
+    GitPullRequestFilter, GitPushDestination, GitRequest, OperationId, ProjectId, ServerPath,
+    WorktreeAction, WorktreeIntent,
 };
 
 #[test]
@@ -98,6 +99,44 @@ fn extension_requests_reject_missing_values_option_injection_and_excessive_limit
 }
 
 #[test]
+fn file_paths_stay_inside_the_repository_and_worktree_folders_are_absolute() {
+    let actions = [
+        GitAction::Stage(vec![ServerPath(b"/etc/passwd".to_vec())]),
+        GitAction::Stage(vec![ServerPath(Vec::new())]),
+        GitAction::Diff(GitDiffRequest {
+            path: Some(ServerPath(b"/etc/passwd".to_vec())),
+            ..GitDiffRequest::default()
+        }),
+        GitAction::Worktree(WorktreeIntent {
+            operation: OperationId::new(),
+            action: WorktreeAction::Register {
+                project: ProjectId::new(),
+                directory: ServerPath(b"relative/worktree".to_vec()),
+            },
+            options: None,
+        }),
+    ];
+    for action in actions {
+        assert!(
+            GitRequest {
+                project: ProjectId::new(),
+                action
+            }
+            .validate()
+            .is_err()
+        );
+    }
+    assert_eq!(
+        GitRequest {
+            project: ProjectId::new(),
+            action: GitAction::Stage(vec![ServerPath(b"src/main.rs".to_vec())]),
+        }
+        .validate(),
+        Ok(())
+    );
+}
+
+#[test]
 fn diffs_from_builds_before_the_binary_flag_read_as_text() -> Result<(), Box<dyn std::error::Error>>
 {
     // [rows, additions, deletions, truncated], as written before the flag existed.
@@ -110,5 +149,23 @@ fn diffs_from_builds_before_the_binary_flag_read_as_text() -> Result<(), Box<dyn
         .bool(false)?;
     let diff: GitDiff = minicbor::decode(&older)?;
     assert_eq!((diff.additions, diff.deletions, diff.binary), (1, 2, false));
+    Ok(())
+}
+
+#[test]
+fn a_status_request_from_an_older_app_reads_the_cache() -> Result<(), Box<dyn std::error::Error>> {
+    let mut older = Vec::new();
+    minicbor::Encoder::new(&mut older)
+        .array(2)?
+        .u32(13)?
+        .array(1)?
+        .bool(false)?;
+    assert_eq!(
+        minicbor::decode::<GitAction>(&older)?,
+        GitAction::Status {
+            local: false,
+            fresh: false
+        }
+    );
     Ok(())
 }

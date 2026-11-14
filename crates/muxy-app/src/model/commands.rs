@@ -3,7 +3,8 @@ use muxy_app_core::settings::KeyChord;
 use muxy_ui::command_palette::{Command, Registry};
 use muxy_ui::tr;
 
-use super::{AppModel, ConnectionState, ProjectStatus, Quitting};
+use super::tabs::OpenTerminal;
+use super::{AppModel, ProjectStatus, Quitting};
 use crate::views::command_palette::Handler;
 
 #[derive(Clone, PartialEq, gpui::Action)]
@@ -47,9 +48,9 @@ impl AppModel {
             })
     }
 
-    fn can_run_custom_command(&self) -> bool {
+    pub(crate) fn can_run_custom_command(&self) -> bool {
         self.quitting == Quitting::Idle
-            && self.close_prompt.is_none()
+            && !self.dialogs.is_open()
             && self.close_request.is_none()
             && self.pending_close.is_none()
             && self.state.current_project().status() == ProjectStatus::Available
@@ -64,44 +65,33 @@ impl AppModel {
             .commands
             .iter()
             .find(|command| command.id == id)
+            .cloned()
         else {
             return;
         };
-        if let Err(error) = command.validate() {
-            self.fail(error.to_string(), cx);
-            return;
+        if let Err(error) = self.launch_custom_command(&command, cx) {
+            self.fail(error, cx);
         }
-        let command = command.clone();
-        let previous = self.state.clone();
-        let result = (|| {
-            let tab = self
-                .state
-                .open_terminal_tab(self.state.current_project().id)?;
-            self.state
-                .set_tab_title(tab, Some(command.name.trim().into()))?;
-            let pane = self
-                .state
-                .window()
-                .active_pane
-                .ok_or_else(|| "could not create command pane".to_owned())?;
-            self.state.set_startup_command(pane, &command.command)?;
-            Ok::<_, Box<dyn std::error::Error>>(())
-        })();
-        if let Err(error) = result {
-            self.state = previous;
-            self.fail(error.to_string(), cx);
-            return;
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return;
-        }
-        self.changed(cx);
-        self.focus_requested = true;
-        let server = self.state.current_project().server_id;
-        if self.connection(server) == ConnectionState::Disconnected {
-            self.connect_server(server, cx);
-        }
+    }
+
+    /// Opens a terminal tab running `command`. Answers `None` when the tab
+    /// could not be saved, which the save already reported.
+    pub(crate) fn launch_custom_command(
+        &mut self,
+        command: &muxy_app_core::settings::CustomCommand,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<muxy_app_core::TabId>, String> {
+        command.validate().map_err(|error| error.to_string())?;
+        let opened = self.open_terminal(
+            OpenTerminal {
+                project: self.state.current_project().id,
+                title: Some(command.name.trim()),
+                command: Some(&command.command),
+                directory: None,
+            },
+            cx,
+        )?;
+        Ok(opened.map(|(tab, _)| tab))
     }
 
     pub(crate) fn register_custom_commands(&self, registry: &mut Registry<Handler>) {

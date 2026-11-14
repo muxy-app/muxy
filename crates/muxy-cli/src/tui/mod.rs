@@ -25,7 +25,7 @@ use crate::target::Target;
 use crate::ui::{self, Mode, Overlay, Ui, layout::Chrome};
 use crate::{
     terminal::{self, Host},
-    worker::{Shared, Worker, lock},
+    worker::{Shared, View, Worker, lock},
 };
 
 /// Runs the TUI against this computer's server, or the one on `remote`,
@@ -72,7 +72,10 @@ fn events(host: &mut Host, worker: &Worker, mut ui: Ui) -> Result {
         if host.stop.load(Ordering::Acquire) || terminal::require_interactive().is_err() {
             return Ok(());
         }
-        if host.resume_if_needed().map_err(|error| error.to_string())? {
+        if host
+            .resume_if_needed(&events)
+            .map_err(|error| error.to_string())?
+        {
             capturing = true;
         }
         if capturing != ui.mouse {
@@ -107,7 +110,7 @@ fn events(host: &mut Host, worker: &Worker, mut ui: Ui) -> Result {
             let shared = lock(&worker.shared);
             focused_pane(&shared)
                 .and_then(|pane| shared.views.get(&pane))
-                .map(|view| view.grid.cursor.shape)
+                .map(|view| view.terminal.grid.cursor.shape)
         };
         if shape != next_shape {
             shape = next_shape;
@@ -216,16 +219,16 @@ fn scroll(worker: &Worker, pane: PaneId, rows: Option<isize>) {
     let Some(view) = shared
         .views
         .get_mut(&pane)
-        .filter(|view| !view.ended && view.channel.is_some())
+        .filter(|view| !view.ended && view.channel().is_some())
     else {
         return;
     };
     let height = usize::from(view.viewport.rows);
     let request: Option<HistoryRequest> = match rows {
-        Some(rows) => view.scroll.by(rows, &view.grid, height),
-        None => view.scroll.to(usize::MAX, &view.grid, height),
+        Some(rows) => view.scroll.by(rows, &view.terminal.grid, height),
+        None => view.scroll.to(usize::MAX, &view.terminal.grid, height),
     };
-    if let (Some(request), Some(channel)) = (request, view.channel) {
+    if let (Some(request), Some(channel)) = (request, view.channel()) {
         worker.history.fetch(&mut shared, channel, request);
     }
 }
@@ -240,7 +243,7 @@ fn report_focus(worker: &Worker) -> Result {
     let next = focused_pane(&shared)
         .and_then(|pane| shared.views.get(&pane))
         .filter(|view| view.input.focus_events && !view.ended && !shared.host_unfocused)
-        .and_then(|view| view.channel);
+        .and_then(View::channel);
     if shared.focus == next {
         return Ok(());
     }
@@ -252,7 +255,7 @@ fn report_focus(worker: &Worker) -> Result {
         shared
             .views
             .values()
-            .any(|view| view.channel == Some(channel) && view.input.focus_events && !view.ended)
+            .any(|view| view.channel() == Some(channel) && view.input.focus_events && !view.ended)
             .then_some(channel)
     });
     shared.focus = next;

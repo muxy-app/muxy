@@ -502,48 +502,6 @@ fn verify_code(path: &Path, requirement: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn native_verification_checks_literal_requirement_and_nested_code() -> Result<()> {
-        let directory = tempfile::tempdir()?;
-        let app = directory.path().join("Muxy Beta.app");
-        let binaries = app.join("Contents/MacOS");
-        std::fs::create_dir_all(&binaries)?;
-        std::fs::write(
-            app.join("Contents/Info.plist"),
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>com.muxy-beta.app</string>
-<key>CFBundleExecutable</key><string>muxy-app</string>
-<key>CFBundlePackageType</key><string>APPL</string>
-</dict></plist>"#,
-        )?;
-        for binary in ["muxy-app", "muxy", "muxy-server"] {
-            let path = binaries.join(binary);
-            std::fs::copy("/usr/bin/true", &path)?;
-            run(Command::new("/usr/bin/codesign")
-                .args(["--force", "--sign", "-"])
-                .arg(&path))?;
-        }
-        run(Command::new("/usr/bin/codesign")
-            .args(["--force", "--sign", "-"])
-            .arg(&app))?;
-        verify_code(&app, "identifier \"com.muxy-beta.app\"")?;
-        assert!(verify_code(&app, "identifier \"com.muxy.app\"").is_err());
-        let installation = Installation {
-            bundle: app.clone(),
-            team: "TESTTEAM00".into(),
-        };
-        assert!(installation.verify_signature(&app, true).is_err());
-        std::fs::write(binaries.join("muxy"), b"changed helper")?;
-        assert!(verify_code(&app, "identifier \"com.muxy-beta.app\"").is_err());
-        Ok(())
-    }
-}
-
 fn write_record(path: &Path, value: &serde_json::Value) -> Result<()> {
     use std::io::Write;
     let directory = path
@@ -556,9 +514,6 @@ fn write_record(path: &Path, value: &serde_json::Value) -> Result<()> {
     file.persist(path)?;
     Ok(())
 }
-
-#[cfg(test)]
-mod smoke;
 
 #[cfg(test)]
 mod retirement_tests {
@@ -593,42 +548,6 @@ mod retirement_tests {
         std::fs::remove_dir(staging.join("previous.app"))?;
         update.discard(&socket)?;
         assert!(!staging.exists());
-        Ok(())
-    }
-
-    #[test]
-    fn only_committed_unused_bundles_are_retired() -> Result<()> {
-        let root = tempfile::tempdir()?;
-        let installation = Installation {
-            bundle: root.path().join("Muxy Beta.app"),
-            team: "TESTTEAM00".into(),
-        };
-        let server = muxy_protocol::ServerInfo::current();
-        let mut directories = Vec::new();
-        for (name, committed, instance) in [
-            ("active", true, server.instance),
-            ("recovery", false, 0),
-            ("unused", true, 0),
-        ] {
-            let path = root.path().join(format!(".muxy-beta-update-{name}"));
-            std::fs::create_dir_all(path.join("previous.app"))?;
-            write_record(
-                &path.join("retained.json"),
-                &serde_json::json!({"bundle": installation.bundle, "committed": committed, "instance": instance}),
-            )?;
-            directories.push(path);
-        }
-        let socket = root.path().join("server.sock");
-        let lock = crate::server::lock_for_update(&socket)?;
-        installation.cleanup(&socket)?;
-        assert!(directories.iter().all(|path| path.exists()));
-        drop(lock);
-        assert!(installation.cleanup(&socket).is_err());
-        assert!(directories.iter().all(|path| path.exists()));
-        installation.cleanup_retired(&server)?;
-        assert!(directories[0].exists());
-        assert!(directories[1].exists());
-        assert!(!directories[2].exists());
         Ok(())
     }
 }

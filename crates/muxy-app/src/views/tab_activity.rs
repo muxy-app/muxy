@@ -4,12 +4,11 @@ use gpui::{
     StatefulInteractiveElement, Styled, canvas, div, point, px, svg,
 };
 use muxy_app_core::{
-    PaneContent, ProjectId, ServerId, Tab,
+    Pane, ProjectId, ServerId, Tab,
     activity::{ActivityIndicator, indicator},
     settings::AppLayout,
 };
 use muxy_protocol::{AgentProvider, ProgressState, SessionId, TerminalProgress};
-use muxy_ui::components::Tooltip;
 use muxy_ui::l10n::{tr_key, translate};
 #[cfg(target_os = "macos")]
 use muxy_ui::spinner::NativeSpinner;
@@ -18,7 +17,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use crate::model::AppModel;
-use gpui::AppContext;
+use crate::model::agents_panel::RunningAgent;
 use gpui::InteractiveElement;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -84,20 +83,22 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
         .first()
         .and_then(|pane| model.state.pane_server(pane.id))
         .unwrap_or_else(ServerId::local);
-    let sessions: Vec<_> = tab
-        .panes
-        .iter()
-        .filter_map(|pane| match pane.content {
-            PaneContent::Terminal { session } => session,
-            PaneContent::Settings | PaneContent::Webview(_) | PaneContent::Browser(_) => None,
-        })
-        .collect();
+    let sessions: Vec<_> = tab.panes.iter().filter_map(Pane::session).collect();
     resolve(
         server,
         &sessions,
-        tab.panes
-            .iter()
-            .any(|pane| model.completions.contains(&pane.id)),
+        tab.panes.iter().any(|pane| model.pane_completed(pane.id)),
+        false,
+        model,
+    )
+}
+
+/// What the tab row of an agent's pane shows for that agent.
+pub(super) fn agent_status(agent: &RunningAgent, model: &AppModel) -> Status {
+    resolve(
+        agent.server,
+        &[agent.session],
+        model.pane_completed(agent.pane),
         false,
         model,
     )
@@ -162,16 +163,8 @@ fn project_scope_status(id: ProjectId, include_children: bool, model: &AppModel)
         .flat_map(|project| &project.tabs)
         .flat_map(|tab| &tab.panes)
         .collect();
-    let sessions: Vec<_> = panes
-        .iter()
-        .filter_map(|pane| match pane.content {
-            PaneContent::Terminal { session } => session,
-            PaneContent::Settings | PaneContent::Webview(_) | PaneContent::Browser(_) => None,
-        })
-        .collect();
-    let completion = panes
-        .iter()
-        .any(|pane| model.completions.contains(&pane.id));
+    let sessions: Vec<_> = panes.iter().filter_map(|pane| pane.session()).collect();
+    let completion = panes.iter().any(|pane| model.pane_completed(pane.id));
     resolve(
         model
             .state
@@ -204,18 +197,91 @@ pub(super) fn icon(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyEleme
 }
 
 pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElement) -> AnyElement {
-    let status = tab_status(tab, model);
     let fallback = if tab.pinned {
         fallback
     } else {
         icon(tab, model, size, fallback)
     };
+    decorated("tab", tab.id, tab_status(tab, model), fallback, size, model)
+}
+
+/// An element whose hover swaps the spinners in it for a control. Native macOS
+/// spinners paint above the app's own opacity, so they hide themselves there.
+#[derive(Clone, Default)]
+pub(super) struct HoverZone(Rc<Cell<Option<Bounds<Pixels>>>>);
+
+impl HoverZone {
+    /// Records the zone's bounds; a child of the element the zone covers.
+    pub(super) fn track(&self) -> AnyElement {
+        let bounds = self.0.clone();
+        canvas(move |zone, _, _| bounds.set(Some(zone)), |_, (), _, _| {})
+            .absolute()
+            .inset_0()
+            .into_any_element()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn hovered(&self, window: &gpui::Window) -> bool {
+        self.0
+            .get()
+            .is_some_and(|bounds| bounds.contains(&window.mouse_position()))
+    }
+}
+
+/// A pane's own icon: the agent running in it, with that agent's completion,
+/// or `fallback` when no agent runs there. Its tab already spins for its work.
+pub(super) fn pane_glyph(
+    pane: &Pane,
+    model: &AppModel,
+    size: Pixels,
+    fallback: AnyElement,
+) -> AnyElement {
+    let id = pane.id;
+    let Some(provider) = model.pane_agent(id).map(|agent| agent.provider) else {
+        return fallback;
+    };
+    let status =
+        model
+            .state
+            .pane_session(id)
+            .map_or(Status::None, |(server, session)| {
+                match resolve(server, &[session], model.pane_completed(id), false, model) {
+                    Status::Progress(_) => Status::None,
+                    status => status,
+                }
+            });
+    decorated(
+        "pane",
+        id,
+        status,
+        div()
+            .debug_selector(move || format!("pane-provider-{id}-{provider:?}"))
+            .flex()
+            .flex_none()
+            .size(size)
+            .child(provider_icon(provider, size, model))
+            .into_any_element(),
+        size,
+        model,
+    )
+}
+
+/// `icon` with a spinner in its place while work is in progress, and a dot
+/// when it is blocked or done.
+fn decorated(
+    kind: &str,
+    id: impl std::fmt::Display,
+    status: Status,
+    icon: AnyElement,
+    size: Pixels,
+    model: &AppModel,
+) -> AnyElement {
     let dot = match status {
         Status::Blocked => Some(model.theme.warning),
         Status::Completed | Status::Unread(_) => Some(model.theme.accent),
         _ => None,
     };
-    let id = tab.id;
+    let completion = format!("{kind}-completion-{id}");
     div()
         .relative()
         .flex()
@@ -224,14 +290,14 @@ pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElem
         .justify_center()
         .size(size)
         .child(if matches!(status, Status::Progress(_)) {
-            status_glyph(format!("tab-{id}"), status, size, model)
+            status_glyph(format!("{kind}-{id}"), status, size, model)
         } else {
-            fallback
+            icon
         })
         .when_some(dot, |glyph, color| {
             glyph.child(
                 div()
-                    .debug_selector(move || format!("tab-completion-{id}"))
+                    .debug_selector(move || completion.clone())
                     .absolute()
                     .top(model.metrics.scaled(-3.0))
                     .right(model.metrics.scaled(-3.0))
@@ -296,7 +362,7 @@ impl Spinners {
     }
 
     fn glyph(&self, id: String, size: Pixels, color: Hsla) -> AnyElement {
-        self.glyph_in(id, size, color, None)
+        self.glyph_in(id, size, color, None, None)
     }
 
     pub(super) fn glyph_in(
@@ -305,8 +371,10 @@ impl Spinners {
         size: Pixels,
         color: Hsla,
         owner: Option<gpui::EntityId>,
+        zone: Option<&HoverZone>,
     ) -> AnyElement {
         let registry = self.0.clone();
+        let zone = zone.cloned();
         canvas(
             |_, _, _| (),
             move |bounds, (), window, _| {
@@ -333,7 +401,9 @@ impl Spinners {
                         native.bounds.set(Some(bounds));
                         native.owner.set(owner);
                         native.in_bounds.set(
-                            mask.contains(&bounds.origin) && mask.contains(&bounds.bottom_right()),
+                            mask.contains(&bounds.origin)
+                                && mask.contains(&bounds.bottom_right())
+                                && !zone.as_ref().is_some_and(|zone| zone.hovered(window)),
                         );
                         // `present` decides visibility once everything above is laid out.
                         if let Some(spinner) = &native.spinner {
@@ -379,6 +449,7 @@ impl Spinners {
         size: Pixels,
         color: Hsla,
         _owner: Option<gpui::EntityId>,
+        _zone: Option<&HoverZone>,
     ) -> AnyElement {
         self.glyph(id, size, color)
     }
@@ -470,7 +541,7 @@ pub(super) fn spinner_in(
 ) -> AnyElement {
     model
         .spinners
-        .glyph_in(id.into(), size, model.theme.accent, Some(owner))
+        .glyph_in(id.into(), size, model.theme.accent, Some(owner), None)
 }
 
 pub(super) fn status_glyph(
@@ -479,13 +550,28 @@ pub(super) fn status_glyph(
     size: Pixels,
     model: &AppModel,
 ) -> AnyElement {
+    status_glyph_in(id, status, size, None, None, model)
+}
+
+/// A status glyph whose spinner stays visible over content `owner` paints, and
+/// hides while `zone` is hovered.
+pub(super) fn status_glyph_in(
+    id: String,
+    status: Status,
+    size: Pixels,
+    owner: Option<gpui::EntityId>,
+    zone: Option<&HoverZone>,
+    model: &AppModel,
+) -> AnyElement {
     let theme = &model.theme;
     let (kind, tooltip, glyph) = match status {
         Status::None => return div().into_any_element(),
         Status::Busy(key) => (
             "busy",
             translate(key).to_string(),
-            model.spinners.glyph(id.clone(), size, theme.accent),
+            model
+                .spinners
+                .glyph_in(id.clone(), size, theme.accent, owner, zone),
         ),
         Status::Progress(progress) => {
             let tooltip = match progress.state {
@@ -498,7 +584,7 @@ pub(super) fn status_glyph(
             (
                 "progress",
                 tooltip.to_string(),
-                progress_circle(&id, progress, size, model),
+                progress_circle(&id, progress, size, owner, zone, model),
             )
         }
         Status::Blocked | Status::Completed => {
@@ -513,11 +599,13 @@ pub(super) fn status_glyph(
                 if blocked { "blocked" } else { "completion" },
                 tooltip.to_string(),
                 div()
-                    .size(
-                        model
-                            .metrics
-                            .scaled(if id.starts_with("tab-") { 7.0 } else { 8.0 }),
-                    )
+                    .size(model.metrics.scaled(
+                        if id.starts_with("tab-") || id.starts_with("agents-panel-") {
+                            7.0
+                        } else {
+                            8.0
+                        },
+                    ))
                     .rounded_full()
                     .bg(color)
                     .into_any_element(),
@@ -542,10 +630,6 @@ pub(super) fn status_glyph(
     } else {
         format!("{id}-{kind}")
     };
-    let background = theme.raised();
-    let theme_background = theme.bg;
-    let foreground = theme.fg;
-    let border = theme.border;
     div()
         .id(SharedString::from(id))
         .debug_selector(move || selector.clone())
@@ -555,18 +639,7 @@ pub(super) fn status_glyph(
         .justify_center()
         .min_w(size)
         .h(size)
-        .tooltip(move |_, cx| {
-            cx.new(|_| {
-                Tooltip::new(
-                    tooltip.clone(),
-                    background,
-                    foreground,
-                    border,
-                    theme_background,
-                )
-            })
-            .into()
-        })
+        .tooltip(muxy_ui::components::tooltip(tooltip, theme))
         .child(glyph)
         .into_any_element()
 }
@@ -575,6 +648,8 @@ fn progress_circle(
     id: &str,
     progress: TerminalProgress,
     size: Pixels,
+    owner: Option<gpui::EntityId>,
+    zone: Option<&HoverZone>,
     model: &AppModel,
 ) -> AnyElement {
     let theme = &model.theme;
@@ -586,7 +661,9 @@ fn progress_circle(
         }
     };
     if progress.state == ProgressState::Indeterminate {
-        return model.spinners.glyph(id.to_owned(), size, color);
+        return model
+            .spinners
+            .glyph_in(id.to_owned(), size, color, owner, zone);
     }
     progress_ring(
         size,
@@ -655,6 +732,7 @@ pub(super) fn provider_icon(provider: AgentProvider, size: Pixels, model: &AppMo
         AgentProvider::Xal => "xal",
         AgentProvider::Antigravity => "antigravity",
         AgentProvider::OhMyPi => "omp",
+        AgentProvider::Hermes => "hermes",
         AgentProvider::Unrecognized(_) => {
             return svg()
                 .path("icons/terminal.svg")

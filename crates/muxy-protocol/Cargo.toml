@@ -13,11 +13,13 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+muxy-core = { path = "../muxy-core" }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
 minicbor = { version = "2.3", features = ["std", "derive"] }
 serde = { version = "1", features = ["derive", "rc"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 unicode-segmentation = "1"
+regex = "1"
 ring = "0.17.14"
 rustix = { version = "1.1.4", features = ["event", "net"] }
 rustls = { version = "0.23.43", default-features = false, features = ["ring", "std"] }
@@ -30,6 +32,3 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_IO",
     "Win32_System_SystemServices",
 ] }
-
-[dev-dependencies]
-rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }

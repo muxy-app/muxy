@@ -6,6 +6,55 @@ use muxy_app_core::settings::{
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
 #[test]
+fn selection_word_characters_default_migrate_and_survive_preference_edits() -> Result {
+    let defaults = TerminalSettings::from_native_source("[options]\n")?;
+    assert_eq!(defaults.options.selection_word_chars, "/.-_~:@?&=%+#");
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("terminal.toml");
+    std::fs::write(
+        directory.path().join("ghostty.conf"),
+        "selection-word-chars = /._-\n",
+    )?;
+    let migrated = TerminalSettings::load_native(&path)?;
+    assert_eq!(migrated.options.selection_word_chars, "/._-");
+    assert!(migrated.diagnostics.is_empty());
+    for characters in ["/-_", "", "\"'\\界👩", "_ #"] {
+        let settings = TerminalSettings::edit_native(&path, |settings| {
+            settings.set_preference("selection-word-chars", characters)
+        })?;
+        assert_eq!(settings.options.selection_word_chars, characters);
+        assert_eq!(TerminalSettings::load_native(&path)?, settings);
+        let (source, skipped) =
+            TerminalSettings::import_supported_source(&settings.legacy_source());
+        assert!(skipped.is_empty());
+        assert_eq!(TerminalSettings::from_legacy_source(&source)?, settings);
+    }
+    let mut settings = TerminalSettings::load_native(&path)?;
+    let original = settings.clone();
+    assert!(
+        settings
+            .set_preference("selection-word-chars", "/\nfont-size = 99")
+            .is_err()
+    );
+    assert_eq!(settings, original);
+    assert!(
+        TerminalSettings::from_native_source(
+            "[options]\nselection_word_chars = \"/\\nfont-size = 99\"\n"
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
+fn save(path: &std::path::Path, settings: &TerminalSettings) -> Result {
+    TerminalSettings::edit_native(path, |stored| {
+        *stored = settings.clone();
+        Ok(())
+    })?;
+    Ok(())
+}
+
+#[test]
 fn migration_preserves_includes_bindings_and_fallbacks_then_uses_native_preferences() -> Result {
     let directory = tempfile::tempdir()?;
     let legacy = directory.path().join("ghostty.conf");
@@ -17,8 +66,9 @@ fn migration_preserves_includes_bindings_and_fallbacks_then_uses_native_preferen
         &included,
         "font-family = First\nfont-family = Fallback\nfont-size = 19\nfont-feature = ss01=1\nfont-codepoint-map = U+E000-U+E001=Icons\n",
     )?;
-    let mut settings = TerminalSettings::load_native(&path)?;
-    assert_eq!(settings, TerminalSettings::load(&legacy)?);
+    let settings = TerminalSettings::load_native(&path)?;
+    assert_eq!(settings.font_families, ["First", "Fallback"]);
+    assert!((settings.font_size - 19.0).abs() < f32::EPSILON);
     assert_eq!(
         settings,
         TerminalSettings::from_native_source(&settings.native_source()?)?
@@ -29,10 +79,11 @@ fn migration_preserves_includes_bindings_and_fallbacks_then_uses_native_preferen
     );
     assert_eq!(settings.options.background_vibrancy, 70);
     let bindings = settings.keybindings.clone();
-    settings.set_preference("font-family", "Replacement")?;
-    settings.set_preference("font-size", "21")?;
-    settings.set_preference("font-ligatures", "false")?;
-    settings.save_native(&path)?;
+    let settings = TerminalSettings::edit_native(&path, |settings| {
+        settings.set_preference("font-family", "Replacement")?;
+        settings.set_preference("font-size", "21")?;
+        settings.set_preference("font-ligatures", "false")
+    })?;
     std::fs::remove_file(included)?;
     let restored = TerminalSettings::load_native(&path)?;
     assert_eq!(restored, settings);
@@ -47,9 +98,9 @@ fn migration_preserves_includes_bindings_and_fallbacks_then_uses_native_preferen
 fn invalid_edits_and_corrupted_native_files_preserve_saved_preferences() -> Result {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("terminal.toml");
-    let mut settings = TerminalSettings::load_native(&path)?;
-    settings.set_preference("background-opacity", "75")?;
-    settings.save_native(&path)?;
+    let mut settings = TerminalSettings::edit_native(&path, |settings| {
+        settings.set_preference("background-opacity", "75")
+    })?;
     let original = settings.clone();
     let source = std::fs::read_to_string(&path)?;
     for (id, value) in [
@@ -67,12 +118,17 @@ fn invalid_edits_and_corrupted_native_files_preserve_saved_preferences() -> Resu
         assert!(settings.set_preference(id, value).is_err());
         assert_eq!(settings, original);
     }
-    settings.options.scroll_discrete = f32::NAN;
-    assert!(settings.save_native(&path).is_err());
+    assert!(
+        TerminalSettings::edit_native(&path, |settings| {
+            settings.options.scroll_discrete = f32::NAN;
+            Ok(())
+        })
+        .is_err()
+    );
     assert_eq!(std::fs::read_to_string(&path)?, source);
     std::fs::write(&path, "font_size = 'broken'")?;
     assert!(TerminalSettings::load_native(&path).is_err());
-    assert!(original.save_native(&path).is_err());
+    assert!(TerminalSettings::edit_native(&path, |_| Ok(())).is_err());
     assert_eq!(std::fs::read_to_string(path)?, "font_size = 'broken'");
     Ok(())
 }
@@ -112,9 +168,9 @@ fn legacy_font_names_with_quotes_migrate_without_blocking_startup_or_import() ->
             .all(|note| note.starts_with("ghostty.conf:"))
     );
     assert_eq!(TerminalSettings::load_native(&path)?, migrated);
-    let mut dismissed = migrated.clone();
-    dismissed.set_preference("dismiss-import-notes", "")?;
-    dismissed.save_native(&path)?;
+    TerminalSettings::edit_native(&path, |settings| {
+        settings.set_preference("dismiss-import-notes", "")
+    })?;
     assert!(TerminalSettings::load_native(&path)?.diagnostics.is_empty());
     assert_eq!(std::fs::read_to_string(legacy)?, source);
     assert_eq!(TerminalSettings::from_legacy_source(source)?, migrated);
@@ -236,7 +292,7 @@ fn every_legacy_option_is_editable_and_survives_saving_and_backup_merges() -> Re
         previous: None,
         binding: Some(("cmd-shift-k".parse()?, "text:git checkout ".into())),
     })?;
-    settings.save_native(&path)?;
+    save(&path, &settings)?;
 
     let restored = TerminalSettings::load_native(&path)?;
     assert_eq!(restored, settings);

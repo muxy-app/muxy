@@ -5,7 +5,7 @@
 //! gesture event objects for synthetic [press](PressEvent), [drag](DragEvent),
 //! [release](ReleaseEvent), [autoscroll tick](AutoscrollTickEvent),
 //! and [deep-press](DeepPressEvent) events, and applies each event with
-//! their respective `apply` method (e.g. [PressEvent::apply]). The returned
+//! their respective `apply` method (e.g. [`PressEvent::apply`]). The returned
 //! [`Selection`] is a snapshot; the embedder decides whether to render it,
 //! format/copy it, or install it as the terminal's active selection.
 
@@ -158,7 +158,7 @@ impl Drop for Gesture<'_> {
 struct Event<'alloc> {
     inner: Object<'alloc, ffi::SelectionGestureEventImpl>,
 }
-impl<'alloc> Event<'alloc> {
+impl Event<'_> {
     unsafe fn new_inner(
         alloc: *const ffi::Allocator,
         ty: ffi::SelectionGestureEventType::Type,
@@ -270,11 +270,11 @@ impl<'alloc> PressEvent<'alloc> {
     /// If unset, press treats the event as untimed and only single-click behavior
     /// is available.
     ///
-    /// Intervals above [`u64::MAX`] nanoseconds in length will be
-    /// silently truncated.
+    /// Intervals above [`u64::MAX`] nanoseconds in length are clamped to
+    /// that.
     #[inline]
     pub fn set_time(&mut self, value: Duration) -> Result<&mut Self> {
-        let nanos = value.as_nanos() as u64;
+        let nanos = u64::try_from(value.as_nanos()).unwrap_or(u64::MAX);
         self.base
             .set(ffi::SelectionGestureEventOption::TIME_NS, &nanos)?;
         Ok(self)
@@ -282,11 +282,11 @@ impl<'alloc> PressEvent<'alloc> {
 
     /// Set the maximum interval between repeat clicks.
     ///
-    /// Intervals above [`u64::MAX`] nanoseconds in length will be
-    /// silently truncated.
+    /// Intervals above [`u64::MAX`] nanoseconds in length are clamped to
+    /// that.
     #[inline]
     pub fn set_repeat_interval(&mut self, value: Duration) -> Result<&mut Self> {
-        let nanos = value.as_nanos() as u64;
+        let nanos = u64::try_from(value.as_nanos()).unwrap_or(u64::MAX);
         self.base
             .set(ffi::SelectionGestureEventOption::REPEAT_INTERVAL_NS, &nanos)?;
         Ok(self)
@@ -605,7 +605,7 @@ impl<'alloc> DeepPressEvent<'alloc> {
 
 /// Current autoscroll direction for an active selection drag gesture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
-#[repr(u32)]
+#[repr(i32)]
 #[non_exhaustive]
 pub enum Autoscroll {
     /// No selection autoscroll is requested.
@@ -618,7 +618,7 @@ pub enum Autoscroll {
 
 /// Selection behavior chosen for a gesture's click sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
-#[repr(u32)]
+#[repr(i32)]
 #[non_exhaustive]
 pub enum Behavior {
     /// Cell-granular drag selection.
@@ -638,21 +638,25 @@ pub struct Behaviors {
 }
 impl Behaviors {
     /// Create the default selection behaviors.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Set the single click behavior.
+    #[must_use]
     pub fn with_single_click_behavior(mut self, behavior: Behavior) -> Self {
         self.inner.single_click = behavior.into();
         self
     }
     /// Set the double click behavior.
+    #[must_use]
     pub fn with_double_click_behavior(mut self, behavior: Behavior) -> Self {
         self.inner.double_click = behavior.into();
         self
     }
     /// Set the triple click behavior.
+    #[must_use]
     pub fn with_triple_click_behavior(mut self, behavior: Behavior) -> Self {
         self.inner.triple_click = behavior.into();
         self

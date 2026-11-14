@@ -16,9 +16,15 @@
   window.probeText = () => editor.textContent;
   window.probeEvents = () => events.join(',');
   let preventNavigation = false;
+  let pageSelectsAll = false;
+  window.ownSelectAll = () => {
+    pageSelectsAll = true;
+    return 1;
+  };
   window.resetNavigationProbe = (prevent = false) => {
     events.length = 0;
     preventNavigation = prevent;
+    pageSelectsAll = false;
     editor.textContent = 'alpha\nbravo\ncharlie';
     editor.focus();
     getSelection().setPosition(editor.firstChild, 8);
@@ -50,6 +56,10 @@
   document.addEventListener('keydown', event => {
     if (event.metaKey && ['f', 'g', 's', 'z'].includes(event.key.toLowerCase())) {
       events.push((event.shiftKey ? 'shift-' : '') + event.key.toLowerCase());
+      event.preventDefault();
+    }
+    if (event.metaKey && event.key === 'a' && pageSelectsAll) {
+      events.push('select-all');
       event.preventDefault();
     }
   });

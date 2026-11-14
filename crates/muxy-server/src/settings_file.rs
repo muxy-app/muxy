@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use muxy_core::files::{private_file, replace_file};
+use muxy_core::files::private_file;
 
 use muxy_server::ServerSettings;
 use serde::{Deserialize, Serialize};
@@ -63,31 +63,11 @@ pub(crate) fn load(path: &Path) -> io::Result<ServerSettings> {
 }
 
 pub(crate) fn save(path: &Path, settings: &ServerSettings) -> io::Result<()> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
     let source = toml::to_string_pretty(&SettingsFile {
         default_shell: settings.default_shell.clone(),
         history_budget_bytes: settings.history_budget_bytes,
         shell_integration: settings.shell_integration,
     })
     .map_err(io::Error::other)?;
-    let temporary = path.with_file_name(format!(
-        ".server-{}-{}.tmp",
-        std::process::id(),
-        NEXT_FILE.fetch_add(1, Ordering::Relaxed)
-    ));
-    let mut file = private_file()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)?;
-    let result = (|| {
-        file.write_all(source.as_bytes())?;
-        file.sync_all()?;
-        drop(file);
-        replace_file(&temporary, path)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    Ok(muxy_core::fs::write_atomic(path, source.as_bytes(), 0o600)?)
 }

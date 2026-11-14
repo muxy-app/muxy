@@ -66,6 +66,8 @@ struct ServiceState {
     indexes: HashMap<String, (Instant, Arc<Index>)>,
     cache_order: Vec<String>,
     home_directory: String,
+    /// Directories that are listed but never entered while indexing.
+    skipped_paths: Vec<String>,
 }
 
 impl Default for SearchService {
@@ -89,7 +91,18 @@ impl SearchService {
                     "",
                 )
                 .unwrap_or_default(),
+                skipped_paths: Vec::new(),
             })),
+        }
+    }
+
+    /// Relative entries are taken from each search root. Cached indexes are dropped when the set changes.
+    pub(crate) fn set_skipped_paths(&self, paths: &[String]) {
+        let mut guard = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if guard.skipped_paths != paths {
+            guard.skipped_paths = paths.to_vec();
+            guard.indexes.clear();
+            guard.cache_order.clear();
         }
     }
 
@@ -114,6 +127,7 @@ impl SearchService {
         query: &str,
         root_path: &str,
         existing_project_paths: &[String],
+        include_existing_projects: bool,
         limit: usize,
         cancelled: &AtomicBool,
     ) -> Snapshot {
@@ -134,7 +148,15 @@ impl SearchService {
         };
         drop(guard);
 
-        run_search(query, &root, existing_project_paths, &index, &home, limit)
+        run_search(
+            query,
+            &root,
+            existing_project_paths,
+            include_existing_projects,
+            &index,
+            &home,
+            limit,
+        )
     }
 }
 
@@ -157,7 +179,12 @@ impl ServiceState {
             return Ok(index);
         }
 
-        let index = Arc::new(scan(root, &self.home_directory, cancelled));
+        let index = Arc::new(scan(
+            root,
+            &self.home_directory,
+            &self.skipped_paths,
+            cancelled,
+        ));
         if cancelled.load(Ordering::Relaxed) {
             return Err(());
         }
@@ -203,8 +230,23 @@ fn root_state(path: &str) -> RootState {
     }
 }
 
-fn scan(root: &str, home: &str, cancelled: &AtomicBool) -> Index {
+fn resolve_skipped_path(configured: &str, root: &str, home: &str) -> Option<String> {
+    let trimmed = configured.trim();
+    if trimmed.starts_with('/') || trimmed.starts_with('~') {
+        return standardized_absolute_path(trimmed, home);
+    }
+    if trimmed.is_empty() || trimmed.split('/').any(|part| part == "..") {
+        return None;
+    }
+    standardized_absolute_path(&format!("{}/{trimmed}", root.trim_end_matches('/')), home)
+}
+
+fn scan(root: &str, home: &str, skipped_paths: &[String], cancelled: &AtomicBool) -> Index {
     let started = Instant::now();
+    let skipped_paths: Vec<String> = skipped_paths
+        .iter()
+        .filter_map(|configured| resolve_skipped_path(configured, root, home))
+        .collect();
     let home_library = format!("{home}/Library");
 
     let mut entries = Vec::new();
@@ -272,7 +314,8 @@ fn scan(root: &str, home: &str, cancelled: &AtomicBool) -> Index {
                 || file_type.is_symlink()
                 || SKIPPED_NAMES.contains(&name.to_lowercase().as_str())
                 || is_package(&name)
-                || (root == home && path_string == home_library);
+                || (root == home && path_string == home_library)
+                || skipped_paths.contains(&path_string);
             if !skip {
                 queue.push_back(path_string);
             }
@@ -437,6 +480,7 @@ fn run_search(
     query: &str,
     root: &str,
     existing_project_paths: &[String],
+    include_existing_projects: bool,
     index: &Index,
     home: &str,
     limit: usize,
@@ -468,7 +512,7 @@ fn run_search(
             ranked.truncate(limit);
         }
     };
-    for path in &existing {
+    for path in existing.iter().filter(|_| include_existing_projects) {
         let name = if path == "/" {
             "/"
         } else {
@@ -597,6 +641,7 @@ mod tests {
             "node_modules/alpha-noise",
             "Editor.app/alpha-noise",
             ".hidden/alpha-noise",
+            "Mirror/alpha-noise",
         ] {
             std::fs::create_dir_all(root.join(directory))?;
         }
@@ -606,6 +651,8 @@ mod tests {
         std::os::windows::fs::symlink_dir(&root, root.join("Projects/cycle"))?;
         let cancelled = AtomicBool::new(true);
         let search = SearchService::new();
+        // guards: relative skip paths resolve under the search root and `..` is ignored
+        search.set_skipped_paths(&["Mirror".to_owned(), "../Projects".to_owned()]);
         let root_path = root.to_string_lossy();
         search.prepare(&root_path, &cancelled);
         assert!(
@@ -617,7 +664,7 @@ mod tests {
                 .is_empty()
         );
         cancelled.store(false, Ordering::Relaxed);
-        let snapshot = search.search("alpha", &root_path, &[], 50, &cancelled);
+        let snapshot = search.search("alpha", &root_path, &[], true, 50, &cancelled);
         assert_eq!(snapshot.results.len(), 1);
         assert_eq!(
             snapshot.results[0].path,

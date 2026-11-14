@@ -1,171 +1,95 @@
 use std::time::{Duration, Instant};
 
 use crate::TerminalEvent;
+use crate::program_status::ProgramStatus;
+use libghostty_vt::terminal::ProgressState as EngineState;
 use muxy_protocol::{ProgressState, TerminalProgress};
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 
-#[derive(Debug, Default)]
-enum State {
-    #[default]
-    Ground,
-    Escape,
-    Osc,
-    OscEscape,
-    String,
-}
-
+/// The progress a terminal shows: the program's own status record (OSC 7501)
+/// while it has one, otherwise its latest progress report (OSC 9;4).
 #[derive(Debug, Default)]
 pub(crate) struct Progress {
-    state: State,
-    bytes: [u8; 32],
-    len: usize,
-    utf8_remaining: u8,
+    reported: Option<TerminalProgress>,
+    deadline: Option<Instant>,
+    program: Option<ProgramStatus>,
+    /// The program that reported `program` has ended; it only shows until
+    /// a later program reports progress.
+    program_ended: bool,
+    program_reports: u64,
     current: Option<TerminalProgress>,
     changed: bool,
     completed: u64,
-    deadline: Option<Instant>,
 }
 
 impl Progress {
-    pub(crate) fn feed(&mut self, mut bytes: &[u8]) {
-        while self.utf8_remaining > 0 && !bytes.is_empty() {
-            self.advance(bytes[0]);
-            bytes = &bytes[1..];
-        }
-        let text = std::str::from_utf8(bytes).unwrap_or_else(|error| {
-            std::str::from_utf8(&bytes[..error.valid_up_to()]).unwrap_or_default()
-        });
-        let length = bytes.len();
-        while !bytes.is_empty() {
-            if matches!(self.state, State::Ground) && self.utf8_remaining == 0 {
-                let skip = match text.get(length - bytes.len()..) {
-                    Some(text) if !text.is_empty() => text.find('\x1b').unwrap_or(text.len()),
-                    _ => bytes
-                        .iter()
-                        .position(|byte| *byte == 0x1b || !byte.is_ascii())
-                        .unwrap_or(bytes.len()),
-                };
-                bytes = &bytes[skip..];
-                if bytes.is_empty() {
-                    return;
-                }
-                if bytes.starts_with(b"\x1b[") {
-                    bytes = &bytes[2..];
-                    continue;
-                }
-            }
-            self.advance(bytes[0]);
-            bytes = &bytes[1..];
-        }
-    }
-
-    fn advance(&mut self, byte: u8) {
-        if self.utf8_remaining > 0 && matches!(byte, 0x80..=0xbf) {
-            self.utf8_remaining -= 1;
-            self.content(byte);
-            return;
-        }
-        self.utf8_remaining = match byte {
-            0xc2..=0xdf => 1,
-            0xe0..=0xef => 2,
-            0xf0..=0xf4 => 3,
-            _ => 0,
-        };
-        if matches!(byte, 0x18 | 0x1a) {
-            self.state = State::Ground;
-            return;
-        }
-        match self.state {
-            State::Osc if byte == 0x07 || byte == 0x9c => {
-                self.finish();
-                self.state = State::Ground;
-            }
-            State::Osc if byte == 0x1b => self.state = State::OscEscape,
-            State::OscEscape if byte == b'\\' => {
-                self.finish();
-                self.state = State::Ground;
-            }
-            _ if byte == 0x1b => self.state = State::Escape,
-            _ if byte == 0x9d => self.start(),
-            _ if matches!(byte, 0x90 | 0x98 | 0x9e | 0x9f) => self.state = State::String,
-            _ if matches!(byte, 0x80..=0x8f | 0x91..=0x97 | 0x99..=0x9c) => {
-                self.state = State::Ground;
-            }
-            State::Escape | State::OscEscape => match byte {
-                b']' => self.start(),
-                b'P' | b'X' | b'^' | b'_' => self.state = State::String,
-                b'c' => {
-                    self.set(None);
-                    self.state = State::Ground;
-                }
-                0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => {}
-                _ => self.state = State::Ground,
+    pub(crate) fn report(&mut self, state: EngineState, percent: Option<u8>) {
+        let previous = self.reported.and_then(|progress| progress.percent);
+        let progress = match state {
+            EngineState::Remove => None,
+            // Ghostty reports a set without a percent only when the percent is malformed.
+            EngineState::Set => match percent {
+                Some(percent) => Some((ProgressState::Running, Some(percent))),
+                None => return,
             },
-            _ => self.content(byte),
+            EngineState::Error => Some((ProgressState::Error, percent.or(previous))),
+            EngineState::Indeterminate => Some((ProgressState::Indeterminate, previous)),
+            EngineState::Pause => Some((ProgressState::Paused, percent.or(previous))),
+            _ => return,
+        };
+        if self.program_ended {
+            self.replace_program(None);
         }
+        self.set_reported(progress.map(|(state, percent)| TerminalProgress { state, percent }));
     }
 
-    fn start(&mut self) {
-        self.state = State::Osc;
-        self.len = 0;
+    pub(crate) fn program(&self) -> Option<&ProgramStatus> {
+        self.program.as_ref()
     }
 
-    fn content(&mut self, byte: u8) {
-        if !matches!(self.state, State::Osc) || matches!(byte, 0x00..=0x1f | 0x7f) {
+    pub(crate) fn program_reports(&self) -> u64 {
+        self.program_reports
+    }
+
+    pub(crate) fn set_program(&mut self, program: Option<ProgramStatus>) {
+        self.replace_program(program);
+        self.refresh();
+    }
+
+    fn replace_program(&mut self, program: Option<ProgramStatus>) {
+        self.program = program;
+        self.program_ended = false;
+        self.program_reports = self.program_reports.wrapping_add(1);
+    }
+
+    /// The program that reported its status has exited or the shell is back
+    /// at its prompt.
+    pub(crate) fn end_program(&mut self) {
+        let Some(program) = &self.program else {
             return;
-        }
-        if let Some(slot) = self.bytes.get_mut(self.len) {
-            *slot = byte;
-            self.len += 1;
+        };
+        self.reported = None;
+        self.deadline = None;
+        if program.outlives_program() {
+            self.program_ended = true;
+            self.refresh();
         } else {
-            self.len = self.bytes.len() + 1;
+            self.set_program(None);
         }
     }
 
-    fn finish(&mut self) {
-        let Some(bytes) = self.bytes.get(..self.len) else {
-            return;
-        };
-        let Some(report) = bytes.strip_prefix(b"9;4;") else {
-            return;
-        };
-        let mut fields = report.split(|byte| *byte == b';');
-        let Some([state @ b'0'..=b'4']) = fields.next() else {
-            return;
-        };
-        let state = *state;
-        let percent = match fields.next() {
-            None | Some([]) => None,
-            Some(digits) if digits.iter().all(u8::is_ascii_digit) => {
-                Some(digits.iter().fold(0_u8, |value, digit| {
-                    value
-                        .saturating_mul(10)
-                        .saturating_add(digit - b'0')
-                        .min(100)
-                }))
-            }
-            Some(_) => return,
-        };
-        if fields.next().is_some() {
-            return;
-        }
-        if state == b'0' {
-            self.set(None);
-            return;
-        }
-        let previous = self.current.and_then(|progress| progress.percent);
-        let (state, percent) = match state {
-            b'1' => (ProgressState::Running, Some(percent.unwrap_or(0))),
-            b'2' => (ProgressState::Error, percent.or(previous)),
-            b'3' => (ProgressState::Indeterminate, previous),
-            _ => (ProgressState::Paused, percent.or(previous)),
-        };
-        self.set(Some(TerminalProgress { state, percent }));
-    }
-
-    fn set(&mut self, progress: Option<TerminalProgress>) {
+    fn set_reported(&mut self, progress: Option<TerminalProgress>) {
         self.deadline = progress.map(|_| Instant::now() + TIMEOUT);
+        self.reported = progress;
+        self.refresh();
+    }
+
+    fn refresh(&mut self) {
+        let progress = match &self.program {
+            Some(program) => program.progress(),
+            None => self.reported,
+        };
         if self.current.is_some() && progress.is_none() {
             self.completed = self.completed.saturating_add(1);
         }
@@ -177,7 +101,7 @@ impl Progress {
 
     pub(crate) fn take(&mut self, now: Instant) -> Option<TerminalEvent> {
         if self.deadline.is_some_and(|deadline| now >= deadline) {
-            self.set(None);
+            self.set_reported(None);
         }
         std::mem::take(&mut self.changed).then_some(TerminalEvent::Progress(
             muxy_protocol::SessionProgress {
@@ -196,9 +120,7 @@ mod tests {
     fn identical_reports_refresh_expiry_without_redundant_events()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut progress = Progress::default();
-        for byte in b"\x1b]9;4;3\x07" {
-            progress.advance(*byte);
-        }
+        progress.report(EngineState::Indeterminate, None);
         let first = progress.deadline.ok_or("deadline")?;
         assert!(matches!(
             progress.take(Instant::now()),
@@ -208,9 +130,7 @@ mod tests {
             }))
         ));
         progress.deadline = Some(Instant::now());
-        for byte in b"\x1b]9;4;3\x07" {
-            progress.advance(*byte);
-        }
+        progress.report(EngineState::Indeterminate, None);
         assert!(progress.deadline >= Some(first));
         let deadline = progress.deadline.ok_or("refreshed deadline")?;
         assert_eq!(

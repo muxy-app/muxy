@@ -414,7 +414,7 @@ pub fn confirm_with_prompt(
 ) -> io::Result<PromptConfirmation> {
     let main_thread = MainThreadMarker::new()
         .ok_or_else(|| io::Error::other("native dialogs require the main thread"))?;
-    let parent = parent_window(window, main_thread)?;
+    let parent = parent_window(window)?;
     let panel = PromptPanel::alloc(main_thread).set_ivars(Cell::new(false));
     // SAFETY: This main-thread panel is retained by the handle, not released by AppKit on close.
     let panel: Retained<PromptPanel> = unsafe {

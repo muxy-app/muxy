@@ -19,8 +19,8 @@ const LIMIT: u64 = 256 * 1024;
 const ANSWER: Duration = Duration::from_secs(2);
 const DONE: u8 = 1;
 
-/// The folders an app opens, as file URLs. An empty list brings its window
-/// forward.
+/// The folders an app opens, as file URLs. Any list brings its window forward;
+/// an empty one does only that.
 pub(crate) type Folders = async_channel::Sender<Vec<String>>;
 
 /// Holds the profile for as long as this app runs.
@@ -36,10 +36,7 @@ pub(crate) fn claim(
     arguments: impl Iterator<Item = OsString>,
     folders: &Folders,
 ) -> io::Result<Option<Instance>> {
-    let state = muxy_app_core::store::default_path().map_err(io::Error::other)?;
-    let profile = state
-        .parent()
-        .ok_or_else(|| io::Error::other("Missing profile directory"))?;
+    let profile = muxy_core::dirs::muxy_dir()?;
     // Windows starts the app with this to hand it a click on a toast, which
     // the app takes once its notifications start.
     #[cfg(windows)]
@@ -48,7 +45,7 @@ pub(crate) fn claim(
     let asked: Vec<PathBuf> = arguments
         .filter_map(|argument| std::path::absolute(argument).ok())
         .collect();
-    claim_in(profile, &asked, folders, ANSWER)
+    claim_in(&profile, &asked, folders, ANSWER)
 }
 
 fn claim_in(
@@ -175,189 +172,4 @@ fn urls(paths: &[PathBuf]) -> Vec<String> {
         .filter_map(|path| reqwest::Url::from_file_path(path).ok())
         .map(String::from)
         .collect()
-}
-
-#[cfg(test)]
-#[allow(clippy::expect_used, reason = "Regression fixture setup")]
-mod tests {
-    #[cfg(unix)]
-    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
-
-    use super::*;
-
-    const PATIENCE: Duration = Duration::from_millis(400);
-
-    fn paths(urls: &[String]) -> Vec<PathBuf> {
-        urls.iter()
-            .map(|url| {
-                reqwest::Url::parse(url)
-                    .expect("url")
-                    .to_file_path()
-                    .expect("path")
-            })
-            .collect()
-    }
-
-    #[cfg(unix)]
-    fn odd(root: &Path) -> PathBuf {
-        root.join(OsString::from_vec(
-            b"My Project caf\xc3\xa9 \xff $(x)".to_vec(),
-        ))
-    }
-
-    /// Windows paths are Unicode, so the oddest name is one outside the BMP.
-    #[cfg(windows)]
-    fn odd(root: &Path) -> PathBuf {
-        root.join("My Project café 世界 🙂 $(x)")
-    }
-
-    #[test]
-    fn a_second_launch_hands_its_folders_to_the_first_and_leaves() {
-        let profile = tempfile::tempdir().expect("profile");
-        let (folders, opened) = async_channel::unbounded();
-        let first = vec![profile.path().join("at launch")];
-        let app = claim_in(profile.path(), &first, &folders, PATIENCE)
-            .expect("claim")
-            .expect("the first launch is the app");
-        assert_eq!(paths(&opened.recv_blocking().expect("launch")), first);
-
-        let (ignored, unused) = async_channel::unbounded();
-        let asked = vec![odd(profile.path()), profile.path().join("plain")];
-        assert!(
-            claim_in(profile.path(), &asked, &ignored, PATIENCE)
-                .expect("handoff")
-                .is_none()
-        );
-        assert_eq!(paths(&opened.recv_blocking().expect("handoff")), asked);
-        assert!(
-            opened.recv_blocking().expect("raise").is_empty(),
-            "a handoff also asks for the window"
-        );
-        assert!(
-            claim_in(profile.path(), &[], &ignored, PATIENCE)
-                .expect("bare launch")
-                .is_none()
-        );
-        assert!(
-            opened.recv_blocking().expect("raise").is_empty(),
-            "a bare second launch only brings the app forward"
-        );
-        assert!(opened.try_recv().is_err());
-        assert!(
-            unused.try_recv().is_err(),
-            "a launch that left opens nothing"
-        );
-        drop(app);
-    }
-
-    /// On a busy macOS host the browser reply sometimes misses the call's
-    /// timeout, for a reason not found yet.
-    #[cfg(not(target_os = "macos"))]
-    #[test]
-    fn browser_commands_and_launch_handoffs_share_a_profile_without_sharing_a_socket() {
-        use muxy_app_core::browser::api::{self, Request};
-        use serde_json::{Map, json};
-
-        let profile = tempfile::Builder::new()
-            .tempdir_in(crate::app_socket::test_socket_folder())
-            .expect("profile");
-        let (folders, opened) = async_channel::unbounded();
-        let _app = claim_in(profile.path(), &[], &folders, PATIENCE)
-            .expect("claim")
-            .expect("first instance");
-        let socket = profile.path().join(api::SOCKET);
-        let (_socket, incoming) = crate::app_socket::listen(&socket).expect("browser socket");
-        let responder = std::thread::spawn(move || {
-            for _ in 0..2 {
-                let request = incoming.recv_blocking().expect("browser request");
-                assert_eq!(request.request.verb, "browser.list");
-                request.reply(Ok(json!([])));
-            }
-        });
-        let asked = vec![odd(profile.path())];
-        for _ in 0..2 {
-            assert_eq!(
-                api::call(
-                    &socket,
-                    &Request::new("browser.list", Map::new()),
-                    Duration::from_secs(5),
-                )
-                .expect("browser reply"),
-                json!([])
-            );
-            assert!(opened.try_recv().is_err());
-            assert!(
-                claim_in(profile.path(), &asked, &folders, PATIENCE)
-                    .expect("handoff")
-                    .is_none()
-            );
-            assert_eq!(paths(&opened.recv_blocking().expect("folders")), asked);
-            assert!(opened.recv_blocking().expect("raise").is_empty());
-        }
-        responder.join().expect("responder");
-    }
-
-    #[test]
-    fn a_socket_left_by_a_crashed_app_does_not_keep_the_profile() {
-        let profile = tempfile::tempdir().expect("profile");
-        drop(LocalListener::bind(profile.path().join("instance.sock")).expect("stale socket"));
-        let (folders, opened) = async_channel::unbounded();
-        let app = claim_in(profile.path(), &[], &folders, PATIENCE).expect("claim");
-        assert!(app.is_some());
-        assert!(opened.try_recv().is_err(), "a bare launch opens nothing");
-        let asked = vec![profile.path().join("next")];
-        assert!(
-            claim_in(profile.path(), &asked, &folders, PATIENCE)
-                .expect("handoff")
-                .is_none()
-        );
-        assert_eq!(paths(&opened.recv_blocking().expect("handoff")), asked);
-    }
-
-    #[test]
-    fn an_app_that_does_not_answer_fails_the_launch_instead_of_opening_twice() {
-        let profile = tempfile::tempdir().expect("profile");
-        let _held = muxy_core::file_lock::try_lock(&profile.path().join("app.lock")).expect("lock");
-        let (folders, opened) = async_channel::unbounded();
-        let started = Instant::now();
-        let error = claim_in(profile.path(), &[], &folders, PATIENCE).expect_err("no answer");
-        assert!(started.elapsed() >= PATIENCE);
-        assert!(error.to_string().contains("already running"), "{error}");
-        assert!(opened.try_recv().is_err());
-    }
-
-    #[test]
-    fn a_launch_message_opens_only_whole_absolute_paths() {
-        let profile = tempfile::tempdir().expect("profile");
-        let (folders, opened) = async_channel::unbounded();
-        let _app = claim_in(profile.path(), &[], &folders, PATIENCE).expect("claim");
-        let send = |message: &[u8]| {
-            let mut stream =
-                LocalStream::connect(profile.path().join("instance.sock")).expect("connect");
-            stream.write_all(message).expect("write");
-            // The app closes a message that is too long once it has read
-            // past the limit, which can be before this end shuts down.
-            let _ = stream.shutdown(std::net::Shutdown::Write);
-            let mut done = Vec::new();
-            let _ = stream.read_to_end(&mut done);
-            done
-        };
-        let absolute = if cfg!(windows) {
-            r"C:\srv\app"
-        } else {
-            "/srv/app"
-        };
-        assert_eq!(
-            send(format!("relative/folder\0{absolute}\0\0").as_bytes()),
-            [DONE]
-        );
-        assert_eq!(
-            paths(&opened.recv_blocking().expect("handoff")),
-            [PathBuf::from(absolute)]
-        );
-        assert!(opened.recv_blocking().expect("raise").is_empty());
-        let long = vec![b'/'; usize::try_from(LIMIT).expect("limit") + 1];
-        assert!(send(&long).is_empty(), "too long to be a launch");
-        assert!(opened.try_recv().is_err());
-    }
 }

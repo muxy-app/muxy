@@ -5,16 +5,20 @@ pub(crate) use drag::{TabDragState, TabDrop};
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px, relative,
+    AccessibleAction, AnyElement, Context, FontWeight, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Role, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px, relative,
 };
 use muxy_app_core::{Tab, TabGroup, TabId, TabSide};
 
+use super::sidebar::{client_button, client_press};
+use super::tab_sidebar::tab_description;
 use super::titlebar;
 use crate::model::AppModel;
+use crate::views::move_drag;
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
-use muxy_ui::theme::Theme;
+use muxy_ui::theme::Metrics;
 use muxy_ui::tr;
 
 pub(crate) fn tab_strip(
@@ -28,30 +32,35 @@ pub(crate) fn tab_strip(
         .relative()
         .flex()
         .items_center()
-        .h(px(32.0))
+        .h(model.metrics.scaled(32.0))
         .flex_none();
     let (actions, actions_width) = actions;
     if model.state.current_project().status() == muxy_app_core::ProjectStatus::Missing {
         return strip.justify_end().child(actions).into_any_element();
     }
     let leading = (titlebar::navigation_width(model, window) - sidebar_width).max(0.0);
-    let new_tab_width = f32::from(model.metrics.control_medium() + model.metrics.spacing2() * 2.0);
+    let new_button = (!sidebar_opens_tabs(model)).then(|| new_tab_button(None, model, cx));
+    let new_tab_width = if new_button.is_some() {
+        f32::from(model.metrics.control_medium() + model.metrics.spacing2() * 2.0)
+    } else {
+        0.0
+    };
     let available = (f32::from(titlebar::content_size(window).width)
         - sidebar_width
         - leading
         - actions_width
         - new_tab_width)
         .max(0.0);
-    let count = u16::try_from(model.state.current_project().tabs.len()).unwrap_or(u16::MAX);
+    let count =
+        u16::try_from(model.state.current_project().listed_tabs().count()).unwrap_or(u16::MAX);
     let ideal_width = available / f32::from(count.max(1));
-    let width = ideal_width.clamp(44.0, 200.0);
-    let tabs: Vec<_> = model.state.current_project().tabs.iter().collect();
+    let width = ideal_width.clamp(min_tab_width(model), max_tab_width(model));
+    let tabs: Vec<_> = model.state.current_project().listed_tabs().collect();
     let mut cells = tab_cells(&tabs, width, true, model, cx);
-    let new_button = new_tab_button(None, model, cx);
-    let pinned_button = if ideal_width < 44.0 {
-        Some(new_button)
+    let pinned_button = if ideal_width < min_tab_width(model) {
+        new_button
     } else {
-        cells = cells.child(new_button);
+        cells = cells.children(new_button);
         None
     };
     strip
@@ -59,17 +68,42 @@ pub(crate) fn tab_strip(
         .child(
             div()
                 .id("tabs-scroll")
+                .role(Role::TabList)
+                .accessibility_id("tabs-scroll")
+                .aria_label(tr!("Tabs"))
                 .debug_selector(|| "tabs-scroll".into())
+                .relative()
                 .flex()
                 .flex_1()
                 .min_w(px(0.0))
                 .h_full()
                 .overflow_x_scroll()
-                .child(cells),
+                .child(cells)
+                .child(move_drag::zone(
+                    &model.move_drag.zones,
+                    move_drag::Owner::Strip,
+                    move_drag::ZoneKind::Strip(model.state.current_project().id),
+                )),
         )
         .children(pinned_button)
         .child(actions)
         .into_any_element()
+}
+
+fn min_tab_width(model: &AppModel) -> f32 {
+    f32::from(model.metrics.scaled(44.0))
+}
+
+fn max_tab_width(model: &AppModel) -> f32 {
+    f32::from(model.metrics.scaled(200.0))
+}
+
+/// Whether the built-in sidebar shows tabs, each project with its own new tab
+/// button, so the titlebar needs none.
+pub(super) fn sidebar_opens_tabs(model: &AppModel) -> bool {
+    model.appearance.layout != muxy_app_core::settings::AppLayout::ProjectFocused
+        && model.appearance.sidebar_expanded
+        && !model.extension_sidebar_active()
 }
 
 /// The strip above a group's panes: its tabs and a button for a new tab in
@@ -91,7 +125,8 @@ pub(crate) fn group_strip(
         .is_some_and(|tab| group.tabs().contains(&tab));
     let count = u16::try_from(tabs.len()).unwrap_or(u16::MAX).max(1);
     let control_width = f32::from(model.metrics.control_medium() + model.metrics.spacing2() * 2.0);
-    let cell_width = ((width - control_width) / f32::from(count)).clamp(44.0, 200.0);
+    let cell_width = ((width - control_width) / f32::from(count))
+        .clamp(min_tab_width(model), max_tab_width(model));
     let cells = tab_cells(&tabs, cell_width, focused, model, cx).child(new_tab_button(
         group.tabs().last().copied(),
         model,
@@ -104,12 +139,14 @@ pub(crate) fn group_strip(
         .relative()
         .flex()
         .items_center()
-        .h(px(32.0))
+        .h(model.metrics.scaled(32.0))
         .flex_none()
         .bg(model.theme.bg)
         .child(
             div()
                 .id(SharedString::from(format!("group-tabs-{}", group.id())))
+                .role(Role::TabList)
+                .aria_label(tr!("Tabs"))
                 .flex()
                 .flex_1()
                 .min_w(px(0.0))
@@ -117,6 +154,11 @@ pub(crate) fn group_strip(
                 .overflow_x_scroll()
                 .child(cells),
         )
+        .child(move_drag::zone(
+            &model.move_drag.zones,
+            move_drag::Owner::Strip,
+            move_drag::ZoneKind::Strip(project.id),
+        ))
         .child(
             gpui::canvas(
                 move |bounds, _, _| strips.borrow_mut().push((shown, bounds)),
@@ -137,8 +179,24 @@ fn tab_cells(
     cx: &mut Context<AppModel>,
 ) -> gpui::Div {
     let mut cells = div().flex().flex_none().items_center().h_full();
+    let project = model.state.current_project().id;
     for (index, tab) in tabs.iter().enumerate() {
-        cells = cells.child(tab_cell(tab, index, width, shortcuts, model, cx));
+        cells = cells.child(
+            div()
+                .relative()
+                .flex_none()
+                .h_full()
+                .child(tab_cell(tab, index, width, shortcuts, model, cx))
+                .child(move_drag::zone(
+                    &model.move_drag.zones,
+                    move_drag::Owner::Strip,
+                    move_drag::ZoneKind::Tab {
+                        project,
+                        tab: tab.id,
+                        axis: muxy_app_core::Axis::Horizontal,
+                    },
+                )),
+        );
     }
     drag::measure_tabs(
         cells,
@@ -157,7 +215,14 @@ pub(super) fn new_tab_button(
         || SharedString::from("new-tab"),
         |anchor| SharedString::from(format!("new-tab-{anchor}")),
     );
-    titlebar::icon_button(id, Icon::Plus, tr!("New Tab (⌘T)"), model)
+    let tooltip = model.tooltip(tr!("New Tab"), ShortcutId::NewTab);
+    titlebar::icon_button(id, Icon::Plus, tooltip, model)
+        .aria_label(tr!("New Tab"))
+        .accessibility_id(if anchor.is_some() {
+            "group-new-tab-button"
+        } else {
+            "new-tab-button"
+        })
         .ml(model.metrics.spacing2())
         .debug_selector(move || {
             if anchor.is_some() {
@@ -182,17 +247,15 @@ pub(super) fn existing_terminals_button(
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let project = model.state.current_project().id;
-    let tooltip = if count == 1 {
-        tr!("1 Existing Terminal").to_string()
+    let name = if count == 1 {
+        tr!("1 Existing Terminal")
     } else {
-        tr!("%lld Existing Terminals", count).to_string()
+        tr!("%lld Existing Terminals", count)
     };
-    let tooltip = model
-        .settings
-        .keymap
-        .chord(ShortcutId::ExistingTerminals)
-        .map_or_else(|| tooltip.clone(), |chord| format!("{tooltip} ({chord})"));
+    let tooltip = model.tooltip(name.clone(), ShortcutId::ExistingTerminals);
     titlebar::icon_button("existing-terminals", Icon::TerminalStack, tooltip, model)
+        .aria_label(name)
+        .accessibility_id("existing-terminals-button")
         .debug_selector(|| "existing-terminals-button".into())
         .on_click(cx.listener(move |model, _, window, cx| {
             cx.stop_propagation();
@@ -203,15 +266,11 @@ pub(super) fn existing_terminals_button(
 
 /// Opens a browser tab in the current project.
 pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let tooltip = model
-        .settings
-        .keymap
-        .chord(ShortcutId::NewBrowserTab)
-        .map_or_else(
-            || tr!("Open Browser Tab").to_string(),
-            |chord| format!("{} ({chord})", tr!("Open Browser Tab")),
-        );
+    let name = tr!("Open Browser Tab");
+    let tooltip = model.tooltip(name.clone(), ShortcutId::NewBrowserTab);
     titlebar::icon_button("new-browser-tab", Icon::Globe, tooltip, model)
+        .aria_label(name)
+        .accessibility_id("browser-button")
         .debug_selector(|| "browser-button".into())
         .on_click(cx.listener(|model, _, _, cx| {
             cx.stop_propagation();
@@ -220,22 +279,25 @@ pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> An
         .into_any_element()
 }
 
+pub(super) fn settings_tooltip(model: &AppModel) -> SharedString {
+    model.tooltip(tr!("Settings"), ShortcutId::OpenSettings)
+}
+
 pub(super) fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
-    let tooltip = model
-        .settings
-        .keymap
-        .chord(ShortcutId::OpenSettings)
-        .map_or_else(
-            || tr!("Settings").to_string(),
-            |chord| format!("{} ({chord})", tr!("Settings")),
-        );
-    titlebar::icon_button("open-settings", Icon::Settings, tooltip, model)
-        .debug_selector(|| "settings-button".into())
-        .on_click(cx.listener(|model, _, window, cx| {
-            cx.stop_propagation();
-            model.open_settings(window, cx);
-        }))
-        .into_any_element()
+    titlebar::icon_button(
+        "open-settings",
+        Icon::Settings,
+        settings_tooltip(model),
+        model,
+    )
+    .aria_label(tr!("Settings"))
+    .accessibility_id("settings-button")
+    .debug_selector(|| "settings-button".into())
+    .on_click(cx.listener(|model, _, window, cx| {
+        cx.stop_propagation();
+        model.open_settings(window, cx);
+    }))
+    .into_any_element()
 }
 
 pub(super) fn zoom_control(
@@ -248,11 +310,7 @@ pub(super) fn zoom_control(
     } else {
         tr!("Maximize Pane")
     };
-    let tooltip = model
-        .settings
-        .keymap
-        .chord(ShortcutId::ToggleZoomPane)
-        .map_or_else(|| label.to_string(), |chord| format!("{label} ({chord})"));
+    let tooltip = model.tooltip(label.clone(), ShortcutId::ToggleZoomPane);
     titlebar::icon_button(
         "toggle-zoom-pane",
         if zoomed {
@@ -263,6 +321,8 @@ pub(super) fn zoom_control(
         tooltip,
         model,
     )
+    .aria_label(label)
+    .accessibility_id("toggle-zoom-pane")
     .debug_selector(move || {
         if zoomed {
             "restore-pane"
@@ -284,9 +344,11 @@ fn close_control(
     active: bool,
     shows_title: bool,
     group: SharedString,
-    theme: &Theme,
+    model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
+    let theme = &model.theme;
+    let m = model.metrics;
     div()
         .id(SharedString::from(format!("close-{id}")))
         .debug_selector(|| "close-tab-button".into())
@@ -296,9 +358,14 @@ fn close_control(
         .items_center()
         .justify_center()
         .h_full()
-        .when(shows_title, |button| button.right(px(10.0)).w(px(14.0)))
+        .when(shows_title, |button| {
+            button.right(m.scaled(10.0)).w(m.scaled(14.0))
+        })
         .when(!shows_title, |button| {
-            button.left(relative(0.5)).ml(px(-7.0)).w(px(14.0))
+            button
+                .left(relative(0.5))
+                .ml(m.scaled(-7.0))
+                .w(m.scaled(14.0))
         })
         .opacity(if active { 1.0 } else { 0.0 })
         .group_hover(group, |style| style.opacity(1.0))
@@ -314,10 +381,14 @@ fn close_control(
                 .flex()
                 .items_center()
                 .justify_center()
-                .size(px(14.0))
-                .rounded(px(4.0))
+                .size(model.metrics.scaled(14.0))
+                .rounded(model.metrics.scaled(4.0))
                 .hover(|style| style.bg(theme.hover))
-                .child(IconGlyph::new(Icon::X, px(10.0), theme.fg_muted)),
+                .child(IconGlyph::new(
+                    Icon::X,
+                    model.metrics.scaled(10.0),
+                    theme.fg_muted,
+                )),
         )
         .into_any_element()
 }
@@ -337,6 +408,10 @@ fn tab_cell(
     let theme = &model.theme;
     let pane = tab.displayed_pane(model.state.shown_pane(tab));
     let active = model.visible_tabs().contains(&tab.id);
+    let focused = active
+        && model
+            .active_pane()
+            .is_some_and(|active| tab.panes.iter().any(|pane| pane.id == active));
     let grouped = model.state.current_project().groups().is_some();
     let bell = tab.panes.iter().any(|pane| {
         model
@@ -350,14 +425,29 @@ fn tab_cell(
         .and_then(|color| muxy_ui::theme::parse_hex(color.as_str()))
         .map(gpui::Hsla::from);
     let settings = pane.is_some_and(|pane| pane.content == muxy_app_core::PaneContent::Settings);
-    let shows_title = width >= 80.0;
+    let shows_title = width >= f32::from(model.metrics.scaled(80.0));
     let id = tab.id;
     let group = SharedString::from(format!("tab-{id}"));
     let show_close = active && shows_title;
-    let close = close_control(id, show_close, shows_title, group.clone(), theme, cx);
+    let close = close_control(id, show_close, shows_title, group.clone(), model, cx);
     let foreground = if active { theme.fg } else { theme.fg_muted };
+    let status = super::tab_activity::tab_status(tab, model);
     div()
         .id(group.clone())
+        .role(Role::Tab)
+        .aria_label(title.clone())
+        .aria_selected(active)
+        .when_some(
+            tab_description(tab.pinned, status, bell),
+            StatefulInteractiveElement::aria_description,
+        )
+        .on_a11y_action(
+            AccessibleAction::Click,
+            client_press(cx, move |model, window, cx| {
+                model.select_tab(id, cx);
+                model.focus_active(window, cx);
+            }),
+        )
         .debug_selector(move || {
             if grouped {
                 format!("group-tab-{id}")
@@ -381,7 +471,7 @@ fn tab_cell(
         .border_r(px(1.0))
         .border_color(theme.border)
         .cursor_pointer()
-        .text_size(px(12.0))
+        .text_size(model.metrics.scaled(12.0))
         .text_color(foreground)
         .when(active, |tab| tab.bg(theme.surface))
         .when_some(color, |cell, color| {
@@ -419,8 +509,26 @@ fn tab_cell(
                 model.focus_active(window, cx);
             }),
         )
+        .child(client_button(
+            format!("tab-actions-{id}"),
+            tr!("Actions for %@", &title),
+            cx,
+            move |model, position, window, cx| model.open_tab_menu(id, position, window, cx),
+        ))
+        .when(!tab.pinned, |cell| {
+            cell.child(client_button(
+                format!("close-tab-{id}"),
+                tr!("Close %@", &title),
+                cx,
+                move |model, _, window, cx| {
+                    model.close_tab(id, cx);
+                    model.focus_active(window, cx);
+                },
+            ))
+        })
         .child(tab_label(
             &title,
+            model.metrics,
             shows_title,
             active,
             group,
@@ -434,54 +542,91 @@ fn tab_cell(
                         super::tab_activity::glyph(
                             tab,
                             model,
-                            px(14.0),
+                            model.metrics.scaled(14.0),
                             model
-                                .webview_glyph(tab, px(14.0), foreground, cx)
+                                .webview_glyph(tab, model.metrics.scaled(14.0), foreground, cx)
                                 .unwrap_or_else(|| {
-                                    tab_glyph(tab.pinned, settings, bell, foreground, theme)
+                                    tab_glyph(
+                                        if bell {
+                                            Glyph::Bell
+                                        } else if tab.pinned {
+                                            Glyph::Pin
+                                        } else if settings {
+                                            Glyph::Settings
+                                        } else if tab.uses_proxy() {
+                                            Glyph::Proxy
+                                        } else {
+                                            Glyph::Terminal
+                                        },
+                                        foreground,
+                                        model,
+                                    )
                                 }),
                         )
                     },
                     |label| {
                         div()
                             .debug_selector(move || format!("tab-shortcut-{index}"))
-                            .child(super::shortcut_hints::badge(label, px(14.0), model))
+                            .child(super::shortcut_hints::badge(
+                                label,
+                                model.metrics.scaled(14.0),
+                                model,
+                            ))
                             .into_any_element()
                     },
                 ),
         ))
         .when(!tab.pinned, |cell| cell.child(close))
+        .when(focused, |cell| {
+            cell.child(
+                div()
+                    .debug_selector(move || format!("tab-focused-{id}"))
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(px(2.0))
+                    .bg(theme.accent),
+            )
+        })
         .into_any_element()
 }
 
-fn tab_glyph(
-    pinned: bool,
-    settings: bool,
-    bell: bool,
-    foreground: gpui::Hsla,
-    theme: &Theme,
-) -> AnyElement {
-    let (icon, selector) = if bell {
-        (Icon::Bell, "tab-bell")
-    } else if pinned {
-        (Icon::Pin, "tab-pin")
-    } else if settings {
-        (Icon::Settings, "tab-settings")
-    } else {
-        (Icon::Terminal, "tab-terminal")
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Glyph {
+    Bell,
+    Pin,
+    Settings,
+    /// A terminal in the tab started with the app's proxy.
+    Proxy,
+    Terminal,
+}
+
+fn tab_glyph(glyph: Glyph, foreground: gpui::Hsla, model: &AppModel) -> AnyElement {
+    let (icon, selector) = match glyph {
+        Glyph::Bell => (Icon::Bell, "tab-bell"),
+        Glyph::Pin => (Icon::Pin, "tab-pin"),
+        Glyph::Settings => (Icon::Settings, "tab-settings"),
+        Glyph::Proxy => (Icon::Network, "tab-proxy"),
+        Glyph::Terminal => (Icon::Terminal, "tab-terminal"),
     };
     div()
         .debug_selector(move || selector.into())
         .child(IconGlyph::new(
             icon,
-            px(14.0),
-            if bell { theme.accent } else { foreground },
+            model.metrics.scaled(14.0),
+            if matches!(glyph, Glyph::Bell | Glyph::Proxy) {
+                model.theme.accent
+            } else {
+                foreground
+            },
         ))
         .into_any_element()
 }
 
 fn tab_label(
     title: &str,
+    m: Metrics,
     shows_title: bool,
     active: bool,
     group: SharedString,
@@ -493,9 +638,9 @@ fn tab_label(
         .flex_1()
         .min_w(px(0.0))
         .items_center()
-        .gap(px(6.0))
+        .gap(m.scaled(6.0))
         .h_full()
-        .when(shows_title, |row| row.pl(px(12.0)).pr(px(28.0)))
+        .when(shows_title, |row| row.pl(m.scaled(12.0)).pr(m.scaled(28.0)))
         .when(!shows_title, Styled::justify_center)
         .child(
             div()

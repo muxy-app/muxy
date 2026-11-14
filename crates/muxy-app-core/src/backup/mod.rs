@@ -66,8 +66,8 @@ impl ServerSettings {
         muxy_protocol::ServerSettingsDoc {
             default_shell: self
                 .default_shell
-                .as_deref()
-                .map(crate::catalog::server_path),
+                .as_ref()
+                .map(muxy_protocol::ServerPath::from),
             history_budget_bytes: self.history_budget_bytes,
             shell_integration: self.shell_integration,
         }

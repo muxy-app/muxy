@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use super::overlays::Overlay;
+use super::overlays::{Mark, Overlay, OverlayView};
 use crate::{boot::Work, model::AppModel};
-use gpui::{AppContext, Context, Focusable, Window};
+use gpui::{AnyElement, AppContext, Context, Focusable, IntoElement, Window};
 use muxy_app_core::{ProjectId, ServerId};
 use muxy_protocol::{ProjectSession, ProjectSessions, SessionId};
 use muxy_ui::icon::Icon;
@@ -27,6 +27,18 @@ struct Listing {
 pub(crate) struct SessionPicker {
     pub(crate) project: ProjectId,
     pub(crate) picker: gpui::Entity<Picker>,
+}
+
+impl OverlayView for SessionPicker {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.picker.clone().into_any_element()
+    }
 }
 
 impl AppModel {
@@ -54,7 +66,7 @@ impl AppModel {
                 PickerEvent::QueryChanged { .. } => model.update_session_picker(cx),
                 _ => {}
             }));
-        self.overlay = Some(Overlay::Sessions(SessionPicker { project, picker }));
+        self.open_overlay(Overlay::Sessions(SessionPicker { project, picker }), cx);
         self.refresh_session_picker(cx);
     }
 
@@ -78,13 +90,36 @@ impl AppModel {
             .collect()
     }
 
+    /// Lists the current project's terminals, the open picker's, and those
+    /// of every project on this computer, whose other clients' terminals open
+    /// here as tabs.
     pub(crate) fn refresh_existing_sessions(&mut self, cx: &mut Context<Self>) {
         let project = self.state.current_project().id;
         self.request_sessions(project, cx);
         if let Some(Overlay::Sessions(picker)) = &self.overlay {
             self.request_sessions(picker.project, cx);
         }
+        for project in self.adoptable_projects() {
+            self.request_sessions(project, cx);
+            self.adopt_listed(project, cx);
+        }
         self.update_session_picker(cx);
+    }
+
+    /// Opens other clients' terminals from a listing still current, which
+    /// arrived while this computer's server wasn't confirmed yet.
+    fn adopt_listed(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let Some(current) = self.sessions_revision(project) else {
+            return;
+        };
+        let Some(listing) = self.existing_sessions.projects.get(&project) else {
+            return;
+        };
+        if listing.pending || listing.revision.is_none_or(|revision| revision < current) {
+            return;
+        }
+        let sessions = listing.entries.clone();
+        self.adopt_sessions(project, &sessions, cx);
     }
 
     /// Forgets what `server` listed, which a new connection lists again.
@@ -133,9 +168,12 @@ impl AppModel {
         listing.pending = false;
         match result {
             Ok(page) => {
-                listing.entries = page.sessions;
                 listing.revision = Some(page.revision);
                 listing.error = None;
+                self.adopt_sessions(project, &page.sessions, cx);
+                if let Some(listing) = self.existing_sessions.projects.get_mut(&project) {
+                    listing.entries = page.sessions;
+                }
             }
             Err(error) => {
                 listing.entries.clear();

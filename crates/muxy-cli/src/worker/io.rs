@@ -5,10 +5,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 
 use muxy_app_core::PaneId;
-use muxy_client::{Attachment, Client, ClientError, ClientEvent, RunGrid};
+use muxy_client::{AttachedTerminal, Attachment, Client, ClientError, ClientEvent};
 use muxy_protocol::{
     ActivitySnapshot, CatalogPage, ChannelId, ForegroundProcess, InputModes, MetadataEvent,
-    MouseEvent, ProjectSession, ScreenFrame, SessionId, SessionMetadata, Size,
+    MouseEvent, ProjectSession, SessionId, SessionMetadata, Size,
 };
 
 use crate::scroll::{HistoryRequest, Scroll};
@@ -17,8 +17,9 @@ use crate::state::{Result, State};
 #[derive(Clone, Debug)]
 pub(crate) struct View {
     pub session: SessionId,
-    pub channel: Option<ChannelId>,
-    pub grid: RunGrid,
+    pub terminal: AttachedTerminal,
+    /// False once the connection is gone; the last screen stays shown.
+    pub live: bool,
     pub process: Option<ForegroundProcess>,
     pub input: InputModes,
     pub title: String,
@@ -29,13 +30,13 @@ pub(crate) struct View {
 
 impl View {
     pub(crate) fn attached(session: SessionId, viewport: Size, attachment: Attachment) -> Self {
-        let mut grid = attachment.grid;
-        grid.history.clear();
-        grid.graphics = muxy_protocol::Graphics::default();
+        let mut terminal = attachment.terminal;
+        terminal.grid.history.clear();
+        terminal.grid.graphics = muxy_protocol::Graphics::default();
         Self {
             session,
-            channel: Some(attachment.channel),
-            grid,
+            terminal,
+            live: true,
             process: attachment.process,
             input: InputModes::default(),
             title: attachment.title,
@@ -43,6 +44,10 @@ impl View {
             ended: false,
             scroll: Scroll::default(),
         }
+    }
+
+    pub(crate) fn channel(&self) -> Option<ChannelId> {
+        self.live.then(|| self.terminal.channel())
     }
 
     fn metadata(&mut self, event: MetadataEvent) {
@@ -57,10 +62,14 @@ impl View {
     }
 }
 
-#[derive(Default)]
-struct Pending {
-    frame: Option<ScreenFrame>,
-    metadata: Vec<MetadataEvent>,
+/// Who waits for an attach that is under way.
+pub(crate) enum Attaching {
+    Pane {
+        id: PaneId,
+        viewport: Size,
+    },
+    /// Only what the terminal runs; the caller detaches it.
+    Process(SyncSender<Option<ForegroundProcess>>),
 }
 
 /// What a close that needs confirming would end.
@@ -104,7 +113,9 @@ pub(crate) struct Shared {
     pub metadata: BTreeMap<SessionId, SessionMetadata>,
     pub activity: ActivitySnapshot,
     pub activity_dirty: bool,
-    pending: BTreeMap<ChannelId, Pending>,
+    attaching: BTreeMap<u64, Attaching>,
+    next_tag: u64,
+    /// Channels up to this one were attached on this connection; the closed ones are acknowledged.
     last_channel: u32,
 }
 
@@ -126,15 +137,12 @@ impl Shared {
             .views
             .iter()
             .filter(|(_, view)| view.session == session)
-            .map(|(pane, view)| (*pane, view.channel))
+            .map(|(pane, view)| (*pane, view.channel()))
             .collect();
         for (pane, channel) in removed {
             self.views.remove(&pane);
-            if let Some(channel) = channel {
-                self.retire(channel);
-                if self.focus == Some(channel) {
-                    self.focus = None;
-                }
+            if channel.is_some() && self.focus == channel {
+                self.focus = None;
             }
             if self.confirm.is_some_and(|closing| closing.pane() == pane) {
                 self.confirm = None;
@@ -142,33 +150,47 @@ impl Shared {
         }
     }
 
-    pub(crate) fn retire(&mut self, channel: ChannelId) {
-        self.last_channel = self.last_channel.max(channel.0);
-        self.pending.remove(&channel);
+    /// Registers an attach and returns its tag.
+    pub(crate) fn start_attach(&mut self, attaching: Attaching) -> u64 {
+        let tag = self.next_tag;
+        self.next_tag = self.next_tag.wrapping_add(1);
+        self.attaching.insert(tag, attaching);
+        tag
     }
 
-    pub(crate) fn insert(&mut self, id: PaneId, mut view: View) -> Option<(ChannelId, u64)> {
-        if self.ended.contains(&view.session) {
-            if let Some(channel) = view.channel {
-                self.retire(channel);
-            }
-            return None;
-        }
-        let mut ack = None;
-        if let Some(channel) = view.channel {
-            self.last_channel = self.last_channel.max(channel.0);
-            if let Some(pending) = self.pending.remove(&channel) {
-                for event in pending.metadata {
-                    view.metadata(event);
+    pub(crate) fn cancel_attach(&mut self, tag: u64) {
+        self.attaching.remove(&tag);
+    }
+
+    pub(crate) fn is_attaching(&self, pane: PaneId) -> bool {
+        self.attaching
+            .values()
+            .any(|attaching| matches!(attaching, Attaching::Pane { id, .. } if *id == pane))
+    }
+
+    /// Shows an attached terminal, or returns the channel nobody waits for.
+    fn attached(
+        &mut self,
+        tag: u64,
+        session: SessionId,
+        attachment: Attachment,
+    ) -> Option<ChannelId> {
+        let channel = attachment.terminal.channel();
+        self.last_channel = self.last_channel.max(channel.0);
+        match self.attaching.remove(&tag) {
+            Some(Attaching::Pane { id, viewport }) => {
+                if !self.ended.contains(&session) {
+                    self.views
+                        .insert(id, View::attached(session, viewport, attachment));
                 }
-                if let Some(frame) = pending.frame {
-                    view.grid.apply(&frame);
-                    ack = Some((channel, frame.seq));
-                }
+                None
             }
+            Some(Attaching::Process(reply)) => {
+                let _ = reply.send(attachment.process);
+                None
+            }
+            None => Some(channel),
         }
-        self.views.insert(id, view);
-        ack
     }
 
     pub(crate) fn disconnected(&mut self) {
@@ -177,11 +199,11 @@ impl Shared {
         self.sessions_project = None;
         self.sessions_dirty = true;
         self.focus = None;
-        self.pending.clear();
+        self.attaching.clear();
         self.last_channel = 0;
         self.activity_dirty = true;
         for view in self.views.values_mut() {
-            view.channel = None;
+            view.live = false;
             view.scroll.bottom();
         }
     }
@@ -199,7 +221,13 @@ pub(super) fn reader(client: Client, shared: Arc<Mutex<Shared>>) -> Result<JoinH
             while let Ok(event) = events.recv() {
                 let mut state = lock(&shared);
                 let mut ack = None;
+                let mut stray = None;
                 match event {
+                    ClientEvent::Attached {
+                        tag,
+                        session,
+                        attachment,
+                    } => stray = state.attached(tag, session, *attachment),
                     ClientEvent::SessionMetadata { session, metadata } => {
                         state.metadata.insert(session, metadata);
                     }
@@ -209,16 +237,13 @@ pub(super) fn reader(client: Client, shared: Arc<Mutex<Shared>>) -> Result<JoinH
                         if let Some(view) = state
                             .views
                             .values_mut()
-                            .find(|view| view.channel == Some(channel))
+                            .find(|view| view.channel() == Some(channel))
                         {
                             if frame.reset {
                                 view.scroll.bottom();
                             }
-                            view.grid.apply(&frame);
-                            ack = Some((channel, frame.seq));
-                        } else if channel.0 > state.last_channel {
-                            state.pending.entry(channel).or_default().frame = Some(frame);
-                        } else {
+                            ack = Some((channel, view.terminal.apply(&frame)));
+                        } else if channel.0 <= state.last_channel {
                             ack = Some((channel, frame.seq));
                         }
                     }
@@ -226,22 +251,9 @@ pub(super) fn reader(client: Client, shared: Arc<Mutex<Shared>>) -> Result<JoinH
                         if let Some(view) = state
                             .views
                             .values_mut()
-                            .find(|view| view.channel == Some(channel))
+                            .find(|view| view.channel() == Some(channel))
                         {
                             view.metadata(event);
-                        } else if channel.0 > state.last_channel
-                            && matches!(
-                                event,
-                                MetadataEvent::Title(_)
-                                    | MetadataEvent::InputModes(_)
-                                    | MetadataEvent::ForegroundProcess { .. }
-                            )
-                        {
-                            let pending = state.pending.entry(channel).or_default();
-                            pending.metadata.retain(|old| {
-                                std::mem::discriminant(old) != std::mem::discriminant(&event)
-                            });
-                            pending.metadata.push(event);
                         }
                     }
                     ClientEvent::FilesChanged { .. }
@@ -260,9 +272,11 @@ pub(super) fn reader(client: Client, shared: Arc<Mutex<Shared>>) -> Result<JoinH
                         break;
                     }
                 }
-                let invalid = state.pending.len() > 16;
                 drop(state);
-                if invalid || ack.is_some_and(|(channel, seq)| client.ack(channel, seq).is_err()) {
+                if let Some(channel) = stray {
+                    client.detach_async(channel).on_complete(drop);
+                }
+                if ack.is_some_and(|(channel, seq)| client.ack(channel, seq).is_err()) {
                     client.disconnect();
                     break;
                 }
@@ -430,7 +444,7 @@ impl Fetcher {
                         let Some(view) = state
                             .views
                             .values_mut()
-                            .find(|view| view.channel == Some(fetch.channel))
+                            .find(|view| view.channel() == Some(fetch.channel))
                         else {
                             continue;
                         };
@@ -467,7 +481,7 @@ impl Fetcher {
             && let Some(view) = shared
                 .views
                 .values_mut()
-                .find(|view| view.channel == Some(channel))
+                .find(|view| view.channel() == Some(channel))
         {
             let height = usize::from(view.viewport.rows);
             view.scroll

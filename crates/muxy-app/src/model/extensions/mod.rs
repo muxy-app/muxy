@@ -1,12 +1,18 @@
+mod app;
+mod authoring;
 mod background;
 mod calls;
+mod checks;
 mod commands;
 mod consent;
+mod controls;
 mod events;
 mod http;
+mod installs;
 mod items;
 mod local;
 mod logs;
+mod pages;
 mod scripts;
 mod surfaces;
 #[cfg(test)]
@@ -17,8 +23,10 @@ mod worktrees;
 
 pub(crate) use commands::{ExtensionShortcut, RunCommand};
 pub(in crate::model) use events::root_of;
+pub(crate) use installs::{ActiveInstall, FinishedInstall};
+pub(crate) use items::Placement;
 pub(crate) use logs::log_file;
-pub(crate) use workspace::base64;
+pub(crate) use pages::is_page_verb;
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::Path;
@@ -47,8 +55,10 @@ pub(crate) struct Runtime {
     clients: HashMap<ServerId, muxy_client::Client>,
     /// Which install each server's connection is, so events from one that was
     /// replaced are ignored.
-    installs: HashMap<ServerId, u64>,
+    connection_installs: HashMap<ServerId, u64>,
     next_install: u64,
+    pub(crate) installs: installs::Installs,
+    checks: checks::Checks,
     /// Connections being opened, by server and connection generation, so
     /// only one opens at a time.
     opening: HashSet<(ServerId, u64)>,
@@ -90,8 +100,10 @@ impl Runtime {
             epoch: 1,
             epochs: HashMap::new(),
             clients: HashMap::new(),
-            installs: HashMap::new(),
+            connection_installs: HashMap::new(),
             next_install: 0,
+            installs: installs::Installs::default(),
+            checks: checks::Checks::default(),
             opening: HashSet::new(),
             scripts: HashMap::new(),
             backgrounds: HashMap::new(),
@@ -116,6 +128,10 @@ impl Runtime {
 
     fn epoch_for(&self, owner: &str) -> u64 {
         self.epochs.get(owner).copied().unwrap_or(0)
+    }
+
+    pub(super) fn connection_install(&self, server: ServerId) -> Option<u64> {
+        self.connection_installs.get(&server).copied()
     }
 
     /// The server's extension connection, which other app work that must not
@@ -246,10 +262,8 @@ impl AppModel {
                     model.extensions.next_install += 1;
                     let install = model.extensions.next_install;
                     model.extensions.clients.insert(server, client.clone());
-                    model.extensions.installs.insert(server, install);
-                    model.sync_extension_events(cx);
-                    model.resume_remote(server, cx);
-                    model.check_remote_projects(server, cx);
+                    model.extensions.connection_installs.insert(server, install);
+                    model.extension_connected(server, cx);
                     Some(install)
                 })
                 .ok()
@@ -263,7 +277,7 @@ impl AppModel {
                 if model
                     .update(cx, |model, cx| {
                         if model.generation(server) != generation
-                            || model.extensions.installs.get(&server) != Some(&install)
+                            || model.extensions.connection_installs.get(&server) != Some(&install)
                         {
                             return;
                         }
@@ -292,9 +306,16 @@ impl AppModel {
         .detach();
     }
 
+    fn extension_connected(&mut self, server: ServerId, cx: &mut Context<Self>) {
+        self.sync_extension_events(cx);
+        self.resume_remote(server, cx);
+        self.check_remote_projects(server, cx);
+        self.sync_project_icons(cx);
+    }
+
     /// Closes `server`'s extension connection. Its file watches end with it.
     pub(super) fn disconnect_extensions(&mut self, server: ServerId) {
-        self.extensions.installs.remove(&server);
+        self.extensions.connection_installs.remove(&server);
         if let Some(client) = self.extensions.clients.remove(&server) {
             client.disconnect();
         }
@@ -350,6 +371,7 @@ impl AppModel {
         if snapshot.revision <= self.extensions.local_revision {
             return;
         }
+        let first_load = !self.extensions_loaded();
         let disabled: Vec<_> = self
             .extensions
             .registry
@@ -362,9 +384,24 @@ impl AppModel {
         }
         self.extensions.local_revision = snapshot.revision;
         self.extensions.registry = snapshot.registry;
+        self.extensions
+            .checks
+            .retain_installed(&self.extensions.registry);
+        if first_load {
+            self.start_extension_update_checks(cx);
+        }
         self.probe_extension_runtimes(cx);
         self.extensions.grants = snapshot.grants;
+        let changed = events::changed_settings(&self.extensions.settings, &snapshot.settings);
         self.extensions.settings = snapshot.settings;
+        for (owner, key) in changed.into_iter().filter(|_| !first_load) {
+            self.emit_extension_event(
+                Some(&owner),
+                "settings.changed",
+                &events::strings([("key", key)]),
+                cx,
+            );
+        }
         self.read_earlier_logs(cx);
         self.invalidate_webview_shortcuts();
         self.register_extension_surfaces(cx);
@@ -409,6 +446,36 @@ impl AppModel {
             .grants
             .as_ref()
             .map_or_else(|_| Vec::new(), |grants| grants.rules(owner))
+    }
+
+    /// Whether every gated action of the extension is allowed without asking.
+    pub(crate) fn extension_trusted(&self, owner: &str) -> bool {
+        self.extensions
+            .grants
+            .as_ref()
+            .is_ok_and(|grants| grants.trusted(owner))
+    }
+
+    pub(crate) fn set_extension_trusted(
+        &mut self,
+        owner: &str,
+        trusted: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<Result<(), String>> {
+        let owner = owner.to_owned();
+        self.change_extensions(
+            move |state| {
+                if trusted && !state.registry.extensions.contains_key(&owner) {
+                    return Err(tr!("extension is not installed").to_string());
+                }
+                state
+                    .grants
+                    .as_mut()
+                    .map_err(|error| error.clone())?
+                    .set_trusted(&owner, trusted)
+            },
+            cx,
+        )
     }
 
     pub(crate) fn remove_extension_rule(
@@ -822,16 +889,14 @@ impl AppModel {
 
     fn page_project(&self, view: &Entity<Webview>, _cx: &gpui::App) -> ProjectId {
         self.state
-            .projects()
-            .iter()
-            .find(|project| {
-                project.tabs.iter().flat_map(|tab| &tab.panes).any(|pane| {
-                    self.webviews
-                        .panes
-                        .get(&pane.id)
-                        .is_some_and(|surface| surface.view == *view)
-                })
+            .panes()
+            .find(|placed| {
+                self.webviews
+                    .panes
+                    .get(&placed.pane.id)
+                    .is_some_and(|surface| surface.view == *view)
             })
+            .and_then(|placed| placed.project)
             .map_or_else(|| self.state.current_project().id, |project| project.id)
     }
 
@@ -874,6 +939,22 @@ impl AppModel {
                 Self::check_pane_request(&call.args)?;
             }
             "tabs.open" => self.check_tab_request(&call.args)?,
+            "composer.submit" | "composer.insert" if self.composer.view.is_none() => {
+                return Err("the composer is closed".into());
+            }
+            "commands.run" => {
+                let id = call.args["id"].as_str().unwrap_or("");
+                if let Some(custom) = id.strip_prefix("command.") {
+                    let command = self
+                        .settings
+                        .commands
+                        .iter()
+                        .find(|command| command.id == custom)
+                        .ok_or_else(|| format!("command not found {id}"))?;
+                    let approved = call.args["command"].as_str().unwrap_or(&command.command);
+                    return Ok(Some(Request::custom_command(&command.name, approved)));
+                }
+            }
             "projects.delete" => {
                 let project = self
                     .find_project(call.args["identifier"].as_str().unwrap_or(""))
@@ -920,6 +1001,31 @@ impl AppModel {
         ))
     }
 
+    /// Pins a custom command's text to the call, so consent covers the text
+    /// the user sees and a later edit can't run under that consent.
+    fn bind_custom_command(&self, mut call: Call) -> Call {
+        if call.verb != "commands.run" {
+            return call;
+        }
+        let text = call.args["id"]
+            .as_str()
+            .and_then(|id| id.strip_prefix("command."))
+            .and_then(|id| {
+                self.settings
+                    .commands
+                    .iter()
+                    .find(|command| command.id == id)
+            })
+            .map(|command| command.command.clone());
+        if let Some(arguments) = call.args.as_object_mut() {
+            arguments.remove("command");
+            if let Some(text) = text {
+                arguments.insert("command".into(), Value::String(text));
+            }
+        }
+        call
+    }
+
     fn extension_call(&mut self, call: Call, window: &mut Window, cx: &mut Context<Self>) {
         if !self.call_live(&call, cx) {
             call.reply.send(Err("extension call expired".into()), cx);
@@ -933,6 +1039,7 @@ impl AppModel {
             self.dispatch_extension(call, window, cx);
             return;
         }
+        let call = self.bind_custom_command(call);
         if call.verb == "http.fetch" {
             self.check_http(call, cx);
             return;

@@ -4,9 +4,8 @@ use dispatch2::DispatchQueue;
 use objc2::{
     DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained, sel,
 };
-use objc2_app_kit::{NSMenu, NSMenuItem, NSView};
+use objc2_app_kit::{NSMenu, NSMenuItem};
 use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSString};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use super::Item;
 define_class!(
@@ -42,11 +41,7 @@ pub fn show(
 }
 
 fn screen_location(anchor: gpui::Point<gpui::Pixels>, window: &gpui::Window) -> Option<NSPoint> {
-    let RawWindowHandle::AppKit(handle) = HasWindowHandle::window_handle(window).ok()?.as_raw()
-    else {
-        return None;
-    };
-    let view = unsafe { Retained::retain(handle.ns_view.as_ptr().cast::<NSView>()) }?;
+    let view = crate::appkit::gpui_view(window).ok()?;
     let y = f64::from(f32::from(anchor.y));
     let point = NSPoint::new(
         f64::from(f32::from(anchor.x)),

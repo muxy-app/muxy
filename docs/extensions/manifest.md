@@ -56,6 +56,7 @@ The `muxy` object is required; its fields are optional.
 | `popovers` | object[] | [Panels](panels.md#popovers) |
 | `sidebar` | object | [Panels](panels.md#sidebar) |
 | `topbarItems` | object[] | [Bar items](bar-items.md) |
+| `railItems` | object[] | [Bar items](bar-items.md#the-rail) |
 | `statusBarItems` | object[] | [Bar items](bar-items.md) |
 | `localizations` | object[] | [Localizations](localizations.md) |
 | `settings` | object[] | [Settings](#settings) below |
@@ -94,5 +95,5 @@ Declared settings appear on the extension's page in **Settings → Extensions**.
 ]
 ```
 
-`type` is `string`, `bool`, or `number`. Extensions can't read these values at
-runtime yet; use [storage](api.md#storage) for values your code needs.
+`type` is `string`, `bool`, or `number`. Read and change them with
+[`muxy.settings`](api.md#settings).

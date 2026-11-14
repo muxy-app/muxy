@@ -58,9 +58,7 @@ impl Uploads {
         if kept.is_err() {
             let _ = fs::remove_file(&partial);
         }
-        ServerPath::from_path(&kept?)
-            .map(Some)
-            .map_err(|_| failed("the path is not valid Unicode"))
+        Ok(Some(ServerPath::from(kept?)))
     }
 }
 
@@ -256,10 +254,6 @@ mod tests {
         (root.clone(), Uploads::in_directory(root.join("uploads")))
     }
 
-    fn text(path: &ServerPath) -> PathBuf {
-        path.to_path_buf().unwrap()
-    }
-
     #[cfg(unix)]
     fn mode(path: &Path) -> u32 {
         use std::os::unix::fs::PermissionsExt;
@@ -275,8 +269,8 @@ mod tests {
         assert_eq!(gap.code(), ErrorCode::BadRequest);
         let again = OperationId::new();
         uploads.receive(&chunk(again, 0, b"ab", false)).unwrap();
-        let path = text(
-            &uploads
+        let path = PathBuf::from(
+            uploads
                 .receive(&chunk(again, 2, b"cd", true))
                 .unwrap()
                 .unwrap(),
@@ -291,8 +285,8 @@ mod tests {
             assert_eq!(mode(&root.join("uploads")), 0o700);
         }
         let second = OperationId::new();
-        let copy = text(
-            &uploads
+        let copy = PathBuf::from(
+            uploads
                 .receive(&chunk(second, 0, b"z", true))
                 .unwrap()
                 .unwrap(),

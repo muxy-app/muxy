@@ -1,47 +1,48 @@
 use std::rc::Rc;
 
-use gpui::{Action, AppContext, Context, Focusable, SharedString, Window};
+use gpui::{AnyElement, AppContext, Context, Entity, Focusable, IntoElement, Window};
 use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::command_palette::{Command, CommandPalette, CommandPaletteEvent, Registry};
 
-use super::overlays::Overlay;
+use super::overlays::{Mark, Overlay, OverlayView};
 use crate::model::AppModel;
 
 pub(crate) type Handler = Rc<dyn Fn(&mut AppModel, &mut Window, &mut Context<AppModel>)>;
 
-/// A palette command for a shortcut action. `title` is an English key, shown
-/// translated and still found by its English words.
-pub(crate) fn action(
-    model: &AppModel,
-    id: ShortcutId,
-    title: &'static str,
-    action: impl Action,
-) -> Command<Handler> {
-    titled(model, id, muxy_ui::l10n::translate(title), action).keywords(title)
+/// The open command palette, or a picker shown in it like the theme picker.
+pub(crate) struct Palette {
+    pub(crate) palette: Entity<CommandPalette<Handler>>,
+    /// The appearance its theme picker previews.
+    pub(crate) dark: bool,
 }
 
-/// A palette command for a shortcut action, under a title already translated.
-pub(crate) fn titled(
+impl OverlayView for Palette {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.palette.clone().into_any_element()
+    }
+}
+
+/// `command` showing the shortcut the user's keymap gives `id`.
+pub(crate) fn with_shortcut(
     model: &AppModel,
     id: ShortcutId,
-    title: impl Into<SharedString>,
-    action: impl Action,
+    command: Command<Handler>,
 ) -> Command<Handler> {
-    let command = Command::new(id.name(), title, dispatch(action));
     match model.settings.keymap.chord(id) {
-        Some(chord) => command.shortcut(
-            gpui::Keystroke::parse(chord.as_str())
-                .map_or_else(|_| chord.to_string(), |key| key.to_string()),
-        ),
+        Some(chord) => command.shortcut(chord_label(chord)),
         None => command,
     }
 }
 
-/// Runs `action` where the keyboard focus is, as its shortcut would.
-pub(crate) fn dispatch(action: impl Action) -> Handler {
-    Rc::new(move |_, window, cx| {
-        window.dispatch_action(action.boxed_clone(), cx);
-    })
+/// `chord` as the palette and menus show it.
+pub(crate) fn chord_label(chord: &muxy_app_core::settings::KeyChord) -> String {
+    gpui::Keystroke::parse(chord.as_str()).map_or_else(|_| chord.to_string(), |key| key.to_string())
 }
 
 impl AppModel {
@@ -52,25 +53,32 @@ impl AppModel {
     ) -> Registry<Handler> {
         self.reload_themes(cx);
         let mut registry = Registry::default();
-        super::workspace::register_commands(&mut registry, self);
-        super::workspace::register_browser_commands(&mut registry, self);
+        super::workspace::commands::register_listed(&mut registry, self, cx);
         super::sidebar::register_commands(&mut registry, self, cx);
-        super::settings::register_commands(&mut registry, self);
-        registry.register(super::theme_picker::command(self, dark, cx));
+        super::settings::register_commands(&mut registry, self, cx);
+        registry.register(super::theme_picker::command(
+            self,
+            super::theme_picker::ThemeTarget::App,
+            dark,
+            cx,
+        ));
         if self.supports(muxy_core::capability::Feature::SshRemotes) {
-            registry.register(super::remote_servers::command(self, cx));
+            registry.register(with_shortcut(
+                self,
+                ShortcutId::ShowServers,
+                super::remote_servers::command(self, cx),
+            ));
         }
-        registry.register(super::new_tab::command(cx));
         self.register_extension_commands(&mut registry);
         self.register_custom_commands(&mut registry);
         registry
     }
 
     pub(crate) fn toggle_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
-        if let Some(Overlay::Commands { palette, .. }) = &self.overlay
+        if let Some(Overlay::Commands(Palette { palette, .. })) = &self.overlay
             && !palette.read(cx).is_page(super::theme_picker::PAGE_ID)
         {
             self.dismiss_overlay(cx);
@@ -80,13 +88,24 @@ impl AppModel {
     }
 
     pub(crate) fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(Overlay::Commands { palette, .. }) = &self.overlay
-            && palette.read(cx).is_page(super::theme_picker::PAGE_ID)
+        self.toggle_palette_page(super::theme_picker::PAGE_ID, window, cx);
+    }
+
+    /// Opens the palette at one of its lists, like Switch Project…, or closes
+    /// the palette when it already shows that list.
+    pub(crate) fn toggle_palette_page(
+        &mut self,
+        page: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(Overlay::Commands(Palette { palette, .. })) = &self.overlay
+            && palette.read(cx).is_page(page)
         {
             self.dismiss_overlay(cx);
             return;
         }
-        self.open_command_palette(Some(super::theme_picker::PAGE_ID), window, cx);
+        self.open_command_palette(Some(page), window, cx);
     }
 
     fn open_command_palette(
@@ -95,7 +114,7 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         let registry = self.command_registry(self.dark, cx);
@@ -110,7 +129,7 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         let palette =
@@ -129,20 +148,20 @@ impl AppModel {
             move |model, palette, event, window, cx| {
                 if let CommandPaletteEvent::Applied(handler) = event {
                     handler(model, window, cx);
-                    let active = model.themes.active_name(&model.appearance, dark);
+                    let active = model.themes.active_name(model.appearance.theme(dark), dark);
                     palette.update(cx, |palette, cx| palette.set_current(&active, cx));
                     return;
                 }
                 model.dismiss_overlay(cx);
                 model.focus_active(window, cx);
-                model.focus_requested = false;
+                model.focus_owner.settle();
                 if let CommandPaletteEvent::Selected(handler) = event {
                     handler(model, window, cx);
                 }
             },
         ));
         palette.focus_handle(cx).focus(window);
-        self.overlay = Some(Overlay::Commands { palette, dark });
+        self.open_overlay(Overlay::Commands(Palette { palette, dark }), cx);
         cx.notify();
     }
 }

@@ -570,7 +570,7 @@ pub(super) fn copy(worker: &Worker, selection: Selection) -> Result {
         let Some(view) = shared.views.get(&selection.pane) else {
             return Ok(());
         };
-        selection.text(view.scroll.grid(&view.grid))
+        selection.text(view.scroll.grid(&view.terminal.grid))
     };
     if text.is_empty() {
         return Ok(());
@@ -589,7 +589,7 @@ pub(super) fn copy(worker: &Worker, selection: Selection) -> Result {
 fn reports_mouse(view: &View, shift: bool) -> bool {
     !shift
         && !view.ended
-        && view.channel.is_some()
+        && view.channel().is_some()
         && !view.scroll.is_active()
         && view.input.mouse_tracking
 }
@@ -608,7 +608,7 @@ fn reports_wheel(worker: &Worker, pane: PaneId, event: MouseEvent) -> bool {
     lock(&worker.shared).views.get(&pane).is_some_and(|view| {
         !shift
             && !view.ended
-            && view.channel.is_some()
+            && view.channel().is_some()
             && !view.scroll.is_active()
             && (view.input.mouse_tracking || view.input.alternate_scroll)
     })
@@ -638,7 +638,7 @@ pub(super) fn forward(
     let Some(channel) = lock(&worker.shared)
         .views
         .get(&pane)
-        .and_then(|view| view.channel)
+        .and_then(View::channel)
     else {
         return Ok(());
     };

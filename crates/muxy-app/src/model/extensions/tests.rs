@@ -1,12 +1,12 @@
-// Most of these run extension scripts, which Windows builds can't yet.
-#![cfg_attr(windows, allow(dead_code, unused_imports))]
+mod api;
+mod pages;
+mod project_icons;
+mod rail;
 
 use super::*;
-use crate::model::tests::extensions::finish_extension;
 use crate::model::tests::stub_boot;
 use gpui::TestAppContext;
-use muxy_app_core::AppState;
-use muxy_app_core::ServerId;
+use muxy_app_core::{AppState, TabId};
 
 #[gpui::test]
 fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppContext) {
@@ -55,7 +55,7 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
                     request.cwd,
                     call.args["cwd"]
                         .as_str()
-                        .map(|path| { muxy_protocol::ServerPath(path.as_bytes().to_vec()) })
+                        .map(|path| { muxy_protocol::ServerPath::from(path) })
                 );
                 assert_eq!(request.env["MUXY_EXTENSION_ID"], "files");
             }
@@ -99,780 +99,189 @@ fn exec_consent_preflight_validates_sync_and_async_commands(cx: &mut TestAppCont
     });
 }
 
-#[cfg(not(windows))]
 #[gpui::test]
-fn expired_confirmation_does_not_persist_permission(cx: &mut TestAppContext) {
-    let package = tempfile::tempdir().expect("extension folder");
-    std::fs::write(
-        package.path().join("package.json"),
-        r#"{"name":"writer","version":"1.0.0","muxy":{"permissions":["files:write"]}}"#,
-    )
-    .expect("manifest");
+fn a_finished_script_cancels_its_commands_without_a_frame(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let profile = boot.state_path.parent().expect("profile").to_owned();
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    finish_extension(
-        view.update(cx, |model, cx| {
-            model.load_unpacked_extension(package.path().to_owned(), cx)
-        }),
-        cx,
-    )
-    .expect("load");
-    finish_extension(
-        view.update(cx, |model, cx| {
-            model.set_extension_enabled("writer", true, cx)
-        }),
-        cx,
-    )
-    .expect("enable");
-    let request = Request::file("write", "file");
-    let (reply, replies) = std::sync::mpsc::sync_channel(1);
-    let (response, confirmation) = async_channel::bounded(1);
-    view.update(cx, |model, cx| {
-        let (script, _events) = muxy_ui::javascript::Script::start(String::new()).expect("script");
-        model.extensions.scripts.insert(
-            1,
-            scripts::Running {
-                owner: "writer".into(),
-                script,
+    view.update_in(cx, |model, window, cx| {
+        let registry = &mut model.extensions.registry;
+        registry.extensions.insert(
+            "files".into(),
+            muxy_app_core::extensions::Extension {
+                name: "files".into(),
+                version: "1.0.0".into(),
+                directory: std::env::temp_dir(),
+                manifest: muxy_app_core::extensions::Manifest::default(),
             },
         );
+        registry.set_enabled("files", true).expect("enabled");
+        let (reply, _replies) = std::sync::mpsc::sync_channel(4);
         let call = Call {
-            owner: "writer".into(),
-            epoch: model.extensions.epoch_for("writer"),
+            owner: "files".into(),
+            epoch: model.extensions.epoch_for("files"),
+            generation: model.project_generation(model.state.home().id),
+            project: model.state.home().id,
+            verb: "exec.start".into(),
+            args: json!({"id": "1", "argv": ["sleep", "60"]}),
+            reply: Reply::Script(7, reply),
+            approved: true,
+        };
+        model.extensions.jobs.insert(
+            (call.reply.key(), "1".into()),
+            Job {
+                id: 1,
+                call: call.clone(),
+            },
+        );
+        model.dispatch_extension(
+            Call {
+                verb: "script.finished".into(),
+                args: Value::Null,
+                ..call
+            },
+            window,
+            cx,
+        );
+        assert!(model.extensions.jobs.is_empty());
+    });
+}
+
+#[gpui::test]
+fn rendering_sends_no_extension_events(cx: &mut TestAppContext) {
+    use gpui::Render;
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update_in(cx, |model, window, cx| {
+        model.flush_extension_events(window, cx);
+        let home = model.state.home().id;
+        model.state.open_terminal_tab(home).expect("tab");
+        model.extensions.events.sent.borrow_mut().clear();
+        let _ = model.render(window, cx);
+        let _ = model.render(window, cx);
+        assert!(model.extensions.events.sent.borrow().is_empty());
+        model.flush_extension_events(window, cx);
+        let sent = model.extensions.events.sent.take();
+        assert_eq!(
+            sent.iter().filter(|event| *event == "tab.created").count(),
+            1
+        );
+        model.flush_extension_events(window, cx);
+        assert!(model.extensions.events.sent.borrow().is_empty());
+    });
+}
+
+#[gpui::test]
+fn a_terminal_tab_that_cannot_open_leaves_nothing_behind(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let directory = tempfile::tempdir().expect("directory");
+    view.update(cx, |model, cx| {
+        let before = model.state.clone();
+        let args = json!({"kind": "terminal", "command": "echo hi"});
+
+        let outside = json!({"kind": "terminal", "directory": "../../../../../../../../nope"});
+        assert!(model.extension_open_tab(&outside, cx).is_err());
+        assert_eq!(model.state, before);
+
+        let path = std::mem::replace(&mut model.path, directory.path().to_path_buf());
+        assert_eq!(
+            model.extension_open_tab(&args, cx),
+            Err("Could not save tabs".to_owned())
+        );
+        assert_eq!(model.state, before);
+
+        model.path = path;
+        let tab = model.extension_open_tab(&args, cx).expect("opened");
+        assert_eq!(
+            model.active_tab().map(|tab| json!(tab.to_string())),
+            Some(tab)
+        );
+    });
+}
+
+#[gpui::test]
+fn extensions_split_tabs_into_groups(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    let [a, b, c] = [0, 1, 2].map(|index| {
+        let tab = state.open_terminal_tab(home).expect("tab");
+        let pane = state.window().active_pane.expect("pane");
+        state
+            .set_pane_session(pane, muxy_protocol::SessionId::new(300 + index))
+            .expect("session");
+        tab
+    });
+    state.select_tab(home, a).expect("select");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let split = |tab: TabId, beside: TabId, edge: &str| json!({"tabId": tab.to_string(), "besideId": beside.to_string(), "edge": edge});
+    let groups = |model: &AppModel| {
+        model.state.home().groups().map_or_else(Vec::new, |groups| {
+            groups
+                .layout()
+                .leaves()
+                .into_iter()
+                .filter_map(|id| groups.group(id))
+                .map(|group| group.tabs().to_vec())
+                .collect::<Vec<_>>()
+        })
+    };
+    view.update(cx, |model, cx| {
+        assert_eq!(
+            model.extension_split_tab(&split(c, a, "right"), cx),
+            Ok(Value::Null)
+        );
+        assert_eq!(groups(model), [vec![a, b], vec![c]]);
+        assert_eq!(model.active_tab(), Some(c));
+
+        assert_eq!(
+            model.extension_split_tab(&split(b, c, "down"), cx),
+            Ok(Value::Null)
+        );
+        assert_eq!(groups(model), [vec![a], vec![c], vec![b]]);
+
+        let before = model.state.clone();
+        assert_eq!(
+            model.extension_split_tab(&split(a, c, "diagonal"), cx),
+            Err("invalid edge 'diagonal'".into())
+        );
+        assert_eq!(
+            model.extension_split_tab(&json!({"tabId": "nope", "besideId": a.to_string()}), cx),
+            Err("tab not found nope".into())
+        );
+        assert!(model.extension_split_tab(&split(a, a, "left"), cx).is_err());
+        assert_eq!(model.state, before);
+        assert!(model.error.is_none(), "{:?}", model.error);
+    });
+}
+
+#[gpui::test]
+fn a_call_that_waits_for_the_user_says_so(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update_in(cx, |model, window, cx| {
+        let (reply, _replies) = std::sync::mpsc::sync_channel(1);
+        let call = Call {
+            owner: "tester".into(),
+            epoch: model.extensions.epoch_for("tester"),
             generation: model.servers.local.generation,
             project: model.state.home().id,
-            verb: "files.write".into(),
-            args: json!({"path":"file","content":"text"}),
+            verb: "exec".into(),
+            args: json!({"argv": ["git", "status"]}),
             reply: Reply::Script(1, reply),
             approved: false,
         };
-        assert!(model.call_live(&call, cx));
-        model.await_consent(1, call.clone(), request.clone(), confirmation, cx);
-        response
-            .try_send(muxy_ui::dialog::ConsentResponse::AllowAndRemember)
-            .expect("confirm");
-        model
-            .extensions
-            .epochs
-            .insert("writer".into(), call.epoch + 1);
-        assert!(!model.call_live(&call, cx));
-    });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    let response = loop {
-        cx.run_until_parked();
-        if let Ok(response) = replies.try_recv() {
-            break response;
-        }
+        let request = model
+            .consent_request(&call)
+            .expect("valid")
+            .expect("exec asks");
+        assert_eq!(model.waiting_prompts("tester"), 0);
+        model.gate(call, request, window, cx);
+        let log: Vec<_> = model.extensions.logs.tail("tester").collect();
         assert!(
-            std::time::Instant::now() < deadline,
-            "confirmation timed out"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    };
-    assert_eq!(
-        serde_json::from_str::<Value>(&response).expect("reply")["ok"],
-        false
-    );
-    assert_eq!(
-        Grants::load(&profile)
-            .expect("grants")
-            .decision("writer", &request),
-        muxy_app_core::extensions::Consent::Ask
-    );
-}
-
-/// Loads and enables an unpacked extension whose `muxy` manifest is `manifest`.
-#[cfg(not(windows))]
-fn enabled<'a>(
-    cx: &'a mut TestAppContext,
-    name: &str,
-    manifest: &str,
-    state: AppState,
-) -> (
-    Entity<AppModel>,
-    &'a mut gpui::VisualTestContext,
-    tempfile::TempDir,
-    std::sync::mpsc::Receiver<(u64, crate::boot::Work)>,
-) {
-    enabled_with(cx, name, manifest, &[], state)
-}
-
-/// Like `enabled`, with extra package files as `(path, contents)`.
-fn enabled_with<'a>(
-    cx: &'a mut TestAppContext,
-    name: &str,
-    manifest: &str,
-    files: &[(&str, &str)],
-    state: AppState,
-) -> (
-    Entity<AppModel>,
-    &'a mut gpui::VisualTestContext,
-    tempfile::TempDir,
-    std::sync::mpsc::Receiver<(u64, crate::boot::Work)>,
-) {
-    let package = tempfile::tempdir().expect("extension folder");
-    std::fs::write(
-        package.path().join("package.json"),
-        format!(r#"{{"name":"{name}","version":"1.0.0","muxy":{manifest}}}"#),
-    )
-    .expect("manifest");
-    std::fs::write(package.path().join("index.html"), "").expect("entry");
-    for (path, contents) in files {
-        let path = package.path().join(path);
-        std::fs::create_dir_all(path.parent().expect("package folder")).expect("package folder");
-        std::fs::write(path, contents).expect("package file");
-    }
-    let (boot, requests) = stub_boot(state);
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    finish_extension(
-        view.update(cx, |model, cx| {
-            model.load_unpacked_extension(package.path().to_owned(), cx)
-        }),
-        cx,
-    )
-    .expect("load");
-    let owner = name.to_owned();
-    finish_extension(
-        view.update(cx, |model, cx| {
-            model.set_extension_enabled(&owner, true, cx)
-        }),
-        cx,
-    )
-    .expect("enable");
-    (view, cx, package, requests)
-}
-
-/// Sends one API call as the extension's script `id` and waits for its reply.
-#[cfg(not(windows))]
-fn script_call(
-    view: &Entity<AppModel>,
-    cx: &mut gpui::VisualTestContext,
-    owner: &str,
-    id: u64,
-    verb: &str,
-    args: Value,
-) -> Value {
-    let (reply, replies) = std::sync::mpsc::sync_channel(1);
-    cx.update(|window, cx| {
-        view.update(cx, |model, cx| {
-            model.extensions.scripts.entry(id).or_insert_with(|| {
-                let (script, _events) =
-                    muxy_ui::javascript::Script::start(String::new()).expect("script");
-                scripts::Running {
-                    owner: owner.into(),
-                    script,
-                }
-            });
-            model.extension_call(
-                Call {
-                    owner: owner.into(),
-                    epoch: model.extensions.epoch_for(owner),
-                    generation: model.servers.local.generation,
-                    project: model.state.current_project().id,
-                    verb: verb.into(),
-                    args,
-                    reply: Reply::Script(id, reply),
-                    approved: false,
-                },
-                window,
-                cx,
-            );
-        });
-    });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        cx.run_until_parked();
-        if let Ok(response) = replies.try_recv() {
-            return serde_json::from_str(&response).expect("JSON reply");
-        }
-        assert!(std::time::Instant::now() < deadline, "{verb} timed out");
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    }
-}
-
-#[cfg(not(windows))]
-#[gpui::test]
-fn browser_tabs_opened_by_extensions_are_driven_by_their_tab_id(cx: &mut TestAppContext) {
-    let (view, cx, _package, _requests) = enabled(
-        cx,
-        "driver",
-        r#"{"permissions": ["tabs:write", "browser:write"]}"#,
-        AppState::bootstrap().expect("state"),
-    );
-    let opened = script_call(
-        &view,
-        cx,
-        "driver",
-        1,
-        "tabs.open",
-        json!({"kind": "browser", "url": "example.com"}),
-    );
-    assert_eq!(opened["ok"], true, "{opened}");
-    let tab = opened["value"].as_str().expect("tab ID").to_owned();
-    let navigated = script_call(
-        &view,
-        cx,
-        "driver",
-        1,
-        "browser.navigate",
-        json!({"tabId": tab, "url": "example.com/docs"}),
-    );
-    assert_eq!(navigated["ok"], true, "{navigated}");
-    view.read_with(cx, |model, _| {
-        let pane = model.state.browser_pane(&tab).expect("browser pane");
-        assert_eq!(
-            model
-                .state
-                .browser(pane)
-                .and_then(|browser| browser.url.as_deref()),
-            Some("https://example.com/docs")
+            log.iter()
+                .any(|line| line.contains("exec is waiting for the user to allow it")),
+            "{log:?}"
         );
     });
-}
-
-#[cfg(not(windows))]
-#[gpui::test]
-fn browser_replies_to_expired_extension_calls_are_refused(cx: &mut TestAppContext) {
-    let (view, cx, _package, _requests) = enabled(
-        cx,
-        "driver",
-        r#"{"permissions": ["browser:read"]}"#,
-        AppState::bootstrap().expect("state"),
-    );
-    let (reply, replies) = std::sync::mpsc::sync_channel(1);
-    cx.update(|window, cx| {
-        view.update(cx, |model, cx| {
-            let (script, _events) =
-                muxy_ui::javascript::Script::start(String::new()).expect("script");
-            model.extensions.scripts.insert(
-                1,
-                scripts::Running {
-                    owner: "driver".into(),
-                    script,
-                },
-            );
-            let epoch = model.extensions.epoch_for("driver");
-            model.extension_call(
-                Call {
-                    owner: "driver".into(),
-                    epoch,
-                    generation: model.servers.local.generation,
-                    project: model.state.current_project().id,
-                    verb: "browser.list".into(),
-                    args: json!({}),
-                    reply: Reply::Script(1, reply),
-                    approved: false,
-                },
-                window,
-                cx,
-            );
-            model.extensions.epochs.insert("driver".into(), epoch + 1);
-        });
-    });
-    cx.run_until_parked();
-    let response: Value =
-        serde_json::from_str(&replies.try_recv().expect("reply")).expect("JSON reply");
-    assert_eq!(response["ok"], false, "{response}");
-    assert_eq!(response["error"], "extension call expired");
-}
-
-#[cfg(not(windows))]
-#[gpui::test]
-fn extension_events_stay_inside_the_extension(cx: &mut TestAppContext) {
-    let (view, cx, _package, _requests) = enabled(
-        cx,
-        "bus",
-        r#"{"events": ["tab.switched"]}"#,
-        AppState::bootstrap().expect("state"),
-    );
-    let missing = script_call(
-        &view,
-        cx,
-        "bus",
-        1,
-        "events.emit",
-        json!({"event": "extension.ready", "payload": {}}),
-    );
-    assert_eq!(missing["error"], "background script unavailable");
-    view.update(cx, |model, _| {
-        let (script, _events) = muxy_ui::javascript::Script::start(String::new()).expect("script");
-        model.extensions.scripts.insert(
-            2,
-            scripts::Running {
-                owner: "bus".into(),
-                script,
-            },
-        );
-        model.extensions.backgrounds.insert(
-            "bus".into(),
-            background::Background {
-                script: 2,
-                version: "1.0.0".into(),
-            },
-        );
-    });
-    let delivered = script_call(
-        &view,
-        cx,
-        "bus",
-        1,
-        "events.emit",
-        json!({"event": "extension.ready", "payload": {"n": 1}}),
-    );
-    assert_eq!(delivered["ok"], true);
-    let from_background = script_call(
-        &view,
-        cx,
-        "bus",
-        2,
-        "events.emit",
-        json!({"event": "extension.done", "payload": null}),
-    );
-    assert_eq!(from_background["ok"], true);
-    let invalid = script_call(
-        &view,
-        cx,
-        "bus",
-        1,
-        "events.emit",
-        json!({"event": "tab.switched", "payload": {}}),
-    );
-    assert_eq!(invalid["ok"], false);
-    let subscribed = script_call(
-        &view,
-        cx,
-        "bus",
-        1,
-        "events.subscribe",
-        json!({"event": "extension.anything"}),
-    );
-    assert_eq!(subscribed["ok"], true);
-    let undeclared = script_call(
-        &view,
-        cx,
-        "bus",
-        1,
-        "events.subscribe",
-        json!({"event": "project.switched"}),
-    );
-    assert_eq!(
-        undeclared["error"],
-        "event project.switched not declared in manifest"
-    );
-}
-
-#[cfg(not(windows))]
-#[gpui::test]
-fn terminal_tabs_type_their_startup_command_once_attached(cx: &mut TestAppContext) {
-    let (view, cx, _package, requests) = enabled(
-        cx,
-        "launcher",
-        r#"{"permissions": ["tabs:write"]}"#,
-        AppState::bootstrap().expect("state"),
-    );
-    let request = Request::for_call(
-        "launcher",
-        "tabs.open",
-        &json!({"kind": "terminal", "command": "npm test"}),
-        "",
-    )
-    .expect("running a command needs consent");
-    view.update(cx, |model, cx| {
-        model.servers.local.connection = crate::model::ConnectionState::Ready;
-        crate::model::tests::acknowledge_catalog(model, cx);
-        model
-            .extensions
-            .grants
-            .as_mut()
-            .expect("grants")
-            .remember(
-                "launcher",
-                &request,
-                muxy_app_core::extensions::Choice::AllowAndRemember,
-            )
-            .expect("remember");
-    });
-    let opened = script_call(
-        &view,
-        cx,
-        "launcher",
-        1,
-        "tabs.open",
-        json!({"kind": "terminal", "command": " npm test "}),
-    );
-    assert_eq!(opened["ok"], true, "{opened}");
-    cx.run_until_parked();
-    let pane = view.read_with(cx, |model, _| {
-        let pane = model.active_pane().expect("new terminal pane");
-        assert_eq!(model.state.startup_command(pane), Some("npm test"));
-        pane
-    });
-    let session = muxy_protocol::SessionId::new(7).expect("session");
-    requests.try_iter().for_each(drop);
-    view.update(cx, |model, cx| {
-        model.receive_attached(
-            ServerId::local(),
-            pane,
-            session,
-            crate::model::tests::attachment(),
-            true,
-            cx,
-        );
-    });
-    let typed: Vec<_> = requests
-        .try_iter()
-        .filter_map(|(_, work)| match work {
-            crate::boot::Work::Input(_, bytes) => Some(bytes),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(typed, vec![b"npm test\r".to_vec()]);
-    view.read_with(cx, |model, _| {
-        assert!(model.state.startup_command(pane).is_none());
-    });
-    let outside = script_call(
-        &view,
-        cx,
-        "launcher",
-        1,
-        "tabs.open",
-        json!({"kind": "terminal", "directory": "../outside"}),
-    );
-    assert_eq!(
-        outside["error"],
-        "directory must be an existing folder inside the worktree"
-    );
-}
-
-/// Runs the app until `done` holds, failing after five seconds.
-fn wait_for(
-    view: &Entity<AppModel>,
-    cx: &mut gpui::VisualTestContext,
-    what: &str,
-    done: impl Fn(&AppModel) -> bool,
-) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        cx.run_until_parked();
-        if view.read_with(cx, |model, _| done(model)) {
-            return;
-        }
-        assert!(std::time::Instant::now() < deadline, "{what} timed out");
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    }
-}
-
-fn logged(model: &AppModel, owner: &str, line: &str) -> bool {
-    model
-        .extensions
-        .logs
-        .tail(owner)
-        .any(|logged| logged == line)
-}
-
-#[cfg(not(windows))]
-#[gpui::test]
-fn background_scripts_follow_the_extension_not_the_connection(cx: &mut TestAppContext) {
-    let manifest = r#"{"background": "background.js"}"#;
-    let (view, cx, package, _requests) = enabled_with(
-        cx,
-        "ports",
-        manifest,
-        &[("background.js", "setInterval(() => {}, 60000);")],
-        AppState::bootstrap().expect("state"),
-    );
-    wait_for(&view, cx, "background start", |model| {
-        logged(model, "ports", "[muxy] started ports v1.0.0")
-    });
-    view.update(cx, |model, cx| model.disconnect(ServerId::local(), cx));
-    view.read_with(cx, |model, _| {
-        assert!(
-            model.background_running("ports"),
-            "disconnects keep background scripts"
-        );
-    });
-    std::fs::write(
-        package.path().join("package.json"),
-        format!(r#"{{"name":"ports","version":"1.1.0","muxy":{manifest}}}"#),
-    )
-    .expect("updated manifest");
-    finish_extension(
-        view.update(cx, AppModel::refresh_installed_extensions_task),
-        cx,
-    )
-    .expect("refresh");
-    wait_for(&view, cx, "background restart", |model| {
-        logged(model, "ports", "[muxy] started ports v1.1.0")
-    });
-    view.read_with(cx, |model, _| {
-        assert!(logged(model, "ports", "[muxy] exited cleanly"));
-    });
-    finish_extension(
-        view.update(cx, |model, cx| {
-            model.set_extension_enabled("ports", false, cx)
-        }),
-        cx,
-    )
-    .expect("disable");
-    view.read_with(cx, |model, _| assert!(!model.background_running("ports")));
-}
-
-/// Stands in for the native consent sheet, which reports a cancel when it
-/// closes without an answer.
-#[cfg(not(windows))]
-struct ConsentSheet(async_channel::Sender<muxy_ui::dialog::ConsentResponse>);
-
-#[cfg(not(windows))]
-impl Drop for ConsentSheet {
-    fn drop(&mut self) {
-        let _ = self.0.try_send(muxy_ui::dialog::ConsentResponse::Cancel);
-    }
-}
-
-/// An `exec` call from script 1 of the `runner` extension.
-#[cfg(not(windows))]
-fn runner_exec(model: &AppModel, argv: &Value, reply: std::sync::mpsc::SyncSender<String>) -> Call {
-    Call {
-        owner: "runner".into(),
-        epoch: model.extensions.epoch_for("runner"),
-        generation: model.servers.local.generation,
-        project: model.state.home().id,
-        verb: "exec".into(),
-        args: json!({ "argv": argv }),
-        reply: Reply::Script(1, reply),
-        approved: false,
-    }
-}
-
-/// Shows a consent sheet `id` for running `argv`, returning where its answer goes.
-#[cfg(not(windows))]
-fn prompt_runner(
-    view: &Entity<AppModel>,
-    cx: &mut gpui::VisualTestContext,
-    id: u64,
-    argv: &Value,
-) -> async_channel::Sender<muxy_ui::dialog::ConsentResponse> {
-    let (reply, _replies) = std::sync::mpsc::sync_channel(1);
-    let (answer, answers) = async_channel::bounded(1);
-    view.update(cx, |model, cx| {
-        let call = runner_exec(model, argv, reply);
-        let request = Request::for_call("runner", "exec", &call.args, "").expect("gated");
-        let sheet = Box::new(ConsentSheet(answer.clone()));
-        model.extensions.sheet = Some(consent::Sheet::new(id, "runner", false, sheet));
-        model.await_consent(id, call, request, answers, cx);
-    });
-    answer
-}
-
-#[cfg(not(windows))]
-#[gpui::test]
-fn gated_decisions_are_recorded_in_the_audit_log(cx: &mut TestAppContext) {
-    let (view, cx, _package, _requests) = enabled(
-        cx,
-        "runner",
-        r#"{"permissions": ["commands:exec"]}"#,
-        AppState::bootstrap().expect("state"),
-    );
-    let audit = view.read_with(cx, |model, _| model.extension_audit_log());
-    let entries = move || -> Vec<Value> {
-        std::fs::read_to_string(&audit)
-            .unwrap_or_default()
-            .lines()
-            .map(|line| serde_json::from_str(line).expect("audit entry"))
-            .collect()
-    };
-    let call = |cx: &mut gpui::VisualTestContext, argv: Value, sheet: Option<consent::Sheet>| {
-        let (reply, replies) = std::sync::mpsc::sync_channel(1);
-        cx.update(|window, cx| {
-            view.update(cx, |model, cx| {
-                if sheet.is_some() {
-                    model.extensions.sheet = sheet;
-                }
-                model.extension_call(runner_exec(model, &argv, reply), window, cx);
-            });
-        });
-        replies
-    };
-    view.update(cx, |model, _| {
-        let (script, _events) = muxy_ui::javascript::Script::start(String::new()).expect("script");
-        let running = scripts::Running {
-            owner: "runner".into(),
-            script,
-        };
-        model.extensions.scripts.insert(1, running);
-    });
-    prompt_runner(&view, cx, 1, &json!(["git", "status"]))
-        .try_send(muxy_ui::dialog::ConsentResponse::DenyAndRemember)
-        .expect("answer");
-    wait_for(&view, cx, "the remembered answer", |_| entries().len() == 1);
-    let denied = call(cx, json!(["git", "log"]), None);
-    assert!(
-        denied
-            .try_recv()
-            .expect("reply")
-            .contains("user denied consent for exec")
-    );
-    wait_for(&view, cx, "the saved rule", |_| entries().len() == 2);
-    drop(prompt_runner(&view, cx, 2, &json!(["rm", "-r", "build"])));
-    view.update(cx, |model, _| model.extensions.sheet = None);
-    wait_for(&view, cx, "the prompt that timed out", |_| {
-        entries().len() == 3
-    });
-    let dialog = consent::Sheet::new(3, "other", true, Box::new(()));
-    let stopped = call(cx, json!(["make"]), Some(dialog));
-    finish_extension(
-        view.update(cx, |model, cx| {
-            model.set_extension_enabled("runner", false, cx)
-        }),
-        cx,
-    )
-    .expect("disable");
-    assert!(
-        stopped
-            .try_recv()
-            .expect("reply")
-            .contains("extension disabled")
-    );
-    wait_for(&view, cx, "the queued prompt", |_| entries().len() == 4);
-    let entries = entries();
-    assert_eq!(
-        entries[0],
-        json!({
-            "timestamp": entries[0]["timestamp"],
-            "extensionID": "runner",
-            "verb": "exec",
-            "payloadSummary": "git status",
-            "decision": "deny",
-            "ruleID": "exec:argv:git",
-            "source": "exec",
-        })
-    );
-    assert!(
-        entries[0]["timestamp"]
-            .as_str()
-            .is_some_and(|time| time.ends_with('Z'))
-    );
-    let fields = |entry: &Value| {
-        ["payloadSummary", "decision", "ruleID"]
-            .map(|key| entry[key].as_str().unwrap_or("").to_owned())
-    };
-    assert_eq!(
-        fields(&entries[1]),
-        ["git log", "deny", "exec:argv:git"],
-        "a saved rule decides without asking"
-    );
-    assert_eq!(fields(&entries[2]), ["rm -r build [timeout]", "deny", ""]);
-    assert_eq!(
-        fields(&entries[3]),
-        ["make [cancelled]", "deny", ""],
-        "a prompt still waiting when its extension stops"
-    );
-}
-
-#[cfg(not(windows))]
-#[gpui::test]
-fn workspace_events_reach_permitted_extension_scripts(cx: &mut TestAppContext) {
-    let (view, cx, _package, _requests) = enabled(
-        cx,
-        "watcher",
-        r#"{"events": ["tab.created"]}"#,
-        AppState::bootstrap().expect("state"),
-    );
-    let (script, events) = muxy_ui::javascript::Script::start(
-        "globalThis.__muxyEvent = (name, payload) => __muxyNative(JSON.stringify({ name, payload }));"
-            .into(),
-    )
-    .expect("script");
-    view.update(cx, |model, cx| {
-        model.extensions.scripts.insert(
-            9,
-            scripts::Running {
-                owner: "watcher".into(),
-                script,
-            },
-        );
-        model.sync_extension_events(cx);
-        model.new_tab(cx);
-    });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    let delivered = loop {
-        cx.run_until_parked();
-        if let Ok(muxy_ui::javascript::Event::Call(call)) = events.try_recv() {
-            let _ = call.reply.send("null".into());
-            break serde_json::from_str::<Value>(&call.request).expect("event");
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "tab.created timed out"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    };
-    assert_eq!(delivered["name"], "tab.created");
-    let payload = delivered["payload"].as_object().expect("payload");
-    assert!(payload.values().all(Value::is_string), "{payload:?}");
-    assert_eq!(payload["kind"], "terminal");
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    cx.run_until_parked();
-    assert!(
-        events.try_recv().is_err(),
-        "undeclared events such as tab.focused are not delivered"
-    );
-}
-
-#[cfg(not(windows))]
-#[gpui::test]
-fn project_and_agent_lists_use_main_shapes(cx: &mut TestAppContext) {
-    let mut state = AppState::bootstrap().expect("state");
-    let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
-        .expect("project");
-    let (view, cx, _package, _requests) = enabled(
-        cx,
-        "lister",
-        r#"{"permissions": ["projects:read", "agents:read"]}"#,
-        state,
-    );
-    let projects = script_call(&view, cx, "lister", 1, "projects.list", json!({}));
-    assert_eq!(projects["value"][1]["worktreesEnabled"], true);
-    view.update(cx, |model, cx| {
-        model.toggle_worktree_visibility(project, cx);
-    });
-    let projects = script_call(&view, cx, "lister", 1, "projects.list", json!({}));
-    assert_eq!(
-        projects["value"][1]["worktreesEnabled"], false,
-        "worktreesEnabled follows the project's Worktrees setting"
-    );
-    let home = &projects["value"][0];
-    for key in [
-        "id",
-        "name",
-        "path",
-        "isActive",
-        "sortOrder",
-        "iconColor",
-        "icon",
-        "logo",
-        "worktreesEnabled",
-    ] {
-        assert!(
-            home.get(key).is_some(),
-            "projects.list is missing {key}: {home}"
-        );
-    }
-    assert_eq!(
-        home["worktreesEnabled"], false,
-        "the home project has no worktrees"
-    );
-    let agents = script_call(&view, cx, "lister", 1, "agents.list", json!({}));
-    assert_eq!(agents["value"], json!([]));
-    let rename = script_call(
-        &view,
-        cx,
-        "lister",
-        1,
-        "projects.rename",
-        json!({"identifier": "home", "name": "Other"}),
-    );
-    assert_eq!(rename["error"], "permission denied (projects:write)");
 }

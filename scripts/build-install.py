@@ -107,7 +107,7 @@ def package_app(directory, binaries, version, identity):
     (contents / "Info.plist").write_bytes(plistlib.dumps(info))
     (contents / "PkgInfo").write_bytes(b"APPL????")
     (resources / "LICENSE").write_bytes(b"\n".join((ROOT / path).read_bytes() for path in (
-        "LICENSE", "crates/muxy-server/src/detection/THIRD_PARTY.md",
+        "LICENSE", "NOTICE", "crates/muxy-server/src/detection/THIRD_PARTY.md",
         "crates/muxy-server/src/detection/LICENSE-herdr",
     )))
     iconset = directory / "AppIcon.iconset"

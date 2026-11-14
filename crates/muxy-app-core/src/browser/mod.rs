@@ -205,7 +205,8 @@ fn encode_query(query: &str) -> String {
 
 impl AppState {
     /// Opens a browser tab in `project`. With `select`, the window shows it;
-    /// otherwise it waits there without moving the user's view.
+    /// otherwise it waits there without moving the user's view, and becomes
+    /// the project's selected tab only if the project had none.
     pub fn open_browser(
         &mut self,
         project: ProjectId,
@@ -221,6 +222,10 @@ impl AppState {
             self.select_project(project)?;
             self.select_tab(project, id)?;
         } else {
+            self.window.selected_tab.entry(project).or_insert(id);
+            if self.window.current_project == project && self.window.active_pane.is_none() {
+                self.focus_selected_tab();
+            }
             self.sync_groups(project);
         }
         Ok((id, pane))
@@ -234,10 +239,14 @@ impl AppState {
         focus: bool,
     ) -> Result<PaneId, AppError> {
         let tab = self.pane_tab_mut(pane)?;
+        if tab.floating() {
+            return Err(crate::tab_windows::only_terminals_float());
+        }
         let new = Pane {
             id: PaneId::new(),
             title: "New Tab".into(),
             content: PaneContent::Browser(browser),
+            proxy: false,
         };
         tab.layout.split(pane, new.id, Direction::Right);
         let id = new.id;
@@ -249,29 +258,11 @@ impl AppState {
         Ok(id)
     }
 
-    /// The project whose tab holds `pane`.
-    pub fn pane_project(&self, pane: PaneId) -> Option<ProjectId> {
-        self.projects()
-            .iter()
-            .find(|project| {
-                project
-                    .tabs
-                    .iter()
-                    .any(|tab| tab.panes.iter().any(|candidate| candidate.id == pane))
-            })
-            .map(|project| project.id)
-    }
-
     pub fn browser(&self, pane: PaneId) -> Option<&BrowserPane> {
-        self.projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .find(|candidate| candidate.id == pane)
-            .and_then(|pane| match &pane.content {
-                PaneContent::Browser(browser) => Some(browser),
-                _ => None,
-            })
+        self.pane(pane).and_then(|pane| match &pane.content {
+            PaneContent::Browser(browser) => Some(browser),
+            _ => None,
+        })
     }
 
     /// The browser pane `id` names: that pane, or the one a tab of that ID
@@ -398,22 +389,5 @@ mod tests {
         assert!(!engine_loads("file:///etc/passwd"));
         assert!(!engine_loads("mailto:me@example.com"));
         assert!(!engine_loads("javascript:alert(1)"));
-    }
-
-    #[test]
-    fn titles_fall_back_to_the_host() {
-        assert_eq!(display_title(" Docs ", None), Some("Docs"));
-        assert_eq!(
-            display_title("", Some("https://user@docs.rs:443/x")),
-            Some("docs.rs")
-        );
-        assert_eq!(display_title("", Some(BLANK)), None);
-    }
-
-    #[test]
-    fn zoom_steps_are_clamped() {
-        assert!((zoom_in(1.0) - 1.1).abs() < f64::EPSILON);
-        assert!((zoom_in(2.9) - MAX_ZOOM).abs() < f64::EPSILON);
-        assert!((zoom_out(0.52) - MIN_ZOOM).abs() < f64::EPSILON);
     }
 }

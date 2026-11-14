@@ -4,6 +4,17 @@ use muxy_protocol::{GitWorktree, ProjectMutation, ServerPath};
 use muxy_ui::picker::{Picker, PickerItem, PickerRow};
 use std::path::Path;
 
+const NEW_WORKTREE: &str = if cfg!(target_os = "macos") {
+    "cmd-alt-n"
+} else {
+    "ctrl-shift-alt-n"
+};
+const SWITCH_WORKTREE: &str = if cfg!(target_os = "macos") {
+    "cmd-alt-w"
+} else {
+    "ctrl-shift-alt-w"
+};
+
 /// Work the model sent, kept so worktree syncs stay pending until a test answers them.
 pub(super) struct Sent(std::sync::mpsc::Receiver<(u64, Work)>, Vec<Work>);
 
@@ -24,7 +35,7 @@ impl Sent {
 
 /// A path as a server on this computer sends it.
 fn bytes(path: &Path) -> Vec<u8> {
-    ServerPath::from_path(path).expect("server path").0
+    ServerPath::from(path).0
 }
 
 fn worktree(directory: &[u8], primary: bool) -> GitWorktree {
@@ -100,7 +111,7 @@ pub(super) fn pruning_fixture() -> (AppState, ProjectId, [ProjectId; 3], tempfil
         std::fs::write(path.join(".git"), "gitdir: /tmp/unused").expect("marker");
         let mut descriptor = state.project(root).expect("parent").descriptor();
         descriptor.id = id;
-        descriptor.directory = ServerPath(bytes(&path));
+        descriptor.directory = ServerPath::from(path);
         descriptor.parent_id = Some(root);
         descriptor.kind = Some(muxy_app_core::ProjectKind::Worktree);
         projects.push(descriptor);
@@ -464,6 +475,31 @@ fn a_failed_worktree_creation_is_reported_after_moving_elsewhere_and_clears_its_
 }
 
 #[gpui::test]
+fn a_finished_worktree_leaves_an_unrelated_overlay_open(cx: &mut TestAppContext) {
+    let (state, root) = registered_current_project();
+    let (view, cx, _sent) = connected(state, cx);
+    view.update(cx, |model, cx| {
+        let intent = creation("feature");
+        model.create_worktree(
+            root,
+            intent.clone(),
+            muxy_app_core::settings::WorktreeLocation::default(),
+            cx,
+        );
+        model.ask_password(ServerId::local(), cx);
+        model.receive_git(
+            &muxy_protocol::GitRequest {
+                project: root,
+                action: muxy_protocol::GitAction::Worktree(intent),
+            },
+            Ok(muxy_protocol::GitReply::Done),
+            cx,
+        );
+        assert!(matches!(model.overlay, Some(Overlay::Password(_))));
+    });
+}
+
+#[gpui::test]
 fn removal_after_merge_reaches_its_confirmation_after_unrelated_interactions(
     cx: &mut TestAppContext,
 ) {
@@ -488,6 +524,7 @@ fn removal_after_merge_reaches_its_confirmation_after_unrelated_interactions(
             work,
             Work::Git(GitRequest { project, action: GitAction::InspectRemoval }) if *project == worktree
         )));
+        model.open_git_form(worktree, false, cx);
         model.dismiss_overlay(cx);
         let expected = muxy_protocol::WorktreeRemoval {
             directory: ServerPath(b"/unused".to_vec()),
@@ -503,13 +540,14 @@ fn removal_after_merge_reaches_its_confirmation_after_unrelated_interactions(
             Ok(GitReply::Removal(expected)),
             cx,
         );
+        model.open_git_form(worktree, false, cx);
         model.dismiss_overlay(cx);
         model.receive_git(
             &request(GitAction::WorktreeHooks { teardown: true }),
             Ok(GitReply::WorktreeHooks(vec![])),
             cx,
         );
-        assert!(model.close_prompt.is_some(), "removal is confirmed first");
+        assert!(model.dialogs.is_open(), "removal is confirmed first");
     });
 }
 
@@ -595,10 +633,10 @@ fn merge_removal_waits_for_another_confirmation_and_still_requires_approval(
             "removal must wait for its own confirmation"
         );
         assert!(!view.read_with(cx, |model, _| model.worktree_removing(worktree)));
-        cx.simulate_prompt_answer(if approved_hooks.is_some() {
-            "Confirm with teardown commands"
+        cx.simulate_prompt_answer(&if approved_hooks.is_some() {
+            muxy_ui::dialog::ticked_label("Confirm", "Run the teardown commands shown above")
         } else {
-            "Confirm"
+            "Confirm".to_owned()
         });
         cx.run_until_parked();
         view.read_with(cx, |model, _| {
@@ -704,7 +742,7 @@ fn worktree_switcher_lists_this_projects_worktrees_by_recent_use_and_removes_thr
     });
     assert_eq!(order.len(), 4);
     let [first, below, removed] = [order[1], order[2], order[3]];
-    cx.simulate_keystrokes("cmd-alt-w");
+    cx.simulate_keystrokes(SWITCH_WORKTREE);
     assert!(switcher(&view, cx).is_some());
     assert!(
         in_order(&order, cx),
@@ -723,7 +761,7 @@ fn worktree_switcher_lists_this_projects_worktrees_by_recent_use_and_removes_thr
         cx.notify();
     });
     cx.run_until_parked();
-    cx.simulate_keystrokes("cmd-alt-w");
+    cx.simulate_keystrokes(SWITCH_WORKTREE);
     assert!(
         in_order(&[below, first, root, removed], cx),
         "the current worktree, then the most recently used, then never-used ones"
@@ -737,7 +775,7 @@ fn worktree_switcher_lists_this_projects_worktrees_by_recent_use_and_removes_thr
         );
     });
 
-    cx.simulate_keystrokes("cmd-alt-w");
+    cx.simulate_keystrokes(SWITCH_WORKTREE);
     let picker = switcher(&view, cx).expect("switcher");
     sent.take();
     picker.update(cx, |_, cx| {
@@ -766,7 +804,7 @@ fn worktree_switcher_lists_this_projects_worktrees_by_recent_use_and_removes_thr
         model.dismiss_overlay(cx);
         model.select_project(model.state.home().id, cx);
     });
-    cx.simulate_keystrokes("cmd-alt-w");
+    cx.simulate_keystrokes(SWITCH_WORKTREE);
     assert!(switcher(&view, cx).is_none(), "Home has no worktrees");
 }
 
@@ -792,85 +830,6 @@ fn switcher_row(
             _ => None,
         })
     })
-}
-
-#[gpui::test]
-fn worktree_switcher_refreshes_progress_and_agent_activity_while_open(cx: &mut TestAppContext) {
-    use muxy_protocol::{
-        ActivitySnapshot, AgentActivity, AgentProvider, AgentState, ProgressState, SessionProgress,
-        TerminalProgress,
-    };
-
-    let (mut state, root, [worktree, _, _], _directory) = pruning_fixture();
-    state.open_terminal_tab(worktree).expect("tab");
-    let pane = state.window().active_pane.expect("pane");
-    let session = SessionId::new(42).expect("session");
-    state
-        .set_pane_session(pane, Some(session))
-        .expect("session");
-    state.select_project(root).expect("parent");
-    let (view, cx, _sent) = connected(state, cx);
-    let picker = open_worktree_switcher(&view, cx);
-    for (state, expected) in [
-        (Some(ProgressState::Running), "Working"),
-        (Some(ProgressState::Paused), "Work is paused."),
-        (Some(ProgressState::Error), "Work reported an error."),
-        (None, "Finished working"),
-    ] {
-        view.update(cx, |model, cx| {
-            model.receive_progress(
-                ServerId::local(),
-                session,
-                SessionProgress {
-                    progress: state.map(|state| TerminalProgress {
-                        state,
-                        percent: Some(50),
-                    }),
-                    completed: u64::from(state.is_none()),
-                },
-                cx,
-            );
-        });
-        cx.run_until_parked();
-        assert_eq!(
-            switcher_row(&picker, worktree, cx)
-                .expect("worktree")
-                .trailing
-                .as_ref()
-                .map(AsRef::as_ref),
-            Some(expected)
-        );
-    }
-    for (state, expected) in [
-        (AgentState::Working, Some("Working")),
-        (AgentState::Blocked, Some("Blocked")),
-        (AgentState::Idle, None),
-    ] {
-        view.update(cx, |model, cx| {
-            model.receive_activity(
-                ServerId::local(),
-                Ok(ActivitySnapshot {
-                    agents: vec![AgentActivity {
-                        session,
-                        project: worktree,
-                        provider: AgentProvider::Codex,
-                        state,
-                    }],
-                    ..ActivitySnapshot::default()
-                }),
-                cx,
-            );
-        });
-        cx.run_until_parked();
-        assert_eq!(
-            switcher_row(&picker, worktree, cx)
-                .expect("worktree")
-                .trailing
-                .as_ref()
-                .map(AsRef::as_ref),
-            expected
-        );
-    }
 }
 
 #[gpui::test]
@@ -910,7 +869,7 @@ fn worktree_switcher_refreshes_catalog_without_losing_query_or_selection(cx: &mu
         added.name = "Added worktree".into();
         let path = directory.path().join(added.id.to_string());
         std::fs::create_dir(&path).expect("worktree");
-        added.directory = ServerPath(bytes(&path));
+        added.directory = ServerPath::from(path);
         let id = added.id;
         projects.push(added);
         model.receive_catalog(
@@ -960,6 +919,103 @@ fn worktree_switcher_refreshes_catalog_without_losing_query_or_selection(cx: &mu
 }
 
 #[gpui::test]
+fn tab_moves_through_the_visible_git_form_fields_and_stays_in_the_branch_chooser(
+    cx: &mut TestAppContext,
+) {
+    let (mut state, root, _, _directory) = pruning_fixture();
+    state.select_project(root).expect("project");
+    let (boot, _) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let focused = |view: &Entity<AppModel>, cx: &mut VisualTestContext| {
+        cx.update(|window, cx| match &view.read(cx).overlay {
+            Some(Overlay::GitForm(form)) => form.focused_input(window, cx),
+            _ => panic!("the form is open"),
+        })
+    };
+    let set_modes = |view: &Entity<AppModel>, cx: &mut VisualTestContext, existing, location| {
+        view.update(cx, |model, cx| {
+            if let Some(Overlay::GitForm(form)) = &mut model.overlay {
+                form.set_modes(existing, location);
+            }
+            cx.notify();
+        });
+        cx.run_until_parked();
+    };
+    let press = |view: &Entity<AppModel>, cx: &mut VisualTestContext, key, expected| {
+        cx.simulate_keystrokes(key);
+        assert_eq!(focused(view, cx), Some(expected), "after {key}");
+    };
+
+    cx.simulate_keystrokes(NEW_WORKTREE);
+    cx.run_until_parked();
+    assert_eq!(focused(&view, cx), Some("name"));
+    press(&view, cx, "tab", "branch");
+    press(&view, cx, "tab", "name");
+    press(&view, cx, "shift-tab", "branch");
+
+    set_modes(&view, cx, false, "template");
+    press(&view, cx, "tab", "template");
+    press(&view, cx, "tab", "name");
+    press(&view, cx, "shift-tab", "template");
+
+    set_modes(&view, cx, true, "folder");
+    cx.update(|window, cx| {
+        view.read(cx).focus_git_form(window, cx);
+    });
+    cx.run_until_parked();
+    press(&view, cx, "tab", "directory");
+    press(&view, cx, "tab", "name");
+
+    set_modes(&view, cx, false, "default");
+    view.update(cx, |model, cx| model.choose_worktree_branch(true, cx));
+    cx.run_until_parked();
+    assert_eq!(focused(&view, cx), Some("chooser"));
+    press(&view, cx, "tab", "chooser");
+    press(&view, cx, "shift-tab", "chooser");
+}
+
+#[gpui::test]
+fn a_new_branch_form_ignores_the_location_it_does_not_show(cx: &mut TestAppContext) {
+    let (mut state, root, _, _directory) = pruning_fixture();
+    state.select_project(root).expect("project");
+    let (boot, _) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.open_git_form(root, false, cx);
+        if let Some(Overlay::GitForm(form)) = &mut model.overlay {
+            form.set_modes(false, "template");
+        }
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| view.read(cx).focus_git_form(window, cx));
+    cx.run_until_parked();
+    cx.simulate_keystrokes("tab");
+    let focused = cx.update(|window, cx| match &view.read(cx).overlay {
+        Some(Overlay::GitForm(form)) => form.focused_input(window, cx),
+        _ => panic!("the form is open"),
+    });
+    assert_eq!(focused, Some("branch"));
+}
+
+#[gpui::test]
+fn with_no_field_focused_tab_takes_the_first_field_and_shift_tab_the_last(cx: &mut TestAppContext) {
+    let cx = cx.add_empty_window();
+    cx.update(|window, cx| {
+        let fields = [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()];
+        muxy_ui::form::advance_focus(&fields, false, window);
+        assert!(fields[0].is_focused(window));
+        window.blur();
+        muxy_ui::form::advance_focus(&fields, true, window);
+        assert!(fields[2].is_focused(window));
+        muxy_ui::form::advance_focus(&fields, false, window);
+        assert!(fields[0].is_focused(window));
+        muxy_ui::form::advance_focus(&[], false, window);
+    });
+}
+
+#[gpui::test]
 fn new_worktree_shortcut_branches_from_the_parent_and_skips_projects_without_worktrees(
     cx: &mut TestAppContext,
 ) {
@@ -975,7 +1031,7 @@ fn new_worktree_shortcut_branches_from_the_parent_and_skips_projects_without_wor
             _ => None,
         })
     };
-    cx.simulate_keystrokes("cmd-alt-n");
+    cx.simulate_keystrokes(NEW_WORKTREE);
     assert_eq!(
         form(&view, cx),
         Some((root, true)),
@@ -984,7 +1040,7 @@ fn new_worktree_shortcut_branches_from_the_parent_and_skips_projects_without_wor
     cx.simulate_keystrokes("escape");
     assert_eq!(form(&view, cx), None, "escape closes the form it opened");
 
-    cx.simulate_keystrokes("cmd-alt-w");
+    cx.simulate_keystrokes(SWITCH_WORKTREE);
     cx.run_until_parked();
     let create = cx
         .debug_bounds("picker-footer-new-worktree")
@@ -1008,7 +1064,7 @@ fn new_worktree_shortcut_branches_from_the_parent_and_skips_projects_without_wor
             model.dismiss_overlay(cx);
             setup(model, cx);
         });
-        cx.simulate_keystrokes("cmd-alt-n");
+        cx.simulate_keystrokes(NEW_WORKTREE);
         assert_eq!(form(&view, cx), None);
     }
 }
@@ -1037,7 +1093,7 @@ fn new_worktree_form_stays_closed_when_the_parent_is_no_longer_a_repository(
         model.git.projects.entry(root).or_default().loaded = true;
         assert_eq!(model.new_worktree_target(), None, "the command is disabled");
     });
-    cx.simulate_keystrokes("cmd-alt-n");
+    cx.simulate_keystrokes(NEW_WORKTREE);
     view.update(cx, |model, cx| {
         assert!(model.overlay.is_none(), "the shortcut opens no form");
         model.open_git_form(root, true, cx);

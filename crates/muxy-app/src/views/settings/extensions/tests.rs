@@ -1,0 +1,747 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::sync::Mutex;
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::Duration;
+
+use gpui::{AppContext, Entity, TestAppContext, VisualTestContext};
+use muxy_app_core::AppState;
+use muxy_app_core::extensions::Extension;
+use muxy_ui::text_input::{InputStyle, TextInput};
+
+use super::cards::{self, Entry};
+use super::detail::Section;
+use super::{AgentTask, ExtensionsView, Mutation, Tab, permissions_note};
+use crate::extensions::marketplace::{About, ExtensionDetails, MarketplaceItem, Sort};
+use crate::model::extensions::{ActiveInstall, FinishedInstall};
+use crate::model::{AppModel, tests::stub_boot};
+use crate::views::overlays::Overlay;
+use muxy_app_core::settings::ExtensionsLayout;
+
+fn write_package(root: &Path, name: &str, version: &str, permissions: &[&str]) {
+    std::fs::create_dir_all(root).unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        serde_json::json!({
+            "name": name,
+            "version": version,
+            "muxy": {"permissions": permissions},
+        })
+        .to_string(),
+    )
+    .unwrap();
+}
+
+fn stage_package(
+    extension: &Extension,
+    directory: &Path,
+    permissions: &[&str],
+) -> Result<tempfile::TempDir, String> {
+    std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    let stage = tempfile::Builder::new()
+        .prefix(".install-")
+        .tempdir_in(directory)
+        .map_err(|error| error.to_string())?;
+    write_package(
+        &stage.path().join("package"),
+        &extension.name,
+        "2.0.0",
+        permissions,
+    );
+    Ok(stage)
+}
+
+fn newer_versions(names: &[String]) -> BTreeMap<String, String> {
+    names
+        .iter()
+        .map(|name| (name.clone(), "2.0.0".to_owned()))
+        .collect()
+}
+
+fn pump_until(cx: &mut VisualTestContext, mut done: impl FnMut(&mut VisualTestContext) -> bool) {
+    for _ in 0..2000 {
+        cx.run_until_parked();
+        if done(cx) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("the extension job did not finish");
+}
+
+fn open_model<'a>(
+    names: &[&str],
+    cx: &'a mut TestAppContext,
+) -> (Entity<AppModel>, &'a mut VisualTestContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (model, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    let directory = model.read_with(cx, |model, _| model.extensions.registry.directory());
+    for name in names {
+        write_package(&directory.join(name), name, "1.0.0", &[]);
+    }
+    model.update(cx, AppModel::refresh_installed_extensions);
+    let count = names.len();
+    pump_until(cx, |cx| {
+        model.read_with(cx, |model, _| model.extensions.registry.extensions.len()) == count
+    });
+    (model, cx)
+}
+
+fn open_view(model: &Entity<AppModel>, cx: &mut VisualTestContext) -> Entity<ExtensionsView> {
+    let view = model.update(cx, |model, cx| {
+        let weak = cx.weak_entity();
+        let theme = model.theme.clone();
+        cx.new(|cx| ExtensionsView::new(weak, theme, muxy_ui::theme::Metrics::new(1.15), cx))
+    });
+    cx.run_until_parked();
+    view
+}
+
+fn finished(model: &Entity<AppModel>, cx: &mut VisualTestContext) {
+    pump_until(cx, |cx| {
+        model.read_with(cx, |model, _| model.extensions.installs.active.is_none())
+    });
+}
+
+fn installed_version(model: &Entity<AppModel>, name: &str, cx: &VisualTestContext) -> String {
+    model.read_with(cx, |model, _| {
+        model.extensions.registry.extensions[name].version.clone()
+    })
+}
+
+/// An Update All whose first download waits until the sender is used.
+fn start_held_update_all(model: &Entity<AppModel>, cx: &mut VisualTestContext) -> Sender<()> {
+    let (release, held): (Sender<()>, Receiver<()>) = channel();
+    let held = Mutex::new(held);
+    let started = model.update(cx, |model, cx| {
+        model.update_all_extensions_with(
+            |names| Ok(newer_versions(names)),
+            move |extension, directory| {
+                let _ = held.lock().unwrap().recv();
+                stage_package(extension, directory, &[])
+            },
+            cx,
+        )
+    });
+    assert!(started);
+    pump_until(cx, |cx| {
+        model.read_with(cx, |model, _| {
+            model
+                .extensions
+                .installs
+                .status
+                .as_deref()
+                .is_some_and(|status| status.starts_with("Updating"))
+        })
+    });
+    release
+}
+
+#[gpui::test]
+fn update_all_finishes_without_a_view(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let started = model.update(cx, |model, cx| {
+        model.update_all_extensions_with(
+            |names| Ok(newer_versions(names)),
+            |extension, directory| stage_package(extension, directory, &[]),
+            cx,
+        )
+    });
+    assert!(started);
+    finished(&model, cx);
+    assert_eq!(installed_version(&model, "reader", cx), "2.0.0");
+    model.read_with(cx, |model, _| {
+        assert_eq!(
+            model.extensions.installs.finished,
+            Some(FinishedInstall {
+                job: ActiveInstall::UpdateAll,
+                status: Some("Updated 1 extension.".into()),
+                error: None,
+            })
+        );
+    });
+}
+
+#[gpui::test]
+fn views_show_a_running_job_and_its_result_once(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let release = start_held_update_all(&model, cx);
+
+    let during = open_view(&model, cx);
+    during.read_with(cx, |view, cx| {
+        assert!(view.busy(cx));
+        assert_eq!(
+            view.button_label(Mutation::UpdateAll.button(), "Update all", cx),
+            "Updating…"
+        );
+        assert_eq!(
+            view.status_note(cx).as_deref(),
+            Some("Updating reader (1 of 1)…")
+        );
+    });
+    during.update(cx, |view, cx| {
+        let revision = view.revision;
+        view.fetch(true, cx);
+        assert_eq!(view.revision, revision);
+    });
+    drop(during);
+    cx.run_until_parked();
+
+    release.send(()).unwrap();
+    finished(&model, cx);
+
+    let after = open_view(&model, cx);
+    after.read_with(cx, |view, cx| {
+        assert!(!view.busy(cx));
+        assert_eq!(view.install_status.as_deref(), Some("Updated 1 extension."));
+        assert_eq!(view.error, None);
+        assert_eq!(view.selected.as_ref().map(|details| &details.name), None);
+    });
+    drop(after);
+    cx.run_until_parked();
+
+    let third = open_view(&model, cx);
+    third.read_with(cx, |view, _| assert_eq!(view.install_status, None));
+}
+
+#[gpui::test]
+fn a_second_start_does_nothing_while_a_job_runs(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let release = start_held_update_all(&model, cx);
+    let (status, second) = model.update(cx, |model, cx| {
+        let second = model.update_all_extensions_with(
+            |_| Err("a second job ran".to_owned()),
+            |_, _| Err("a second job ran".to_owned()),
+            cx,
+        );
+        (model.extensions.installs.status.clone(), second)
+    });
+    assert!(!second);
+    assert_eq!(status.as_deref(), Some("Updating reader (1 of 1)…"));
+    release.send(()).unwrap();
+    finished(&model, cx);
+    model.read_with(cx, |model, _| {
+        let result = model.extensions.installs.finished.as_ref().unwrap();
+        assert_eq!(result.error, None);
+    });
+    assert_eq!(installed_version(&model, "reader", cx), "2.0.0");
+}
+
+#[gpui::test]
+fn a_failed_download_reports_that_extension_and_others_update(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["broken", "reader"], cx);
+    model.update(cx, |model, cx| {
+        model.update_all_extensions_with(
+            |names| Ok(newer_versions(names)),
+            |extension, directory| {
+                if extension.name == "broken" {
+                    return Err("offline".to_owned());
+                }
+                stage_package(extension, directory, &[])
+            },
+            cx,
+        )
+    });
+    finished(&model, cx);
+    assert_eq!(installed_version(&model, "broken", cx), "1.0.0");
+    assert_eq!(installed_version(&model, "reader", cx), "2.0.0");
+    let view = open_view(&model, cx);
+    view.read_with(cx, |view, _| {
+        assert_eq!(view.error.as_deref(), Some("broken: offline"));
+        assert_eq!(view.install_status.as_deref(), Some("Updated 1 extension."));
+    });
+}
+
+#[gpui::test]
+fn the_check_for_versions_failing_reports_only_the_error(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    model.update(cx, |model, cx| {
+        model.update_all_extensions_with(
+            |_| Err("offline".to_owned()),
+            |_, _| Err("no download expected".to_owned()),
+            cx,
+        )
+    });
+    finished(&model, cx);
+    let view = open_view(&model, cx);
+    view.read_with(cx, |view, _| {
+        assert_eq!(view.error.as_deref(), Some("offline"));
+        assert_eq!(view.install_status, None);
+    });
+}
+
+#[gpui::test]
+fn an_update_adding_permissions_stays_disabled(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    model.update(cx, |model, cx| {
+        model.set_extension_enabled("reader", true, cx).detach();
+    });
+    pump_until(cx, |cx| {
+        model.read_with(cx, |model, _| {
+            model.extensions.registry.enabled("reader").is_some()
+        })
+    });
+    model.update(cx, |model, cx| {
+        model.update_all_extensions_with(
+            |names| Ok(newer_versions(names)),
+            |extension, directory| stage_package(extension, directory, &["files:read"]),
+            cx,
+        )
+    });
+    finished(&model, cx);
+    model.read_with(cx, |model, _| {
+        assert!(model.extensions.registry.enabled("reader").is_none());
+        assert_eq!(
+            model
+                .extensions
+                .installs
+                .finished
+                .as_ref()
+                .and_then(|finished| finished.status.as_deref()),
+            Some("Updated 1 extension. Review permissions and enable when ready: reader.")
+        );
+    });
+}
+
+#[gpui::test]
+fn only_the_view_that_started_a_job_opens_the_extension(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let finish = |model: &Entity<AppModel>, cx: &mut VisualTestContext| {
+        model.update(cx, |model, cx| {
+            model.extensions.installs.finished = Some(FinishedInstall {
+                job: ActiveInstall::Install {
+                    name: "reader".into(),
+                },
+                status: Some("Installed reader.".into()),
+                error: None,
+            });
+            cx.notify();
+        });
+        cx.run_until_parked();
+    };
+
+    let later = open_view(&model, cx);
+    finish(&model, cx);
+    later.read_with(cx, |view, _| {
+        assert!(view.selected.is_none());
+        assert_eq!(view.install_status.as_deref(), Some("Installed reader."));
+    });
+    drop(later);
+    cx.run_until_parked();
+
+    let starter = open_view(&model, cx);
+    starter.update(cx, |view, _| {
+        view.tab = Tab::Marketplace;
+        view.started_install = true;
+    });
+    finish(&model, cx);
+    starter.read_with(cx, |view, _| {
+        assert!(view.tab == Tab::Installed);
+        assert_eq!(
+            view.selected.as_ref().map(|details| details.name.as_str()),
+            Some("reader")
+        );
+        assert_eq!(view.install_status, None);
+        assert!(!view.started_install);
+    });
+}
+
+#[gpui::test]
+fn a_load_can_be_replaced_while_it_runs(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&[], cx);
+    let view = open_view(&model, cx);
+    view.update(cx, |view, cx| {
+        view.tab = Tab::Marketplace;
+        view.fetch(true, cx);
+        let revision = view.revision;
+        view.fetch(true, cx);
+        assert_eq!(view.revision, revision + 1);
+        view.switch_tab(Tab::Installed, cx);
+        assert!(view.tab == Tab::Installed);
+        assert_eq!(view.loading, None);
+    });
+}
+
+#[test]
+fn unknown_permissions_are_not_described_as_none() {
+    let note = |permissions: Option<&BTreeSet<String>>| {
+        permissions_note(permissions).map(|note| note.to_string())
+    };
+    assert_eq!(
+        note(None).as_deref(),
+        Some("The marketplace did not list this extension's permissions.")
+    );
+    assert_eq!(
+        note(Some(&BTreeSet::new())).as_deref(),
+        Some("No permissions requested.")
+    );
+    assert_eq!(note(Some(&BTreeSet::from(["files:read".to_owned()]))), None);
+}
+
+#[gpui::test]
+fn a_live_size_change_restyles_every_extension_field(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&[], cx);
+    let view = open_view(&model, cx);
+    let theme = model.read_with(cx, |model, _| model.theme.clone());
+    let metrics = muxy_ui::theme::Metrics::new(2.0);
+    let input = view.update(cx, |view, cx| {
+        let style = InputStyle::field(&view.theme, &view.metrics);
+        let input = cx.new(|cx| TextInput::new(style, cx));
+        view.setting_inputs
+            .insert(("sample".into(), "field".into()), input.clone());
+        view.sync_appearance(theme.clone(), metrics, cx);
+        input
+    });
+    let expected = InputStyle::field(&theme, &metrics);
+    assert_eq!(input.read_with(cx, |input, _| input.style()), expected);
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.search.read(cx).style()),
+        expected
+    );
+}
+
+#[gpui::test]
+fn rows_offer_an_agent_for_their_kind_of_extension(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let source = tempfile::tempdir().unwrap();
+    write_package(source.path(), "mine", "0.1.0", &[]);
+    let task = model.update(cx, |model, cx| {
+        model.load_unpacked_extension(source.path().to_owned(), cx)
+    });
+    cx.background_executor.allow_parking();
+    pump_until(cx, |cx| {
+        model.read_with(cx, |model, _| {
+            model.extensions.registry.extensions.contains_key("mine")
+        })
+    });
+    drop(task);
+    let view = open_view(&model, cx);
+    let folder = source.path().canonicalize().unwrap();
+    view.update(cx, |view, cx| {
+        view.agent_task(
+            AgentTask::Edit {
+                name: "mine".into(),
+                folder: folder.clone(),
+            },
+            cx,
+        );
+    });
+    model.read_with(cx, |model, _| {
+        assert!(matches!(
+            &model.overlay,
+            Some(Overlay::ExtensionAgent(picker)) if picker.task == AgentTask::Edit {
+                name: "mine".into(),
+                folder: folder.clone(),
+            }
+        ));
+    });
+    let installed = |name: &str, cx: &mut VisualTestContext| {
+        model.read_with(cx, |model, _| {
+            model.extensions.registry.extensions[name].clone()
+        })
+    };
+    let mine = installed("mine", cx);
+    let reader = installed("reader", cx);
+    view.update(cx, |view, cx| {
+        assert_eq!(
+            view.agent_action(&mine, true, cx).map(|(_, task)| task),
+            Some(AgentTask::Edit {
+                name: "mine".into(),
+                folder: folder.clone(),
+            }),
+            "unpacked extensions are edited in their own folder"
+        );
+        assert_eq!(
+            view.agent_action(&reader, false, cx).map(|(_, task)| task),
+            Some(AgentTask::Clone {
+                name: "reader".into(),
+                installed: reader.directory.clone(),
+            }),
+            "marketplace extensions are cloned"
+        );
+        assert!(view.agent_button("row", &mine, true, cx).is_some());
+    });
+}
+
+#[gpui::test]
+fn publishing_a_marketplace_extension_is_refused(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let task = model.update(cx, |model, cx| model.publish_extension("reader", cx));
+    let result = cx.background_executor.block_test(task);
+    assert!(matches!(
+        result,
+        Err(crate::extensions::publish::PublishFailure::Failed(reason)) if reason.contains("reader")
+    ));
+}
+
+#[gpui::test]
+fn always_allowing_needs_a_second_yes_and_can_be_stopped(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["runner"], cx);
+    let view = open_view(&model, cx);
+    cx.update(|_, cx| muxy_ui::dialog::simulate(cx));
+    let trusted = |cx: &mut VisualTestContext| {
+        model.read_with(cx, |model, _| model.extension_trusted("runner"))
+    };
+    view.update_in(cx, |view, window, cx| view.trust("runner", window, cx));
+    cx.run_until_parked();
+    cx.simulate_prompt_answer("Cancel");
+    cx.run_until_parked();
+    assert!(!trusted(cx));
+    view.update_in(cx, |view, window, cx| view.trust("runner", window, cx));
+    cx.run_until_parked();
+    cx.simulate_prompt_answer("Always Allow");
+    pump_until(cx, |cx| trusted(cx));
+    view.update(cx, |view, cx| view.set_trusted("runner", false, cx));
+    pump_until(cx, |cx| !trusted(cx));
+    let refused = model.update(cx, |model, cx| {
+        model.set_extension_trusted("gone", true, cx)
+    });
+    let result = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let saved = result.clone();
+    cx.spawn(async move |_| *saved.borrow_mut() = Some(refused.await))
+        .detach();
+    pump_until(cx, |_| result.borrow().is_some());
+    assert_eq!(
+        result.take(),
+        Some(Err("extension is not installed".to_owned()))
+    );
+    assert!(!model.read_with(cx, |model, _| model.extension_trusted("gone")));
+}
+
+fn badges(entries: &[Entry]) -> Vec<(String, Vec<String>)> {
+    entries
+        .iter()
+        .map(|entry| {
+            (
+                entry.name.clone(),
+                entry
+                    .badges
+                    .iter()
+                    .map(|(badge, _)| badge.to_string())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+fn listing(name: &str, official: bool) -> MarketplaceItem {
+    MarketplaceItem {
+        name: name.into(),
+        description: String::new(),
+        version: Some("2.0.0".into()),
+        about: About {
+            official,
+            ..About::default()
+        },
+    }
+}
+
+#[test]
+fn the_grid_fits_as_many_columns_as_the_page_allows() {
+    let (card, gap) = (gpui::px(220.0), gpui::px(12.0));
+    assert_eq!(cards::columns(gpui::px(0.0), card, gap), 2);
+    assert_eq!(cards::columns(gpui::px(300.0), card, gap), 1);
+    assert_eq!(cards::columns(gpui::px(452.0), card, gap), 2);
+    assert_eq!(cards::columns(gpui::px(700.0), card, gap), 3);
+    assert_eq!(cards::columns(gpui::px(4000.0), card, gap), 4);
+}
+
+#[test]
+fn download_counts_read_as_people_say_them() {
+    assert_eq!(cards::compact(457), "457");
+    assert_eq!(cards::compact(2539), "2.5K");
+    assert_eq!(cards::compact(2000), "2K");
+    assert_eq!(cards::compact(12_400), "12K");
+    assert_eq!(cards::compact(9_960), "10K");
+    assert_eq!(cards::compact(999_700), "1M");
+    assert_eq!(cards::compact(1_240_000), "1.2M");
+    assert_eq!(cards::grouped(5564), "5,564");
+    assert_eq!(cards::grouped(999), "999");
+    assert_eq!(cards::grouped(1_234_567), "1,234,567");
+}
+
+#[gpui::test]
+fn each_tab_remembers_its_own_layout(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let view = open_view(&model, cx);
+    view.update(cx, |view, cx| {
+        assert_eq!(view.layout(cx), ExtensionsLayout::List);
+        view.set_layout(ExtensionsLayout::Grid, cx);
+        assert_eq!(view.layout(cx), ExtensionsLayout::Grid);
+        view.tab = Tab::Marketplace;
+        assert_eq!(view.layout(cx), ExtensionsLayout::Grid);
+        view.set_layout(ExtensionsLayout::List, cx);
+    });
+    model.read_with(cx, |model, _| {
+        let saved = &model.settings.appearance;
+        assert_eq!(saved.extensions_installed_layout, ExtensionsLayout::Grid);
+        assert_eq!(saved.extensions_browse_layout, ExtensionsLayout::List);
+    });
+}
+
+#[gpui::test]
+fn categories_and_order_search_again(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&[], cx);
+    let view = open_view(&model, cx);
+    view.update(cx, |view, cx| {
+        view.browse_languages(cx);
+        assert!(view.tab == Tab::Marketplace);
+        assert_eq!(view.category, Some("localization"));
+        view.items = vec![listing("stale", false)];
+        view.loading = None;
+        view.set_category(Some("git"), cx);
+        assert_eq!(view.category, Some("git"));
+        assert!(view.items.is_empty(), "a new category starts a new list");
+        assert_eq!(view.loading, Some(super::Loading::Search));
+        view.items = vec![listing("stale", false)];
+        view.set_sort(Sort::Recent, cx);
+        assert_eq!(view.sort, Sort::Recent);
+        assert!(view.items.is_empty(), "a new order starts a new list");
+        let revision = view.revision;
+        view.set_sort(Sort::Recent, cx);
+        assert_eq!(
+            view.revision, revision,
+            "the same order doesn't search again"
+        );
+    });
+}
+
+#[gpui::test]
+fn browse_marks_what_is_installed_or_can_be_updated(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader", "writer"], cx);
+    model.update(cx, |model, _| {
+        model.offer_extension_update("writer", "2.0.0");
+    });
+    let view = open_view(&model, cx);
+    view.update(cx, |view, cx| {
+        view.items = vec![
+            listing("git", true),
+            listing("reader", false),
+            listing("writer", false),
+        ];
+        assert_eq!(
+            badges(&view.browse_entries(cx)),
+            [
+                ("git".to_owned(), vec!["Official".to_owned()]),
+                ("reader".to_owned(), vec!["Installed".to_owned()]),
+                ("writer".to_owned(), vec!["Update available".to_owned()]),
+            ]
+        );
+        let installed: Vec<_> = ["reader", "writer"]
+            .into_iter()
+            .map(|name| {
+                let model = view.model.upgrade().unwrap();
+                let extension = model.read(cx).extensions.registry.extensions[name].clone();
+                (extension, name == "reader", false)
+            })
+            .collect();
+        assert_eq!(
+            badges(&view.installed_entries(&installed, cx)),
+            [
+                ("reader".to_owned(), Vec::new()),
+                (
+                    "writer".to_owned(),
+                    vec!["Update available".to_owned(), "Disabled".to_owned()]
+                ),
+            ]
+        );
+    });
+}
+
+#[gpui::test]
+fn an_installed_page_links_to_every_section(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let view = open_view(&model, cx);
+    view.update(cx, |view, cx| {
+        let model = view.model.upgrade().unwrap();
+        let reader = model.read(cx).extensions.registry.extensions["reader"].clone();
+        let installed = vec![(reader.clone(), true, false)];
+        let sections = |view: &ExtensionsView, details: &ExtensionDetails, cx| {
+            view.detail_children(details, &installed, cx)
+                .into_iter()
+                .filter_map(|(section, _)| section)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            sections(view, &ExtensionDetails::from(&reader), cx),
+            [
+                Section::Overview,
+                Section::Updates,
+                Section::Permissions,
+                Section::Logs,
+                Section::Manage
+            ]
+        );
+        view.sections = vec![
+            (Section::Overview, 0),
+            (Section::Logs, 3),
+            (Section::Manage, 4),
+        ];
+        view.jumped = Some(Section::Logs);
+        assert_eq!(
+            view.current_section(),
+            Some(Section::Logs),
+            "a link's section stays current even when the page can't scroll it to the top"
+        );
+        view.jumped = Some(Section::Settings);
+        assert_eq!(view.current_section(), Some(Section::Overview));
+        let mut listed = ExtensionDetails::from(&reader);
+        listed.name = "elsewhere".into();
+        assert_eq!(
+            sections(view, &listed, cx),
+            [Section::Overview, Section::Permissions],
+            "an extension that isn't installed has nothing to manage"
+        );
+    });
+}
+
+#[gpui::test]
+fn opening_another_extension_starts_at_its_first_screenshot(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    let view = open_view(&model, cx);
+    view.update(cx, |view, cx| {
+        let model = view.model.upgrade().unwrap();
+        let reader = model.read(cx).extensions.registry.extensions["reader"].clone();
+        view.open_details(ExtensionDetails::from(&reader), cx);
+        view.screenshot = 2;
+        view.open_details(ExtensionDetails::from(&reader), cx);
+        assert_eq!(
+            view.screenshot, 2,
+            "refreshing the same page keeps its place"
+        );
+        let mut other = ExtensionDetails::from(&reader);
+        other.name = "other".into();
+        view.open_details(other, cx);
+        assert_eq!(view.screenshot, 0);
+    });
+}
+
+#[gpui::test]
+fn changing_the_layout_inside_the_settings_tab_saves_it(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(&["reader"], cx);
+    cx.update(|window, cx| {
+        model.update(cx, |model, cx| model.show_extensions_settings(window, cx));
+    });
+    cx.run_until_parked();
+    let view = model.read_with(cx, |model, cx| {
+        let settings = model.settings_tab.as_ref().expect("settings").view.read(cx);
+        settings.extensions.clone().expect("the extensions page")
+    });
+    view.update(cx, |view, cx| {
+        view.set_layout(ExtensionsLayout::Grid, cx);
+        assert_eq!(view.layout(cx), ExtensionsLayout::Grid);
+    });
+    cx.run_until_parked();
+    model.read_with(cx, |model, _| {
+        assert_eq!(
+            model.settings.appearance.extensions_installed_layout,
+            ExtensionsLayout::Grid
+        );
+    });
+}
+
+#[test]
+fn a_listing_shows_at_most_six_screenshots() {
+    let art = super::pictures::Art::marketplace("git", 40);
+    assert_eq!(art.screenshots.len(), super::pictures::MAX_SCREENSHOTS);
+}

@@ -11,11 +11,13 @@ use muxy_protocol::{ErrorCode, HistoryCursor, SearchMatch, SearchPage};
 use muxy_ui::components::IconButton;
 use muxy_ui::icon::Icon;
 use muxy_ui::l10n::tr_key;
+use muxy_ui::shortcuts::key_for;
 use muxy_ui::text_input::{InputEvent, InputStyle, SEARCH_CONTEXT, TextInput};
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
 
 use super::pane::{PaneEvent, PaneState, TerminalPane};
+use crate::views::workspace::{FindNext, FindPrevious};
 
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
 const REFRESH: Duration = Duration::from_millis(250);
@@ -217,18 +219,24 @@ impl TerminalPane {
         let input = cx.new(|cx| {
             TextInput::new(InputStyle::compact(theme, &metrics), cx)
                 .with_placeholder_key(tr_key!("Find in terminal…"))
+                .with_accessible_label(tr_key!("Find in terminal…"))
                 .with_key_context(SEARCH_CONTEXT)
         });
-        let subscription = cx.subscribe(&input, |pane, input, event, cx| match event {
-            InputEvent::Changed => {
-                if let Some(find) = &mut pane.find {
-                    input.read(cx).text().clone_into(&mut find.results.query);
-                }
-                pane.find_query_changed(cx);
-            }
-            InputEvent::Submitted => pane.step_find(false, cx),
-            InputEvent::Cancelled => pane.close_find(cx),
-        });
+        let subscription =
+            cx.subscribe_in(
+                &input,
+                window,
+                |pane, input, event, window, cx| match event {
+                    InputEvent::Changed => {
+                        if let Some(find) = &mut pane.find {
+                            input.read(cx).text().clone_into(&mut find.results.query);
+                        }
+                        pane.find_query_changed(cx);
+                    }
+                    InputEvent::Submitted => pane.step_find(false, cx),
+                    InputEvent::Cancelled => pane.close_find(window, cx),
+                },
+            );
         input.focus_handle(cx).focus(window);
         self.find = Some(Find {
             input,
@@ -244,18 +252,24 @@ impl TerminalPane {
         cx.notify();
     }
 
-    pub(crate) fn close_find(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.find = None;
         self.find_refresh = None;
-        self.find_focus_pending = true;
+        self.focus.focus(window);
         cx.notify();
     }
 
-    pub(crate) fn update_find_theme(&mut self, theme: &Theme, cx: &mut Context<Self>) {
+    pub(crate) fn update_find_appearance(
+        &mut self,
+        theme: &Theme,
+        metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(find) = &mut self.find {
             find.theme = theme.clone();
+            find.metrics = metrics;
             find.input.update(cx, |input, cx| {
-                input.set_style(InputStyle::compact(theme, &find.metrics), cx);
+                input.set_style(InputStyle::compact(theme, &metrics), cx);
             });
         }
     }
@@ -411,17 +425,21 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
     let button = |id: &'static str, icon, tooltip: gpui::SharedString| {
         IconButton::new(
             id,
+            tooltip,
             icon,
             metrics.icon_sm(),
             metrics.control_medium(),
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(tooltip, theme.surface, theme.fg, theme.border, theme.bg)
+        .tooltip(theme)
     };
     Some(
         div()
             .id("terminal-find")
+            .role(gpui::Role::Group)
+            .accessibility_id("terminal-find")
+            .aria_label(tr!("Find in Terminal"))
             .debug_selector(|| "terminal-find".into())
             .flex()
             .flex_none()
@@ -453,40 +471,58 @@ pub(crate) fn bar(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option
                     .truncate()
                     .text_size(metrics.font_caption())
                     .text_color(theme.fg_muted)
-                    .child(find.results.counter()),
+                    .child(muxy_ui::accessibility::label(
+                        "find-counter",
+                        find.results.counter(),
+                    )),
             )
             .child(
-                button("find-previous", Icon::ChevronLeft, tr!("Previous match"))
+                button("find-previous", Icon::ChevronUp, tr!("Previous match"))
+                    .shortcut(key_for(&FindPrevious, cx))
                     .on_click(cx.listener(|pane, _, _, cx| pane.step_find(true, cx))),
             )
             .child(
-                button("find-next", Icon::ChevronRight, tr!("Next match"))
+                button("find-next", Icon::ChevronDown, tr!("Next match"))
+                    .shortcut(key_for(&FindNext, cx))
                     .on_click(cx.listener(|pane, _, _, cx| pane.step_find(false, cx))),
             )
-            .child(
-                div()
-                    .id("find-ignore-case")
-                    .debug_selector(|| "find-ignore-case".into())
-                    .cursor_pointer()
-                    .px(metrics.spacing2())
-                    .text_size(metrics.font_body())
-                    .text_color(if find.results.ignore_case {
-                        theme.accent
-                    } else {
-                        theme.fg_muted
-                    })
-                    .on_click(cx.listener(|pane, _, _, cx| {
-                        if let Some(find) = &mut pane.find {
-                            find.results.ignore_case = !find.results.ignore_case;
-                        }
-                        pane.find_query_changed(cx);
-                    }))
-                    .child("Aa"),
-            )
+            .child(ignore_case_switch(find, cx))
             .child(
                 button("find-close", Icon::X, tr!("Close search"))
-                    .on_click(cx.listener(|pane, _, _, cx| pane.close_find(cx))),
+                    .shortcut(key_for(&super::pane::CloseFind, cx))
+                    .on_click(cx.listener(|pane, _, window, cx| pane.close_find(window, cx))),
             )
             .into_any_element(),
     )
+}
+
+fn ignore_case_switch(find: &Find, cx: &mut Context<TerminalPane>) -> impl IntoElement {
+    let theme = &find.theme;
+    let metrics = find.metrics;
+    div()
+        .id("find-ignore-case")
+        .role(gpui::Role::Switch)
+        .accessibility_id("find-ignore-case")
+        .aria_label(tr!("Ignore Case"))
+        .aria_toggled(if find.results.ignore_case {
+            gpui::Toggled::True
+        } else {
+            gpui::Toggled::False
+        })
+        .debug_selector(|| "find-ignore-case".into())
+        .cursor_pointer()
+        .px(metrics.spacing2())
+        .text_size(metrics.font_body())
+        .text_color(if find.results.ignore_case {
+            theme.accent
+        } else {
+            theme.fg_muted
+        })
+        .on_click(cx.listener(|pane, _, _, cx| {
+            if let Some(find) = &mut pane.find {
+                find.results.ignore_case = !find.results.ignore_case;
+            }
+            pane.find_query_changed(cx);
+        }))
+        .child("Aa")
 }

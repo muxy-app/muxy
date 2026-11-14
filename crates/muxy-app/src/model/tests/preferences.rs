@@ -1,21 +1,19 @@
 #![allow(clippy::float_cmp)]
 
-mod mobile;
-
 use super::*;
 use crate::model::banners::BannerKind;
-use crate::views::settings::Change;
+use crate::model::preferences::Change;
 
 fn settings_view(model: &AppModel) -> Entity<crate::views::settings::SettingsView> {
     model
-        .settings_window
+        .settings_tab
         .as_ref()
-        .expect("settings window")
+        .expect("settings tab")
         .view
         .clone()
 }
 
-pub(super) fn settings_window(
+pub(super) fn settings_tab(
     boot: Boot,
     cx: &mut TestAppContext,
 ) -> (Entity<AppModel>, &mut VisualTestContext) {
@@ -26,13 +24,8 @@ pub(super) fn settings_window(
     }
     let (model, main) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     main.update(|window, cx| model.update(cx, |model, cx| model.open_settings(window, cx)));
-    let handle = model.read_with(main, |model, _| {
-        model.settings_window.as_ref().expect("window").window
-    });
-    let settings = VisualTestContext::from_window(handle.into(), main).into_mut();
-    settings.update(|window, _| window.activate_window());
-    settings.run_until_parked();
-    (model, settings)
+    main.run_until_parked();
+    (model, main)
 }
 
 pub(super) fn click_preference(cx: &mut VisualTestContext, selector: &'static str) {
@@ -53,11 +46,272 @@ pub(super) fn click_preference(cx: &mut VisualTestContext, selector: &'static st
     cx.run_until_parked();
 }
 
+fn select_terminal(model: &Entity<AppModel>, cx: &mut VisualTestContext) {
+    model.update(cx, |model, cx| {
+        let tab = model
+            .state
+            .current_project()
+            .tabs
+            .iter()
+            .find(|tab| {
+                tab.panes
+                    .iter()
+                    .any(|pane| matches!(pane.content, PaneContent::Terminal { .. }))
+            })
+            .expect("terminal tab")
+            .id;
+        model.select_tab(tab, cx);
+    });
+    cx.run_until_parked();
+}
+
 #[gpui::test]
-fn settings_fields_save_on_blur_window_close_and_quit(cx: &mut TestAppContext) {
+fn settings_reuses_its_tab_without_opening_windows_or_stealing_focus(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("terminal");
+    let (boot, _) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (model, cx) = settings_tab(boot, cx);
+    let original = model.read_with(cx, |model, _| {
+        assert_eq!(model.state.home().tabs.len(), 2);
+        (model.active_tab().unwrap(), settings_view(model))
+    });
+    assert_eq!(cx.update(|_, cx| cx.windows().len()), 1);
+    click_preference(cx, "settings-field-width");
+    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-a 1 2 3 4"
+    } else {
+        "ctrl-a 1 2 3 4"
+    });
+    click_preference(cx, "tab-cell-0");
+    model.read_with(cx, |model, cx| {
+        assert_ne!(model.active_tab(), Some(original.0));
+        assert_eq!(model.settings.window.default_size[0], 1234.0);
+        assert_eq!(settings_view(model), original.1);
+        assert_eq!(model.grids.len(), 1);
+        assert!(
+            model
+                .state
+                .is_settings_pane(model.state.home().tabs[1].panes[0].id)
+        );
+        assert!(
+            model
+                .settings_tab
+                .as_ref()
+                .unwrap()
+                .root
+                .read(cx)
+                .overlay
+                .is_none()
+        );
+    });
+    cx.update(|window, cx| assert!(!original.1.read(cx).focus.contains_focused(window, cx)));
+    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-,"
+    } else {
+        "ctrl-,"
+    });
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("settings-view").is_some());
+    click_preference(cx, "settings-button");
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.active_tab(), Some(original.0));
+        assert_eq!(model.state.home().tabs.len(), 2);
+        assert_eq!(settings_view(model), original.1);
+    });
+    assert_eq!(cx.update(|_, cx| cx.windows().len()), 1);
+    cx.dispatch_action(crate::views::workspace::CloseTab);
+    cx.run_until_parked();
+    model.read_with(cx, |model, _| {
+        assert!(model.settings_tab.is_none());
+        assert_eq!(model.state.home().tabs.len(), 1);
+        assert_eq!(model.grids.len(), 1);
+    });
+}
+
+#[gpui::test]
+fn quick_terminal_settings_and_pickers_use_the_workspace_tab(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("terminal");
+    let (boot, _) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (model, cx) = settings_tab(boot, cx);
+    model.update(cx, AppModel::open_quick_terminal_settings);
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("settings-quick-record").is_some());
+    click_preference(cx, "settings-search");
+    cx.simulate_input("font family");
+    click_preference(cx, "settings-picker-font-family");
+    assert!(cx.debug_bounds("settings-dropdown").is_some());
+    model.read_with(cx, |model, cx| {
+        assert!(
+            model
+                .settings_tab
+                .as_ref()
+                .unwrap()
+                .root
+                .read(cx)
+                .overlay
+                .is_some()
+        );
+    });
+    select_terminal(&model, cx);
+    model.read_with(cx, |model, cx| {
+        assert!(
+            model
+                .settings_tab
+                .as_ref()
+                .unwrap()
+                .root
+                .read(cx)
+                .overlay
+                .is_none()
+        );
+    });
+    cx.update(|window, cx| model.update(cx, |model, cx| model.show_browser_settings(window, cx)));
+    cx.run_until_parked();
+    assert_eq!(cx.update(|_, cx| cx.windows().len()), 1);
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.state.home().tabs.len(), 2);
+        assert_eq!(
+            model.active_tab(),
+            model.state.settings_tab().map(|(_, tab)| tab)
+        );
+    });
+}
+
+#[gpui::test]
+fn restored_settings_tab_renders_and_accepts_shortcuts(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let tab = state
+        .show_settings_tab(state.home().id, "Settings")
+        .expect("settings");
+    let state = serde_json::from_value(serde_json::to_value(state).unwrap()).unwrap();
+    let (boot, _) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (model, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("settings-view").is_some());
+    model.read_with(cx, |model, _| assert_eq!(model.active_tab(), Some(tab)));
+    click_preference(cx, "settings-field-width");
+    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-f"
+    } else {
+        "ctrl-shift-f"
+    });
+    cx.simulate_input("font family");
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("settings-picker-font-family").is_some());
+}
+
+fn restored_settings_tab_with_keys(
+    cx: &mut TestAppContext,
+) -> (Entity<AppModel>, &mut VisualTestContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    state
+        .show_settings_tab(state.home().id, "Settings")
+        .expect("settings");
+    let state = serde_json::from_value(serde_json::to_value(state).unwrap()).unwrap();
+    let (boot, _) = stub_boot(state);
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (model, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    (model, cx)
+}
+
+fn settings_holds_focus(model: &Entity<AppModel>, cx: &mut VisualTestContext) -> bool {
+    let view = model.read_with(cx, |model, _| settings_view(model));
+    cx.update(|window, cx| view.read(cx).focus.contains_focused(window, cx))
+}
+
+#[gpui::test]
+fn tab_stays_inside_settings_in_both_directions(cx: &mut TestAppContext) {
+    let (model, cx) = restored_settings_tab_with_keys(cx);
+    assert!(cx.debug_bounds("settings-view").is_some());
+    let mut stops = Vec::new();
+    for key in ["tab", "shift-tab"] {
+        for press in 0..40 {
+            cx.simulate_keystrokes(key);
+            cx.run_until_parked();
+            assert!(
+                settings_holds_focus(&model, cx),
+                "{key} {press} left Settings"
+            );
+            stops.push(cx.update(|window, cx| window.focused(cx)));
+        }
+    }
+    assert!(
+        stops.iter().any(|stop| *stop != stops[0]),
+        "Tab should move between controls"
+    );
+}
+
+#[gpui::test]
+fn settings_takes_the_keyboard_back_when_the_focused_control_goes_away(cx: &mut TestAppContext) {
+    let (model, cx) = restored_settings_tab_with_keys(cx);
+    click_preference(cx, "settings-field-width");
+    let view = model.read_with(cx, |model, _| settings_view(model));
+    view.update(cx, crate::views::settings::SettingsView::show_browser);
+    cx.run_until_parked();
+    assert!(settings_holds_focus(&model, cx));
+}
+
+/// Presses the empty top bar. Says whether the window move reached the
+/// workspace: an action no window handler takes falls through to the app.
+fn press_top_bar_reaches_window_move(cx: &mut VisualTestContext) -> bool {
+    let unhandled = Rc::new(std::cell::Cell::new(false));
+    let flag = unhandled.clone();
+    cx.update(|_, cx| {
+        cx.on_action(move |_: &crate::views::titlebar::BeginWindowMove, _| flag.set(true));
+    });
+    let strip = cx.debug_bounds("tab-strip").expect("tab strip");
+    let position = gpui::point(
+        strip.origin.x + strip.size.width - px(700.0),
+        strip.origin.y + px(16.0),
+    );
+    cx.simulate_event(gpui::MouseDownEvent {
+        position,
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    cx.simulate_event(gpui::MouseUpEvent {
+        position,
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    !unhandled.get()
+}
+
+#[gpui::test]
+fn the_top_bar_moves_the_window_while_settings_is_selected(cx: &mut TestAppContext) {
+    let (model, cx) = restored_settings_tab_with_keys(cx);
+    assert!(press_top_bar_reaches_window_move(cx));
+    assert!(settings_holds_focus(&model, cx));
+
+    click_preference(cx, "settings-field-width");
+    assert!(press_top_bar_reaches_window_move(cx));
+    assert!(settings_holds_focus(&model, cx));
+}
+
+#[gpui::test]
+fn clicking_from_one_settings_field_to_another_keeps_the_keyboard(cx: &mut TestAppContext) {
+    let (_, cx) = restored_settings_tab_with_keys(cx);
+    click_preference(cx, "settings-field-width");
+    let width = cx.update(|window, cx| window.focused(cx)).expect("width");
+    click_preference(cx, "settings-field-height");
+    let height = cx.update(|window, cx| window.focused(cx)).expect("height");
+    assert_ne!(width, height);
+}
+
+#[gpui::test]
+fn settings_fields_save_on_blur_tab_close_and_quit(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
-    let (view, settings) = settings_window(boot, cx);
+    let (view, settings) = settings_tab(boot, cx);
     click_preference(settings, "settings-field-width");
     settings.simulate_keystrokes(if cfg!(target_os = "macos") {
         "cmd-a 1 2 0 0"
@@ -73,22 +327,20 @@ fn settings_fields_save_on_blur_window_close_and_quit(cx: &mut TestAppContext) {
     } else {
         "ctrl-a 8 0 0"
     });
-    let main = view.read_with(settings, |model, _| model.window);
-    settings.dispatch_action(crate::views::settings::CloseSettings);
-    view.read_with(cx, |model, _| {
-        assert!(model.settings_window.is_none());
+    settings.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-w"
+    } else {
+        "ctrl-shift-w"
+    });
+    view.read_with(settings, |model, _| {
+        assert!(model.settings_tab.is_none());
         assert_eq!(model.settings.window.default_size[1], 800.0);
     });
-    let main = VisualTestContext::from_window(main, cx).into_mut();
-    main.simulate_keystrokes(if cfg!(target_os = "macos") {
+    settings.simulate_keystrokes(if cfg!(target_os = "macos") {
         "cmd-,"
     } else {
         "ctrl-,"
     });
-    let handle = view.read_with(main, |model, _| {
-        model.settings_window.as_ref().expect("settings").window
-    });
-    let settings = VisualTestContext::from_window(handle.into(), main).into_mut();
     click_preference(settings, "settings-field-width");
     settings.simulate_keystrokes(if cfg!(target_os = "macos") {
         "cmd-a 1 3 0 0"
@@ -102,134 +354,6 @@ fn settings_fields_save_on_blur_window_close_and_quit(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn agents_panel_settings_toggle_applies_and_persists_without_changing_placement(
-    cx: &mut TestAppContext,
-) {
-    use crate::model::agents_panel::Placement;
-    use muxy_app_core::settings::Settings;
-
-    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    boot.settings.appearance.sidebar_expanded = true;
-    let path = boot.state_path.with_file_name("settings.toml");
-    let (model, settings) = settings_window(boot, cx);
-    click_preference(settings, "settings-category-Appearance");
-    click_preference(settings, "settings-disclosure-Appearance");
-    click_preference(settings, "settings-subcategory-Agents Panel");
-    for (dock, detached) in [
-        (muxy_app_core::settings::AgentsPanelDock::Left, false),
-        (muxy_app_core::settings::AgentsPanelDock::Right, false),
-        (muxy_app_core::settings::AgentsPanelDock::Right, true),
-    ] {
-        model.update(settings, |model, cx| {
-            model.appearance.agents_panel_dock = dock;
-            model.appearance.agents_panel_detached = detached;
-            model.save_appearance(cx);
-        });
-        for visible in [false, true] {
-            click_preference(settings, "settings-toggle-agents-panel");
-            model.read_with(settings, |model, cx| {
-                assert_eq!(model.agents_panel_shown(), visible);
-                assert_eq!(model.appearance.agents_panel_visible, visible);
-                assert_eq!(model.settings.appearance.agents_panel_visible, visible);
-                assert_eq!(
-                    model.agents_panel_placement(),
-                    if detached {
-                        Placement::Floating
-                    } else if dock == muxy_app_core::settings::AgentsPanelDock::Right {
-                        Placement::Right
-                    } else {
-                        Placement::Docked
-                    }
-                );
-                assert_eq!(
-                    Settings::load(&path).expect("saved settings").appearance,
-                    model.appearance
-                );
-                assert!(settings_view(model).read(cx).errors.is_empty());
-            });
-        }
-    }
-
-    click_preference(settings, "settings-search");
-    settings.simulate_input("show agents panel");
-    click_preference(settings, "settings-toggle-agents-panel");
-    model.update(settings, |model, cx| {
-        assert!(!model.agents_panel_shown());
-        model.appearance.agents_panel_visible = true;
-        model.save_appearance(cx);
-    });
-    std::fs::write(&path, "appearance = false").expect("invalid settings");
-    click_preference(settings, "settings-toggle-agents-panel");
-    model.read_with(settings, |model, cx| {
-        assert!(
-            model.agents_panel_shown(),
-            "a failed save keeps the panel visible"
-        );
-        assert!(
-            settings_view(model)
-                .read(cx)
-                .errors
-                .contains_key("agents-panel")
-        );
-    });
-    assert_eq!(
-        std::fs::read_to_string(path).expect("unchanged settings"),
-        "appearance = false"
-    );
-}
-
-#[gpui::test]
-fn deleted_browser_profiles_are_removed_from_the_settings_snapshot(cx: &mut TestAppContext) {
-    use crate::views::settings::BrowserChange;
-
-    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (model, settings) = settings_window(boot, cx);
-    let work = model.update(settings, |model, cx| {
-        model.change_preference(
-            Change::Browser(BrowserChange::AddProfile("Work".into())),
-            cx,
-        );
-        model
-            .browser_profile(Some("Work"))
-            .expect("work")
-            .id()
-            .to_string()
-    });
-    let preferences = model.read_with(settings, |model, _| settings_view(model));
-    assert!(preferences.read_with(settings, |view, _| {
-        view.browser_profiles()
-            .iter()
-            .any(|profile| profile.id == work)
-    }));
-    model.update(settings, |model, cx| {
-        model.change_preference(
-            Change::Browser(BrowserChange::DeleteProfile(work.clone())),
-            cx,
-        );
-    });
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        settings.run_until_parked();
-        if model.read_with(settings, |model, _| {
-            !model
-                .settings_browser_profiles()
-                .iter()
-                .any(|profile| profile.id == work)
-        }) {
-            break;
-        }
-        assert!(Instant::now() < deadline, "profile was not deleted");
-        thread::sleep(Duration::from_millis(10));
-    }
-    assert!(preferences.read_with(settings, |view, _| {
-        !view
-            .browser_profiles()
-            .iter()
-            .any(|profile| profile.id == work)
-    }));
-}
-
-#[gpui::test]
 fn terminal_preferences_apply_to_live_panes_preserve_zoom_and_reject_invalid_edits(
     cx: &mut TestAppContext,
 ) {
@@ -239,7 +363,8 @@ fn terminal_preferences_apply_to_live_panes_preserve_zoom_and_reject_invalid_edi
     state.open_terminal_tab(state.home().id).expect("tab");
     let (boot, _) = stub_boot(state);
     let path = boot.state_path.with_file_name("terminal.toml");
-    let (model, cx) = settings_window(boot, cx);
+    let (model, cx) = settings_tab(boot, cx);
+    select_terminal(&model, cx);
     model.update(cx, |model, cx| {
         assert_eq!(model.grids.len(), 1);
         let pane = model.grids.values().next().expect("pane").view.clone();
@@ -248,6 +373,7 @@ fn terminal_preferences_apply_to_live_panes_preserve_zoom_and_reject_invalid_edi
         model.change_preference(Change::Field("adjust-cursor-thickness", "2".into()), cx);
         model.change_preference(Change::Terminal("cursor-style", "bar".into()), cx);
         model.change_preference(Change::Terminal("copy-on-select", "true".into()), cx);
+        model.change_preference(Change::Field("selection-word-chars", "/_".into()), cx);
         assert_eq!(pane.read(cx).terminal.font_size, 20.0);
         assert_eq!(
             pane.read(cx).terminal.options.background_opacity,
@@ -258,6 +384,7 @@ fn terminal_preferences_apply_to_live_panes_preserve_zoom_and_reject_invalid_edi
             CellHeight::Pixels(2)
         );
         assert_eq!(pane.read(cx).terminal.options.copy_on_select, Some(true));
+        assert_eq!(pane.read(cx).terminal.options.selection_word_chars, "/_");
         assert_eq!(
             model.palette.cursor_style,
             Some(muxy_protocol::CursorShape::Bar)
@@ -288,7 +415,7 @@ fn invalid_queued_server_fields_do_not_stall_later_changes_or_allow_early_connec
 ) {
     let state = AppState::bootstrap().expect("state");
     let (boot, requests) = stub_boot(state);
-    let (view, cx) = settings_window(boot, cx);
+    let (view, cx) = settings_tab(boot, cx);
     view.update(cx, |model, cx| {
         model.servers.local.connection = ConnectionState::Ready;
         let settings = muxy_protocol::ServerSettingsDoc { default_shell: None, history_budget_bytes: 1024 * 1024, shell_integration: true };
@@ -314,7 +441,7 @@ fn terminal_slider_previews_without_writing_and_saves_when_settings_close(cx: &m
     use muxy_app_core::settings::TerminalSettings;
     let (boot, _) = stub_boot(AppState::bootstrap().expect("state"));
     let path = boot.state_path.with_file_name("terminal.toml");
-    let (model, settings) = settings_window(boot, cx);
+    let (model, settings) = settings_tab(boot, cx);
     let original = TerminalSettings::load_native(&path).expect("original");
     click_preference(settings, "settings-category-Terminal");
     let position = settings
@@ -334,7 +461,8 @@ fn terminal_slider_previews_without_writing_and_saves_when_settings_close(cx: &m
         TerminalSettings::load_native(&path).expect("unwritten preview"),
         original
     );
-    assert!(settings.simulate_close());
+    settings.dispatch_action(crate::views::settings::CloseSettings);
+    settings.run_until_parked();
     model.read_with(cx, |model, _| {
         assert!(model.terminal_preview.is_none());
         assert_eq!(
@@ -353,17 +481,17 @@ fn terminal_preview_preserves_concurrent_edits_and_rolls_back_failed_saves(
     state.open_terminal_tab(state.home().id).expect("tab");
     let (boot, _) = stub_boot(state);
     let path = boot.state_path.with_file_name("terminal.toml");
-    let (model, cx) = settings_window(boot, cx);
+    let (model, cx) = settings_tab(boot, cx);
+    select_terminal(&model, cx);
     model.update(cx, |model, cx| {
         let pane = model.grids.values().next().expect("pane").view.clone();
         pane.update(cx, |pane, _| pane.terminal.font_size = 20.0);
         model.preview_terminal_preference("background-transparency", "30", cx);
         model.preview_terminal_preference("background-transparency", "40", cx);
-        let mut external = TerminalSettings::load_native(&path).expect("stored");
-        external
-            .set_preference("padding-right", "31")
-            .expect("padding");
-        external.save_native(&path).expect("external edit");
+        TerminalSettings::edit_native(&path, |external| {
+            external.set_preference("padding-right", "31")
+        })
+        .expect("external edit");
         model.change_preference(Change::Terminal("background-transparency", "40".into()), cx);
         assert_eq!(model.terminal.options.padding_x[1], 31.0);
         assert_eq!(model.terminal.options.background_opacity, Some(0.6));
@@ -405,7 +533,7 @@ fn terminal_reset_asks_first_then_restores_every_default_on_the_page(cx: &mut Te
     let (boot, _) = stub_boot(state);
     let path = boot.state_path.with_file_name("terminal.toml");
     let app_settings = boot.state_path.with_file_name("settings.toml");
-    let (model, settings) = settings_window(boot, cx);
+    let (model, settings) = settings_tab(boot, cx);
     model.update(settings, |model, cx| {
         model.change_preference(Change::Terminal("scroll-discrete", "4.5".into()), cx);
         model.change_preference(Change::Terminal("cursor-style", "bar".into()), cx);
@@ -440,8 +568,6 @@ fn terminal_reset_asks_first_then_restores_every_default_on_the_page(cx: &mut Te
             model.settings.panes.new_pane_directory,
             NewPaneDirectory::Project
         );
-        let pane = model.grids.values().next().expect("pane").view.read(cx);
-        assert_eq!(pane.terminal, model.terminal);
         assert!(model.palette.cursor_style.is_none());
         assert!(settings_view(model).read(cx).errors.is_empty());
     });
@@ -454,6 +580,11 @@ fn terminal_reset_asks_first_then_restores_every_default_on_the_page(cx: &mut Te
     );
     click_preference(settings, "settings-button-terminal-reset");
     assert!(!settings.has_pending_prompt());
+    select_terminal(&model, settings);
+    model.read_with(settings, |model, cx| {
+        let pane = model.grids.values().next().expect("pane").view.read(cx);
+        assert_eq!(pane.terminal, model.terminal);
+    });
 }
 
 #[gpui::test]
@@ -465,7 +596,8 @@ fn terminal_key_bindings_apply_atomically_and_never_take_a_command_shortcut(
     state.open_terminal_tab(state.home().id).expect("tab");
     let (boot, _) = stub_boot(state);
     let path = boot.state_path.with_file_name("terminal.toml");
-    let (model, cx) = settings_window(boot, cx);
+    let (model, cx) = settings_tab(boot, cx);
+    select_terminal(&model, cx);
     model.update(cx, |model, cx| {
         let pane = model.grids.values().next().expect("pane").view.clone();
         let command = CustomCommand::new("Build".into(), "cargo build".into());
@@ -538,35 +670,33 @@ fn hand_edits_to_terminal_settings_load_when_settings_regains_focus(cx: &mut Tes
     state.open_terminal_tab(state.home().id).expect("tab");
     let (boot, _) = stub_boot(state);
     let path = boot.state_path.with_file_name("terminal.toml");
-    let (model, settings) = settings_window(boot, cx);
-    let main = model.read_with(settings, |model, _| model.window);
+    let (model, settings) = settings_tab(boot, cx);
+    let tab = model.read_with(settings, |model, _| model.state.settings_tab().unwrap().1);
     let focus_main = |settings: &mut VisualTestContext| {
-        settings.update(|_, cx| {
-            let _ = main.update(cx, |_, window, _| window.activate_window());
-        });
-        settings.run_until_parked();
+        select_terminal(&model, settings);
     };
     let focus_settings = |settings: &mut VisualTestContext| {
-        settings.update(|window, _| window.activate_window());
+        model.update(settings, |model, cx| model.select_tab(tab, cx));
         settings.run_until_parked();
     };
 
     focus_main(settings);
-    let mut edited = TerminalSettings::load_native(&path).expect("stored");
-    edited.set_preference("font-size", "19").expect("size");
-    edited
-        .set_preference("background", "#102030")
-        .expect("color");
-    edited.save_native(&path).expect("hand edit");
+    let edited = TerminalSettings::edit_native(&path, |edited| {
+        edited.set_preference("font-size", "19")?;
+        edited.set_preference("background", "#102030")
+    })
+    .expect("hand edit");
     focus_settings(settings);
-    model.read_with(settings, |model, cx| {
+    model.read_with(settings, |model, _| {
         assert_eq!(model.terminal, edited);
-        let pane = model.grids.values().next().expect("pane").view.read(cx);
-        assert_eq!(pane.terminal.font_size, 19.0);
         assert_eq!(model.palette.background, 0x10_2030);
     });
 
     focus_main(settings);
+    model.read_with(settings, |model, cx| {
+        let pane = model.grids.values().next().expect("pane").view.read(cx);
+        assert_eq!(pane.terminal.font_size, 19.0);
+    });
     std::fs::write(&path, "font_size = 'broken'").expect("broken hand edit");
     focus_settings(settings);
     model.read_with(settings, |model, cx| {
@@ -581,9 +711,9 @@ fn hand_edits_to_terminal_settings_load_when_settings_regains_focus(cx: &mut Tes
 }
 
 #[gpui::test]
-fn application_errors_leave_settings_when_dismissed_in_either_window(cx: &mut TestAppContext) {
+fn application_errors_leave_settings_when_dismissed(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (model, settings) = settings_window(boot, cx);
+    let (model, settings) = settings_tab(boot, cx);
     let shown = |settings: &mut VisualTestContext| {
         settings.run_until_parked();
         model.read_with(settings, |model, cx| {
@@ -625,7 +755,7 @@ fn application_errors_leave_settings_when_dismissed_in_either_window(cx: &mut Te
 #[gpui::test]
 fn configuration_errors_in_settings_can_be_dismissed(cx: &mut TestAppContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    let (model, settings) = settings_window(boot, cx);
+    let (model, settings) = settings_tab(boot, cx);
     let view = model.read_with(settings, |model, _| settings_view(model));
     view.update(settings, |view, cx| {
         view.set_error("configuration", Some("Could not open terminal.toml"), cx);
@@ -633,5 +763,410 @@ fn configuration_errors_in_settings_can_be_dismissed(cx: &mut TestAppContext) {
     click_preference(settings, "settings-dismiss-configuration-error");
     view.read_with(settings, |view, _| {
         assert!(!view.errors.contains_key("configuration"));
+    });
+}
+
+#[gpui::test]
+fn a_zoomed_pane_stays_zoomed_through_hiding_and_a_settings_reload(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let first = state.open_terminal_tab(state.home().id).expect("tab");
+    let pane = state.home().tabs[0].panes[0].id;
+    let second = state.open_terminal_tab(state.home().id).expect("tab");
+    state.select_tab(state.home().id, first).expect("select");
+    let (boot, _) = stub_boot(state);
+    let (model, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    model.update(cx, |model, cx| {
+        let view = model.terminal(&pane).expect("pane").view.clone();
+        view.update(cx, |pane, _| pane.terminal.font_size = 20.0);
+
+        model.select_tab(second, cx);
+        assert!(model.terminal(&pane).is_none());
+        assert_eq!(model.pane_zoom(pane), Some(20.0));
+        model.reload_configuration(cx);
+
+        model.select_tab(first, cx);
+        let view = model.terminal(&pane).expect("pane").view.clone();
+        assert_eq!(view.read(cx).terminal.font_size, 20.0);
+        model.reload_configuration(cx);
+        assert_eq!(view.read(cx).terminal.font_size, 20.0);
+        assert_eq!(view.read(cx).zoomed_font_size(), Some(20.0));
+    });
+}
+
+fn settings_picker_outside_split(direction: Direction, cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let tab = state
+        .show_settings_tab(state.home().id, "Settings")
+        .expect("settings");
+    let pane = state.window().active_pane.unwrap();
+    state.split_pane(pane, direction).expect("split");
+    state.set_ratio(tab, &[], 0.3).expect("ratio");
+    state.focus_pane(pane).expect("settings focus");
+    let (boot, _) = stub_boot(state);
+    let (model, cx) = settings_tab(boot, cx);
+    cx.simulate_resize(size(px(1000.0), px(800.0)));
+    click_preference(cx, "settings-search");
+    cx.simulate_input("cursor-style");
+    click_preference(cx, "settings-picker-cursor-style");
+    model.read_with(cx, |model, _| {
+        let coverage = model.coverage();
+        assert!(coverage.hides_terminal_scroll());
+        assert!(coverage.hides_webviews());
+        assert!(coverage.hides_spinners());
+    });
+    let pane = cx.debug_bounds("settings-view").expect("settings bounds");
+    let row = cx
+        .debug_bounds("picker-row-block_hollow")
+        .expect("outline cursor");
+    let point = gpui::point(row.right() - px(8.0), row.center().y);
+    assert!(!pane.contains(&point), "picker extends beyond its split");
+    cx.simulate_click(point, Modifiers::default());
+    cx.run_until_parked();
+    model.read_with(cx, |model, cx| {
+        assert_eq!(
+            model.terminal.options.cursor_style,
+            Some(muxy_protocol::CursorShape::Hollow)
+        );
+        assert!(
+            model
+                .settings_tab
+                .as_ref()
+                .unwrap()
+                .root
+                .read(cx)
+                .overlay
+                .is_none()
+        );
+        assert!(!model.settings_picker_open());
+    });
+}
+
+#[gpui::test]
+fn settings_picker_is_clickable_outside_a_narrow_split(cx: &mut TestAppContext) {
+    settings_picker_outside_split(Direction::Right, cx);
+}
+
+#[gpui::test]
+fn settings_picker_is_clickable_outside_a_short_split(cx: &mut TestAppContext) {
+    settings_picker_outside_split(Direction::Down, cx);
+}
+
+#[gpui::test]
+fn the_interface_size_resizes_the_app_live_and_is_saved(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::InterfaceSize;
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let (boot, _) = stub_boot(state);
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (model, cx) = settings_tab(boot, cx);
+    assert_eq!(
+        cx.debug_bounds("tab-strip").expect("strip").size.height,
+        px(32.0)
+    );
+    let view = model.read_with(cx, |model, _| settings_view(model));
+    assert_eq!(
+        view.read_with(cx, |view, _| view.scale()),
+        (1.0_f32.to_bits(), 1.15_f32.to_bits())
+    );
+
+    click_preference(cx, "settings-category-Appearance");
+    click_preference(cx, "settings-segment-interface-size-huge");
+
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.appearance.interface_size, InterfaceSize::Huge);
+        assert_eq!(model.metrics, Metrics::new(1.40));
+    });
+    assert_eq!(
+        view.read_with(cx, |view, _| view.scale()),
+        (1.40_f32.to_bits(), (1.40_f32 * 1.15).to_bits())
+    );
+    assert_eq!(
+        cx.debug_bounds("tab-strip").expect("strip").size.height,
+        px((32.0_f32 * 1.40).round())
+    );
+    let saved = std::fs::read_to_string(&path).expect("saved settings");
+    assert!(saved.contains("interface_size = \"huge\""), "{saved}");
+
+    click_preference(cx, "settings-segment-interface-size-regular");
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.metrics, Metrics::new(1.0));
+    });
+    assert_eq!(
+        cx.debug_bounds("tab-strip").expect("strip").size.height,
+        px(32.0)
+    );
+}
+
+#[gpui::test]
+fn the_interface_size_applies_at_launch(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::InterfaceSize;
+    let state = AppState::bootstrap().expect("state");
+    let (mut boot, _) = stub_boot(state);
+    boot.settings.appearance.interface_size = InterfaceSize::Large;
+    let (model, cx) = settings_tab(boot, cx);
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.metrics, Metrics::new(1.12));
+    });
+    cx.update(|window, _| assert_eq!(window.rem_size(), px(16.0 * 1.12)));
+}
+
+#[gpui::test]
+fn the_size_row_stays_on_screen_when_the_interface_grows(cx: &mut TestAppContext) {
+    let state = AppState::bootstrap().expect("state");
+    let (boot, _) = stub_boot(state);
+    let (model, cx) = settings_tab(boot, cx);
+    click_preference(cx, "settings-category-Appearance");
+    let selector = "settings-segment-interface-size-huge";
+    let status_bar = px(40.0);
+    let fitted = cx.debug_bounds(selector).expect("size row").bottom() + status_bar;
+    cx.simulate_resize(size(px(1200.0), fitted));
+    cx.run_until_parked();
+
+    click_preference(cx, selector);
+    cx.run_until_parked();
+
+    let row = cx.debug_bounds(selector).expect("size row");
+    let visible = fitted - model.read_with(cx, |model, _| model.metrics.status_bar_height());
+    assert!(
+        row.bottom() <= visible,
+        "the Size row ends at {:?}, below the visible {visible:?}",
+        row.bottom(),
+    );
+
+    cx.simulate_event(gpui::ScrollWheelEvent {
+        position: row.center(),
+        delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(200.0))),
+        ..Default::default()
+    });
+    cx.run_until_parked();
+    let scrolled = cx.debug_bounds(selector).expect("size row");
+    assert!(
+        scrolled.top() > row.top(),
+        "scrolling away brought the Size row back to {:?}",
+        scrolled.top(),
+    );
+}
+
+fn sidebar_extension_boot() -> (tempfile::TempDir, Boot) {
+    let root = tempfile::tempdir().expect("directory");
+    let directory = root.path().join("extensions/workspace-nav");
+    std::fs::create_dir_all(&directory).expect("extension");
+    std::fs::write(directory.join("index.html"), "<!doctype html>").expect("page");
+    std::fs::write(
+        directory.join("package.json"),
+        serde_json::json!({
+            "name": "workspace-nav",
+            "version": "0.1.0",
+            "muxy": { "sidebar": { "id": "main", "title": "Workspace", "entry": "index.html" } }
+        })
+        .to_string(),
+    )
+    .expect("manifest");
+    muxy_app_core::extensions::Registry::load(root.path())
+        .set_enabled("workspace-nav", true)
+        .expect("enabled");
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.state_path = root.path().join("state.json");
+    (root, boot)
+}
+
+#[gpui::test]
+fn the_active_sidebar_row_shows_before_any_extension_provides_one(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("directory");
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.state_path = root.path().join("state.json");
+    let (model, cx) = settings_tab(boot, cx);
+    cx.simulate_resize(size(px(1920.0), px(1400.0)));
+    click_preference(cx, "settings-category-Appearance");
+    assert!(model.read_with(cx, |model, _| model.extension_sidebars().is_empty()));
+    assert!(cx.debug_bounds("settings-row-extension-sidebar").is_some());
+    click_preference(cx, "settings-picker-extension-sidebar");
+    assert!(cx.debug_bounds("settings-dropdown").is_some());
+}
+
+#[gpui::test]
+fn agents_panel_options_show_only_where_they_apply(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelGrouping};
+    let root = tempfile::tempdir().expect("directory");
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.state_path = root.path().join("state.json");
+    boot.settings.appearance.agents_panel_density = AgentsPanelDensity::Compact;
+    boot.settings.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
+    let (_model, cx) = settings_tab(boot, cx);
+    click_preference(cx, "settings-category-Appearance");
+    assert!(
+        cx.debug_bounds("settings-row-agents-panel-idle-time")
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds("settings-row-agents-panel-project-colors")
+            .is_none(),
+        "a compact row's icon is its only mark"
+    );
+    assert!(
+        cx.debug_bounds("settings-row-agents-panel-grouped")
+            .is_none(),
+        "worktree rows are already one per project"
+    );
+}
+
+#[gpui::test]
+fn project_colors_are_offered_only_beside_agent_icons(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().expect("directory");
+    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    boot.state_path = root.path().join("state.json");
+    boot.settings.appearance.agents_panel_icon = muxy_app_core::settings::AgentsPanelIcon::Project;
+    let (_model, cx) = settings_tab(boot, cx);
+    click_preference(cx, "settings-category-Appearance");
+    assert!(
+        cx.debug_bounds("settings-row-agents-panel-grouped")
+            .is_some()
+    );
+    assert!(
+        cx.debug_bounds("settings-row-agents-panel-project-colors")
+            .is_none(),
+        "a project icon already wears its project's color"
+    );
+}
+
+#[gpui::test]
+fn an_extension_sidebar_is_listed_chosen_and_falls_back_when_disabled(cx: &mut TestAppContext) {
+    let (_root, boot) = sidebar_extension_boot();
+    let (model, cx) = settings_tab(boot, cx);
+    for _ in 0..2000 {
+        cx.run_until_parked();
+        if model.read_with(cx, |model, _| model.extensions_loaded()) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    model.read_with(cx, |model, _| {
+        assert_eq!(
+            model.extension_sidebars(),
+            [("workspace-nav".to_owned(), "Workspace".to_owned())]
+        );
+        assert!(!model.extension_sidebar_active());
+    });
+    cx.simulate_resize(size(px(1920.0), px(1400.0)));
+    click_preference(cx, "settings-category-Appearance");
+    click_preference(cx, "settings-picker-extension-sidebar");
+    click_preference(cx, "picker-row-workspace-nav");
+    model.update(cx, |model, _| {
+        assert_eq!(model.appearance.extension_sidebar, "workspace-nav");
+        assert!(model.extension_sidebar_active());
+        model
+            .extensions
+            .registry
+            .set_enabled("workspace-nav", false)
+            .expect("disabled");
+        assert!(!model.extension_sidebar_active());
+        assert_eq!(model.appearance.extension_sidebar, "workspace-nav");
+    });
+}
+
+#[gpui::test]
+fn reloading_applies_settings_changed_on_disk_and_keeps_them_when_invalid(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::keys::Profile;
+    use muxy_app_core::settings::{NewPaneDirectory, Settings};
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = settings_tab(boot, cx);
+    view.update(cx, |model, cx| {
+        let profile = Profile::new(model.path.parent().expect("profile"));
+        profile
+            .set("panes.new_pane_directory", "current")
+            .expect("set");
+        profile
+            .set("clipboard.copy_on_select", "true")
+            .expect("set");
+        profile.set("terminal.font_size", "21").expect("set");
+        model.reload_settings(cx).expect("reload");
+        assert_eq!(
+            model.settings.panes.new_pane_directory,
+            NewPaneDirectory::Current
+        );
+        assert!(model.settings.clipboard.copy_on_select);
+        assert_eq!(model.terminal.font_size, 21.0);
+
+        let applied: Settings = model.settings.clone();
+        std::fs::write(
+            profile.settings_path(),
+            "[panes]\nnew_pane_directory = \"sideways\"\n",
+        )
+        .expect("write");
+        assert!(model.reload_settings(cx).is_err());
+        assert_eq!(model.settings, applied);
+    });
+}
+
+#[gpui::test]
+fn sliders_keep_their_place_while_dragging_and_save_once_on_release(cx: &mut TestAppContext) {
+    let (boot, _) = stub_boot(AppState::bootstrap().expect("state"));
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (model, settings) = settings_tab(boot, cx);
+    click_preference(settings, "settings-category-Composer");
+    let selector = "settings-slider-row-composer-line-height";
+    let row = settings.debug_bounds(selector).expect("line height slider");
+    let saved = || std::fs::read_to_string(&path).unwrap_or_default();
+    let before = saved();
+    let at = |x: f32| gpui::point(row.origin.x + px(x), row.center().y);
+    settings.simulate_event(gpui::MouseDownEvent {
+        position: at(2.0),
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    settings.run_until_parked();
+    for x in [60.0, 120.0, 180.0] {
+        settings.simulate_event(gpui::MouseMoveEvent {
+            position: at(x),
+            pressed_button: Some(gpui::MouseButton::Left),
+            ..Default::default()
+        });
+        settings.run_until_parked();
+        assert_eq!(
+            settings.debug_bounds(selector),
+            Some(row),
+            "the slider moved"
+        );
+        assert_eq!(saved(), before, "saved while dragging");
+    }
+    settings.simulate_event(gpui::MouseUpEvent {
+        position: at(180.0),
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    settings.run_until_parked();
+    let height = model.read_with(settings, |model, _| model.settings.composer.line_height);
+    assert!(height > 1.5, "{height}");
+    let reloaded = muxy_app_core::settings::Settings::load(&path).expect("saved");
+    assert_eq!(reloaded.composer.line_height, height);
+}
+
+#[gpui::test]
+fn reloading_keeps_a_cli_change_and_an_unsaved_field_of_the_same_section(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, settings) = settings_tab(boot, cx);
+    click_preference(settings, "settings-field-width");
+    settings.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-a 1 4 0 0"
+    } else {
+        "ctrl-a 1 4 0 0"
+    });
+    view.update(settings, |model, cx| {
+        assert_eq!(model.settings.window.default_size[0], 1200.0);
+        let profile =
+            muxy_app_core::settings::keys::Profile::new(model.path.parent().expect("profile"));
+        profile.set("window.close_behavior", "detach").expect("set");
+        model.reload_settings(cx).expect("reload");
+        assert_eq!(model.settings.window.default_size[0], 1400.0);
+        assert_eq!(
+            model.settings.window.close_behavior,
+            muxy_app_core::settings::CloseBehavior::Detach
+        );
+        let saved =
+            muxy_app_core::settings::Settings::load(&profile.settings_path()).expect("load");
+        assert_eq!(saved.window, model.settings.window);
     });
 }

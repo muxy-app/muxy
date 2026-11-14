@@ -2,6 +2,7 @@
 //! be made, so a browser never exists.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::Duration;
 
 use async_channel::Receiver;
@@ -32,10 +33,13 @@ impl NativeBrowser {
             .into_owned())
     }
 
+    pub fn move_to_window(&self, _window: &Window) -> std::result::Result<(), String> {
+        match *self {}
+    }
     pub fn browser(&self) -> &Self {
         self
     }
-    pub fn set_shortcuts(&self, _modal: bool, _shortcuts: Vec<Keystroke>) {
+    pub fn set_shortcuts(&self, _modal: bool, _shortcuts: Rc<Vec<Keystroke>>) {
         match *self {}
     }
     pub fn set_focused(&self, _focused: bool) {

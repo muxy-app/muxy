@@ -1,9 +1,10 @@
-use gpui::{AnyWindowHandle, AsyncApp, Context};
-use muxy_ui::dialog::ConfirmationResponse;
+use gpui::{AsyncApp, Context};
+use muxy_ui::dialog::{ConfirmationResponse, Parent, Question, ask, choose};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
 use crate::model::AppModel;
+use crate::model::dialogs::DialogId;
 
 pub(crate) const TITLE: &str = tr_key!("Close Tab?");
 pub(crate) const MESSAGE: &str =
@@ -14,95 +15,68 @@ pub(crate) const PANE_MESSAGE: &str =
     tr_key!("A process is still running in this pane.\nAre you sure you want to close it?");
 
 impl AppModel {
-    pub(crate) fn confirm_close(&mut self, tab: muxy_app_core::TabId, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
-            return;
-        }
+    pub(crate) fn confirm_close(
+        &mut self,
+        tab: muxy_app_core::TabId,
+        cx: &mut Context<Self>,
+    ) -> DialogId {
         self.dismiss_overlay(cx);
-        let window = self.window;
-        let (title, message) = if self.closing_multiple_tabs() {
+        let (title, message, action) = if self.restarting_terminal() {
+            (
+                tr_key!("Restart Terminal?"),
+                tr_key!(
+                    "A process is still running in this pane.\nRestarting the terminal ends it."
+                ),
+                tr_key!("Restart"),
+            )
+        } else if self.closing_multiple_tabs() {
             (
                 tr_key!("Close Tabs?"),
                 tr_key!(
                     "A process is still running in these tabs.\nAre you sure you want to close them?"
                 ),
+                tr_key!("Close"),
             )
         } else if self.closing_one_pane() {
-            (PANE_TITLE, PANE_MESSAGE)
+            (PANE_TITLE, PANE_MESSAGE, tr_key!("Close"))
         } else {
-            (TITLE, MESSAGE)
+            (TITLE, MESSAGE, tr_key!("Close"))
         };
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = prompt(window, title, message, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_close_prompt(tab, response, cx);
-            });
-        }));
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| prompt(parent, title, message, action, cx).await,
+            move |model, response, cx| model.finish_close_confirmation(tab, response, cx),
+            cx,
+        )
     }
 }
 
-#[cfg(not(test))]
 async fn prompt(
-    window: AnyWindowHandle,
+    parent: &Parent,
     title: &'static str,
     message: &'static str,
+    action: &'static str,
     cx: &mut AsyncApp,
 ) -> Result<ConfirmationResponse, String> {
-    let (sender, receiver) = async_channel::bounded(1);
-    let _dialog = window
-        .update(cx, |_, window, cx| {
-            muxy_ui::dialog::confirm(
-                window,
-                cx,
-                &muxy_ui::l10n::translate(title),
-                &muxy_ui::l10n::translate(message),
-                &tr!("Close"),
-                Some(&tr!("Don't ask again")),
-                move |response| {
-                    let _ = sender.try_send(response);
-                },
-            )
-        })
-        .map_err(|error| error.to_string())?
+    let question = Question::Confirm {
+        title: &muxy_ui::l10n::translate(title),
+        message: &muxy_ui::l10n::translate(message),
+        confirm: &muxy_ui::l10n::translate(action),
+        checkbox: Some(&tr!("Don't ask again")),
+    };
+    let answer = ask(parent, question, cx)
+        .await
         .map_err(|error| error.to_string())?;
-    Ok(receiver.recv().await.unwrap_or_default())
-}
-
-#[cfg(test)]
-pub(crate) const CLOSE_WITHOUT_ASKING: &str = "Close and don't ask again";
-
-#[cfg(test)]
-async fn prompt(
-    window: AnyWindowHandle,
-    title: &'static str,
-    message: &'static str,
-    cx: &mut AsyncApp,
-) -> Result<ConfirmationResponse, String> {
-    let answer = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Warning,
-                title,
-                Some(message),
-                &["Close", "Cancel", CLOSE_WITHOUT_ASKING],
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(match answer.await {
-        Ok(0) => ConfirmationResponse::Confirmed {
-            dont_ask_again: false,
-        },
-        Ok(2) => ConfirmationResponse::Confirmed {
-            dont_ask_again: true,
-        },
-        _ => ConfirmationResponse::Cancelled,
-    })
+    Ok(answer.map_or(ConfirmationResponse::Cancelled, |answer| {
+        ConfirmationResponse::Confirmed {
+            dont_ask_again: answer.ticked(),
+        }
+    }))
 }
 
 /// Stops or restarts a server; `name` is another computer's, `None` this one's.
 pub(crate) async fn prompt_server(
-    window: AnyWindowHandle,
+    parent: &Parent,
     restart: bool,
     name: Option<&str>,
     cx: &mut AsyncApp,
@@ -120,51 +94,102 @@ pub(crate) async fn prompt_server(
             name
         ),
         None => tr!(
-            "All running terminal sessions on this device will end. Saved terminal output and settings will remain."
+            "All running terminal sessions on this computer will end. Saved terminal output and settings will remain."
         ),
     };
-    server_prompt(window, &title, &label, &message, cx).await
+    server_prompt(parent, &title, &label, &message, cx).await
 }
 
 pub(crate) async fn prompt_install_server(
-    window: AnyWindowHandle,
+    parent: &Parent,
     name: &str,
     source: &crate::remote_install::Source,
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
     let title = tr!("Install muxy-server on %@?", name);
     let message = source.description(name);
-    server_prompt(window, &title, &tr!("Install"), &message, cx).await
+    server_prompt(parent, &title, &tr!("Install"), &message, cx).await
 }
 
 pub(crate) async fn prompt_forget_server(
-    window: AnyWindowHandle,
+    parent: &Parent,
     name: &str,
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
     let title = tr!("Forget %@?", name);
     let message = tr!("Its projects and layouts leave this app; nothing on the server changes.");
-    server_prompt(window, &title, &tr!("Forget"), &message, cx).await
+    server_prompt(parent, &title, &tr!("Forget"), &message, cx).await
+}
+
+pub(crate) async fn prompt_forget_servers(
+    parent: &Parent,
+    count: usize,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let title = tr!("Forget %lld Servers?", count);
+    let message = tr!("Their projects and layouts leave this app; nothing on the servers changes.");
+    server_prompt(parent, &title, &tr!("Forget"), &message, cx).await
 }
 
 pub(crate) async fn prompt_revoke(
-    window: AnyWindowHandle,
+    parent: &Parent,
     device: &str,
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
     let title = tr!("Revoke %@?", device);
-    let message = tr!("The device disconnects now and must be paired again to reconnect.");
-    server_prompt(window, &title, &tr!("Revoke"), &message, cx).await
+    let message = tr!("The client disconnects now and must be paired again to reconnect.");
+    server_prompt(parent, &title, &tr!("Revoke"), &message, cx).await
+}
+
+pub(crate) async fn prompt_pause_push(parent: &Parent, cx: &mut AsyncApp) -> Result<bool, String> {
+    let title = tr!("Pause Push Notifications?");
+    let message = tr!(
+        "Paired phones stop getting notifications, and muxy.app forgets them. This computer keeps their registrations for 90 days, so turning this back on resumes them without reconnecting."
+    );
+    server_prompt(parent, &title, &tr!("Pause"), &message, cx).await
+}
+
+pub(crate) async fn prompt_reset_push(
+    parent: &Parent,
+    device: &str,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let title = tr!("Reset Notifications for %@?", device);
+    let message = tr!(
+        "This computer forgets the phone's notification key and stops notifying it. The phone stays paired, and gets a new key the next time it connects."
+    );
+    server_prompt(parent, &title, &tr!("Reset"), &message, cx).await
 }
 
 pub(crate) async fn prompt_reset_terminal(
-    window: AnyWindowHandle,
+    parent: &Parent,
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
     let title = tr!("Reset Terminal Settings?");
     let message =
         tr!("Every setting on the Terminal page, including key bindings, returns to its default.");
-    server_prompt(window, &title, &tr!("Reset"), &message, cx).await
+    server_prompt(parent, &title, &tr!("Reset"), &message, cx).await
+}
+
+pub(crate) const BACKGROUND_TITLE: &str = tr_key!("Allow Muxy to Run in the Background?");
+pub(crate) const OPEN_LOGIN_ITEMS: &str = tr_key!("Open Login Items");
+
+/// Whether to open the setting that keeps terminals running after the app
+/// quits.
+pub(crate) async fn prompt_background_activity(
+    parent: &Parent,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let message = tr!(
+        "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, allow Muxy to run in the background in Login Items settings."
+    );
+    let labels = [muxy_ui::l10n::translate(OPEN_LOGIN_ITEMS), tr!("Not Now")];
+    let labels = labels.each_ref().map(gpui::SharedString::as_str);
+    let title = muxy_ui::l10n::translate(BACKGROUND_TITLE);
+    let answer = choose(parent, &title, &message, &labels, cx)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(answer == Some(0))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -177,7 +202,7 @@ pub(crate) enum UpdateChoice {
 }
 
 pub(crate) async fn prompt_update(
-    window: AnyWindowHandle,
+    parent: &Parent,
     version: &str,
     compatible: bool,
     scheduled: bool,
@@ -185,7 +210,7 @@ pub(crate) async fn prompt_update(
     cx: &mut AsyncApp,
 ) -> Result<UpdateChoice, String> {
     if compatible && !scheduled {
-        return prompt_install(window, version, cx).await;
+        return prompt_install(parent, version, cx).await;
     }
     let message = if scheduled {
         tr!(
@@ -213,26 +238,16 @@ pub(crate) async fn prompt_update(
         ]
     };
     let labels = labels.each_ref().map(gpui::SharedString::as_str);
-    let answer = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Info,
-                &tr!("Muxy Update"),
-                Some(&message),
-                &labels,
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?
+    let answer = choose(parent, &tr!("Muxy Update"), &message, &labels, cx)
         .await
         .map_err(|error| error.to_string())?;
     let choice = match (scheduled, answer) {
-        (true, 2) => UpdateChoice::CancelSchedule,
-        (_, 1) => UpdateChoice::EndSessions,
-        (false, 0) => UpdateChoice::Schedule,
+        (true, Some(2)) => UpdateChoice::CancelSchedule,
+        (_, Some(1)) => UpdateChoice::EndSessions,
+        (false, Some(0)) => UpdateChoice::Schedule,
         _ => UpdateChoice::Later,
     };
-    if choice == UpdateChoice::EndSessions && !server_prompt(window, &tr!("Update and End All Sessions?"), &tr!("Update and End Sessions"), &tr!("All terminal processes on this device will end, including sessions used by other clients. Terminal panes will close. App-only panes and settings will remain."), cx).await? {
+    if choice == UpdateChoice::EndSessions && !server_prompt(parent, &tr!("Update and End All Sessions?"), &tr!("Update and End Sessions"), &tr!("All terminal processes on this computer will end, including sessions used by other clients. Terminal panes will close. App-only panes and settings will remain."), cx).await? {
         return Ok(UpdateChoice::Later);
     }
     Ok(choice)
@@ -241,15 +256,15 @@ pub(crate) async fn prompt_update(
 const INSTALL: &str = tr_key!("Update and Restart App");
 
 async fn prompt_install(
-    window: AnyWindowHandle,
+    parent: &Parent,
     version: &str,
     cx: &mut AsyncApp,
 ) -> Result<UpdateChoice, String> {
     let message = tr!(
-        "Install Muxy %@ and restart the app? Running terminals will continue, and the server will update when all terminal sessions end. Restarting the server now ends all terminal sessions on this device, including sessions used by other clients.",
+        "Install Muxy %@ and restart the app? Running terminals will continue, and the server will update when all terminal sessions end. Restarting the server now ends all terminal sessions on this computer, including sessions used by other clients.",
         version
     );
-    Ok(match install_prompt(window, &message, cx).await? {
+    Ok(match install_prompt(parent, &message, cx).await? {
         Some(true) => UpdateChoice::EndSessions,
         Some(false) => UpdateChoice::Install,
         None => UpdateChoice::Later,
@@ -257,97 +272,39 @@ async fn prompt_install(
 }
 
 /// Reports whether the server should restart too, or `None` when declined.
-#[cfg(not(test))]
 async fn install_prompt(
-    window: AnyWindowHandle,
+    parent: &Parent,
     message: &str,
     cx: &mut AsyncApp,
 ) -> Result<Option<bool>, String> {
-    let (sender, receiver) = async_channel::bounded(1);
-    let _dialog = window
-        .update(cx, |_, window, cx| {
-            muxy_ui::dialog::confirm_with_checkbox(
-                window,
-                cx,
-                &tr!("Muxy Update"),
-                message,
-                [&muxy_ui::l10n::translate(INSTALL), &tr!("Not Now")],
-                &tr!("Also restart the server"),
-                move |restart_server| {
-                    let _ = sender.try_send(restart_server);
-                },
-            )
-        })
-        .map_err(|error| error.to_string())?
+    let question = Question::Choose {
+        title: &tr!("Muxy Update"),
+        message,
+        confirm: &muxy_ui::l10n::translate(INSTALL),
+        decline: &tr!("Not Now"),
+        checkbox: &tr!("Also restart the server"),
+    };
+    let answer = ask(parent, question, cx)
+        .await
         .map_err(|error| error.to_string())?;
-    Ok(receiver.recv().await.unwrap_or_default())
+    Ok(answer.map(|answer| answer.ticked()))
 }
 
-#[cfg(test)]
-pub(crate) const INSTALL_AND_RESTART_SERVER: &str = "Update and Restart App and Server";
-
-#[cfg(test)]
-async fn install_prompt(
-    window: AnyWindowHandle,
-    message: &str,
-    cx: &mut AsyncApp,
-) -> Result<Option<bool>, String> {
-    let answer = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Info,
-                "Muxy Update",
-                Some(message),
-                &[INSTALL, "Not Now", INSTALL_AND_RESTART_SERVER],
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(match answer.await {
-        Ok(0) => Some(false),
-        Ok(2) => Some(true),
-        _ => None,
-    })
-}
-
-#[cfg(not(test))]
 async fn server_prompt(
-    window: AnyWindowHandle,
+    parent: &Parent,
     title: &str,
     label: &str,
     message: &str,
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
-    let (sender, receiver) = async_channel::bounded(1);
-    let _dialog = window
-        .update(cx, |_, window, cx| {
-            muxy_ui::dialog::confirm(window, cx, title, message, label, None, move |response| {
-                let _ = sender.try_send(matches!(response, ConfirmationResponse::Confirmed { .. }));
-            })
-        })
-        .map_err(|error| error.to_string())?
+    let question = Question::Confirm {
+        title,
+        message,
+        confirm: label,
+        checkbox: None,
+    };
+    let answer = ask(parent, question, cx)
+        .await
         .map_err(|error| error.to_string())?;
-    Ok(receiver.recv().await.unwrap_or(false))
-}
-
-#[cfg(test)]
-async fn server_prompt(
-    window: AnyWindowHandle,
-    title: &str,
-    label: &str,
-    message: &str,
-    cx: &mut AsyncApp,
-) -> Result<bool, String> {
-    let answer = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Warning,
-                title,
-                Some(message),
-                &[label, "Cancel"],
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(answer.await == Ok(0))
+    Ok(answer.is_some())
 }

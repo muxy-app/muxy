@@ -1,4 +1,4 @@
-use gpui::{AppContext, Context, Focusable, Window, point, px};
+use gpui::{AnyElement, AppContext, Context, Focusable, IntoElement, Window};
 use muxy_app_core::{Project, ProjectId, ProjectStatus};
 use muxy_protocol::ProgressState;
 use muxy_ui::icon::Icon;
@@ -9,7 +9,7 @@ use muxy_ui::picker::{
 };
 use muxy_ui::tr;
 
-use super::overlays::Overlay;
+use super::overlays::{Mark, Overlay, OverlayView};
 use super::project_editor::Field;
 use super::tab_activity::{self, Status};
 use crate::model::AppModel;
@@ -21,6 +21,18 @@ const REMOVE: &str = "remove";
 pub(crate) struct WorktreePicker {
     pub(crate) project: ProjectId,
     pub(crate) picker: gpui::Entity<Picker>,
+}
+
+impl OverlayView for WorktreePicker {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.picker.clone().into_any_element()
+    }
 }
 
 impl AppModel {
@@ -40,7 +52,7 @@ impl AppModel {
             self.dismiss_overlay(cx);
             return;
         }
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         let Some(project) = self.worktree_switcher_project() else {
@@ -77,7 +89,7 @@ impl AppModel {
                     _ => {}
                 }),
             );
-        self.overlay = Some(Overlay::Worktrees(WorktreePicker { project, picker }));
+        self.open_overlay(Overlay::Worktrees(WorktreePicker { project, picker }), cx);
         self.update_worktree_switcher(cx);
         let current = self.state.current_project().id.to_string();
         if let Some(Overlay::Worktrees(switcher)) = &self.overlay {
@@ -243,8 +255,7 @@ impl AppModel {
                 self.focus_active(window, cx);
             }
             Some(RENAME) => {
-                let size = window.viewport_size();
-                let position = point(size.width / 2.0 - px(120.0), size.height / 3.0);
+                let position = self.editor_position(window);
                 self.open_project_editor(id, Field::Name, position, window, cx);
             }
             Some(REMOVE) if available => {

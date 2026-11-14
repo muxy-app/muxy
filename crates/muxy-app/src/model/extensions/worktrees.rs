@@ -1,9 +1,7 @@
 use gpui::Context;
 use muxy_app_core::extensions::api;
 use muxy_client::Client;
-use muxy_protocol::{
-    GitAction, GitReply, GitRequest, ProjectId, ServerPath, WorktreeAction, WorktreeIntent,
-};
+use muxy_protocol::{ProjectId, ServerPath, WorktreeAction, WorktreeIntent};
 use serde_json::{Value, json};
 
 use super::{AppModel, Call};
@@ -18,21 +16,6 @@ pub(super) fn handles(verb: &str) -> bool {
             | "git.worktree.remove"
             | "git.pr.checkoutWorktree"
     )
-}
-
-async fn git(client: &Client, project: ProjectId, action: GitAction) -> Result<GitReply, String> {
-    client
-        .git_async(GitRequest { project, action })
-        .await
-        .map_err(|error| error.to_string())
-}
-
-fn operation(action: WorktreeAction) -> GitAction {
-    GitAction::Worktree(WorktreeIntent {
-        options: None,
-        operation: muxy_protocol::OperationId::new(),
-        action,
-    })
 }
 
 /// Runs a worktree call on the project's server. `local` says its folders
@@ -83,17 +66,10 @@ pub(super) async fn call(client: &Client, call: &Call, local: bool) -> Result<Va
             .iter()
             .find(|p| p.parent_id == Some(root) && p.directory == directory)
             .ok_or("worktree is not registered; refresh worktrees first")?;
-        let GitReply::Removal(expected) = git(client, target.id, GitAction::InspectRemoval).await?
-        else {
-            return Err("unexpected worktree inspection".into());
-        };
-        if expected.dirty && !call.args["force"].as_bool().unwrap_or(false) {
-            return Err("worktree has uncommitted changes".into());
-        }
-        git(
+        remove(
             client,
             target.id,
-            operation(WorktreeAction::Remove { expected }),
+            call.args["force"].as_bool().unwrap_or(false),
         )
         .await?;
         return Ok(json!({"path":api::path_text(&directory)?,"dirRemoved":true}));
@@ -123,11 +99,16 @@ pub(super) async fn call(client: &Client, call: &Call, local: bool) -> Result<Va
                 }),
         }
     };
-    let GitReply::Project(project) = git(client, root, operation(action)).await? else {
-        return Err("unexpected worktree creation result".into());
-    };
+    let project = client
+        .git_add_worktree_async(root, new_worktree(action))
+        .await
+        .map_err(|error| error.to_string())?
+        .project;
     if call.verb == "git.pr.checkoutWorktree" {
-        let GitReply::Summary(Some(summary)) = git(client, project.id, GitAction::Summary).await?
+        let Some(summary) = client
+            .git_summary_async(project.id)
+            .await
+            .map_err(|error| error.to_string())?
         else {
             return Err("new worktree branch is unavailable".into());
         };
@@ -137,6 +118,30 @@ pub(super) async fn call(client: &Client, call: &Call, local: bool) -> Result<Va
     }
 }
 
+fn new_worktree(action: WorktreeAction) -> WorktreeIntent {
+    WorktreeIntent {
+        options: None,
+        operation: muxy_protocol::OperationId::new(),
+        action,
+    }
+}
+
+/// Removes the worktree project unless it has uncommitted changes and
+/// `force` is off.
+async fn remove(client: &Client, worktree: ProjectId, force: bool) -> Result<(), String> {
+    let expected = client
+        .git_inspect_removal_async(worktree)
+        .await
+        .map_err(|error| error.to_string())?;
+    if expected.dirty && !force {
+        return Err("worktree has uncommitted changes".into());
+    }
+    client
+        .git_remove_worktree_async(worktree, expected, None)
+        .await
+        .map_err(|error| error.to_string())
+}
+
 fn resolve_path(path: &str, origin: &str, home: &str) -> Result<ServerPath, String> {
     let path = if let Some(suffix) = path.strip_prefix("~/") {
         std::path::Path::new(home).join(suffix)
@@ -144,7 +149,7 @@ fn resolve_path(path: &str, origin: &str, home: &str) -> Result<ServerPath, Stri
         std::path::Path::new(origin).join(path)
     };
     let path = path.to_str().ok_or("worktree path is not UTF-8")?;
-    Ok(ServerPath(path.as_bytes().into()))
+    Ok(ServerPath::from(path))
 }
 
 impl AppModel {
@@ -183,7 +188,11 @@ impl AppModel {
             .map_err(|error| error.to_string())?;
         // A modal can temporarily switch worktrees while completing an action.
         self.changed(cx);
-        self.focus_requested = self.webviews.modal.is_none();
+        if self.webviews.modal.is_none() {
+            self.focus_owner.request_active_pane();
+        } else {
+            self.focus_owner.settle();
+        }
         Ok(Value::Null)
     }
 }

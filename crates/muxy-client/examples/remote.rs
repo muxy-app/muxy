@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use std::thread;
 
 use muxy_client::{Client, ClientEvent, RemoteEndpoint, RunGrid};
-use muxy_protocol::{DeviceCredential, PairingInvite, Size};
+use muxy_protocol::{DeviceCredential, DeviceKind, PairingInvite, Size};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 type Saved = (Vec<String>, u16, [u8; 32], DeviceCredential);
@@ -43,7 +43,7 @@ fn pair(link: &str, file: &Path) -> Result {
         .write(true)
         .create_new(true)
         .open(file)?;
-    let (_client, paired) = match Client::pair(&invite, "Example device") {
+    let (_client, paired) = match Client::pair(&invite, "Example device", DeviceKind::Phone) {
         Ok(paired) => paired,
         Err(error) => {
             let _ = fs::remove_file(file);
@@ -79,13 +79,10 @@ fn connect(file: &Path) -> Result {
         .find(|project| project.home)
         .ok_or("the server has no Home project")?;
     let events = client.events().ok_or("event stream already taken")?;
-    let directory = home
-        .directory
-        .to_path_buf()
-        .map_err(|code| format!("the Home folder can't be named here: {code:?}"))?;
-    let session = client.create_session(&directory, SIZE)?;
-    let mut attachment = client.attach(session.id, SIZE)?;
-    let channel = attachment.channel;
+    let directory = home.directory.as_path();
+    let session = client.create_session(directory, SIZE)?;
+    let channel = client.attach(0, session.id, SIZE)?;
+    let mut attachment = muxy_client::take_attached(&events, 0)?;
     let input = client.clone();
     thread::spawn(move || {
         let mut stdin = io::stdin().lock();
@@ -106,9 +103,9 @@ fn connect(file: &Path) -> Result {
                 channel: received,
                 frame,
             } if received == channel => {
-                attachment.grid.apply(&frame);
-                redraw(&attachment.grid)?;
-                client.ack(channel, frame.seq)?;
+                let seq = attachment.terminal.apply(&frame);
+                redraw(&attachment.terminal.grid)?;
+                client.ack(channel, seq)?;
             }
             ClientEvent::SessionEnded { session: ended, .. } if ended == session.id => {
                 return Ok(());

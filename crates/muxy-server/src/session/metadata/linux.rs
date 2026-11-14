@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::ffi::OsStrExt;
 
 use muxy_protocol::ServerPath;
 
@@ -24,8 +23,7 @@ pub(super) fn foreground_member(group: u32) -> Option<(i32, String)> {
 
 pub(super) fn process_directory(pid: i32) -> Option<ServerPath> {
     let path = fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
-    path.is_absolute()
-        .then(|| ServerPath(path.as_os_str().as_bytes().to_vec()))
+    path.is_absolute().then(|| ServerPath::from(path))
 }
 
 fn parse_stat(stat: &[u8]) -> Option<(u32, String)> {
@@ -71,7 +69,7 @@ pub(super) fn agent_provider(group: u32) -> Option<muxy_protocol::AgentProvider>
                 .take(64)
                 .map(|b| String::from_utf8_lossy(b).into_owned())
                 .collect::<Vec<_>>();
-            crate::detection::identify(&name, &args)
+            crate::detection::identify_member(&name, &args, pid == group)
         })
 }
 

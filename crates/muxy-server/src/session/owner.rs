@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::{self, Write};
@@ -15,7 +18,7 @@ use muxy_terminal::pty::{ExitStatus, Pty, PtyEvent};
 use crate::archive::{Archive, bound_history_page, history_range};
 use crate::error::ServerError;
 use crate::search::Search;
-use crate::session::metadata::Metadata;
+use crate::session::metadata::{self, Metadata};
 use crate::session::{
     AttachmentEvent, AttachmentId, AttachmentSink, SessionCommand, SessionHandle,
 };
@@ -24,6 +27,8 @@ use crate::spawn::Shell;
 const TICK: Duration = Duration::from_millis(16);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(1);
 const CHECKPOINT: Duration = Duration::from_secs(1);
+/// CAN ends any unfinished escape sequence or character.
+const CANCEL: &[u8] = b"\x18";
 const METADATA_POLL: Duration = Duration::from_millis(100);
 
 type Fault = Box<dyn Error + Send + Sync>;
@@ -80,14 +85,17 @@ struct Owner {
     shell: Shell,
     terminal: Terminal,
     metadata: Metadata,
-    progress: super::SharedProgress,
-    shared_metadata: super::SharedMetadata,
+    published: std::sync::Arc<super::Published>,
     activity: std::sync::Arc<crate::activity::Activity>,
     detector: crate::detection::Detector,
     detection_dirty: bool,
     next_detection: Instant,
     detection_screen: String,
     detection_progress: String,
+    /// The foreground process group when the program status last changed.
+    program_group: Option<u32>,
+    program_reports: u64,
+    seen_reports: u64,
     size: Size,
     events: Receiver<OwnerEvent>,
     input: Sender<InputWrite>,
@@ -104,6 +112,7 @@ struct Owner {
     prompts: Vec<u16>,
     frame_state: Option<(muxy_protocol::Cursor, muxy_protocol::Modes)>,
     next_tick: Option<Instant>,
+    tick_deferred: bool,
     synchronized_since: Option<Instant>,
     output_state: OutputState,
     archive: Archive,
@@ -123,6 +132,7 @@ pub(crate) fn start(
     archive: Archive,
     colors: Option<TerminalColors>,
     activity: std::sync::Arc<crate::activity::Activity>,
+    notifier: std::sync::Arc<crate::notifier::Notifier>,
     on_exit: impl FnOnce(ExitReason) + Send + 'static,
 ) -> Result<SessionHandle, ServerError> {
     let id = info.id.get();
@@ -133,15 +143,8 @@ pub(crate) fn start(
         .start_reader(sender.clone())
         .map_err(ServerError::spawn_failed)?;
 
-    let progress = super::SharedProgress::default();
-    let session_progress = progress.clone();
-    let shared_metadata =
-        std::sync::Arc::new(std::sync::Mutex::new(muxy_protocol::SessionMetadata {
-            title: String::new(),
-            directory: info.directory.clone(),
-            process: None,
-        }));
-    let owner_metadata = shared_metadata.clone();
+    let published = std::sync::Arc::new(super::Published::new(&info, notifier));
+    let owner_published = std::sync::Arc::clone(&published);
     let session = info.clone();
     let failed = sender.clone();
     thread::Builder::new()
@@ -174,14 +177,16 @@ pub(crate) fn start(
             let _ = ready_sender.send(Ok(()));
             let owner = Owner {
                 metadata: Metadata::new(session.directory.clone()),
-                progress: session_progress,
-                shared_metadata: owner_metadata,
+                published: owner_published,
                 activity,
                 detector: crate::detection::Detector::default(),
                 detection_dirty: true,
                 next_detection: Instant::now(),
                 detection_screen: String::new(),
                 detection_progress: String::new(),
+                program_group: None,
+                program_reports: 0,
+                seen_reports: 0,
                 info: session,
                 shell,
                 terminal,
@@ -201,6 +206,7 @@ pub(crate) fn start(
                 prompts: Vec::new(),
                 frame_state: None,
                 next_tick: None,
+                tick_deferred: false,
                 synchronized_since: None,
                 output_state: OutputState::Open,
                 archive,
@@ -214,7 +220,7 @@ pub(crate) fn start(
     ready
         .recv()
         .map_err(|_| ServerError::spawn_failed("session thread stopped before it was ready"))??;
-    Ok(SessionHandle::new(info, sender, progress, shared_metadata))
+    Ok(SessionHandle::new(info, sender, published))
 }
 
 fn set_colors(
@@ -349,6 +355,16 @@ impl Owner {
                 Wake::Event(OwnerEvent::Command(SessionCommand::Detach(id))) => {
                     self.attachments.remove(&id);
                 }
+                Wake::Event(OwnerEvent::Command(SessionCommand::ImageFrames {
+                    image,
+                    keys,
+                    reply,
+                })) => {
+                    let frames = self.terminal.image_frames(image, &keys).map_err(|error| {
+                        ServerError::new(ErrorCode::BadRequest, format!("image frames: {error}"))
+                    });
+                    let _ = reply.send(frames);
+                }
                 Wake::Event(OwnerEvent::Command(SessionCommand::Search {
                     query,
                     ignore_case,
@@ -423,10 +439,17 @@ impl Owner {
     fn feed(&mut self, bytes: &[u8]) -> Result<(), Fault> {
         self.detection_dirty = true;
         self.terminal.feed(bytes);
+        if self.terminal.program_reports() != self.program_reports {
+            self.program_reports = self.terminal.program_reports();
+            self.program_group = metadata::foreground_group(&self.shell);
+        }
         if self.terminal.synchronized_output()? {
             self.synchronized_since.get_or_insert_with(Instant::now);
         } else {
             self.synchronized_since = None;
+            if self.tick_deferred {
+                self.next_tick = Some(Instant::now());
+            }
         }
         let answers = self.terminal.take_pty_output();
         if !answers.is_empty() {
@@ -506,6 +529,7 @@ impl Owner {
             .screen
             .ok_or_else(|| io::Error::other("fresh history has no screen"))?;
         let snapshot = AttachSnapshot {
+            links: history.links,
             graphics: screen.graphics,
             prompts: history.prompts,
             channel,
@@ -518,9 +542,10 @@ impl Owner {
             history: history.rows,
             history_cursor: history.next,
             history_total: history.total_rows,
+            history_graphics: history.graphics,
         };
         if sink.send(AttachmentEvent::Snapshot {
-            snapshot,
+            snapshot: Box::new(snapshot),
             process: self.metadata.process.clone(),
         }) {
             sink.send(AttachmentEvent::Metadata(MetadataEvent::InputModes(
@@ -551,13 +576,33 @@ impl Owner {
         };
         let generation = self.terminal.history_generation().map_err(terminal_error)?;
         let total = self.terminal.history_rows().map_err(terminal_error)?;
-        let (range, next) = history_range(self.info.id, generation, before, max_rows, total)?;
+        let (range, mut next) = history_range(self.info.id, generation, before, max_rows, total)?;
+        let requested = range.len();
         self.compress_pending = true;
-        let (history, mut prompts) = self
+        let muxy_terminal::TerminalHistory {
+            rows: history,
+            mut prompts,
+            mut links,
+            graphics,
+        } = self
             .terminal
-            .history_with_prompts(range)
+            .history_with_links(range)
             .map_err(terminal_error)?;
+        if history.len() < requested {
+            let kept = u16::try_from(history.len()).unwrap_or(max_rows);
+            next = history_range(self.info.id, generation, before, kept, total)?.1;
+        }
         let screen = if before.0 == 0 {
+            links.extend(
+                self.terminal
+                    .read_screen_links(muxy_protocol::MAX_LINK_SPANS)
+                    .map_err(terminal_error)?
+                    .into_iter()
+                    .filter_map(|mut row| {
+                        row.row = u16::try_from(history.len() + usize::from(row.row)).ok()?;
+                        Some(row)
+                    }),
+            );
             prompts.extend(
                 self.terminal
                     .screen_prompts()
@@ -580,11 +625,13 @@ impl Owner {
             generation,
             before,
             HistoryPage {
+                links: Some(links),
                 prompts,
                 rows: history,
                 next,
                 total_rows: total as u64,
                 screen,
+                graphics,
             },
         )
     }
@@ -605,15 +652,19 @@ impl Owner {
     }
 
     fn tick(&mut self) -> Result<(), Fault> {
-        self.next_tick = None;
+        let now = Instant::now();
         if self.terminal.synchronized_output()? {
-            let since = self.synchronized_since.get_or_insert_with(Instant::now);
-            if since.elapsed() < SYNC_TIMEOUT {
+            let since = self.synchronized_since.get_or_insert(now);
+            if now.duration_since(*since) < SYNC_TIMEOUT {
+                self.tick_deferred = true;
+                self.next_tick = Some(*since + SYNC_TIMEOUT);
                 return Ok(());
             }
             self.terminal.end_synchronized_output()?;
         }
+        self.tick_deferred = false;
         self.synchronized_since = None;
+        self.next_tick = Some(now + TICK);
         self.update_metadata();
         let modes = self.terminal.input_modes()?;
         if modes != self.input_modes {
@@ -632,6 +683,9 @@ impl Owner {
         } else if self.compress_pending {
             self.terminal.compress_idle()?;
             self.compress_pending = false;
+        }
+        if !self.has_pending_work() {
+            self.next_tick = None;
         }
         Ok(())
     }
@@ -694,10 +748,7 @@ impl Owner {
                         ProgressState::Paused => "4;4".into(),
                     },
                 );
-                *self
-                    .progress
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = *progress;
+                self.published.set_progress(*progress);
             }
         }
         let events = self.metadata.update(&self.shell, terminal);
@@ -709,15 +760,11 @@ impl Owner {
                     | MetadataEvent::ForegroundProcess { .. }
             )
         }) {
-            *self
-                .shared_metadata
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                muxy_protocol::SessionMetadata {
-                    title: self.metadata.title.clone(),
-                    directory: self.metadata.directory.clone(),
-                    process: self.metadata.process.clone(),
-                };
+            self.published.set_metadata(muxy_protocol::SessionMetadata {
+                title: self.metadata.title.clone(),
+                directory: self.metadata.directory.clone(),
+                process: self.metadata.process.clone(),
+            });
         }
         for event in events {
             self.attachments.retain(|_, attachment| {
@@ -726,32 +773,30 @@ impl Owner {
                     .send(AttachmentEvent::Metadata(event.clone()))
             });
         }
-        if self.metadata.agent != self.detector.provider {
+        let (agent, status) = crate::detection::reporting_agent(
+            self.metadata.agent,
+            self.detector.provider,
+            self.reported_status(),
+        );
+        if agent != self.detector.provider {
             self.detection_dirty = true;
             self.detection_progress.clear();
         }
         let now = Instant::now();
         if now >= self.next_detection {
             self.next_detection = now + METADATA_POLL;
-            if self.metadata.agent.is_some() {
-                if self.detection_dirty && !self.terminal.synchronized_output().unwrap_or(true) {
-                    if let Ok(screen) = self.terminal.detection_text() {
-                        self.detection_screen = screen;
-                    }
-                    self.detection_dirty = false;
-                }
-                let completed = self.detector.update(
-                    self.metadata.agent,
-                    self.detection_screen.clone(),
-                    &self.metadata.title,
-                    &self.detection_progress,
-                    now,
-                );
+            self.seen_reports = self.terminal.program_reports();
+            if let Some(agent) = agent {
+                let completed = if let Some(status) = status {
+                    self.detector.report(agent, status.state)
+                } else {
+                    self.detect_on_screen(agent, now)
+                };
                 if let Some(provider) = self.detector.provider {
                     self.activity.update(
                         muxy_protocol::AgentActivity {
                             session: self.info.id,
-                            project: self.info.project,
+                            project: self.published.project(),
                             provider,
                             state: self.detector.state,
                         },
@@ -765,11 +810,43 @@ impl Owner {
             }
         }
         self.next_metadata = Instant::now()
-            + if self.metadata.agent.is_some() {
+            + if agent.is_some() {
                 METADATA_POLL
             } else {
                 Duration::from_secs(1)
             };
+    }
+
+    /// The status the foreground program reported itself (OSC 7501). A report
+    /// the detector hasn't seen counts once after its program has gone, so a
+    /// final `done` still finishes the agent's work.
+    fn reported_status(&mut self) -> Option<muxy_terminal::ProgramStatus> {
+        let group = metadata::foreground_group(&self.shell);
+        let shell = self.metadata.shell_foreground;
+        if shell || group != self.program_group {
+            self.terminal.end_program_status();
+        }
+        let unseen = self.terminal.program_reports() != self.seen_reports;
+        let reporter_running = !shell && self.program_group == group;
+        self.terminal
+            .program_status()
+            .filter(|_| group.is_some() && (unseen || reporter_running))
+    }
+
+    fn detect_on_screen(&mut self, agent: muxy_protocol::AgentProvider, now: Instant) -> bool {
+        if self.detection_dirty && !self.terminal.synchronized_output().unwrap_or(true) {
+            if let Ok(screen) = self.terminal.detection_text() {
+                self.detection_screen = screen;
+            }
+            self.detection_dirty = false;
+        }
+        self.detector.update(
+            Some(agent),
+            self.detection_screen.clone(),
+            &self.metadata.title,
+            &self.detection_progress,
+            now,
+        )
     }
 
     fn broadcast_frame(&mut self, resized: Option<AttachmentId>) -> Result<(), Fault> {
@@ -877,11 +954,19 @@ impl Owner {
     fn checkpoint(&mut self, reason: Option<ExitReason>) {
         self.next_checkpoint = None;
         self.compress_pending = true;
-        let result = self
-            .terminal
-            .archive()
-            .map_err(io::Error::other)
-            .and_then(|terminal| self.archive.save(self.info.id, terminal, reason));
+        let mut snapshot = self.terminal.snapshot();
+        if reason.is_some() && matches!(snapshot, Ok(None)) {
+            // The program ended inside a sequence; cancel it so its last screen is kept.
+            self.terminal.feed(CANCEL);
+            snapshot = self.terminal.snapshot();
+        }
+        let result = match snapshot {
+            Ok(Some(snapshot)) => self.archive.save(self.info.id, snapshot, reason),
+            // Output stopped inside a sequence; the output that completes it schedules the save.
+            Ok(None) if reason.is_none() => return,
+            Ok(None) => Err(io::Error::other("output ended inside a sequence")),
+            Err(error) => Err(io::Error::other(error)),
+        };
         if let Err(error) = result {
             log::error!(
                 "session {} could not save terminal content: {error}",
@@ -896,303 +981,5 @@ fn exit_reason(status: ExitStatus) -> ExitReason {
         (Some(code), _) => ExitReason::Exited(code),
         (None, Some(signal)) => ExitReason::Signaled(signal),
         (None, None) => ExitReason::Ended,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use muxy_protocol::{ServerPath, SessionId};
-    use muxy_terminal::pty::SpawnRequest;
-    use std::num::NonZeroU64;
-
-    fn owner() -> Result<Owner, Fault> {
-        let size = Size { cols: 20, rows: 3 };
-        let cwd = std::env::temp_dir();
-        #[cfg(unix)]
-        let (program, args) = ("/bin/sh", ["-c", "exit 0"]);
-        #[cfg(windows)]
-        let (program, args) = ("cmd.exe", ["/d", "/c"]);
-        let mut pty = Pty::spawn(SpawnRequest {
-            program: program.into(),
-            args: args.map(Into::into).to_vec(),
-            cwd: cwd.clone(),
-            env: vec![],
-            size: size.into(),
-        })?;
-        // The pseudoconsole starts nothing until its cursor query is answered.
-        #[cfg(windows)]
-        pty.kill()?;
-        pty.wait()?;
-        let directory = ServerPath::from_path(&cwd).map_err(|code| format!("{code:?}"))?;
-        Ok(Owner {
-            graphics: muxy_protocol::Graphics::default(),
-            info: SessionInfo {
-                project: muxy_protocol::ProjectId::from_u128(1),
-                id: SessionId::from(NonZeroU64::MIN),
-                directory: directory.clone(),
-            },
-            shell: Shell {
-                pty,
-                #[cfg(windows)]
-                job: crate::platform::windows::Job::killed_on_drop()?,
-            },
-            terminal: Terminal::new(size, 1024)?,
-            metadata: Metadata::new(directory.clone()),
-            progress: crate::session::SharedProgress::default(),
-            shared_metadata: std::sync::Arc::new(std::sync::Mutex::new(
-                muxy_protocol::SessionMetadata {
-                    title: String::new(),
-                    directory,
-                    process: None,
-                },
-            )),
-            activity: std::sync::Arc::default(),
-            detector: crate::detection::Detector::default(),
-            detection_dirty: true,
-            next_detection: Instant::now(),
-            detection_screen: String::new(),
-            detection_progress: String::new(),
-            size,
-            events: mpsc::channel().1,
-            input: mpsc::channel().0,
-            attachments: HashMap::new(),
-            output_pending: false,
-            resize_pending: false,
-            compress_pending: false,
-            history_total: 0,
-            history_generation: 0,
-            input_modes: InputModes::default(),
-            cursor_blinking: true,
-            links: Vec::new(),
-            prompts: Vec::new(),
-            frame_state: None,
-            next_tick: None,
-            synchronized_since: None,
-            output_state: OutputState::Closed,
-            archive: Archive::memory(1024),
-            next_checkpoint: None,
-            next_metadata: Instant::now(),
-        })
-    }
-
-    #[test]
-    fn synchronized_frames_wait_for_completion_and_recover_after_timeout() -> Result<(), Fault> {
-        let mut owner = owner()?;
-        let (sink, events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink.into())?;
-        events.try_iter().for_each(drop);
-        owner.feed(b"\x1b[?2026hpartial")?;
-        owner.tick()?;
-        assert!(
-            !events
-                .try_iter()
-                .any(|event| matches!(event, AttachmentEvent::Frame(_)))
-        );
-        assert!(owner.output_pending);
-        owner.feed(b" complete\x1b[?2026l")?;
-        owner.tick()?;
-        assert!(
-            events
-                .try_iter()
-                .any(|event| matches!(event, AttachmentEvent::Frame(_)))
-        );
-        owner.feed(b"\x1b[?2026hstalled")?;
-        owner.synchronized_since = Some(Instant::now().checked_sub(SYNC_TIMEOUT).unwrap());
-        owner.tick()?;
-        assert!(!owner.terminal.synchronized_output()?);
-        assert!(
-            events
-                .try_iter()
-                .any(|event| matches!(event, AttachmentEvent::Frame(_)))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn prompt_marks_are_atomic_on_attach_and_history_reads_schedule_recompression()
-    -> Result<(), Fault> {
-        let mut owner = owner()?;
-        for _ in 0..10 {
-            owner.terminal.feed(
-                b"\x1b]133;A\x07$ \x1b]133;B\x07echo hi\r\n\x1b]133;C\x07hi\r\n\x1b]133;D;0\x07",
-            );
-        }
-        owner.terminal.feed(b"\x1b]133;A\x07$ \x1b]133;B\x07");
-        let (sink, events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink.into())?;
-        let AttachmentEvent::Snapshot { snapshot, .. } = events.recv()? else {
-            return Err("expected snapshot".into());
-        };
-        assert_eq!(snapshot.prompts.len(), 11);
-        assert_eq!(
-            snapshot.prompts.last().copied().map(usize::from),
-            Some(snapshot.history.len() + 2)
-        );
-        owner.compress_pending = false;
-        let page = owner.history_page(HistoryCursor(0), 5)?;
-        assert!(owner.compress_pending);
-        assert_eq!(page.prompts, [1, 3, 5, 7]);
-        owner.tick()?;
-        assert!(!owner.compress_pending);
-        owner.terminal.feed(b"\x1b[2J\x1b[H");
-        owner.broadcast_frame(None)?;
-        let events: Vec<_> = events.try_iter().collect();
-        assert!(events.iter().any(|event| matches!(event, AttachmentEvent::Metadata(MetadataEvent::ScreenPrompts { seq: 1, rows }) if rows.is_empty())));
-        assert!(
-            events
-                .iter()
-                .any(|event| matches!(event, AttachmentEvent::Frame(frame) if frame.seq == 1))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn clipboard_writes_reach_current_attachments_without_replaying_on_attach() -> Result<(), Fault>
-    {
-        let mut owner = owner()?;
-        let (first, first_events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, first.into())?;
-        first_events.try_iter().for_each(drop);
-
-        owner.feed(b"\x1b]52;c;b2xk\x07")?;
-        owner.tick()?;
-        assert!(first_events.try_iter().any(|event| matches!(
-            event,
-            AttachmentEvent::Metadata(MetadataEvent::ClipboardWrite(text)) if text == "old"
-        )));
-
-        owner.feed(b"\x1b]52;c;cGVuZGluZw==\x07")?;
-        let (second, second_events) = mpsc::channel();
-        owner.attach(AttachmentId(2), ChannelId(2), owner.size, second.into())?;
-        assert!(first_events.try_iter().any(|event| matches!(
-            event,
-            AttachmentEvent::Metadata(MetadataEvent::ClipboardWrite(text)) if text == "pending"
-        )));
-        assert!(!second_events.try_iter().any(|event| matches!(
-            event,
-            AttachmentEvent::Metadata(MetadataEvent::ClipboardWrite(_))
-        )));
-
-        owner.feed(b"\x1b]52;c;bGl2ZQ==\x1b\\")?;
-        owner.tick()?;
-        for events in [&first_events, &second_events] {
-            assert!(events.try_iter().any(|event| matches!(
-                event,
-                AttachmentEvent::Metadata(MetadataEvent::ClipboardWrite(text)) if text == "live"
-            )));
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn new_attachment_receives_its_own_baseline_correction() -> Result<(), Fault> {
-        let mut owner = owner()?;
-        owner.feed(b"\x1b[1;1HA")?;
-        let (first, first_events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, first.into())?;
-        owner.tick()?;
-        first_events.try_iter().for_each(drop);
-        owner.feed(b"\x1b[1;1HB")?;
-        let (second, second_events) = mpsc::channel();
-        owner.attach(AttachmentId(2), ChannelId(2), owner.size, second.into())?;
-        let mut displayed = match second_events.recv()? {
-            AttachmentEvent::Snapshot { snapshot, .. } => snapshot.rows,
-            other => return Err(format!("expected snapshot, got {other:?}").into()),
-        };
-        owner.feed(b"\x1b[1;1HA")?;
-        owner.tick()?;
-        for event in second_events.try_iter() {
-            if let AttachmentEvent::Frame(frame) = event {
-                for row in frame.rows {
-                    let index = usize::from(row.index);
-                    displayed[index] = row;
-                }
-            }
-        }
-        let current = owner.terminal.screen()?;
-        assert_eq!(
-            displayed, current,
-            "each attachment must converge to the server screen"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn replaced_history_invalidates_attached_caches_without_a_screen_frame() -> Result<(), Fault> {
-        let mut owner = owner()?;
-        let burst = |label: &str| format!("{}\x1b[2J\x1b[H", format!("{label}\r\n").repeat(10));
-        owner.feed(burst("old").as_bytes())?;
-        let (first, _first_events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, first.into())?;
-        let (second, second_events) = mpsc::channel();
-        owner.attach(AttachmentId(2), ChannelId(2), owner.size, second.into())?;
-        let previous = match second_events.recv()? {
-            AttachmentEvent::Snapshot { snapshot, .. } => snapshot,
-            other => return Err(format!("expected snapshot, got {other:?}").into()),
-        };
-        second_events.try_iter().for_each(drop);
-
-        owner.feed(b"\x1b[3J")?;
-        owner.feed(burst("new").as_bytes())?;
-        owner.tick()?;
-        let current = owner.history_page(HistoryCursor(0), 200)?;
-        assert_eq!(previous.history_total, current.total_rows);
-        assert_ne!(previous.history, current.rows);
-        let events: Vec<_> = second_events.try_iter().collect();
-        assert!(matches!(
-            events.as_slice(),
-            [AttachmentEvent::Metadata(MetadataEvent::History { total_rows })]
-                if *total_rows == current.total_rows
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn cursor_only_mode_only_and_reset_frames_are_not_suppressed() -> Result<(), Fault> {
-        let mut owner = owner()?;
-        let (sink, events) = mpsc::channel();
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink.into())?;
-        events.try_iter().for_each(drop);
-        for sequence in [b"\x1b[1;2H".as_slice(), b"\x1b[?2004h", b"\x1b[?1h"] {
-            owner.feed(sequence)?;
-            owner.tick()?;
-            let frames: Vec<_> = events
-                .try_iter()
-                .filter_map(|event| match event {
-                    AttachmentEvent::Frame(frame) => Some(frame),
-                    _ => None,
-                })
-                .collect();
-            assert_eq!(frames.len(), 1);
-            assert!(frames[0].rows.is_empty());
-        }
-        owner.resize(Size {
-            cols: owner.size.cols + 1,
-            ..owner.size
-        })?;
-        owner.tick()?;
-        assert!(events.try_iter().any(|event| matches!(event, AttachmentEvent::Frame(frame) if frame.reset && !frame.rows.is_empty())));
-        Ok(())
-    }
-
-    #[test]
-    fn repeated_identical_output_has_no_frame_cost() -> Result<(), Fault> {
-        let mut owner = owner()?;
-        let (sink, events) = mpsc::channel();
-        owner.feed(b"\x1b[1;1HA")?;
-        owner.attach(AttachmentId(1), ChannelId(1), owner.size, sink.into())?;
-        events.try_iter().for_each(drop);
-        let mut frames = 0;
-        for _ in 0..10_000 {
-            owner.feed(b"\x1b[1;1HA")?;
-            owner.tick()?;
-            frames += events
-                .try_iter()
-                .filter(|event| matches!(event, AttachmentEvent::Frame(_)))
-                .count();
-        }
-        assert_eq!(frames, 0);
-        Ok(())
     }
 }

@@ -1,12 +1,13 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Focusable, InteractiveElement, IntoElement, ParentElement, Styled, Window,
-    div, px,
+    div,
 };
 use muxy_app_core::settings::CustomCommand;
 use muxy_ui::{controls, form, tr};
 
-use super::{Category, Change, SettingsEvent, SettingsView};
+use super::{Category, SettingsEvent, SettingsView};
+use crate::model::preferences::Change;
 
 pub(super) fn matching(pane: &SettingsView) -> Vec<usize> {
     pane.snapshot
@@ -28,20 +29,27 @@ pub(super) fn heading(pane: &SettingsView, cx: &mut Context<SettingsView>) -> An
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(pane.layout_metrics.scaled(8.0))
         .child(pane.note(&tr!("Run a saved shell command in a new tab in the selected project. Assign a direct shortcut or find it in the command palette."), false))
-        .child(div().flex().child(controls::button(
-            pane.style(),
-            "add-command",
-            &tr!("Add Command"),
-            pane.command_editor.is_none(),
-            cx.listener(|pane, _, window, cx| pane.edit_command(None, window, cx)),
-        ).debug_selector(|| "settings-add-command".into())))
+        .child(
+            div().flex().child(
+                controls::button(
+                    pane.style(),
+                    "add-command",
+                    controls::Button::secondary(&tr!("Add Command"))
+                        .enabled(pane.command_editor.is_none()),
+                    cx.listener(|pane, _, window, cx| pane.edit_command(None, window, cx)),
+                )
+                .debug_selector(|| "settings-add-command".into()),
+            ),
+        )
         .when(pane.snapshot.settings.commands.is_empty() && pane.command_editor.is_none(), |body| {
-            body.child(pane.note(&tr!("No custom commands yet."), false))
+            body.child(pane.readable_note("settings-no-commands", &tr!("No custom commands yet.")))
         })
         .when(pane.command_editor.is_some(), |body| body.child(editor(pane, cx)))
-        .when_some(pane.errors.get("commands"), |body, error| body.child(pane.note(error, true)))
+        .when_some(pane.errors.get("commands"), |body, error| {
+            body.child(super::announced_error(pane.note(error, true), "commands", error))
+        })
         .into_any_element()
 }
 
@@ -66,13 +74,12 @@ fn editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
         .child(
             div()
                 .flex()
-                .gap(px(6.0))
+                .gap(pane.layout_metrics.scaled(6.0))
                 .child(
                     controls::button(
                         pane.style(),
                         "save-command",
-                        &tr!("Save"),
-                        true,
+                        controls::Button::secondary(&tr!("Save")),
                         cx.listener(|pane, _, _, cx| pane.save_command(cx)),
                     )
                     .debug_selector(|| "settings-save-command".into()),
@@ -81,8 +88,7 @@ fn editor(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
                     controls::button(
                         pane.style(),
                         "cancel-command",
-                        &tr!("Cancel"),
-                        true,
+                        controls::Button::secondary(&tr!("Cancel")),
                         cx.listener(|pane, _, _, cx| pane.cancel_command(cx)),
                     )
                     .debug_selector(|| "settings-cancel-command".into()),
@@ -114,13 +120,14 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
         })
         .flex()
         .flex_wrap()
-        .gap(px(6.0))
+        .gap(pane.layout_metrics.scaled(6.0))
         .child(
             controls::button(
                 pane.style(),
                 &id,
-                &label,
-                enabled,
+                controls::Button::secondary(&label)
+                    .named(&tr!("%@: %@", &command.name, &label))
+                    .enabled(enabled),
                 cx.listener(move |pane, _, window, cx| pane.begin_recording(&record, window, cx)),
             )
             .track_focus(&focus[0])
@@ -133,8 +140,9 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("unassign-{id}"),
-                &tr!("Unassign"),
-                enabled && chord.is_some(),
+                controls::Button::secondary(&tr!("Unassign"))
+                    .named(&tr!("Unassign %@", &command.name))
+                    .enabled(enabled && chord.is_some()),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::Binding(
@@ -149,8 +157,9 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("edit-{id}"),
-                &tr!("Edit"),
-                enabled,
+                controls::Button::secondary(&tr!("Edit"))
+                    .named(&tr!("Edit %@", &command.name))
+                    .enabled(enabled),
                 cx.listener(move |pane, _, window, cx| {
                     pane.edit_command(Some(edit.clone()), window, cx);
                 }),
@@ -165,8 +174,9 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
             controls::button(
                 pane.style(),
                 &format!("delete-{id}"),
-                &tr!("Delete"),
-                enabled,
+                controls::Button::secondary(&tr!("Delete"))
+                    .named(&tr!("Delete %@", &command.name))
+                    .enabled(enabled),
                 cx.listener(move |pane, _, _, cx| {
                     pane.recording = None;
                     cx.emit(SettingsEvent::Change(Change::RemoveCommand(delete.clone())));

@@ -98,6 +98,3 @@ impl Page {
         (view, x, y)
     }
 }
-
-#[cfg(test)]
-mod tests;

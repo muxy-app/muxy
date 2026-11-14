@@ -7,7 +7,6 @@ fn backend(feature: Feature) -> Capability {
     match feature {
         Feature::ExtensionScripts => muxy_ui::javascript::CAPABILITY,
         Feature::ExtensionWebviews => muxy_ui::webview::CAPABILITY,
-        Feature::Voice => muxy_ui::voice::CAPABILITY,
         Feature::QuickTerminal => muxy_ui::quick_terminal::platform::CAPABILITY,
         Feature::Notifications => muxy_ui::notifications::CAPABILITY,
         Feature::ClipboardImages => muxy_ui::pasteboard::IMAGE_SUBMISSION,

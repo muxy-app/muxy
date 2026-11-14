@@ -60,7 +60,11 @@ impl Foreground {
             .take(128)
             .find_map(|process| {
                 let arguments = arguments(&process.command_line().unwrap_or_default());
-                crate::detection::identify(&program_name(&process.image()?), &arguments)
+                crate::detection::identify_member(
+                    &program_name(&process.image()?),
+                    &arguments,
+                    process.pid == self.group,
+                )
             })
     }
 

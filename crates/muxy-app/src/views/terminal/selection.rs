@@ -96,7 +96,7 @@ impl Selection {
             .collect()
     }
 
-    pub(crate) fn word(point: Point, grid: &RunGrid) -> Self {
+    pub(crate) fn word(point: Point, grid: &RunGrid, word_chars: &str) -> Self {
         let cells = cells(row_runs(grid, point.row).unwrap_or_default());
         let Some(index) = cells
             .iter()
@@ -110,14 +110,14 @@ impl Selection {
                 },
             };
         };
-        let class = word_class(cells[index].1);
+        let class = word_class(cells[index].1, word_chars);
         let mut start = index;
         let mut end = index + 1;
         if class != 2 {
-            while start > 0 && word_class(cells[start - 1].1) == class {
+            while start > 0 && word_class(cells[start - 1].1, word_chars) == class {
                 start -= 1;
             }
-            while end < cells.len() && word_class(cells[end].1) == class {
+            while end < cells.len() && word_class(cells[end].1, word_chars) == class {
                 end += 1;
             }
         }
@@ -166,10 +166,10 @@ pub(super) fn cells(runs: &[Run]) -> Vec<(Range<u16>, &str)> {
     result
 }
 
-fn word_class(text: &str) -> u8 {
+fn word_class(text: &str, word_chars: &str) -> u8 {
     match text.chars().next() {
         Some(character) if character.is_whitespace() => 0,
-        Some(character) if character.is_alphanumeric() => 1,
+        Some(character) if character.is_alphanumeric() || word_chars.contains(character) => 1,
         _ => 2,
     }
 }

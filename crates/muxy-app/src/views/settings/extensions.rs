@@ -1,25 +1,43 @@
+use std::cell::Cell;
+use std::collections::BTreeSet;
+use std::rc::Rc;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    Render, SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
-    div,
+    AnyElement, AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, WeakEntity, Window, canvas, div, point, px,
 };
 use muxy_ui::{
-    components::{ButtonInteraction, SymbolGlyph},
+    accessibility,
+    components::SymbolGlyph,
     controls::{self, Choice, Style},
     form,
     text_input::{InputEvent, InputStyle, TextInput},
     theme::{Metrics, Theme},
 };
-use serde_json::{Value, json};
 
-use crate::{extensions::marketplace, model::AppModel};
+use crate::{
+    extensions::{
+        authoring::AgentTask,
+        marketplace::{self, ExtensionDetails, MarketplaceItem, Sort},
+        publish::PublishFailure,
+    },
+    model::{
+        AppModel,
+        extensions::{ActiveInstall, FinishedInstall},
+    },
+};
 use muxy_app_core::extensions::{Consent, Extension, Rule};
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::tr;
 
+mod cards;
 mod configuration;
-mod updates;
+mod detail;
+mod pictures;
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -37,8 +55,21 @@ enum Mutation {
     Remove,
     LoadUnpacked,
     Reload,
+    Publish,
     ResetPermissions,
     RemoveRule,
+    Trust,
+    Untrust,
+}
+
+impl From<&ActiveInstall> for Mutation {
+    fn from(job: &ActiveInstall) -> Self {
+        match job {
+            ActiveInstall::Install { .. } => Self::Install,
+            ActiveInstall::Update { .. } => Self::Update,
+            ActiveInstall::UpdateAll => Self::UpdateAll,
+        }
+    }
 }
 
 impl Mutation {
@@ -51,8 +82,11 @@ impl Mutation {
             Self::Remove => "extension-remove",
             Self::LoadUnpacked => "extension-load",
             Self::Reload => "extension-reload",
+            Self::Publish => "extension-publish",
             Self::ResetPermissions => "extension-reset-permissions",
             Self::RemoveRule => "extension-rule-remove",
+            Self::Trust => "extension-trust",
+            Self::Untrust => "extension-untrust",
         }
     }
 
@@ -67,8 +101,10 @@ impl Mutation {
             Self::Remove => tr_key!("Uninstalling…"),
             Self::LoadUnpacked => tr_key!("Loading…"),
             Self::Reload => tr_key!("Reloading…"),
+            Self::Publish => tr_key!("Publishing…"),
             Self::ResetPermissions => tr_key!("Clearing…"),
             Self::RemoveRule => tr_key!("Removing…"),
+            Self::Trust | Self::Untrust => tr_key!("Saving…"),
         }
     }
 }
@@ -86,19 +122,41 @@ pub(crate) struct ExtensionsView {
     metrics: Metrics,
     tab: Tab,
     search: Entity<TextInput>,
-    items: Vec<Value>,
+    items: Vec<MarketplaceItem>,
     page: u32,
     has_next: bool,
     query: String,
-    /// Whether Browse lists only language packs.
-    languages_only: bool,
+    /// The marketplace category Browse is limited to, if any.
+    category: Option<&'static str>,
+    sort: Sort,
     revision: u64,
     loading: Option<Loading>,
     mutation: Option<Mutation>,
     completed: Option<Mutation>,
     error: Option<String>,
-    update_all_status: Option<String>,
-    selected: Option<Value>,
+    /// The last marketplace job's result, until the next action clears it.
+    install_status: Option<String>,
+    /// The extension of the last publish, and its pull request.
+    published: Option<(String, String)>,
+    /// Whether this view started the running job, and so opens what it installs.
+    started_install: bool,
+    selected: Option<ExtensionDetails>,
+    /// Which screenshot the open extension's gallery shows.
+    screenshot: usize,
+    pictures: pictures::Pictures,
+    list_scroll: ScrollHandle,
+    detail_scroll: ScrollHandle,
+    /// Where each section of the open extension's page sits among the
+    /// scrolled children, for the header's links.
+    sections: Vec<(detail::Section, usize)>,
+    /// The section a header link last scrolled to, shown as current until
+    /// the page is scrolled by hand.
+    jumped: Option<detail::Section>,
+    /// The error the page last showed, so a new one scrolls into view.
+    shown_error: Option<String>,
+    /// The scrolled area's width when it was last laid out, which sets how
+    /// many grid columns fit and whether the gallery has a column beside it.
+    width: Rc<Cell<Pixels>>,
     folder: Option<muxy_ui::dialog::FolderPicker>,
     /// Text fields for string and number extension settings, by extension and key.
     setting_inputs: std::collections::HashMap<(String, String), Entity<TextInput>>,
@@ -115,6 +173,7 @@ impl ExtensionsView {
         let search = cx.new(|cx| {
             TextInput::new(InputStyle::field(&theme, &metrics), cx)
                 .with_placeholder_key(tr_key!("Search extensions…"))
+                .with_accessibility_id("extension-search")
         });
         let changes = cx.subscribe(&search, |view: &mut Self, _, event, cx| {
             if matches!(event, InputEvent::Changed) {
@@ -129,8 +188,16 @@ impl ExtensionsView {
         });
         let mut subscriptions = vec![changes];
         if let Some(model) = model.upgrade() {
-            subscriptions.push(cx.observe(&model, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&model, |view, _, cx| {
+                view.take_finished_install(cx);
+                cx.notify();
+            }));
         }
+        let view = cx.weak_entity();
+        cx.defer(move |cx| {
+            let _ = view.update(cx, Self::take_finished_install);
+        });
+        cx.on_release(|view, cx| view.pictures.release(cx)).detach();
         Self {
             model,
             theme,
@@ -141,30 +208,72 @@ impl ExtensionsView {
             page: 1,
             has_next: false,
             query: String::new(),
-            languages_only: false,
+            category: None,
+            sort: Sort::default(),
             revision: 0,
             loading: None,
             mutation: None,
             completed: None,
             error: None,
-            update_all_status: None,
+            install_status: None,
+            published: None,
+            started_install: false,
             selected: None,
+            screenshot: 0,
+            pictures: pictures::Pictures::default(),
+            list_scroll: ScrollHandle::new(),
+            detail_scroll: ScrollHandle::new(),
+            sections: Vec::new(),
+            jumped: None,
+            shown_error: None,
+            width: Rc::new(Cell::new(px(0.0))),
             folder: None,
             setting_inputs: std::collections::HashMap::new(),
             subscriptions,
         }
     }
 
-    pub(crate) fn sync_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
+    pub(crate) fn sync_appearance(
+        &mut self,
+        theme: Theme,
+        metrics: Metrics,
+        cx: &mut Context<Self>,
+    ) {
         self.theme = theme;
-        self.search.update(cx, |input, cx| {
-            input.set_style(InputStyle::field(&self.theme, &self.metrics), cx);
-        });
+        self.metrics = metrics;
+        let style = InputStyle::field(&self.theme, &self.metrics);
+        for input in std::iter::once(&self.search).chain(self.setting_inputs.values()) {
+            input.update(cx, |input, cx| input.set_style(style, cx));
+        }
         cx.notify();
     }
 
+    fn layout_scale(&self) -> Metrics {
+        super::layout_metrics(self.metrics)
+    }
+
+    fn active_install<'a>(&self, cx: &'a gpui::App) -> Option<&'a ActiveInstall> {
+        let model = self.model.upgrade()?;
+        model.read(cx).extensions.installs.active.as_ref()
+    }
+
+    fn status_note(&self, cx: &gpui::App) -> Option<String> {
+        self.model
+            .upgrade()
+            .and_then(|model| model.read(cx).extensions.installs.status.clone())
+            .or_else(|| self.install_status.clone())
+    }
+
+    fn mutating(&self, cx: &gpui::App) -> bool {
+        self.mutation.is_some() || self.active_install(cx).is_some()
+    }
+
+    fn busy(&self, cx: &gpui::App) -> bool {
+        self.mutating(cx) || self.loading.is_some()
+    }
+
     fn fetch(&mut self, reset: bool, cx: &mut Context<Self>) {
-        if self.mutation.is_some() {
+        if self.mutating(cx) {
             return;
         }
         self.revision += 1;
@@ -173,10 +282,12 @@ impl ExtensionsView {
             self.page = 1;
             self.items.clear();
             self.has_next = false;
+            self.pictures.forget_listed_screenshots(cx);
         }
         let page = if reset { 1 } else { self.page + 1 };
         let query = self.query.clone();
-        let category = self.languages_only.then_some("localization");
+        let category = self.category;
+        let sort = self.sort;
         self.loading = Some(if reset {
             Loading::Search
         } else {
@@ -193,22 +304,20 @@ impl ExtensionsView {
             {
                 return;
             }
-            let result =
-                crate::extensions::io::run(move || marketplace::list(&query, page, category)).await;
+            let result = crate::extensions::io::network(move || {
+                marketplace::list(&query, page, category, sort)
+            })
+            .await;
             let _ = view.update(cx, |view, cx| {
                 if view.revision != revision {
                     return;
                 }
                 view.loading = None;
                 match result {
-                    Ok(result) => {
-                        view.has_next = result["links"]["next"].is_string();
-                        if let Some(items) = result["data"].as_array() {
-                            view.page = page;
-                            view.items.extend(items.clone());
-                        } else {
-                            view.error = Some(tr!("Invalid marketplace response").to_string());
-                        }
+                    Ok(listing) => {
+                        view.has_next = listing.has_next;
+                        view.page = page;
+                        view.items.extend(listing.items);
                     }
                     Err(error) => view.error = Some(error),
                 }
@@ -220,7 +329,7 @@ impl ExtensionsView {
     }
 
     fn details(&mut self, name: String, cx: &mut Context<Self>) {
-        if self.loading.is_some() || self.mutation.is_some() {
+        if self.busy(cx) {
             return;
         }
         self.revision += 1;
@@ -235,7 +344,14 @@ impl ExtensionsView {
                 }
                 view.loading = None;
                 match result {
-                    Ok(details) => view.selected = Some(details),
+                    Ok(mut details) => {
+                        // Only listings say whether an extension is official.
+                        details.about.official |= view
+                            .items
+                            .iter()
+                            .any(|item| item.name == details.name && item.about.official);
+                        view.open_details(details, cx);
+                    }
                     Err(error) => view.error = Some(error),
                 }
                 cx.notify();
@@ -246,7 +362,7 @@ impl ExtensionsView {
     }
 
     fn load_unpacked(&mut self, cx: &mut Context<Self>) {
-        if self.folder.is_some() || self.mutation.is_some() {
+        if self.folder.is_some() || self.mutating(cx) {
             return;
         }
         let (sender, receiver) = async_channel::bounded(1);
@@ -302,101 +418,100 @@ impl ExtensionsView {
     }
 
     fn install(&mut self, cx: &mut Context<Self>) {
-        if self.loading.is_some() || self.mutation.is_some() {
+        if self.busy(cx) {
             return;
         }
         let Some(details) = self.selected.clone() else {
             return;
         };
-        let Some(name) = details["name"].as_str().map(str::to_owned) else {
-            return;
-        };
-        let Some(model) = self.model.upgrade() else {
-            return;
-        };
-        let directory = model.read(cx).extensions.registry.directory();
-        let registry = &model.read(cx).extensions.registry;
-        if registry.is_unpacked(&name) {
-            return;
-        }
-        let installed = registry.extensions.get(&name).cloned();
-        self.mutation = Some(if installed.is_some() {
-            Mutation::Update
-        } else {
-            Mutation::Install
+        let started = self.model.update(cx, |model, cx| {
+            model.install_marketplace_extension(details, cx)
         });
-        self.error = None;
-        cx.spawn(async move |view, cx| {
-            let installed_name = name.clone();
-            let download_directory = directory.clone();
-            let result = crate::extensions::io::network(move || {
-                marketplace::download(&details, &download_directory)
-            })
-            .await;
-            let result = match result {
-                Ok(stage) => {
-                    if let Some(installed) = installed {
-                        match model
-                            .update(cx, |model, cx| model.update_extension(installed, stage, cx))
-                        {
-                            Ok(task) => task.await,
-                            Err(error) => Err(error.to_string()),
-                        }
-                    } else {
-                        let result = crate::extensions::io::run(move || {
-                            marketplace::install(&stage, &directory, &name)
-                        })
-                        .await;
-                        match result {
-                            Ok(()) => match model
-                                .update(cx, AppModel::refresh_installed_extensions_task)
-                            {
-                                Ok(task) => task.await,
-                                Err(error) => Err(error.to_string()),
-                            },
-                            Err(error) => Err(error),
-                        }
-                    }
-                }
-                Err(error) => Err(error),
-            };
-            let _ = view.update(cx, |view, cx| {
-                view.finish_install(&installed_name, result, cx);
-            });
-        })
-        .detach();
+        self.install_started(started.unwrap_or(false));
     }
 
-    fn finish_install(&mut self, name: &str, result: Result<(), String>, cx: &mut Context<Self>) {
-        let updated = self.mutation == Some(Mutation::Update);
-        self.mutation = None;
-        match result {
-            Ok(()) => {
-                let details = self.model.upgrade().and_then(|model| {
-                    model
-                        .read(cx)
-                        .extensions
-                        .registry
-                        .extensions
-                        .get(name)
-                        .map(installed_details)
-                });
-                if let Some(details) = details {
-                    self.tab = Tab::Installed;
-                    self.query.clear();
-                    self.search.update(cx, |search, cx| search.set_text("", cx));
-                    self.selected = Some(details);
-                    self.completed = updated.then_some(Mutation::Update);
-                    self.error = None;
-                } else {
-                    self.error = Some(
-                        tr!("The installed extension could not be loaded. Reload extensions to try again.")
-                            .to_string(),
-                    );
-                }
-            }
-            Err(error) => self.error = Some(error),
+    fn update_all(&mut self, cx: &mut Context<Self>) {
+        if self.busy(cx) {
+            return;
         }
+        let started = self.model.update(cx, AppModel::update_all_extensions);
+        self.install_started(started.unwrap_or(false));
+    }
+
+    fn install_started(&mut self, started: bool) {
+        if started {
+            self.started_install = true;
+            self.install_status = None;
+            self.completed = None;
+            self.error = None;
+        }
+    }
+
+    fn take_finished_install(&mut self, cx: &mut Context<Self>) {
+        let finished = self
+            .model
+            .update(cx, |model, _| model.extensions.installs.finished.take());
+        if let Ok(Some(finished)) = finished {
+            self.show_finished_install(finished, cx);
+            cx.notify();
+        }
+    }
+
+    fn show_finished_install(&mut self, finished: FinishedInstall, cx: &mut Context<Self>) {
+        let started = std::mem::take(&mut self.started_install);
+        let succeeded = finished.error.is_none();
+        // An update replaces files in the same folder, which may hold new pictures.
+        self.pictures.forget_files(cx);
+        self.error = finished.error;
+        let opened = match &finished.job {
+            ActiveInstall::Install { name } if started && succeeded => {
+                self.open_installed(name, false, cx)
+            }
+            ActiveInstall::Update { name } if started && succeeded => {
+                self.open_installed(name, true, cx)
+            }
+            _ => false,
+        };
+        if !opened {
+            self.install_status = finished.status;
+        }
+    }
+
+    fn open_installed(&mut self, name: &str, updated: bool, cx: &mut Context<Self>) -> bool {
+        let details = self.model.upgrade().and_then(|model| {
+            model
+                .read(cx)
+                .extensions
+                .registry
+                .extensions
+                .get(name)
+                .map(ExtensionDetails::from)
+        });
+        let Some(details) = details else {
+            return false;
+        };
+        self.tab = Tab::Installed;
+        self.query.clear();
+        self.search.update(cx, |search, cx| search.set_text("", cx));
+        self.open_details(details, cx);
+        self.completed = updated.then_some(Mutation::Update);
+        true
+    }
+
+    /// Shows `details` on its own page. The same extension, refreshed, keeps
+    /// its place; another starts at the top with its first screenshot.
+    fn open_details(&mut self, details: ExtensionDetails, cx: &mut Context<Self>) {
+        let same = self
+            .selected
+            .as_ref()
+            .is_some_and(|selected| selected.name == details.name);
+        if !same {
+            self.screenshot = 0;
+            self.jumped = None;
+            self.detail_scroll.set_offset(point(px(0.0), px(0.0)));
+        }
+        self.selected = Some(details);
+        self.error = None;
         cx.notify();
     }
 
@@ -409,7 +524,7 @@ impl ExtensionsView {
     }
 
     fn change_extension(&mut self, name: &str, enabled: Option<bool>, cx: &mut Context<Self>) {
-        if self.loading.is_some() || self.mutation.is_some() {
+        if self.busy(cx) {
             return;
         }
         let name = name.to_owned();
@@ -492,6 +607,45 @@ impl ExtensionsView {
         );
     }
 
+    /// Asks twice, through the button and then a warning, before allowing
+    /// every gated action of the extension without a prompt.
+    fn trust(&mut self, owner: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let owner = owner.to_owned();
+        let parent = muxy_ui::dialog::Parent::new(window.window_handle(), self.style());
+        cx.spawn(async move |view, cx| {
+            let (title, message) = AppModel::trust_question(&owner);
+            let [cancel, allow] = AppModel::trust_buttons();
+            let answer =
+                muxy_ui::dialog::choose(&parent, &title, &message, &[&cancel, &allow], cx).await;
+            match answer {
+                Ok(Some(1)) => {
+                    let _ = view.update(cx, |view, cx| view.set_trusted(&owner, true, cx));
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    let _ = view.update(cx, |view, cx| {
+                        view.error = Some(error.to_string());
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn set_trusted(&mut self, owner: &str, trusted: bool, cx: &mut Context<Self>) {
+        let owner = owner.to_owned();
+        self.run(
+            if trusted {
+                Mutation::Trust
+            } else {
+                Mutation::Untrust
+            },
+            move |model, cx| model.set_extension_trusted(&owner, trusted, cx),
+            cx,
+        );
+    }
+
     /// Runs a model change, showing progress on its button until it finishes.
     fn run(
         &mut self,
@@ -499,7 +653,7 @@ impl ExtensionsView {
         change: impl FnOnce(&mut AppModel, &mut Context<AppModel>) -> gpui::Task<Result<(), String>>,
         cx: &mut Context<Self>,
     ) {
-        if self.mutation.is_some() {
+        if self.mutating(cx) {
             return;
         }
         let task = self.model.update(cx, change);
@@ -544,10 +698,11 @@ impl ExtensionsView {
     }
 
     fn reload(&mut self, cx: &mut Context<Self>) {
-        if self.mutation.is_some() {
+        if self.mutating(cx) {
             return;
         }
         let task = self.model.update(cx, AppModel::reload_extensions);
+        self.pictures.forget_files(cx);
         self.mutation = Some(Mutation::Reload);
         self.completed = None;
         self.error = None;
@@ -557,6 +712,8 @@ impl ExtensionsView {
                 Err(error) => Err(error.to_string()),
             };
             let _ = view.update(cx, |view, cx| {
+                // A redraw during the reload may have read the old files again.
+                view.pictures.forget_files(cx);
                 view.mutation = None;
                 view.completed = result.is_ok().then_some(Mutation::Reload);
                 view.error = result.err();
@@ -567,8 +724,59 @@ impl ExtensionsView {
         cx.notify();
     }
 
-    fn button_label<'a>(&self, id: &str, idle: &'a str) -> &'a str {
-        if let Some(mutation) = self.mutation
+    fn agent_task(&self, task: AgentTask, cx: &mut Context<Self>) {
+        let _ = self
+            .model
+            .update(cx, |model, cx| model.open_extension_agent(task, cx));
+    }
+
+    fn publish(&mut self, name: &str, cx: &mut Context<Self>) {
+        if self.mutating(cx) {
+            return;
+        }
+        let name = name.to_owned();
+        let task = self
+            .model
+            .update(cx, |model, cx| model.publish_extension(&name, cx));
+        self.mutation = Some(Mutation::Publish);
+        self.published = None;
+        self.error = None;
+        cx.spawn(async move |view, cx| {
+            let result = match task {
+                Ok(task) => task.await,
+                Err(error) => Err(PublishFailure::Failed(error.to_string())),
+            };
+            let _ = view.update(cx, |view, cx| {
+                view.mutation = None;
+                match result {
+                    Ok(request) => {
+                        view.install_status = Some(if request.updated {
+                            tr!("Updated the open pull request on %@.", request.branch).to_string()
+                        } else {
+                            tr!("Opened a pull request from %@.", request.branch).to_string()
+                        });
+                        view.published = Some((name.clone(), request.url));
+                    }
+                    Err(PublishFailure::Declined) => {}
+                    Err(PublishFailure::Failed(error)) => view.error = Some(error),
+                    Err(failure) => {
+                        let _ = view.model.update(cx, |model, cx| {
+                            model.offer_publish_help(&name, &failure, cx);
+                        });
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn button_label<'a>(&self, id: &str, idle: &'a str, cx: &gpui::App) -> &'a str {
+        let mutation = self
+            .mutation
+            .or_else(|| self.active_install(cx).map(Mutation::from));
+        if let Some(mutation) = mutation
             && mutation.button() == id
         {
             return mutation.label(idle);
@@ -583,9 +791,6 @@ impl ExtensionsView {
         match &self.loading {
             Some(Loading::Details(_)) if id == "extension-check-update" => tr_key!("Checking…"),
             Some(Loading::More) if id == "extension-more" => tr_key!("Loading…"),
-            Some(Loading::Details(name)) if id.strip_prefix("details-") == Some(name) => {
-                tr_key!("Loading…")
-            }
             _ => idle,
         }
     }
@@ -598,19 +803,37 @@ impl ExtensionsView {
         action: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
         cx: &Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
+        self.styled_button(id, label, false, action, cx)
+    }
+
+    /// A [`Self::button`], filled with the accent when it is the page's main
+    /// action.
+    fn styled_button(
+        &self,
+        id: impl Into<SharedString>,
+        label: &'static str,
+        primary: bool,
+        action: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+        cx: &Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
         let id = id.into();
+        let text = translate(self.button_label(&id, label, cx));
+        let kind = if primary {
+            controls::Button::primary(&text)
+        } else {
+            controls::Button::secondary(&text)
+        };
         controls::button(
             Style {
                 theme: &self.theme,
                 metrics: &self.metrics,
             },
             &id,
-            &translate(self.button_label(&id, label)),
-            self.mutation.is_none() && self.loading.is_none(),
+            kind.enabled(!self.busy(cx)),
             cx.listener(move |view, _, window, cx| {
-                if view.mutation.is_none() && view.loading.is_none() {
+                if !view.busy(cx) {
                     view.completed = None;
-                    view.update_all_status = None;
+                    view.install_status = None;
                     action(view, window, cx);
                     cx.notify();
                 }
@@ -620,20 +843,18 @@ impl ExtensionsView {
 }
 
 impl Render for ExtensionsView {
+    #[allow(clippy::too_many_lines, reason = "The page's one declarative layout")]
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(model) = self.model.upgrade() else {
             return div().into_any_element();
         };
-        let selected = self
-            .selected
-            .as_ref()
-            .and_then(|details| details["name"].as_str())
-            .and_then(|name| {
-                let runtime = &model.read(cx).extensions;
-                let extension = runtime.registry.extensions.get(name)?.clone();
-                let stored = runtime.settings.get(name).cloned().unwrap_or_default();
-                Some((extension, stored))
-            });
+        let selected = self.selected.as_ref().and_then(|details| {
+            let name = details.name.as_str();
+            let runtime = &model.read(cx).extensions;
+            let extension = runtime.registry.extensions.get(name)?.clone();
+            let stored = runtime.settings.get(name).cloned().unwrap_or_default();
+            Some((extension, stored))
+        });
         if let Some((extension, stored)) = selected {
             self.sync_setting_inputs(&extension, &stored, cx);
         }
@@ -649,6 +870,7 @@ impl Render for ExtensionsView {
             })
             .collect();
         let errors = registry.errors.clone();
+        let status = self.status_note(cx);
         let capabilities = &model.read(cx).capabilities;
         let mut unavailable: Vec<_> = [
             muxy_core::capability::Feature::ExtensionScripts,
@@ -662,12 +884,78 @@ impl Render for ExtensionsView {
                 "Language packs and other resource-only extensions keep working."
             ));
         }
-        let body = if let Some(details) = &self.selected {
-            self.details_body(details, &installed, cx)
+
+        if self.error != self.shown_error {
+            // Errors sit at the top of the page, which may be scrolled away
+            // from them, say at the actions that failed.
+            if self.error.is_some() {
+                let top = point(px(0.0), px(0.0));
+                self.list_scroll.set_offset(top);
+                self.detail_scroll.set_offset(top);
+                self.jumped = None;
+            }
+            self.shown_error.clone_from(&self.error);
+        }
+        let mut children: Vec<AnyElement> = Vec::new();
+        if let Some(error) = &self.error {
+            children.push(
+                accessibility::announced(
+                    form::note(self.style(), error, true).id("extension-error"),
+                    error.clone(),
+                    true,
+                )
+                .into_any_element(),
+            );
+        }
+        if let Some(status) = &status {
+            children.push(
+                accessibility::announced(
+                    form::note(self.style(), status, false).id("extension-status"),
+                    status.clone(),
+                    false,
+                )
+                .into_any_element(),
+            );
+        }
+        children.extend(errors.iter().enumerate().map(|(index, error)| {
+            accessibility::announced(
+                form::note(self.style(), error, true).id(("extension-registry-error", index)),
+                error.clone(),
+                true,
+            )
+            .into_any_element()
+        }));
+        children.extend(
+            unavailable
+                .iter()
+                .map(|reason| form::note(self.style(), reason, false).into_any_element()),
+        );
+        let mut sections = Vec::new();
+        if let Some(details) = &self.selected {
+            for (section, child) in self.detail_children(details, &installed, cx) {
+                if let Some(section) = section {
+                    sections.push((section, children.len()));
+                }
+                children.push(child);
+            }
         } else if self.tab == Tab::Installed {
-            self.installed_body(&installed, cx)
+            children.push(self.installed_body(&installed, cx).into_any_element());
         } else {
-            self.marketplace_body(cx)
+            children.push(self.marketplace_body(cx).into_any_element());
+        }
+        self.sections = sections;
+
+        let header = if let Some(details) = &self.selected {
+            self.detail_bar(details, &installed, cx)
+        } else {
+            self.header(&installed, cx).child(self.toolbar(cx))
+        };
+        let width = self.width.clone();
+        let view = cx.entity_id();
+        let (scroll, scroll_id) = if self.selected.is_some() {
+            (&self.detail_scroll, "extension-detail-scroll")
+        } else {
+            (&self.list_scroll, "extension-list-scroll")
         };
 
         div()
@@ -677,47 +965,49 @@ impl Render for ExtensionsView {
             .min_w_0()
             .min_h_0()
             .text_size(self.metrics.font_body())
-            .child(self.header(cx))
+            .child(
+                header
+                    .flex_none()
+                    .py(self.metrics.spacing7())
+                    .border_b_1()
+                    .border_color(self.theme.border),
+            )
             .child(
                 div()
-                    .id(if self.selected.is_some() {
-                        "extension-detail-scroll"
-                    } else {
-                        "extension-list-scroll"
-                    })
+                    .relative()
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
+                    .min_w_0()
+                    .child(
+                        canvas(
+                            move |bounds, _, cx| {
+                                if (width.get() - bounds.size.width).abs() > px(0.5) {
+                                    width.set(bounds.size.width);
+                                    cx.notify(view);
+                                }
+                            },
+                            |_, (), _, _| {},
+                        )
+                        .absolute()
+                        .size_full(),
+                    )
                     .child(
                         div()
+                            .id(scroll_id)
+                            .track_scroll(scroll)
+                            .on_scroll_wheel(cx.listener(|view, _, _, cx| {
+                                if view.selected.is_some() {
+                                    view.jumped = None;
+                                    cx.notify();
+                                }
+                            }))
+                            .size_full()
+                            .overflow_y_scroll()
                             .flex()
                             .flex_col()
                             .gap(self.metrics.spacing7())
                             .py(self.metrics.spacing7())
-                            .when(self.selected.is_none(), |body| {
-                                body.child(controls::search_field(
-                                    self.style(),
-                                    "extension-search",
-                                    &self.search,
-                                ))
-                            })
-                            .when_some(self.error.as_ref(), |body, error| {
-                                body.child(form::note(self.style(), error, true))
-                            })
-                            .when_some(self.update_all_status.as_ref(), |body, status| {
-                                body.child(form::note(self.style(), status, false))
-                            })
-                            .children(
-                                errors
-                                    .iter()
-                                    .map(|error| form::note(self.style(), error, true)),
-                            )
-                            .children(
-                                unavailable
-                                    .iter()
-                                    .map(|reason| form::note(self.style(), reason, false)),
-                            )
-                            .child(body),
+                            .children(children),
                     ),
             )
             .into_any_element()
@@ -734,28 +1024,25 @@ impl ExtensionsView {
 
     /// Opens Browse limited to language packs, with an empty search.
     pub(crate) fn browse_languages(&mut self, cx: &mut Context<Self>) {
-        if self.mutation.is_some() {
+        if self.mutating(cx) {
             return;
         }
-        self.languages_only = true;
+        self.category = Some("localization");
         self.query.clear();
         self.search.update(cx, |search, cx| search.set_text("", cx));
         self.switch_tab(Tab::Marketplace, cx);
     }
 
     fn switch_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        if self.mutation.is_some() {
+        if self.mutating(cx) {
             return;
-        }
-        if tab != Tab::Marketplace {
-            self.languages_only = false;
         }
         self.tab = tab;
         self.selected = None;
         self.error = None;
         self.completed = None;
         self.revision += 1;
-        self.update_all_status = None;
+        self.install_status = None;
         self.loading = None;
         if tab == Tab::Marketplace {
             self.fetch(true, cx);
@@ -763,81 +1050,70 @@ impl ExtensionsView {
         cx.notify();
     }
 
-    fn header(&self, cx: &Context<Self>) -> gpui::Div {
-        let header = div()
-            .flex()
-            .flex_none()
-            .flex_wrap()
-            .items_center()
-            .justify_between()
-            .gap(self.metrics.spacing6())
-            .py(self.metrics.spacing7())
-            .border_b_1()
-            .border_color(self.theme.border);
-        if self.selected.is_some() {
-            return header.child(
-                self.button(
-                    "extension-back",
-                    tr_key!("Extensions"),
-                    |view, _, cx| {
-                        view.selected = None;
-                        view.error = None;
-                        cx.notify();
-                    },
-                    cx,
+    /// The page title with the Installed and Browse tabs and their actions.
+    fn header(&self, installed: &[(Extension, bool, bool)], cx: &Context<Self>) -> gpui::Div {
+        div().flex().flex_col().gap(self.metrics.spacing6()).child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .justify_between()
+                .gap(self.metrics.spacing6())
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .gap(self.metrics.spacing6())
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(self.metrics.spacing4())
+                                .child(SymbolGlyph::new(
+                                    "puzzlepiece.extension",
+                                    self.metrics.icon_md(),
+                                    self.theme.fg_muted,
+                                ))
+                                .child(
+                                    div()
+                                        .text_size(self.metrics.font_title())
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(accessibility::label(
+                                            "extensions-heading",
+                                            tr!("Extensions"),
+                                        )),
+                                ),
+                        )
+                        .child(self.tab_control(installed.len(), cx)),
                 )
-                .flex_row_reverse()
-                .gap(self.metrics.spacing3())
-                .child(SymbolGlyph::new(
-                    "chevron.left",
-                    self.metrics.icon_sm(),
-                    self.theme.fg_muted,
-                )),
-            );
-        }
-        header
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap(self.metrics.spacing6())
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(self.metrics.spacing4())
-                            .child(SymbolGlyph::new(
-                                "puzzlepiece.extension",
-                                self.metrics.icon_md(),
-                                self.theme.fg_muted,
-                            ))
-                            .child(
-                                div()
-                                    .text_size(self.metrics.font_title())
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(tr!("Extensions")),
-                            ),
-                    )
-                    .child(self.tab_control(cx)),
-            )
-            .when(self.tab == Tab::Installed, |header| {
-                header.child(self.header_actions(cx))
-            })
+                .when(self.tab == Tab::Installed, |header| {
+                    header.child(self.header_actions(installed, cx))
+                }),
+        )
     }
 
-    fn tab_control(&self, cx: &Context<Self>) -> gpui::AnyElement {
+    fn tab_control(&self, installed: usize, cx: &Context<Self>) -> AnyElement {
+        let enabled = !self.mutating(cx);
         let choices = [
-            Choice::new("installed", tr!("Installed")),
+            Choice::new(
+                "installed",
+                if installed == 0 {
+                    tr!("Installed")
+                } else {
+                    tr!("Installed (%@)", installed.to_string())
+                },
+            ),
             Choice::new("marketplace", tr!("Browse")),
         ]
         .map(|mut choice| {
-            choice.enabled = self.mutation.is_none();
+            choice.enabled = enabled;
             choice
         });
         controls::segmented(
             self.style(),
             "extensions",
+            &tr!("Extensions"),
             &choices,
             if self.tab == Tab::Installed {
                 "installed"
@@ -857,7 +1133,16 @@ impl ExtensionsView {
         )
     }
 
-    fn header_actions(&self, cx: &Context<Self>) -> gpui::Div {
+    fn header_actions(
+        &self,
+        installed: &[(Extension, bool, bool)],
+        cx: &Context<Self>,
+    ) -> gpui::Div {
+        let updates = self
+            .model
+            .upgrade()
+            .map_or(0, |model| model.read(cx).extension_update_count());
+        let packaged = installed.iter().any(|(_, _, unpacked)| !unpacked);
         div()
             .flex()
             .flex_wrap()
@@ -874,23 +1159,34 @@ impl ExtensionsView {
                 |view, _, cx| view.reload(cx),
                 cx,
             ))
-            .when(
-                self.model.upgrade().is_some_and(|model| {
-                    let registry = &model.read(cx).extensions.registry;
-                    registry
-                        .extensions
-                        .keys()
-                        .any(|name| !registry.is_unpacked(name))
-                }),
-                |actions| {
-                    actions.child(self.button(
-                        "extension-update-all",
-                        tr_key!("Update all"),
-                        |view, _, cx| view.update_all(cx),
-                        cx,
-                    ))
-                },
-            )
+            .when(packaged, |actions| {
+                let button = self.styled_button(
+                    "extension-update-all",
+                    tr_key!("Update all"),
+                    updates > 0,
+                    |view, _, cx| view.update_all(cx),
+                    cx,
+                );
+                actions.child(if updates > 0 {
+                    button
+                        .aria_description(if updates == 1 {
+                            tr!("1 update available")
+                        } else {
+                            tr!("%@ updates available", updates.to_string())
+                        })
+                        .child(
+                            div()
+                                .px(self.metrics.spacing2())
+                                .rounded_full()
+                                .bg(self.theme.accent_foreground)
+                                .text_color(self.theme.accent)
+                                .text_size(self.metrics.font_caption())
+                                .child(updates.to_string()),
+                        )
+                } else {
+                    button
+                })
+            })
     }
 
     fn card(&self) -> gpui::Div {
@@ -951,22 +1247,24 @@ impl ExtensionsView {
                         div()
                             .text_size(self.metrics.font_emphasis())
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(title.to_owned()),
+                            .child(accessibility::label(
+                                SharedString::from(format!("extension-section-{title}")),
+                                title.to_owned(),
+                            )),
                     )
                     .child(actions),
             )
             .child(content)
     }
 
-    /// Remembered consent answers, each removable, as on main.
-    fn rules_section(
-        &self,
-        owner: &str,
-        rules: &[Rule],
-        audit_log: std::path::PathBuf,
-        cx: &Context<Self>,
-    ) -> gpui::Div {
+    /// Remembered consent answers, each removable, as on main, and whether
+    /// the extension is always allowed.
+    fn rules_section(&self, owner: &str, model: &AppModel, cx: &Context<Self>) -> gpui::Div {
+        let rules = model.extension_rules(owner);
+        let trusted = model.extension_trusted(owner);
+        let audit_log = model.extension_audit_log();
         let clear = owner.to_owned();
+        let trust = owner.to_owned();
         let actions = div()
             .flex()
             .flex_wrap()
@@ -984,10 +1282,22 @@ impl ExtensionsView {
                     move |view, _, cx| view.reset_permissions(&clear, cx),
                     cx,
                 ))
+            })
+            .when(!trusted, |actions| {
+                actions.child(
+                    self.button(
+                        "extension-trust",
+                        tr_key!("Always Allow…"),
+                        move |view, window, cx| view.trust(&trust, window, cx),
+                        cx,
+                    )
+                    .text_color(self.theme.danger),
+                )
             });
         let content = if rules.is_empty() {
-            div().text_color(self.theme.fg_muted).child(tr!(
-                "No saved rules. When you choose to remember an answer to a permission request, it appears here."
+            div().text_color(self.theme.fg_muted).child(accessibility::label(
+                "extension-no-rules",
+                tr!("No saved rules. When you choose to remember an answer to a permission request, it appears here."),
             ))
         } else {
             rules.iter().enumerate().fold(
@@ -995,7 +1305,45 @@ impl ExtensionsView {
                 |list, (index, rule)| list.child(self.rule_row(owner, index, rule, cx)),
             )
         };
+        let content = div()
+            .flex()
+            .flex_col()
+            .gap(self.metrics.spacing6())
+            .when(trusted, |column| column.child(self.trusted_row(owner, cx)))
+            .child(content);
         self.section_with_actions(&tr!("Permission rules"), actions, content)
+    }
+
+    /// Says the extension skips every permission prompt, with a way to stop.
+    fn trusted_row(&self, owner: &str, cx: &Context<Self>) -> gpui::Div {
+        let owner = owner.to_owned();
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap(self.metrics.spacing6())
+            .px(self.metrics.spacing5())
+            .py(self.metrics.spacing3())
+            .rounded(self.metrics.radius_sm())
+            .border_1()
+            .border_color(self.theme.danger)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_color(self.theme.danger)
+                    .child(accessibility::label(
+                        "extension-trusted",
+                        tr!("Always allowed: every permission request from this extension is allowed without asking, and the rules below don't apply."),
+                    )),
+            )
+            .child(self.button(
+                "extension-untrust",
+                tr_key!("Stop Always Allowing"),
+                move |view, _, cx| view.set_trusted(&owner, false, cx),
+                cx,
+            ))
     }
 
     fn rule_row(&self, owner: &str, index: usize, rule: &Rule, cx: &Context<Self>) -> gpui::Div {
@@ -1010,6 +1358,7 @@ impl ExtensionsView {
             rule.scope().into()
         };
         let (owner, removed) = (owner.to_owned(), rule.clone());
+        let name = tr!("Remove %@ %@ %@", &decision, rule.gate.name(), &scope);
         div()
             .flex()
             .items_center()
@@ -1021,7 +1370,7 @@ impl ExtensionsView {
             .child(
                 div()
                     .flex_none()
-                    .w(gpui::px(64.0))
+                    .w(self.layout_scale().scaled(64.0))
                     .text_size(self.metrics.font_footnote())
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color)
@@ -1030,7 +1379,7 @@ impl ExtensionsView {
             .child(
                 div()
                     .flex_none()
-                    .w(gpui::px(130.0))
+                    .w(self.layout_scale().scaled(130.0))
                     .truncate()
                     .child(rule.gate.name()),
             )
@@ -1043,12 +1392,15 @@ impl ExtensionsView {
                     .text_color(self.theme.fg_muted)
                     .child(scope),
             )
-            .child(self.button(
-                format!("extension-rule-remove-{index}"),
-                tr_key!("Remove"),
-                move |view, _, cx| view.remove_rule(&owner, removed.clone(), cx),
-                cx,
-            ))
+            .child(
+                self.button(
+                    format!("extension-rule-remove-{index}"),
+                    tr_key!("Remove"),
+                    move |view, _, cx| view.remove_rule(&owner, removed.clone(), cx),
+                    cx,
+                )
+                .aria_label(name),
+            )
     }
 
     fn empty_state(&self, title: &str, description: &str) -> gpui::Div {
@@ -1066,533 +1418,76 @@ impl ExtensionsView {
             .child(
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(title.to_owned()),
+                    .child(accessibility::label(
+                        "extension-empty-title",
+                        title.to_owned(),
+                    )),
             )
             .child(
                 div()
                     .text_color(self.theme.fg_muted)
                     .text_center()
-                    .child(description.to_owned()),
-            )
-    }
-
-    fn details_body(
-        &self,
-        details: &Value,
-        installed: &[(Extension, bool, bool)],
-        cx: &mut Context<Self>,
-    ) -> gpui::Div {
-        let name = details["name"].as_str().unwrap_or("").to_owned();
-        let local = installed
-            .iter()
-            .find(|(extension, _, _)| extension.name == name);
-        let updates = local
-            .filter(|(_, _, unpacked)| !unpacked)
-            .map(|(extension, _, _)| self.update_section(extension, details, cx));
-        let details = local.map_or_else(
-            || details.clone(),
-            |(extension, _, _)| installed_details(extension),
-        );
-        let hero = self.detail_header(&name, &details, local, cx);
-        let mut body = div()
-            .flex()
-            .flex_col()
-            .gap(self.metrics.spacing7())
-            .min_w_0()
-            .child(hero)
-            .children(updates)
-            .child(self.section(
-                &tr!("Requested permissions"),
-                self.permissions_body(&details),
-            ));
-        if let Some((extension, _, _)) = local
-            && let Some(model) = self.model.upgrade()
-        {
-            let model = model.read(cx);
-            let stored = model
-                .extensions
-                .settings
-                .get(&extension.name)
-                .cloned()
-                .unwrap_or_default();
-            let lines: Vec<String> = model
-                .extensions
-                .logs
-                .tail(&extension.name)
-                .map(str::to_owned)
-                .collect();
-            let background = extension
-                .manifest
-                .background
-                .is_some()
-                .then(|| model.background_running(&extension.name));
-            let rules = model.extension_rules(&extension.name);
-            let audit_log = model.extension_audit_log();
-            body = body
-                .child(self.rules_section(&extension.name, &rules, audit_log, cx))
-                .children(self.settings_section(extension, &stored, cx))
-                .child(self.logs_section(extension, &lines, background, cx));
-        }
-        if let Some((_, _, unpacked)) = local {
-            body = body.child(
-                self.section(
-                    &tr!("Manage extension"),
-                    div().flex().flex_wrap().gap(self.metrics.spacing4()).child(
-                        self.button(
-                            "extension-remove",
-                            if *unpacked {
-                                tr_key!("Unload folder")
-                            } else {
-                                tr_key!("Uninstall")
-                            },
-                            move |view, _, cx| view.remove(&name, cx),
-                            cx,
-                        )
-                        .text_color(self.theme.danger),
-                    ),
-                ),
-            );
-        }
-        body
-    }
-
-    fn detail_header(
-        &self,
-        name: &str,
-        details: &Value,
-        local: Option<&(Extension, bool, bool)>,
-        cx: &Context<Self>,
-    ) -> gpui::Div {
-        let heading = div()
-            .flex()
-            .flex_1()
-            .min_w_0()
-            .items_center()
-            .gap(self.metrics.spacing4())
-            .child(
-                div()
-                    .text_size(self.metrics.font_display())
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .min_w_0()
-                    .truncate()
-                    .child(name.to_owned()),
-            )
-            .when_some(details["version"].as_str(), |heading, version| {
-                heading.child(
-                    div()
-                        .flex_none()
-                        .text_color(self.theme.fg_muted)
-                        .child(format!("v{version}")),
-                )
-            });
-        let mut badges = div()
-            .flex()
-            .flex_none()
-            .flex_wrap()
-            .gap(self.metrics.spacing4());
-        if let Some((_, enabled, unpacked)) = local {
-            badges = badges.child(self.badge(
-                if *enabled {
-                    tr!("Enabled")
-                } else {
-                    tr!("Disabled")
-                },
-                *enabled,
-            ));
-            if *unpacked {
-                badges = badges.child(self.badge(tr!("Unpacked"), false));
-            }
-        }
-        let action = if let Some((_, enabled, _)) = local {
-            let enabled = *enabled;
-            let owner = name.to_owned();
-            self.button(
-                "extension-enable",
-                if enabled {
-                    tr_key!("Disable")
-                } else {
-                    tr_key!("Enable")
-                },
-                move |view, _, cx| view.enable(&owner, !enabled, cx),
-                cx,
-            )
-        } else {
-            self.button(
-                "extension-install",
-                tr_key!("Install"),
-                |view, _, cx| view.install(cx),
-                cx,
-            )
-        };
-        self.card()
-            .flex()
-            .flex_col()
-            .gap(self.metrics.spacing6())
-            .p(self.metrics.spacing7())
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_between()
-                    .gap(self.metrics.spacing6())
-                    .child(
-                        div()
-                            .flex()
-                            .flex_1()
-                            .items_center()
-                            .min_w_0()
-                            .gap(self.metrics.spacing6())
-                            .child(SymbolGlyph::new(
-                                "puzzlepiece.extension.fill",
-                                self.metrics.icon_xl(),
-                                self.theme.fg_muted,
-                            ))
-                            .child(heading),
-                    )
-                    .child(action),
-            )
-            .when(local.is_some(), |hero| hero.child(badges))
-            .child(
-                div()
-                    .text_color(self.theme.fg_muted)
-                    .child(details["description"].as_str().unwrap_or("").to_owned()),
-            )
-            .when(local.is_some_and(|(_, enabled, _)| !enabled), |hero| {
-                hero.child(div().text_color(self.theme.fg_muted).child(tr!(
-                    "Review the permissions below, then enable this extension to use it."
-                )))
-            })
-    }
-
-    fn update_section(
-        &self,
-        extension: &Extension,
-        details: &Value,
-        cx: &Context<Self>,
-    ) -> gpui::Div {
-        let available = available_update(extension, details);
-        let owner = extension.name.clone();
-        let actions = div()
-            .flex()
-            .flex_wrap()
-            .gap(self.metrics.spacing4())
-            .child(self.button(
-                "extension-check-update",
-                tr_key!("Check for updates"),
-                move |view, _, cx| view.details(owner.clone(), cx),
-                cx,
-            ))
-            .when(available.is_some(), |actions| {
-                actions.child(self.button(
-                    "extension-update",
-                    tr_key!("Update"),
-                    |view, _, cx| view.install(cx),
-                    cx,
-                ))
-            });
-        let message = if let Some(version) = available {
-            tr!("Version %@ is available.", version)
-        } else if self.completed == Some(Mutation::Update) {
-            tr!("Extension updated.")
-        } else if details["current_version"].is_string() {
-            tr!("This extension is up to date.")
-        } else {
-            tr!("Check the marketplace for a newer version.")
-        };
-        let mut content = div()
-            .flex()
-            .flex_col()
-            .gap(self.metrics.spacing4())
-            .text_color(self.theme.fg_muted)
-            .child(message);
-        if available.is_some() {
-            let added: Vec<_> = details["permissions"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .filter(|permission| !extension.manifest.permissions.contains(*permission))
-                .collect();
-            if !added.is_empty() {
-                content = content.child(tr!(
-                    "New permissions: %@. After updating, review the permissions and enable the extension again.",
-                    added.join(", ")
-                ));
-            }
-        }
-        self.section_with_actions(&tr!("Updates"), actions, content)
-    }
-
-    fn permissions_body(&self, details: &Value) -> gpui::Div {
-        let permissions: Vec<_> = details["permissions"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .collect();
-        let mut permission_tags = div().flex().flex_wrap().gap(self.metrics.spacing4());
-        for permission in &permissions {
-            permission_tags = permission_tags.child(self.badge((*permission).to_owned(), false));
-        }
-        div()
-            .flex()
-            .flex_col()
-            .gap(self.metrics.spacing6())
-            .child(permission_tags)
-            .when(permissions.is_empty(), |body| {
-                body.child(
-                    div()
-                        .text_color(self.theme.fg_muted)
-                        .child(tr!("No permissions requested.")),
-                )
-            })
-            .child(
-                div()
-                    .text_size(self.metrics.font_footnote())
-                    .text_color(self.theme.fg_muted)
-                    .child(tr!(
-                        "Commands and file or Git changes ask for permission when used."
+                    .child(accessibility::label(
+                        "extension-empty-description",
+                        description.to_owned(),
                     )),
             )
     }
 
-    fn installed_body(
-        &self,
-        installed: &[(Extension, bool, bool)],
-        cx: &mut Context<Self>,
-    ) -> gpui::Div {
-        let query = self.query.to_lowercase();
-        let filtered: Vec<_> = installed
-            .iter()
-            .filter(|(extension, _, _)| {
-                format!("{} {}", extension.name, extension.manifest.description)
-                    .to_lowercase()
-                    .contains(&query)
-            })
-            .collect();
-        if filtered.is_empty() {
-            return if installed.is_empty() {
-                self.empty_state(
-                    &tr!("No extensions installed"),
-                    &tr!("Browse extensions to add tools to Muxy, or load an unpacked extension folder."),
-                )
-                .child(self.button(
-                    "extension-browse",
-                    tr_key!("Browse extensions"),
-                    |view, _, cx| view.switch_tab(Tab::Marketplace, cx),
-                    cx,
-                ))
-            } else {
-                self.empty_state(
-                    &tr!("No matching extensions"),
-                    &tr!("Try a different name or clear your search."),
-                )
-            };
-        }
-        let mut rows = self.card().overflow_hidden();
-        for (index, (extension, enabled, unpacked)) in filtered.into_iter().enumerate() {
-            rows = rows.child(self.installed_row(extension, *enabled, *unpacked, index > 0, cx));
-        }
-        rows
-    }
-
-    fn installed_row(
+    /// Edits an unpacked extension, or clones one from the marketplace to edit
+    /// the copy.
+    fn agent_action(
         &self,
         extension: &Extension,
-        enabled: bool,
         unpacked: bool,
-        separator: bool,
         cx: &Context<Self>,
-    ) -> gpui::Stateful<gpui::Div> {
-        let details = installed_details(extension);
-        let mut title = div()
-            .flex()
-            .flex_none()
-            .flex_wrap()
-            .items_center()
-            .gap(self.metrics.spacing4())
-            .child(
-                div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .min_w_0()
-                    .max_w_full()
-                    .truncate()
-                    .child(extension.name.clone()),
-            )
-            .child(
-                div()
-                    .text_size(self.metrics.font_footnote())
-                    .text_color(self.theme.fg_muted)
-                    .child(format!("v{}", extension.version)),
-            )
-            .child(self.badge(
-                if enabled {
-                    tr!("Enabled")
-                } else {
-                    tr!("Disabled")
-                },
-                enabled,
-            ));
+    ) -> Option<(&'static str, AgentTask)> {
+        let name = extension.name.clone();
         if unpacked {
-            title = title.child(self.badge(tr!("Unpacked"), false));
-        }
-
-        div()
-            .id(SharedString::from(format!(
-                "extension-row-{}",
-                extension.name
-            )))
-            .flex()
-            .items_center()
-            .gap(self.metrics.spacing6())
-            .p(self.metrics.spacing7())
-            .when(separator, |row| {
-                row.border_t_1().border_color(self.theme.border)
-            })
-            .cursor_pointer()
-            .hover(|row| row.bg(self.theme.hover))
-            .focus(|row| row.bg(self.theme.accent_soft))
-            .button_interaction(cx.listener(move |view, _, _, cx| {
-                if view.mutation.is_none() {
-                    view.selected = Some(details.clone());
-                    view.error = None;
-                    view.completed = None;
-                    view.update_all_status = None;
-                    cx.notify();
-                }
-            }))
-            .child(SymbolGlyph::new(
-                "puzzlepiece.extension.fill",
-                self.metrics.icon_lg(),
-                self.theme.fg_muted,
-            ))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(self.metrics.spacing2())
-                    .child(title)
-                    .child(
-                        div()
-                            .text_size(self.metrics.font_footnote())
-                            .text_color(self.theme.fg_muted)
-                            .line_clamp(2)
-                            .child(extension.manifest.description.clone()),
-                    ),
-            )
-            .child(SymbolGlyph::new(
-                "chevron.right",
-                self.metrics.icon_sm(),
-                self.theme.fg_muted,
-            ))
-    }
-
-    fn marketplace_body(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let mut body = div().flex().flex_col().gap(self.metrics.spacing6());
-        if self.languages_only {
-            body = body.child(
-                div()
-                    .debug_selector(|| "extension-languages-only".into())
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(self.metrics.spacing6())
-                    .child(
-                        div()
-                            .text_color(self.theme.fg_muted)
-                            .child(tr!("Showing language extensions")),
-                    )
-                    .child(self.button(
-                        "extension-category-clear",
-                        tr_key!("Show all"),
-                        |view, _, cx| {
-                            view.languages_only = false;
-                            view.fetch(true, cx);
-                        },
-                        cx,
-                    )),
-            );
-        }
-        if self.loading == Some(Loading::Search) {
-            body = body.child(
-                div()
-                    .text_color(self.theme.fg_muted)
-                    .child(tr!("Loading extensions…")),
-            );
-        }
-        for item in &self.items {
-            let name = item["name"].as_str().unwrap_or("").to_owned();
-            let selected = name.clone();
-            body = body.child(
-                self.card()
-                    .p(self.metrics.spacing7())
-                    .flex()
-                    .items_center()
-                    .gap(self.metrics.spacing6())
-                    .child(SymbolGlyph::new(
-                        "puzzlepiece.extension",
-                        self.metrics.icon_xl(),
-                        self.theme.fg_muted,
-                    ))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap(self.metrics.spacing2())
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(name))
-                            .child(
-                                div()
-                                    .text_size(self.metrics.font_footnote())
-                                    .text_color(self.theme.fg_muted)
-                                    .line_clamp(2)
-                                    .child(item["description"].as_str().unwrap_or("").to_owned()),
-                            ),
-                    )
-                    .child(self.button(
-                        format!("details-{selected}"),
-                        tr_key!("View"),
-                        move |view, _, cx| view.details(selected.clone(), cx),
-                        cx,
-                    )),
-            );
-        }
-        if self.loading.is_none() && self.items.is_empty() && self.error.is_none() {
-            body = body.child(self.empty_state(
-                &tr!("No extensions found"),
-                &tr!("Try a different search to find extensions."),
+            let folder = self
+                .model
+                .upgrade()?
+                .read(cx)
+                .extension_source(&name)
+                .ok()?;
+            return Some((
+                tr_key!("Edit with Agent…"),
+                AgentTask::Edit { name, folder },
             ));
         }
-        if self.has_next {
-            body = body.child(div().flex().justify_center().child(self.button(
-                "extension-more",
-                tr_key!("Load more"),
-                |view, _, cx| {
-                    view.fetch(false, cx);
-                },
-                cx,
-            )));
-        }
-        body
+        Some((
+            tr_key!("Clone and Modify…"),
+            AgentTask::Clone {
+                name,
+                installed: extension.directory.clone(),
+            },
+        ))
+    }
+
+    fn agent_button(
+        &self,
+        id: &str,
+        extension: &Extension,
+        unpacked: bool,
+        cx: &Context<Self>,
+    ) -> Option<gpui::Stateful<gpui::Div>> {
+        let (label, task) = self.agent_action(extension, unpacked, cx)?;
+        Some(self.button(
+            format!("{id}-{}", extension.name),
+            label,
+            move |view, _, cx| view.agent_task(task.clone(), cx),
+            cx,
+        ))
     }
 }
 
-fn installed_details(extension: &Extension) -> Value {
-    json!({
-        "name": extension.name,
-        "version": extension.version,
-        "description": extension.manifest.description,
-        "permissions": extension.manifest.permissions,
-    })
-}
-
-fn available_update<'a>(extension: &Extension, details: &'a Value) -> Option<&'a str> {
-    let version = details["current_version"].as_str()?;
-    (details["name"].as_str() == Some(extension.name.as_str())
-        && marketplace::is_update(&extension.version, version))
-    .then_some(version)
+/// Why no permission tags are shown. Unknown permissions never read as none.
+fn permissions_note(permissions: Option<&BTreeSet<String>>) -> Option<SharedString> {
+    match permissions {
+        None => Some(tr!(
+            "The marketplace did not list this extension's permissions."
+        )),
+        Some(permissions) if permissions.is_empty() => Some(tr!("No permissions requested.")),
+        Some(_) => None,
+    }
 }

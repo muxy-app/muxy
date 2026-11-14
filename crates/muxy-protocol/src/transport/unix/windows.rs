@@ -4,7 +4,7 @@ use std::fs::OpenOptions;
 use std::io;
 use std::mem;
 use std::os::windows::fs::OpenOptionsExt;
-use std::os::windows::io::{AsRawHandle, AsRawSocket};
+use std::os::windows::io::{AsRawHandle, AsRawSocket, AsSocket, BorrowedSocket};
 use std::path::Path;
 use std::ptr;
 
@@ -18,6 +18,33 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::IO::CancelIoEx;
 use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_AF_UNIX;
+
+use super::{LocalListener, LocalStream};
+
+/// A listener that `WSAPoll` can wait on, which `uds_windows`' own can't
+/// be since it lacks `AsSocket`.
+#[derive(Debug)]
+pub(super) struct Pollable(LocalListener);
+
+impl From<LocalListener> for Pollable {
+    fn from(listener: LocalListener) -> Self {
+        Self(listener)
+    }
+}
+
+impl Pollable {
+    pub(super) fn accept(&self) -> io::Result<(LocalStream, uds_windows::SocketAddr)> {
+        self.0.accept()
+    }
+}
+
+impl AsSocket for Pollable {
+    fn as_socket(&self) -> BorrowedSocket<'_> {
+        // SAFETY: the listener owns the socket and keeps it open while `self`
+        // is borrowed.
+        unsafe { BorrowedSocket::borrow_raw(self.0.as_raw_socket()) }
+    }
+}
 
 /// The process ID of whoever holds the other end of a connected socket.
 pub(super) fn peer_pid(socket: &impl AsRawSocket) -> io::Result<u32> {

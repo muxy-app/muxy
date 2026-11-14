@@ -2,7 +2,7 @@
 //! one listed in `settings.toml`. Session and channel IDs are counters per
 //! server, so what they key lives with the server too.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use gpui::Context;
 use muxy_app_core::settings::ServerEntry;
@@ -22,6 +22,8 @@ pub(crate) struct Runtime {
     pub(super) generation: u64,
     /// The server's build and instance, as its last connection reported them.
     pub(super) info: Option<muxy_protocol::ServerInfo>,
+    /// What the server can do, as its last connection reported.
+    pub(super) features: Vec<muxy_protocol::Feature>,
     /// Why the last connection attempt failed, for the server's own status.
     pub(super) error: Option<String>,
     /// Another computer's server is stopping or restarting at the user's request.
@@ -31,7 +33,7 @@ pub(crate) struct Runtime {
     /// Installing Muxy there, at the user's request.
     pub(super) install: Option<super::remote_servers::Install>,
     /// How the worker reaches another computer.
-    pub(super) target: Option<SshTarget>,
+    pub(super) target: Option<Target>,
     /// Connecting again after a drop.
     pub(super) retry: super::reconnect::Retry,
     /// Checks of its project folders started, so only the latest applies.
@@ -40,10 +42,18 @@ pub(crate) struct Runtime {
     pub(super) password_login: bool,
     pub(super) catalog: catalog::Synchronization,
     pub(super) references: Option<Vec<SessionId>>,
+    /// The name this connection was last asked to give each session, so
+    /// each is asked once a connection, and a failure waits for the next.
+    pub(super) names_asked: BTreeMap<SessionId, Option<String>>,
     pub(super) discarding: HashSet<SessionId>,
     pub(super) sessions_revision: u64,
+    /// Channels up to this one were attached on this connection; the closed ones are acknowledged.
+    pub(super) last_channel: u32,
     pub(crate) progress: HashMap<SessionId, SessionProgress>,
     pub(crate) activity: activity::ActivityView,
+    /// The sessions this app showed when it last looked, so the ones it
+    /// stops showing while they keep running aren't opened here again.
+    pub(super) shown: Option<BTreeSet<SessionId>>,
 }
 
 impl Runtime {
@@ -53,6 +63,7 @@ impl Runtime {
             connection,
             generation,
             info: None,
+            features: Vec::new(),
             error: None,
             stopping: false,
             failure: None,
@@ -63,10 +74,13 @@ impl Runtime {
             password_login: false,
             catalog: catalog::Synchronization::default(),
             references: None,
+            names_asked: BTreeMap::new(),
             discarding: HashSet::new(),
             sessions_revision: 0,
+            last_channel: 0,
             progress: HashMap::new(),
             activity: activity::ActivityView::default(),
+            shown: None,
         }
     }
 }
@@ -75,12 +89,19 @@ pub(crate) struct Servers {
     workers: Workers,
     /// Passwords typed this session, which ssh asks the app for.
     pub(super) passwords: crate::askpass::Passwords,
+    /// How ssh goes through the app's proxy, when it applies to the whole app.
+    pub(super) proxy: Option<muxy_client::ProxyCommand>,
+    /// `paired-servers.toml`, with the tokens for servers this computer paired with.
+    pub(super) tokens: std::path::PathBuf,
     /// This computer's server, which is always there.
     pub(crate) local: Runtime,
     remotes: BTreeMap<ServerId, Runtime>,
 }
 
-pub(super) fn ssh_target(entry: &ServerEntry) -> std::io::Result<SshTarget> {
+pub(super) fn ssh_target(
+    entry: &ServerEntry,
+    proxy: Option<&muxy_client::ProxyCommand>,
+) -> std::io::Result<SshTarget> {
     if let Some(command) = &entry.ssh_command {
         return SshTarget::custom_command(command);
     }
@@ -88,16 +109,26 @@ pub(super) fn ssh_target(entry: &ServerEntry) -> std::io::Result<SshTarget> {
     if let Some(identity) = &entry.identity_file {
         target = target.with_identity(identity);
     }
+    if let Some(proxy) = proxy {
+        target = target.with_proxy(proxy.clone());
+    }
     Ok(target)
 }
 
 impl Servers {
     /// Boot already asked the local worker to connect, as generation 1.
     /// ssh asks for passwords on `askpass`, a socket path.
-    pub(super) fn new(workers: Workers, local: Worker, askpass: std::path::PathBuf) -> Self {
+    pub(super) fn new(
+        workers: Workers,
+        local: Worker,
+        askpass: std::path::PathBuf,
+        tokens: std::path::PathBuf,
+    ) -> Self {
         Self {
             workers,
             passwords: crate::askpass::Passwords::new(askpass),
+            proxy: None,
+            tokens,
             local: Runtime::new(Some(local), ConnectionState::Connecting, 1),
             remotes: BTreeMap::new(),
         }
@@ -131,7 +162,7 @@ impl Servers {
             .chain(self.remotes.iter().map(|(id, runtime)| (*id, runtime)))
     }
 
-    /// Starts the worker for a server reached over SSH. An invalid entry
+    /// Starts the worker for another computer's server. An invalid entry
     /// leaves the server without a worker, and its error says why. A server
     /// that had a worker before keeps counting from its `generation`, so
     /// updates from that worker are never taken for the new one's.
@@ -140,7 +171,7 @@ impl Servers {
         runtime.password_login = entry.password_login;
         match self.target(entry).and_then(|target| {
             runtime.target = Some(target.clone());
-            self.workers.start(entry.id, Target::Ssh(target))
+            self.workers.start(entry.id, target)
         }) {
             Ok(work) => runtime.work = Some(work),
             Err(error) => runtime.error = Some(format!("{}: {error}", entry.destination())),
@@ -148,15 +179,49 @@ impl Servers {
         self.remotes.insert(entry.id, runtime);
     }
 
-    /// How ssh reaches `entry`: its key file, and asking the app for a
-    /// password when it logs in with one.
-    pub(super) fn target(&mut self, entry: &ServerEntry) -> std::io::Result<SshTarget> {
-        let mut target = ssh_target(entry)?;
+    /// How the worker reaches `entry`: as a paired computer with its saved
+    /// token, or over ssh with its key file, asking the app for a password
+    /// when it logs in with one.
+    pub(super) fn target(&mut self, entry: &ServerEntry) -> std::io::Result<Target> {
+        if let Some(paired) = &entry.paired {
+            return self.paired_target(entry, paired);
+        }
+        let mut target = ssh_target(entry, self.proxy.as_ref())?;
         if entry.password_login {
             let login = target.login()?;
             target = target.with_askpass(self.passwords.askpass(entry.id, login)?);
         }
-        Ok(target)
+        Ok(Target::Ssh(target))
+    }
+
+    fn paired_target(
+        &self,
+        entry: &ServerEntry,
+        paired: &muxy_app_core::settings::PairedServer,
+    ) -> std::io::Result<Target> {
+        let token = muxy_app_core::settings::PairingTokens::load(&self.tokens)
+            .map_err(|error| std::io::Error::other(error.to_string()))?
+            .token(entry.id)
+            .ok_or_else(|| {
+                std::io::Error::other(
+                    tr!("This computer has no pairing for it. Pair again with a new link.")
+                        .to_string(),
+                )
+            })?;
+        let fingerprint = paired.fingerprint().ok_or_else(|| {
+            std::io::Error::other(tr!("Its saved certificate fingerprint is invalid.").to_string())
+        })?;
+        Ok(Target::Paired {
+            endpoint: muxy_client::RemoteEndpoint {
+                hosts: paired.hosts.clone(),
+                port: paired.port,
+                fingerprint,
+            },
+            credential: muxy_protocol::DeviceCredential {
+                device: paired.device,
+                token,
+            },
+        })
     }
 
     /// Stops another computer's worker and drops what its connection kept.
@@ -187,16 +252,13 @@ impl Servers {
 }
 
 impl AppModel {
-    /// Connects every server listed in settings, each on its own worker, so
-    /// SSH never blocks the window.
-    /// Servers that log in with a password wait until one of their projects
-    /// is opened or they are connected by hand, so launching never asks.
-    pub(super) fn start_servers(&mut self, cx: &mut Context<Self>) {
+    /// Gives every server listed in settings its own worker, so SSH never
+    /// blocks the window. Each stays disconnected until the user connects
+    /// it, opens one of its projects or tabs, or expands it in the sidebar
+    /// before its projects are known.
+    pub(super) fn start_servers(&mut self) {
         for entry in self.settings.servers.clone() {
             self.servers.add(&entry, 0);
-            if !entry.password_login {
-                self.connect_server(entry.id, cx);
-            }
         }
     }
 
@@ -245,7 +307,7 @@ impl AppModel {
             .unwrap_or_else(ServerId::local)
     }
 
-    pub(super) fn generation(&self, server: ServerId) -> u64 {
+    pub(crate) fn generation(&self, server: ServerId) -> u64 {
         self.servers
             .get(server)
             .map_or(0, |runtime| runtime.generation)
@@ -297,11 +359,10 @@ impl AppModel {
             .and_then(|runtime| runtime.error.as_deref())
     }
 
-    /// Projects the sidebar and Switch Project list: shown ones, with another
-    /// computer's Home only under the Remote Servers workspace.
+    /// Projects the sidebar and Switch Project list: those of this computer
+    /// and of the servers in settings.
     pub(crate) fn project_listed(&self, project: &Project) -> bool {
         self.project_shown(project)
-            && (!project.is_remote_home() || self.state.remote_servers_selected())
     }
 
     /// The name settings give another computer's server.
@@ -312,7 +373,7 @@ impl AppModel {
     }
 
     /// A failure nobody asked about: this computer's server alerts; another
-    /// computer's shows beside it in the sidebar's Remote section.
+    /// computer's shows beside it in the sidebar's Servers section.
     pub(super) fn server_problem(
         &mut self,
         server: ServerId,
@@ -325,6 +386,27 @@ impl AppModel {
             runtime.error = Some(message);
             cx.notify();
         }
+    }
+
+    /// Saved files the server couldn't read when it started, which it runs
+    /// without. This computer's catalog is explained once, when its fresh
+    /// project list replaces the old one.
+    pub(super) fn unreadable_message(&self, server: ServerId) -> Option<String> {
+        let info = self.servers.get(server)?.info.as_ref()?;
+        let kept: Vec<_> = info
+            .unreadable
+            .iter()
+            .filter(|file| !(server.is_local() && file.is_catalog()))
+            .map(|file| file.kept_as.as_path().display().to_string())
+            .collect();
+        if kept.is_empty() {
+            return None;
+        }
+        let message = tr!(
+            "The server couldn't read saved data and started without it. Kept for recovery: %@",
+            kept.join(", ")
+        );
+        Some(self.server_message(server, &message))
     }
 
     /// Names another computer's server in a message about it.
@@ -429,14 +511,14 @@ impl AppModel {
         self.pending.retain(|_, owner| *owner != server);
         self.detached_pending
             .retain(|pane| self.pending.contains_key(pane));
-        let closing = self
-            .close_request
-            .as_ref()
-            .and_then(|request| self.tab_project(request.tab))
-            .is_some_and(|project| project.server_id == server);
-        if closing {
+        let closing = self.close_request.as_ref().filter(|request| {
+            self.tab_project(request.tab)
+                .is_some_and(|project| project.server_id == server)
+        });
+        if let Some(request) = closing {
+            let asking = request.dialog.is_some();
             self.pending_close = None;
-            if self.close_prompt.is_none() {
+            if !asking {
                 self.close_request = None;
             }
         }
@@ -460,10 +542,14 @@ impl AppModel {
         if current {
             self.git.reset_context();
         }
+        let mut removals = Vec::new();
         for (project, repository) in &mut self.git.projects {
             if self.state.project_server(*project) == Some(server) {
-                repository.disconnect();
+                removals.extend(repository.disconnect());
             }
+        }
+        for dialog in removals {
+            self.dismiss_dialog(dialog, cx);
         }
         let state = &self.state;
         self.git
@@ -483,15 +569,7 @@ impl AppModel {
         runtime.references = None;
         runtime.sessions_revision = 0;
         runtime.discarding.clear();
-        let panes: Vec<_> = self
-            .completions
-            .iter()
-            .copied()
-            .filter(|pane| self.on_server(*pane, server))
-            .collect();
-        for pane in panes {
-            self.completions.remove(&pane);
-        }
+        self.forget_pane_completions(server);
         self.forget_server_sessions(server, cx);
         self.forget_server_layouts(server, cx);
         if server.is_local() {
@@ -508,12 +586,11 @@ impl AppModel {
             }
             self.server_preferences.busy = false;
             self.server_preferences.pending.clear();
-            self.mobile = super::mobile::MobileAccess::default();
+            self.client_access = self.client_access.after_disconnect();
         }
         self.sync_preferences(cx);
         self.forget_requests(server);
-        self.loaded
-            .retain(|pane| self.state.pane_server(*pane) != Some(server));
+        self.forget_pane_loads(server);
         self.set_server_panes(server, PaneState::Disconnected, cx);
         cx.notify();
     }

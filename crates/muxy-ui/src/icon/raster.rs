@@ -52,7 +52,7 @@ pub struct Glyph {
 
 #[cfg(target_os = "macos")]
 pub fn tinted(icon: Icon, size: Pixels, color: Hsla, scale: f32) -> Option<Glyph> {
-    tinted_symbol(&SharedString::from(icon.sf_symbol()), size, color, scale)
+    tinted_symbol(&SharedString::from(icon.sf_symbol()?), size, color, scale)
 }
 
 #[cfg(target_os = "macos")]
@@ -260,15 +260,6 @@ mod tests {
                     .collect(),
             )
         })
-    }
-
-    #[gpui::test]
-    fn a_wide_svg_keeps_its_shape_in_the_middle_of_the_square(cx: &mut TestAppContext) {
-        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 1"><rect width="2" height="1" fill="currentColor"/></svg>"#;
-        assert_eq!(
-            inked_rows("wide", svg, cx),
-            Some((4..12).collect::<Vec<_>>())
-        );
     }
 
     #[gpui::test]

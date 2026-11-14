@@ -1,4 +1,5 @@
-use muxy_app_core::{Color, Project, TabCloseScope, TabId, TabSide};
+use gpui::SharedString;
+use muxy_app_core::{Color, Project, ProjectId, TabCloseScope, TabId, TabSide};
 
 use muxy_ui::tr;
 
@@ -15,18 +16,56 @@ pub(crate) enum Action {
     TogglePin,
     Close,
     CloseTabs(TabCloseScope),
+    MoveToWindow,
+    MoveToProject(ProjectId),
+    ReturnToMainWindow,
 }
 
-pub(crate) fn items(project: &Project, id: TabId) -> Vec<Item> {
+/// The menu that moves a tab or pane into one of `destinations`, or nothing
+/// when there is nowhere to go.
+pub(crate) fn move_to_project(
+    destinations: &[(ProjectId, SharedString)],
+    command: impl Fn(ProjectId) -> Command,
+) -> Option<Item> {
+    if destinations.is_empty() {
+        return None;
+    }
+    Some(Item::submenu(
+        tr!("Move to Project"),
+        destinations
+            .iter()
+            .map(|(project, name)| Item::action(name.clone(), command(*project)))
+            .collect(),
+    ))
+}
+
+pub(crate) fn items(
+    project: &Project,
+    id: TabId,
+    destinations: &[(ProjectId, SharedString)],
+) -> Vec<Item> {
     let Some(tab) = project.tabs.iter().find(|tab| tab.id == id) else {
         return Vec::new();
     };
-    let item = |label: gpui::SharedString, action| Item::action(label, Command::Tab(id, action));
+    let item = |label: SharedString, action| Item::action(label, Command::Tab(id, action));
+    if tab.detached() {
+        let mut items = vec![item(tr!("Move to Main Window"), Action::ReturnToMainWindow)];
+        items.extend(move_to_project(destinations, |project| {
+            Command::Tab(id, Action::MoveToProject(project))
+        }));
+        items.push(item(tr!("Rename Tab"), Action::Rename).separated());
+        items.push(item(tr!("Close Tab"), Action::Close).separated());
+        return items;
+    }
     let mut items = vec![
         item(tr!("New Tab to the Left"), Action::New(TabSide::Left)),
         item(tr!("New Tab to the Right"), Action::New(TabSide::Right)),
-        item(tr!("Rename Tab"), Action::Rename).separated(),
+        item(tr!("Move to New Window"), Action::MoveToWindow).separated(),
     ];
+    items.extend(move_to_project(destinations, |project| {
+        Command::Tab(id, Action::MoveToProject(project))
+    }));
+    items.push(item(tr!("Rename Tab"), Action::Rename).separated());
     if tab.custom_title.is_some() {
         items.push(item(tr!("Reset Title"), Action::ResetTitle));
     }

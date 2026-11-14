@@ -31,7 +31,22 @@ pub struct Feature(#[n(0)] pub u16);
 impl Feature {
     /// Server-side key encoding, paste framing, focus reports and ordered screen clearing.
     pub const TERMINAL_INPUT: Self = Self(1);
+    /// New sessions start with the environment their request names.
+    pub const SESSION_ENVIRONMENT: Self = Self(2);
+    /// Another computer can pair as `DeviceKind::Computer`, with desktop rights.
+    pub const PAIRED_COMPUTERS: Self = Self(3);
+    /// A session can move to another project with `MoveSession`.
+    pub const SESSION_MOVE: Self = Self(4);
+    /// Paired phones can register for push notifications, and the server
+    /// has a switch for them.
+    pub const PUSH_NOTIFICATIONS: Self = Self(5);
 }
 
 /// Features this build's server supports.
-pub const FEATURES: &[Feature] = &[Feature::TERMINAL_INPUT];
+pub const FEATURES: &[Feature] = &[
+    Feature::TERMINAL_INPUT,
+    Feature::SESSION_ENVIRONMENT,
+    Feature::PAIRED_COMPUTERS,
+    Feature::SESSION_MOVE,
+    Feature::PUSH_NOTIFICATIONS,
+];

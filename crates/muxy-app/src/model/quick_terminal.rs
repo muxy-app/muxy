@@ -2,11 +2,12 @@ use gpui::{
     AppContext, Bounds, Context, Task, WindowBounds, WindowHandle, WindowKind, WindowOptions, px,
     size,
 };
-use muxy_app_core::{PaneId, ServerId, TabId};
+use muxy_app_core::{PaneId, ServerId};
 use muxy_core::capability::Feature;
 use muxy_core::quick_terminal::keys::{COMMAND, CONTROL, KeyCombo, OPTION, SHIFT};
 use muxy_core::quick_terminal::{ConflictCandidate, QuickTerminalShortcut};
 use muxy_core::shortcuts::ShortcutSettings;
+use muxy_protocol::{SessionId, TerminalColors};
 use muxy_ui::quick_terminal::{
     panel::{
         AccessibilityPreferences, PanelPresentation, QuickTerminalConfiguration,
@@ -17,9 +18,12 @@ use muxy_ui::quick_terminal::{
 };
 use muxy_ui::tr;
 
+use super::close_check::CloseCheck;
 use super::{AppModel, ConnectionState, Quitting};
-use crate::boot::Work;
+use crate::boot::{CloseCheckId, Work};
 use crate::views::quick_terminal::{QuickTerminalView, QuickTerminalViewModel};
+use crate::views::terminal::colors::Palette;
+use muxy_ui::theme::Theme;
 
 pub(crate) struct QuickTerminalRuntime {
     pub(crate) panel: Option<WindowHandle<QuickTerminalView>>,
@@ -29,13 +33,30 @@ pub(crate) struct QuickTerminalRuntime {
     accessibility: AccessibilityPreferences,
     presentation: PanelPresentation,
     transition: Option<Task<()>>,
+    /// The colors the local server holds for the Quick Terminal session.
+    colors: Option<(SessionId, TerminalColors)>,
     _triggers: Task<()>,
     _system: Task<()>,
     _observers: Option<platform::SystemObservers>,
-    pub(crate) closing: Option<(TabId, PaneId)>,
+    pub(crate) closing: Option<QuickClose>,
+}
+
+/// Where closing the Quick Terminal stands.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum QuickClose {
+    /// Waiting for the server to say what runs in it.
+    Checking(CloseCheckId),
+    /// Asking the user, because a program is running.
+    Confirming,
 }
 
 impl QuickTerminalRuntime {
+    /// Whether the system asks for as little animation as possible, kept up to
+    /// date as the setting changes.
+    pub(crate) fn reduce_motion(&self) -> bool {
+        self.accessibility.reduce_motion
+    }
+
     fn accessibility() -> AccessibilityPreferences {
         #[cfg(not(test))]
         {
@@ -110,6 +131,7 @@ impl QuickTerminalRuntime {
             accessibility: Self::accessibility(),
             presentation: PanelPresentation::default(),
             transition: None,
+            colors: None,
             _triggers: trigger_task,
             _system: system_task,
             _observers: observers,
@@ -131,7 +153,18 @@ impl AppModel {
     }
 
     pub(super) fn attached_panes(&self) -> Vec<PaneId> {
-        let mut panes = self.visible_panes();
+        let mut panes: Vec<_> = self
+            .main_visible_tabs()
+            .into_iter()
+            .chain(
+                self.state
+                    .tab_windows()
+                    .filter(|(_, _, window)| !window.is_floating() || self.float_shown(window.id))
+                    .map(|(_, tab, _)| tab.id),
+            )
+            .filter_map(|id| self.tab(id))
+            .flat_map(muxy_app_core::Tab::visible_panes)
+            .collect();
         if self.quick.visible {
             panes.extend(self.state.quick_terminal().map(|pane| pane.id));
         }
@@ -149,12 +182,19 @@ impl AppModel {
         }
     }
 
-    fn quick_view_model(&self) -> QuickTerminalViewModel {
+    /// The Quick Terminal's own theme and palette, or `None` when it uses the app's.
+    pub(crate) fn quick_theme(&self) -> Option<(Theme, Palette)> {
+        let name = self.settings.quick_terminal.theme(self.dark)?;
+        let (theme, palette) = self.themes.resolve(name, self.dark);
+        Some((theme, palette.with_options(&self.terminal.options)))
+    }
+
+    fn quick_view_model(&self, theme: Theme) -> QuickTerminalViewModel {
         let configuration = self.quick_configuration();
         QuickTerminalViewModel {
             configuration,
             appearance: effective_appearance(configuration, self.quick.accessibility),
-            theme: self.theme.clone(),
+            theme,
             metrics: self.metrics,
             status: match self.connection(ServerId::local()) {
                 ConnectionState::Connecting => tr!("Connecting…"),
@@ -163,6 +203,7 @@ impl AppModel {
             }
             .to_string(),
             shortcut: self.quick_shortcut_label(),
+            pinned: self.settings.quick_terminal.pinned,
         }
     }
 
@@ -225,7 +266,10 @@ impl AppModel {
             self.connect(cx);
         }
         if self.quick.panel.is_none() {
-            let model = self.quick_view_model();
+            let theme = self
+                .quick_theme()
+                .map_or_else(|| self.theme.clone(), |(theme, _)| theme);
+            let model = self.quick_view_model(theme);
             let owner = cx.weak_entity();
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -268,11 +312,12 @@ impl AppModel {
         panel
             .update(cx, |view, window, _| view.prepare(window))
             .map_err(|error| error.to_string())??;
-        self.state.ensure_quick_terminal();
+        let quick = self.state.ensure_quick_terminal();
         if !self.save(cx) {
             return Err(tr!("Could not save Quick Terminal session").to_string());
         }
         self.quick.visible = true;
+        self.set_pane_completed(quick, false);
         self.sync_visible(cx);
         self.refresh_quick_terminal(cx);
         let duration = transition_duration(true, self.quick.accessibility.reduce_motion);
@@ -324,6 +369,14 @@ impl AppModel {
         }));
     }
 
+    pub(crate) fn toggle_quick_terminal_pin(&mut self, cx: &mut Context<Self>) {
+        let mut settings = self.settings.quick_terminal.clone();
+        settings.pinned = !settings.pinned;
+        if let Err(error) = self.apply_quick_settings(settings, cx) {
+            self.fail(error, cx);
+        }
+    }
+
     pub(super) fn prepare_quick_terminal(&mut self, cx: &mut Context<Self>) {
         if self.quick.visible
             && let Some(panel) = self.quick.panel
@@ -333,10 +386,12 @@ impl AppModel {
     }
 
     pub(crate) fn refresh_quick_terminal(&mut self, cx: &mut Context<Self>) {
-        let Some(panel) = self.quick.panel else {
-            return;
-        };
-        let model = self.quick_view_model();
+        let (theme, palette) = self.quick_theme().map_or_else(
+            || (self.theme.clone(), None),
+            |(theme, palette)| (theme, Some(palette)),
+        );
+        self.sync_quick_colors(palette.map(|palette| palette.terminal_colors()), cx);
+        let model = self.quick_view_model(theme);
         let terminal = self
             .state
             .quick_terminal()
@@ -344,26 +399,70 @@ impl AppModel {
             .map(|pane| pane.view.clone());
         if let Some(pane) = &terminal {
             let alpha = f32::from(model.appearance.tint_alpha_percent) / 100.0;
+            let palette = palette.unwrap_or(self.palette);
             pane.update(cx, |pane, cx| {
                 pane.background_opacity = alpha;
+                pane.palette = palette;
+                pane.update_find_appearance(&model.theme, model.metrics, cx);
                 cx.notify();
             });
         }
+        let Some(panel) = self.quick.panel else {
+            return;
+        };
         let _ = panel.update(cx, |view, window, cx| {
             view.update_model(model, terminal, window);
             cx.notify();
         });
     }
 
+    /// Gives the Quick Terminal session its own colors on the local server,
+    /// so programs that ask for them see its theme instead of the app's.
+    fn sync_quick_colors(&mut self, colors: Option<TerminalColors>, cx: &mut Context<Self>) {
+        let session = self
+            .state
+            .quick_terminal()
+            .and_then(muxy_app_core::Pane::session);
+        let wanted = session.zip(colors);
+        if self.quick.colors == wanted || !self.ready(ServerId::local()) {
+            return;
+        }
+        let work = match (&wanted, &self.quick.colors) {
+            (Some((session, colors)), _) => {
+                Some(Work::SessionColors(*session, Some(colors.clone())))
+            }
+            (None, Some((held, _))) if session == Some(*held) => {
+                Some(Work::SessionColors(*held, None))
+            }
+            (None, _) => None,
+        };
+        if work.is_none_or(|work| self.send(ServerId::local(), work, cx)) {
+            self.quick.colors = wanted;
+        }
+    }
+
+    /// A new connection to the local server starts with no session colors.
+    pub(super) fn forget_quick_colors(&mut self) {
+        self.quick.colors = None;
+    }
+
     pub(crate) fn open_quick_terminal_settings(&mut self, cx: &mut Context<Self>) {
         self.hide_quick_terminal(false, cx);
-        self.show_settings(cx);
-        if let Some(settings) = &self.settings_window {
-            settings.view.update(
-                cx,
-                super::super::views::settings::SettingsView::show_quick_terminal,
-            );
-        }
+        let workspace = self.window;
+        let owner = cx.entity();
+        gpui::App::defer(cx, move |cx| {
+            let _ = workspace.update(cx, |_, window, cx| {
+                owner.update(cx, |model, cx| {
+                    model.show_settings(window, cx);
+                    if let Some(settings) = &model.settings_tab {
+                        settings.view.update(
+                            cx,
+                            crate::views::settings::SettingsView::show_quick_terminal,
+                        );
+                    }
+                });
+            });
+        });
     }
 
     pub(super) fn quick_terminal_menu(
@@ -384,16 +483,28 @@ impl AppModel {
         }
     }
 
+    /// Closes the Quick Terminal because its session is no longer running,
+    /// keeping the session's saved output.
+    pub(crate) fn close_ended_quick_terminal(&mut self, cx: &mut Context<Self>) {
+        self.hide_quick_terminal(true, cx);
+        self.state.close_ended_quick_terminal();
+        if self.save(cx) {
+            self.sync_references(cx);
+        }
+    }
+
     pub(super) fn restore_quick_terminal(
         &mut self,
         sessions: &[muxy_protocol::SessionInfo],
         cx: &mut Context<Self>,
     ) {
         let stale = self.state.quick_terminal().is_some_and(|pane| {
-            self.pane_session(pane.id)
+            pane.session()
                 .is_some_and(|id| !sessions.iter().any(|session| session.id == id))
         });
-        if stale || !self.settings.quick_terminal.enabled {
+        if stale {
+            self.close_ended_quick_terminal(cx);
+        } else if !self.settings.quick_terminal.enabled {
             self.close_quick_terminal(cx);
         }
     }
@@ -405,66 +516,57 @@ impl AppModel {
         let Some(pane) = self.state.quick_terminal().map(|pane| pane.id) else {
             return;
         };
-        let Some(session) = self.pane_session(pane) else {
+        let ending = self.state.sessions_ended_by_closing(&[pane]);
+        let Some(&(_, server, session)) = ending
+            .first()
+            .filter(|_| self.settings.window.confirm_running_process)
+        else {
             self.close_quick_terminal(cx);
             return;
         };
-        if self.session_used_outside(ServerId::local(), session, &[pane])
-            || !self.settings.window.confirm_running_process
-        {
-            self.close_quick_terminal(cx);
-            return;
-        }
-        let tab = TabId::new();
-        self.quick.closing = Some((tab, pane));
-        if !self.ready(ServerId::local()) {
-            let process = self
-                .terminal(&pane)
-                .and_then(|pane| pane.view.read(cx).process.clone());
-            self.check_quick_close(Ok(process), cx);
-            return;
-        }
-
-        let viewport = self
-            .terminal(&pane)
-            .and_then(|pane| pane.view.read(cx).viewport())
-            .unwrap_or(muxy_protocol::Size { cols: 80, rows: 24 });
-        if !self.send(
-            ServerId::local(),
-            Work::CheckClose {
-                tab,
-                session,
-                size: viewport,
-            },
-            cx,
-        ) {
-            self.quick.closing = None;
+        match self.check_close(server, pane, session, cx) {
+            CloseCheck::Asked(check) => self.quick.closing = Some(QuickClose::Checking(check)),
+            CloseCheck::Running => self.confirm_quick_close(cx),
+            CloseCheck::Safe => self.close_quick_terminal(cx),
+            CloseCheck::Unsent => {}
         }
     }
 
-    pub(super) fn check_quick_close(
+    pub(super) fn receive_quick_close_checked(
         &mut self,
-        result: Result<Option<muxy_protocol::ForegroundProcess>, muxy_client::ClientError>,
+        running: Result<bool, String>,
         cx: &mut Context<Self>,
     ) {
-        match result {
-            Ok(Some(process)) if !process.is_shell => {
-                if let Some(panel) = self.quick.panel {
-                    let _ = panel.update(cx, QuickTerminalView::show_close_confirmation);
-                }
-            }
-            Ok(_) => self.close_quick_terminal(cx),
-            Err(error) if crate::boot::missing_session(&error) => self.close_quick_terminal(cx),
-            Err(error) => {
+        match running {
+            Ok(true) => self.confirm_quick_close(cx),
+            Ok(false) => self.close_quick_terminal(cx),
+            Err(message) => {
                 self.quick.closing = None;
-                self.fail(error.to_string(), cx);
+                self.fail(message, cx);
             }
+        }
+    }
+
+    fn confirm_quick_close(&mut self, cx: &mut Context<Self>) {
+        self.quick.closing = Some(QuickClose::Confirming);
+        if let Some(panel) = self.quick.panel {
+            let _ = panel.update(cx, QuickTerminalView::show_close_confirmation);
         }
     }
 
     pub(crate) fn apply_quick_settings(
         &mut self,
         settings: muxy_app_core::settings::QuickTerminalSettings,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.adopt_quick_settings(settings, true, cx)
+    }
+
+    /// Runs the Quick Terminal with `settings`, saving them first if `save`.
+    pub(crate) fn adopt_quick_settings(
+        &mut self,
+        settings: muxy_app_core::settings::QuickTerminalSettings,
+        save: bool,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         settings.validate().map_err(|error| error.to_string())?;
@@ -480,7 +582,7 @@ impl AppModel {
             .shortcuts
             .prepare_shortcut_for_enabled(settings.shortcut.clone(), &conflicts, settings.enabled)
             .map_err(|error| error.to_string())?;
-        if let Err(error) = settings.save(&self.path.with_file_name("settings.toml")) {
+        if save && let Err(error) = settings.save(&self.path.with_file_name("settings.toml")) {
             self.quick.shortcuts.cancel_prepared(prepared);
             return Err(error.to_string());
         }
@@ -493,6 +595,27 @@ impl AppModel {
         self.prepare_quick_terminal(cx);
         self.sync_preferences(cx);
         Ok(())
+    }
+
+    /// Why `keymap` can't be used beside `quick`'s global shortcut, if it can't.
+    pub(super) fn quick_keymap_conflict(
+        keymap: &muxy_app_core::settings::Keymap,
+        quick: &muxy_app_core::settings::QuickTerminalSettings,
+    ) -> Result<(), String> {
+        let Some(shortcut) = quick.shortcut.key_combo().filter(|_| quick.enabled) else {
+            return Ok(());
+        };
+        match shortcut_conflicts(keymap)
+            .into_iter()
+            .find(|candidate| shortcut.conflicts_with(&candidate.combo))
+        {
+            Some(candidate) => Err(tr!(
+                "The %@ shortcut conflicts with Quick Terminal",
+                &candidate.label
+            )
+            .to_string()),
+            None => Ok(()),
+        }
     }
 
     pub(super) fn validate_quick_conflict(

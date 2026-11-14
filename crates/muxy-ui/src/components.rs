@@ -6,10 +6,12 @@ pub fn register_shortcuts(registry: &mut crate::shortcuts::Registry<'_>) {
     registry.register(ShortcutId::ButtonActivate, &ActivateButton);
 }
 
+use crate::accessibility::OnPress;
 use crate::icon::Icon;
+use crate::theme::{Metrics, Theme};
 use gpui::{
     App, AppContext, ClickEvent, Context, ElementId, FocusHandle, Hsla, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, Pixels, Render, RenderOnce, SharedString,
+    IntoElement, MouseButton, ParentElement, Pixels, Render, RenderOnce, Role, SharedString,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 
@@ -37,7 +39,7 @@ impl ButtonInteraction for gpui::Stateful<gpui::Div> {
                 on_key(&ClickEvent::default(), window, cx);
                 cx.stop_propagation();
             })
-            .on_click(move |event, window, cx| on_click(event, window, cx))
+            .on_press(move |event, window, cx| on_click(event, window, cx))
     }
 }
 
@@ -137,12 +139,17 @@ fn svg_layer(icon: Icon, size: Pixels, color: Hsla) -> gpui::Div {
 #[must_use]
 pub struct IconButton {
     id: ElementId,
+    name: SharedString,
+    accessible_name: Option<SharedString>,
+    accessibility_id: Option<SharedString>,
+    expanded: Option<bool>,
     icon: Icon,
     glyph_size: Pixels,
     box_size: Pixels,
     color: Hsla,
     hover_color: Hsla,
-    tooltip: Option<(SharedString, Hsla, Hsla, Hsla, Hsla)>,
+    tooltip: Option<Tooltip>,
+    shortcut: Option<SharedString>,
     focus_handle: Option<FocusHandle>,
     selected: Option<(bool, Hsla, Pixels)>,
     on_click: Option<ClickHandler>,
@@ -150,8 +157,11 @@ pub struct IconButton {
 }
 
 impl IconButton {
+    /// `name` is what accessibility clients read and what the tooltip says,
+    /// since the button shows only an icon.
     pub fn new(
         id: impl Into<ElementId>,
+        name: impl Into<SharedString>,
         icon: Icon,
         glyph_size: Pixels,
         box_size: Pixels,
@@ -160,12 +170,17 @@ impl IconButton {
     ) -> Self {
         Self {
             id: id.into(),
+            name: name.into(),
+            accessible_name: None,
+            accessibility_id: None,
+            expanded: None,
             icon,
             glyph_size,
             box_size,
             color,
             hover_color,
             tooltip: None,
+            shortcut: None,
             focus_handle: None,
             selected: None,
             on_click: None,
@@ -173,21 +188,35 @@ impl IconButton {
         }
     }
 
-    pub fn tooltip(
-        mut self,
-        text: impl Into<SharedString>,
-        background: Hsla,
-        foreground: Hsla,
-        border: Hsla,
-        theme_background: Hsla,
-    ) -> Self {
-        self.tooltip = Some((
-            text.into(),
-            background,
-            foreground,
-            border,
-            theme_background,
-        ));
+    /// Shows the name in a tooltip.
+    pub fn tooltip(mut self, theme: &Theme) -> Self {
+        self.tooltip = Some(Tooltip::themed(self.name.clone(), theme));
+        self
+    }
+
+    /// The key that does what the button does. The tooltip shows it after
+    /// the name, in parentheses.
+    pub fn shortcut(mut self, key: Option<SharedString>) -> Self {
+        self.shortcut = key;
+        self
+    }
+
+    /// What accessibility clients read when the tooltip isn't enough, such as a
+    /// row's Edit button, which has to say which row.
+    pub fn named(mut self, name: impl Into<SharedString>) -> Self {
+        self.accessible_name = Some(name.into());
+        self
+    }
+
+    /// The ID accessibility clients see, when the element ID holds a value that
+    /// changes between runs. Otherwise they see the element ID.
+    pub fn accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
+        self.accessibility_id = Some(id.into());
+        self
+    }
+
+    pub fn expanded(mut self, expanded: bool) -> Self {
+        self.expanded = Some(expanded);
         self
     }
 
@@ -222,8 +251,15 @@ impl RenderOnce for IconButton {
             .focus_handle
             .as_ref()
             .is_some_and(|focus_handle| focus_handle.is_focused(window));
+        let accessibility_id = self
+            .accessibility_id
+            .unwrap_or_else(|| SharedString::from(self.id.to_string()));
+        let name = self.name;
         let mut button = div()
             .id(self.id)
+            .role(Role::Button)
+            .accessibility_id(accessibility_id)
+            .aria_label(self.accessible_name.unwrap_or_else(|| name.clone()))
             .group(group.clone())
             .flex()
             .flex_none()
@@ -235,10 +271,14 @@ impl RenderOnce for IconButton {
                 IconGlyph::new(self.icon, self.glyph_size, self.color)
                     .hover_in_group(group, self.hover_color),
             );
-        if let Some((selected, background, radius)) = self.selected
-            && (selected || focused)
-        {
-            button = button.rounded(radius).bg(background);
+        if let Some(expanded) = self.expanded {
+            button = button.aria_expanded(expanded);
+        }
+        if let Some((selected, background, radius)) = self.selected {
+            button = button.aria_selected(selected);
+            if selected || focused {
+                button = button.rounded(radius).bg(background);
+            }
         }
         if let Some(focus_handle) = self.focus_handle {
             let focus_for_mouse = focus_handle.clone();
@@ -251,7 +291,7 @@ impl RenderOnce for IconButton {
             );
         }
         if let Some(handler) = self.on_click {
-            button = button.on_click(move |event, window, cx| handler(event, window, cx));
+            button = button.on_press(move |event, window, cx| handler(event, window, cx));
         }
         if let Some(handler) = self.on_key {
             button =
@@ -262,25 +302,17 @@ impl RenderOnce for IconButton {
                         cx.stop_propagation();
                     });
         }
-        if let Some((text, background, foreground, border, theme_background)) = self.tooltip {
-            button = button.tooltip(move |_, cx| {
-                cx.new(|_| {
-                    Tooltip::new(
-                        text.clone(),
-                        background,
-                        foreground,
-                        border,
-                        theme_background,
-                    )
-                })
-                .into()
-            });
+        if let Some(mut tooltip) = self.tooltip {
+            if let Some(key) = self.shortcut {
+                tooltip.text = crate::shortcuts::with_key(&tooltip.text, &key);
+            }
+            button = button.tooltip(move |_, cx| cx.new(|_| tooltip.clone()).into());
         }
         button
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Tooltip {
     text: SharedString,
     background: Hsla,
@@ -290,6 +322,10 @@ pub struct Tooltip {
 }
 
 impl Tooltip {
+    pub fn themed(text: impl Into<SharedString>, theme: &Theme) -> Self {
+        Self::new(text, theme.raised(), theme.fg, theme.border, theme.bg)
+    }
+
     pub fn new(
         text: impl Into<SharedString>,
         background: Hsla,
@@ -306,17 +342,19 @@ impl Tooltip {
         }
     }
 
-    fn surface(&self) -> gpui::Div {
+    fn surface(&self, metrics: Metrics) -> gpui::Div {
+        let text = self.text.clone();
         div()
-            .max_w(px(320.0))
+            .debug_selector(move || format!("tooltip:{text}"))
+            .max_w(metrics.scaled(320.0))
             .line_clamp(4)
-            .px(px(8.0))
-            .py(px(4.0))
-            .rounded(px(5.0))
+            .px(metrics.scaled(8.0))
+            .py(metrics.scaled(4.0))
+            .rounded(metrics.scaled(5.0))
             .bg(self.background)
             .border_1()
             .border_color(self.border)
-            .text_size(px(11.0))
+            .text_size(metrics.scaled(11.0))
             .text_color(self.foreground)
             .shadow(crate::theme::Elevation::Elevated.shadow(self.theme_background))
             .child(self.text.clone())
@@ -324,9 +362,52 @@ impl Tooltip {
 }
 
 impl Render for Tooltip {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        self.surface()
+    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        self.surface(Metrics::of_window(window))
     }
+}
+
+/// Hides native pages under a tooltip, which the app draws after their
+/// occlusions were applied.
+pub type TooltipCover = std::rc::Rc<dyn Fn(gpui::Bounds<Pixels>)>;
+
+struct CoveringTooltip {
+    content: gpui::Entity<Tooltip>,
+    cover: TooltipCover,
+}
+
+impl Render for CoveringTooltip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let cover = self.cover.clone();
+        div().relative().child(self.content.clone()).child(
+            gpui::canvas(move |bounds, _, _| cover(bounds), |_, (), _, _| ())
+                .absolute()
+                .inset_0()
+                .size_full(),
+        )
+    }
+}
+
+/// A tooltip that `cover` keeps visible above native pages.
+pub fn covering_tooltip(
+    text: impl Into<SharedString>,
+    theme: &Theme,
+    cover: TooltipCover,
+) -> impl Fn(&mut Window, &mut App) -> gpui::AnyView + 'static {
+    let tooltip = Tooltip::themed(text, theme);
+    move |_, cx| {
+        let content = cx.new(|_| tooltip.clone());
+        let cover = cover.clone();
+        cx.new(|_| CoveringTooltip { content, cover }).into()
+    }
+}
+
+pub fn tooltip(
+    text: impl Into<SharedString>,
+    theme: &Theme,
+) -> impl Fn(&mut Window, &mut App) -> gpui::AnyView + 'static {
+    let tooltip = Tooltip::themed(text, theme);
+    move |_, cx| cx.new(|_| tooltip.clone()).into()
 }
 
 #[derive(IntoElement, Debug)]
@@ -548,5 +629,36 @@ impl std::fmt::Debug for IconButton {
             .field("glyph_size", &self.glyph_size)
             .field("box_size", &self.box_size)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::theme::ColorScheme;
+
+    #[test]
+    fn themed_tooltips_keep_the_name_and_share_the_raised_colors() {
+        let theme = Theme::from_scheme(&ColorScheme::default());
+        let button = IconButton::new(
+            "find-previous",
+            "Previous match",
+            Icon::ChevronUp,
+            px(12.0),
+            px(20.0),
+            theme.fg_muted,
+            theme.fg,
+        )
+        .named("Previous match in terminal")
+        .tooltip(&theme);
+        let tooltip = button.tooltip.as_ref().unwrap();
+        assert_eq!(tooltip.text.as_ref(), "Previous match");
+        assert_eq!(tooltip.background, theme.raised());
+        assert_eq!(tooltip.foreground, theme.fg);
+        assert_eq!(tooltip.border, theme.border);
+        assert_eq!(tooltip.theme_background, theme.bg);
+        assert_eq!(button.glyph_size, px(12.0));
+        assert_eq!(button.box_size, px(20.0));
     }
 }

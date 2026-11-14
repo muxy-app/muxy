@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use muxy_protocol::{
-    ErrorCode, ProjectDescriptor, ServerPath, ServerSettingsDoc, validate_folder_path,
+    ErrorCode, ProjectDescriptor, ServerPath, ServerSettingsDoc, validate_absolute_path,
     validate_uploaded,
 };
 
@@ -34,7 +34,7 @@ const RELATIVE: [&str; 9] = [
 fn unix_and_windows_absolute_paths_validate_on_every_build() {
     for value in ABSOLUTE {
         assert!(path(value).is_absolute(), "{value}");
-        assert_eq!(validate_folder_path(&path(value)), Ok(()), "{value}");
+        assert_eq!(validate_absolute_path(&path(value)), Ok(()), "{value}");
         assert_eq!(validate_uploaded(Some(&path(value))), Ok(()), "{value}");
         let settings = ServerSettingsDoc {
             default_shell: Some(path(value)),
@@ -51,7 +51,7 @@ fn unix_and_windows_absolute_paths_validate_on_every_build() {
     for value in RELATIVE {
         assert!(!path(value).is_absolute(), "{value}");
         assert_eq!(
-            validate_folder_path(&path(value)),
+            validate_absolute_path(&path(value)),
             Err(ErrorCode::BadPath),
             "{value}"
         );

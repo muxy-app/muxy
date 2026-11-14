@@ -1,0 +1,536 @@
+//! The Servers page's Clients section: whether phones and other computers
+//! may reach this computer's server, the code that pairs one, and the
+//! clients paired with it.
+
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use gpui::prelude::FluentBuilder;
+use gpui::{
+    AnyElement, Bounds, Context, InteractiveElement, IntoElement, ParentElement, Role,
+    SharedString, StatefulInteractiveElement, Styled, canvas, div, point, px, size,
+};
+use muxy_app_core::qr::{QUIET_ZONE, QrCode};
+use muxy_protocol::{
+    DeviceKind, ListenerStatus, PairedDevice, PairingOffer, PushStatus, RemoteAccessState,
+};
+use muxy_ui::accessibility;
+use muxy_ui::controls;
+use muxy_ui::theme::Metrics;
+use muxy_ui::tr;
+
+use super::servers_page::{card, style};
+use crate::model::AppModel;
+
+pub(crate) const CODE_SIZE: f32 = 196.0;
+
+/// A pairing offer as shown: its link, and the QR code encoded once.
+#[derive(Clone)]
+pub(crate) struct Pairing {
+    link: String,
+    code: Option<Arc<QrCode>>,
+}
+
+impl Pairing {
+    pub(crate) fn qr(&self) -> Option<Arc<QrCode>> {
+        self.code.clone()
+    }
+
+    pub(crate) fn new(offer: &PairingOffer) -> Self {
+        let link = offer.invite.to_link();
+        Self {
+            code: QrCode::encode(&link).map(Arc::new),
+            link,
+        }
+    }
+
+    pub(crate) fn link(&self) -> &str {
+        &self.link
+    }
+}
+
+/// The section's title and its card, or why it can't show yet. Until
+/// clients are allowed, the card holds only the switch and the clients
+/// already paired.
+pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+    let m = model.servers_page.metrics;
+    let access = model.client_access();
+    let body = if !model.client_access_available() {
+        note(
+            &tr!("Connect to this computer's server to manage its clients."),
+            false,
+            model,
+        )
+    } else if let Some(state) = &access.state {
+        card(model)
+            .child(row(
+                "clients-access",
+                tr!("Allow clients"),
+                Some(tr!(
+                    "Let paired phones and computers reach this computer's server over the local network or a VPN. A paired phone gets full terminal access; a paired computer can also run commands and change or stop this server."
+                )),
+                controls::toggle(
+                    style(model),
+                    "clients-access",
+                    &tr!("Allow clients"),
+                    state.settings.enabled,
+                    cx.listener({
+                        let enabled = state.settings.enabled;
+                        move |model, _, _, cx| model.set_client_access(!enabled, cx)
+                    }),
+                ).into_any_element(),
+                true,
+                model,
+            ))
+            .when(state.settings.enabled, |card| card.child(row(
+                "clients-port",
+                tr!("Port"),
+                Some(tr!("From 1024 to 65535. Press Return to save.")),
+                model.servers_page.port_input().map_or_else(
+                    || div().into_any_element(),
+                    |input| controls::text_field(style(model), "clients-port", input, Some(96.0)),
+                ),
+                false,
+                model,
+            )))
+            .when(state.settings.enabled, |card| card.child(row(
+                "clients-status",
+                tr!("Status"),
+                None,
+                status(state, model),
+                false,
+                model,
+            )))
+            .when(
+                state.settings.enabled && model.push_notifications_available(),
+                |card| card.child(push_row(state, model, cx)),
+            )
+            .when(state.settings.enabled, |card| card.child(stacked(
+                "clients-pair",
+                tr!("Pair a client"),
+                tr!("Show a one-time code to scan with the Muxy phone app, or a link to paste on another computer."),
+                pairing(state, model, cx),
+                model,
+            )))
+            .when(state.settings.enabled || !state.devices.is_empty(), |card| card.child(stacked(
+                "clients-paired",
+                tr!("Clients"),
+                tr!("Phones and other computers paired with this server. Revoking one disconnects it immediately."),
+                clients(state, model, cx),
+                model,
+            )))
+            .into_any_element()
+    } else {
+        note(&tr!("Loading clients…"), false, model)
+    };
+    div()
+        .debug_selector(|| "clients-this-computer".into())
+        .min_w(px(0.0))
+        .flex()
+        .flex_col()
+        .gap(m.spacing4())
+        .child(muxy_ui::form::section_heading(
+            style(model),
+            "clients-this-computer-heading",
+            &tr!("Clients"),
+        ))
+        .children(
+            access
+                .error
+                .as_deref()
+                .map(|error| note(error, true, model)),
+        )
+        .child(body)
+        .into_any_element()
+}
+
+/// The server-wide switch for push notifications to paired phones, saying
+/// what it does in its current position.
+fn push_row(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+    let on = state.push_notifications;
+    row(
+        "clients-push",
+        tr!("Push notifications"),
+        Some(push_description(state, now())),
+        controls::toggle(
+            style(model),
+            "clients-push",
+            &tr!("Push notifications"),
+            on,
+            cx.listener(move |model, _, window, cx| {
+                model.set_push_notifications(!on, window.window_handle(), cx);
+            }),
+        )
+        .into_any_element(),
+        false,
+        model,
+    )
+}
+
+pub(crate) fn push_description(state: &RemoteAccessState, now: u64) -> SharedString {
+    if state.push_notifications {
+        return tr!(
+            "Paired phones that turn on notifications in the Muxy app hear when an agent needs attention or finishes. They go through the muxy.app relay, which sees only encrypted content."
+        );
+    }
+    match state.push_kept_until {
+        Some(until) => tr!(
+            "Off. Nothing is sent to muxy.app. Paused phones resume when you turn this on, for %lld more days.",
+            until.saturating_sub(now).div_ceil(86_400)
+        ),
+        None => tr!(
+            "Off. Nothing is sent to muxy.app, and phones can't turn notifications on for this computer."
+        ),
+    }
+}
+
+fn note(text: &str, error: bool, model: &AppModel) -> AnyElement {
+    let note = muxy_ui::form::note(style(model), text, error);
+    if error {
+        accessibility::announced(note.id("clients-error"), text.to_owned(), true).into_any_element()
+    } else {
+        note.id("clients-note")
+            .role(Role::Label)
+            .aria_value(text.to_owned())
+            .into_any_element()
+    }
+}
+
+/// A label and its description beside the control.
+fn row(
+    id: &'static str,
+    label: SharedString,
+    description: Option<SharedString>,
+    control: AnyElement,
+    first: bool,
+    model: &AppModel,
+) -> AnyElement {
+    let m = model.servers_page.metrics;
+    let theme = &model.theme;
+    div()
+        .debug_selector(move || format!("{id}-row"))
+        .min_w(px(0.0))
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(m.spacing6())
+        .px(m.spacing6())
+        .py(m.spacing5())
+        .when(!first, |row| row.border_t_1().border_color(theme.border))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.0))
+                .gap(m.spacing1())
+                .child(label)
+                .children(description.map(|description| {
+                    div()
+                        .text_size(m.font_footnote())
+                        .text_color(theme.fg_muted)
+                        .child(description)
+                })),
+        )
+        .child(div().flex_none().child(control))
+        .into_any_element()
+}
+
+/// A label and its description over the content.
+fn stacked(
+    id: &'static str,
+    label: SharedString,
+    description: SharedString,
+    content: AnyElement,
+    model: &AppModel,
+) -> AnyElement {
+    let m = model.servers_page.metrics;
+    let theme = &model.theme;
+    div()
+        .debug_selector(move || format!("{id}-row"))
+        .min_w(px(0.0))
+        .flex()
+        .flex_col()
+        .gap(m.spacing4())
+        .px(m.spacing6())
+        .py(m.spacing5())
+        .border_t_1()
+        .border_color(theme.border)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(m.spacing1())
+                .child(label)
+                .child(
+                    div()
+                        .text_size(m.font_footnote())
+                        .text_color(theme.fg_muted)
+                        .child(description),
+                ),
+        )
+        .child(div().min_w(px(0.0)).child(content))
+        .into_any_element()
+}
+
+fn status(state: &RemoteAccessState, model: &AppModel) -> AnyElement {
+    let (text, failed) = match (&state.status, state.settings.enabled) {
+        (ListenerStatus::Listening, _) => {
+            (tr!("Listening on port %lld", state.settings.port), false)
+        }
+        (ListenerStatus::Failed(message), _) => (tr!("Not listening: %@", message), true),
+        (ListenerStatus::Disabled, true) => (tr!("Starting"), false),
+        (ListenerStatus::Disabled, false) => (tr!("Off"), false),
+        (ListenerStatus::Unrecognized(_), _) => (tr!("Update Muxy to see this status"), false),
+    };
+    accessibility::announced(
+        div()
+            .id("clients-status")
+            .accessibility_id("clients-status")
+            .debug_selector(|| "clients-status".into())
+            .text_color(if failed {
+                model.theme.danger
+            } else {
+                model.theme.fg_muted
+            }),
+        text.clone(),
+        failed,
+    )
+    .child(text)
+    .into_any_element()
+}
+
+fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+    let access = model.client_access();
+    let Some(pairing) = &access.pairing else {
+        return div()
+            .flex()
+            .child(controls::button(
+                style(model),
+                "clients-show-code",
+                controls::Button::secondary(&tr!("Show Pairing Code"))
+                    .enabled(state.status == ListenerStatus::Listening && !access.busy),
+                cx.listener(|model, _, _, cx| model.show_pairing_code(cx)),
+            ))
+            .into_any_element();
+    };
+    div()
+        .min_w(px(0.0))
+        .flex()
+        .flex_col()
+        .gap(model.servers_page.metrics.scaled(10.0))
+        .child(code(pairing.code.clone(), model.servers_page.metrics))
+        .child(div().min_w(px(0.0)).text_color(model.theme.fg_muted).child(accessibility::label(
+            "clients-code-hint",
+            tr!(
+                "Scan it with the Muxy phone app, or on another computer choose Pair with Link… in Settings → Servers and paste the link. The code works once and expires in 5 minutes."
+            ),
+        )))
+        .child(
+            div()
+                .flex()
+                .gap(model.servers_page.metrics.scaled(8.0))
+                .child(controls::button(
+                    style(model),
+                    "clients-copy-link",
+                    controls::Button::secondary(&tr!("Copy Link")),
+                    cx.listener(|model, _, _, cx| model.copy_pairing_link(cx)),
+                ))
+                .child(controls::button(
+                    style(model),
+                    "clients-cancel-code",
+                    controls::Button::secondary(&tr!("Cancel")),
+                    cx.listener(|model, _, _, cx| model.cancel_pairing(cx)),
+                )),
+        )
+        .into_any_element()
+}
+
+/// The pairing code, or why it can't show.
+pub(crate) fn code(code: Option<Arc<QrCode>>, metrics: Metrics) -> AnyElement {
+    let Some(code) = code else {
+        return div()
+            .child(accessibility::label(
+                "clients-code-too-long",
+                tr!("The pairing code is too long to show."),
+            ))
+            .into_any_element();
+    };
+    let painted = qr(code).size(metrics.scaled(CODE_SIZE));
+    div()
+        .id("clients-code")
+        .role(Role::Image)
+        .accessibility_id("clients-code")
+        .aria_label(tr!("Pairing code"))
+        .debug_selector(|| "clients-code".into())
+        .child(painted)
+        .into_any_element()
+}
+
+/// Dark modules on a light square in every theme, merged into one quad per run.
+pub(crate) fn qr(code: Arc<QrCode>) -> gpui::Canvas<()> {
+    canvas(
+        |_, _, _| {},
+        move |bounds, (), window, _| {
+            window.paint_quad(gpui::fill(bounds, gpui::white()));
+            let span = code.size() + 2 * QUIET_ZONE;
+            let module = (bounds.size.width / units(span)).floor();
+            let inset = (bounds.size.width - module * units(span)) / 2.0;
+            let at = |x: usize, y: usize| {
+                point(
+                    bounds.origin.x + inset + module * units(x + QUIET_ZONE),
+                    bounds.origin.y + inset + module * units(y + QUIET_ZONE),
+                )
+            };
+            for y in 0..code.size() {
+                let mut x = 0;
+                while x < code.size() {
+                    if !code.dark(x, y) {
+                        x += 1;
+                        continue;
+                    }
+                    let start = x;
+                    while code.dark(x, y) {
+                        x += 1;
+                    }
+                    let run = size(module * units(x - start), module);
+                    window.paint_quad(gpui::fill(Bounds::new(at(start, y), run), gpui::black()));
+                }
+            }
+        },
+    )
+}
+
+fn clients(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+    if state.devices.is_empty() {
+        return div()
+            .text_color(model.theme.fg_muted)
+            .child(accessibility::label(
+                "clients-none",
+                tr!("No clients paired yet."),
+            ))
+            .into_any_element();
+    }
+    let now = now();
+    let busy = model.client_access().busy;
+    div()
+        .min_w(px(0.0))
+        .flex()
+        .flex_col()
+        .gap(model.servers_page.metrics.scaled(8.0))
+        .children(state.devices.iter().map(|device| {
+            let id = device.id;
+            div()
+                .min_w(px(0.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(model.servers_page.metrics.scaled(12.0))
+                .debug_selector(move || format!("clients-paired-{id}"))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .child(div().truncate().child(accessibility::label(
+                            SharedString::from(format!("clients-paired-name-{id}")),
+                            device.name.clone(),
+                        )))
+                        .child(div().truncate().text_color(model.theme.fg_muted).child(
+                            accessibility::label(
+                                SharedString::from(format!("clients-paired-state-{id}")),
+                                notifications(device).map_or_else(
+                                    || format!("{} · {}", kind(device.kind), presence(device, now)),
+                                    |notifications| {
+                                        format!(
+                                            "{} · {} · {notifications}",
+                                            kind(device.kind),
+                                            presence(device, now)
+                                        )
+                                    },
+                                ),
+                            ),
+                        )),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .gap(model.servers_page.metrics.scaled(8.0))
+                        .when(
+                            device.push.is_some() && model.push_notifications_available(),
+                            |buttons| {
+                                buttons.child(controls::button(
+                                    style(model),
+                                    &format!("clients-reset-push-{id}"),
+                                    controls::Button::secondary(&tr!("Reset Notifications"))
+                                        .named(&tr!(
+                                            "Reset notifications for %@",
+                                            device.name.as_str()
+                                        ))
+                                        .enabled(!busy),
+                                    cx.listener(move |model, _, window, cx| {
+                                        model.confirm_reset_push(id, window.window_handle(), cx);
+                                    }),
+                                ))
+                            },
+                        )
+                        .child(controls::button(
+                            style(model),
+                            &format!("clients-revoke-{id}"),
+                            controls::Button::secondary(&tr!("Revoke"))
+                                .named(&tr!("Revoke %@", device.name.as_str()))
+                                .enabled(!busy),
+                            cx.listener(move |model, _, window, cx| {
+                                model.confirm_revoke(id, window.window_handle(), cx);
+                            }),
+                        )),
+                )
+        }))
+        .into_any_element()
+}
+
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn kind(kind: DeviceKind) -> SharedString {
+    match kind {
+        DeviceKind::Computer => tr!("Desktop"),
+        DeviceKind::Phone | DeviceKind::Unrecognized(_) => tr!("Phone"),
+    }
+}
+
+/// Whether the phone gets push notifications, once it asked for them.
+fn notifications(device: &PairedDevice) -> Option<SharedString> {
+    Some(match device.push? {
+        PushStatus::Active => tr!("Notifications on"),
+        PushStatus::Pending => tr!("Notifications pending"),
+        PushStatus::Refused => tr!("Notifications refused"),
+        PushStatus::Disabled => tr!("Notifications paused"),
+        PushStatus::Unrecognized(_) => return None,
+    })
+}
+
+fn presence(device: &PairedDevice, now: u64) -> SharedString {
+    if device.connected {
+        return tr!("Connected");
+    }
+    let Some(seen) = device.last_seen else {
+        return tr!("Never connected");
+    };
+    match now.saturating_sub(seen) {
+        0..60 => tr!("Last seen just now"),
+        seconds @ 60..3_600 => tr!("Last seen %lld min ago", seconds / 60),
+        seconds @ 3_600..86_400 => tr!("Last seen %lld h ago", seconds / 3_600),
+        seconds => tr!("Last seen %lld d ago", seconds / 86_400),
+    }
+}
+
+fn units(value: usize) -> f32 {
+    f32::from(u16::try_from(value).unwrap_or(u16::MAX))
+}

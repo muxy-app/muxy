@@ -1,9 +1,7 @@
 use std::ffi::OsString;
 use std::io;
-#[cfg(target_os = "macos")]
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
 #[cfg(target_os = "macos")]
@@ -197,6 +195,16 @@ impl Launch {
         )
     }
 
+    #[cfg(not(windows))]
+    fn text_editor(path: &Path) -> Self {
+        let mut args = Vec::new();
+        if cfg!(target_os = "macos") {
+            args.push(OsString::from("-t"));
+        }
+        args.push(path.as_os_str().to_owned());
+        Self::system(args)
+    }
+
     fn program(program: impl Into<PathBuf>, args: impl IntoIterator<Item = OsString>) -> Self {
         Self {
             program: program.into(),
@@ -225,13 +233,10 @@ fn launch(launch: &Launch) -> io::Result<()> {
             .iter()
             .try_for_each(|target| shell::open(target));
     }
-    process::run(
-        Command::new(&launch.program)
-            .args(&launch.args)
-            .stdout(Stdio::null()),
+    process::launch(
+        Command::new(&launch.program).args(&launch.args),
         Duration::from_secs(10),
     )
-    .map(drop)
     .map_err(|error| missing(&launch.program, error))
 }
 
@@ -308,10 +313,16 @@ pub(crate) fn open_with_default_app(path: &Path) -> io::Result<()> {
     launch(&Launch::system([path.as_os_str().to_owned()]))
 }
 
-/// Opens a text file in the text editor every Windows has, as macOS opens
-/// one in its text editor. `.toml` files usually have no app of their own.
+/// Opens a text file in this computer's text editor.
+#[cfg(not(windows))]
+pub(crate) fn open_in_text_editor(path: &Path) -> io::Result<()> {
+    launch(&Launch::text_editor(path))
+}
+
+/// Opens a text file in the text editor every Windows has. `.toml` files
+/// usually have no app of their own there.
 #[cfg(windows)]
-pub(crate) fn edit_text(path: &Path) -> io::Result<()> {
+pub(crate) fn open_in_text_editor(path: &Path) -> io::Result<()> {
     Command::new("notepad.exe")
         .arg(path)
         .spawn()
@@ -343,8 +354,92 @@ fn finder(path: &Path) -> Launch {
 #[derive(Debug)]
 struct Editor {
     bundle: String,
+    name: String,
     path: PathBuf,
     rank: usize,
+}
+
+/// An app that opens project folders: the file manager or an editor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ProjectApp {
+    pub id: String,
+    pub name: String,
+    pub path: PathBuf,
+}
+
+impl AsRef<ProjectApp> for ProjectApp {
+    fn as_ref(&self) -> &ProjectApp {
+        self
+    }
+}
+
+impl ProjectApp {
+    pub(crate) fn is_file_manager(&self) -> bool {
+        self.id == FINDER
+    }
+}
+
+/// The file manager, then the installed editors from most to least preferred.
+#[cfg(not(test))]
+pub(crate) fn project_apps() -> Vec<ProjectApp> {
+    project_apps_from(editors())
+}
+
+fn project_apps_from(editors: &[Editor]) -> Vec<ProjectApp> {
+    let file_manager = ProjectApp {
+        id: FINDER.into(),
+        name: if cfg!(target_os = "macos") {
+            "Finder".into()
+        } else {
+            tr!("File Manager").to_string()
+        },
+        path: PathBuf::from("/System/Library/CoreServices/Finder.app"),
+    };
+    std::iter::once(file_manager)
+        .chain(editors.iter().map(|editor| ProjectApp {
+            id: editor.bundle.clone(),
+            name: editor.name.clone(),
+            path: editor.path.clone(),
+        }))
+        .collect()
+}
+
+/// The app the project button opens: the chosen one while it is installed,
+/// otherwise the most preferred editor, otherwise the file manager.
+pub(crate) fn default_project_app<'a, T: AsRef<ProjectApp>>(
+    apps: &'a [T],
+    chosen: Option<&str>,
+) -> Option<&'a T> {
+    chosen
+        .and_then(|id| apps.iter().find(|app| app.as_ref().id == id))
+        .or_else(|| apps.iter().find(|app| !app.as_ref().is_file_manager()))
+        .or_else(|| apps.first())
+}
+
+/// Opens the project folder `directory` with the app whose id is `app`.
+pub(crate) fn open_project(directory: &Path, app: &str) -> io::Result<()> {
+    open_project_with(directory, app, editors(), launch)
+}
+
+fn open_project_with(
+    directory: &Path,
+    app: &str,
+    editors: &[Editor],
+    launch: impl FnOnce(&Launch) -> io::Result<()>,
+) -> io::Result<()> {
+    if app == FINDER {
+        return launch(&finder(directory));
+    }
+    let editor = editors
+        .iter()
+        .find(|editor| editor.bundle == app)
+        .ok_or_else(|| io::Error::other(tr!("This app is no longer installed").to_string()))?;
+    let folder = FileLocation {
+        path: directory.to_owned(),
+        line: None,
+        column: None,
+    };
+    launch(&editor.command(&folder, directory))
 }
 
 impl Editor {
@@ -449,7 +544,16 @@ fn discover(
                 continue;
             };
             if let Some(rank) = editor_rank(&bundle) {
-                found.push(Editor { bundle, path, rank });
+                let name = path.file_stem().map_or_else(
+                    || bundle.clone(),
+                    |stem| stem.to_string_lossy().into_owned(),
+                );
+                found.push(Editor {
+                    bundle,
+                    name,
+                    path,
+                    rank,
+                });
             }
         } else if depth < 3 && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
             discover(&path, depth + 1, remaining, deadline, found);
@@ -459,25 +563,17 @@ fn discover(
 
 #[cfg(target_os = "macos")]
 fn bundle_identifier(path: &Path, remaining: Duration) -> Option<String> {
-    let mut child = process::run(
+    let output = muxy_core::process::run(
         Command::new("/usr/bin/plutil")
             .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
-            .arg(path.join("Contents/Info.plist"))
-            .stdout(Stdio::piped()),
-        remaining.min(Duration::from_millis(500)),
+            .arg(path.join("Contents/Info.plist")),
+        muxy_core::process::Limits::new(remaining.min(Duration::from_millis(500)), 1024),
     )
     .ok()?;
-    let mut bytes = Vec::new();
-    child
-        .stdout
-        .take()?
-        .take(1025)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() > 1024 {
+    if !output.status.success() || output.timed_out || output.stdout.truncated {
         return None;
     }
-    String::from_utf8(bytes)
+    String::from_utf8(output.stdout.bytes)
         .ok()
         .map(|bundle| bundle.trim().to_owned())
 }
@@ -510,6 +606,7 @@ fn editor_rank(bundle: &str) -> Option<usize> {
         "org.gnu.Emacs",
         "org.aquamacs.Aquamacs",
         "com.code.athas",
+        "com.google.android.studio",
     ];
     EDITORS.iter().position(|id| *id == bundle).or_else(|| {
         (bundle.starts_with("com.jetbrains.") && !bundle.to_lowercase().contains("toolbox"))
@@ -556,19 +653,24 @@ fn editors() -> &'static [Editor] {
             .filter(|path| path.is_absolute())
             .collect();
         let mut editors: Vec<_> = [
-            ("com.microsoft.VSCode", "code"),
-            ("com.microsoft.VSCodeInsiders", "code-insiders"),
-            ("com.vscodium", "codium"),
-            ("com.todesktop.230313mzl4w4u92", "cursor"),
-            ("dev.zed.Zed", "zed"),
-            ("com.exafunction.windsurf", "windsurf"),
+            ("com.microsoft.VSCode", "code", "Visual Studio Code"),
+            (
+                "com.microsoft.VSCodeInsiders",
+                "code-insiders",
+                "Visual Studio Code - Insiders",
+            ),
+            ("com.vscodium", "codium", "VSCodium"),
+            ("com.todesktop.230313mzl4w4u92", "cursor", "Cursor"),
+            ("dev.zed.Zed", "zed", "Zed"),
+            ("com.exafunction.windsurf", "windsurf", "Windsurf"),
         ]
         .into_iter()
         .enumerate()
-        .filter_map(|(rank, (bundle, command))| {
+        .filter_map(|(rank, (bundle, command, name))| {
             let path = muxy_core::executable::find_program(&directories, command)?;
             Some(Editor {
                 bundle: bundle.into(),
+                name: name.into(),
                 path,
                 rank,
             })

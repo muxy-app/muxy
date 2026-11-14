@@ -73,6 +73,8 @@ pub struct Project {
     #[serde(default)]
     pub home: bool,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<std::time::SystemTime>,
     pub icon: Option<String>,
     #[serde(default)]
     pub logo: Option<std::sync::Arc<[u8]>>,
@@ -87,6 +89,31 @@ pub struct Project {
     pub(crate) groups: Option<crate::TabGroups>,
     #[serde(skip)]
     pub(crate) status: ProjectStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RemovedProject {
+    pub server_id: ServerId,
+    #[serde(with = "crate::catalog::directory")]
+    pub directory: PathBuf,
+    pub name: String,
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub logo: Option<std::sync::Arc<[u8]>>,
+    pub color: Color,
+}
+
+impl From<&Project> for RemovedProject {
+    fn from(project: &Project) -> Self {
+        Self {
+            server_id: project.server_id,
+            directory: project.directory.clone(),
+            name: project.name.clone(),
+            icon: project.icon.clone(),
+            logo: project.logo.clone(),
+            color: project.color.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

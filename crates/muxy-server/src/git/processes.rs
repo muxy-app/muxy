@@ -1,14 +1,14 @@
 //! Making sure nothing uses a worktree before it is deleted.
 
 use super::{Result, error};
+#[cfg(unix)]
+use rustix::process::{Pid, Signal};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Stops every process whose working directory is inside `directory`.
 #[cfg(unix)]
 pub(super) fn stop(directory: &Path) -> Result<()> {
-    use super::command::capture;
-    use std::process::Command;
     let directory = directory.canonicalize().map_err(error)?;
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
@@ -36,19 +36,17 @@ pub(super) fn stop(directory: &Path) -> Result<()> {
             let Some(before) = identity(pid) else {
                 continue;
             };
-            for signal in ["-TERM", "-KILL"] {
+            for signal in [Signal::TERM, Signal::KILL] {
                 let still_here = directories()?
                     .iter()
                     .any(|(current, cwd)| *current == pid && cwd.starts_with(&directory));
                 if !still_here || identity(pid).as_ref() != Some(&before) {
                     break;
                 }
-                let mut command = Command::new("/bin/kill");
-                command.args([signal, "--", &pid.to_string()]);
-                if let Err(e) = capture(command)
+                if let Err(cause) = signal_process(pid, signal)
                     && identity(pid).as_ref() == Some(&before)
                 {
-                    return Err(e);
+                    return Err(error(cause));
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
@@ -56,14 +54,21 @@ pub(super) fn stop(directory: &Path) -> Result<()> {
     }
 }
 
+#[cfg(unix)]
+fn signal_process(pid: u32, signal: Signal) -> std::io::Result<()> {
+    let pid = i32::try_from(pid)
+        .ok()
+        .and_then(Pid::from_raw)
+        .ok_or_else(|| std::io::Error::other("invalid process ID"))?;
+    Ok(rustix::process::kill_process(pid, signal)?)
+}
+
 #[cfg(target_os = "macos")]
 fn directories() -> Result<Vec<(u32, PathBuf)>> {
-    use super::command::capture;
     use std::os::unix::ffi::OsStrExt;
-    use std::process::Command;
-    let mut command = Command::new("/usr/sbin/lsof");
+    let mut command = std::process::Command::new("/usr/sbin/lsof");
     command.args(["-n", "-P", "-a", "-d", "cwd", "-Fpn0"]);
-    let bytes = capture(command)?;
+    let bytes = super::command::capture(command)?;
     let mut pid = None;
     let mut result = Vec::new();
     for record in bytes.split(|b| *b == 0) {

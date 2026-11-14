@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{Context, Entity, Pixels, Point, Subscription, Window};
+use gpui::{Context, Entity, Pixels, Point, Subscription, Task, Window};
 use muxy_app_core::browser::BrowserPane;
 use muxy_app_core::{PaneContent, PaneId, ProjectId, Tab};
 use muxy_core::capability::Feature;
@@ -36,7 +36,7 @@ const ADDRESS_SAVE_DELAY: std::time::Duration = std::time::Duration::from_secs(1
 
 pub(crate) struct Surface {
     pub view: Entity<BrowserView>,
-    _subscription: Subscription,
+    subscription: Subscription,
 }
 
 #[derive(Default)]
@@ -50,7 +50,7 @@ pub(crate) struct Browsers {
     /// Panes a page opened, which may close themselves.
     opened_by_page: HashSet<PaneId>,
     /// Saves addresses once pages stop changing them.
-    save: Option<gpui::Task<()>>,
+    save: Option<Task<()>>,
     /// Panes whose view could not be created, with why.
     failures: HashMap<PaneId, String>,
     shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
@@ -84,16 +84,12 @@ impl AppModel {
     /// Every browser pane, with its project and tab.
     pub(crate) fn browser_panes(&self) -> Vec<(ProjectId, &Tab, PaneId, &BrowserPane)> {
         self.state
-            .projects()
-            .iter()
-            .flat_map(|project| project.tabs.iter().map(move |tab| (project.id, tab)))
-            .flat_map(|(project, tab)| {
-                tab.panes
-                    .iter()
-                    .filter_map(move |pane| match &pane.content {
-                        PaneContent::Browser(browser) => Some((project, tab, pane.id, browser)),
-                        _ => None,
-                    })
+            .panes()
+            .filter_map(|placed| match &placed.pane.content {
+                PaneContent::Browser(browser) => {
+                    Some((placed.project?.id, placed.tab?, placed.pane.id, browser))
+                }
+                _ => None,
             })
             .collect()
     }
@@ -167,10 +163,14 @@ impl AppModel {
         let theme = self.theme.clone();
         let metrics = self.metrics;
         let engine = self.settings.browser.search_engine;
+        let here = window.window_handle().window_id();
         for (id, surface) in &self.browsers.views {
+            if self.page_window(*id) != here {
+                continue;
+            }
             let command_drag = window.modifiers().platform && self.pane_drag_available(*id);
             surface.view.update(cx, |view, cx| {
-                view.native.set_shortcuts(drag, shortcuts.to_vec());
+                view.native.set_shortcuts(drag, shortcuts.clone());
                 view.native.set_mouse_passthrough(resizing || command_drag);
                 view.engine = engine;
                 view.refresh_theme(&theme, metrics, cx);
@@ -214,20 +214,38 @@ impl AppModel {
             window,
             cx,
         )?;
-        let subscription = cx.subscribe_in(&view, window, move |model, _, event, window, cx| {
-            model.browser_event(pane, event, window, cx);
-        });
+        let subscription = browser_subscription(pane, &view, window, cx);
+        self.tab_windows.set_page_home(
+            pane,
+            window.window_handle().window_id(),
+            self.window.window_id(),
+        );
         self.browsers.views.insert(
             pane,
             Surface {
                 view: view.clone(),
-                _subscription: subscription,
+                subscription,
             },
         );
         Ok(view)
     }
 
-    fn browser_event(
+    /// Hears `view`'s events with `window` as the window it shows in.
+    pub(super) fn resubscribe_browser(
+        &mut self,
+        pane: PaneId,
+        view: &Entity<BrowserView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        view.update(cx, |view, cx| view.follow_window(window, cx));
+        let subscription = browser_subscription(pane, view, window, cx);
+        if let Some(surface) = self.browsers.views.get_mut(&pane) {
+            surface.subscription = subscription;
+        }
+    }
+
+    pub(super) fn browser_event(
         &mut self,
         pane: PaneId,
         event: &BrowserViewEvent,
@@ -241,7 +259,9 @@ impl AppModel {
             BrowserViewEvent::Escape => {
                 self.cancel_layout_drag(cx);
             }
+            BrowserViewEvent::TitleChanged => cx.notify(),
             BrowserViewEvent::Navigated(url) => {
+                cx.notify();
                 if self
                     .state
                     .set_browser_url(pane, url.clone())
@@ -258,7 +278,7 @@ impl AppModel {
                 }
             }
             BrowserViewEvent::Focus | BrowserViewEvent::PageClicked => {
-                if self.overlay.is_none() && self.close_prompt.is_none() {
+                if self.overlay.is_none() && !self.dialogs.is_open() {
                     self.focus_pane(pane, cx);
                     if let Some(view) = self.browser_view(pane) {
                         let clicked_into_page = matches!(event, BrowserViewEvent::PageClicked);
@@ -268,11 +288,11 @@ impl AppModel {
                             view.read(cx).focus.focus(window);
                         }
                     }
-                    self.focus_requested = false;
+                    self.focus_owner.settle();
                 }
             }
             BrowserViewEvent::OpenTab(url) => {
-                let Some(project) = self.state.pane_project(pane) else {
+                let Some(project) = self.state.pane_project(pane).map(|project| project.id) else {
                     return;
                 };
                 let profile = self
@@ -300,6 +320,7 @@ impl AppModel {
                 }
             }
             BrowserViewEvent::External(url) => self.open_externally(url.clone(), None, cx),
+            BrowserViewEvent::Copied => self.show_notice(tr!("Copied!").to_string(), cx),
             BrowserViewEvent::Favicon(url) => self.load_favicon(pane, url.clone(), cx),
             BrowserViewEvent::Menu(menu, position) => {
                 self.open_browser_menu(pane, *menu, *position, window, cx);
@@ -307,7 +328,8 @@ impl AppModel {
         }
     }
 
-    /// Answers `muxy browser` on the profile's app socket.
+    /// Answers `muxy browser` and `muxy session show` on the profile's app
+    /// socket.
     pub(crate) fn start_app_socket(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let path = muxy_app_core::browser::api::socket_path(
             self.path
@@ -325,13 +347,34 @@ impl AppModel {
         cx.spawn_in(window, async move |model, cx| {
             while let Ok(incoming) = requests.recv().await {
                 let verb = incoming.request.verb.clone();
-                if !verb.starts_with("browser.") {
+                let shows_session = verb == "session.show";
+                let reloads_settings = verb == "settings.reload";
+                let manages_extension = verb.starts_with("extension.");
+                if !shows_session
+                    && !reloads_settings
+                    && !manages_extension
+                    && !verb.starts_with("browser.")
+                {
                     incoming.reply(Err(format!("unknown command {verb}")));
                     continue;
                 }
                 let args = incoming.request.args.clone();
                 let Ok(reply) = model.update_in(cx, |model, window, cx| {
-                    model.browser_call(&verb, &args, window, cx)
+                    if shows_session {
+                        Task::ready(model.show_session(&args, cx))
+                    } else if reloads_settings {
+                        Task::ready(
+                            model
+                                .reload_settings(cx)
+                                .map(|()| serde_json::json!({ "reloaded": true })),
+                        )
+                    } else if crate::model::extensions::is_page_verb(&verb) {
+                        model.extension_page_cli_call(&verb, &args, window, cx)
+                    } else if manages_extension {
+                        model.extension_cli_call(&verb, &args, cx)
+                    } else {
+                        model.browser_call(&verb, &args, window, cx)
+                    }
                 }) else {
                     incoming.reply(Err("Muxy is closing".into()));
                     break;
@@ -435,26 +478,28 @@ impl AppModel {
         }
         let profile = self.browser_profile(profile.as_deref())?.id().to_string();
         let browser = BrowserPane::new(url, Some(profile));
-        let previous = self.state.clone();
-        let anchor = split.then(|| self.shown_pane_of(project)).flatten();
-        let opened = match anchor {
-            Some(anchor) => self.state.split_browser(anchor, browser, select),
-            None => self
-                .state
-                .open_browser(project, browser, select)
-                .map(|(_, pane)| pane),
-        };
-        let pane = opened.map_err(|error| error.to_string())?;
-        if !self.save(cx) {
-            self.state = previous;
-            return Err(tr!("Could not save tabs").into());
-        }
+        let anchor = split
+            .then(|| self.shown_pane_of(project))
+            .flatten()
+            .filter(|pane| !self.pane_floats(*pane));
+        let opened = self.transact(
+            |state| match anchor {
+                Some(anchor) => state.split_browser(anchor, browser, select),
+                None => state
+                    .open_browser(project, browser, select)
+                    .map(|(_, pane)| pane),
+            },
+            cx,
+        );
+        let pane = opened
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| tr!("Could not save tabs").to_string())?;
         if focus_address {
             self.browsers.focus_address.insert(pane);
         }
         if select {
             self.dismiss_overlay(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
         }
         self.changed(cx);
         Ok(pane)
@@ -630,7 +675,7 @@ impl AppModel {
             Ok(true) => {
                 self.browsers.views.remove(&pane);
                 self.save(cx);
-                self.focus_requested = true;
+                self.focus_owner.request_active_pane();
                 cx.notify();
             }
             Ok(false) => {}
@@ -695,4 +740,15 @@ impl AppModel {
             }
         }
     }
+}
+
+fn browser_subscription(
+    pane: PaneId,
+    view: &Entity<BrowserView>,
+    window: &mut Window,
+    cx: &mut Context<AppModel>,
+) -> Subscription {
+    cx.subscribe_in(view, window, move |model, _, event, window, cx| {
+        model.browser_event(pane, event, window, cx);
+    })
 }

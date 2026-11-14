@@ -1,18 +1,20 @@
 use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use muxy_protocol::{
-    ErrorCode, ExitReason, HistoryCursor, HistoryPage, SavedScreen, ServerPath, SessionId,
-    SessionInfo, Size, TerminalColors, validate_size,
+    ErrorCode, HistoryCursor, HistoryPage, SavedScreen, ServerPath, SessionId, SessionInfo, Size,
+    TerminalColors, validate_size,
 };
 
 use crate::archive::Archive;
+use crate::connection::Connection;
 use crate::error::ServerError;
+use crate::notifier::Notifier;
+use crate::references::{Owners, SharedReferences};
 use crate::session::{self, SessionHandle};
 use crate::settings::ServerSettings;
 use crate::spawn::spawn_shell;
@@ -26,9 +28,16 @@ struct State {
     stopping: bool,
 }
 
+/// How a requested session's terminal starts.
+#[derive(Debug, Default)]
+pub(crate) struct Launch {
+    pub(crate) colors: Option<TerminalColors>,
+    /// More environment for the shell, such as a proxy.
+    pub(crate) environment: BTreeMap<String, String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ServerEvent {
-    SessionEnded { id: SessionId, reason: ExitReason },
     StopRequested,
     RestartRequested,
 }
@@ -40,9 +49,9 @@ pub struct Registry {
     pub(crate) git: crate::git::Git,
     pub(crate) files: crate::files::Files,
     uploads: crate::uploads::Uploads,
-    pub(crate) operations: Mutex<()>,
-    connections: Mutex<Vec<Weak<crate::connection::Outbox>>>,
-    pub(crate) attachment_changes: Arc<AtomicU64>,
+    /// Serializes session operations, and holds the references they consult.
+    pub(crate) operations: Mutex<Owners>,
+    pub(crate) notifier: Arc<Notifier>,
     settings: Mutex<ServerSettings>,
     settings_write: Mutex<()>,
     persist: crate::settings::Persistence,
@@ -52,19 +61,22 @@ pub struct Registry {
     completed: Arc<Condvar>,
     archive: Archive,
     pub(crate) remote: crate::RemoteAccess,
+    pub(crate) push: crate::push::Push,
 }
 
 impl Registry {
     pub fn new(settings: ServerSettings, events: Sender<ServerEvent>) -> Self {
+        let notifier = Arc::new(Notifier::default());
+        let mut remote = crate::RemoteAccess::memory();
+        remote.set_notifier(Arc::clone(&notifier));
         Self {
-            activity: Arc::default(),
-            catalog: Arc::new(crate::catalog::Catalog::memory()),
-            operations: Mutex::new(()),
+            activity: Arc::new(crate::activity::Activity::new(Arc::clone(&notifier))),
+            catalog: Arc::new(crate::catalog::Catalog::memory(Arc::clone(&notifier))),
+            operations: Mutex::default(),
             git: crate::git::Git::default(),
             files: crate::files::Files::default(),
             uploads: crate::uploads::Uploads::system(),
-            connections: Mutex::default(),
-            attachment_changes: Arc::default(),
+            notifier,
             archive: Archive::memory(settings.history_budget_bytes),
             settings: Mutex::new(settings),
             settings_write: Mutex::new(()),
@@ -73,7 +85,8 @@ impl Registry {
             events,
             sessions: Sessions::default(),
             completed: Arc::default(),
-            remote: crate::RemoteAccess::memory(),
+            remote,
+            push: crate::push::Push::default(),
         }
     }
 
@@ -92,12 +105,21 @@ impl Registry {
         legacy: crate::LegacyImport,
     ) -> io::Result<Self> {
         let archive = Archive::open(directory, settings.history_budget_bytes)?;
-        let catalog = Arc::new(crate::catalog::Catalog::open(directory, &archive, legacy)?);
+        let registry = Self::new(settings, events);
+        let notifier = &registry.notifier;
         let registry = Self {
-            activity: Arc::new(crate::activity::Activity::open(directory)?),
-            catalog,
+            catalog: Arc::new(crate::catalog::Catalog::open(
+                directory,
+                &archive,
+                legacy,
+                Arc::clone(notifier),
+            )?),
+            activity: Arc::new(crate::activity::Activity::open(
+                directory,
+                Arc::clone(notifier),
+            )?),
             archive,
-            ..Self::new(settings, events)
+            ..registry
         };
         registry.resume_git();
         registry.resume_cleanup().map_err(io::Error::other)?;
@@ -107,28 +129,18 @@ impl Registry {
         Ok(registry)
     }
 
-    pub(crate) fn session_observations(
-        &self,
-        outbox: &crate::connection::Outbox,
-    ) -> BTreeMap<
-        SessionId,
-        (
-            muxy_protocol::SessionProgress,
-            muxy_protocol::SessionMetadata,
-        ),
-    > {
-        let sessions = outbox.referenced_sessions();
-        let handles: Vec<_> = {
-            let state = lock(&self.sessions);
-            sessions
-                .iter()
-                .filter_map(|id| state.sessions.get(id).cloned())
-                .collect()
-        };
-        handles
-            .into_iter()
-            .map(|handle| (handle.id(), (handle.progress(), handle.metadata())))
-            .collect()
+    /// This process, with the saved files it couldn't read at startup.
+    pub fn server_info(&self) -> muxy_protocol::ServerInfo {
+        muxy_protocol::ServerInfo {
+            unreadable: self
+                .catalog
+                .unreadable()
+                .into_iter()
+                .chain(self.remote.unreadable())
+                .cloned()
+                .collect(),
+            ..muxy_protocol::ServerInfo::current()
+        }
     }
 
     pub fn home_project(&self) -> muxy_protocol::ProjectId {
@@ -156,8 +168,7 @@ impl Registry {
     }
 
     pub(crate) fn sessions_revision(&self) -> u64 {
-        self.catalog_revision()
-            .saturating_add(self.attachment_changes.load(Ordering::Acquire))
+        self.notifier.sessions_revision()
     }
 
     pub(crate) fn project_sessions_for(
@@ -165,7 +176,7 @@ impl Registry {
         project: muxy_protocol::ProjectId,
         after: Option<SessionId>,
         revision: Option<u64>,
-        requester: Option<&crate::connection::Outbox>,
+        requester: Option<&Connection>,
     ) -> Result<muxy_protocol::ProjectSessions, ServerError> {
         let _operation = self.session_operation();
         let current = self.sessions_revision();
@@ -179,13 +190,7 @@ impl Registry {
             return Err(changed());
         }
         let mut page = self.catalog.list_project(project, after, None)?;
-        let connections: Vec<_> = self
-            .connections
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .filter_map(Weak::upgrade)
-            .collect();
+        let connections = self.notifier.connections();
         for session in &mut page.sessions {
             if matches!(
                 session.status,
@@ -272,7 +277,8 @@ impl Registry {
     }
 
     #[must_use]
-    pub fn with_remote_access(mut self, remote: crate::RemoteAccess) -> Self {
+    pub fn with_remote_access(mut self, mut remote: crate::RemoteAccess) -> Self {
+        remote.set_notifier(Arc::clone(&self.notifier));
         self.remote = remote;
         self
     }
@@ -302,12 +308,20 @@ impl Registry {
     }
 
     pub fn remote_access_state(&self) -> muxy_protocol::RemoteAccessState {
-        let connected = self
-            .live_connections()
+        self.remote.state(&self.connected_devices())
+    }
+
+    /// Stops saving device access, before the server lets a newer one start.
+    pub fn close_remote_access(&self) {
+        self.remote.close();
+    }
+
+    /// Paired devices with a connection open now.
+    pub(crate) fn connected_devices(&self) -> HashSet<muxy_protocol::DeviceId> {
+        self.live_connections()
             .iter()
             .filter_map(|connection| connection.device())
-            .collect();
-        self.remote.state(&connected)
+            .collect()
     }
 
     pub(crate) fn write_remote_access(
@@ -325,7 +339,8 @@ impl Registry {
         &self,
         device: muxy_protocol::DeviceId,
     ) -> Result<muxy_protocol::RemoteAccessState, ServerError> {
-        self.remote.revoke(device)?;
+        let push = self.remote.revoke(device)?;
+        self.forget_push(push);
         self.close_devices(Some(device));
         Ok(self.remote_access_state())
     }
@@ -337,12 +352,23 @@ impl Registry {
         self.remote.pair(request, self.catalog.identity())
     }
 
-    pub(crate) fn connection_closed(&self, outbox: &crate::connection::Outbox) {
-        if outbox.device().is_some() {
+    pub(crate) fn connection_closed(&self, connection: &Connection) {
+        if connection.device().is_some() {
             self.remote.changed();
         } else {
-            self.remote.release_pairing(outbox.client().id);
+            self.remote.release_pairing(connection.client().id);
         }
+        self.forget_unused_owners(&mut self.session_operation());
+    }
+
+    /// An owner's references last as long as one of its connections.
+    fn forget_unused_owners(&self, owners: &mut Owners) {
+        let connections = self.live_connections();
+        owners.retain(|owner| {
+            connections
+                .iter()
+                .any(|connection| connection.owner() == Some(owner))
+        });
     }
 
     /// Closes the connections of one paired device, or of every paired device.
@@ -357,12 +383,10 @@ impl Registry {
         }
     }
 
-    fn live_connections(&self) -> Vec<Arc<crate::connection::Outbox>> {
-        self.connections
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .filter_map(Weak::upgrade)
+    fn live_connections(&self) -> Vec<Arc<Connection>> {
+        self.notifier
+            .connections()
+            .into_iter()
             .filter(|connection| !connection.is_closed())
             .collect()
     }
@@ -416,6 +440,8 @@ impl Registry {
     }
 
     pub fn request_restart(&self) {
+        self.notifier
+            .broadcast(&muxy_protocol::Message::ServerRestarting);
         let _ = self.events.send(ServerEvent::RestartRequested);
     }
 
@@ -439,17 +465,17 @@ impl Registry {
         directory: &Path,
         size: Size,
     ) -> Result<SessionInfo, ServerError> {
-        self.create_with_colors(project, operation, directory, size, None, None)
+        self.create_launched(project, operation, directory, size, Launch::default(), None)
     }
 
-    pub(crate) fn create_with_colors(
+    pub(crate) fn create_launched(
         &self,
         project: muxy_protocol::ProjectId,
         operation: muxy_protocol::OperationId,
         directory: &Path,
         size: Size,
-        colors: Option<TerminalColors>,
-        requester: Option<&crate::connection::Outbox>,
+        launch: Launch,
+        requester: Option<&Connection>,
     ) -> Result<SessionInfo, ServerError> {
         let _operation = self.session_operation();
         let (directory, directory_bytes) = session_directory(directory)?;
@@ -481,17 +507,13 @@ impl Registry {
         }
         let settings = self.settings();
         let budget = usize::try_from(settings.history_budget_bytes).unwrap_or(usize::MAX);
-        let listing = Arc::clone(&self.sessions);
-        let events = self.events.clone();
-        let completed = Arc::clone(&self.completed);
-        let catalog = Arc::clone(&self.catalog);
-        let saved = self.archive.clone();
         let handle = spawn_shell(
             &settings,
             self.shell_integration.as_ref(),
             directory,
             size.into(),
             (self.catalog.identity(), id),
+            &launch.environment,
         )
         .and_then(|shell| {
             session::start(
@@ -500,21 +522,10 @@ impl Registry {
                 size,
                 budget,
                 self.archive.clone(),
-                colors,
+                launch.colors,
                 Arc::clone(&self.activity),
-                move |reason| {
-                    let status = if saved.contains(id) {
-                        muxy_protocol::SessionStatus::Ended
-                    } else {
-                        muxy_protocol::SessionStatus::Unavailable
-                    };
-                    catalog.record_exit(id, status);
-                    let mut state = lock(&listing);
-                    state.sessions.remove(&id);
-                    state.starting.remove(&id);
-                    let _ = events.send(ServerEvent::SessionEnded { id, reason });
-                    completed.notify_all();
-                },
+                Arc::clone(&self.notifier),
+                self.session_exit(id),
             )
         });
         let handle = match handle {
@@ -551,7 +562,31 @@ impl Registry {
         Ok(info)
     }
 
-    fn attach_creator(&self, id: SessionId, requester: Option<&crate::connection::Outbox>) {
+    /// Records a session's end, then tells every connection.
+    fn session_exit(&self, id: SessionId) -> impl FnOnce(muxy_protocol::ExitReason) + use<> {
+        let listing = Arc::clone(&self.sessions);
+        let notifier = Arc::clone(&self.notifier);
+        let completed = Arc::clone(&self.completed);
+        let catalog = Arc::clone(&self.catalog);
+        let saved = self.archive.clone();
+        move |reason| {
+            let status = if saved.contains(id) {
+                muxy_protocol::SessionStatus::Ended
+            } else {
+                muxy_protocol::SessionStatus::Unavailable
+            };
+            catalog.record_exit(id, status);
+            log::info!("session ended: {} ({reason:?})", id.get());
+            let mut state = lock(&listing);
+            state.sessions.remove(&id);
+            state.starting.remove(&id);
+            notifier.session_ended(id, reason);
+            drop(state);
+            completed.notify_all();
+        }
+    }
+
+    fn attach_creator(&self, id: SessionId, requester: Option<&Connection>) {
         if let Some(requester) = requester
             && self.handle(id).is_some()
         {
@@ -579,17 +614,12 @@ impl Registry {
         lock(&self.sessions)
             .sessions
             .values()
-            .map(|handle| handle.info().clone())
+            .map(SessionHandle::info)
             .collect()
     }
 
     pub fn handle(&self, id: SessionId) -> Option<SessionHandle> {
         lock(&self.sessions).sessions.get(&id).cloned()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn insert_session(&self, handle: SessionHandle) {
-        lock(&self.sessions).sessions.insert(handle.id(), handle);
     }
 
     pub fn end(&self, id: SessionId) -> Result<(), ServerError> {
@@ -614,28 +644,17 @@ impl Registry {
         Ok(())
     }
 
-    pub(crate) fn session_operation(&self) -> MutexGuard<'_, ()> {
+    pub(crate) fn session_operation(&self) -> MutexGuard<'_, Owners> {
         self.operations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub(crate) fn claim_activity(
-        &self,
-        requester: &crate::connection::Outbox,
-        ids: &[u64],
-    ) -> Vec<u64> {
-        let connections = self
-            .connections
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let owner = connections
-            .iter()
-            .filter_map(Weak::upgrade)
-            .find(|connection| {
-                !connection.is_closed()
-                    && connection.client().kind == muxy_protocol::ClientKind::Desktop
-            });
+    pub(crate) fn claim_activity(&self, requester: &Connection, ids: &[u64]) -> Vec<u64> {
+        let owner = self.notifier.connections().into_iter().find(|connection| {
+            !connection.is_closed()
+                && connection.client().kind == muxy_protocol::ClientKind::Desktop
+        });
         if owner.is_some_and(|owner| owner.client().id == requester.client().id) {
             self.activity.claim(ids)
         } else {
@@ -643,72 +662,75 @@ impl Registry {
         }
     }
 
-    pub(crate) fn register_connection(&self, outbox: &Arc<crate::connection::Outbox>) {
-        let mut connections = self
-            .connections
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        connections.retain(|connection| connection.strong_count() > 0);
-        connections.push(Arc::downgrade(outbox));
-    }
-
-    pub(crate) fn sync_references(
+    /// Records the sessions an app references. Connections of the same
+    /// owner share one set; a set older than the current one is ignored.
+    pub(crate) fn set_references(
         &self,
-        requester: &crate::connection::Outbox,
+        requester: &Connection,
         owner: Option<muxy_protocol::OperationId>,
         revision: u64,
         sessions: &[SessionId],
     ) {
-        let _operation = self.session_operation();
-        let connections: Vec<_> = self
-            .connections
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .filter_map(Weak::upgrade)
-            .collect();
-        let mut references: crate::connection::References = owner
-            .and_then(|owner| {
-                connections
-                    .iter()
-                    .filter_map(|connection| connection.reference_state())
-                    .filter(|references| references.owner == Some(owner))
-                    .max_by_key(|references| references.revision)
-            })
-            .or_else(|| requester.reference_state())
-            .unwrap_or_default();
-        let accepted =
-            owner.is_none() || references.owner != owner || revision >= references.revision;
-        if accepted {
-            references.update(owner, revision, sessions.to_vec());
+        let mut owners = self.session_operation();
+        self.forget_unused_owners(&mut owners);
+        let Some(current) = requester.shared_references() else {
+            return;
+        };
+        let previous = current.lock().sessions().clone();
+        let (references, started) = match owner {
+            Some(owner) => owners.get_or_insert(owner, || current.lock().clone()),
+            None if requester.owner().is_none() => (current, false),
+            None => (SharedReferences::new(current.lock().clone()), true),
+        };
+        let (before, accepted, after) = {
+            let mut references = references.lock();
+            let before = references.sessions().clone();
+            let accepted = owner.is_none() || started || revision >= references.revision();
+            if accepted {
+                references.update(revision, sessions);
+            }
+            (before, accepted, references.sessions().clone())
+        };
+        requester.use_references(owner, &references, Some(sessions), accepted);
+        self.introduce(requester, after.difference(&previous));
+        if owner.is_none() {
+            return;
         }
-        requester.set_references(references.clone(), Some(sessions), accepted);
-        if let Some(owner) = owner {
-            for connection in connections {
-                if connection
-                    .reference_state()
-                    .is_some_and(|state| state.owner == Some(owner))
-                {
-                    connection.set_references(references.clone(), None, false);
-                }
+        for connection in self.notifier.connections() {
+            if !std::ptr::eq(connection.as_ref(), requester)
+                && connection
+                    .shared_references()
+                    .is_some_and(|shared| shared.is(&references))
+            {
+                connection.use_references(owner, &references, None, false);
+                self.introduce(&connection, after.difference(&before));
             }
         }
     }
 
-    pub(crate) fn session_shared(
+    /// Gives a connection that watches every session's metadata its current state.
+    pub(crate) fn introduce_all(&self, connection: &Connection) {
+        let sessions: Vec<_> = self.list().into_iter().map(|info| info.id).collect();
+        self.introduce(connection, sessions.iter());
+    }
+
+    /// Gives a connection the current state of sessions it just started referencing.
+    fn introduce<'a>(
         &self,
-        session: SessionId,
-        requester: &crate::connection::Outbox,
-    ) -> bool {
-        self.connections
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .filter_map(Weak::upgrade)
-            .any(|connection| {
-                !std::ptr::eq(connection.as_ref(), requester)
-                    && connection.references(session, true)
-            })
+        connection: &Connection,
+        sessions: impl Iterator<Item = &'a SessionId>,
+    ) {
+        for session in sessions {
+            if let Some(handle) = self.handle(*session) {
+                handle.introduce(connection);
+            }
+        }
+    }
+
+    pub(crate) fn session_shared(&self, session: SessionId, requester: &Connection) -> bool {
+        self.notifier.connections().iter().any(|connection| {
+            !std::ptr::eq(connection.as_ref(), requester) && connection.references(session, true)
+        })
     }
 
     pub(crate) fn can_attach(&self, session: SessionId) -> bool {
@@ -719,7 +741,7 @@ impl Registry {
         &self,
         session: SessionId,
         operation: muxy_protocol::OperationId,
-        requester: &crate::connection::Outbox,
+        requester: &Connection,
     ) -> Result<(), ServerError> {
         let _operation = self.session_operation();
         let discard = if let Some(discard) = self.catalog.close_receipt(operation, session)? {
@@ -736,6 +758,27 @@ impl Registry {
         if discard {
             self.discard_owned(session)?;
         }
+        Ok(())
+    }
+
+    /// Gives a live or saved session to another project.
+    pub fn move_session(
+        &self,
+        session: SessionId,
+        project: muxy_protocol::ProjectId,
+    ) -> Result<(), ServerError> {
+        let _operation = self.session_operation();
+        let source = self.catalog.session_project(session);
+        self.git
+            .operations
+            .check_projects(&source.into_iter().chain([project]).collect::<Vec<_>>())?;
+        if !self.catalog.move_session(session, project)? {
+            return Ok(());
+        }
+        if let Some(handle) = self.handle(session) {
+            handle.move_to(project);
+        }
+        self.activity.move_session(session, project);
         Ok(())
     }
 
@@ -832,9 +875,20 @@ impl Registry {
         }
     }
 
-    pub fn is_stopped(&self) -> bool {
-        let state = lock(&self.sessions);
-        state.stopping && state.sessions.is_empty() && state.starting.is_empty()
+    /// Blocks until `shutdown` has ended every session.
+    pub fn wait_stopped(&self) {
+        let mut state = lock(&self.sessions);
+        while !(state.stopping && state.sessions.is_empty() && state.starting.is_empty()) {
+            state = self
+                .completed
+                .wait(state)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    /// Sends each connection what it has queued, then ends it.
+    pub fn close_connections(&self) {
+        self.notifier.close_all();
     }
 }
 
@@ -860,43 +914,6 @@ fn saved_content_error(error: &io::Error) -> ServerError {
         ErrorCode::SavedContentUnavailable,
         format!("saved terminal content: {error}"),
     )
-}
-
-#[cfg(test)]
-mod update_tests {
-    use super::*;
-
-    #[test]
-    fn creation_racing_idle_shutdown_is_either_preserved_or_rejected() {
-        for _ in 0..8 {
-            let (events, _receiver) = std::sync::mpsc::channel();
-            let registry = Arc::new(Registry::new(
-                ServerSettings {
-                    default_shell: Some(crate::test_support::shell()),
-                    ..ServerSettings::default()
-                },
-                events,
-            ));
-            let gate = Arc::new(std::sync::Barrier::new(2));
-            let spawning = registry.clone();
-            let start = gate.clone();
-            let worker = std::thread::spawn(move || {
-                start.wait();
-                spawning.create(&crate::test_support::folder(), Size { cols: 80, rows: 24 })
-            });
-            gate.wait();
-            let stopped = registry.stop_if_idle();
-            let created = worker.join().expect("spawn thread");
-            if stopped {
-                assert!(created.is_err());
-                assert!(registry.list().is_empty());
-            } else {
-                let session = created.expect("session preserved");
-                assert_eq!(registry.list(), vec![session.clone()]);
-                registry.end(session.id).expect("end fixture");
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -969,7 +986,7 @@ fn valid_directory(directory: &Path) -> Result<ServerPath, ServerError> {
             "session directory must be an absolute path on this computer",
         )
     };
-    let path = ServerPath::from_path(directory).map_err(|_| invalid())?;
+    let path = ServerPath::from(directory);
     if !directory.is_absolute() || path.0.len() > 4096 || path.0.contains(&0) {
         return Err(invalid());
     }

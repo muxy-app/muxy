@@ -1,9 +1,8 @@
 use super::{Catalog, ServerError, bad, unknown};
 use muxy_protocol::{GitReply, OperationId, ProjectDescriptor, ProjectId, WorktreeIntent};
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct GitReceipt {
     pub(crate) owner: ProjectId,
     pub(crate) intent: WorktreeIntent,
@@ -11,18 +10,13 @@ pub(crate) struct GitReceipt {
     pub(crate) device: u64,
     pub(crate) inode: u64,
     pub(crate) applied: bool,
-    #[serde(default)]
     pub(crate) hooks_started: bool,
-    #[serde(default)]
     pub(crate) hooks_finished: bool,
-    #[serde(default)]
     pub(crate) hook_error: Option<String>,
-    #[serde(default)]
     pub(crate) failed: Option<muxy_protocol::ErrorReply>,
     pub(crate) reply: Option<GitReply>,
     /// Where a removal on Windows set the worktree folder aside before
     /// deleting it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) set_aside: Option<muxy_protocol::ServerPath>,
 }
 
@@ -46,11 +40,8 @@ impl Catalog {
         projects
             .iter()
             .find(|p| {
-                p.directory
-                    .to_path_buf()
-                    .ok()
-                    .and_then(|path| muxy_core::files::canonicalize(&path).ok())
-                    .is_some_and(|path| muxy_core::paths::path_eq(&path, &canonical))
+                muxy_core::files::canonicalize(p.directory.as_path())
+                    .is_ok_and(|path| muxy_core::paths::path_eq(&path, &canonical))
             })
             .map(|p| p.id)
     }

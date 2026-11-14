@@ -5,9 +5,7 @@ use std::io;
 use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, symlink};
-#[cfg(unix)]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::model::AppModel;
 use gpui::{Context, SharedString};
@@ -22,22 +20,21 @@ impl AppModel {
         if !self.require(Feature::CommandLineTool, cx) {
             return;
         }
-        let window = self.window;
-        cx.spawn(async move |_, cx| {
+        cx.spawn(async move |model, cx| {
             let result = cx.background_executor().spawn(async { install() }).await;
-            let response = window.update(cx, |_, window, cx| {
-                let (title, message) = installation_message(result);
-                window.prompt(
-                    gpui::PromptLevel::Info,
-                    &title,
-                    Some(&message),
-                    &[tr!("OK").as_ref()],
+            let (title, message) = installation_message(result);
+            let _ = model.update(cx, |model, cx| {
+                model.ask_dialog(
+                    model.window,
+                    async move |parent, cx| {
+                        let _ =
+                            muxy_ui::dialog::choose(parent, &title, &message, &[&tr!("OK")], cx)
+                                .await;
+                    },
+                    |_, (), _| {},
                     cx,
-                )
+                );
             });
-            if let Ok(answer) = response {
-                let _ = answer.await;
-            }
         })
         .detach();
     }
@@ -69,14 +66,22 @@ fn installation_message(result: io::Result<PathBuf>) -> (SharedString, String) {
 }
 
 #[cfg(windows)]
-fn install() -> io::Result<PathBuf> {
-    Err(io::Error::other(
-        Feature::CommandLineTool.unsupported_reason().into_owned(),
-    ))
+pub(crate) fn install() -> io::Result<PathBuf> {
+    Err(unsupported())
+}
+
+#[cfg(windows)]
+pub(crate) fn installed_tool(_: &Path) -> io::Result<PathBuf> {
+    Err(unsupported())
+}
+
+#[cfg(windows)]
+fn unsupported() -> io::Error {
+    io::Error::other(Feature::CommandLineTool.unsupported_reason().into_owned())
 }
 
 #[cfg(unix)]
-fn install() -> io::Result<PathBuf> {
+pub(crate) fn install() -> io::Result<PathBuf> {
     let executable = muxy_core::executable::current_path()?;
     let target = installed_tool(&executable)?;
     for executable in [&target, &target.with_file_name("muxy-server")] {
@@ -102,7 +107,7 @@ fn install() -> io::Result<PathBuf> {
 /// tool and the server sit in one directory. An app run from a temporary
 /// folder is not installed, and a link into it would not last.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
+pub(crate) fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
     #[cfg(target_os = "linux")]
     if let Some(root) = muxy_core::bundle::linux_root(executable) {
         if root.join("current/muxy-app").canonicalize()? != executable {
@@ -134,7 +139,7 @@ fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
 
 /// The `muxy` inside the app bundle at `executable`.
 #[cfg(target_os = "macos")]
-fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
+pub(crate) fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
     let app_name = muxy_core::release::Channel::current().app_name();
     let bundle = executable
         .parent()
@@ -189,7 +194,11 @@ fn install_link(target: &Path, destination: &Path) -> io::Result<()> {
         .parent()
         .ok_or_else(|| io::Error::other(tr!("Missing installation directory").to_string()))?;
     fs::create_dir_all(parent)?;
-    let _lock = muxy_client::local::try_lock(&parent.join(".muxy-cli-install.lock"))?;
+    let _lock = muxy_client::local::try_lock(&parent.join(".muxy-cli-install.lock")).map_err(
+        muxy_core::file_lock::busy(tr!(
+            "Another installation of the muxy command is in progress"
+        )),
+    )?;
     let receipt = parent.join(".muxy-cli-link.json");
     let managed: Vec<Vec<u8>> = match fs::read(&receipt) {
         Ok(bytes) => serde_json::from_slice(&bytes)?,

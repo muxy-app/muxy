@@ -1,27 +1,21 @@
 //! Headless AI providers. Callers own their prompts and any resulting actions.
 
-use std::io::Read;
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError, mpsc};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::Duration;
 
+use muxy_core::process::{Group, Limits, Running};
 use muxy_core::worker::WorkerPool;
 use muxy_ui::tr;
 
 const OUTPUT_LIMIT: usize = 256 * 1024;
 const PROMPT_LIMIT: usize = 256 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(300);
-/// How long to keep reading after a provider exits while its helpers hold the output open.
-const EXIT_GRACE: Duration = Duration::from_millis(250);
 static WORKERS: OnceLock<Result<WorkerPool, String>> = OnceLock::new();
 static LOGIN_PATH: OnceLock<Vec<PathBuf>> = OnceLock::new();
-static RUNNING_GROUPS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+static RUNNING_GROUPS: Mutex<Vec<Group>> = Mutex::new(Vec::new());
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Provider {
@@ -30,6 +24,19 @@ pub(crate) struct Provider {
     executable: &'static str,
     arguments: &'static [&'static str],
     environment: &'static [(&'static str, &'static str)],
+    interactive: &'static [&'static str],
+    initial_prompt: InitialPrompt,
+}
+
+/// How an interactive session of a provider takes its first prompt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InitialPrompt {
+    /// As the last argument.
+    Argument,
+    /// After this flag.
+    Flag(&'static str),
+    /// It has no documented way, so the user types it.
+    Typed,
 }
 
 pub(crate) const PROVIDERS: &[Provider] = &[
@@ -47,6 +54,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
             "--tools=",
         ],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Argument,
     },
     Provider {
         id: "codex",
@@ -61,6 +70,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
             "never",
         ],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Argument,
     },
     Provider {
         id: "opencode",
@@ -68,6 +79,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "opencode",
         arguments: &["run"],
         environment: &[("OPENCODE_PERMISSION", r#"{"*":"deny"}"#)],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Flag("--prompt"),
     },
     Provider {
         id: "copilot",
@@ -75,6 +88,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "copilot",
         arguments: &["--silent", "--no-ask-user", "--available-tools=", "-p"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Flag("-i"),
     },
     Provider {
         id: "cursor",
@@ -82,6 +97,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "cursor-agent",
         arguments: &["--print", "--output-format", "text"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Argument,
     },
     Provider {
         id: "droid",
@@ -89,6 +106,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "droid",
         arguments: &["exec", "--output-format", "text"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Argument,
     },
     Provider {
         id: "grok",
@@ -107,6 +126,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
             "-p",
         ],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Typed,
     },
     Provider {
         id: "kiro",
@@ -114,6 +135,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "kiro-cli",
         arguments: &["chat", "--no-interactive", "--trust-tools="],
         environment: &[],
+        interactive: &["chat"],
+        initial_prompt: InitialPrompt::Typed,
     },
     Provider {
         id: "pi",
@@ -121,6 +144,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "pi",
         arguments: &["--print", "--no-session", "--no-tools"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Typed,
     },
     Provider {
         id: "xal",
@@ -128,6 +153,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "xal",
         arguments: &["run", "--format", "text"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Typed,
     },
     Provider {
         id: "antigravity",
@@ -135,6 +162,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "agy",
         arguments: &["--print", "--output-format", "text", "--mode=plan"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Typed,
     },
     Provider {
         id: "omp",
@@ -142,6 +171,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         executable: "omp",
         arguments: &["--print", "--no-session", "--no-tools"],
         environment: &[],
+        interactive: &[],
+        initial_prompt: InitialPrompt::Typed,
     },
 ];
 
@@ -216,10 +247,6 @@ impl Provider {
                 "-c",
                 "printf '__MUXY_PATH_START__%s__MUXY_PATH_END__' \"$PATH\"",
             ]);
-            command
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
             let Ok((stdout, _)) = capture(
                 command,
                 Duration::from_secs(5),
@@ -254,7 +281,12 @@ impl Provider {
     }
 
     fn executable_path_in(self, search: &[PathBuf]) -> Option<PathBuf> {
-        muxy_core::executable::find_program(search, self.executable)
+        executable_in(self.executable, search)
+    }
+
+    /// What starts an interactive session, after the executable.
+    pub(crate) fn interactive(self) -> (&'static [&'static str], InitialPrompt) {
+        (self.interactive, self.initial_prompt)
     }
 
     /// Runs the provider inside the project, where it reads the project's own instructions.
@@ -287,9 +319,6 @@ impl Provider {
             });
         command
             .current_dir(directory)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
             .env("MUXY_PANE_ID", "")
             .env("PWD", directory);
         if let Ok(path) = std::env::join_paths(Self::search_path()) {
@@ -336,15 +365,56 @@ fn command_line_problem(executable: &Path, prompt: &str, name: &str) -> Option<S
         .then(|| tr!("The prompt is too long for Windows to hand to %@.", name).to_string())
 }
 
+fn executable_in(name: &str, search: &[PathBuf]) -> Option<PathBuf> {
+    muxy_core::executable::find_program(search, name)
+}
+
+/// A program installed on this computer, including in the usual folders that
+/// an app opened from the Finder doesn't have on its `PATH`.
+pub(crate) fn find_program(name: &str) -> Option<PathBuf> {
+    executable_in(name, &Provider::search_path())
+}
+
+/// A program as the user's own login shell finds it.
+pub(crate) fn find_in_login_shell(name: &str) -> Option<PathBuf> {
+    executable_in(name, LOGIN_PATH.get()?)
+}
+
+/// Runs a developer tool without a terminal, so it fails instead of waiting
+/// for an answer nobody can type, and returns what it printed.
+pub(crate) fn run_tool(
+    program: &str,
+    arguments: &[&str],
+    directory: Option<&Path>,
+) -> Result<String, String> {
+    let executable =
+        find_program(program).ok_or_else(|| tr!("%@ is not installed", program).to_string())?;
+    let mut command = Command::new(executable);
+    command
+        .args(arguments)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GH_PROMPT_DISABLED", "1")
+        .env("GH_NO_UPDATE_NOTIFIER", "1");
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
+    if let Ok(path) = std::env::join_paths(Provider::search_path()) {
+        command.env("PATH", path);
+    }
+    let (stdout, _) = capture(command, TIMEOUT, OUTPUT_LIMIT, &Cancellation::default())
+        .map_err(|failure| failure.describe(program))?;
+    Ok(String::from_utf8_lossy(&stdout).trim().to_owned())
+}
+
 /// Kills every provider that is still running, such as when the app quits.
 #[cfg(not(test))]
 pub(crate) fn terminate_all() {
-    let groups = RUNNING_GROUPS
+    for group in RUNNING_GROUPS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    for group in groups {
-        kill_group(group);
+        .iter()
+    {
+        group.kill();
     }
 }
 
@@ -373,28 +443,21 @@ impl Failure {
     }
 }
 
-enum Output {
-    Bytes(usize, Vec<u8>),
-    Done,
-    Failed(String),
-}
+/// A running provider's process group, listed so quitting the app can kill it.
+struct Registered(Group);
 
-/// A provider's process group, killed as a whole so helpers cannot outlive it.
-struct Group(u32);
-
-impl Group {
-    fn register(id: u32) -> Self {
+impl Registered {
+    fn new(group: Group) -> Self {
         RUNNING_GROUPS
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push(id);
-        Self(id)
+            .push(group.clone());
+        Self(group)
     }
 }
 
-impl Drop for Group {
+impl Drop for Registered {
     fn drop(&mut self) {
-        kill_group(self.0);
         RUNNING_GROUPS
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -402,130 +465,43 @@ impl Drop for Group {
     }
 }
 
-#[cfg(unix)]
-fn kill_group(id: u32) {
-    let _ = Command::new("/bin/kill")
-        .args(["-KILL", "--", &format!("-{id}")])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
-/// Ends the provider with every process it started: a `.cmd` shim, such as
-/// npm installs, runs the provider as its child.
-#[cfg(windows)]
-fn kill_group(id: u32) {
-    let _ = Command::new("taskkill")
-        .args(["/T", "/F", "/PID", &id.to_string()])
-        .creation_flags(crate::NO_WINDOW)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
+/// Runs a provider and kills any helpers it leaves behind.
 fn capture(
     mut command: Command,
     timeout: Duration,
     limit: usize,
     cancellation: &Cancellation,
 ) -> Result<(Vec<u8>, Vec<u8>), Failure> {
-    #[cfg(unix)]
-    command.process_group(0);
-    #[cfg(windows)]
-    command.creation_flags(crate::NO_WINDOW);
-    let mut child = command
-        .spawn()
-        .map_err(|error| Failure::Io(error.to_string()))?;
-    let group = Group::register(child.id());
-    let (sender, receiver) = mpsc::sync_channel(16);
-    let pipes: [Option<Box<dyn Read + Send>>; 2] = [
-        child
-            .stdout
-            .take()
-            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
-        child
-            .stderr
-            .take()
-            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
-    ];
-    for (index, pipe) in pipes.into_iter().enumerate() {
-        let Some(mut pipe) = pipe else {
-            return Err(Failure::Io(tr!("AI output pipe unavailable").to_string()));
-        };
-        let sender = sender.clone();
-        std::thread::spawn(move || {
-            let mut buffer = [0; 8192];
-            loop {
-                match pipe.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(size) => {
-                        if sender
-                            .send(Output::Bytes(index, buffer[..size].to_vec()))
-                            .is_err()
-                        {
-                            return;
-                        }
-                    }
-                    Err(error) => {
-                        let _ = sender.send(Output::Failed(error.to_string()));
-                        return;
-                    }
-                }
-            }
-            let _ = sender.send(Output::Done);
-        });
-    }
-    drop(sender);
-    let mut output = [Vec::new(), Vec::new()];
-    let mut done = 0;
-    let mut exited = None;
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        if cancellation.is_cancelled() {
-            break Err(Failure::Cancelled);
-        }
-        if Instant::now() >= deadline {
-            break Err(Failure::TimedOut(timeout));
-        }
-        match receiver.recv_timeout(Duration::from_millis(25)) {
-            Ok(Output::Bytes(index, bytes)) => {
-                if output[index].len() + bytes.len() > limit {
-                    break Err(Failure::TooLarge);
-                }
-                output[index].extend(bytes);
-            }
-            Ok(Output::Done) => done += 1,
-            Ok(Output::Failed(error)) => break Err(Failure::Io(error)),
-            Err(mpsc::RecvTimeoutError::Timeout) => (),
-            Err(mpsc::RecvTimeoutError::Disconnected) => done = 2,
-        }
-        if exited.is_none() {
-            match child.try_wait() {
-                Ok(Some(status)) => exited = Some((status, Instant::now())),
-                Ok(None) => (),
-                Err(error) => break Err(Failure::Io(error.to_string())),
-            }
-        }
-        match exited {
-            Some((status, at)) if done >= 2 || at.elapsed() >= EXIT_GRACE => break Ok(status),
-            _ => (),
-        }
+    let cancelled = || cancellation.is_cancelled();
+    let limits = Limits {
+        cancelled: Some(&cancelled),
+        kill_leftovers: true,
+        ..Limits::new(timeout, limit)
     };
-    drop(group);
-    let _ = child.wait();
-    let status = status?;
-    if !status.success() {
-        let message = String::from_utf8_lossy(&output[1]);
+    let running =
+        Running::start(&mut command, limits).map_err(|error| Failure::Io(error.to_string()))?;
+    let _registered = Registered::new(running.group());
+    let output = running
+        .wait()
+        .map_err(|error| Failure::Io(error.to_string()))?;
+    if output.cancelled {
+        return Err(Failure::Cancelled);
+    }
+    if output.timed_out {
+        return Err(Failure::TimedOut(timeout));
+    }
+    if output.stdout.truncated || output.stderr.truncated {
+        return Err(Failure::TooLarge);
+    }
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr.bytes);
         return Err(Failure::Exited(if message.trim().is_empty() {
-            status.to_string()
+            output.status.to_string()
         } else {
             message.trim().chars().take(1000).collect()
         }));
     }
-    let [stdout, stderr] = output;
-    Ok((stdout, stderr))
+    Ok((output.stdout.bytes, output.stderr.bytes))
 }
 
 pub(crate) fn run<T: Send + 'static>(
@@ -552,98 +528,6 @@ pub(crate) fn run<T: Send + 'static>(
             .recv()
             .await
             .unwrap_or_else(|_| Err(tr!("AI worker stopped").to_string()))
-    }
-}
-
-#[cfg(test)]
-#[cfg(unix)]
-mod tests {
-    use super::*;
-
-    fn shell(script: &str) -> Command {
-        let mut command = Command::new("/bin/sh");
-        command
-            .args(["-c", script])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        command
-    }
-
-    fn alive(pid: &str) -> bool {
-        let output = Command::new("ps")
-            .args(["-o", "stat=", "-p", pid.trim()])
-            .output()
-            .unwrap();
-        String::from_utf8(output.stdout)
-            .unwrap()
-            .split_whitespace()
-            .any(|state| !state.starts_with('Z'))
-    }
-
-    fn assert_stopped(pid: &str) {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while alive(pid) {
-            assert!(Instant::now() < deadline, "helper {pid} is still running");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    #[test]
-    fn killed_helpers_are_not_alive_before_their_parent_reaps_them() {
-        let mut child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
-        let pid = child.id().to_string();
-        assert!(alive(&pid));
-        child.kill().unwrap();
-        assert_stopped(&pid);
-        child.wait().unwrap();
-    }
-
-    #[test]
-    fn timeout_kills_helpers_that_keep_running() {
-        let directory = tempfile::tempdir().unwrap();
-        let pid = directory.path().join("helper");
-        let result = capture(
-            shell(&format!("sleep 30 & echo $! > '{}'; wait", pid.display())),
-            Duration::from_millis(300),
-            OUTPUT_LIMIT,
-            &Cancellation::default(),
-        );
-        assert_eq!(result, Err(Failure::TimedOut(Duration::from_millis(300))));
-        assert_stopped(&std::fs::read_to_string(pid).unwrap());
-    }
-
-    #[test]
-    fn finished_provider_is_not_held_open_by_its_helpers() {
-        let started = Instant::now();
-        let (stdout, _) = capture(
-            shell("sleep 30 & echo answer"),
-            Duration::from_secs(20),
-            OUTPUT_LIMIT,
-            &Cancellation::default(),
-        )
-        .unwrap();
-        assert_eq!(stdout, b"answer\n");
-        assert!(started.elapsed() < Duration::from_secs(5));
-    }
-
-    #[test]
-    fn cancellation_stops_a_running_provider() {
-        let cancellation = Cancellation::default();
-        let cancel = cancellation.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(100));
-            cancel.cancel();
-        });
-        let started = Instant::now();
-        let result = capture(
-            shell("sleep 30"),
-            Duration::from_secs(20),
-            OUTPUT_LIMIT,
-            &cancellation,
-        );
-        assert_eq!(result, Err(Failure::Cancelled));
-        assert!(started.elapsed() < Duration::from_secs(5));
     }
 }
 

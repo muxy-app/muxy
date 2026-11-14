@@ -1,3 +1,4 @@
+mod expiry;
 mod git;
 mod mutations;
 pub(crate) use git::GitReceipt;
@@ -5,21 +6,23 @@ mod recovery;
 pub(crate) mod retention;
 mod sessions;
 mod storage;
+#[cfg(test)]
+mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use crate::notifier::Notifier;
 use crate::{ServerError, archive::Archive};
 use muxy_protocol::{
     CATALOG_PAGE_SIZE, CatalogPage, ErrorCode, ErrorReply, MAX_PROJECTS, OperationId,
     ProjectDescriptor, ProjectId, ProjectIntent, ServerIdentity, ServerPath, SessionId,
-    SessionInfo, SessionStatus,
+    SessionInfo, SessionStatus, UnreadableFile,
 };
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default)]
 pub struct LegacyImport {
@@ -27,30 +30,29 @@ pub struct LegacyImport {
     pub sessions: BTreeMap<SessionId, ProjectId>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct Creation {
     info: SessionInfo,
     error: Option<ErrorReply>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct Membership {
     info: SessionInfo,
     status: SessionStatus,
-    #[serde(default)]
     ended_at: Option<u64>,
+    name: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct Receipt {
     intent: ProjectIntent,
     error: Option<ErrorReply>,
     complete: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct State {
-    #[serde(default)]
     git: BTreeMap<OperationId, GitReceipt>,
     version: u32,
     server: ServerIdentity,
@@ -64,8 +66,8 @@ struct State {
     sessions: BTreeMap<SessionId, Membership>,
     creations: BTreeMap<OperationId, Creation>,
     receipts: BTreeMap<OperationId, Receipt>,
-    #[serde(default)]
     closes: BTreeMap<OperationId, (SessionId, bool)>,
+    finished: expiry::Finished,
 }
 
 #[derive(Debug)]
@@ -75,11 +77,13 @@ pub(crate) struct Catalog {
     path: Option<PathBuf>,
     revision: AtomicU64,
     pending_exits: Mutex<recovery::PendingExits>,
+    notifier: Arc<Notifier>,
+    unreadable: Option<UnreadableFile>,
 }
 
 impl State {
-    fn fresh(home: ServerPath) -> Self {
-        let project = ProjectDescriptor::home(home);
+    fn fresh(home: &Path) -> Self {
+        let project = ProjectDescriptor::home(ServerPath::from(home));
         let id = project.id;
         Self {
             git: BTreeMap::new(),
@@ -96,6 +100,7 @@ impl State {
             creations: BTreeMap::new(),
             receipts: BTreeMap::new(),
             closes: BTreeMap::new(),
+            finished: expiry::Finished::default(),
         }
     }
 
@@ -136,7 +141,10 @@ impl State {
                 .projects
                 .get(&parent)
                 .ok_or_else(|| bad("missing project parent"))?;
-            if parent.home || parent.parent_id.is_some() || parent.kind.is_some() {
+            if parent.home
+                || parent.parent_id.is_some()
+                || parent.kind == Some(muxy_protocol::ProjectKind::Worktree)
+            {
                 return Err(bad("invalid project parent"));
             }
         }
@@ -186,6 +194,7 @@ impl State {
                         directory,
                     },
                     ended_at: None,
+                    name: None,
                     status: if archive.contains(id) {
                         SessionStatus::Ended
                     } else {
@@ -203,25 +212,23 @@ impl Catalog {
         self.lock().server
     }
 
-    pub(crate) fn memory() -> Self {
+    pub(crate) fn memory(notifier: Arc<Notifier>) -> Self {
         Self::from_state(
-            State::fresh(
-                muxy_core::paths::home_dir()
-                    .ok()
-                    .and_then(|home| ServerPath::from_path(&home).ok())
-                    .unwrap_or_else(|| ServerPath(b"/".to_vec())),
-            ),
+            State::fresh(&std::env::home_dir().unwrap_or_else(|| PathBuf::from("/"))),
             None,
+            notifier,
         )
     }
 
-    fn from_state(state: State, path: Option<PathBuf>) -> Self {
+    fn from_state(state: State, path: Option<PathBuf>, notifier: Arc<Notifier>) -> Self {
         Self {
             revision: AtomicU64::new(state.revision),
             state: Mutex::new(state),
             write: Mutex::new(()),
             path,
             pending_exits: Mutex::default(),
+            notifier,
+            unreadable: None,
         }
     }
 
@@ -229,25 +236,24 @@ impl Catalog {
         directory: &Path,
         archive: &Archive,
         legacy: LegacyImport,
+        notifier: Arc<Notifier>,
     ) -> io::Result<Self> {
-        let path = directory.join("catalog.json");
-        let mut state = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice::<State>(&bytes)?,
+        let path = directory.join(muxy_protocol::CATALOG_FILE);
+        let (mut state, unreadable) = match fs::read(&path) {
+            Ok(bytes) => match parse(&bytes) {
+                Ok(state) => (state, None),
+                // The legacy import ran when this catalog was first written; only
+                // saved terminals are adopted again.
+                Err(error) => {
+                    let state = fresh(LegacyImport::default(), archive)?;
+                    (state, Some(crate::unreadable::set_aside(&path, &error)?))
+                }
+            },
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                let home = muxy_core::paths::home_dir()?;
-                let home = ServerPath::from_path(&home).map_err(|_| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "home directory is not valid Unicode",
-                    )
-                })?;
-                let mut state = State::fresh(home);
-                state.import(legacy, archive)?;
-                state
+                (fresh(legacy, archive)?, None)
             }
             Err(error) => return Err(error),
         };
-        state.validate().map_err(io::Error::other)?;
         let now = retention::now();
         for membership in state.sessions.values_mut() {
             membership.ended_at.get_or_insert(now);
@@ -257,9 +263,15 @@ impl Catalog {
                 SessionStatus::Unavailable
             };
         }
-        let catalog = Self::from_state(state, Some(path));
+        let mut catalog = Self::from_state(state, Some(path), notifier);
+        catalog.unreadable = unreadable;
         catalog.update(|_| Ok(())).map_err(io::Error::other)?;
         Ok(catalog)
+    }
+
+    /// The saved catalog that couldn't be read when the server started.
+    pub(crate) fn unreadable(&self) -> Option<&UnreadableFile> {
+        self.unreadable.as_ref()
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -270,36 +282,38 @@ impl Catalog {
         &self,
         edit: impl FnOnce(&mut State) -> Result<T, ServerError>,
     ) -> Result<T, ServerError> {
-        let _write = self.write.lock().unwrap_or_else(PoisonError::into_inner);
+        let write = self.write.lock().unwrap_or_else(PoisonError::into_inner);
         let mut next = self.lock().clone();
         let result = edit(&mut next)?;
+        next.expire_records(expiry::now_millis());
         next.revision = next
             .revision
             .checked_add(1)
             .ok_or_else(|| bad("catalog revisions exhausted"))?;
         next.validate()?;
-        let mut committed = self.path.is_none();
-        let saved = self
-            .path
-            .as_ref()
-            .map_or(Ok(()), |path| storage::save(path, &next, &mut committed));
-        if committed {
-            self.revision.store(next.revision, Ordering::Release);
+        let revision = next.revision;
+        let saved = self.path.as_ref().map_or(Ok(()), |path| save(path, &next));
+        let published = saved.as_ref().map_or_else(|error| error.renamed, |()| true);
+        if published {
+            self.revision.store(revision, Ordering::Release);
             *self.lock() = next;
         }
-        saved.map_err(|error| storage_error(&error))?;
+        drop(write);
+        if published {
+            self.notifier.catalog_changed(revision);
+        }
+        saved.map_err(|error| storage_error(&error.error))?;
         Ok(result)
     }
 
     pub(crate) fn revision(&self) -> u64 {
-        self.retry_exits();
         self.revision.load(Ordering::Acquire)
     }
 
     pub(crate) fn ensure_durable(&self) -> Result<(), ServerError> {
         let _write = self.write.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(path) = &self.path {
-            storage::sync_parent(path).map_err(|error| storage_error(&error))?;
+            muxy_core::fs::sync_parent(path).map_err(|error| storage_error(&error))?;
         }
         Ok(())
     }
@@ -362,6 +376,26 @@ fn check_revision(state: &State, revision: Option<u64>) -> Result<(), ServerErro
     } else {
         Ok(())
     }
+}
+
+fn parse(bytes: &[u8]) -> io::Result<State> {
+    let state: State = serde_json::from_slice::<storage::StoredState>(bytes)?.into();
+    state.validate().map_err(io::Error::other)?;
+    Ok(state)
+}
+
+fn fresh(legacy: LegacyImport, archive: &Archive) -> io::Result<State> {
+    let home =
+        std::env::home_dir().ok_or_else(|| io::Error::other("home directory unavailable"))?;
+    let mut state = State::fresh(&home);
+    state.import(legacy, archive)?;
+    Ok(state)
+}
+
+fn save(path: &Path, state: &State) -> Result<(), muxy_core::fs::WriteError> {
+    let bytes =
+        serde_json::to_vec(&storage::StoredState::try_from(state)?).map_err(io::Error::from)?;
+    muxy_core::fs::write_atomic(path, &bytes, 0o600)
 }
 
 fn storage_error(error: &io::Error) -> ServerError {

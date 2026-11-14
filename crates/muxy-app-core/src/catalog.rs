@@ -17,13 +17,6 @@ pub(crate) fn checked_server_path(directory: impl AsRef<Path>) -> Result<ServerP
     })
 }
 
-/// `directory` as it travels. Directories are checked when they enter the
-/// app, so on Windows this fails only for a path that bypassed the checks:
-/// it then travels empty, and the server refuses it.
-pub(crate) fn server_path(directory: &Path) -> ServerPath {
-    ServerPath::from_path(directory).unwrap_or_else(|_| ServerPath(Vec::new()))
-}
-
 impl Project {
     pub fn descriptor(&self) -> ProjectDescriptor {
         ProjectDescriptor {
@@ -33,7 +26,7 @@ impl Project {
             icon: self.icon.clone(),
             logo: self.logo.clone(),
             color: self.color.to_string(),
-            directory: server_path(&self.directory),
+            directory: ServerPath::from(&self.directory),
             kind: self.kind,
             parent_id: self.parent_id,
         }
@@ -47,6 +40,7 @@ impl Project {
             id: descriptor.id,
             home: descriptor.home,
             name: String::new(),
+            created_at: Some(std::time::SystemTime::now()),
             icon: None,
             logo: None,
             color: crate::Color::default(),
@@ -97,6 +91,7 @@ impl AppState {
     }
     pub(crate) fn cancel_pending_creation(&mut self, pane: PaneId) {
         self.startup_commands.remove(&pane);
+        self.starting_proxies.remove(&pane);
         if self.starting_directories.remove(&pane).is_some()
             && self.pane_mut(pane).is_ok_and(|pane| {
                 matches!(pane.content, crate::PaneContent::Terminal { session: None })
@@ -170,6 +165,7 @@ impl AppState {
         &mut self,
         server: ServerId,
         operation: OperationId,
+        accepted: bool,
     ) -> Result<(), AppError> {
         match self.servers.get_mut(&server) {
             Some(state)
@@ -178,7 +174,16 @@ impl AppState {
                     .first()
                     .is_some_and(|intent| intent.operation == operation) =>
             {
-                state.project_intents.remove(0);
+                let intent = state.project_intents.remove(0);
+                if accepted
+                    && let ProjectMutation::Create(project) = intent.mutation
+                    && self.project(project.id).is_some()
+                {
+                    self.removed_projects.retain(|removed| {
+                        removed.server_id != server
+                            || ServerPath::from(&removed.directory) != project.directory
+                    });
+                }
                 Ok(())
             }
             _ => Err(AppError::InvalidState(
@@ -214,8 +219,29 @@ impl AppState {
     pub fn prepare_creation(&mut self, pane: PaneId, directory: &Path) -> ServerPath {
         self.starting_directories
             .entry(pane)
-            .or_insert_with(|| server_path(directory))
+            .or_insert_with(|| ServerPath::from(directory))
             .clone()
+    }
+
+    /// Saves what a pane's terminal should start with, before it can start, so
+    /// the choice survives quitting first.
+    pub fn plan_creation(&mut self, pane: PaneId, directory: Option<&Path>, proxy: Option<bool>) {
+        if let Some(directory) = directory {
+            self.starting_directories
+                .insert(pane, ServerPath::from(directory));
+        }
+        if let Some(proxy) = proxy {
+            self.starting_proxies.insert(pane, proxy);
+        }
+    }
+
+    pub fn starting_proxy(&self, pane: PaneId) -> Option<bool> {
+        self.starting_proxies.get(&pane).copied()
+    }
+
+    /// The pane's terminal has started, so its proxy choice is spent.
+    pub fn forget_starting_proxy(&mut self, pane: PaneId) {
+        self.starting_proxies.remove(&pane);
     }
 
     /// Replaces `server`'s projects with its catalog, overlaid with its
@@ -304,13 +330,10 @@ impl AppState {
             .collect();
         self.window.focus_history.retain(|id| panes.contains(id));
         self.startup_commands.retain(|id, _| panes.contains(id));
-        self.starting_directories.retain(|id, _| {
-            panes.contains(id)
-                || self
-                    .quick_terminal
-                    .as_ref()
-                    .is_some_and(|pane| pane.id == *id)
-        });
+        let quick_terminal = self.quick_terminal.as_ref().map(|pane| pane.id);
+        let still_here = |id: &PaneId| panes.contains(id) || quick_terminal == Some(*id);
+        self.starting_directories.retain(|id, _| still_here(id));
+        self.starting_proxies.retain(|id, _| still_here(id));
         if !projects.contains(&self.window.current_project) {
             self.window.current_project = page.home;
         }

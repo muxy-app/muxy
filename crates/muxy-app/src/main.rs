@@ -12,40 +12,55 @@ mod console;
 mod diagnostics;
 mod extensions;
 mod favicon;
-#[cfg(any(target_os = "linux", windows, test))]
+#[cfg(any(target_os = "linux", windows))]
 mod instance;
 mod model;
 mod navigation;
 mod opener;
 mod picker;
 mod profiler;
+mod project_icon;
+mod proxy;
 mod remote_install;
 mod repository_actions;
 mod server;
 mod theme;
 mod updater;
+mod usage_ping;
 mod views {
+    pub(crate) mod agent_sessions;
     pub(crate) mod agents_panel;
     pub(crate) mod banners;
     pub(crate) mod browser;
     pub(crate) mod cached;
+    pub(crate) mod clients;
     pub(crate) mod command_palette;
     pub(crate) mod composer;
     pub(crate) mod confirm;
     pub(crate) mod disconnected;
+    pub(crate) mod extension_agent;
+    pub(crate) mod floating;
+    pub(crate) mod floating_tab;
     pub(crate) mod font_picker;
     pub(crate) mod git;
     pub(crate) mod menu;
+    pub(crate) mod move_drag;
     pub(crate) mod native_modal;
-    pub(crate) mod new_tab;
+    pub(crate) mod onboarding;
     pub(crate) mod overlays;
+    pub(crate) mod pair_form;
+    pub(crate) mod project_apps;
     pub(crate) mod project_editor;
     pub(crate) mod project_layouts;
     pub(crate) mod project_menu;
     pub(crate) mod project_picker;
+    pub(crate) mod proxy;
     pub(crate) mod quick_terminal;
+    pub(crate) mod rail;
     pub(crate) mod remote_servers;
+    pub(crate) mod server_menu;
     pub(crate) mod server_status;
+    pub(crate) mod servers_page;
     pub(crate) mod session_picker;
     pub(crate) mod settings;
     pub(crate) mod shortcut_hints;
@@ -56,7 +71,9 @@ mod views {
     pub(crate) mod tab_menu;
     pub(crate) mod tab_sidebar;
     pub(crate) mod tab_strip;
+    pub(crate) mod tab_window;
     pub(crate) mod theme_picker;
+    pub(crate) mod tips;
     pub(crate) mod titlebar;
     pub(crate) mod updates;
     pub(crate) mod terminal {
@@ -73,7 +90,6 @@ mod views {
         pub(crate) mod scrollbar;
         pub(crate) mod selection;
     }
-    pub(crate) mod voice;
     pub(crate) mod webview;
     pub(crate) mod workspace;
     pub(crate) mod worktree_picker;
@@ -91,15 +107,16 @@ use gpui::{
 
 use model::AppModel;
 use muxy_ui::tr;
+use views::titlebar::initial_traffic_lights;
 use views::workspace::{
     AddProject, CheckForUpdates, ClosePane, CloseTab, DecreaseFontSize, EndAllSessionsAndQuit,
     EqualizeSplits, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight,
     FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize,
     NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree, NextProject, NextPrompt,
     NextTab, OpenSettings, PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput,
-    SelectProject, SelectTab, ShowAll, SplitDown, SplitRight, SwitchWorktree, ToggleAgentsPanel,
-    ToggleCommandPalette, ToggleComposer, ToggleFullScreen, ToggleSidebar, ToggleThemePicker,
-    ToggleVoiceRecording, ToggleZoomPane, Zoom, bind_keys,
+    SelectProject, SelectTab, ShowAll, SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions,
+    ToggleAgentsPanel, ToggleCommandPalette, ToggleComposer, ToggleFloatingTerminals,
+    ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleZoomPane, Zoom, bind_keys,
 };
 
 /// Starts a console program without a console window: the app has no
@@ -121,6 +138,12 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(_) => ExitCode::FAILURE,
         };
+    }
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|argument| argument == proxy::TUNNEL)
+    {
+        return proxy::run_tunnel(std::env::args_os().skip(2));
     }
     #[cfg(windows)]
     muxy_ui::notifications::identify_process();
@@ -208,7 +231,7 @@ fn run() -> ExitCode {
             titlebar: Some(TitlebarOptions {
                 title: Some(app_name().into()),
                 appears_transparent: true,
-                traffic_light_position: Some(point(px(9.0), px(9.0))),
+                traffic_light_position: Some(initial_traffic_lights(&boot.settings.appearance)),
             }),
             ..window_options()
         };
@@ -289,27 +312,41 @@ fn window_options() -> WindowOptions {
 fn menus() -> Vec<Menu> {
     use muxy_core::capability::Feature;
     use muxy_ui::text_input;
+    use views::workspace::commands::menu_item;
     let backends = model::capabilities::backends();
     let mut window_items = vec![
-        MenuItem::action(tr!("Minimize"), Minimize),
-        MenuItem::action(tr!("Zoom"), Zoom),
+        menu_item(Minimize),
+        menu_item(Zoom),
         MenuItem::separator(),
-        MenuItem::action(tr!("Split Right"), SplitRight),
-        MenuItem::action(tr!("Split Down"), SplitDown),
-        MenuItem::action(tr!("Focus Pane Left"), FocusPaneLeft),
-        MenuItem::action(tr!("Focus Pane Right"), FocusPaneRight),
-        MenuItem::action(tr!("Focus Pane Up"), FocusPaneUp),
-        MenuItem::action(tr!("Focus Pane Down"), FocusPaneDown),
-        MenuItem::action(tr!("Toggle Pane Zoom"), ToggleZoomPane),
-        MenuItem::action(tr!("Equalize Splits"), EqualizeSplits),
-        MenuItem::action(tr!("Close Pane"), ClosePane),
-        MenuItem::action(tr!("Close Tab"), CloseTab),
+        menu_item(SplitRight),
+        menu_item(SplitDown),
+        menu_item(FocusPaneLeft),
+        menu_item(FocusPaneRight),
+        menu_item(FocusPaneUp),
+        menu_item(FocusPaneDown),
+        menu_item(ToggleZoomPane),
+        menu_item(EqualizeSplits),
+        menu_item(views::workspace::FocusNextPane),
+        menu_item(views::workspace::FocusPreviousPane),
+        menu_item(views::workspace::ResizePaneLeft),
+        menu_item(views::workspace::ResizePaneRight),
+        menu_item(views::workspace::ResizePaneUp),
+        menu_item(views::workspace::ResizePaneDown),
+        menu_item(ClosePane),
+        menu_item(CloseTab),
         MenuItem::separator(),
-        MenuItem::action(tr!("Next Tab"), NextTab),
-        MenuItem::action(tr!("Previous Tab"), PreviousTab),
+        menu_item(NextTab),
+        menu_item(PreviousTab),
+        menu_item(views::workspace::MoveTabLeft),
+        menu_item(views::workspace::MoveTabRight),
+        menu_item(views::workspace::RenameTab),
         MenuItem::separator(),
-        MenuItem::action(tr!("Previous Project"), PreviousProject),
-        MenuItem::action(tr!("Next Project"), NextProject),
+        menu_item(views::workspace::NavigateBack),
+        menu_item(views::workspace::NavigateForward),
+        MenuItem::separator(),
+        menu_item(PreviousProject),
+        menu_item(NextProject),
+        menu_item(views::workspace::SwitchProject),
         MenuItem::separator(),
     ];
     window_items.extend(
@@ -320,49 +357,49 @@ fn menus() -> Vec<Menu> {
         .extend((0..9).map(|index| {
             MenuItem::action(tr!("Project %lld", index + 1), SelectProject { index })
         }));
-    let mut app_items = vec![MenuItem::action(tr!("Settings…"), OpenSettings)];
+    let mut app_items = Vec::new();
+    if cfg!(target_os = "macos") {
+        app_items.extend([
+            menu_item(views::workspace::OpenAbout),
+            MenuItem::separator(),
+        ]);
+    }
+    app_items.push(menu_item(OpenSettings));
+    app_items.push(menu_item(views::workspace::OpenKeyboardShortcuts));
     if backends.has_backend(Feature::Updates) {
-        app_items.push(MenuItem::action(tr!("Check for Updates…"), CheckForUpdates));
+        app_items.push(menu_item(CheckForUpdates));
     }
     if backends.has_backend(Feature::CommandLineTool) {
-        app_items.push(MenuItem::action(
-            tr!("Install Command Line Tool…"),
-            InstallCommandLineTool,
-        ));
+        app_items.push(menu_item(InstallCommandLineTool));
     }
     app_items.extend([
         MenuItem::separator(),
         MenuItem::os_submenu(tr!("Services"), SystemMenuType::Services),
         MenuItem::separator(),
-        MenuItem::action(tr!("Hide %@", app_name()), HideApp),
-        MenuItem::action(tr!("Hide Others"), HideOthers),
-        MenuItem::action(tr!("Show All"), ShowAll),
+        menu_item(HideApp),
+        menu_item(HideOthers),
+        menu_item(ShowAll),
         MenuItem::separator(),
-        MenuItem::action(tr!("Quit %@", app_name()), Quit),
-        MenuItem::action(tr!("End All Sessions and Quit"), EndAllSessionsAndQuit),
+        menu_item(Quit),
+        menu_item(EndAllSessionsAndQuit),
     ]);
-    let mut view_items = vec![
-        MenuItem::action(tr!("Command Palette…"), ToggleCommandPalette),
+    let view_items = vec![
+        menu_item(ToggleCommandPalette),
         MenuItem::separator(),
-        MenuItem::action(tr!("Toggle Composer"), ToggleComposer),
+        menu_item(ToggleComposer),
+        MenuItem::separator(),
+        menu_item(ToggleSidebar),
+        menu_item(ToggleAgentsPanel),
+        menu_item(ToggleAgentSessions),
+        menu_item(ToggleFloatingTerminals),
+        menu_item(views::workspace::ToggleStatusBar),
+        menu_item(ToggleFullScreen),
+        MenuItem::separator(),
+        menu_item(ToggleThemePicker),
+        MenuItem::separator(),
+        menu_item(IncreaseFontSize),
+        menu_item(DecreaseFontSize),
     ];
-    if backends.has_backend(Feature::Voice) {
-        view_items.push(MenuItem::action(
-            tr!("Toggle Voice Recording"),
-            ToggleVoiceRecording,
-        ));
-    }
-    view_items.extend([
-        MenuItem::separator(),
-        MenuItem::action(tr!("Toggle Sidebar"), ToggleSidebar),
-        MenuItem::action(tr!("Toggle Agents Panel"), ToggleAgentsPanel),
-        MenuItem::action(tr!("Toggle Full Screen"), ToggleFullScreen),
-        MenuItem::separator(),
-        MenuItem::action(tr!("Theme Picker"), ToggleThemePicker),
-        MenuItem::separator(),
-        MenuItem::action(tr!("Increase Font Size"), IncreaseFontSize),
-        MenuItem::action(tr!("Decrease Font Size"), DecreaseFontSize),
-    ]);
     vec![
         Menu {
             name: app_name().into(),
@@ -380,27 +417,27 @@ fn menus() -> Vec<Menu> {
                     OsAction::SelectAll,
                 ),
                 MenuItem::separator(),
-                MenuItem::action(tr!("Find…"), Find),
-                MenuItem::action(tr!("Find Next"), FindNext),
-                MenuItem::action(tr!("Find Previous"), FindPrevious),
+                menu_item(Find),
+                menu_item(FindNext),
+                menu_item(FindPrevious),
                 MenuItem::separator(),
-                MenuItem::action(tr!("Previous Prompt"), PreviousPrompt),
-                MenuItem::action(tr!("Next Prompt"), NextPrompt),
-                MenuItem::action(tr!("Select Command Output"), SelectCommandOutput),
+                menu_item(PreviousPrompt),
+                menu_item(NextPrompt),
+                menu_item(SelectCommandOutput),
             ],
         },
         Menu {
             name: tr!("File"),
             items: vec![
-                MenuItem::action(tr!("New Tab"), NewTab),
-                MenuItem::action(tr!("New Browser Tab"), NewBrowserTab),
-                MenuItem::action(tr!("New Home Tab"), NewHomeTab),
-                MenuItem::action(tr!("New Tab in Project…"), NewTabInProject),
-                MenuItem::action(tr!("New Worktree…"), NewWorktree),
-                MenuItem::action(tr!("Switch Worktree…"), SwitchWorktree),
-                MenuItem::action(tr!("Open Project…"), AddProject),
+                menu_item(NewTab),
+                menu_item(NewBrowserTab),
+                menu_item(NewHomeTab),
+                menu_item(NewTabInProject),
+                menu_item(NewWorktree),
+                menu_item(SwitchWorktree),
+                menu_item(AddProject),
                 MenuItem::separator(),
-                MenuItem::action(tr!("Close Tab"), CloseTab),
+                menu_item(CloseTab),
             ],
         },
         Menu {

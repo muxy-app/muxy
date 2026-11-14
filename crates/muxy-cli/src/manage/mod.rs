@@ -20,7 +20,7 @@ type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub(crate) fn run(invocation: Invocation, host: Option<SshTarget>) -> Result {
     if let Action::Help(text) = invocation.action {
-        writeln!(io::stdout(), "{text}")?;
+        crate::output::help(text)?;
         return Ok(());
     }
     let _lease =
@@ -41,9 +41,16 @@ pub(crate) fn run(invocation: Invocation, host: Option<SshTarget>) -> Result {
         Target::Local { .. } => Paths::Local,
         Target::Ssh { .. } => Paths::Remote,
     };
-    let result = match client.identify(muxy_protocol::ClientKind::Cli) {
-        Ok(_) => execute(invocation, &client, paths),
-        Err(error) => Err(error.into()),
+    // Commands draw no images, so they never read their pixels. An older
+    // server refuses and keeps sending them.
+    let result = match client
+        .identify(muxy_protocol::ClientKind::Cli)
+        .map(|_| client.defer_images())
+    {
+        Ok(Ok(()) | Err(muxy_client::ClientError::Server(_))) => {
+            execute(invocation, &client, paths)
+        }
+        Ok(Err(error)) | Err(error) => Err(error.into()),
     };
     client.disconnect();
     result.map_err(|error| target.explain(error))
@@ -75,11 +82,22 @@ impl Paths {
 fn execute(invocation: Invocation, client: &Client, paths: Paths) -> Result {
     let output = Output {
         json: invocation.json,
+        quiet: invocation.quiet,
     };
     match invocation.action {
         Action::Help(_) => Ok(()),
         Action::Server(command) => match command {
-            Server::Start | Server::Status => Output::json(client.server_info()),
+            Server::Start | Server::Status => {
+                let info = client.server_info();
+                if !output.human() {
+                    return Output::json(info);
+                }
+                output.inspect(
+                    &json!({"version": info.build.version, "protocol": info.build.protocol,
+                        "instance": info.instance.to_string(), "unreadable": info.unreadable}),
+                    &["version", "protocol", "instance", "unreadable"],
+                )
+            }
             Server::Stop { force } => {
                 if force {
                     client.stop_server()?;
@@ -92,7 +110,7 @@ fn execute(invocation: Invocation, client: &Client, paths: Paths) -> Result {
         Action::Project(command) => projects::run(command, client, &output, paths),
         Action::Session(command) => sessions::run(command, client, &output, paths),
         Action::Worktree(command) => projects::worktree(command, client, &output, paths),
-        Action::SettingsGet => settings(client),
+        Action::SettingsGet => settings(client, &output),
         Action::SettingsSet { key, value } => {
             set_setting(client, &key, &value)?;
             output.ok()
@@ -105,6 +123,7 @@ fn execute(invocation: Invocation, client: &Client, paths: Paths) -> Result {
                 output.list(
                     &records::activity_rows(&snapshot),
                     &["session", "project", "provider", "state", "event", "kind"],
+                    "No agent activity.",
                 )
             }
         }
@@ -173,7 +192,7 @@ fn set_setting(client: &Client, key: &str, value: &str) -> Result {
                 if !path.is_absolute() {
                     return Err("default-shell must be an absolute path or 'default'".into());
                 }
-                Some(server_path(path)?)
+                Some(ServerPath::from(path))
             }
         }
         "history-budget-bytes" => settings.history_budget_bytes = value.parse()?,
@@ -187,17 +206,21 @@ fn set_setting(client: &Client, key: &str, value: &str) -> Result {
     Ok(())
 }
 
-fn settings(client: &Client) -> Result {
+fn settings(client: &Client, output: &Output) -> Result {
     let settings = client.read_server_settings()?;
-    Output::json(&json!({
-        "default_shell": settings.default_shell.as_ref().map(path_text),
-        "history_budget_bytes": settings.history_budget_bytes,
-        "shell_integration": settings.shell_integration,
-    }))
+    output.inspect(
+        &json!({
+            "default_shell": settings.default_shell.as_ref().map(path_text),
+            "history_budget_bytes": settings.history_budget_bytes,
+            "shell_integration": settings.shell_integration,
+        }),
+        &["default_shell", "history_budget_bytes", "shell_integration"],
+    )
 }
 
 struct Output {
     json: bool,
+    quiet: bool,
 }
 impl Output {
     fn json(value: &impl Serialize) -> Result {
@@ -221,15 +244,54 @@ impl Output {
             Self::row(value, columns)
         }
     }
-    fn list(&self, values: &[Value], columns: &[&str]) -> Result {
-        if self.json {
-            Self::json(&values)
-        } else {
-            for value in values {
-                Self::row(value, columns)?;
-            }
+    fn human(&self) -> bool {
+        !self.json && !self.quiet && crate::output::Display::stdout().terminal
+    }
+    fn inspect(&self, value: &Value, columns: &[&str]) -> Result {
+        if self.human() {
+            write!(
+                io::stdout(),
+                "{}",
+                crate::output::Display::stdout().details(value, columns)
+            )?;
             Ok(())
+        } else {
+            Self::json(value)
         }
+    }
+    fn list(&self, values: &[Value], columns: &[&str], empty: &str) -> Result {
+        if self.json {
+            return Self::json(&values);
+        }
+        if self.quiet {
+            for value in values {
+                if !value[columns[0]].is_null() {
+                    Self::row(value, &columns[..1])?;
+                }
+            }
+            return Ok(());
+        }
+        if self.human() {
+            let rows: Vec<_> = values
+                .iter()
+                .map(|value| {
+                    columns
+                        .iter()
+                        .map(|key| crate::output::cell(&value[key]))
+                        .collect()
+                })
+                .collect();
+            write!(
+                io::stdout(),
+                "{}",
+                crate::output::Display::stdout().table(columns, &rows, empty)
+            )?;
+            return Ok(());
+        }
+        for value in values {
+            Self::row(value, columns)?;
+        }
+        Ok(())
     }
     fn row(value: &Value, columns: &[&str]) -> Result {
         let fields: Vec<_> = columns
@@ -250,14 +312,6 @@ fn escape(text: &str) -> String {
 }
 fn path_text(path: &ServerPath) -> String {
     String::from_utf8_lossy(&path.0).into_owned()
-}
-fn local_path(path: &ServerPath) -> Result<PathBuf> {
-    path.to_path_buf()
-        .map_err(|_| format!("{}: not a path on this computer", path_text(path)).into())
-}
-fn server_path(path: &Path) -> Result<ServerPath> {
-    ServerPath::from_path(path)
-        .map_err(|_| format!("{}: the server can't use this path", path.display()).into())
 }
 fn absolute(path: &Path) -> Result<PathBuf> {
     Ok(std::path::absolute(muxy_core::paths::expand_tilde(path)?)?)

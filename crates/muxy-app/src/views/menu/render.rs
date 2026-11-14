@@ -1,26 +1,78 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, FontWeight, InteractiveElement, IntoElement, MouseMoveEvent,
-    ParentElement, Pixels, Point, SharedString, Size, StatefulInteractiveElement, Styled, Window,
-    div, point, px,
+    AnyElement, App, Bounds, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement,
+    MouseMoveEvent, ParentElement, Pixels, Point, Role, SharedString, Size,
+    StatefulInteractiveElement, Styled, Toggled, Window, div, point, px,
 };
+use muxy_ui::accessibility::{self, OnPress};
 use muxy_ui::components::SymbolGlyph;
 use muxy_ui::popover;
 use muxy_ui::theme::Metrics;
+use muxy_ui::tr;
 
 use super::{
     CloseSubmenu, Command, ConfirmHighlighted, DismissMenu, HighlightNext, HighlightPrevious, Item,
-    Level, Menu, OpenSubmenu,
+    Level, Menu, MenuIcon, OpenSubmenu,
 };
 use crate::model::AppModel;
-use crate::views::overlays::clamp;
+use crate::views::overlays::{
+    Dismissal, Mark, Overlay, OverlayView, Placement, backdrop, clamp, place,
+};
 
 const CHECKMARK: f32 = 12.0;
 const SWATCH: f32 = 10.0;
 const CHEVRON: f32 = 10.0;
+const ICON: f32 = 16.0;
 
-pub(crate) fn render(
+impl OverlayView for Menu {
+    fn render(
+        &self,
+        mark: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        if !self.over_remote_servers {
+            return render(self, mark, model, window, cx);
+        }
+        let remote = place(
+            Placement::Above(model.remote_anchor.clone()),
+            crate::views::remote_servers::list(model, window, cx).into_any_element(),
+            mark,
+            model,
+            cx,
+        );
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .child(remote)
+            .child(backdrop(cx))
+            .child(render(self, mark, model, window, cx))
+            .into_any_element()
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+
+    fn returns_focus_to(&self, _: &AppModel, _: &App) -> Option<FocusHandle> {
+        self.returns_focus_to.as_ref()?.upgrade()
+    }
+
+    fn on_dismiss(&self, _: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        if self.over_remote_servers {
+            Dismissal::Reopen(Overlay::RemoteServers)
+        } else {
+            Dismissal::Close
+        }
+    }
+}
+
+fn render(
     menu: &Menu,
+    mark: Option<Mark>,
     model: &AppModel,
     window: &Window,
     cx: &mut Context<AppModel>,
@@ -28,6 +80,9 @@ pub(crate) fn render(
     let m = model.metrics;
     let viewport = window.viewport_size();
     let mut layer = div()
+        .id("menu-layer")
+        .role(Role::Group)
+        .aria_label(tr!("Menu"))
         .absolute()
         .top_0()
         .left_0()
@@ -63,9 +118,10 @@ pub(crate) fn render(
         let size = dimensions(items, &shortcuts, level == 0, model, window);
         let origin = match (panels.last(), opener) {
             (Some(parent), Some(row)) => submenu_origin(*parent, row, size, viewport, m),
-            _ => match menu.drops_from {
-                Some(control) => popover::dropdown_origin(control, size, viewport),
-                None => clamp(menu.position, size, viewport),
+            _ => match (menu.rises_from, menu.drops_from) {
+                (Some(control), _) => popover::above_origin(control, size, viewport),
+                (None, Some(control)) => popover::dropdown_origin(control, size, viewport),
+                (None, None) => clamp(menu.position, size, viewport),
             },
         };
         let bounds = Bounds::new(origin, size);
@@ -96,7 +152,7 @@ pub(crate) fn render(
                 .top(bounds.origin.y)
                 .w(bounds.size.width)
                 .h(bounds.size.height)
-                .child(model.webview_occlusion()),
+                .children(mark.map(|mark| mark.of(model))),
         );
     }
     *menu.panels.borrow_mut() = panels;
@@ -123,6 +179,8 @@ fn panel(
     let mut panel = popover::surface(theme, m)
         .id(SharedString::from(name.clone()))
         .debug_selector(move || name)
+        .role(Role::Menu)
+        .aria_label(tr!("Menu"))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_mouse_move(cx.listener(|model, event: &MouseMoveEvent, _, _| {
             model.track_menu_pointer(event.position);
@@ -158,7 +216,11 @@ fn panel(
 }
 
 impl Item {
-    #[allow(clippy::too_many_arguments, reason = "One menu row and its placement")]
+    #[allow(
+        clippy::too_many_arguments,
+        clippy::too_many_lines,
+        reason = "One menu row and its placement"
+    )]
     fn render(
         &self,
         level: usize,
@@ -177,6 +239,24 @@ impl Item {
         } else {
             format!("menu-item-{level}-{index}")
         };
+        if self.is_heading() {
+            return self
+                .part("heading")
+                .flex()
+                .flex_none()
+                .items_end()
+                .h(m.scaled(popover::ROW_HEIGHT))
+                .px(m.scaled(popover::ROW_PADDING))
+                .pb(m.spacing1())
+                .text_size(m.font_footnote())
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.fg_muted)
+                .child(accessibility::label(
+                    SharedString::from(format!("menu-heading-{level}-{index}")),
+                    self.label.clone(),
+                ))
+                .into_any_element();
+        }
         popover::menu_row(
             theme,
             m,
@@ -185,6 +265,24 @@ impl Item {
             highlighted,
         )
         .debug_selector(move || name)
+        .role(if self.checked.is_some() {
+            Role::MenuItemCheckBox
+        } else {
+            Role::MenuItem
+        })
+        .aria_label(self.label.clone())
+        .aria_disabled(!enabled)
+        .aria_selected(highlighted)
+        .when_some(self.checked, |row, checked| {
+            row.aria_toggled(if checked {
+                Toggled::True
+            } else {
+                Toggled::False
+            })
+        })
+        .when(self.submenu_items().is_some(), |row| {
+            row.aria_expanded(highlighted)
+        })
         .font_weight(FontWeight::NORMAL)
         .when(columns.checkmarks, |row| {
             row.child(
@@ -212,6 +310,7 @@ impl Item {
                     .when_some(self.swatch, Styled::bg),
             )
         })
+        .when(columns.icons, |row| row.child(self.leading_icon(model)))
         .child(
             self.part("label")
                 .flex_1()
@@ -245,11 +344,32 @@ impl Item {
             }
         }))
         .when(enabled, |row| {
-            row.on_click(cx.listener(move |model, _, window, cx| {
+            row.on_press(cx.listener(move |model, _, window, cx| {
                 model.click_menu_row(level, index, window, cx);
             }))
         })
         .into_any_element()
+    }
+
+    fn leading_icon(&self, model: &AppModel) -> gpui::Div {
+        let m = model.metrics;
+        let size = m.scaled(ICON);
+        let slot = self
+            .part("icon")
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(size);
+        match &self.icon {
+            Some(MenuIcon::Image(image)) => slot.child(gpui::img(image.clone()).size(size)),
+            Some(MenuIcon::Glyph(icon)) => slot.child(muxy_ui::components::IconGlyph::new(
+                *icon,
+                m.icon_md(),
+                model.theme.fg_muted,
+            )),
+            None => slot,
+        }
     }
 
     /// A piece of the row, found in tests as `menu-{part}-{label}`.
@@ -280,6 +400,7 @@ impl Item {
 struct Columns {
     checkmarks: bool,
     swatches: bool,
+    icons: bool,
 }
 
 impl Columns {
@@ -287,6 +408,7 @@ impl Columns {
         Self {
             checkmarks: items.iter().any(|item| item.checked.is_some()),
             swatches: items.iter().any(|item| item.swatch.is_some()),
+            icons: items.iter().any(|item| item.icon.is_some()),
         }
     }
 }
@@ -316,6 +438,7 @@ fn dimensions(
                 None,
             )
             .width
+            .ceil()
     };
     let columns = Columns::of(items);
     let mut leading = px(0.0);
@@ -324,6 +447,9 @@ fn dimensions(
     }
     if columns.swatches {
         leading += m.scaled(SWATCH + popover::ROW_PADDING);
+    }
+    if columns.icons {
+        leading += m.scaled(ICON + popover::ROW_PADDING);
     }
     for (item, shortcut) in items.iter().zip(shortcuts) {
         let mut row_width = measure(&item.label, m.font_body())

@@ -1,9 +1,10 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, ClickEvent, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, SharedString, Styled, Window, div, px, relative,
+    AnyElement, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Role,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, Toggled, Window, div, px, relative,
 };
 use muxy_protocol::{GitAction, GitMergeMethod, GitPullRequest, GitPullRequestAction, ProjectId};
+use muxy_ui::accessibility;
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
 use muxy_ui::controls::{self, Style};
 use muxy_ui::l10n::{tr_key, translate};
@@ -11,7 +12,7 @@ use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
 
 use crate::model::AppModel;
-use crate::views::overlays::Overlay;
+use crate::views::overlays::{Dismissal, Mark, Overlay, OverlayView, Placement};
 
 pub(crate) struct PullRequestPopover {
     project: ProjectId,
@@ -54,12 +55,16 @@ impl AppModel {
         else {
             return;
         };
-        self.overlay = Some(Overlay::PullRequest(PullRequestPopover {
-            project,
-            number: pr.number,
-            merge_method: GitMergeMethod::Squash,
-            remove_worktree: false,
-        }));
+        self.open_overlay(
+            Overlay::PullRequest(PullRequestPopover {
+                project,
+                number: pr.number,
+                merge_method: GitMergeMethod::Squash,
+                remove_worktree: false,
+            }),
+            cx,
+        );
+        self.focus_owner.request(&self.overlay_focus);
         self.queue_git_refresh(
             project,
             vec![GitAction::PullRequest(GitPullRequestAction::Info)],
@@ -157,7 +162,6 @@ impl AppModel {
                 .projects
                 .get(&project)
                 .is_some_and(super::Repository::busy)
-            || self.close_prompt.is_some()
             || !self.session_listing_ready()
         {
             return;
@@ -211,33 +215,22 @@ impl AppModel {
             _ => return,
         };
         self.dismiss_overlay(cx);
-        let window = self.window;
         let context = self.git.interaction;
-        self.close_prompt = Some(cx.spawn(async move |this, cx| {
-            let (send, receive) = async_channel::bounded(1);
-            let dialog = window.update(cx, |_, window, cx| {
-                muxy_ui::dialog::confirm(
-                    window,
-                    cx,
-                    &title,
-                    &message,
-                    &label,
-                    None,
-                    move |answer| {
-                        let _ = send.try_send(answer);
-                    },
-                )
-            });
-            let confirmed = if let Ok(Ok(_dialog)) = dialog {
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| {
+                let question = muxy_ui::dialog::Question::Confirm {
+                    title: &title,
+                    message: &message,
+                    confirm: &label,
+                    checkbox: None,
+                };
                 matches!(
-                    receive.recv().await,
-                    Ok(muxy_ui::dialog::ConfirmationResponse::Confirmed { .. })
+                    muxy_ui::dialog::ask(parent, question, cx).await,
+                    Ok(Some(_))
                 )
-            } else {
-                false
-            };
-            let _ = this.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+            },
+            move |model, confirmed, cx| {
                 if !confirmed {
                     return;
                 }
@@ -262,8 +255,9 @@ impl AppModel {
                 } else {
                     model.git_request(project, GitAction::PullRequest(action), cx);
                 }
-            });
-        }));
+            },
+            cx,
+        );
     }
 }
 
@@ -278,7 +272,10 @@ fn detail_row(m: Metrics, theme: &Theme, label: &str, value: String, color: Hsla
                 .flex_none()
                 .w(m.scaled(52.0))
                 .text_color(theme.fg_muted)
-                .child(label.to_owned()),
+                .child(accessibility::label(
+                    SharedString::from(format!("pr-detail-{label}")),
+                    label.to_owned(),
+                )),
         )
         .child(
             div()
@@ -287,57 +284,11 @@ fn detail_row(m: Metrics, theme: &Theme, label: &str, value: String, color: Hsla
                 .font_family(muxy_ui::font::monospace())
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(color)
-                .child(value),
+                .child(accessibility::label(
+                    SharedString::from(format!("pr-detail-value-{label}")),
+                    value,
+                )),
         )
-        .into_any_element()
-}
-
-#[derive(Clone, Copy)]
-enum ActionTone {
-    Regular,
-    Primary,
-    Danger,
-}
-
-fn action_button(
-    style: Style<'_>,
-    id: &'static str,
-    symbol: &'static str,
-    label: String,
-    tone: ActionTone,
-    enabled: bool,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> AnyElement {
-    let Style { theme, metrics: m } = style;
-    let (foreground, background) = match tone {
-        _ if !enabled => (theme.fg_dim, theme.surface),
-        ActionTone::Regular => (theme.fg, theme.surface),
-        ActionTone::Primary => (theme.accent_foreground, theme.accent),
-        ActionTone::Danger => (theme.danger, theme.surface),
-    };
-    div()
-        .id(id)
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(m.spacing3())
-        .px(m.spacing4())
-        .py(m.spacing3())
-        .rounded(m.radius_sm())
-        .bg(background)
-        .text_size(m.font_footnote())
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(foreground)
-        .when(enabled, |button| {
-            button
-                .cursor_pointer()
-                .when(!matches!(tone, ActionTone::Primary), |button| {
-                    button.hover(|button| button.bg(theme.hover))
-                })
-                .button_interaction(on_click)
-        })
-        .child(SymbolGlyph::new(symbol, m.font_footnote(), foreground))
-        .child(div().min_w(px(0.0)).truncate().child(label))
         .into_any_element()
 }
 
@@ -364,6 +315,10 @@ fn merge_selector(
     let Style { theme, metrics: m } = style;
     let project = popover.project;
     let mut selector = div()
+        .id("pr-merge-method")
+        .role(Role::RadioGroup)
+        .accessibility_id("pr-merge-method")
+        .aria_label(tr!("Merge method"))
         .flex()
         .flex_none()
         .items_center()
@@ -388,6 +343,15 @@ fn merge_selector(
         selector = selector.child(
             div()
                 .id(id)
+                .role(Role::RadioButton)
+                .accessibility_id(id)
+                .aria_label(translate(label))
+                .aria_toggled(if selected {
+                    Toggled::True
+                } else {
+                    Toggled::False
+                })
+                .aria_disabled(!enabled)
                 .flex()
                 .flex_1()
                 .justify_center()
@@ -436,6 +400,7 @@ fn merge_removal(
         .child(controls::toggle(
             style,
             "pr-remove-worktree",
+            &tr!("Remove worktree after merge"),
             popover.remove_worktree,
             cx.listener(move |model, _, _, cx| {
                 if enabled {
@@ -512,22 +477,23 @@ fn header(
                 .flex_1()
                 .min_w(px(0.0))
                 .gap(m.spacing1())
-                .child(
-                    div()
-                        .truncate()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(tr!("Pull Request #%lld", pr.number)),
-                )
+                .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(
+                    accessibility::label("pr-title", tr!("Pull Request #%lld", pr.number)),
+                ))
                 .child(
                     div()
                         .text_size(m.font_caption())
                         .text_color(theme.fg_muted)
-                        .child(state),
+                        .child(accessibility::label("pr-state", state)),
                 ),
         )
         .child(
             div()
                 .id("pr-refresh")
+                .role(Role::Button)
+                .accessibility_id("pr-refresh")
+                .aria_label(tr!("Refresh"))
+                .aria_disabled(busy)
                 .flex()
                 .flex_none()
                 .items_center()
@@ -584,11 +550,51 @@ fn details(pr: &GitPullRequest, has_local_changes: bool, style: Style<'_>) -> An
     details.into_any_element()
 }
 
+impl OverlayView for PullRequestPopover {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        _: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render_pr(self, model, cx)
+    }
+
+    fn placement(&self, model: &AppModel) -> Placement {
+        Placement::Above(model.git.pull_request_anchor.clone())
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+
+    fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        super::end_git_interaction(model)
+    }
+}
+
+/// The popover's card. It takes the keyboard, so a client lands inside it.
+fn surface(model: &AppModel, cx: &mut Context<AppModel>) -> Stateful<gpui::Div> {
+    muxy_ui::popover::surface(&model.theme, model.metrics)
+        .id("pull-request-popover")
+        .role(Role::Group)
+        .accessibility_id("pull-request-popover")
+        .key_context("Menu")
+        .track_focus(&model.overlay_focus)
+        .on_action(
+            cx.listener(|model, _: &crate::views::menu::DismissMenu, _, cx| {
+                model.dismiss_overlay(cx);
+            }),
+        )
+        .w(model.metrics.scaled(280.0))
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "Render the PR status and its actions together"
 )]
-pub(crate) fn render_pr(
+fn render_pr(
     popover: &PullRequestPopover,
     model: &AppModel,
     cx: &mut Context<AppModel>,
@@ -601,9 +607,12 @@ pub(crate) fn render_pr(
         .and_then(|repo| repo.pull_request.as_ref())
         .filter(|pr| pr.number == popover.number);
     let Some(pr) = pr else {
-        return muxy_ui::popover::surface(theme, m)
-            .w(m.scaled(280.0))
-            .child(muxy_ui::popover::body(m).child(tr!("Pull request changed. Reopen its status.")))
+        return surface(model, cx)
+            .aria_label(tr!("Pull Request"))
+            .child(muxy_ui::popover::body(m).child(accessibility::label(
+                "pr-changed",
+                tr!("Pull request changed. Reopen its status."),
+            )))
             .into_any_element();
     };
     let project = popover.project;
@@ -614,21 +623,18 @@ pub(crate) fn render_pr(
     let has_local_changes = repository
         .and_then(|repo| repo.summary.as_ref())
         .is_some_and(|summary| summary.changed > summary.untracked);
-    muxy_ui::popover::surface(theme, m)
-        .w(m.scaled(280.0))
+    surface(model, cx)
+        .aria_label(tr!("Pull Request #%lld", pr.number))
         .p(m.spacing6())
         .gap(m.spacing5())
         .line_height(relative(1.2))
         .child(header(pr, project, busy, style, cx))
         .child(details(pr, has_local_changes, style))
         .child(div().flex_none().h(px(1.0)).bg(theme.border))
-        .child(action_button(
+        .child(controls::button(
             style,
             "pr-open",
-            "arrow.up.right.square",
-            tr!("Open on GitHub").into(),
-            ActionTone::Regular,
-            true,
+            controls::Button::secondary(&tr!("Open on GitHub")).icon("arrow.up.right.square"),
             cx.listener(move |model, _, _, cx| model.open_pull_request_url(project, cx)),
         ))
         .when(pr.state == "OPEN", |surface| {
@@ -637,13 +643,12 @@ pub(crate) fn render_pr(
                     pr.merge_state == "BEHIND" && !pr.cross_repository,
                     |surface| {
                         let head_oid = pr.head_oid.clone();
-                        surface.child(action_button(
+                        surface.child(controls::button(
                             style,
                             "pr-update-branch",
-                            "arrow.down.circle",
-                            tr!("Update from %@", &pr.base_branch).into(),
-                            ActionTone::Regular,
-                            !busy && !has_local_changes,
+                            controls::Button::secondary(&tr!("Update from %@", &pr.base_branch))
+                                .icon("arrow.down.circle")
+                                .enabled(!busy && !has_local_changes),
                             cx.listener(move |model, _, _, cx| {
                                 model.request_pull_request_action(
                                     project,
@@ -665,13 +670,12 @@ pub(crate) fn render_pr(
                         .is_some_and(|project| project.parent_id.is_some()),
                     |surface| surface.child(merge_removal(popover, style, !busy, cx)),
                 )
-                .child(action_button(
+                .child(controls::button(
                     style,
                     "pr-merge",
-                    "arrow.triangle.merge",
-                    merge_action_label(merge_method).into(),
-                    ActionTone::Primary,
-                    can_merge(pr) && !busy,
+                    controls::Button::primary(&merge_action_label(merge_method))
+                        .icon("arrow.triangle.merge")
+                        .enabled(can_merge(pr) && !busy),
                     cx.listener(move |model, _, _, cx| {
                         model.request_pull_request_action(
                             project,
@@ -685,13 +689,12 @@ pub(crate) fn render_pr(
                         );
                     }),
                 ))
-                .child(action_button(
+                .child(controls::button(
                     style,
                     "pr-close",
-                    "xmark.circle",
-                    tr!("Close PR").into(),
-                    ActionTone::Danger,
-                    !busy,
+                    controls::Button::danger(&tr!("Close PR"))
+                        .icon("xmark.circle")
+                        .enabled(!busy),
                     cx.listener(move |model, _, _, cx| {
                         model.request_pull_request_action(
                             project,

@@ -34,6 +34,9 @@ pub enum Branch {
     Second,
 }
 
+const MIN_RATIO: f32 = 0.15;
+const MAX_RATIO: f32 = 0.85;
+
 /// A split tree. Tabs split into panes; a project's tab groups split the same
 /// way.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -108,6 +111,18 @@ impl<L: Copy + Eq> Layout<L> {
         }
     }
 
+    /// Puts `new` where `pane` is.
+    pub fn replace(&mut self, pane: L, new: L) {
+        match self {
+            Self::Leaf(id) if *id == pane => *id = new,
+            Self::Leaf(_) => {}
+            Self::Split { first, second, .. } => {
+                first.replace(pane, new);
+                second.replace(pane, new);
+            }
+        }
+    }
+
     fn swap(&mut self, pane: L, target: L) {
         match self {
             Self::Leaf(id) if *id == pane => *id = target,
@@ -150,8 +165,48 @@ impl<L: Copy + Eq> Layout<L> {
         let Self::Split { ratio, .. } = node else {
             return Err(AppError::InvalidState("path must name a split".into()));
         };
-        *ratio = value.clamp(0.15, 0.85);
+        *ratio = value.clamp(MIN_RATIO, MAX_RATIO);
         Ok(())
+    }
+
+    /// Moves the divider nearest `pane` on `direction`'s axis toward
+    /// `direction` by `step` of its split. Returns whether it moved: `pane`
+    /// may have no such divider, or the divider may be as far as it goes.
+    pub fn resize(&mut self, pane: L, direction: Direction, step: f32) -> bool {
+        self.resize_nearest(pane, direction, step) == Some(true)
+    }
+
+    /// `None` when no divider on `direction`'s axis bounds `pane` here;
+    /// otherwise whether the nearest one moved. One at its limit stays the
+    /// nearest, so the dividers around it are left alone.
+    fn resize_nearest(&mut self, pane: L, direction: Direction, step: f32) -> Option<bool> {
+        let Self::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } = self
+        else {
+            return None;
+        };
+        let inner = if first.contains(pane) { first } else { second };
+        if let Some(moved) = inner.resize_nearest(pane, direction, step) {
+            return Some(moved);
+        }
+        if *axis != direction.axis() || !inner.contains(pane) {
+            return None;
+        }
+        if !step.is_finite() {
+            return Some(false);
+        }
+        let delta = match direction {
+            Direction::Left | Direction::Up => -step,
+            Direction::Right | Direction::Down => step,
+        };
+        let resized = (*ratio + delta).clamp(MIN_RATIO, MAX_RATIO);
+        let moved = (resized - *ratio).abs() > f32::EPSILON;
+        *ratio = resized;
+        Some(moved)
     }
 
     pub fn validate(&self) -> Result<(), AppError> {
@@ -162,7 +217,7 @@ impl<L: Copy + Eq> Layout<L> {
             ..
         } = self
         {
-            if !ratio.is_finite() || !(0.15..=0.85).contains(ratio) {
+            if !ratio.is_finite() || !(MIN_RATIO..=MAX_RATIO).contains(ratio) {
                 return Err(AppError::InvalidState(
                     "split ratio must be between 0.15 and 0.85".into(),
                 ));
@@ -212,6 +267,19 @@ impl<L: Copy + Eq> Layout<L> {
             })
             .min_by(|(_, a), (_, b)| a.total_cmp(b))
             .map(|(id, _)| id)
+    }
+
+    /// The leaf that takes over when `leaf` closes: the one beside it,
+    /// preferring the right, then left, below, above.
+    pub fn nearest(&self, leaf: L) -> Option<L> {
+        [
+            Direction::Right,
+            Direction::Left,
+            Direction::Down,
+            Direction::Up,
+        ]
+        .into_iter()
+        .find_map(|direction| self.neighbor(leaf, direction))
     }
 
     fn visit(&self, visitor: &mut impl FnMut(L, [f32; 4]), rect: [f32; 4]) {

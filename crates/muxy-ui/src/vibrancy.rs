@@ -2,11 +2,10 @@ use gpui::{Hsla, Window};
 use objc2::{MainThreadMarker, MainThreadOnly, rc::Retained};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSAutoresizingMaskOptions, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
+    NSAutoresizingMaskOptions, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
     NSVisualEffectState, NSVisualEffectView, NSWindowOrderingMode,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::theme::Appearance;
 
@@ -21,12 +20,7 @@ pub struct SidebarVibrancy {
 impl SidebarVibrancy {
     pub fn new(window: &Window, width: f32, background: Hsla) -> Option<Self> {
         let mtm = MainThreadMarker::new()?;
-        let handle = HasWindowHandle::window_handle(window).ok()?;
-        let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
-            return None;
-        };
-        // SAFETY: GPUI lends its live AppKit view on the main thread.
-        let gpui_view = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
+        let gpui_view = crate::appkit::gpui_view(window).ok()?;
         // SAFETY: This is GPUI's live main-thread view. Install the effect as a
         // sibling below it so the Metal surface and input handling stay on top.
         let content = unsafe { gpui_view.superview() }?;
@@ -43,7 +37,7 @@ impl SidebarVibrancy {
         content.addSubview_positioned_relativeTo(
             &view,
             NSWindowOrderingMode::Below,
-            Some(gpui_view),
+            Some(&gpui_view),
         );
         Some(Self {
             view,

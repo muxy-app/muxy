@@ -37,8 +37,8 @@ flowchart TB
 | Paired device | A phone allowed to connect to the server. |
 
 **Shared or private.** Project names, icons, colors, and deletions reach every
-app. Tabs, layouts, workspaces, and project order stay in the app that made
-them.
+app, and so do the names renamed tabs give their terminals. Tabs, layouts,
+workspaces, and project order stay in the app that made them.
 
 ## Projects
 
@@ -55,14 +55,14 @@ them.
 Every server has one Home project for the user's home folder. Quick Terminal
 and other one-off terminals live there. Home is always first in the sidebar. It
 can't be deleted, have worktrees, or join a workspace. A remote server's Home
-goes by the server's name and is listed only under **Remote Servers**.
+goes by the server's name.
 
 ## Workspaces
 
 A workspace is a named filter for the sidebar. A project can be in no
 workspace, one, or several, and a workspace can be empty. Deleting a workspace
-never touches its projects. **Remote Servers** is a fixed workspace, offered
-once a remote server has connected, that lists each remote server's Home.
+never touches its projects. Workspaces filter the projects of every server,
+under each server's heading in the sidebar.
 
 ## Worktrees
 
@@ -106,7 +106,10 @@ Deleting always asks first and explains what will end.
 - Tabs can have a custom title and color, and can be pinned. Pinned tabs stay
   first and can't be closed until unpinned.
 - A terminal's title is the one its program sets, otherwise the running
-  program's name, otherwise its folder.
+  program's name, otherwise its folder. Its pane header names the shell
+  instead of the folder, and shows the folder beside the title.
+- The phone app titles terminals the same way, including the tabs it isn't
+  showing, and a custom title names every terminal in the tab there too.
 - New terminals open in the project's folder, or optionally in the folder of
   the pane they were split from.
 - Terminals support selection, copy and paste, search, links, the mouse, input

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use muxy_protocol::{ErrorCode, ServerPath};
+use muxy_protocol::ErrorCode;
 
 const DEFAULT_HISTORY_BUDGET_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -26,8 +26,8 @@ impl ServerSettings {
         muxy_protocol::ServerSettingsDoc {
             default_shell: self
                 .default_shell
-                .as_deref()
-                .and_then(|path| ServerPath::from_path(path).ok()),
+                .as_ref()
+                .map(muxy_protocol::ServerPath::from),
             history_budget_bytes: self.history_budget_bytes,
             shell_integration: self.shell_integration,
         }
@@ -81,21 +81,13 @@ fn runnable(shell: &Path) -> Result<bool, crate::ServerError> {
     }
 }
 
-impl TryFrom<muxy_protocol::ServerSettingsDoc> for ServerSettings {
-    type Error = crate::ServerError;
-
-    /// Refuses a shell path this computer can't name, such as one that isn't
-    /// UTF-8 on Windows.
-    fn try_from(document: muxy_protocol::ServerSettingsDoc) -> Result<Self, Self::Error> {
-        Ok(Self {
-            default_shell: document
-                .default_shell
-                .map(|path| path.to_path_buf())
-                .transpose()
-                .map_err(|code| crate::ServerError::new(code, "shell path is not valid here"))?,
+impl From<muxy_protocol::ServerSettingsDoc> for ServerSettings {
+    fn from(document: muxy_protocol::ServerSettingsDoc) -> Self {
+        Self {
+            default_shell: document.default_shell.map(Into::into),
             history_budget_bytes: document.history_budget_bytes,
             shell_integration: document.shell_integration,
-        })
+        }
     }
 }
 

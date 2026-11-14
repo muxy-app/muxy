@@ -8,7 +8,7 @@ use objc2::{ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_cl
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
     NSApplication, NSBorderType, NSClipView, NSEventType, NSScrollElasticity, NSScrollView,
-    NSScroller, NSScrollerStyle, NSView,
+    NSScroller, NSScrollerStyle, NSView, NSWindow,
 };
 use objc2_foundation::{
     NSArgumentDomain, NSDictionary, NSMutableDictionary, NSObjectProtocol, NSPoint, NSRect, NSSize,
@@ -110,13 +110,20 @@ pub struct NativeScrollView {
 }
 
 impl NativeScrollView {
-    pub fn new(window_title: &str, callback: impl Fn(ScrollPosition) + 'static) -> Option<Self> {
+    pub fn new(window: &gpui::Window, callback: impl Fn(ScrollPosition) + 'static) -> Option<Self> {
+        MainThreadMarker::new()?;
+        Self::in_window(crate::appkit::ns_window(window).ok()?, callback)
+    }
+
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "Accepts the retained window returned by handle lookup"
+    )]
+    pub fn in_window(
+        window: Retained<NSWindow>,
+        callback: impl Fn(ScrollPosition) + 'static,
+    ) -> Option<Self> {
         let mtm = MainThreadMarker::new()?;
-        let app = NSApplication::sharedApplication(mtm);
-        let windows = app.windows();
-        let window = (0..windows.count())
-            .map(|index| windows.objectAtIndex(index))
-            .find(|window| window.title().to_string() == window_title)?;
         let parent = window.contentView()?;
         let allocated = ScrollView::alloc(mtm).set_ivars(ScrollState {
             callback: Box::new(callback),
@@ -152,6 +159,24 @@ impl NativeScrollView {
         })
     }
 
+    /// Moves the scroll bar into `window`, for a pane now drawn there. It
+    /// keeps its position and shows once synced in that window.
+    pub fn move_to_window(&mut self, window: &gpui::Window) -> Result<(), String> {
+        let parent = crate::appkit::ns_window(window)?
+            .contentView()
+            .ok_or("native window has no content view")?;
+        if std::ptr::eq(Retained::as_ptr(&parent), Retained::as_ptr(&self.parent)) {
+            return Ok(());
+        }
+        let hidden = self.view.isHidden();
+        self.view.setHidden(true);
+        self.view.removeFromSuperview();
+        parent.addSubview(&self.view);
+        self.view.setHidden(hidden);
+        self.parent = parent;
+        Ok(())
+    }
+
     pub fn set_visible(&self, visible: bool) {
         self.view.setHidden(!visible);
     }
@@ -162,20 +187,7 @@ impl NativeScrollView {
         let old_offset = self.view.position().from_bottom;
         let old_frame = self.view.frame();
         let old_height = state.document_height.get();
-        let bounds = geometry.bounds;
-        let top = f64::from(f32::from(bounds.top()));
-        let height = f64::from(f32::from(bounds.size.height));
-        let frame = NSRect::new(
-            NSPoint::new(
-                f64::from(f32::from(bounds.left())),
-                if self.parent.isFlipped() {
-                    top
-                } else {
-                    self.parent.bounds().size.height - top - height
-                },
-            ),
-            NSSize::new(f64::from(f32::from(bounds.size.width)), height),
-        );
+        let frame = crate::appkit::frame_in(&self.parent, geometry.bounds);
         let changed = state.revision.replace(geometry.revision) != geometry.revision;
         self.view.setFrame(frame);
         let appearance = NSAppearance::appearanceNamed(unsafe {

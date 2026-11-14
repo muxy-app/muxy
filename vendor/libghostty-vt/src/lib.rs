@@ -79,6 +79,11 @@
 #![warn(missing_copy_implementations)]
 #![warn(clippy::allow_attributes)]
 #![warn(clippy::allow_attributes_without_reason)]
+#![expect(
+    clippy::needless_pass_by_value,
+    reason = "handles such as grid refs and option structs are small, and taken
+    by value the same way the C API takes them"
+)]
 #![allow(
     clippy::missing_errors_doc,
     reason = "underlying C API may return any error outside of expected and
@@ -87,6 +92,32 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub use libghostty_vt_sys as ffi;
+
+/// Read `$field` of a sized struct that libghostty passed in, or `None` if
+/// the struct is too small to contain it.
+///
+/// The C API only lets callbacks read the fields that fit in the `size`
+/// libghostty reports, since sized structs grow by appending fields: reading
+/// one past `size` would read past the end of the struct libghostty passed.
+/// Reading the struct by value (`*ptr`) has the same problem, so read each
+/// field through this instead.
+///
+/// The expansion dereferences `$ptr`, so it must be used inside `unsafe`,
+/// with `$ptr` pointing to a live struct whose first `size` bytes are
+/// readable. `size` itself is the first field of every sized struct.
+macro_rules! sized_field {
+    ($ptr:expr, $ty:ty, $field:ident) => {{
+        // Never called: it only names the field's type, since taking even a
+        // raw pointer to a field past the end is out of bounds.
+        fn field_size<T, F>(_: for<'a> fn(&'a T) -> &'a F) -> usize {
+            ::std::mem::size_of::<F>()
+        }
+        let ptr: *const $ty = $ptr;
+        let end = ::std::mem::offset_of!($ty, $field) + field_size::<$ty, _>(|s| &s.$field);
+        ((*ptr).size >= end).then(|| (*ptr).$field)
+    }};
+}
+pub(crate) use sized_field;
 
 // Make sure that `Terminal`'s own impl blocks (i.e. core functions)
 // are placed *before* any extra impl blocks from other modules,
@@ -98,6 +129,7 @@ pub mod build_info;
 pub mod error;
 pub mod fmt;
 pub mod focus;
+pub(crate) mod io;
 pub mod key;
 pub mod kitty;
 pub mod log;
@@ -106,9 +138,12 @@ pub mod osc;
 pub mod paste;
 pub mod render;
 pub mod screen;
+pub mod search;
 pub mod selection;
 pub mod sgr;
+pub mod snapshot;
 pub mod style;
+pub mod sys;
 pub mod unicode;
 
 #[doc(inline)]
@@ -116,7 +151,7 @@ pub use crate::{
     error::Error,
     log::{Logger, set_logger},
     render::RenderState,
-    terminal::{Options as TerminalOptions, Terminal},
+    terminal::Terminal,
 };
 
 pub(crate) fn sys_set<T>(opt: ffi::SysOption::Type, val: *const T) -> error::Result<()> {

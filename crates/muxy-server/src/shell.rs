@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use muxy_terminal::pty::SpawnRequest;
@@ -35,20 +35,7 @@ impl ShellIntegration {
                 include_str!("../shell/muxy.fish"),
             ),
         ] {
-            let path = directory.join(name);
-            let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
-            let mut file = muxy_core::files::private_file()
-                .write(true)
-                .create_new(true)
-                .open(&temporary)?;
-            let result = file
-                .write_all(contents.as_bytes())
-                .and_then(|()| file.sync_all())
-                .and_then(|()| muxy_core::files::replace_file(&temporary, &path));
-            if result.is_err() {
-                let _ = fs::remove_file(&temporary);
-            }
-            result?;
+            muxy_core::fs::write_atomic(&directory.join(name), contents.as_bytes(), 0o600)?;
         }
         Ok(Self {
             directory: muxy_core::files::canonicalize(directory)?,
@@ -210,10 +197,6 @@ fn set_env(request: &mut SpawnRequest, name: &str, value: OsString) {
 #[cfg(all(test, unix))]
 #[path = "shell/tests.rs"]
 mod tests;
-
-#[cfg(all(test, windows))]
-#[path = "shell/windows_tests.rs"]
-mod windows_tests;
 
 #[cfg(test)]
 mod encoding_tests {

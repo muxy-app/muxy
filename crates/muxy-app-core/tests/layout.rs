@@ -48,6 +48,66 @@ fn nested_splits_focus_zoom_and_collapse_survive_roundtrip() -> Result {
 }
 
 #[test]
+fn resizing_a_pane_moves_its_nearest_divider_on_that_axis() -> Result {
+    let mut state = AppState::bootstrap()?;
+    state.open_terminal_tab(state.home().id)?;
+    let left = state.home().tabs[0].panes[0].id;
+    let right = state.split_pane(left, Direction::Right)?;
+    let bottom = state.split_pane(right, Direction::Down)?;
+    let share = |state: &AppState, pane: PaneId, dimension: usize| {
+        let rects = state.home().tabs[0].layout.rects();
+        rects
+            .iter()
+            .find(|(id, _)| *id == pane)
+            .map_or(0.0, |(_, rect)| rect[dimension])
+    };
+    let near = |actual: f32, expected: f32| (actual - expected).abs() < 1e-4;
+
+    assert!(state.resize_pane(bottom, Direction::Left, 0.05)?);
+    assert!(near(share(&state, left, 2), 0.45));
+    assert!(state.resize_pane(bottom, Direction::Up, 0.05)?);
+    assert!(near(share(&state, right, 3), 0.45));
+    assert!(state.resize_pane(left, Direction::Right, 0.1)?);
+    assert!(near(share(&state, left, 2), 0.55));
+    assert!(near(share(&state, right, 3), 0.45));
+
+    let before = state.clone();
+    assert!(!state.resize_pane(left, Direction::Down, 0.05)?);
+    assert!(!state.resize_pane(left, Direction::Left, f32::NAN)?);
+    assert_eq!(state, before);
+
+    assert!(state.resize_pane(left, Direction::Left, 5.0)?);
+    assert!(near(share(&state, left, 2), 0.15));
+    let narrowest = state.clone();
+    assert!(!state.can_resize_pane(left, Direction::Left, 0.05));
+    assert!(state.can_resize_pane(left, Direction::Right, 0.05));
+    assert!(!state.can_resize_pane(left, Direction::Up, 0.05));
+    assert!(!state.resize_pane(left, Direction::Left, 0.05)?);
+    assert_eq!(state, narrowest);
+    state.home().tabs[0].layout.validate()?;
+    let restored: AppState = serde_json::from_value(serde_json::to_value(&state)?)?;
+    assert_eq!(restored, state);
+
+    let inner = state.split_pane(left, Direction::Right)?;
+    assert!(state.resize_pane(inner, Direction::Left, 5.0)?);
+    let limited = state.clone();
+    assert!(!state.resize_pane(inner, Direction::Left, 0.05)?);
+    assert_eq!(state, limited, "the outer divider stays where it is");
+
+    state.toggle_zoom(left)?;
+    let zoomed = state.clone();
+    assert!(!state.can_resize_pane(left, Direction::Right, 0.05));
+    assert!(!state.resize_pane(left, Direction::Right, 0.05)?);
+    assert_eq!(state, zoomed);
+    assert!(
+        state
+            .resize_pane(PaneId::new(), Direction::Right, 0.05)
+            .is_err()
+    );
+    Ok(())
+}
+
+#[test]
 fn equalizing_splits_evens_a_long_row_and_keeps_the_zoom() -> Result {
     let mut state = AppState::bootstrap()?;
     state.open_terminal_tab(state.home().id)?;
@@ -138,8 +198,27 @@ fn restore_accounts_for_each_leaf_even_when_zoomed() -> Result {
         }],
     );
     assert_eq!(plan.attach, [(first, live)]);
-    assert_eq!(plan.close, [(second, ended)]);
+    assert_eq!(plan.restart, [(second, ended)]);
+    assert!(plan.close.is_empty());
     assert_eq!(plan.create, [third]);
+    Ok(())
+}
+
+#[test]
+fn closing_the_focused_pane_returns_focus_to_the_pane_focused_before_it() -> Result {
+    let mut state = AppState::bootstrap()?;
+    state.open_terminal_tab(state.home().id)?;
+    let left = state.window().active_pane.ok_or("focus")?;
+    let right = state.split_pane(left, Direction::Right)?;
+    let bottom = state.split_pane(right, Direction::Down)?;
+    state.close_pane(bottom)?;
+    assert_eq!(state.window().active_pane, Some(right));
+
+    let bottom = state.split_pane(right, Direction::Down)?;
+    state.focus_pane(left)?;
+    state.focus_pane(bottom)?;
+    state.close_pane(bottom)?;
+    assert_eq!(state.window().active_pane, Some(left));
     Ok(())
 }
 

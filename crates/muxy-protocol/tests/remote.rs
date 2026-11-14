@@ -1,4 +1,8 @@
-use muxy_protocol::{DeviceCredential, DeviceId, ErrorCode, PairRequest, PairingInvite};
+use std::error::Error;
+
+use muxy_protocol::{
+    DeviceCredential, DeviceId, DeviceKind, ErrorCode, PairRequest, PairingInvite,
+};
 
 fn invite() -> PairingInvite {
     PairingInvite {
@@ -70,6 +74,7 @@ fn secrets_never_appear_in_debug_output() {
     let request = PairRequest {
         secret: [0x5a; 16],
         name: "Phone".into(),
+        kind: DeviceKind::Phone,
     };
     for text in [
         format!("{credential:?}"),
@@ -80,4 +85,28 @@ fn secrets_never_appear_in_debug_output() {
             assert!(!text.contains(secret), "{text}");
         }
     }
+}
+
+#[test]
+fn pairing_from_an_older_app_is_a_phone() -> Result<(), Box<dyn Error>> {
+    let mut bytes = Vec::new();
+    minicbor::Encoder::new(&mut bytes)
+        .array(2)?
+        .bytes(&[5; 16])?
+        .str("Phone")?;
+    let request: PairRequest = minicbor::decode(&bytes)?;
+    assert_eq!(request.kind, DeviceKind::Phone);
+    Ok(())
+}
+
+#[test]
+fn device_kinds_from_a_newer_build_are_kept() -> Result<(), Box<dyn Error>> {
+    let request = PairRequest {
+        secret: [5; 16],
+        name: "Robot".into(),
+        kind: DeviceKind::Unrecognized(9),
+    };
+    let decoded: PairRequest = minicbor::decode(&minicbor::to_vec(&request)?)?;
+    assert_eq!(decoded, request);
+    Ok(())
 }

@@ -2,7 +2,8 @@ use gpui::{AnyElement, Context, IntoElement, ParentElement, SharedString, Styled
 use muxy_ui::l10n::tr_key;
 use muxy_ui::{controls, tr};
 
-use super::{Category, Change, PickerKind, SettingsEvent, SettingsView};
+use super::{Category, PickerKind, SettingsEvent, SettingsView};
+use crate::model::preferences::Change;
 use crate::repository_actions::Action;
 
 pub(super) const PROMPTS: [(Action, &str); 2] = [
@@ -78,8 +79,12 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             let restore = controls::button(
                 view.style(),
                 &format!("{prompt_id}-restore"),
-                &tr!("Restore Default"),
-                edited,
+                controls::Button::secondary(&tr!("Restore Default"))
+                    .named(&tr!(
+                        "Restore Default %@",
+                        &muxy_ui::l10n::translate(prompt)
+                    ))
+                    .enabled(edited),
                 cx.listener(move |_, _, _, cx| {
                     cx.emit(SettingsEvent::Change(Change::Field(
                         prompt_id,

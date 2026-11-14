@@ -20,7 +20,7 @@ pub(super) fn pane(worker: &Worker, ui: &mut Ui, pane: PaneId, at: Position) {
     let live = shared
         .views
         .get(&pane)
-        .filter(|view| !view.ended && view.channel.is_some());
+        .filter(|view| !view.ended && view.channel().is_some());
     let mut items = vec![
         Some(Item::new("Split right", "^B %", Command::SplitRight(pane))),
         Some(Item::new("Split down", "^B \"", Command::SplitDown(pane))),

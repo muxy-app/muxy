@@ -17,12 +17,32 @@ pub(super) struct Results {
     pub(super) extension_focus: HashMap<String, [FocusHandle; 3]>,
     pub(super) command_focus: HashMap<String, [FocusHandle; 4]>,
     pub(super) reveal_focus: Rc<Cell<bool>>,
+    /// The row to bring on screen in the next frame.
+    pub(super) reveal_row: Rc<Cell<Option<&'static str>>>,
     pub(super) dirty: bool,
+    pub(super) editable: bool,
     reset_scroll: bool,
     overdraw: Pixels,
 }
 
-#[derive(Clone, Copy)]
+/// The order of search results, which keeps related settings together.
+const SEARCH_ORDER: [Category; 13] = [
+    Category::General,
+    Category::QuickTerminal,
+    Category::Composer,
+    Category::Appearance,
+    Category::Terminal,
+    Category::Keyboard,
+    Category::Commands,
+    Category::Browser,
+    Category::Servers,
+    Category::Extensions,
+    Category::Ai,
+    Category::Backup,
+    Category::About,
+];
+
+#[derive(Clone, Copy, PartialEq)]
 enum Item {
     Section(Category),
     KeyboardHeading,
@@ -63,7 +83,9 @@ impl Results {
             extension_focus: HashMap::new(),
             command_focus: HashMap::new(),
             reveal_focus: Rc::new(Cell::new(false)),
+            reveal_row: Rc::new(Cell::new(None)),
             dirty: true,
+            editable: false,
             reset_scroll: true,
             overdraw: px(0.0),
         }
@@ -131,10 +153,8 @@ impl SettingsView {
                 self.results.state.scroll_to_reveal_item(*item);
             }
             focus.focus(window);
-        } else if backwards {
-            window.focus_prev();
         } else {
-            window.focus_next();
+            muxy_ui::form::advance_focus_within(&self.focus, backwards, window, cx);
         }
         cx.notify();
     }
@@ -152,21 +172,7 @@ impl SettingsView {
         let order = if self.query.is_empty() {
             Category::ALL
         } else {
-            [
-                Category::General,
-                Category::QuickTerminal,
-                Category::Composer,
-                Category::Appearance,
-                Category::Terminal,
-                Category::Keyboard,
-                Category::Commands,
-                Category::Browser,
-                Category::Server,
-                Category::Mobile,
-                Category::Extensions,
-                Category::Ai,
-                Category::Backup,
-            ]
+            SEARCH_ORDER
         };
         for category in order {
             if self.query.is_empty() && category != self.category {
@@ -203,10 +209,19 @@ impl SettingsView {
                 items.push(Item::Section(category));
             }
         }
+        self.results.editable = items
+            .iter()
+            .any(|item| !matches!(item, Item::Section(Category::About | Category::Extensions)));
         if items.is_empty() {
             items.push(Item::Empty);
         }
-        items.push(Item::Footer);
+        if self.results.editable {
+            items.push(Item::Footer);
+        }
+        if self.unchanged(&items, overdraw) {
+            self.results.dirty = false;
+            return;
+        }
         self.refresh_shortcut_focus(&items, cx);
         let offset = self.results.state.logical_scroll_top();
         self.scrollbar.reset();
@@ -240,6 +255,21 @@ impl SettingsView {
         self.results.items = items;
         self.results.dirty = false;
         self.results.reset_scroll = false;
+    }
+
+    /// Whether the list already holds `items`, each still meaning the same
+    /// row, so it can keep its measurements and scrolling. The list draws its
+    /// visible rows again either way.
+    fn unchanged(&self, items: &[Item], overdraw: Pixels) -> bool {
+        self.results.overdraw == overdraw
+            && !self.results.reset_scroll
+            && self.results.items == items
+            && !items.iter().any(|item| {
+                matches!(
+                    item,
+                    Item::CustomCommand(_) | Item::ExtensionHeading(_) | Item::ExtensionShortcut(_)
+                )
+            })
     }
 
     fn refresh_shortcut_focus(&mut self, items: &[Item], cx: &mut Context<Self>) {
@@ -292,9 +322,8 @@ impl SettingsView {
             Category::Browser => super::browser::rows(self, cx),
             Category::Ai => super::ai::rows(self, cx),
             Category::Backup => super::backup::rows(self, cx),
+            Category::About => super::about::rows(self, cx),
             Category::Terminal => terminal::rows(self, window, cx),
-            Category::Server => server::rows(self, cx),
-            Category::Mobile => super::mobile::rows(self, cx),
             Category::Keyboard | Category::Commands => Vec::new(),
             Category::Extensions => {
                 if self.matches(
@@ -305,8 +334,7 @@ impl SettingsView {
                         muxy_ui::controls::button(
                             self.style(),
                             "manage-extensions",
-                            &tr!("Manage Extensions"),
-                            true,
+                            muxy_ui::controls::Button::secondary(&tr!("Manage Extensions")),
                             cx.listener(|view, _, _, cx| view.show_extensions(cx)),
                         )
                         .into_any_element(),
@@ -314,6 +342,27 @@ impl SettingsView {
                 } else {
                     Vec::new()
                 }
+            }
+            Category::Servers => {
+                let mut rows = server::rows(self, cx);
+                if self.query.is_empty() {
+                    rows.extend(self.servers.clone().map(IntoElement::into_any_element));
+                } else if self.matches(
+                    Category::Servers,
+                    tr_key!("Manage servers clients remote ssh pairing paired mobile phones computers port qr"),
+                ) {
+                    rows.push(
+                        muxy_ui::controls::button(
+                            self.style(),
+                            "manage-servers",
+                            muxy_ui::controls::Button::secondary(&tr!("Manage Servers")),
+                            cx.listener(|view, _, _, cx| view.show_servers(cx)),
+                        )
+                        .debug_selector(|| "settings-manage-servers".into())
+                        .into_any_element(),
+                    );
+                }
+                rows
             }
             Category::QuickTerminal => super::quick_terminal::rows(self, cx),
         }
@@ -328,14 +377,25 @@ impl SettingsView {
                 metrics.spacing9()
             })
             .text_size(metrics.font_display())
-            .child(muxy_ui::l10n::translate(category.label()))
+            .child(muxy_ui::accessibility::label(
+                gpui::SharedString::from(format!("settings-heading-{}", category.label())),
+                muxy_ui::l10n::translate(category.label()),
+            ))
             .into_any_element()
     }
 
-    pub(super) fn subsection_heading(&self, section: &'static str) -> AnyElement {
-        muxy_ui::form::section_heading(self.layout_style(), &muxy_ui::l10n::translate(section))
-            .debug_selector(move || format!("settings-heading-{section}"))
-            .into_any_element()
+    pub(super) fn subsection_heading(
+        &self,
+        category: Category,
+        section: &'static str,
+    ) -> AnyElement {
+        muxy_ui::form::section_heading(
+            self.layout_style(),
+            gpui::SharedString::from(format!("settings-heading-{}-{section}", category.label())),
+            &muxy_ui::l10n::translate(section),
+        )
+        .debug_selector(move || format!("settings-heading-{section}"))
+        .into_any_element()
     }
 
     pub(super) fn result(
@@ -364,7 +424,7 @@ impl SettingsView {
                 .w_full()
                 .debug_selector(|| "settings-section-Keyboard".into())
                 .child(self.section_heading(Category::Keyboard, index == 0))
-                .child(self.subsection_heading(tr_key!("Shortcuts")))
+                .child(self.subsection_heading(Category::Keyboard, tr_key!("Shortcuts")))
                 .child(self.note(&tr!("Click a shortcut to record it. Escape cancels. Conflicts in the same context must be resolved first."), false))
                 .into_any_element(),
             Item::Shortcut(index) => {
@@ -374,7 +434,11 @@ impl SettingsView {
             },
             Item::ExtensionHeading(index) => {
                 let extension = self.snapshot.extension_shortcuts[index].extension.clone();
-                muxy_ui::form::section_heading(self.layout_style(), &extension)
+                muxy_ui::form::section_heading(
+                    self.layout_style(),
+                    gpui::SharedString::from(format!("settings-heading-extension-{extension}")),
+                    &extension,
+                )
                     .debug_selector(move || format!("settings-heading-extension-{extension}"))
                     .into_any_element()
             }
@@ -382,7 +446,14 @@ impl SettingsView {
             Item::Empty => div()
                 .w_full()
                 .debug_selector(|| "settings-empty".into())
-                .child(self.note(&tr!("No settings found. Try another search."), false))
+                .child({
+                    let empty = tr!("No settings found. Try another search.");
+                    muxy_ui::accessibility::announced(
+                        self.note(&empty, false).id("settings-empty"),
+                        empty,
+                        false,
+                    )
+                })
                 .into_any_element(),
             Item::Footer => self.note(
                     &if self.category == Category::Commands {

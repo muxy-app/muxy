@@ -19,8 +19,45 @@ fn snapshot(state: &AppState) -> CatalogPage {
 }
 fn acknowledge(state: &mut AppState) -> Result {
     while let Some(intent) = state.project_intents(ServerId::local()).first().cloned() {
-        state.complete_project_intent(ServerId::local(), intent.operation)?;
+        state.complete_project_intent(ServerId::local(), intent.operation, true)?;
     }
+    Ok(())
+}
+
+#[test]
+fn project_creation_dates_survive_reordering_catalog_refresh_and_legacy_state() -> Result {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("state.json");
+    let mut state = AppState::bootstrap()?;
+    let first = state.add_project(ServerId::local(), directory.path().into())?;
+    let second = state.add_project(ServerId::local(), directory.path().into())?;
+    let created = state.project(first).ok_or("first")?.created_at;
+    assert!(created.is_some());
+    state.move_project(second, 1)?;
+    acknowledge(&mut state)?;
+    let mut page = snapshot(&state);
+    page.projects[2].name = "Renamed elsewhere".into();
+    state.apply_catalog(ServerId::local(), &page)?;
+    store::save(&path, &state)?;
+    let saved = store::load(&path)?;
+    assert_eq!(saved.project(first).ok_or("first")?.created_at, created);
+    assert_eq!(saved.projects()[1].id, second);
+
+    let mut legacy = serde_json::to_value(&saved)?;
+    for project in legacy["projects"].as_array_mut().ok_or("projects")? {
+        project
+            .as_object_mut()
+            .ok_or("project")?
+            .remove("created_at");
+    }
+    let legacy: AppState = serde_json::from_value(legacy)?;
+    assert!(
+        legacy
+            .projects()
+            .iter()
+            .all(|project| project.created_at.is_none())
+    );
+    assert_eq!(legacy.projects()[1].id, second);
     Ok(())
 }
 
@@ -119,6 +156,32 @@ fn migration_preserves_original_file_and_pending_creation_directory_and_token() 
 }
 
 #[test]
+fn restoration_acknowledgements_do_not_erase_newer_removals() -> Result {
+    let directory = tempfile::tempdir()?;
+    let mut state = AppState::bootstrap()?;
+    let project = state.add_project(ServerId::local(), directory.path().into())?;
+    acknowledge(&mut state)?;
+    state.remove_project(project)?;
+    acknowledge(&mut state)?;
+
+    let restored = state.restore_removed_project(0)?;
+    state.rename_project(restored, "Removed again")?;
+    state.remove_project(restored)?;
+    let removed = state.removed_projects().to_vec();
+    let mut state: AppState = serde_json::from_value(serde_json::to_value(&state)?)?;
+    acknowledge(&mut state)?;
+    assert_eq!(state.removed_projects(), removed);
+    let restored = state.restore_removed_project(0)?;
+    assert_eq!(
+        state.project(restored).ok_or("restored")?.name,
+        "Removed again"
+    );
+    acknowledge(&mut state)?;
+    assert!(state.removed_projects().is_empty());
+    Ok(())
+}
+
+#[test]
 fn foreign_session_membership_is_never_inferred_from_directory() -> Result {
     let mut state = AppState::bootstrap()?;
     state.open_terminal_tab(state.home().id)?;
@@ -137,5 +200,47 @@ fn foreign_session_membership_is_never_inferred_from_directory() -> Result {
     assert!(plan.attach.is_empty());
     assert!(plan.create.is_empty());
     assert_eq!(plan.close, [(pane, session)]);
+    Ok(())
+}
+
+#[test]
+fn choices_for_a_pane_that_has_not_started_are_saved_until_it_closes() -> Result {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    let mut state = AppState::bootstrap()?;
+    let tab = state.open_terminal_tab(state.home().id)?;
+    let pane = state.home().tabs[0].panes[0].id;
+    state.plan_creation(pane, Some(Path::new("/chosen")), Some(false));
+    store::save(&path, &state)?;
+
+    let mut restored = store::load(&path)?;
+    assert_eq!(restored, state);
+    assert_eq!(restored.starting_proxy(pane), Some(false));
+    assert_eq!(
+        restored.prepare_creation(pane, Path::new("/project")),
+        ServerPath::from(Path::new("/chosen"))
+    );
+
+    let home = restored.home().id;
+    restored.close_tab(home, tab)?;
+    assert_eq!(restored.starting_proxy(pane), None);
+    assert_eq!(
+        restored.prepare_creation(pane, Path::new("/project")),
+        ServerPath::from(Path::new("/project"))
+    );
+    Ok(())
+}
+
+#[test]
+fn a_state_file_without_proxy_choices_loads_and_none_are_written() -> Result {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("desktop-state.json");
+    let mut state = AppState::bootstrap()?;
+    state.open_terminal_tab(state.home().id)?;
+    let pane = state.home().tabs[0].panes[0].id;
+    store::save(&path, &state)?;
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+    assert!(saved.get("starting_proxies").is_none());
+    assert_eq!(store::load(&path)?.starting_proxy(pane), None);
     Ok(())
 }

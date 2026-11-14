@@ -3,11 +3,12 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, Bounds, Context, DispatchPhase, Div, IntoElement, MouseButton, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, Styled, canvas, point, size,
+    MouseUpEvent, Pixels, Point, Styled, Window, canvas, point, size,
 };
 use muxy_app_core::{Direction, Project, ProjectId, ProjectStatus, TabId};
 
 use crate::model::AppModel;
+use crate::views::move_drag::Moving;
 
 #[derive(Default)]
 pub(crate) struct TabDragState {
@@ -143,15 +144,25 @@ impl AppModel {
     }
 
     pub(crate) fn cancel_titlebar_drag(&mut self, cx: &mut Context<Self>) {
+        self.cancel_tab_and_layout_drags(cx);
+        #[cfg(test)]
+        {
+            self.window_move_cancels += 1;
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(drag) = &self.window_drag {
+            drag.cancel();
+        }
+    }
+
+    /// Ends drags of tabs and layouts, leaving a move of the window alone.
+    pub(crate) fn cancel_tab_and_layout_drags(&mut self, cx: &mut Context<Self>) {
+        self.cancel_move(cx);
         let layout_changed = self.layout_drag.cancel();
         let tab_changed = self.tab_drag.pending();
         self.tab_drag.end();
         if tab_changed || layout_changed {
             cx.notify();
-        }
-        #[cfg(target_os = "macos")]
-        if let Some(drag) = &self.window_drag {
-            drag.cancel();
         }
     }
 
@@ -174,11 +185,13 @@ impl AppModel {
         if let Some(shown) = strip {
             return self.join_group(tab, shown, None);
         }
-        let (shown, bounds, _) = self
+        let crate::views::splits::drag::Placement {
+            tab: shown, bounds, ..
+        } = self
             .layout_drag
             .geometry
-            .at(position)
-            .filter(|(shown, ..)| visible.contains(shown))?;
+            .at(self.window.window_id(), position)
+            .filter(|placement| visible.contains(&placement.tab))?;
         match edge_at(position, bounds) {
             None => self.join_group(tab, shown, None),
             Some(edge) => (!siblings.contains(&shown) || siblings.len() > 1).then(|| {
@@ -280,13 +293,14 @@ fn move_pointer(
     model: &mut AppModel,
     position: Point<Pixels>,
     bounds: &TabBounds,
+    window: &mut Window,
     cx: &mut Context<AppModel>,
 ) {
     let pending = model.tab_drag.pending();
-    model.tab_drag.cancel_unavailable(
-        model.state.current_project(),
-        model.overlay.is_some() || model.close_prompt.is_some(),
-    );
+    let covered = model.coverage().modal();
+    model
+        .tab_drag
+        .cancel_unavailable(model.state.current_project(), covered);
     let Some(drag) = &mut model.tab_drag.gesture else {
         if pending {
             cx.notify();
@@ -315,6 +329,11 @@ fn move_pointer(
         Some(target) => (None, model.join_group(tab, target, Some(target))),
         None => (None, model.tab_drop_at(tab, position)),
     };
+    if target.is_none() && drop.is_none() {
+        model.track_move(Moving::Tab(tab), window, position, cx);
+    } else {
+        model.clear_move_target(cx);
+    }
     if let Some(drag) = &mut model.tab_drag.gesture {
         drag.last_target = target;
         drag.drop = drop;
@@ -346,7 +365,7 @@ pub(crate) fn track_pointer(
         move |_, (), window, _| {
             let moving = weak.clone();
             let move_bounds = bounds.clone();
-            window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+            window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
                 if phase != DispatchPhase::Capture {
                     return;
                 }
@@ -355,7 +374,7 @@ pub(crate) fn track_pointer(
                         return;
                     }
                     if event.pressed_button == Some(MouseButton::Left) {
-                        move_pointer(model, event.position, &move_bounds, cx);
+                        move_pointer(model, event.position, &move_bounds, window, cx);
                         if model.tab_drag.is_active() {
                             cx.stop_propagation();
                         }
@@ -366,7 +385,7 @@ pub(crate) fn track_pointer(
             });
             let ending = weak.clone();
             let end_bounds = bounds.clone();
-            window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+            window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
                 if phase != DispatchPhase::Capture || event.button != MouseButton::Left {
                     return;
                 }
@@ -374,7 +393,15 @@ pub(crate) fn track_pointer(
                     if !model.tab_drag.is_from(source) {
                         return;
                     }
-                    move_pointer(model, event.position, &end_bounds, cx);
+                    move_pointer(model, event.position, &end_bounds, window, cx);
+                    if model.move_drag.target().is_some() {
+                        model.tab_drag.end();
+                        model.finish_move(cx);
+                        cx.stop_propagation();
+                        cx.notify();
+                        return;
+                    }
+                    model.cancel_move(cx);
                     let drop = model
                         .tab_drag
                         .gesture

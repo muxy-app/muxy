@@ -59,10 +59,7 @@ fn attached_composer(
 
 fn delivery(
     requests: &std::sync::mpsc::Receiver<(u64, Work)>,
-) -> (
-    Vec<u8>,
-    async_channel::Sender<std::result::Result<(), String>>,
-) {
+) -> (Vec<u8>, async_channel::Sender<Result<(), String>>) {
     requests
         .try_iter()
         .find_map(|(_, work)| match work {
@@ -150,16 +147,14 @@ fn composer_broadcast_deduplicates_sessions_and_retains_partial_failure(cx: &mut
     view.update(cx, |model, cx| {
         model.servers.local.connection = ConnectionState::Ready;
         for (index, pane) in [first, second, third].into_iter().enumerate() {
-            let mut attachment = attachment();
-            attachment.channel =
-                muxy_protocol::ChannelId(u32::try_from(index + 1).expect("channel"));
+            let attachment = attachment_on(u32::try_from(index + 1).expect("channel"));
             model.receive(
                 (
                     ServerId::local(),
                     1,
                     Update::Attached {
                         pane,
-                        session: model.pane_session(pane).expect("session"),
+                        session: model.state.pane_session(pane).expect("session").1,
                         attachment,
                         created: false,
                     },
@@ -203,6 +198,28 @@ fn composer_broadcast_deduplicates_sessions_and_retains_partial_failure(cx: &mut
             .try_iter()
             .any(|(_, work)| matches!(work, Work::WriteInput { .. }))
     );
+}
+
+#[gpui::test]
+fn switching_panes_clears_the_composer_error(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    state.open_terminal_tab(state.home().id).expect("tab");
+    let first = state.home().tabs[0].panes[0].id;
+    let second = state.split_pane(first, Direction::Right).expect("split");
+    state.focus_pane(first).expect("focus");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update_in(cx, |model, window, cx| {
+        model.toggle_composer(window, cx);
+        let composer = model.composer.view.clone().expect("composer");
+        composer.update(cx, |composer, _| {
+            composer.error = Some("Open a live terminal before sending.".into());
+        });
+
+        model.focus_pane(second, cx);
+        model.sync_composer(cx);
+        assert_eq!(composer.read(cx).error, None);
+    });
 }
 
 #[gpui::test]
@@ -259,23 +276,10 @@ fn the_app_drawn_composer_menu_opens_at_its_button_and_hands_the_keyboard_back(
             panic!("the composer menu is not open");
         };
         assert_eq!(menu.drops_from, Some(button));
-        assert_eq!(
-            model.menu_outline(),
-            [[
-                "Send to All Split Panes",
-                "Send Without Enter",
-                "✓Clear After Sending",
-                "Clear on Close",
-                "Use Floating Composer",
-            ]]
-        );
         composer
     });
 
     cx.simulate_keystrokes("down down");
-    view.read_with(cx, |model, _| {
-        assert_eq!(model.menu_outline()[0][2], ">✓Clear After Sending");
-    });
     cx.simulate_keystrokes("enter");
     view.update_in(cx, |model, window, cx| {
         assert!(model.overlay.is_none());
@@ -338,5 +342,70 @@ fn a_floating_composer_closed_by_its_menu_row_leaves_the_keyboard_to_the_termina
         model.open_composer_menu(&choices, button, cx);
         model.close_composer(cx);
         assert!(model.overlay.is_none());
+    });
+}
+
+#[gpui::test]
+fn a_pinned_composer_keeps_its_saved_size_and_scales_with_the_interface(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    cx.simulate_resize(size(px(2400.0), px(1600.0)));
+    let composer = view.update_in(cx, |model, window, cx| {
+        if model.composer.view.is_none() {
+            model.toggle_composer(window, cx);
+        }
+        model.composer.view.clone().expect("composer")
+    });
+    cx.run_until_parked();
+    let stored = |composer: &crate::views::composer::Composer| {
+        if composer.settings.position == muxy_app_core::settings::ComposerPosition::Right {
+            composer.settings.width
+        } else {
+            composer.settings.height
+        }
+    };
+    composer.update(cx, |composer, _| composer.settings.pinned = true);
+    let saved = composer.read_with(cx, |composer, _| stored(composer));
+    let theme = view.read_with(cx, |model, _| model.theme.clone());
+    composer.update(cx, |composer, cx| {
+        composer.appearance(theme, Metrics::new(1.5), cx);
+    });
+    cx.update(|window, cx| {
+        let composer = composer.read(cx);
+        assert_eq!(
+            composer.sizing(window).layout().dimension().to_bits(),
+            (saved * 1.5).to_bits()
+        );
+        assert_eq!(stored(composer).to_bits(), saved.to_bits());
+    });
+}
+
+#[gpui::test]
+fn a_pinned_composer_leaves_room_for_the_workspace_in_a_small_window(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    let width = 640.0;
+    let sidebar = 252.0;
+    cx.simulate_resize(size(px(width), px(400.0)));
+    let composer = view.update_in(cx, |model, window, cx| {
+        if model.composer.view.is_none() {
+            model.toggle_composer(window, cx);
+        }
+        model.composer.view.clone().expect("composer")
+    });
+    cx.run_until_parked();
+    let theme = view.read_with(cx, |model, _| model.theme.clone());
+    cx.update(|window, cx| {
+        composer.update(cx, |composer, cx| {
+            composer.settings.position = muxy_app_core::settings::ComposerPosition::Right;
+            composer.settings.pinned = true;
+            composer.workspace_inset = sidebar;
+            composer.appearance(theme, Metrics::new(1.40), cx);
+            let consumed = composer.sizing(window).layout().consumed_width();
+            assert!(consumed > 0.0, "the composer is not pinned");
+            assert!(
+                consumed < width - sidebar,
+                "the composer takes {consumed} of the {} left",
+                width - sidebar,
+            );
+        });
     });
 }

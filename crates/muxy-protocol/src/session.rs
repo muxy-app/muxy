@@ -123,6 +123,14 @@ pub struct AttachSnapshot {
     pub history_cursor: Option<HistoryCursor>,
     #[n(11)]
     pub history_total: u64,
+    #[n(12)]
+    pub links: Option<Vec<LinkRow>>,
+    /// The images placed on `history`, with each placement's row counted
+    /// from its first row. Older servers send none.
+    #[n(13)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub history_graphics: Option<crate::Graphics>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -143,6 +151,14 @@ pub struct HistoryPage {
     pub total_rows: u64,
     #[n(4)]
     pub screen: Option<SavedScreen>,
+    #[n(5)]
+    pub links: Option<Vec<LinkRow>>,
+    /// The images placed on `rows`, with each placement's row counted from
+    /// the first of `rows`. Older servers send none.
+    #[n(6)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub graphics: Option<crate::Graphics>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

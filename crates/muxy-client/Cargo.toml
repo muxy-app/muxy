@@ -18,11 +18,11 @@ muxy-core = { path = "../muxy-core" }
 muxy-protocol = { path = "../muxy-protocol" }
 
 [dev-dependencies]
-muxy-server = { path = "../muxy-server" }
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+signal-hook = { version = "0.4", features = ["extended-siginfo"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

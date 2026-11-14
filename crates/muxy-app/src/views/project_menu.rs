@@ -1,6 +1,6 @@
-use gpui::{AnyWindowHandle, AsyncApp, Context};
+use gpui::{AsyncApp, Context};
 use muxy_app_core::{AppState, Project, ProjectId, ProjectStatus, WorkspaceId};
-use muxy_ui::dialog::ConfirmationResponse;
+use muxy_ui::dialog::{ConfirmationResponse, Parent, Question, ask};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
@@ -10,7 +10,12 @@ use crate::model::{AppModel, git::Repository};
 
 /// The menu of a top-level project. `worktrees` is `None` when its folder is not
 /// a Git repository, and otherwise whether its worktrees are shown.
-pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>) -> Vec<Item> {
+pub(crate) fn items(
+    state: &AppState,
+    project: &Project,
+    worktrees: Option<bool>,
+    focus: Item,
+) -> Vec<Item> {
     let id = project.id;
     if project.status() != ProjectStatus::Available {
         return removal(project);
@@ -19,6 +24,7 @@ pub(crate) fn items(state: &AppState, project: &Project, worktrees: Option<bool>
         Item::action(tr!("New Terminal Tab"), Command::NewProjectTab(id)),
         Item::action(tr!("Existing Terminals…"), Command::ExistingSessions(id)),
         Item::action(tr!("Apply Layout…"), Command::ProjectLayouts(id)),
+        focus.separated(),
     ];
     let icon = Item::submenu(tr!("Icon"), icon_items(project));
     // Another computer's Home goes by its server's name.
@@ -168,25 +174,45 @@ pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
 }
 
 impl AppModel {
+    /// Whether `project` can have worktrees: it has some, or its folder is
+    /// not known to be outside a Git repository.
+    pub(crate) fn tracks_worktrees(&self, project: ProjectId) -> bool {
+        self.state
+            .projects()
+            .iter()
+            .any(|child| child.parent_id == Some(project))
+            || !self
+                .git
+                .projects
+                .get(&project)
+                .is_some_and(Repository::not_a_repository)
+    }
+
     /// The sidebar menu of `project`. Worktree projects get the worktree menu.
     pub(crate) fn project_menu(&self, project: &Project) -> Vec<Item> {
         if project.parent_id.is_some() {
             return worktree_items(project, false);
         }
-        let repository = self
-            .state
-            .projects()
-            .iter()
-            .any(|child| child.parent_id == Some(project.id))
-            || !self
-                .git
-                .projects
-                .get(&project.id)
-                .is_some_and(Repository::not_a_repository);
+        let repository = self.tracks_worktrees(project.id);
+        let focus = if self.appearance.sidebar_focus {
+            Item::action(
+                self.state.active_workspace().map_or_else(
+                    || tr!("Show All Projects"),
+                    |workspace| tr!("Show “%@”", &workspace.name),
+                ),
+                Command::FocusProject(None),
+            )
+        } else {
+            Item::action(
+                tr!("Focus Project"),
+                Command::FocusProject(Some(project.id)),
+            )
+        };
         items(
             &self.state,
             project,
             repository.then(|| self.worktrees_visible(project.id)),
+            focus,
         )
     }
 
@@ -259,16 +285,12 @@ impl AppModel {
         cx: &mut Context<Self>,
         confirmed: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
     ) {
-        if self.close_prompt.is_some() {
-            return;
-        }
         self.dismiss_overlay(cx);
-        let window = self.window;
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = prompt(window, title, message, action, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
-                model.focus_requested = true;
+        self.ask_dialog(
+            self.window,
+            async move |parent, cx| prompt(parent, title, message, action, cx).await,
+            move |model, response, cx| {
+                model.focus_owner.request_active_pane();
                 match response {
                     Ok(ConfirmationResponse::Confirmed { .. }) => confirmed(model, cx),
                     Ok(ConfirmationResponse::Cancelled) => {}
@@ -279,64 +301,31 @@ impl AppModel {
                         );
                     }
                 }
-                cx.notify();
-            });
-        }));
+            },
+            cx,
+        );
     }
 }
 
-#[cfg(not(test))]
 async fn prompt(
-    window: AnyWindowHandle,
+    parent: &Parent,
     title: &'static str,
     message: String,
     action: &'static str,
     cx: &mut AsyncApp,
 ) -> Result<ConfirmationResponse, String> {
-    let (sender, receiver) = async_channel::bounded(1);
-    let _dialog = window
-        .update(cx, |_, window, cx| {
-            muxy_ui::dialog::confirm(
-                window,
-                cx,
-                &muxy_ui::l10n::translate(title),
-                &message,
-                &muxy_ui::l10n::translate(action),
-                None,
-                move |response| {
-                    let _ = sender.try_send(response);
-                },
-            )
-        })
-        .map_err(|error| error.to_string())?
+    let question = Question::Confirm {
+        title: &muxy_ui::l10n::translate(title),
+        message: &message,
+        confirm: &muxy_ui::l10n::translate(action),
+        checkbox: None,
+    };
+    let answer = ask(parent, question, cx)
+        .await
         .map_err(|error| error.to_string())?;
-    Ok(receiver.recv().await.unwrap_or_default())
-}
-
-#[cfg(test)]
-async fn prompt(
-    window: AnyWindowHandle,
-    title: &'static str,
-    message: String,
-    action: &'static str,
-    cx: &mut AsyncApp,
-) -> Result<ConfirmationResponse, String> {
-    let answer = window
-        .update(cx, |_, window, cx| {
-            window.prompt(
-                gpui::PromptLevel::Warning,
-                title,
-                Some(&message),
-                &[action, "Cancel"],
-                cx,
-            )
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(if answer.await == Ok(0) {
+    Ok(answer.map_or(ConfirmationResponse::Cancelled, |_| {
         ConfirmationResponse::Confirmed {
             dont_ask_again: false,
         }
-    } else {
-        ConfirmationResponse::Cancelled
-    })
+    }))
 }

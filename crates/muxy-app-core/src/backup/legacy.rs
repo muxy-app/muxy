@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use muxy_core::quick_terminal::keys;
 use serde_json::{Map, Value};
 
 use super::{ImportReport, Result, ServerSettings, settings_source};
@@ -10,6 +11,10 @@ const MAPPINGS: &[(&str, &[&str])] = &[
     ("muxy.theme.dark", &["appearance", "dark_theme"]),
     ("muxy.theme.light", &["appearance", "light_theme"]),
     ("muxy.showStatusBar", &["appearance", "status_bar_visible"]),
+    (
+        "muxy.showExtensionIconRail",
+        &["appearance", "rail_expanded"],
+    ),
     ("muxy.tips.visible", &["appearance", "tips_visible"]),
     (
         "muxy.general.autoExpandWorktreesOnProjectSwitch",
@@ -43,6 +48,7 @@ const MAPPINGS: &[(&str, &[&str])] = &[
         "muxy.sidebarCollapsedStyle",
         &["appearance", "sidebar_collapsed_style"],
     ),
+    ("muxy.ui.scale", &["appearance", "interface_size"]),
     ("muxy.activeSidebar", &["appearance", "extension_sidebar"]),
     ("muxy.localization", &["appearance", "language"]),
     ("muxy.appLayout", &["appearance", "layout"]),
@@ -80,8 +86,6 @@ const MAPPINGS: &[(&str, &[&str])] = &[
         "editor.richInputLineHeightMultiplier",
         &["composer", "line_height"],
     ),
-    ("muxy.recording.autoSend", &["composer", "voice_auto_send"]),
-    ("muxy.recording.language", &["composer", "language"]),
     (
         "muxy.ai.repositoryActions.commit.provider",
         &["ai", "providers", "commit"],
@@ -116,7 +120,9 @@ pub fn import_settings(source: &[u8], current: &Settings) -> Result<(Settings, I
         let result = (|| -> Result<toml::Value> {
             let mut candidate = document.clone();
             let value = match (key.as_str(), value) {
-                ("muxy.appLayout", Value::String(value)) => Value::String(action_id(value)),
+                ("muxy.appLayout" | "muxy.ui.scale", Value::String(value)) => {
+                    Value::String(action_id(value))
+                }
                 ("editor.richInputImageStrategy", Value::String(value))
                     if value == "inlinePath" =>
                 {
@@ -176,7 +182,6 @@ fn action_id(old: &str) -> String {
         "findInTerminal" => "find".into(),
         "toggleMaximizePane" => "toggle_zoom_pane".into(),
         "toggleRichInput" => "composer.toggle".into(),
-        "toggleComposerVoice" => "composer.voice".into(),
         "submitRichInput" => "composer.submit".into(),
         "submitRichInputWithoutReturn" => "composer.insert".into(),
         _ => old
@@ -193,11 +198,28 @@ fn action_id(old: &str) -> String {
 }
 
 fn chord(value: &Value) -> Result<KeyChord> {
-    let combo: muxy_core::quick_terminal::keys::KeyCombo = serde_json::from_value(value.clone())?;
+    let combo: keys::KeyCombo = serde_json::from_value(value.clone())?;
     Ok(combo
         .keystroke()
         .ok_or("Shortcut is not supported")?
         .parse()?)
+}
+
+/// 1.x defaults that 2.x swapped: 1.x closed a tab with ⌘W and a pane with
+/// ⇧⌘W. A binding still on one of them takes the 2.x default instead.
+const SWAPPED_DEFAULTS: [(&str, u64); 2] = [
+    ("closeTab", keys::COMMAND),
+    ("closePane", keys::COMMAND | keys::SHIFT),
+];
+
+fn swapped_default(action: &str, value: &Value) -> bool {
+    let Ok(combo) = serde_json::from_value::<keys::KeyCombo>(value.clone()) else {
+        return false;
+    };
+    SWAPPED_DEFAULTS.iter().any(|(old, modifiers)| {
+        *old == action
+            && combo.canonicalized() == keys::KeyCombo::new("w", *modifiers).canonicalized()
+    })
 }
 
 fn import_bindings(
@@ -212,6 +234,10 @@ fn import_bindings(
         let id = action_id(action);
         if muxy_core::shortcuts::find(&id).is_none() {
             report.skipped.push(format!("shortcuts.app.{action}"));
+            continue;
+        }
+        if swapped_default(action, value) {
+            imported.push(action);
             continue;
         }
         match chord(value) {
@@ -357,7 +383,7 @@ pub fn import_shell(
         .trim_start_matches("shell:");
     if !is_executable(Path::new(shell)) {
         report.attention.push(format!(
-            "Shell command {command} (choose Default shell in Settings → Server)"
+            "Shell command {command} (choose Default shell in Settings → Servers)"
         ));
         return Ok(None);
     }

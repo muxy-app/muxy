@@ -27,9 +27,21 @@ impl AppState {
             state.remove_remote_projects(server);
         }
         state.servers.clear();
+        state.set_aside = None;
         state.startup_commands.clear();
         state.starting_directories.clear();
+        state.starting_proxies.clear();
         state.quick_terminal = None;
+        for tab in state
+            .projects
+            .iter_mut()
+            .flat_map(|project| &mut project.tabs)
+        {
+            tab.window = None;
+        }
+        for project in &mut state.projects {
+            project.sync_groups(state.window.selected_tab.get(&project.id).copied());
+        }
         for pane in state
             .projects
             .iter_mut()
@@ -157,6 +169,7 @@ impl AppState {
                 .collect();
         }
         restored.servers.clone_from(&current.servers);
+        restored.set_aside.clone_from(&current.set_aside);
         if let Some(local) = restored.servers.get_mut(&ServerId::local()) {
             local.pending_cancellations.clear();
             local.pending_discards.clear();
@@ -224,6 +237,8 @@ impl AppState {
         }
         restored.ensure_home()?;
         restored.focus_selected_tab();
+        restored.retain_one_settings_pane()?;
+        restored.remove_saved_devices_panes()?;
         restored.validate()?;
         Ok(restored)
     }
@@ -287,6 +302,8 @@ impl AppState {
         merged.retain_workspace_members();
         merged.ensure_home()?;
         merged.focus_selected_tab();
+        merged.retain_one_settings_pane()?;
+        merged.remove_saved_devices_panes()?;
         merged.validate()?;
         Ok(merged)
     }
@@ -340,6 +357,12 @@ pub fn remap_project_settings(
     settings.appearance.worktree_recent = settings
         .appearance
         .worktree_recent
+        .into_iter()
+        .map(remap)
+        .collect();
+    settings.appearance.project_recent = settings
+        .appearance
+        .project_recent
         .into_iter()
         .map(remap)
         .collect();
@@ -492,6 +515,7 @@ fn legacy_project(
         home: false,
         name: name.into(),
         directory,
+        created_at: None,
         icon: None,
         logo: None,
         color: value["iconColor"]
@@ -650,6 +674,7 @@ fn legacy_worktree(id: ProjectId, value: &Value, parent: &Project) -> Result<Pro
         home: false,
         name: value["name"].as_str().ok_or("missing name")?.into(),
         directory,
+        created_at: None,
         icon: None,
         logo: None,
         color: parent.color.clone(),
@@ -781,6 +806,7 @@ fn import_layout(
                 id,
                 title: tab["paneTitle"].as_str().unwrap_or("Terminal").into(),
                 content: PaneContent::Terminal { session: None },
+                proxy: false,
             });
             Layout::Leaf(id)
         }));

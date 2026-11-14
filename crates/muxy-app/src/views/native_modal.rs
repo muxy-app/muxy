@@ -1,6 +1,6 @@
 use gpui::{
-    AppContext, Context, Entity, FocusHandle, Focusable, IntoElement, Render, Subscription, Task,
-    Window,
+    AnyElement, AppContext, Context, Entity, FocusHandle, Focusable, IntoElement, Render,
+    Subscription, Task, Window,
 };
 use muxy_app_core::modal::{ModalItem, ModalOptions, ModalQuery, ModalState, ModalToken};
 use muxy_ui::picker::{
@@ -8,6 +8,21 @@ use muxy_ui::picker::{
 };
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
+
+use super::overlays::{Mark, OverlayView};
+use crate::model::AppModel;
+
+impl OverlayView for Entity<NativeModal> {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.clone().into_any_element()
+    }
+}
 
 pub(crate) struct NativeModal {
     state: ModalState,

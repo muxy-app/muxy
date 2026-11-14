@@ -49,7 +49,7 @@ pub(super) fn within(position: Point<Pixels>, bounds: Bounds<Pixels>) -> bool {
         && bounds.dilate(px(8.0)).contains(&position)
 }
 
-pub(super) fn target_at(
+pub(crate) fn target_at(
     layout: &Layout,
     bounds: Bounds<Pixels>,
     scale: f32,

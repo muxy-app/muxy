@@ -1,3 +1,4 @@
+mod layout;
 mod legacy;
 mod storage;
 
@@ -19,20 +20,23 @@ use muxy_protocol::{
     ErrorCode, ExitReason, HistoryCursor, HistoryPage, Message, ReplyBody, RequestId, Row, Run,
     SavedScreen, SearchPage, SessionId,
 };
-use muxy_terminal::TerminalArchive;
-use serde::{Deserialize, Serialize};
+use muxy_terminal::{TerminalArchive, TerminalSnapshot};
 
 use crate::ServerError;
 use crate::search::Search;
 
-const VERSION: u32 = 2;
+/// The only whole-file record version, written before records were indexed.
+const LEGACY_VERSION: u32 = 1;
 const SCREEN_LIMIT: u64 = 16 * 1024 * 1024 - 1024;
+/// Room a history page's screen and the images on its rows take together,
+/// past which the images placed furthest up are left out, so its rows
+/// still have a mebibyte.
+const PAGE_GRAPHICS_LIMIT: u64 = SCREEN_LIMIT - 1024 * 1024;
 type Completion = Sender<Result<(), String>>;
 type Queue = Arc<Mutex<BTreeMap<SessionId, Job>>>;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct Record {
-    version: u32,
     screen: SavedScreen,
     history: Vec<Vec<Run>>,
 }
@@ -40,7 +44,6 @@ struct Record {
 impl Record {
     fn new(terminal: TerminalArchive, reason: Option<ExitReason>) -> Self {
         Self {
-            version: VERSION,
             screen: SavedScreen {
                 graphics: terminal.graphics,
                 size: terminal.size,
@@ -53,12 +56,6 @@ impl Record {
     }
 
     fn validate(&self) -> io::Result<()> {
-        if self.version != VERSION {
-            return Err(io::Error::other(format!(
-                "unsupported terminal record version {}",
-                self.version
-            )));
-        }
         validate_screen(&self.screen)
     }
 }
@@ -75,9 +72,24 @@ fn validate_screen(screen: &SavedScreen) -> io::Result<()> {
     .map_err(|error| io::Error::other(format!("invalid saved screen: {error:?}")))
 }
 
+/// A terminal copy waiting to become a record, off the session's thread.
+#[derive(Debug)]
+struct Pending {
+    snapshot: TerminalSnapshot,
+    reason: Option<ExitReason>,
+}
+
+impl Pending {
+    fn record(&self) -> io::Result<Record> {
+        let terminal = self.snapshot.archive().map_err(io::Error::other)?;
+        Ok(Record::new(terminal, self.reason))
+    }
+}
+
 #[derive(Debug)]
 enum Operation {
-    Save(Record),
+    Save(Pending),
+    Write(Record),
     Discard,
 }
 
@@ -241,11 +253,13 @@ impl Archive {
             .1
         };
         Ok(HistoryPage {
+            links: None,
             prompts: Vec::new(),
             rows,
             next,
             total_rows: total as u64,
             screen: None,
+            graphics: None,
         })
     }
 
@@ -328,14 +342,18 @@ impl Archive {
     pub(crate) fn save(
         &self,
         session: SessionId,
-        terminal: TerminalArchive,
+        snapshot: TerminalSnapshot,
         reason: Option<ExitReason>,
     ) -> io::Result<()> {
-        self.submit(
-            session,
-            Operation::Save(Record::new(terminal, reason)),
-            reason.is_some(),
-        )
+        let pending = Pending { snapshot, reason };
+        // An ending session waits for its save; converting here keeps it from
+        // queueing behind other sessions' conversions on the single writer.
+        let operation = if reason.is_some() {
+            Operation::Write(pending.record()?)
+        } else {
+            Operation::Save(pending)
+        };
+        self.submit(session, operation, reason.is_some())
     }
 
     pub(crate) fn discard(&self, session: SessionId) -> io::Result<()> {
@@ -346,7 +364,12 @@ impl Archive {
         match self.0.as_ref() {
             Backend::Memory { records, revision } => {
                 match operation {
-                    Operation::Save(record) => {
+                    Operation::Save(pending) => {
+                        let record = pending.record()?;
+                        record.validate()?;
+                        lock(records).insert(session, record);
+                    }
+                    Operation::Write(record) => {
                         record.validate()?;
                         lock(records).insert(session, record);
                     }
@@ -443,7 +466,15 @@ pub(crate) fn bound_history_page(
         )
     };
     let screen_size = postcard::experimental::serialized_size(&page.screen).map_err(size_error)?;
-    let mut used = u64::try_from(screen_size)
+    let graphics_size = bound_page_graphics(&mut page, screen_size).map_err(size_error)?;
+    let link_size = |row: &muxy_protocol::LinkRow| {
+        row.spans.iter().fold(8_u64, |size, span| {
+            size.saturating_add(span.uri.len() as u64)
+                .saturating_add(16)
+        })
+    };
+    let mut links = page.links.iter().flatten().rev().peekable();
+    let mut used = u64::try_from(screen_size + graphics_size)
         .unwrap_or(u64::MAX)
         .saturating_add(128)
         .saturating_add(
@@ -451,8 +482,14 @@ pub(crate) fn bound_history_page(
                 .unwrap_or(u64::MAX)
                 .saturating_mul(3),
         );
+    while let Some(row) = links.next_if(|row| usize::from(row.row) >= page.rows.len()) {
+        used = used.saturating_add(link_size(row));
+    }
     let mut keep = 0_u16;
     for row in page.rows.iter().rev() {
+        if let Some(row) = links.next_if(|links| links.row == row.index) {
+            used = used.saturating_add(link_size(row));
+        }
         let size = postcard::experimental::serialized_size(row).map_err(size_error)?;
         used = used.saturating_add(u64::try_from(size).unwrap_or(u64::MAX));
         if used > SCREEN_LIMIT {
@@ -462,6 +499,9 @@ pub(crate) fn bound_history_page(
     }
     if usize::from(keep) == page.rows.len() {
         return Ok(page);
+    }
+    if keep == 0 && page.links.take().is_some() {
+        return bound_history_page(session, generation, before, page);
     }
     if keep == 0 {
         return Err(ServerError::new(
@@ -479,7 +519,24 @@ pub(crate) fn bound_history_page(
                 .and_then(|row| u16::try_from(row).ok())
         })
         .collect();
+    if let Some(links) = &mut page.links {
+        links.retain_mut(|row| {
+            let Some(index) = usize::from(row.row).checked_sub(removed) else {
+                return false;
+            };
+            row.row = u16::try_from(index).unwrap_or(u16::MAX);
+            true
+        });
+    }
     page.rows.drain(..removed);
+    if let Some(graphics) = &mut page.graphics {
+        let rows = i64::try_from(page.rows.len()).unwrap_or(i64::MAX);
+        graphics.shift_up(i64::try_from(removed).unwrap_or(i64::MAX), rows);
+    }
+    page.graphics = page
+        .graphics
+        .take()
+        .filter(|graphics| !graphics.placements.is_empty());
     for (index, row) in page.rows.iter_mut().enumerate() {
         row.index = u16::try_from(index).unwrap_or(u16::MAX);
     }
@@ -488,13 +545,69 @@ pub(crate) fn bound_history_page(
     Ok(page)
 }
 
+/// Leaves out the pixels of the history images the page's screen also lists,
+/// as an app draws those from the screen, then the history images placed
+/// furthest up until they fit beside the screen. Returns their size.
+fn bound_page_graphics(page: &mut HistoryPage, screen_size: usize) -> postcard::Result<usize> {
+    let Some(graphics) = &mut page.graphics else {
+        return Ok(0);
+    };
+    if let Some(screen) = &page.screen {
+        for image in &mut graphics.images {
+            if screen
+                .graphics
+                .images
+                .iter()
+                .any(|shown| shown.id == image.id)
+            {
+                image.rgba = Arc::default();
+            }
+        }
+    }
+    let fits = |size: usize| {
+        u64::try_from(screen_size.saturating_add(size)).unwrap_or(u64::MAX) <= PAGE_GRAPHICS_LIMIT
+    };
+    let mut size = postcard::experimental::serialized_size(&*graphics)?;
+    while !fits(size) {
+        let lowest = |image: u32| {
+            graphics
+                .placements
+                .iter()
+                .filter(|placement| placement.image == image)
+                .map(|placement| placement.row)
+                .max()
+        };
+        let Some(oldest) = graphics
+            .images
+            .iter()
+            .map(|image| image.id)
+            .min_by_key(|&image| lowest(image))
+        else {
+            break;
+        };
+        graphics.images.retain(|image| image.id != oldest);
+        graphics
+            .placements
+            .retain(|placement| placement.image != oldest);
+        size = postcard::experimental::serialized_size(&*graphics)?;
+    }
+    if graphics.placements.is_empty() || !fits(size) {
+        page.graphics = None;
+        return postcard::experimental::serialized_size(&page.graphics);
+    }
+    Ok(size)
+}
+
 fn write_jobs(directory: &Path, queue: &Queue, wake: &Receiver<()>) {
     while wake.recv().is_ok() {
         loop {
             let job = lock(queue).pop_first();
             let Some((session, job)) = job else { break };
             let result = match job.operation {
-                Operation::Save(record) => write_record(directory, session, &record),
+                Operation::Save(pending) => pending
+                    .record()
+                    .and_then(|record| write_record(directory, session, &record)),
+                Operation::Write(record) => write_record(directory, session, &record),
                 Operation::Discard => discard_record(directory, session),
             }
             .map_err(|error| error.to_string());
@@ -524,45 +637,30 @@ fn read_record(path: &Path, budget: u64) -> io::Result<Record> {
         ));
     }
     let (version, _) = postcard::take_from_bytes::<u32>(&bytes).map_err(io::Error::other)?;
-    let record = if version == 1 {
-        let old: legacy::Record = postcard::from_bytes(&bytes).map_err(io::Error::other)?;
-        if old.version != 1 {
-            return Err(io::Error::other("unsupported legacy terminal record"));
-        }
-        Record {
-            version: VERSION,
-            screen: old.screen.into(),
-            history: old
-                .history
-                .into_iter()
-                .map(|row| row.into_iter().map(Into::into).collect())
-                .collect(),
-        }
-    } else {
-        postcard::from_bytes::<Record>(&bytes).map_err(io::Error::other)?
+    if version != LEGACY_VERSION {
+        return Err(io::Error::other(format!(
+            "unsupported terminal record version {version}"
+        )));
+    }
+    let old: legacy::Record = postcard::from_bytes(&bytes).map_err(io::Error::other)?;
+    let record = Record {
+        screen: old.screen.into(),
+        history: old
+            .history
+            .into_iter()
+            .map(|row| row.into_iter().map(Into::into).collect())
+            .collect(),
     };
     record.validate()?;
     Ok(record)
 }
 
 fn write_record(directory: &Path, session: SessionId, record: &Record) -> io::Result<()> {
-    let nonce = getrandom::u64().map_err(|error| io::Error::other(error.to_string()))?;
-    let temporary = directory.join(format!(".{:016x}-{nonce:016x}.tmp", session.get()));
-    let result = (|| {
-        let mut file = muxy_core::files::private_file()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        write_buffered(record, &mut file)?;
-        file.sync_all()?;
-        drop(file);
-        muxy_core::files::replace_file(&temporary, &record_path(directory, session))?;
-        muxy_core::files::sync_directory(directory)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    Ok(muxy_core::fs::write_atomic_with(
+        &record_path(directory, session),
+        0o600,
+        |file| write_buffered(record, file),
+    )?)
 }
 
 fn write_buffered(record: &Record, writer: impl Write) -> io::Result<()> {
@@ -586,11 +684,14 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use muxy_protocol::{
+        CellSize, Color, Cursor, CursorShape, GraphicImage, GraphicPlacement, Graphics, Style,
+        Underline,
+    };
     use muxy_terminal::{Size, Terminal};
     use std::error::Error;
     use std::io::Read;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::Instant;
 
     type TestResult = Result<(), Box<dyn Error>>;
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -615,13 +716,15 @@ mod tests {
         }
     }
 
-    fn capture(marker: &str) -> Result<TerminalArchive, Box<dyn Error>> {
+    fn capture(marker: &str) -> Result<TerminalSnapshot, Box<dyn Error>> {
         let mut terminal = Terminal::new(Size { cols: 30, rows: 3 }, 1024 * 1024)?;
         for row in 0..100 {
             terminal.feed(format!("\x1b[31mhistory-{row:03}\r\n").as_bytes());
         }
         terminal.feed(marker.as_bytes());
-        Ok(terminal.archive()?)
+        Ok(terminal
+            .snapshot()?
+            .ok_or("output stops inside a sequence")?)
     }
 
     #[test]
@@ -643,14 +746,133 @@ mod tests {
             assert_eq!(record.screen().rows[0].runs[0].text, "preserved");
             assert_eq!(
                 record.screen().rows[0].runs[0].style.underline,
-                muxy_protocol::Underline::Single
+                Underline::Single
             );
-            assert_eq!(
-                record.screen().cursor.shape,
-                muxy_protocol::CursorShape::Block
-            );
+            assert_eq!(record.screen().cursor.shape, CursorShape::Block);
             assert_eq!(record.row(0)?[0].text, "preserved");
             assert_eq!(record.total(), 1);
+        }
+        Ok(())
+    }
+
+    fn sample() -> Record {
+        let style = Style {
+            fg: Color::Rgb(1, 2, 3),
+            bg: Color::Indexed(4),
+            bold: true,
+            italic: true,
+            underline: Underline::Curly,
+            underline_color: Color::Indexed(9),
+            invisible: false,
+            overline: true,
+            inverse: true,
+            strikethrough: true,
+            faint: true,
+        };
+        let run = |text: &str| Run {
+            text: text.into(),
+            width: u16::try_from(text.len()).unwrap_or(u16::MAX),
+            style,
+        };
+        Record {
+            screen: SavedScreen {
+                graphics: Graphics {
+                    cell: CellSize {
+                        width: 9,
+                        height: 18,
+                    },
+                    images: vec![GraphicImage {
+                        id: 7,
+                        generation: 2,
+                        width: 1,
+                        height: 2,
+                        rgba: Arc::from([1, 2, 3, 4, 5, 6, 7, 8].as_slice()),
+                        ..GraphicImage::default()
+                    }],
+                    placements: vec![GraphicPlacement {
+                        image: 7,
+                        id: 3,
+                        column: -1,
+                        row: 1,
+                        offset: [1, 2],
+                        size: [3, 4],
+                        source: [0, 0, 1, 2],
+                        z: -5,
+                    }],
+                },
+                size: Size { cols: 20, rows: 2 },
+                rows: vec![
+                    Row {
+                        index: 0,
+                        runs: vec![run("screen")],
+                    },
+                    Row {
+                        index: 1,
+                        runs: Vec::new(),
+                    },
+                ],
+                cursor: Cursor {
+                    shape: CursorShape::Bar,
+                    row: 1,
+                    col: 4,
+                    visible: false,
+                },
+                reason: Some(ExitReason::Signaled(15)),
+            },
+            history: vec![
+                vec![run("first")],
+                vec![
+                    run("second"),
+                    Run {
+                        text: "plain".into(),
+                        width: 5,
+                        style: Style::default(),
+                    },
+                ],
+            ],
+        }
+    }
+
+    #[test]
+    fn this_release_keeps_writing_the_checked_in_layout() -> TestResult {
+        let mut written = Vec::new();
+        storage::write(&sample(), &mut written)?;
+        let fixture = include_bytes!("../tests/fixtures/terminal-v4.postcard");
+        let std_hash_that_rust_releases_may_change = 24..32;
+        assert_eq!(
+            written[..std_hash_that_rust_releases_may_change.start],
+            fixture[..std_hash_that_rust_releases_may_change.start]
+        );
+        assert_eq!(
+            written[std_hash_that_rust_releases_may_change.end..],
+            fixture[std_hash_that_rust_releases_may_change.end..]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn indexed_layouts_load_with_screen_graphics_reason_and_history() -> TestResult {
+        let directory = Directory::new()?;
+        let expected = sample();
+        for (name, bytes) in [
+            (
+                "v3",
+                include_bytes!("../tests/fixtures/terminal-v3.postcard").as_slice(),
+            ),
+            (
+                "v4",
+                include_bytes!("../tests/fixtures/terminal-v4.postcard").as_slice(),
+            ),
+        ] {
+            let path = directory.0.join(name);
+            fs::write(&path, bytes)?;
+            let mut record = StoredRecord::open(&path, 65536)?;
+            assert!(matches!(record, StoredRecord::Indexed(_)));
+            assert_eq!(*record.screen(), expected.screen, "{name}");
+            assert_eq!(record.total(), expected.history.len());
+            for (index, row) in expected.history.iter().enumerate() {
+                assert_eq!(record.row(index)?, *row, "{name} row {index}");
+            }
         }
         Ok(())
     }
@@ -698,7 +920,7 @@ mod tests {
                 Run {
                     text: "wide".into(),
                     width: 1,
-                    style: muxy_protocol::Style::default()
+                    style: Style::default()
                 };
                 4096
             ],
@@ -708,6 +930,19 @@ mod tests {
             7,
             HistoryCursor(0),
             HistoryPage {
+                links: Some(
+                    [0, 499]
+                        .into_iter()
+                        .map(|row| muxy_protocol::LinkRow {
+                            row,
+                            spans: vec![muxy_protocol::LinkSpan {
+                                start: 0,
+                                end: 4,
+                                uri: format!("https://test/{row}"),
+                            }],
+                        })
+                        .collect(),
+                ),
                 prompts: vec![0, 499],
                 rows: (0..500)
                     .map(|index| Row {
@@ -718,6 +953,32 @@ mod tests {
                 next: None,
                 total_rows: 500,
                 screen: None,
+                graphics: Some(Graphics {
+                    cell: CellSize::default(),
+                    images: [1, 2]
+                        .into_iter()
+                        .map(|id| GraphicImage {
+                            id,
+                            width: 1,
+                            height: 1,
+                            rgba: vec![255; 4].into(),
+                            ..GraphicImage::default()
+                        })
+                        .collect(),
+                    placements: [(1, 0), (2, 499)]
+                        .into_iter()
+                        .map(|(image, row)| GraphicPlacement {
+                            image,
+                            id: 0,
+                            column: 0,
+                            row,
+                            offset: [0, 0],
+                            size: [8, 16],
+                            source: [0, 0, 1, 1],
+                            z: 0,
+                        })
+                        .collect(),
+                }),
             },
         )?;
         assert!(page.rows.len() < 500);
@@ -725,6 +986,15 @@ mod tests {
         assert!(postcard::experimental::serialized_size(&page)? < usize::try_from(SCREEN_LIMIT)?);
         let kept = page.rows.len();
         assert_eq!(page.prompts, [u16::try_from(kept - 1)?]);
+        let links = page.links.as_ref().ok_or("missing links")?;
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].row, u16::try_from(kept - 1)?);
+        assert_eq!(links[0].spans[0].uri, "https://test/499");
+        let graphics = page.graphics.as_ref().ok_or("missing images")?;
+        assert_eq!(graphics.placements.len(), 1, "the trimmed row's image goes");
+        assert_eq!(graphics.placements[0].row, i32::try_from(kept - 1)?);
+        assert_eq!(graphics.images.len(), 1);
+        assert_eq!(graphics.images[0].id, 2);
         let (older, next) =
             history_range(session, 7, page.next.ok_or("missing cursor")?, 500, 500)?;
         assert_eq!(older, 0..500 - kept);
@@ -734,23 +1004,113 @@ mod tests {
     }
 
     #[test]
-    fn restart_waits_for_the_previous_archive_owner_to_release_its_lock() -> TestResult {
-        let directory = Directory::new()?;
-        let previous = muxy_core::files::lock_directory(&directory.0, Duration::ZERO)?;
-        let root = directory.0.clone();
-        let (sender, completed) = mpsc::channel();
-        let next = thread::spawn(move || {
-            let result = Archive::open(&root, 1024);
-            let _ = sender.send(result);
-        });
-        assert!(matches!(
-            completed.recv_timeout(Duration::from_millis(50)),
-            Err(mpsc::RecvTimeoutError::Timeout)
-        ));
-        drop(previous);
-        let archive = completed.recv_timeout(Duration::from_secs(3))??;
-        next.join().map_err(|_| "archive startup panicked")?;
-        drop(archive);
+    fn history_images_that_do_not_fit_beside_the_screen_go_oldest_first() -> TestResult {
+        let session = SessionId::new(1).ok_or("zero ID")?;
+        let image = |id, bytes: usize| GraphicImage {
+            id,
+            width: 1,
+            height: 1,
+            rgba: vec![7; bytes].into(),
+            ..GraphicImage::default()
+        };
+        let placed = |image, row| GraphicPlacement {
+            image,
+            id: 0,
+            column: 0,
+            row,
+            offset: [0, 0],
+            size: [8, 16],
+            source: [0, 0, 1, 1],
+            z: 0,
+        };
+        let large = 7 * 1024 * 1024 + 512 * 1024;
+        let page = bound_history_page(
+            session,
+            7,
+            HistoryCursor(0),
+            HistoryPage {
+                links: None,
+                prompts: Vec::new(),
+                rows: (0..6)
+                    .map(|index| Row {
+                        index,
+                        runs: Vec::new(),
+                    })
+                    .collect(),
+                next: None,
+                total_rows: 6,
+                screen: Some(SavedScreen {
+                    graphics: Graphics {
+                        cell: CellSize::default(),
+                        images: vec![image(1, 4)],
+                        placements: vec![placed(1, 0)],
+                    },
+                    size: Size { cols: 4, rows: 1 },
+                    rows: vec![Row {
+                        index: 0,
+                        runs: Vec::new(),
+                    }],
+                    cursor: Cursor {
+                        shape: CursorShape::Block,
+                        row: 0,
+                        col: 0,
+                        visible: true,
+                    },
+                    reason: None,
+                }),
+                graphics: Some(Graphics {
+                    cell: CellSize::default(),
+                    images: vec![image(1, 4), image(2, large), image(3, large)],
+                    placements: vec![placed(1, 5), placed(2, 0), placed(3, 4)],
+                }),
+            },
+        )?;
+        let graphics = page.graphics.ok_or("missing images")?;
+        let ids: Vec<u32> = graphics.images.iter().map(|image| image.id).collect();
+        assert_eq!(ids, [1, 3], "the image placed furthest up goes");
+        assert!(
+            graphics.images[0].rgba.is_empty(),
+            "the screen already carries its pixels"
+        );
+        assert_eq!(graphics.images[1].rgba.len(), large);
+        assert_eq!(page.rows.len(), 6, "every row still fits");
+        Ok(())
+    }
+
+    #[test]
+    fn links_that_exhaust_the_page_budget_are_dropped_instead_of_failing() -> TestResult {
+        let session = SessionId::new(1).ok_or("zero ID")?;
+        let row = Row {
+            index: 0,
+            runs: vec![Run {
+                text: "row".into(),
+                width: 3,
+                style: Style::default(),
+            }],
+        };
+        let page = bound_history_page(
+            session,
+            7,
+            HistoryCursor(0),
+            HistoryPage {
+                links: Some(vec![muxy_protocol::LinkRow {
+                    row: 1,
+                    spans: vec![muxy_protocol::LinkSpan {
+                        start: 0,
+                        end: 1,
+                        uri: "x".repeat(usize::try_from(SCREEN_LIMIT)?),
+                    }],
+                }]),
+                prompts: Vec::new(),
+                rows: vec![row.clone()],
+                next: None,
+                total_rows: 1,
+                screen: None,
+                graphics: None,
+            },
+        )?;
+        assert_eq!(page.rows, [row]);
+        assert_eq!(page.links, None);
         Ok(())
     }
 
@@ -779,7 +1139,7 @@ mod tests {
             );
         }
         let record = StoredRecord::open(&path, 512)?;
-        assert_eq!(record.total(), capture("last")?.history.len());
+        assert_eq!(record.total(), capture("last")?.archive()?.history.len());
         assert_eq!(*record.screen(), archive.read(session)?);
         assert_eq!(record.screen().reason, Some(ExitReason::Exited(7)));
         drop(archive);
@@ -798,9 +1158,11 @@ mod tests {
         let path = record_path(&directory.0, second);
         fs::write(&path, b"broken")?;
         assert!(archive.read(second).is_err());
-        let mut unsupported = Record::new(capture("unsupported")?, None);
-        unsupported.version = VERSION + 1;
-        fs::write(&path, postcard::to_stdvec(&unsupported)?)?;
+        let mut newer_version = include_bytes!("../tests/fixtures/render-v1.postcard").to_vec();
+        newer_version[0] = u8::try_from(LEGACY_VERSION + 1)?;
+        fs::write(&path, &newer_version)?;
+        newer_version[0] = u8::try_from(LEGACY_VERSION)?;
+        assert!(postcard::from_bytes::<legacy::Record>(&newer_version).is_ok());
         assert!(archive.read(second).is_err());
         assert!(archive.read(first).is_ok());
         Ok(())
@@ -836,12 +1198,7 @@ mod tests {
         archive.discard(session)?;
         drop(archive);
         assert!(!record_path(&root, session).exists());
-        // Windows locks a file in the folder, since it can't lock the folder.
-        assert!(
-            fs::read_dir(&root)?
-                .filter_map(Result::ok)
-                .all(|entry| entry.file_name() == ".lock")
-        );
+        assert!(fs::read_dir(&root)?.next().is_none());
         Ok(())
     }
 
@@ -873,7 +1230,10 @@ mod tests {
         assert!(storage::serialized_size(&expected.history)? > budget as u64);
         let session = SessionId::from(std::num::NonZeroU64::MIN);
         let archive = Archive::open(&directory.0, budget as u64)?;
-        archive.save(session, terminal.archive()?, Some(ExitReason::Ended))?;
+        let snapshot = terminal
+            .snapshot()?
+            .ok_or("output stops inside a sequence")?;
+        archive.save(session, snapshot, Some(ExitReason::Ended))?;
         drop(archive);
         let archive = Archive::open(&directory.0, budget as u64)?;
         assert_eq!(archive.read(session)?, expected.screen);
@@ -891,130 +1251,5 @@ mod tests {
         }
         assert_eq!(end, 0);
         Ok(())
-    }
-
-    #[test]
-    fn slow_archive_read_does_not_block_ping_or_another_sessions_input() -> TestResult {
-        use muxy_protocol::transport::socket_pair;
-        use muxy_protocol::wire::{Decoder, Encoder};
-        use muxy_protocol::{CONTROL, RequestBody, SUPPORTED};
-        let (server_events, events) = mpsc::channel();
-        let directory = Directory::new()?;
-        let registry = Arc::new(crate::Registry::new(
-            crate::ServerSettings {
-                default_shell: Some(crate::test_support::shell()),
-                ..crate::ServerSettings::default()
-            },
-            server_events,
-        ));
-        let size = Size { cols: 80, rows: 24 };
-        let live = registry.create(&directory.0, size)?;
-        let archive = registry.archive();
-        let (socket, server) = socket_pair()?;
-        let serving = Arc::clone(&registry);
-        let worker =
-            thread::spawn(move || crate::connection::serve(Box::new(server), serving, events));
-        let mut encoder = Encoder::new(socket.try_clone()?);
-        let (incoming_messages, messages) = mpsc::channel();
-        let incoming = socket.try_clone()?;
-        let reader = thread::spawn(move || {
-            let mut decoder = Decoder::new(incoming);
-            while let Ok(message) = decoder.next() {
-                if incoming_messages.send(message).is_err() {
-                    break;
-                }
-            }
-        });
-        encoder.send(
-            CONTROL,
-            &Message::Hello {
-                versions: SUPPORTED.to_vec(),
-            },
-        )?;
-        assert!(matches!(
-            messages.recv_timeout(Duration::from_secs(2))?,
-            (CONTROL, Message::HelloReply { .. })
-        ));
-        encoder.send(
-            CONTROL,
-            &Message::Request {
-                id: RequestId(100),
-                body: RequestBody::Attach {
-                    session: live.id,
-                    size,
-                },
-            },
-        )?;
-        let (_, attached) = next_reply(&messages, &mut encoder)?;
-        let ReplyBody::Attached { snapshot, .. } = attached else {
-            return Err("expected attachment".into());
-        };
-        let Backend::Memory { records, .. } = archive.0.as_ref() else {
-            return Err("expected memory archive".into());
-        };
-        let blocked_archive = lock(records);
-        let session = SessionId::from(std::num::NonZeroU64::MIN);
-        encoder.send(
-            CONTROL,
-            &Message::Request {
-                id: RequestId(101),
-                body: RequestBody::ReadSavedScreen(session),
-            },
-        )?;
-        let touch: &[u8] = if cfg!(windows) {
-            b"type nul > proof-input\r"
-        } else {
-            b"touch proof-input\n"
-        };
-        encoder.send(snapshot.channel, &Message::Input(touch.to_vec()))?;
-        encoder.send(
-            CONTROL,
-            &Message::Request {
-                id: RequestId(102),
-                body: RequestBody::Ping,
-            },
-        )?;
-        let pong = next_reply(&messages, &mut encoder);
-        let marker = directory.0.join("proof-input");
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !marker.exists() && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(5));
-        }
-        let input_completed = marker.exists();
-        drop(blocked_archive);
-        let saved = next_reply(&messages, &mut encoder);
-        registry.shutdown();
-        socket.shutdown(std::net::Shutdown::Both)?;
-        drop(encoder);
-        worker.join().map_err(|_| "server thread panicked")??;
-        reader.join().map_err(|_| "reader thread panicked")?;
-        assert_eq!(pong?, (RequestId(102), ReplyBody::Pong));
-        assert_eq!(saved?.0, RequestId(101));
-        assert!(
-            input_completed,
-            "another session's input must run while storage is blocked"
-        );
-        Ok(())
-    }
-
-    fn next_reply(
-        messages: &Receiver<(muxy_protocol::ChannelId, Message)>,
-        encoder: &mut muxy_protocol::wire::Encoder<impl Write>,
-    ) -> Result<(RequestId, ReplyBody), Box<dyn Error>> {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            match messages.recv_timeout(deadline.saturating_duration_since(Instant::now()))? {
-                (_, Message::Reply { id, body }) => return Ok((id, body)),
-                (channel, Message::Frame(frame)) => encoder.send(
-                    muxy_protocol::CONTROL,
-                    &Message::FrameAck {
-                        channel,
-                        seq: frame.seq,
-                    },
-                )?,
-                (_, Message::Metadata(_)) => {}
-                other => return Err(format!("unexpected message: {other:?}").into()),
-            }
-        }
     }
 }

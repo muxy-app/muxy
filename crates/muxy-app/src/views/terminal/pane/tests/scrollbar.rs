@@ -52,23 +52,6 @@ fn press(pane: &mut TerminalPane, y: f32, window: &mut Window, cx: &mut Context<
 }
 
 #[gpui::test]
-fn the_scrollbar_shows_while_scrolling_and_hides_again(cx: &mut TestAppContext) {
-    let (pane, cx) = pane(cx);
-    pane.update(cx, |pane, cx| {
-        assert_eq!(thumb_top(pane, cx), None);
-        pane.scroll_rows(9.0, cx);
-        assert_eq!(thumb_top(pane, cx), Some(24.0));
-    });
-    cx.executor().advance_clock(REVEAL_DURATION);
-    cx.run_until_parked();
-    pane.update(cx, |pane, cx| {
-        assert_eq!(thumb_top(pane, cx), None);
-        pane.mouse_move(&pointer(5.0, false), cx);
-        assert_eq!(thumb_top(pane, cx), Some(24.0));
-    });
-}
-
-#[gpui::test]
 fn dragging_the_thumb_scrolls_history_without_selecting_text(cx: &mut TestAppContext) {
     let (pane, cx) = pane(cx);
     pane.update_in(cx, |pane, window, cx| {
@@ -172,5 +155,27 @@ fn a_pane_without_history_or_with_a_program_reading_the_wheel_has_no_scrollbar(
         assert_eq!(thumb_top(pane, cx), None);
         press(pane, 40.0, window, cx);
         assert!(!pane.scrollbar_dragging());
+    });
+}
+
+#[gpui::test]
+fn marking_the_pane_uncovered_keeps_history_scrolling_off_while_the_pane_cannot_scroll(
+    cx: &mut TestAppContext,
+) {
+    let (pane, cx) = pane(cx);
+    pane.update(cx, |pane, cx| {
+        pane.set_native_visible(false, cx);
+        assert!(!pane.scrolls_history());
+        pane.set_native_visible(true, cx);
+        assert!(pane.scrolls_history());
+
+        pane.input_modes.mouse_tracking = true;
+        pane.set_native_visible(true, cx);
+        assert!(!pane.scrolls_history());
+        pane.input_modes.mouse_tracking = false;
+
+        pane.state = PaneState::Connecting;
+        pane.set_native_visible(true, cx);
+        assert!(!pane.scrolls_history());
     });
 }

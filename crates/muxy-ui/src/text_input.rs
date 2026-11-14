@@ -2,14 +2,15 @@ use muxy_core::shortcuts::ShortcutId;
 
 use crate::scrollbar::{MINIMUM_THUMB_LENGTH, TRACK_INSET, ThumbGeometry, WIDTH};
 use crate::theme::{Metrics, Theme};
+use gpui::accesskit::ActionData;
 use gpui::{
-    App, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, DispatchPhase, Element,
-    ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
+    AccessibleAction, App, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, DispatchPhase,
+    Element, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle,
     Focusable, GlobalElementId, Hsla, InteractiveElement, IntoElement, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement, Pixels, Point, Render,
-    ScrollWheelEvent, ShapedLine, SharedString, Size, Style, Styled, Task, TextAlign, TextRun,
-    UTF16Selection, UnderlineStyle, Window, WrapBoundary, WrappedLine, actions, div, fill, point,
-    px, size,
+    Role, ScrollWheelEvent, ShapedLine, SharedString, Size, StatefulInteractiveElement, Style,
+    Styled, Task, TextAlign, TextRun, UTF16Selection, UnderlineStyle, Window, WrapBoundary,
+    WrappedLine, actions, div, fill, point, prelude::FluentBuilder, px, size,
 };
 use std::cell::RefCell;
 use std::ops::Range;
@@ -488,6 +489,15 @@ impl Layout {
     }
 }
 
+struct ImeLayout {
+    content: SharedString,
+    width: Pixels,
+    font: gpui::Font,
+    font_size: Pixels,
+    line_height: Pixels,
+    layout: Layout,
+}
+
 fn wrap_index(line: &WrappedLine, boundary: WrapBoundary) -> usize {
     line.unwrapped_layout
         .runs
@@ -526,6 +536,10 @@ pub struct TextInput {
     marked_range: Option<Range<usize>>,
     last_layout: Option<Layout>,
     last_content: Size<Pixels>,
+    shaped_font: Option<gpui::Font>,
+    shaped_font_size: Pixels,
+    shaped_line_height: Pixels,
+    ime_layout: Option<ImeLayout>,
     is_selecting: bool,
     multiline: bool,
     scroll: Point<Pixels>,
@@ -543,6 +557,12 @@ pub struct TextInput {
     paste_delegate: Option<PasteDelegate>,
     /// Shows `*` for the text, such as a password, and never copies it.
     secure: bool,
+    /// The English key of the name accessibility clients read, in the app language.
+    accessible_label: Option<&'static str>,
+    /// A name that isn't a translation key, such as a dialog's already translated title.
+    accessible_name: Option<SharedString>,
+    /// The stable ID accessibility clients find the input by.
+    accessibility_id: Option<SharedString>,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -564,6 +584,10 @@ impl TextInput {
             marked_range: None,
             last_layout: None,
             last_content: size(px(0.0), px(0.0)),
+            shaped_font: None,
+            shaped_font_size: px(0.0),
+            shaped_line_height: px(0.0),
+            ime_layout: None,
             is_selecting: false,
             multiline: false,
             scroll: point(px(0.0), px(0.0)),
@@ -580,6 +604,9 @@ impl TextInput {
             coalesce_next: true,
             paste_delegate: None,
             secure: false,
+            accessible_label: None,
+            accessible_name: None,
+            accessibility_id: None,
         }
     }
 
@@ -607,6 +634,40 @@ impl TextInput {
         self.placeholder = key.into();
         self.placeholder_key = true;
         self
+    }
+
+    /// Names the input for accessibility clients, so dictation and automation
+    /// tools find a text field to insert into. Given as a `tr_key!` literal.
+    /// Without it, they read the placeholder.
+    pub fn with_accessible_label(mut self, key: &'static str) -> Self {
+        self.accessible_label = Some(key);
+        self
+    }
+
+    pub fn with_accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
+        self.accessibility_id = Some(id.into());
+        self
+    }
+
+    /// Names the input with text that is already translated.
+    pub fn set_accessible_name(&mut self, name: impl Into<SharedString>) {
+        self.accessible_name = Some(name.into());
+    }
+
+    fn accessible_name(&self) -> Option<SharedString> {
+        if self.accessible_name.is_some() {
+            return self.accessible_name.clone();
+        }
+        match self.accessible_label {
+            Some(key) => Some(crate::l10n::translate(key)),
+            None if self.placeholder.is_empty() => None,
+            None if self.placeholder_key => Some(
+                muxy_core::l10n::translate(&self.placeholder)
+                    .into_owned()
+                    .into(),
+            ),
+            None => Some(self.placeholder.clone()),
+        }
     }
 
     pub fn with_key_context(mut self, context: &'static str) -> Self {
@@ -650,6 +711,103 @@ impl TextInput {
         &self.content[self.selected_range.clone()]
     }
 
+    fn bounds_from_layout(
+        &self,
+        layout: &Layout,
+        range: Range<usize>,
+        field: Bounds<Pixels>,
+    ) -> Bounds<Pixels> {
+        let start = layout.position_for_offset(range.start);
+        let end = layout.position_for_offset(range.end);
+        let origin = point(field.left() - self.scroll.x, field.top() - self.scroll.y);
+        Bounds::from_corners(
+            point(origin.x + start.x, origin.y + start.y),
+            point(origin.x + end.x, origin.y + end.y + layout.line_height),
+        )
+    }
+
+    fn scroll_caret_into_view(
+        &mut self,
+        caret: Point<Pixels>,
+        line_height: Pixels,
+        field: Bounds<Pixels>,
+        mut content: Size<Pixels>,
+    ) {
+        let mut scroll = self.scroll;
+        if caret.x < scroll.x {
+            scroll.x = caret.x;
+        } else if caret.x + px(3.0) > scroll.x + field.size.width {
+            scroll.x = caret.x + px(3.0) - field.size.width;
+        }
+        if caret.y < scroll.y {
+            scroll.y = caret.y;
+        } else if caret.y + line_height > scroll.y + field.size.height {
+            scroll.y = caret.y + line_height - field.size.height;
+        }
+        content.width += px(2.0);
+        self.scroll = clamp_scroll(scroll, content, field.size);
+    }
+
+    fn ensure_ime_layout(&mut self, field: Bounds<Pixels>, window: &mut Window) -> bool {
+        let Some(font) = self.shaped_font.clone() else {
+            return false;
+        };
+        let width = field.size.width;
+        let text: SharedString = if self.secure {
+            "*".repeat(self.content.len()).into()
+        } else {
+            self.content.clone()
+        };
+        if let Some(cached) = &self.ime_layout
+            && cached.content == text
+            && cached.width == width
+            && cached.font == font
+            && cached.font_size == self.shaped_font_size
+            && cached.line_height == self.shaped_line_height
+        {
+            return true;
+        }
+        let shaped = window
+            .text_system()
+            .shape_text(
+                text.clone(),
+                self.shaped_font_size,
+                &[TextRun {
+                    len: text.len(),
+                    font: font.clone(),
+                    color: self.style.text,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                }],
+                self.multiline.then_some(width),
+                None,
+            )
+            .unwrap_or_default();
+        let ranges = line_ranges(&text);
+        let lines: Vec<WrappedLine> = shaped.into_iter().collect();
+        let rows: Vec<usize> = lines
+            .iter()
+            .map(|line| 1 + line.wrap_boundaries().len())
+            .collect();
+        let line_height = self.shaped_line_height;
+        self.ime_layout = Some(ImeLayout {
+            content: text,
+            width,
+            font,
+            font_size: self.shaped_font_size,
+            line_height,
+            layout: Layout {
+                lines,
+                ranges,
+                rows,
+                line_height,
+                bounds: field,
+            },
+        });
+        true
+    }
+
     pub fn cursor_offset(&self) -> usize {
         selection_cursor(&self.selected_range, self.selection_reversed)
     }
@@ -661,10 +819,6 @@ impl TextInput {
         }
         let range = self.selected_range.clone();
         self.apply_edit(range, text, false, false, cx);
-    }
-
-    pub fn insert_at_selection(&mut self, text: &str, cx: &mut Context<Self>) {
-        self.replace_selection(text, cx);
     }
 
     pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
@@ -691,6 +845,10 @@ impl TextInput {
         self.follow_caret = true;
         self.goal_x = None;
         cx.notify();
+    }
+
+    pub fn style(&self) -> InputStyle {
+        self.style
     }
 
     pub fn set_style(&mut self, style: InputStyle, cx: &mut Context<Self>) {
@@ -1395,7 +1553,7 @@ impl EntityInputHandler for TextInput {
         &mut self,
         range_utf16: Option<Range<usize>>,
         new_text: &str,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let range = range_utf16
@@ -1407,6 +1565,7 @@ impl EntityInputHandler for TextInput {
         let committing = self.marked_range.is_some();
         let coalescing = self.coalesce_next;
         self.apply_edit(range, new_text, committing, coalescing, cx);
+        window.invalidate_character_coordinates();
     }
 
     fn replace_and_mark_text_in_range(
@@ -1414,7 +1573,7 @@ impl EntityInputHandler for TextInput {
         range_utf16: Option<Range<usize>>,
         new_text: &str,
         new_selected_range_utf16: Option<Range<usize>>,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let range = range_utf16
@@ -1452,23 +1611,48 @@ impl EntityInputHandler for TextInput {
         self.follow_caret = true;
         cx.emit(InputEvent::Changed);
         cx.notify();
+        window.invalidate_character_coordinates();
     }
 
     fn bounds_for_range(
         &mut self,
         range_utf16: Range<usize>,
         bounds: Bounds<Pixels>,
-        _: &mut Window,
+        window: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let layout = self.last_layout.as_ref()?;
         let range = self.range_from_utf16(&range_utf16);
-        let start = layout.position_for_offset(range.start);
-        let end = layout.position_for_offset(range.end);
+        if !self.ensure_ime_layout(bounds, window) {
+            let layout = self.last_layout.as_ref()?;
+            return Some(self.bounds_from_layout(layout, range, bounds));
+        }
+        let caret = selection_cursor(&self.selected_range, self.selection_reversed);
+        if self.follow_caret && range.start == caret && range.end == caret {
+            let line_height = self.shaped_line_height;
+            let position = self
+                .ime_layout
+                .as_ref()
+                .map(|cached| cached.layout.position_for_offset(caret));
+            let content = self
+                .ime_layout
+                .as_ref()
+                .map(|cached| cached.layout.content_size());
+            if let (Some(position), Some(content)) = (position, content) {
+                self.scroll_caret_into_view(position, line_height, bounds, content);
+            }
+        }
+        let (start, end, line_height) = {
+            let layout = &self.ime_layout.as_ref()?.layout;
+            (
+                layout.position_for_offset(range.start),
+                layout.position_for_offset(range.end),
+                layout.line_height,
+            )
+        };
         let origin = point(bounds.left() - self.scroll.x, bounds.top() - self.scroll.y);
         Some(Bounds::from_corners(
             point(origin.x + start.x, origin.y + start.y),
-            point(origin.x + end.x, origin.y + end.y + layout.line_height),
+            point(origin.x + end.x, origin.y + end.y + line_height),
         ))
     }
 
@@ -1498,7 +1682,42 @@ impl Focusable for TextInput {
 impl Render for TextInput {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let style = self.style;
+        let role = if self.secure {
+            Role::PasswordInput
+        } else if self.multiline {
+            Role::MultilineTextInput
+        } else {
+            Role::TextInput
+        };
         let mut container = div()
+            .id("text-input")
+            .role(role)
+            .when_some(
+                self.accessible_name(),
+                StatefulInteractiveElement::aria_label,
+            )
+            .when_some(self.accessibility_id.clone(), |input, id| {
+                input.accessibility_id(id)
+            })
+            .when(!self.secure, |input| {
+                crate::accessibility::value(input, self.content.clone())
+            })
+            .on_a11y_action(AccessibleAction::Click, {
+                let focus = self.focus_handle.clone();
+                move |_, window, _| window.focus(&focus)
+            })
+            .on_a11y_action(AccessibleAction::SetValue, {
+                let input = cx.entity().downgrade();
+                move |data, _, cx| {
+                    if let Some(ActionData::Value(value)) = data {
+                        let value = value.to_string();
+                        let _ = input.update(cx, |input, cx| {
+                            input.set_text(value, cx);
+                            cx.emit(InputEvent::Changed);
+                        });
+                    }
+                }
+            })
             .flex()
             .key_context(self.key_context)
             .track_focus(&self.focus_handle)
@@ -1575,6 +1794,9 @@ struct PrepaintState {
     scrollbar: Option<PaintQuad>,
     scroll: Point<Pixels>,
     content: Size<Pixels>,
+    shaped_font: gpui::Font,
+    shaped_font_size: Pixels,
+    shaped_line_height: Pixels,
 }
 
 impl IntoElement for TextElement {
@@ -1666,16 +1888,17 @@ impl Element for TextElement {
             input_style.text
         };
 
+        let shaped_font = if shows_placeholder {
+            input
+                .placeholder_font_family
+                .clone()
+                .map_or_else(|| text_style.font(), gpui::font)
+        } else {
+            text_style.font()
+        };
         let run = TextRun {
             len: display_text.len(),
-            font: if shows_placeholder {
-                input
-                    .placeholder_font_family
-                    .clone()
-                    .map_or_else(|| text_style.font(), gpui::font)
-            } else {
-                text_style.font()
-            },
+            font: shaped_font.clone(),
             color,
             background_color: None,
             underline: None,
@@ -1856,6 +2079,9 @@ impl Element for TextElement {
             scrollbar,
             scroll,
             content,
+            shaped_font: text_style.font(),
+            shaped_font_size: font_size,
+            shaped_line_height: line_height,
         }
     }
 
@@ -1961,6 +2187,9 @@ impl Element for TextElement {
         self.input.update(cx, |input, _| {
             input.last_layout = Some(layout);
             input.last_content = content;
+            input.shaped_font = Some(prepaint.shaped_font.clone());
+            input.shaped_font_size = prepaint.shaped_font_size;
+            input.shaped_line_height = prepaint.shaped_line_height;
             input.scroll = scroll;
             input.follow_caret = false;
         });
@@ -2003,7 +2232,45 @@ mod tests {
 mod gpui_regression_tests {
     use super::*;
     use crate::theme::ColorScheme;
-    use gpui::{TestAppContext, VisualTestContext};
+    use gpui::{TestAppContext, VisualTestContext, accesskit};
+
+    #[gpui::test]
+    fn accessibility_clients_read_the_label_or_else_the_placeholder_and_the_value(
+        cx: &mut TestAppContext,
+    ) {
+        let (input, cx) = open(cx, "typed");
+        input.update_in(cx, |input, window, cx| {
+            input.set_placeholder("Search");
+            let named = input.render(window, cx).into_element();
+            let mut node = accesskit::Node::new(Role::TextInput);
+            named.write_a11y_info(&mut node);
+            assert_eq!(named.a11y_role(), Some(Role::TextInput));
+            assert_eq!(node.label(), Some("Search"));
+            assert_eq!(node.value(), Some("typed"));
+            assert!(node.supports_action(AccessibleAction::Click));
+
+            input.accessible_label = Some("Composer");
+            input.accessibility_id = Some("composer".into());
+            let labelled = input.render(window, cx).into_element();
+            let mut node = accesskit::Node::new(Role::TextInput);
+            labelled.write_a11y_info(&mut node);
+            assert_eq!(node.label(), Some("Composer"));
+            assert_eq!(node.author_id(), Some("composer"));
+        });
+    }
+
+    #[gpui::test]
+    fn a_secure_input_never_publishes_its_value(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx, "hunter2");
+        input.update_in(cx, |input, window, cx| {
+            input.secure = true;
+            let secure = input.render(window, cx).into_element();
+            let mut node = accesskit::Node::new(Role::PasswordInput);
+            secure.write_a11y_info(&mut node);
+            assert_eq!(secure.a11y_role(), Some(Role::PasswordInput));
+            assert_eq!(node.value(), None);
+        });
+    }
 
     fn open<'a>(
         cx: &'a mut TestAppContext,
@@ -2041,6 +2308,73 @@ mod gpui_regression_tests {
             });
         });
         cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    fn composition_selection_stays_on_the_inserted_text(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx, "hello");
+        cx.update(|window, cx| {
+            input.update(cx, |input, cx| {
+                input.replace_and_mark_text_in_range(None, "n", Some(1..1), window, cx);
+                assert_eq!(input.text(), "hellon");
+                assert_eq!(input.marked_range, Some(5..6));
+                assert_eq!(input.selected_range, 6..6);
+
+                input.replace_and_mark_text_in_range(None, "ni", Some(2..2), window, cx);
+                assert_eq!(input.text(), "helloni");
+                assert_eq!(input.marked_range, Some(5..7));
+                assert_eq!(input.selected_range, 7..7);
+            });
+        });
+
+        let (input, cx) = open(cx, "привет");
+        cx.update(|window, cx| {
+            input.update(cx, |input, cx| {
+                input.replace_and_mark_text_in_range(None, "你", Some(1..1), window, cx);
+                assert_eq!(input.text(), "привет你");
+                assert_eq!(input.marked_range, Some(12..15));
+                assert_eq!(input.selected_range, 15..15);
+            });
+        });
+    }
+
+    #[gpui::test]
+    #[allow(clippy::unwrap_used)]
+    fn ime_bounds_match_the_painted_password_mask(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx, "W😀ii");
+        input.update(cx, |input, cx| {
+            input.secure = true;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        input.update_in(cx, |input, window, cx| {
+            let layout = input.last_layout.as_ref().unwrap();
+            let field = layout.bounds;
+            let expected =
+                input.bounds_from_layout(layout, input.content.len()..input.content.len(), field);
+            let caret = input.content.encode_utf16().count();
+            let actual = input
+                .bounds_for_range(caret..caret, field, window, cx)
+                .unwrap();
+            assert_eq!(actual, expected);
+        });
+    }
+
+    #[gpui::test]
+    fn identical_preedit_after_commit_starts_a_new_composition(cx: &mut TestAppContext) {
+        let (input, cx) = open(cx, "prefix ");
+        mark(&input, cx, "nihao");
+        commit(&input, cx, "你好");
+        mark(&input, cx, "nihao");
+        input.read_with(cx, |input, _| {
+            assert_eq!(input.text(), "prefix 你好nihao");
+            assert_eq!(input.marked_range, Some(13..18));
+        });
+        mark(&input, cx, "");
+        input.read_with(cx, |input, _| {
+            assert_eq!(input.text(), "prefix 你好");
+            assert_eq!(input.marked_range, None);
+        });
     }
 
     #[gpui::test]

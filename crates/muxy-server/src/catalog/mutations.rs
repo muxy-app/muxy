@@ -145,8 +145,9 @@ impl State {
                 .is_some_and(|parent| is_folder(&parent.directory))
             && project
                 .directory
-                .to_path_buf()
-                .is_ok_and(|directory| directory.try_exists().is_ok_and(|exists| !exists))
+                .as_path()
+                .try_exists()
+                .is_ok_and(|exists| !exists)
             && !self
                 .sessions
                 .values()
@@ -156,7 +157,6 @@ impl State {
 
 /// Whether `directory` is an absolute path to a folder on this computer.
 fn is_folder(directory: &muxy_protocol::ServerPath) -> bool {
-    directory
-        .to_path_buf()
-        .is_ok_and(|directory| directory.is_absolute() && directory.is_dir())
+    let directory = directory.as_path();
+    directory.is_absolute() && directory.is_dir()
 }

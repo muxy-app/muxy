@@ -48,6 +48,7 @@ fn is_git(name: &std::ffi::OsStr) -> bool {
 #[derive(Debug, Default)]
 pub(crate) struct Files {
     locks: Mutex<HashMap<PathBuf, Weak<RwLock<()>>>>,
+    pub(crate) watches: crate::watch::Shared,
 }
 
 impl Files {
@@ -64,7 +65,7 @@ impl Files {
 /// this computer, for choosing a new project's folder. Links to folders
 /// count. A folder with more than the protocol allows lists only its first.
 pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
-    muxy_protocol::validate_folder_path(directory)
+    muxy_protocol::validate_absolute_path(directory)
         .map_err(|code| ServerError::new(code, "Use an absolute folder path"))?;
     let directory = path(directory)?;
     let entries = std::fs::read_dir(directory).map_err(|cause| match cause.kind() {

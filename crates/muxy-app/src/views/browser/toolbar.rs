@@ -1,16 +1,22 @@
 //! The browser's toolbar, address suggestions, and find bar.
 
+use std::rc::Rc;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, Focusable, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, canvas, deferred, div,
-    img, px, relative,
+    AccessibleAction, AnyElement, AppContext, Context, Entity, Focusable, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Role, SharedString,
+    StatefulInteractiveElement, Styled, Window, canvas, deferred, div, img, px, relative,
 };
-use muxy_ui::components::{IconButton, IconGlyph};
+use muxy_ui::accessibility;
+use muxy_ui::browser::NativeBrowser;
+use muxy_ui::components::{IconButton, IconGlyph, Tooltip};
 use muxy_ui::icon::Icon;
+use muxy_ui::shortcuts::key_for;
 use muxy_ui::tr;
 
 use super::{BrowserView, BrowserViewEvent, Menu};
+use crate::views::workspace::{BrowserBack, BrowserForward, BrowserReload, FindNext, FindPrevious};
 
 pub(super) fn render(
     view: &BrowserView,
@@ -22,6 +28,7 @@ pub(super) fn render(
     let button = |id: &'static str, icon, tooltip: SharedString, enabled: bool| {
         IconButton::new(
             id,
+            tooltip,
             icon,
             metrics.icon_md(),
             metrics.control_medium(),
@@ -32,7 +39,7 @@ pub(super) fn render(
             },
             if enabled { theme.fg } else { theme.fg_dim },
         )
-        .tooltip(tooltip, theme.surface, theme.fg, theme.border, theme.bg)
+        .tooltip(theme)
     };
     let loading = view.page.loading;
     let editing = view.address.focus_handle(cx).is_focused(window);
@@ -50,6 +57,9 @@ pub(super) fn render(
         .child(
             div()
                 .id("browser-toolbar")
+                .role(Role::Group)
+                .accessibility_id("browser-toolbar")
+                .aria_label(tr!("Browser"))
                 .debug_selector(|| "browser-toolbar".into())
                 .flex()
                 .items_center()
@@ -66,6 +76,7 @@ pub(super) fn render(
                         tr!("Back"),
                         view.page.can_go_back,
                     )
+                    .shortcut(key_for(&BrowserBack, cx))
                     .on_click(cx.listener(|view, _, _, cx| view.go_back(cx))),
                 )
                 .child(
@@ -75,6 +86,7 @@ pub(super) fn render(
                         tr!("Forward"),
                         view.page.can_go_forward,
                     )
+                    .shortcut(key_for(&BrowserForward, cx))
                     .on_click(cx.listener(|view, _, _, cx| view.go_forward(cx))),
                 )
                 .child(if loading {
@@ -82,15 +94,17 @@ pub(super) fn render(
                         .on_click(cx.listener(|view, _, _, cx| view.stop(cx)))
                 } else {
                     button("browser-reload", Icon::RotateCw, tr!("Reload"), true)
+                        .shortcut(key_for(&BrowserReload, cx))
                         .on_click(cx.listener(|view, _, _, cx| view.reload(cx)))
                 })
                 .child(address)
+                .child(element_picker_button(view, cx))
                 .child(external_button(view, cx))
                 .child(profile_button(view, cx)),
         )
         .child(
             div()
-                .h(px(2.0))
+                .h(metrics.scaled(2.0))
                 .w_full()
                 .when(loading && progress < 1.0, |bar| {
                     bar.child(
@@ -104,20 +118,55 @@ pub(super) fn render(
         .into_any_element()
 }
 
+fn element_picker_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyElement {
+    let enabled = !view.is_blank() && view.page.error.is_none();
+    let color = if view.selecting_element {
+        view.theme.accent
+    } else if enabled {
+        view.theme.fg_muted
+    } else {
+        view.theme.fg_dim
+    };
+    let glyph = IconGlyph::new(Icon::Overlap, view.metrics.icon_md(), color);
+    let tooltip = if view.selecting_element {
+        tr!("Click an element to copy its HTML and text. Press Escape to cancel")
+    } else {
+        tr!("Select an element to copy its HTML and text")
+    };
+    toolbar_button(
+        view,
+        "browser-copy-element",
+        div().child(glyph),
+        tooltip,
+        enabled,
+        view.selecting_element,
+        move |view, _, cx| {
+            if enabled {
+                view.toggle_element_picker(cx);
+            }
+        },
+        cx,
+    )
+    .into_any_element()
+}
+
 fn external_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyElement {
     let glyph = IconGlyph::new(
         Icon::ExternalLink,
         view.metrics.icon_md(),
         view.theme.fg_muted,
     );
-    menu_button(
+    toolbar_button(
         view,
         "browser-external",
         div().child(glyph),
         tr!("Open in External Browser"),
-        Menu::External,
+        true,
+        false,
+        |_, position, cx| cx.emit(BrowserViewEvent::Menu(Menu::External, position)),
         cx,
     )
+    .into_any_element()
 }
 
 /// The profile the page browses with, which a click lets you change.
@@ -140,14 +189,18 @@ fn profile_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyEleme
                 .text_color(theme.fg_muted)
                 .child(view.profile.name().to_owned()),
         );
-    menu_button(
+    toolbar_button(
         view,
         "browser-profile",
         content,
         tr!("Browser Profile"),
-        Menu::Profile,
+        true,
+        false,
+        |_, position, cx| cx.emit(BrowserViewEvent::Menu(Menu::Profile, position)),
         cx,
     )
+    .aria_label(tr!("Browser Profile: %@", view.profile.name()))
+    .into_any_element()
 }
 
 /// The address field, with the page's icon and history suggestions.
@@ -202,20 +255,34 @@ fn address(
         }))
 }
 
-fn menu_button(
+#[allow(
+    clippy::too_many_arguments,
+    reason = "One toolbar button and its state"
+)]
+fn toolbar_button(
     view: &BrowserView,
     id: &'static str,
     content: gpui::Div,
     tooltip: SharedString,
-    menu: Menu,
+    enabled: bool,
+    selected: bool,
+    action: impl Fn(&mut BrowserView, Point<Pixels>, &mut Context<BrowserView>) + 'static,
     cx: &mut Context<BrowserView>,
-) -> AnyElement {
+) -> gpui::Stateful<gpui::Div> {
     let theme = &view.theme;
     let metrics = view.metrics;
-    let (background, foreground, border, theme_background) =
-        (theme.surface, theme.fg, theme.border, theme.bg);
-    div()
+    let content_tooltip = Tooltip::themed(tooltip.clone(), theme);
+    let native = view.native.clone();
+    let action = Rc::new(action);
+    let press = action.clone();
+    let owner = cx.weak_entity();
+    let button = div()
         .id(id)
+        .role(Role::Button)
+        .accessibility_id(id)
+        .aria_label(tooltip)
+        .aria_selected(selected)
+        .aria_disabled(!enabled)
         .flex()
         .flex_none()
         .items_center()
@@ -224,27 +291,49 @@ fn menu_button(
         .rounded(metrics.radius_sm())
         .cursor_pointer()
         .hover(|style| style.bg(theme.hover))
+        .when(selected, |button| button.bg(theme.accent_soft))
         .tooltip(move |_, cx| {
-            cx.new(|_| {
-                muxy_ui::components::Tooltip::new(
-                    tooltip.clone(),
-                    background,
-                    foreground,
-                    border,
-                    theme_background,
-                )
+            let content = cx.new(|_| content_tooltip.clone());
+            cx.new(|_| BrowserTooltip {
+                content,
+                native: native.clone(),
             })
             .into()
-        })
+        });
+    button
         .on_mouse_down(
             MouseButton::Left,
-            cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
+            cx.listener(move |view, event: &gpui::MouseDownEvent, _, cx| {
                 cx.stop_propagation();
-                cx.emit(BrowserViewEvent::Menu(menu, event.position));
+                action(view, event.position, cx);
             }),
         )
+        // The pointer never presses it for a client, so nothing acts on mouse down.
+        .on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
+            let position = window.mouse_position();
+            let _ = owner.update(cx, |view, cx| press(view, position, cx));
+        })
         .child(content)
-        .into_any_element()
+}
+
+struct BrowserTooltip {
+    content: Entity<Tooltip>,
+    native: Rc<NativeBrowser>,
+}
+
+impl Render for BrowserTooltip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let native = self.native.clone();
+        div().relative().child(self.content.clone()).child(
+            canvas(
+                move |bounds, _, _| native.occlude_also(bounds),
+                |_, (), _, _| (),
+            )
+            .absolute()
+            .inset_0()
+            .size_full(),
+        )
+    }
 }
 
 /// History matching the address field, shown under it. The page's native
@@ -264,8 +353,14 @@ fn suggestions(view: &BrowserView, cx: &mut Context<BrowserView>) -> Option<AnyE
         .map(|(index, suggestion)| {
             let selected = view.suggestions.selected == Some(index);
             let url = suggestion.url.clone();
+            let pressed_url = url.clone();
+            let owner = cx.weak_entity();
             div()
                 .id(("browser-suggestion", index))
+                .role(Role::Button)
+                .aria_label(suggestion.title.clone().unwrap_or_else(|| url.clone()))
+                .aria_description(url.clone())
+                .aria_selected(selected)
                 .flex()
                 .flex_col()
                 .px(metrics.spacing4())
@@ -281,6 +376,9 @@ fn suggestions(view: &BrowserView, cx: &mut Context<BrowserView>) -> Option<AnyE
                         view.submit(&url, window, cx);
                     }),
                 )
+                .on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
+                    let _ = owner.update(cx, |view, cx| view.submit(&pressed_url, window, cx));
+                })
                 .children(suggestion.title.clone().map(|title| {
                     div()
                         .w_full()
@@ -302,6 +400,8 @@ fn suggestions(view: &BrowserView, cx: &mut Context<BrowserView>) -> Option<AnyE
         deferred(
             div()
                 .id("browser-suggestions")
+                .role(Role::Group)
+                .aria_label(tr!("Suggestions"))
                 .debug_selector(|| "browser-suggestions".into())
                 .absolute()
                 .top(metrics.control_medium() + metrics.spacing1())
@@ -337,18 +437,22 @@ pub(super) fn find_bar(view: &BrowserView, cx: &mut Context<BrowserView>) -> Opt
     let button = |id: &'static str, icon, tooltip: SharedString| {
         IconButton::new(
             id,
+            tooltip,
             icon,
             metrics.icon_sm(),
             metrics.control_medium(),
             theme.fg_muted,
             theme.fg,
         )
-        .tooltip(tooltip, theme.surface, theme.fg, theme.border, theme.bg)
+        .tooltip(theme)
     };
     let missing = find.found == Some(false);
     Some(
         div()
             .id("browser-find")
+            .role(Role::Group)
+            .accessibility_id("browser-find")
+            .aria_label(tr!("Find on page"))
             .debug_selector(|| "browser-find".into())
             .flex()
             .flex_none()
@@ -373,10 +477,15 @@ pub(super) fn find_bar(view: &BrowserView, cx: &mut Context<BrowserView>) -> Opt
             )
             .when(missing, |bar| {
                 bar.child(
-                    div()
-                        .text_size(metrics.font_caption())
-                        .text_color(theme.warning)
-                        .child(tr!("Not found")),
+                    accessibility::announced(
+                        div()
+                            .id("browser-find-missing")
+                            .text_size(metrics.font_caption())
+                            .text_color(theme.warning),
+                        tr!("Not found"),
+                        false,
+                    )
+                    .child(tr!("Not found")),
                 )
             })
             .child(
@@ -385,10 +494,12 @@ pub(super) fn find_bar(view: &BrowserView, cx: &mut Context<BrowserView>) -> Opt
                     Icon::ChevronUp,
                     tr!("Previous match"),
                 )
+                .shortcut(key_for(&FindPrevious, cx))
                 .on_click(cx.listener(|view, _, _, cx| view.step_find(true, cx))),
             )
             .child(
                 button("browser-find-next", Icon::ChevronDown, tr!("Next match"))
+                    .shortcut(key_for(&FindNext, cx))
                     .on_click(cx.listener(|view, _, _, cx| view.step_find(false, cx))),
             )
             .child(

@@ -9,7 +9,8 @@ use muxy_app_core::{ProjectId, ProjectStatus, TabId, WorkspaceId};
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
 
-use super::overlays::{Overlay, clamp};
+use super::overlays::{Mark, Overlay, OverlayView, clamp};
+use super::server_menu::Servers;
 use crate::model::AppModel;
 
 #[derive(Clone, Copy, Debug)]
@@ -24,6 +25,10 @@ enum Target {
     Tab(TabId),
     Workspace(WorkspaceId),
     NewWorkspace(Option<ProjectId>),
+    /// A new remote server group for these servers.
+    NewServerGroup(Servers),
+    /// The remote server group at an index of `Settings::server_groups`.
+    ServerGroup(usize),
 }
 
 pub(crate) struct Editor {
@@ -34,6 +39,16 @@ pub(crate) struct Editor {
 }
 
 impl AppModel {
+    /// Where an editor opens when no pointer placed it: near the top middle
+    /// of the window.
+    pub(crate) fn editor_position(&self, window: &Window) -> Point<Pixels> {
+        let size = window.viewport_size();
+        gpui::point(
+            size.width / 2.0 - self.metrics.scaled(120.0),
+            size.height / 3.0,
+        )
+    }
+
     pub(crate) fn open_project_editor(
         &mut self,
         id: ProjectId,
@@ -98,6 +113,30 @@ impl AppModel {
         self.open_metadata_editor(target, String::new(), position, window, cx);
     }
 
+    pub(crate) fn open_server_group_editor(
+        &mut self,
+        servers: Servers,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let target = Target::NewServerGroup(servers);
+        self.open_metadata_editor(target, String::new(), position, window, cx);
+    }
+
+    pub(crate) fn open_group_rename_editor(
+        &mut self,
+        index: usize,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(group) = self.settings.server_groups().get(index) {
+            let text = (*group).to_owned();
+            self.open_metadata_editor(Target::ServerGroup(index), text, position, window, cx);
+        }
+    }
+
     fn open_metadata_editor(
         &mut self,
         target: Target,
@@ -107,7 +146,11 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         let input = cx.new(|cx| {
-            TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx).with_text(text)
+            let mut input = TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
+                .with_accessibility_id("settings-field-project-editor")
+                .with_text(text);
+            input.set_accessible_name(title(target));
+            input
         });
         input.update(cx, TextInput::select_all_text);
         input.focus_handle(cx).focus(window);
@@ -121,12 +164,15 @@ impl AppModel {
                 cx.notify();
             }
         }));
-        self.overlay = Some(Overlay::ProjectEditor(Editor {
-            target,
-            input,
-            position,
-            error: None,
-        }));
+        self.open_overlay(
+            Overlay::ProjectEditor(Editor {
+                target,
+                input,
+                position,
+                error: None,
+            }),
+            cx,
+        );
         cx.notify();
     }
 
@@ -149,6 +195,10 @@ impl AppModel {
                 }
                 created.is_some()
             }
+            Target::NewServerGroup(servers) => self.name_server_group(servers, &text, cx),
+            Target::ServerGroup(index) => {
+                self.name_server_group(Servers::Group(Some(index)), &text, cx)
+            }
         };
         if saved {
             self.dismiss_overlay(cx);
@@ -159,8 +209,36 @@ impl AppModel {
     }
 }
 
-pub(crate) fn render(
+impl OverlayView for Editor {
+    fn render(
+        &self,
+        mark: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render(self, mark, model, window, cx)
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+}
+
+fn title(target: Target) -> gpui::SharedString {
+    match target {
+        Target::Tab(_) => tr!("Rename Tab"),
+        Target::Project(_) => tr!("Rename Project"),
+        Target::Workspace(_) => tr!("Rename Workspace"),
+        Target::NewWorkspace(_) => tr!("New Workspace"),
+        Target::NewServerGroup(_) => tr!("New Group"),
+        Target::ServerGroup(_) => tr!("Rename Group"),
+    }
+}
+
+fn render(
     editor: &Editor,
+    mark: Option<Mark>,
     model: &AppModel,
     window: &Window,
     cx: &mut Context<AppModel>,
@@ -173,21 +251,18 @@ pub(crate) fn render(
         window.viewport_size(),
     );
     muxy_ui::popover::surface(theme, m)
+        .id("project-editor")
+        .role(gpui::Role::Dialog)
+        .accessibility_id("project-editor")
+        .aria_label(title(editor.target))
         .absolute()
         .left(origin.x)
         .top(origin.y)
         .w(m.scaled(320.0)
             .min((window.viewport_size().width - px(16.0)).max(px(0.0))))
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(model.webview_occlusion())
-        .child(
-            muxy_ui::popover::header(theme, m).child(match editor.target {
-                Target::Tab(_) => tr!("Rename Tab"),
-                Target::Project(_) => tr!("Rename Project"),
-                Target::Workspace(_) => tr!("Rename Workspace"),
-                Target::NewWorkspace(_) => tr!("New Workspace"),
-            }),
-        )
+        .children(mark.map(|mark| mark.of(model)))
+        .child(muxy_ui::popover::header(theme, m).child(title(editor.target)))
         .child(
             muxy_ui::popover::body(m)
                 .child(muxy_ui::controls::text_field(
@@ -197,10 +272,15 @@ pub(crate) fn render(
                     None,
                 ))
                 .children(editor.error.as_ref().map(|error| {
-                    div()
-                        .text_size(m.font_footnote())
-                        .text_color(theme.danger)
-                        .child(error.clone())
+                    muxy_ui::accessibility::announced(
+                        div()
+                            .id("project-editor-error")
+                            .text_size(m.font_footnote())
+                            .text_color(theme.danger),
+                        error.clone(),
+                        true,
+                    )
+                    .child(error.clone())
                 })),
         )
         .child(
@@ -208,30 +288,22 @@ pub(crate) fn render(
                 .child(muxy_ui::controls::button(
                     muxy_ui::controls::Style { theme, metrics: &m },
                     "project-editor-cancel",
-                    &tr!("Cancel"),
-                    true,
+                    muxy_ui::controls::Button::secondary(&tr!("Cancel")),
                     cx.listener(|model, _, _, cx| model.dismiss_overlay(cx)),
                 ))
-                .child(
-                    div()
-                        .id("save-project-editor")
-                        .cursor_pointer()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .h(m.control_medium())
-                        .px(m.spacing5())
-                        .rounded(m.radius_md())
-                        .bg(theme.accent)
-                        .text_color(theme.accent_foreground)
-                        .text_size(m.font_body())
-                        .child(if matches!(editor.target, Target::NewWorkspace(_)) {
-                            tr!("Create")
-                        } else {
-                            tr!("Save")
-                        })
-                        .on_click(cx.listener(|model, _, _, cx| model.submit_project_editor(cx))),
-                ),
+                .child(muxy_ui::controls::button(
+                    muxy_ui::controls::Style { theme, metrics: &m },
+                    "save-project-editor",
+                    muxy_ui::controls::Button::primary(&if matches!(
+                        editor.target,
+                        Target::NewWorkspace(_) | Target::NewServerGroup(_)
+                    ) {
+                        tr!("Create")
+                    } else {
+                        tr!("Save")
+                    }),
+                    cx.listener(|model, _, _, cx| model.submit_project_editor(cx)),
+                )),
         )
         .into_any_element()
 }

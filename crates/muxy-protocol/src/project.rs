@@ -70,7 +70,7 @@ id!(ClientId);
 id!(ServerIdentity);
 id!(DeviceId);
 
-use crate::{ErrorCode, ServerPath, SessionId, SessionInfo};
+use crate::{ErrorCode, ServerPath, SessionId, SessionInfo, validate_absolute_path};
 use unicode_segmentation::UnicodeSegmentation;
 
 pub const CATALOG_PAGE_SIZE: usize = 128;
@@ -167,15 +167,29 @@ impl ProjectDescriptor {
         validate_icon(self.icon.as_deref())?;
         validate_color(&self.color)?;
         validate_logo(self.logo.as_deref())?;
-        if !self.directory.is_absolute()
-            || self.directory.0.len() > 4096
-            || self.directory.0.contains(&0)
-            || self.parent_id == Some(self.id)
+        validate_absolute_path(&self.directory).map_err(|_| ErrorCode::BadRequest)?;
+        if self.parent_id == Some(self.id)
             || (self.kind == Some(ProjectKind::Worktree) && self.parent_id.is_none())
             || (self.home && (self.kind.is_some() || self.parent_id.is_some()))
         {
             return Err(ErrorCode::BadRequest);
         }
+        Ok(())
+    }
+}
+
+pub const MAX_SESSION_NAME: usize = 256;
+
+/// A session name is trimmed, not empty, at most [`MAX_SESSION_NAME`] bytes,
+/// and has no control characters.
+pub fn validate_session_name(name: &str) -> Result<(), ErrorCode> {
+    if name.is_empty()
+        || name.len() > MAX_SESSION_NAME
+        || name.trim() != name
+        || name.chars().any(char::is_control)
+    {
+        Err(ErrorCode::BadRequest)
+    } else {
         Ok(())
     }
 }
@@ -361,6 +375,11 @@ pub struct ProjectSession {
     pub owner: Option<crate::SessionClient>,
     #[n(3)]
     pub attached: bool,
+    /// The name `SetSessionName` gave it. Older servers send none.
+    #[n(4)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -416,6 +435,9 @@ impl ProjectSessions {
         }
         for session in &self.sessions {
             crate::validate_path(&session.info.directory)?;
+            if let Some(name) = &session.name {
+                validate_session_name(name)?;
+            }
         }
         Ok(())
     }

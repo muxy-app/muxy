@@ -2,18 +2,6 @@
 
 Thank you for your interest in contributing to Muxy! This guide will help you get started.
 
-## Humans Only Policy
-
-Muxy is a community project and we want communication to stay between humans. You are welcome to use AI to help you write code, but **only humans may**:
-
-- Create commits and push changes
-- Open issues or pull requests
-- Interact with issues or pull requests, including comments, reviews, and replies
-
-These actions must be done without AI assistance. AI agents must not perform them, even when a human asks. Write commit messages and all GitHub text yourself, in your own words, without AI help. This includes issue and PR titles, descriptions, summaries, comments, discussion replies, and code review comments.
-
-Issues and PRs opened by AI or containing AI-generated text will be closed without review.
-
 ## Getting Started
 
 Read [docs/product](docs/product/README.md) and [docs/tech](docs/tech/README.md) first. They describe how Muxy works and how it is built.
@@ -22,7 +10,7 @@ Read [docs/product](docs/product/README.md) and [docs/tech](docs/tech/README.md)
 
 - macOS 14+ for the desktop app, or Linux for the CLI and server
 - [Rust](https://rustup.rs) (`rustup` installs the version pinned in `rust-toolchain.toml`)
-- [Zig](https://ziglang.org) 0.15.2, used to build the Ghostty terminal library
+- [Zig](https://ziglang.org) 0.17.0, used to build the Ghostty terminal library
 
 ### Setup
 
@@ -87,6 +75,11 @@ and tests with `-p` for each package that
 `scripts/check-desktop-linux.py` covers the whole workspace, including the
 [experimental desktop app](docs/tech/constraints.md), on Ubuntu 24.04.
 
+A pull request that changes only source files in `crates/muxy-app` or
+`crates/muxy-ui` tests just those two crates and skips the headless check. Any
+other change, including a `Cargo.toml` or `Cargo.lock`, and every push to `main`
+run everything.
+
 ## Pull Request Guidelines
 
 - Keep PRs focused on a single change
@@ -102,4 +95,4 @@ and tests with `-p` for each package that
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).

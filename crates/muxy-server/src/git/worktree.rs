@@ -3,7 +3,7 @@ use crate::{Registry, catalog::GitReceipt};
 use muxy_core::files::FileId;
 use muxy_protocol::{
     GitReply, ProjectDescriptor, ProjectId, ProjectIntent, ProjectKind, ProjectMutation,
-    WorktreeAction, WorktreeIntent, WorktreeRemoval,
+    ServerPath, WorktreeAction, WorktreeIntent, WorktreeRemoval,
 };
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
@@ -241,7 +241,7 @@ impl Registry {
         &self,
         parent: &ProjectDescriptor,
         id: ProjectId,
-        directory: &muxy_protocol::ServerPath,
+        directory: &ServerPath,
     ) -> Result<()> {
         if parent.home || parent.parent_id.is_some() || parent.kind.is_some() {
             return Err(error("Worktrees require an ordinary top-level parent"));
@@ -263,7 +263,7 @@ impl Registry {
         intent: &WorktreeIntent,
         parent: &ProjectDescriptor,
         id: ProjectId,
-        directory: &muxy_protocol::ServerPath,
+        directory: &ServerPath,
         name: &str,
     ) -> Result<GitReceipt> {
         let canonical = muxy_core::files::canonicalize(&path(directory)?).map_err(error)?;
@@ -608,7 +608,7 @@ fn same_identity(path: &Path, device: u64, inode: u64) -> bool {
 }
 
 /// Creates the empty folder a new worktree fills, refusing one that already exists.
-fn reserve_folder(directory: &muxy_protocol::ServerPath) -> Result<()> {
+fn reserve_folder(directory: &ServerPath) -> Result<()> {
     let directory = path(directory)?;
     if let Some(parent) = directory.parent() {
         std::fs::create_dir_all(parent).map_err(error)?;

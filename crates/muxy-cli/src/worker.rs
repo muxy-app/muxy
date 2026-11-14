@@ -1,5 +1,5 @@
 mod io;
-pub(crate) use io::{Closing, Fetcher, InputWriter, Shared, View, lock};
+pub(crate) use io::{Attaching, Closing, Fetcher, InputWriter, Shared, View, lock};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -8,17 +8,17 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use muxy_app_core::closing::{runs_program, sessions_ended_by_closing};
 use muxy_app_core::{Direction, PaneId};
 use muxy_client::{Client, ClientError, Start};
 use muxy_protocol::{
-    CatalogPage, ChannelId, ErrorCode, MouseEvent, ProjectId, ProjectSession, ServerIdentity,
-    SessionId, Size,
+    CatalogPage, ChannelId, ErrorCode, MouseEvent, ProjectId, ProjectSession, SessionId, Size,
 };
 use ratatui::layout::Rect;
 
 use crate::input::Input;
 use crate::state::{Discard, Result, State, Store};
-use crate::target::Target;
+use crate::target::{Target, hosting_session};
 
 /// How long the worker waits for a request before checking whether to quit.
 const POLL: Duration = Duration::from_millis(100);
@@ -348,6 +348,11 @@ impl Core {
         client
             .identify(muxy_protocol::ClientKind::Tui)
             .map_err(|error| error.to_string())?;
+        // The terminal UI draws no images, so it never reads their pixels.
+        match client.defer_images() {
+            Ok(()) | Err(ClientError::Server(_)) => {}
+            Err(error) => return Err(error.to_string()),
+        }
         let mut catalog = client.catalog().map_err(|error| error.to_string())?;
         self.load_layout(&catalog)?;
         self.store_mut()?
@@ -508,7 +513,7 @@ impl Core {
                 .and_then(State::tab)
                 .filter(|_| !shared.host_unfocused)
                 .and_then(|tab| shared.views.get(&tab.focus))
-                .filter(|view| view.channel.is_some())
+                .filter(|view| view.channel().is_some())
                 .map(|view| view.session);
             shared
                 .activity
@@ -565,41 +570,44 @@ impl Core {
     /// Whether closing `panes` would end a terminal running a program other
     /// than its shell. A terminal another pane still shows keeps running.
     fn ends_running_program(&mut self, client: &Client, panes: &[PaneId]) -> Result<bool> {
-        let state = &self.store_mut()?.state;
-        let sessions: Vec<_> = panes
-            .iter()
-            .filter_map(|id| {
-                let session = state.tab()?.panes.get(id)?.session?;
-                let shown_elsewhere = state
-                    .projects
-                    .values()
-                    .flat_map(|project| &project.tabs)
-                    .flat_map(|tab| &tab.panes)
-                    .any(|(pane, value)| !panes.contains(pane) && value.session == Some(session));
-                (!shown_elsewhere).then_some((*id, session))
-            })
+        let shown: Vec<_> = self
+            .store_mut()?
+            .state
+            .projects
+            .values()
+            .flat_map(|project| &project.tabs)
+            .flat_map(|tab| &tab.panes)
+            .filter_map(|(id, pane)| Some((*id, pane.session?)))
             .collect();
-        for (id, session) in sessions {
+        for (id, session) in sessions_ended_by_closing(&shown, panes) {
             let size = lock(&self.shared)
                 .views
                 .get(&id)
                 .map_or(Size { cols: 80, rows: 24 }, |view| view.viewport);
-            match client.attach(session, size) {
-                Ok(attachment) => {
-                    let detached = client.detach(attachment.channel);
-                    lock(&self.shared).retire(attachment.channel);
-                    match detached {
+            let (reply, process) = mpsc::sync_channel(1);
+            let tag = lock(&self.shared).start_attach(Attaching::Process(reply));
+            match client.attach(tag, session, size) {
+                Ok(channel) => {
+                    match client.detach(channel) {
                         Ok(()) => {}
                         Err(ClientError::Server(error))
                             if error.code == ErrorCode::UnknownChannel => {}
                         Err(error) => return Err(error.to_string()),
                     }
-                    if attachment.process.is_none_or(|process| !process.is_shell) {
+                    let process = process
+                        .recv_timeout(Duration::from_secs(5))
+                        .map_err(|_| "lost the connection to the server".to_owned())?;
+                    if runs_program(process.as_ref()) {
                         return Ok(true);
                     }
                 }
-                Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownSession => {}
-                Err(error) => return Err(error.to_string()),
+                Err(error) => {
+                    lock(&self.shared).cancel_attach(tag);
+                    match error {
+                        ClientError::Server(error) if error.code == ErrorCode::UnknownSession => {}
+                        error => return Err(error.to_string()),
+                    }
+                }
             }
         }
         Ok(false)
@@ -634,7 +642,7 @@ impl Core {
             .views
             .iter()
             .filter(|(id, _)| !desired.contains_key(id))
-            .map(|(id, view)| (*id, view.channel))
+            .map(|(id, view)| (*id, view.channel()))
             .collect();
         for (id, channel) in obsolete {
             if let Some(channel) = channel {
@@ -732,7 +740,7 @@ impl Core {
         let existing = lock(&self.shared)
             .views
             .get(&id)
-            .map(|view| (view.ended, view.channel, view.viewport));
+            .map(|view| (view.ended, view.channel(), view.viewport));
         if let Some((ended, channel, viewport)) = existing {
             if ended {
                 return Ok(());
@@ -741,7 +749,7 @@ impl Core {
                 if viewport != size {
                     if let Some(view) = lock(&self.shared).views.get_mut(&id) {
                         view.viewport = size;
-                        view.grid.resize(size);
+                        view.terminal.grid.resize(size);
                         view.scroll.bottom();
                     }
                     client
@@ -751,23 +759,26 @@ impl Core {
                 return Ok(());
             }
         }
-        let mut view = match client.attach(session, size) {
-            Ok(attachment) => View::attached(session, size, attachment),
-            Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownSession => {
-                lock(&self.shared).session_ended(session);
-                self.close_ended_sessions(catalog)?;
+        let tag = {
+            let mut shared = lock(&self.shared);
+            if shared.is_attaching(id) {
                 return Ok(());
             }
-            Err(error) => return Err(error.to_string()),
+            shared.start_attach(Attaching::Pane { id, viewport: size })
         };
-        view.grid.graphics = muxy_protocol::Graphics::default();
-        let ack = lock(&self.shared).insert(id, view);
-        if let Some((channel, seq)) = ack {
-            client
-                .ack(channel, seq)
-                .map_err(|error| error.to_string())?;
+        match client.attach(tag, session, size) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                lock(&self.shared).cancel_attach(tag);
+                match error {
+                    ClientError::Server(error) if error.code == ErrorCode::UnknownSession => {
+                        lock(&self.shared).session_ended(session);
+                        self.close_ended_sessions(catalog)
+                    }
+                    error => Err(error.to_string()),
+                }
+            }
         }
-        Ok(())
     }
 
     fn create_pane(
@@ -779,11 +790,8 @@ impl Core {
         pane: &mut crate::state::Pane,
     ) -> Result<bool> {
         if let Some(operation) = pane.creation {
-            let directory = pane
-                .directory
-                .to_path_buf()
-                .map_err(|code| format!("Invalid pane directory: {code:?}"))?;
-            match client.create_project_session(project, operation, &directory, size) {
+            match client.create_project_session(project, operation, pane.directory.as_path(), size)
+            {
                 Ok(info) => {
                     self.store_mut()?.change(|state| {
                         if let Some(pane) = state.pane_mut(id)
@@ -850,12 +858,13 @@ impl Core {
         if ended.is_empty() {
             return Ok(());
         }
-        let closed = self
-            .store_mut()?
-            .change(|state| Ok(state.close_ended_sessions(&ended)))?;
+        self.store_mut()?.change(|state| {
+            state.close_sessions(&ended);
+            Ok(())
+        })?;
         lock(&self.shared)
             .ended
-            .retain(|session| !closed.contains(session));
+            .retain(|session| !ended.contains(session));
         self.publish(catalog);
         Ok(())
     }
@@ -998,20 +1007,14 @@ fn send_input(shared: &Mutex<Shared>, writer: &InputWriter, input: Input) -> Res
     else {
         return Ok(());
     };
-    let Some((client, channel)) = shared.client.clone().zip(view.channel) else {
+    let Some((client, channel)) = shared.client.clone().zip(view.channel()) else {
         return Ok(());
     };
-    let modes = view.grid.modes;
+    let modes = view.terminal.grid.modes;
     drop(shared);
     let bytes = input.encode(modes);
     if !bytes.is_empty() {
         writer.send(client, channel, bytes)?;
     }
     Ok(())
-}
-
-pub(crate) fn hosting_session(server: ServerIdentity) -> Option<SessionId> {
-    let inherited: ServerIdentity = std::env::var("MUXY_SERVER_ID").ok()?.parse().ok()?;
-    (inherited == server).then_some(())?;
-    SessionId::new(std::env::var("MUXY_SESSION_ID").ok()?.parse().ok()?)
 }

@@ -1,3 +1,4 @@
+pub(crate) mod automation;
 pub(crate) mod input;
 pub(crate) mod modal;
 pub(crate) mod panel;
@@ -27,6 +28,8 @@ pub(crate) struct Request {
 
 pub(crate) enum SurfaceEvent {
     Request(Request),
+    /// The page started showing another document.
+    Navigated,
     Escape,
     Shortcut(gpui::Keystroke),
 }
@@ -46,7 +49,7 @@ pub(crate) enum SurfaceKind {
 }
 
 impl SurfaceKind {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Tab => "tab",
             Self::Panel => "panel",
@@ -62,6 +65,11 @@ pub(crate) struct Page {
     pub instance: String,
     pub data: Value,
     pub kind: SurfaceKind,
+    /// The name of a panel opened as one of several copies.
+    pub panel_instance: Option<String>,
+    /// Whether nothing is drawn behind the page, so what is under it shows
+    /// where the page is transparent.
+    pub transparent: bool,
 }
 
 #[derive(Default)]
@@ -76,11 +84,11 @@ impl Presentation {
         self.visible && !self.blocked && !failed
     }
 
-    /// A page the app draws is its snapshots. One the system shows keeps a
-    /// snapshot under it for when it is hidden, except where the page lets
-    /// what is behind it show through.
-    fn show_snapshot(&self, modal: bool, failed: bool) -> bool {
-        NativeWebview::DRAWN_BY_APP || !modal || !self.native_visible(failed)
+    /// A page the app draws is its snapshots. One the system shows lets what
+    /// is behind it show through where it leaves its background unset, so its
+    /// snapshot is drawn only while it is hidden.
+    fn show_snapshot(&self, failed: bool) -> bool {
+        NativeWebview::DRAWN_BY_APP || !self.native_visible(failed)
     }
 
     fn update_focus(&mut self, visible: bool, blocked: bool, focused: bool) -> Option<bool> {
@@ -105,6 +113,11 @@ pub(crate) struct Webview {
     data: Value,
     theme: Value,
     background: gpui::Rgba,
+    transparent: bool,
+    /// Whether the page takes the pointer only over its hit regions, so a
+    /// click elsewhere on it must not take the keyboard.
+    pass_through: bool,
+    panel_instance: Option<String>,
     presentation: Presentation,
     snapshot: Option<Arc<gpui::RenderImage>>,
     error: Option<String>,
@@ -117,6 +130,9 @@ pub(crate) struct Webview {
     menu: Option<OptionMenu>,
     closes: CloseRequests,
     close_results: HashMap<u64, async_channel::Sender<bool>>,
+    /// Whether the page's document has finished loading.
+    loaded: bool,
+    automation: automation::Automation,
     _events: Task<()>,
 }
 
@@ -135,17 +151,21 @@ impl Webview {
             instance,
             data,
             kind,
+            panel_instance,
+            transparent,
         } = page;
         let theme_values = theme_snapshot(theme, metrics);
         let theme = theme.clone();
-        let script = bridge_script(&source.owner, &instance, kind, &data, &theme_values);
-        let (native, events) = NativeWebview::new(
-            window,
-            source.clone(),
-            &script,
-            theme.bg.into(),
-            matches!(kind, SurfaceKind::Modal | SurfaceKind::Popover),
-        )?;
+        let script = bridge_script(
+            &source.owner,
+            &instance,
+            panel_instance.as_deref(),
+            kind,
+            &data,
+            &theme_values,
+        );
+        let background = page_background(&theme, transparent);
+        let (native, events) = NativeWebview::new(window, source.clone(), &script, background)?;
         Ok(cx.new(move |cx| {
             cx.on_release(|view: &mut Self, cx| view.clear_snapshot(cx))
                 .detach();
@@ -167,7 +187,10 @@ impl Webview {
                 icon_revision: 0,
                 data,
                 theme: theme_values,
-                background: theme.bg.into(),
+                background,
+                transparent,
+                pass_through: false,
+                panel_instance,
                 presentation: Presentation::default(),
                 snapshot: None,
                 error: None,
@@ -179,6 +202,8 @@ impl Webview {
                 menu: None,
                 closes: CloseRequests::default(),
                 close_results: HashMap::new(),
+                loaded: false,
+                automation: automation::Automation::default(),
                 _events: events,
             }
         }))
@@ -197,6 +222,57 @@ impl Webview {
             .reply(request.id, request.generation, &response.to_string());
     }
 
+    fn handle_message(&mut self, id: u64, generation: u64, json: &str, cx: &mut Context<Self>) {
+        if generation != self.native.generation() {
+            return;
+        }
+        let body: Value = serde_json::from_str(json).unwrap_or(Value::Null);
+        let request = Request {
+            id,
+            generation,
+            body,
+        };
+        match request.body["verb"].as_str() {
+            Some(automation::RESULT_VERB) => {
+                let token = request.body["requestID"].as_str().unwrap_or_default();
+                let result = if self.automation.finish(token, &request.body["args"]) {
+                    Ok(Value::Null)
+                } else {
+                    Err("no script is waiting for this result".into())
+                };
+                self.reply(&request, result);
+            }
+            Some("lifecycle.ackBeforeClose") => {
+                if let Some(id) = request.body["args"]["callID"]
+                    .as_str()
+                    .and_then(|id| id.parse().ok())
+                {
+                    self.closes.acknowledge(id);
+                }
+                self.reply(&request, Ok(Value::Null));
+            }
+            Some("lifecycle.resolveBeforeClose") => {
+                if let Some(id) = request.body["args"]["callID"]
+                    .as_str()
+                    .and_then(|id| id.parse().ok())
+                    && self.closes.resolve(id)
+                {
+                    self.resolve_close(
+                        id,
+                        request.body["args"]["prevent"].as_bool().unwrap_or(false),
+                    );
+                }
+                self.reply(&request, Ok(Value::Null));
+            }
+            Some(_)
+                if request.body["requestID"].is_string() && request.body["args"].is_object() =>
+            {
+                cx.emit(SurfaceEvent::Request(request));
+            }
+            _ => self.reply(&request, Err("invalid webview message".into())),
+        }
+    }
+
     fn handle(&mut self, event: Event, cx: &mut Context<Self>) {
         match event {
             Event::Asset { id, result } => self.native.complete_asset(id, result),
@@ -204,54 +280,18 @@ impl Webview {
                 id,
                 generation,
                 json,
-            } => {
-                if generation != self.native.generation() {
-                    return;
-                }
-                let body: Value = serde_json::from_str(&json).unwrap_or(Value::Null);
-                let request = Request {
-                    id,
-                    generation,
-                    body,
-                };
-                match request.body["verb"].as_str() {
-                    Some("lifecycle.ackBeforeClose") => {
-                        if let Some(id) = request.body["args"]["callID"]
-                            .as_str()
-                            .and_then(|id| id.parse().ok())
-                        {
-                            self.closes.acknowledge(id);
-                        }
-                        self.reply(&request, Ok(Value::Null));
-                    }
-                    Some("lifecycle.resolveBeforeClose") => {
-                        if let Some(id) = request.body["args"]["callID"]
-                            .as_str()
-                            .and_then(|id| id.parse().ok())
-                            && self.closes.resolve(id)
-                        {
-                            self.resolve_close(
-                                id,
-                                request.body["args"]["prevent"].as_bool().unwrap_or(false),
-                            );
-                        }
-                        self.reply(&request, Ok(Value::Null));
-                    }
-                    Some(_)
-                        if request.body["requestID"].is_string()
-                            && request.body["args"].is_object() =>
-                    {
-                        cx.emit(SurfaceEvent::Request(request));
-                    }
-                    _ => self.reply(&request, Err("invalid webview message".into())),
-                }
-            }
+            } => self.handle_message(id, generation, &json, cx),
             Event::Navigated => {
                 self.fail_closes();
+                self.loaded = false;
+                self.automation
+                    .fail_scripts("the page loaded another document before answering");
                 self.error = None;
                 self.clear_snapshot(cx);
+                cx.emit(SurfaceEvent::Navigated);
             }
             Event::Loaded => {
+                self.loaded = true;
                 self.push_state();
                 if self.presentation.native_visible(false) {
                     self.native.snapshot();
@@ -259,6 +299,8 @@ impl Webview {
             }
             Event::Failed(error) => {
                 self.fail_closes();
+                self.automation.fail_captures(&error);
+                self.automation.fail_scripts(&error);
                 self.error = Some(error);
                 self.native.set_visible(false);
             }
@@ -278,6 +320,9 @@ impl Webview {
                 // Asked even when the snapshot will not be shown: a backend
                 // that paces its snapshots sends the next one after this.
                 let current = self.native.accept_snapshot(id, generation);
+                if current && self.automation.wants_capture() {
+                    self.automation.deliver(&image);
+                }
                 if current
                     && self.error.is_none()
                     && let Some(image) = render_snapshot(image)
@@ -292,6 +337,59 @@ impl Webview {
         cx.notify();
     }
 
+    /// Runs `body` as an async function in the page. Its JSON result
+    /// arrives on the receiver; the token forgets it.
+    pub(crate) fn run_page_script(
+        &mut self,
+        body: &str,
+    ) -> (String, async_channel::Receiver<automation::Outcome>) {
+        let (script, token, result) = self.automation.start(body);
+        self.native.evaluate(&script);
+        (token, result)
+    }
+
+    pub(crate) fn forget_page_script(&mut self, token: &str) {
+        self.automation.forget(token);
+    }
+
+    /// A picture of the page as it is now, and the number that forgets it.
+    pub(crate) fn capture(
+        &mut self,
+    ) -> (
+        u64,
+        async_channel::Receiver<Result<automation::Picture, String>>,
+    ) {
+        let (id, picture) = self.automation.capture();
+        match &self.error {
+            Some(error) => {
+                let error = error.clone();
+                self.automation.fail_captures(&error);
+            }
+            None => self.native.snapshot(),
+        }
+        (id, picture)
+    }
+
+    pub(crate) fn forget_capture(&mut self, id: u64) {
+        self.automation.forget_capture(id);
+    }
+
+    pub(crate) fn loaded(&self) -> bool {
+        self.loaded && self.error.is_none()
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub(crate) fn shown(&self) -> bool {
+        self.presentation.visible
+    }
+
+    pub(crate) fn panel_instance(&self) -> Option<&str> {
+        self.panel_instance.as_deref()
+    }
+
     fn clear_snapshot(&mut self, cx: &mut gpui::App) {
         if let Some(image) = self.snapshot.take() {
             cx.defer(move |cx| cx.drop_image(image, None));
@@ -302,6 +400,13 @@ impl Webview {
         self.native.evaluate(&format!("window.__muxyApplyData?.({});window.__muxyApplyTheme?.({});window.__muxyApplyFocus?.({});", self.data, self.theme, self.presentation.focused));
         if self.presentation.focused && !self.presentation.blocked {
             self.native.focus();
+        }
+    }
+
+    pub(crate) fn set_pass_through(&mut self, pass_through: bool, cx: &mut Context<Self>) {
+        if self.pass_through != pass_through {
+            self.pass_through = pass_through;
+            cx.notify();
         }
     }
 
@@ -327,7 +432,7 @@ impl Webview {
         cx: &mut Context<Self>,
     ) {
         let values = theme_snapshot(theme, metrics);
-        self.background = theme.bg.into();
+        self.background = page_background(theme, self.transparent);
         let data_changed = self.data != data;
         let theme_changed = self.theme != values;
         if data_changed || theme_changed {
@@ -346,6 +451,7 @@ impl Webview {
             self.native.install_script(&bridge_script(
                 &self.source.owner,
                 &self.instance,
+                self.panel_instance.as_deref(),
                 self.kind,
                 &self.data,
                 &self.theme,
@@ -423,9 +529,10 @@ impl Webview {
         self.close_results.insert(id, sender);
         let kind = self.kind.name();
         self.native.evaluate(&format!(
-            "window.__muxyBeforeClose?.({id},{},{});",
+            "window.__muxyBeforeClose?.({id},{},{},{});",
             json!(kind),
-            json!(self.instance)
+            json!(self.instance),
+            json!(self.panel_instance)
         ));
         cx.spawn(async move |view, cx| {
             cx.background_executor()
@@ -461,7 +568,10 @@ impl Webview {
         let rows = menu.options.iter().enumerate().map(|(index, option)| {
             if option.heading {
                 return muxy_ui::popover::header(&self.palette, self.metrics)
-                    .child(option.label.clone())
+                    .child(muxy_ui::accessibility::label(
+                        ("page-option-heading", index),
+                        option.label.clone(),
+                    ))
                     .into_any_element();
             }
             muxy_ui::popover::row(
@@ -471,6 +581,10 @@ impl Webview {
                 option.enabled,
                 option.selected,
             )
+            .role(gpui::Role::MenuItem)
+            .aria_label(option.label.clone())
+            .aria_disabled(!option.enabled)
+            .when(option.selected, |row| row.aria_toggled(gpui::Toggled::True))
             .child(option.label.clone())
             .when(option.enabled, |row| {
                 row.on_click(cx.listener(move |view, _, _, cx| view.choose(Some(index), cx)))
@@ -490,9 +604,10 @@ impl Webview {
             )
             .child(muxy_ui::popover::contained_dropdown(
                 menu.anchor,
-                px(240.0),
+                self.metrics.scaled(240.0),
                 muxy_ui::popover::surface(&self.palette, self.metrics)
                     .id("page-options")
+                    .role(gpui::Role::Menu)
                     .overflow_y_scroll()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .children(rows),
@@ -520,13 +635,33 @@ impl Webview {
 }
 
 fn render_snapshot(snapshot: muxy_ui::webview::Snapshot) -> Option<gpui::RenderImage> {
-    let pixels = image::RgbaImage::from_raw(snapshot.width, snapshot.height, snapshot.bgra)?;
+    let mut bgra = snapshot.bgra;
+    unpremultiply(&mut bgra);
+    let pixels = image::RgbaImage::from_raw(snapshot.width, snapshot.height, bgra)?;
     Some(gpui::RenderImage::new([image::Frame::new(pixels)]))
+}
+
+/// Turns premultiplied pixels, alpha last, into the straight alpha images
+/// are drawn with, in place.
+pub(crate) fn unpremultiply(pixels: &mut [u8]) {
+    for pixel in pixels.chunks_exact_mut(4) {
+        let alpha = u32::from(pixel[3]);
+        for channel in &mut pixel[..3] {
+            *channel = if alpha == 0 {
+                0
+            } else {
+                u8::try_from((u32::from(*channel) * 255 + alpha / 2) / alpha).unwrap_or(u8::MAX)
+            };
+        }
+    }
 }
 
 impl Drop for Webview {
     fn drop(&mut self) {
         self.fail_closes();
+        // Something else may still hold the native page for a moment; it
+        // must not stay on screen where it was last placed.
+        self.native.set_visible(false);
     }
 }
 
@@ -545,8 +680,12 @@ impl Render for Webview {
             reason = "A corner radius is a few points"
         )]
         let corners = px(radius as f32);
+        let pass_through = self.pass_through;
         div()
-            .track_focus(&self.focus)
+            .when(!pass_through, |page| page.track_focus(&self.focus))
+            .when(pass_through, |page| {
+                page.child(div().absolute().size_0().track_focus(&self.focus))
+            })
             .when(drawn, |page| {
                 page.on_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, _, cx| {
                     view.key(&event.keystroke, true, cx);
@@ -568,18 +707,13 @@ impl Render for Webview {
             .children(
                 self.snapshot
                     .clone()
-                    .filter(|_| {
-                        self.presentation.show_snapshot(
-                            matches!(self.kind, SurfaceKind::Modal | SurfaceKind::Popover),
-                            failed,
-                        )
-                    })
+                    .filter(|_| self.presentation.show_snapshot(failed))
                     .map(|image| img(image).absolute().size_full().rounded(corners)),
             )
             .children(
                 self.error
                     .clone()
-                    .map(|error| div().p(px(20.0)).child(error)),
+                    .map(|error| div().p(self.metrics.scaled(20.0)).child(error)),
             )
             .child(
                 canvas(
@@ -620,11 +754,26 @@ impl Render for Webview {
     }
 }
 
-fn bridge_script(owner: &str, id: &str, kind: SurfaceKind, data: &Value, theme: &Value) -> String {
+fn page_background(theme: &Theme, transparent: bool) -> gpui::Rgba {
+    if transparent {
+        gpui::Rgba::default()
+    } else {
+        theme.bg.into()
+    }
+}
+
+fn bridge_script(
+    owner: &str,
+    id: &str,
+    instance: Option<&str>,
+    kind: SurfaceKind,
+    data: &Value,
+    theme: &Value,
+) -> String {
     format!(
         "{}({}, {});",
         include_str!("bridge.js"),
-        json!({ "owner": owner, "id": id, "surface": kind.name(), "data": data, "theme": theme }),
+        json!({ "owner": owner, "id": id, "instance": instance, "surface": kind.name(), "data": data, "theme": theme }),
         include_str!("../../extensions/bridge.js")
     )
 }
@@ -661,10 +810,14 @@ pub(crate) fn placeholder(
         .size_full()
         .items_center()
         .justify_center()
-        .gap(px(8.0))
+        .gap(metrics.scaled(8.0))
         .child(
-            muxy_ui::components::SymbolGlyph::new("puzzlepiece.extension", px(32.0), theme.fg)
-                .regular(),
+            muxy_ui::components::SymbolGlyph::new(
+                "puzzlepiece.extension",
+                metrics.scaled(32.0),
+                theme.fg,
+            )
+            .regular(),
         )
         .child(
             div()
@@ -678,4 +831,40 @@ pub(crate) fn placeholder(
                 .child(tr!("Tab type: %@", kind)),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+
+    #[test]
+    fn a_shown_page_has_no_snapshot_under_it_unless_the_app_draws_it() {
+        let shown = Presentation {
+            visible: true,
+            ..Presentation::default()
+        };
+        assert_eq!(shown.show_snapshot(false), NativeWebview::DRAWN_BY_APP);
+        assert!(shown.show_snapshot(true));
+        let blocked = Presentation {
+            visible: true,
+            blocked: true,
+            ..Presentation::default()
+        };
+        assert!(blocked.show_snapshot(false));
+        assert!(Presentation::default().show_snapshot(false));
+    }
+
+    #[test]
+    fn snapshots_are_drawn_with_straight_alpha() {
+        let mut pixels = vec![
+            64, 32, 128, 128, 10, 20, 30, 0, 255, 255, 255, 255, 200, 0, 0, 100,
+        ];
+        unpremultiply(&mut pixels);
+        assert_eq!(
+            pixels,
+            vec![
+                128, 64, 255, 128, 0, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 100
+            ]
+        );
+    }
 }

@@ -110,3 +110,11 @@ impl ScrollbarRevealState {
         true
     }
 }
+
+/// Measures `list`'s rows again, keeping its scroll position, after what sizes
+/// them has changed.
+pub fn remeasure_list(list: &gpui::ListState) {
+    let offset = list.logical_scroll_top();
+    list.reset(list.item_count());
+    list.scroll_to(offset);
+}

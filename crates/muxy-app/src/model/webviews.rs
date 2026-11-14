@@ -5,6 +5,7 @@ mod results;
 mod sidebar;
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gpui::{Context, Entity, Subscription, Window};
 use muxy_app_core::{
@@ -29,7 +30,7 @@ struct Registered {
 pub(crate) struct Surface {
     pub view: Entity<Webview>,
     kind: String,
-    _subscription: Subscription,
+    subscription: Subscription,
 }
 
 pub(crate) struct Modal {
@@ -76,36 +77,42 @@ pub(crate) struct Webviews {
     registered_panels: HashMap<(String, String), panels::Definition>,
     pub(in crate::model) panel_sessions: panel_sessions::PanelSessions,
     pub panel_size: panels::PanelSize,
+    /// The window's size in floating panel points, as last laid out.
+    pub area: gpui::Size<f32>,
     pub popover: Option<popover::Popover>,
     pub sidebar: Option<sidebar::SidebarSurface>,
     /// The sidebar page that failed to load, so it is not retried every frame.
     sidebar_failure: Option<(String, String)>,
-    pub occlusions: std::rc::Rc<std::cell::RefCell<Vec<Occlusion>>>,
-    grips: std::rc::Rc<std::cell::RefCell<Vec<Grip>>>,
+    pub occlusions: Rc<std::cell::RefCell<Vec<Occlusion>>>,
+    grips: Rc<std::cell::RefCell<Vec<Grip>>>,
     results: results::Results,
     sequence: u64,
     close_sequence: u64,
-    initialized: bool,
     restore_focus: Option<gpui::WeakEntity<Webview>>,
+}
+
+/// Hears `view`'s requests, with `window` as the window it shows in.
+fn page_subscription(
+    view: &Entity<Webview>,
+    window: &mut Window,
+    cx: &mut Context<AppModel>,
+) -> Subscription {
+    cx.subscribe_in(view, window, |model, view, event, window, cx| match event {
+        SurfaceEvent::Request(request) => {
+            model.webview_request(view, request, window, cx);
+        }
+        SurfaceEvent::Navigated => model.forget_expired_calls(cx),
+        SurfaceEvent::Escape => model.webview_escape(view.read(cx).kind, cx),
+        SurfaceEvent::Shortcut(key) => {
+            dispatch_shortcut(key.clone(), window, cx);
+        }
+    })
 }
 
 impl AppModel {
     pub(crate) fn sync_webviews(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.initialize_webview_demo(cx);
-        self.sync_extension_events(cx);
-        self.open_restored_panel(window, cx);
-        if !matches!(self.overlay, Some(Overlay::Webview))
-            && let Some(modal) = self.webviews.modal.take()
-        {
-            self.modal_event("modal.closed", &modal, cx);
-        }
-        if !matches!(self.overlay, Some(Overlay::Popover)) {
-            self.close_extension_popover(cx);
-        }
         self.sync_extension_sidebar(window, cx);
         let descriptors = self.ensure_webview_panes(window, cx);
-        self.prune_extension_jobs(cx);
-        self.prune_webview_results(cx);
         let visible = self.visible_panes();
         if self.overlay.is_none()
             && let Some(view) = self
@@ -114,35 +121,77 @@ impl AppModel {
                 .take()
                 .and_then(|view| view.upgrade())
         {
-            let live = self
-                .webviews
-                .panes
-                .iter()
-                .any(|(id, surface)| visible.contains(id) && surface.view == view)
-                || self.webviews.panels.iter().any(|(id, panel)| {
-                    self.panels.placement(id).is_some() && panel.surface.view == view
-                });
+            let live =
+                self.webviews
+                    .panes
+                    .iter()
+                    .any(|(id, surface)| visible.contains(id) && surface.view == view)
+                    || self.webviews.panels.iter().any(|(id, panel)| {
+                        self.webview_panel_shown(id) && panel.surface.view == view
+                    });
             if live {
-                view.read(cx).focus.focus(window);
-                self.focus_requested = false;
+                self.focus_owner.place(&view.read(cx).focus, window);
             }
         }
         self.webviews.occlusions.borrow_mut().clear();
         self.webviews.grips.borrow_mut().clear();
-        let composer_dialog = (self.composer.view.is_some() || self.composer.closing.is_some())
-            && self.settings.composer.presentation
-                == muxy_app_core::settings::ComposerPresentation::Floating;
-        let blocked = composer_dialog || self.overlay.is_some() || self.close_prompt.is_some();
+        let coverage = self.coverage();
+        let blocked = coverage.hides_webviews();
         let resizing = self.resizing_surfaces(window, cx);
         self.spinners
-            .set_blocked(resizing || composer_dialog || self.overlay_unmarked());
+            .set_blocked(resizing || coverage.hides_spinners());
+        let shortcuts = self.webview_shortcuts();
+        self.present_page_panes(&descriptors, blocked, resizing, window, cx);
+        self.sync_webview_panels(blocked, resizing, window, cx);
+        self.sync_extension_surfaces(&shortcuts, coverage, resizing, window, cx);
+        if let Some(modal) = &self.webviews.modal
+            && let Err(error) = modal.surface.view.read(cx).native.move_to_window(window)
+        {
+            self.set_banner_error(Some(error));
+        }
+        if let Some(modal) = &self.webviews.modal {
+            modal
+                .surface
+                .view
+                .read(cx)
+                .native
+                .set_shortcuts(true, Rc::default());
+            modal.surface.view.update(cx, |view, cx| {
+                view.refresh_theme(&self.theme, self.metrics, cx);
+                view.present(
+                    true,
+                    coverage.hides_overlay_webviews(),
+                    window.is_window_active() && view.focus.is_focused(window),
+                    f64::from(f32::from(self.metrics.radius_xl())),
+                    cx,
+                );
+            });
+        }
+    }
+
+    /// Moves the pages `window` shows into it, then shows each page pane
+    /// that lives in `window` as its pane is.
+    pub(crate) fn present_page_panes(
+        &mut self,
+        descriptors: &HashMap<PaneId, WebviewDescriptor>,
+        blocked: bool,
+        resizing: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.rehome_pages(window, cx);
+        let here = window.window_handle().window_id();
+        let visible = self.visible_panes();
         let shortcuts = self.webview_shortcuts();
         for (id, surface) in &self.webviews.panes {
+            if self.page_window(*id) != here {
+                continue;
+            }
             surface
                 .view
                 .read(cx)
                 .native
-                .set_shortcuts(self.layout_drag_pending(), shortcuts.to_vec());
+                .set_shortcuts(self.layout_drag_pending(), shortcuts.clone());
             let Some(descriptor) = descriptors.get(id) else {
                 continue;
             };
@@ -160,25 +209,53 @@ impl AppModel {
             });
         }
         self.sync_browsers(blocked, resizing, window, cx);
-        self.sync_webview_panels(blocked, resizing, window, cx);
-        self.sync_extension_surfaces(&shortcuts, blocked, resizing, window, cx);
-        if let Some(modal) = &self.webviews.modal {
-            modal
-                .surface
-                .view
-                .read(cx)
-                .native
-                .set_shortcuts(true, Vec::new());
-            modal.surface.view.update(cx, |view, cx| {
-                view.refresh_theme(&self.theme, self.metrics, cx);
-                view.present(
-                    true,
-                    self.close_prompt.is_some(),
-                    window.is_window_active() && view.focus.is_focused(window),
-                    f64::from(f32::from(self.metrics.radius_xl())),
-                    cx,
-                );
-            });
+    }
+
+    /// The window a page pane's native view lives in.
+    pub(crate) fn page_window(&self, pane: PaneId) -> gpui::WindowId {
+        self.tab_windows
+            .page_home(pane)
+            .unwrap_or_else(|| self.window.window_id())
+    }
+
+    /// Moves the native views of the page panes `window` shows into it, so
+    /// they keep their pages instead of loading them again.
+    fn rehome_pages(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let here = window.window_handle().window_id();
+        for pane in self.visible_panes() {
+            if self.page_window(pane) == here {
+                continue;
+            }
+            let moved = if let Some(surface) = self.webviews.panes.get(&pane) {
+                let view = surface.view.clone();
+                let moved = view.read(cx).native.move_to_window(window);
+                if moved.is_ok()
+                    && let Some(surface) = self.webviews.panes.get_mut(&pane)
+                {
+                    surface.subscription = page_subscription(&view, window, cx);
+                }
+                Some(moved)
+            } else if let Some(view) = self.browser_view(pane).cloned() {
+                let moved = view.read(cx).native.move_to_window(window);
+                if moved.is_ok() {
+                    self.resubscribe_browser(pane, &view, window, cx);
+                }
+                Some(moved)
+            } else {
+                None
+            };
+            match moved {
+                Some(Ok(())) => {
+                    self.tab_windows
+                        .set_page_home(pane, here, self.window.window_id());
+                    if self.active_pane() == Some(pane) {
+                        self.focus_owner.request_active_pane();
+                    }
+                    window.refresh();
+                }
+                Some(Err(error)) => self.set_banner_error(Some(error)),
+                None => {}
+            }
         }
     }
 
@@ -189,6 +266,7 @@ impl AppModel {
             || self.agents_panel.resize.is_active()
             || self.split_resize.active()
             || self.layout_drag_pending()
+            || self.floating.drag.is_some()
             || self
                 .webviews
                 .panels
@@ -201,25 +279,18 @@ impl AppModel {
                 .is_some_and(|view| view.read(cx).sizing(window).resize_state().is_active())
     }
 
-    /// An overlay that doesn't mark where it is hides every spinner.
-    /// Confirmations are native sheets above the window, so they hide none.
-    fn overlay_unmarked(&self) -> bool {
-        self.overlay
-            .as_ref()
-            .is_some_and(|overlay| !overlay.marks_bounds())
-    }
-
     pub(super) fn pane_drag_available(&self, pane: PaneId) -> bool {
-        self.pane_tab(pane)
+        self.state
+            .pane_tab(pane)
             .and_then(|tab| self.tab(tab))
-            .is_some_and(|tab| tab.zoomed.is_none() && tab.panes.len() > 1)
+            .is_some_and(|tab| tab.zoomed.is_none())
     }
 
     /// Presents the extension sidebar and the open popover.
     fn sync_extension_surfaces(
         &self,
-        shortcuts: &[gpui::Keystroke],
-        blocked: bool,
+        shortcuts: &Rc<Vec<gpui::Keystroke>>,
+        coverage: super::coverage::Coverage,
         resizing: bool,
         window: &Window,
         cx: &mut Context<Self>,
@@ -228,12 +299,12 @@ impl AppModel {
             let visible = self.extension_sidebar_active() && self.sidebar_width() > 0.0;
             sidebar.surface.view.update(cx, |view, cx| {
                 view.native
-                    .set_shortcuts(self.layout_drag_pending(), shortcuts.to_vec());
+                    .set_shortcuts(self.layout_drag_pending(), shortcuts.clone());
                 view.native.set_mouse_passthrough(resizing);
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
                     visible,
-                    blocked,
+                    coverage.hides_webviews(),
                     window.is_window_active() && view.focus.is_focused(window),
                     0.0,
                     cx,
@@ -242,11 +313,11 @@ impl AppModel {
         }
         if let Some(popover) = &self.webviews.popover {
             popover.surface.view.update(cx, |view, cx| {
-                view.native.set_shortcuts(true, shortcuts.to_vec());
+                view.native.set_shortcuts(true, shortcuts.clone());
                 view.refresh_theme(&self.theme, self.metrics, cx);
                 view.present(
                     true,
-                    self.close_prompt.is_some(),
+                    coverage.hides_overlay_webviews(),
                     window.is_window_active() && view.focus.is_focused(window),
                     f64::from(f32::from(self.metrics.radius_lg())),
                     cx,
@@ -255,20 +326,17 @@ impl AppModel {
         }
     }
 
-    fn ensure_webview_panes(
+    pub(crate) fn ensure_webview_panes(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> HashMap<PaneId, WebviewDescriptor> {
         let descriptors: HashMap<_, _> = self
             .state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .filter_map(|pane| {
-                if let PaneContent::Webview(descriptor) = &pane.content {
-                    Some((pane.id, descriptor.clone()))
+            .panes()
+            .filter_map(|placed| {
+                if let PaneContent::Webview(descriptor) = &placed.pane.content {
+                    Some((placed.pane.id, descriptor.clone()))
                 } else {
                     None
                 }
@@ -300,6 +368,11 @@ impl AppModel {
                 ) {
                     Ok(mut surface) => {
                         surface.kind.clone_from(&descriptor.kind);
+                        self.tab_windows.set_page_home(
+                            *id,
+                            window.window_handle().window_id(),
+                            self.window.window_id(),
+                        );
                         self.webviews.panes.insert(*id, surface);
                     }
                     Err(error) => {
@@ -309,6 +382,13 @@ impl AppModel {
             }
         }
         descriptors
+    }
+
+    /// Cancels the extension calls, and forgets the modal results, whose
+    /// page, script or project is gone.
+    pub(in crate::model) fn forget_expired_calls(&mut self, cx: &mut Context<Self>) {
+        self.prune_extension_jobs(cx);
+        self.prune_webview_results(cx);
     }
 
     fn prune_webview_results(&mut self, cx: &gpui::App) {
@@ -340,38 +420,36 @@ impl AppModel {
         self.webviews.results.retain(live_documents);
     }
 
-    fn initialize_webview_demo(&mut self, cx: &mut Context<Self>) {
-        if !self.webviews.initialized {
-            self.webviews.initialized = true;
-            if cfg!(debug_assertions)
-                && std::env::var("MUXY_WEBVIEW_DEMO").is_ok_and(|value| value == "1")
-                && std::env::var_os("MUXY_DIR").is_some()
-            {
-                self.webviews.registered.insert(
-                    ("foundation".into(), "demo".into()),
-                    Registered {
-                        source: Source {
-                            owner: "foundation".into(),
-                            directory: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                                .join("fixtures/webview"),
-                            entry: "index.html".into(),
-                        },
-                        title: "Webview Foundation".into(),
-                    },
-                );
-                self.register_demo_panels();
-                let descriptor = WebviewDescriptor {
+    /// Opens the foundation demo tab in debug builds that ask for it.
+    pub(super) fn start_webview_demo(&mut self, cx: &mut Context<Self>) {
+        if !(cfg!(debug_assertions)
+            && std::env::var("MUXY_WEBVIEW_DEMO").is_ok_and(|value| value == "1")
+            && std::env::var_os("MUXY_DIR").is_some())
+        {
+            return;
+        }
+        self.webviews.registered.insert(
+            ("foundation".into(), "demo".into()),
+            Registered {
+                source: Source {
                     owner: "foundation".into(),
-                    kind: "demo".into(),
-                    data: json!({"message":"Foundation harness"}),
-                };
-                let restored = self.state.projects().iter().flat_map(|project| &project.tabs)
-                    .flat_map(|tab| &tab.panes).any(|pane| matches!(&pane.content,
-                        PaneContent::Webview(saved) if saved.owner == descriptor.owner && saved.kind == descriptor.kind));
-                if !restored {
-                    let _ = self.open_webview_tab(descriptor, true, cx);
-                }
-            }
+                    directory: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("fixtures/webview"),
+                    entry: "index.html".into(),
+                },
+                title: "Webview Foundation".into(),
+            },
+        );
+        self.register_demo_panels();
+        let descriptor = WebviewDescriptor {
+            owner: "foundation".into(),
+            kind: "demo".into(),
+            data: json!({"message":"Foundation harness"}),
+        };
+        let restored = self.state.panes().any(|placed| matches!(&placed.pane.content,
+            PaneContent::Webview(saved) if saved.owner == descriptor.owner && saved.kind == descriptor.kind));
+        if !restored {
+            let _ = self.open_webview_tab(descriptor, true, cx);
         }
     }
 
@@ -384,37 +462,35 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Surface, String> {
-        self.capabilities.check(Feature::ExtensionWebviews)?;
-        let view = Webview::create(
+        self.create_page_surface(
             Page {
                 source,
                 instance: id,
                 data,
                 kind,
+                panel_instance: None,
+                transparent: false,
             },
-            &self.theme,
-            self.metrics,
             window,
             cx,
-        )?;
-        let subscription =
-            cx.subscribe_in(
-                &view,
-                window,
-                |model, view, event, window, cx| match event {
-                    SurfaceEvent::Request(request) => {
-                        model.webview_request(view, request, window, cx);
-                    }
-                    SurfaceEvent::Escape => model.webview_escape(view.read(cx).kind, cx),
-                    SurfaceEvent::Shortcut(key) => {
-                        dispatch_shortcut(key.clone(), window, cx);
-                    }
-                },
-            );
+        )
+    }
+
+    fn create_page_surface(
+        &mut self,
+        page: Page,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<Surface, String> {
+        self.capabilities.check(Feature::ExtensionWebviews)?;
+        let view = Webview::create(page, &self.theme, self.metrics, window, cx)?;
+        let subscription = page_subscription(&view, window, cx);
+        cx.observe_release(&view, |model, _, cx| model.forget_expired_calls(cx))
+            .detach();
         Ok(Surface {
             view,
             kind: String::new(),
-            _subscription: subscription,
+            subscription,
         })
     }
 
@@ -445,22 +521,23 @@ impl AppModel {
             .source
             .entry_url()
             .map_err(|error| error.to_string())?;
-        let previous = self.state.clone();
+        let title = registered.title.clone();
+        let project = self.state.current_project().id;
         let (_, pane) = self
-            .state
-            .open_webview(
-                self.state.current_project().id,
-                descriptor,
-                &registered.title,
-                singleton,
-            )
-            .map_err(|error| error.to_string())?;
-        if !self.save(cx) {
-            self.state = previous;
-            return Err("could not save webview tab".into());
-        }
+            .transact(
+                |state| {
+                    state
+                        .open_webview(project, descriptor, &title, singleton)
+                        .map_err(|error| error.to_string())
+                },
+                cx,
+            )?
+            .ok_or("could not save webview tab")?;
         self.sync_visible(cx);
-        self.focus_requested = true;
+        if !self.raise_pane_window(pane, cx) {
+            self.show_main_window(cx);
+            self.focus_owner.request_active_pane();
+        }
         cx.notify();
         Ok(pane)
     }
@@ -514,9 +591,13 @@ impl AppModel {
             "tabs.open" if view.read(cx).source.owner == "foundation" => {
                 self.open_page_tab(view, args, cx)
             }
-            "panels.open" | "panels.toggle" | "panels.close" => {
+            "panels.open" | "panels.toggle" | "panels.close" | "panels.update" | "panels.list" => {
                 self.panel_request(view, request, window, cx)
             }
+            "panel.update" | "panel.get" | "panel.raise" => match &panel {
+                Some(panel) => self.own_panel_request(panel, request, window, cx),
+                None => Err("only a panel can change its own frame and options".into()),
+            },
             "modal.openWebview" => self
                 .open_webview_modal(view, args, window, cx)
                 .map(|id| json!({"requestID":id})),
@@ -566,12 +647,9 @@ impl AppModel {
                 } else if let Some(panel) = panel {
                     self.remove_webview_panel(&panel, cx);
                 } else if let Some(pane) = pane {
-                    let previous = self.state.clone();
-                    if self.state.close_pane(pane).is_err() || !self.save(cx) {
-                        self.state = previous;
-                    }
+                    let _ = self.transact(|state| state.close_pane(pane), cx);
                     self.sync_visible(cx);
-                    self.focus_requested = true;
+                    self.focus_owner.request_active_pane();
                 }
                 return None;
             }
@@ -629,20 +707,30 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         if (self.overlay.is_some() && !in_overlay)
-            || self.close_prompt.is_some()
+            || self.dialogs.is_open()
             || pane.is_some_and(|pane| !self.visible_panes().contains(&pane))
             || (view.read(cx).kind == SurfaceKind::Panel
-                && !self.webviews.panels.iter().any(|(id, panel)| {
-                    panel.surface.view == *view && self.panels.placement(id).is_some()
-                }))
+                && !self
+                    .webviews
+                    .panels
+                    .iter()
+                    .any(|(id, panel)| panel.surface.view == *view && self.webview_panel_shown(id)))
         {
             return;
+        }
+        if let Some(id) = self
+            .webviews
+            .panels
+            .iter()
+            .find(|(_, panel)| panel.surface.view == *view && panel.detached)
+            .map(|(id, _)| id.clone())
+        {
+            self.raise_floating(&id, cx);
         }
         if let Some(pane) = pane {
             self.focus_pane(pane, cx);
         }
-        view.read(cx).focus.focus(window);
-        self.focus_requested = false;
+        self.focus_owner.place(&view.read(cx).focus, window);
         if !in_overlay {
             let outside: Vec<_> = self
                 .webviews
@@ -736,14 +824,20 @@ impl AppModel {
 
     /// Shows a modal, replacing (and resolving with `null`) any open one.
     fn show_webview_modal(&mut self, modal: Modal, cx: &mut Context<Self>) {
-        if let Some(previous) = self.webviews.modal.take() {
-            self.modal_event("modal.closed", &previous, cx);
-        }
+        self.overlay_subscription = None;
+        self.open_overlay(Overlay::Webview, cx);
         self.modal_event("modal.opened", &modal, cx);
         self.webviews.modal = Some(modal);
-        self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Webview);
         cx.notify();
+    }
+
+    /// Closes the modal without asking its page, resolving it with `null`, as
+    /// when another overlay takes its place.
+    pub(crate) fn drop_webview_modal(&mut self, cx: &mut Context<Self>) {
+        if let Some(modal) = self.webviews.modal.take() {
+            self.modal_event("modal.closed", &modal, cx);
+            cx.notify();
+        }
     }
 
     fn modal_event(&self, event: &str, modal: &Modal, cx: &gpui::App) {
@@ -768,7 +862,7 @@ impl AppModel {
             if matches!(self.overlay, Some(Overlay::Webview)) {
                 self.overlay = None;
             }
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             cx.notify();
         }
     }
@@ -854,21 +948,30 @@ impl AppModel {
     }
 
     pub(crate) fn webview_title<'a>(&'a self, tab: &'a Tab, cx: &'a gpui::App) -> &'a str {
-        if tab.custom_title.is_none()
-            && let Some(pane) = tab.displayed_pane(self.state.shown_pane(tab))
-        {
-            if let Some(surface) = self.webviews.panes.get(&pane.id)
-                && let Some(title) = &surface.view.read(cx).title
-            {
-                return title;
-            }
-            if matches!(pane.content, PaneContent::Browser(_))
-                && let Some(title) = self.browser_title(pane.id, cx)
-            {
-                return title;
-            }
+        if let Some(title) = &tab.custom_title {
+            return title;
         }
-        tab.title(self.state.shown_pane(tab))
+        tab.displayed_pane(self.state.shown_pane(tab))
+            .map_or("", |pane| self.pane_title(pane, cx))
+    }
+
+    /// The title a pane shows: its page's title, or the one it was given.
+    pub(crate) fn pane_title<'a>(
+        &'a self,
+        pane: &'a muxy_app_core::Pane,
+        cx: &'a gpui::App,
+    ) -> &'a str {
+        if let Some(surface) = self.webviews.panes.get(&pane.id)
+            && let Some(title) = &surface.view.read(cx).title
+        {
+            return title;
+        }
+        if matches!(pane.content, PaneContent::Browser(_))
+            && let Some(title) = self.browser_title(pane.id, cx)
+        {
+            return title;
+        }
+        &pane.title
     }
 }
 
@@ -922,8 +1025,51 @@ impl AppModel {
             |_, (), _, _| (),
         )
         .absolute()
+        .top_0()
+        .left_0()
         .size_full()
         .into_any_element()
+    }
+
+    /// Marks where a see-through page sits among the app's layers without
+    /// hiding the pages under it: only what is drawn after it covers it.
+    pub(crate) fn webview_layer(&self, owner: gpui::EntityId) -> gpui::AnyElement {
+        use gpui::{IntoElement, Styled};
+        let occlusions = self.webviews.occlusions.clone();
+        gpui::canvas(
+            move |_, _, _| {
+                occlusions
+                    .borrow_mut()
+                    .push((Some(owner), gpui::Bounds::default()));
+            },
+            |_, (), _, _| (),
+        )
+        .absolute()
+        .size_0()
+        .into_any_element()
+    }
+
+    /// Makes [`Self::webview_grip`]s without borrowing the model, for an
+    /// element that builds its grips itself.
+    pub(crate) fn webview_grips(
+        &self,
+        owner: Option<gpui::EntityId>,
+    ) -> impl Fn(gpui::CursorStyle) -> gpui::AnyElement + 'static {
+        use gpui::{IntoElement, Styled};
+        let grips = self.webviews.grips.clone();
+        move |cursor| {
+            let grips = grips.clone();
+            gpui::canvas(
+                move |bounds, window, _| {
+                    let visible = bounds.intersect(&window.content_mask().bounds);
+                    grips.borrow_mut().push((owner, visible, cursor));
+                },
+                |_, (), _, _| (),
+            )
+            .absolute()
+            .size_full()
+            .into_any_element()
+        }
     }
 
     /// Lets the web views under this element pass clicks through to it and
@@ -949,11 +1095,27 @@ impl AppModel {
 
     pub(crate) fn apply_webview_regions(&self, cx: &gpui::App) -> gpui::AnyElement {
         use gpui::{IntoElement, Styled};
+        let main = self.window.window_id();
+        let pages_elsewhere: Vec<_> = self
+            .webviews
+            .panes
+            .iter()
+            .filter(|(pane, _)| self.page_window(**pane) != main)
+            .map(|(_, surface)| surface.view.read(cx).native.clone())
+            .collect();
+        let browsers_elsewhere: Vec<_> = self
+            .browsers
+            .views
+            .iter()
+            .filter(|(pane, _)| self.page_window(**pane) != main)
+            .map(|(_, surface)| surface.view.read(cx).native.clone())
+            .collect();
         let views: Vec<_> = self
             .webviews
             .panes
-            .values()
-            .map(|surface| (&surface.view, true))
+            .iter()
+            .filter(|(pane, _)| self.page_window(**pane) == main)
+            .map(|(_, surface)| (&surface.view, true))
             .chain(
                 self.webviews
                     .panels
@@ -971,8 +1133,9 @@ impl AppModel {
         let browsers: Vec<_> = self
             .browsers
             .views
-            .values()
-            .map(|surface| {
+            .iter()
+            .filter(|(pane, _)| self.page_window(**pane) == main)
+            .map(|(_, surface)| {
                 (
                     surface.view.entity_id(),
                     surface.view.read(cx).native.clone(),
@@ -985,6 +1148,14 @@ impl AppModel {
         let spinners = self.spinners.clone();
         gpui::canvas(
             move |_, _, _| {
+                for view in &pages_elsewhere {
+                    view.occlude(&[]);
+                    view.set_grips(&[]);
+                }
+                for view in &browsers_elsewhere {
+                    view.occlude(&[]);
+                    view.set_grips(&[]);
+                }
                 for (id, view, pane) in &views {
                     view.occlude(&occlusions_for(*id, &occlusions.borrow()));
                     view.set_grips(&grips_for(*id, *pane, &grips.borrow()));
@@ -1023,13 +1194,13 @@ fn surface_shortcuts(keymap: &muxy_app_core::settings::Keymap) -> Vec<gpui::Keys
 impl AppModel {
     /// Keystrokes webviews hand back to the app, rebuilt only after the
     /// keymap or the extension registry changes.
-    pub(super) fn webview_shortcuts(&mut self) -> std::rc::Rc<Vec<gpui::Keystroke>> {
+    pub(super) fn webview_shortcuts(&mut self) -> Rc<Vec<gpui::Keystroke>> {
         if let Some(shortcuts) = &self.webview_shortcuts {
             return shortcuts.clone();
         }
         let mut shortcuts = surface_shortcuts(&self.settings.keymap);
         shortcuts.extend(self.extension_keystrokes());
-        let shortcuts = std::rc::Rc::new(shortcuts);
+        let shortcuts = Rc::new(shortcuts);
         self.webview_shortcuts = Some(shortcuts.clone());
         shortcuts
     }
@@ -1127,11 +1298,22 @@ impl AppModel {
         foreground: gpui::Hsla,
         cx: &gpui::App,
     ) -> Option<gpui::AnyElement> {
-        use gpui::{IntoElement, Styled};
         let pane = tab.displayed_pane(self.state.shown_pane(tab))?;
         if tab.pinned {
             return None;
         }
+        self.page_glyph(pane, size, foreground, cx)
+    }
+
+    /// A browser's or an extension page's own icon.
+    pub(crate) fn page_glyph(
+        &self,
+        pane: &muxy_app_core::Pane,
+        size: gpui::Pixels,
+        foreground: gpui::Hsla,
+        cx: &gpui::App,
+    ) -> Option<gpui::AnyElement> {
+        use gpui::{IntoElement, Styled};
         if matches!(pane.content, PaneContent::Browser(_)) {
             return Some(self.browser_glyph(pane.id, size, foreground, cx));
         }
@@ -1180,6 +1362,7 @@ fn occlusions_for(id: gpui::EntityId, occlusions: &[Occlusion]) -> Vec<gpui::Bou
     occlusions[start..]
         .iter()
         .map(|(_, bounds)| *bounds)
+        .filter(|bounds| !bounds.is_empty())
         .collect()
 }
 
@@ -1333,5 +1516,69 @@ impl AppModel {
             .filter(|view| owner.is_none_or(|owner| view.read(cx).source.owner == owner))
             .cloned()
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod open_failure_tests {
+    use gpui::TestAppContext;
+    use muxy_app_core::webview::WebviewDescriptor;
+    use muxy_app_core::{AppState, ServerId};
+    use muxy_core::capability::{Capability, Feature};
+
+    use super::{Registered, Source};
+    use crate::model::AppModel;
+    use crate::model::tests::stub_boot;
+
+    #[gpui::test]
+    fn a_tab_that_cannot_open_in_a_missing_project_leaves_nothing_behind(cx: &mut TestAppContext) {
+        let root = tempfile::tempdir().expect("directory");
+        let folder = root.path().join("project");
+        std::fs::create_dir(&folder).expect("folder");
+        let mut state = AppState::bootstrap().expect("state");
+        state
+            .add_project(ServerId::local(), folder.clone())
+            .expect("project");
+        let (boot, _requests) = stub_boot(state);
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model
+                .capabilities
+                .set(Feature::ExtensionWebviews, Capability::Supported);
+            model.webviews.registered.insert(
+                ("owner".into(), "kind".into()),
+                Registered {
+                    source: Source {
+                        owner: "owner".into(),
+                        directory: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                            .join("fixtures/webview"),
+                        entry: "index.html".into(),
+                    },
+                    title: "Title".into(),
+                },
+            );
+            std::fs::remove_dir(&folder).expect("remove");
+            model.state.refresh_project_statuses();
+            let before = model.state.clone();
+
+            let descriptor = WebviewDescriptor {
+                owner: "owner".into(),
+                kind: "kind".into(),
+                data: serde_json::Value::Null,
+            };
+            assert!(model.open_webview_tab(descriptor, false, cx).is_err());
+            assert_eq!(model.state, before, "webview tab");
+
+            let browser = crate::model::browsers::OpenBrowser {
+                url: None,
+                profile: None,
+                project: model.state.current_project().id,
+                split: false,
+                select: true,
+                focus_address: false,
+            };
+            assert!(model.open_browser(browser, cx).is_err());
+            assert_eq!(model.state, before, "browser tab");
+        });
     }
 }

@@ -1,205 +1,23 @@
 use super::*;
-use muxy_protocol::transport::LocalListener;
 use std::error::Error;
-use std::fs;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
 
 use muxy_protocol::wire::{Decoder, Encoder};
-use muxy_protocol::{CONTROL, Message, ReplyBody, RequestBody, SUPPORTED};
+use muxy_protocol::{CONTROL, ErrorReply, Message, ReplyBody, SUPPORTED, ServerInfo};
 
 type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
 
-/// An `ssh` for tests that plays the other computer: it prints the bridge's
-/// ready line and relays to `socket` with macOS's `nc`.
-#[cfg(unix)]
-pub(crate) fn fake_ssh(
-    directory: &std::path::Path,
-    socket: &std::path::Path,
-) -> std::io::Result<SshTarget> {
-    use std::os::unix::fs::PermissionsExt;
-    let program = directory.join("ssh");
-    fs::write(
-        &program,
-        format!(
-            "#!/bin/sh\nprintf 'MUXY-STDIO/1\\n'\nexec /usr/bin/nc -U '{}'\n",
-            socket.display()
-        ),
-    )?;
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o755))?;
-    Ok(SshTarget::new("box")?.with_program(program))
-}
-
-/// This computer's worker on `socket`, with the updates it sends.
-fn local_worker(socket: PathBuf) -> std::io::Result<(Worker, Updates)> {
-    let (sender, updates) = async_channel::unbounded();
-    Ok((
-        worker(ServerId::local(), Target::Local(socket), sender)?,
-        updates,
-    ))
-}
-
 #[test]
-fn blocked_client_request_does_not_block_input_or_acks_and_flush_waits() -> TestResult {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let directory = crate::app_socket::test_socket_folder().join(format!(
-        "muxy-bridge-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    fs::create_dir(&directory)?;
-    let socket = directory.join("server.sock");
-    let listener = LocalListener::bind(&socket)?;
-    let (progress, received) = mpsc::channel();
-    let (release, gate) = mpsc::channel();
-    let server = thread::spawn(move || fake_server(&listener, &progress, &gate));
-    let (work, updates) = local_worker(socket)?;
-    work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
-    assert!(matches!(updates.recv_blocking()?.2, Update::Connected(_)));
-    let session = SessionId::from(std::num::NonZeroU64::MIN);
-    work.send((
-        1,
-        Work::ReadSaved {
-            pane: PaneId::new(),
-            session,
-        },
-    ))?;
-    received.recv_timeout(Duration::from_secs(2))?;
-    work.send((1, Work::Input(ChannelId(1), b"input".to_vec())))?;
-    work.send((
-        1,
-        Work::TerminalInput(ChannelId(1), muxy_protocol::TerminalInput::ClearScreen),
-    ))?;
-    work.send((1, Work::Ack(ChannelId(1), 17)))?;
-    work.send((1, Work::Flush))?;
-    let fast_path_completed = received.recv_timeout(Duration::from_secs(2));
-    let early_update = updates.try_recv();
-    release.send(())?;
-    fast_path_completed?;
-    assert!(
-        early_update.is_err(),
-        "flush must not overtake the blocked request"
-    );
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let mut saved = false;
-    let mut flushed = false;
-    while !flushed && Instant::now() < deadline {
-        match updates.try_recv() {
-            Ok((_, 1, Update::Saved { .. })) => saved = true,
-            Ok((_, 1, Update::Flushed)) => {
-                assert!(saved);
-                flushed = true;
-            }
-            Ok(other) => return Err(format!("unexpected update: {other:?}").into()),
-            Err(_) => thread::sleep(Duration::from_millis(5)),
-        }
-    }
-    work.send((1, Work::Stop))?;
-    server.join().map_err(|_| "fake server panicked")??;
-    fs::remove_dir_all(directory)?;
-    assert!(flushed, "flush must finish after pending work completes");
-    Ok(())
-}
-
-fn fake_server(
-    listener: &LocalListener,
-    progress: &Sender<()>,
-    gate: &mpsc::Receiver<()>,
-) -> TestResult {
-    let (socket, _) = listener.accept()?;
-    socket.set_read_timeout(Some(Duration::from_secs(3)))?;
-    let mut decoder = Decoder::new(socket.try_clone()?);
-    let mut encoder = Encoder::new(socket);
-    assert!(matches!(decoder.next()?, (CONTROL, Message::Hello { .. })));
-    encoder.send(
-        CONTROL,
-        &Message::HelloReply {
-            versions: SUPPORTED.to_vec(),
-            server: muxy_protocol::ServerInfo::current(),
-            features: muxy_protocol::FEATURES.to_vec(),
-        },
-    )?;
-    identify_desktop(&mut decoder, &mut encoder)?;
-    let (
-        CONTROL,
-        Message::Request {
-            id,
-            body: RequestBody::ListSessions,
-        },
-    ) = decoder.next()?
-    else {
-        return Err("expected listing".into());
-    };
-    encoder.send(
-        CONTROL,
-        &Message::Reply {
-            id,
-            body: ReplyBody::Sessions(Vec::new()),
-        },
-    )?;
-    let (
-        CONTROL,
-        Message::Request {
-            id,
-            body: RequestBody::ReadSavedScreen(_),
-        },
-    ) = decoder.next()?
-    else {
-        return Err("expected saved request".into());
-    };
-    progress.send(())?;
-    assert_eq!(
-        decoder.next()?,
-        (ChannelId(1), Message::Input(b"input".to_vec()))
-    );
-    assert_eq!(
-        decoder.next()?,
-        (
-            ChannelId(1),
-            Message::TerminalInput(muxy_protocol::TerminalInput::ClearScreen)
-        )
-    );
-    assert_eq!(
-        decoder.next()?,
-        (
-            CONTROL,
-            Message::FrameAck {
-                channel: ChannelId(1),
-                seq: 17
-            }
-        )
-    );
-    progress.send(())?;
-    gate.recv_timeout(Duration::from_secs(3))?;
-    encoder.send(
-        CONTROL,
-        &Message::Reply {
-            id,
-            body: ReplyBody::Error(muxy_protocol::ErrorReply {
-                code: ErrorCode::SavedContentUnavailable,
-                message: "test record".into(),
-            }),
-        },
-    )?;
-    let _ = decoder.next();
-    Ok(())
-}
-
-#[test]
-fn attachment_completion_precedes_early_frames_and_disconnect_without_blocking_other_channels()
--> TestResult {
+fn a_terminal_and_its_frames_pass_running_requests_while_other_events_wait() -> TestResult {
     let mut delivery = delivery::Delivery::default();
-    delivery.pending = 1;
-    let first = attachment_update(ChannelId(1))?;
-    assert!(matches!(
-        delivery.complete(Some(first)).as_slice(),
-        [Update::Attached { .. }]
-    ));
     delivery.pending = 2;
-    let early = frame_event(ChannelId(2));
-    assert!(delivery.event(early.clone())?.is_empty());
-    assert!(delivery.event(ClientEvent::Disconnected)?.is_empty());
+    let pane = PaneId::new();
+    delivery.start(&attach_work(7, pane));
+    let catalog = ClientEvent::CatalogChanged { revision: 1 };
+    assert!(delivery.event(catalog.clone())?.is_empty());
+    assert!(matches!(
+        delivery.event(attached_event(7, ChannelId(1))?)?.as_slice(),
+        [Update::Attached { pane: attached, created: true, .. }] if *attached == pane
+    ));
     assert!(matches!(
         delivery.event(frame_event(ChannelId(1)))?.as_slice(),
         [Update::Event(ClientEvent::Frame {
@@ -207,37 +25,128 @@ fn attachment_completion_precedes_early_frames_and_disconnect_without_blocking_o
             ..
         })]
     ));
+    assert!(delivery.event(ClientEvent::Disconnected)?.is_empty());
     assert!(delivery.flush().is_empty());
-    let ready = delivery.complete(Some(attachment_update(ChannelId(2))?));
-    assert!(
-        matches!(ready.as_slice(), [Update::Attached { .. }, Update::Event(event)] if *event == early)
-    );
+    assert!(delivery.complete(None).is_empty());
+    let ready = delivery.complete(None);
     assert!(matches!(
-        delivery.complete(None).as_slice(),
-        [Update::Event(ClientEvent::Disconnected), Update::Flushed]
+        ready.as_slice(),
+        [Update::Event(event), Update::Event(ClientEvent::Disconnected), Update::Flushed] if *event == catalog
     ));
     Ok(())
 }
 
 #[test]
-fn exit_closes_known_panes_immediately_and_follows_its_pending_attachment() -> TestResult {
+fn events_wait_for_a_terminal_whose_attach_returned_first() -> TestResult {
     let mut delivery = delivery::Delivery::default();
-    delivery.pending = 2;
+    delivery.pending = 1;
+    delivery.start(&attach_work(3, PaneId::new()));
+    assert!(delivery.complete(None).is_empty());
     let session = SessionId::from(std::num::NonZeroU64::MIN);
-    let event = ClientEvent::SessionEnded {
+    let ended = ClientEvent::SessionEnded {
         session,
         reason: muxy_protocol::ExitReason::Ended,
     };
-    assert!(
-        matches!(delivery.event(event.clone())?.as_slice(), [Update::CloseSessionPanes(id)] if *id == session)
-    );
-    let updates = delivery.complete(Some(attachment_update(ChannelId(1))?));
-    assert!(
-        matches!(updates.as_slice(), [Update::Attached { .. }, Update::Event(ended)] if *ended == event)
-    );
-    assert_eq!(delivery.pending, 1);
-    assert!(delivery.complete(None).is_empty());
+    assert!(delivery.flush().is_empty());
+    let ready = delivery.event(attached_event(3, ChannelId(1))?)?;
+    assert!(matches!(
+        ready.as_slice(),
+        [Update::Attached { .. }, Update::Flushed]
+    ));
+    assert!(matches!(
+        delivery.event(ended.clone())?.as_slice(),
+        [Update::Event(event)] if *event == ended
+    ));
     Ok(())
+}
+
+#[test]
+fn a_session_that_ends_after_its_terminal_arrived_closes_while_requests_run() -> TestResult {
+    let mut delivery = delivery::Delivery::default();
+    delivery.pending = 2;
+    delivery.start(&attach_work(5, PaneId::new()));
+    let session = SessionId::from(std::num::NonZeroU64::MIN);
+    let ended = ClientEvent::SessionEnded {
+        session,
+        reason: muxy_protocol::ExitReason::Ended,
+    };
+    delivery.event(attached_event(5, ChannelId(1))?)?;
+    assert!(matches!(
+        delivery.event(ended.clone())?.as_slice(),
+        [Update::Event(event)] if *event == ended
+    ));
+    Ok(())
+}
+
+#[test]
+fn a_terminal_nobody_waits_for_is_detached_and_a_close_check_reads_its_process() -> TestResult {
+    let mut delivery = delivery::Delivery::default();
+    assert!(delivery.event(attached_event(9, ChannelId(4))?)?.is_empty());
+    assert_eq!(delivery.take_strays(), [ChannelId(4)]);
+    let check = CloseCheckId::new();
+    delivery.pending = 1;
+    delivery.start(&Work::CheckClose {
+        check,
+        session: SessionId::from(std::num::NonZeroU64::MIN),
+        size: Size { cols: 80, rows: 24 },
+    });
+    assert!(matches!(
+        delivery.event(attached_event(check.tag(), ChannelId(5))?)?.as_slice(),
+        [Update::CloseChecked { check: checked, result: Ok(None), .. }] if *checked == check
+    ));
+    assert!(delivery.take_strays().is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_failed_attach_stops_waiting_for_its_terminal() -> TestResult {
+    let mut delivery = delivery::Delivery::default();
+    let pane = PaneId::new();
+    delivery.pending = 1;
+    delivery.start(&attach_work(2, pane));
+    delivery.complete(Some(Update::AttachFailed {
+        pane,
+        session: None,
+        created: false,
+        error: ClientError::Timeout,
+    }));
+    assert!(matches!(delivery.flush().as_slice(), [Update::Flushed]));
+    assert!(delivery.event(attached_event(2, ChannelId(1))?)?.is_empty());
+    assert_eq!(delivery.take_strays(), [ChannelId(1)]);
+    Ok(())
+}
+
+fn attach_work(tag: u64, pane: PaneId) -> Work {
+    Work::Attach {
+        tag,
+        pane,
+        project: muxy_protocol::ProjectId::new(),
+        session: None,
+        directory: PathBuf::from("/tmp"),
+        size: Size { cols: 80, rows: 24 },
+        environment: BTreeMap::new(),
+        colors: None,
+    }
+}
+
+fn attached_event(
+    tag: u64,
+    channel: ChannelId,
+) -> Result<ClientEvent, Box<dyn Error + Send + Sync>> {
+    let Update::Attached {
+        session,
+        mut attachment,
+        ..
+    } = attachment_update(channel)?
+    else {
+        return Err("expected an attachment".into());
+    };
+    attachment.process = None;
+    Ok(ClientEvent::Attached {
+        tag,
+        session,
+        attachment: Box::new(attachment),
+    })
 }
 
 fn attachment_update(channel: ChannelId) -> Result<Update, Box<dyn Error + Send + Sync>> {
@@ -255,9 +164,11 @@ fn attachment_update(channel: ChannelId) -> Result<Update, Box<dyn Error + Send 
         pane: PaneId::new(),
         session: SessionId::from(std::num::NonZeroU64::MIN),
         attachment: Attachment {
-            channel,
+            terminal: muxy_client::AttachedTerminal::new(
+                channel,
+                muxy_client::RunGrid::from_snapshot(&snapshot),
+            ),
             server_input: false,
-            grid: muxy_client::RunGrid::from_snapshot(&snapshot),
             title: snapshot.title,
             directory: snapshot.directory,
             process: None,
@@ -284,6 +195,89 @@ fn frame_event(channel: ChannelId) -> ClientEvent {
             modes: muxy_protocol::Modes::default(),
         },
     }
+}
+
+#[test]
+fn events_that_wait_fold_into_the_one_already_waiting_for_the_same_thing() -> TestResult {
+    let mut delivery = delivery::Delivery::default();
+    delivery.pending = 1;
+    let session = SessionId::from(std::num::NonZeroU64::MIN);
+    let project = muxy_protocol::ProjectId::new();
+    let progress = |percent| ClientEvent::Progress {
+        session,
+        progress: muxy_protocol::SessionProgress {
+            progress: Some(muxy_protocol::TerminalProgress {
+                state: muxy_protocol::ProgressState::Running,
+                percent: Some(percent),
+            }),
+            completed: 0,
+        },
+    };
+    let files = |path: &str| ClientEvent::FilesChanged {
+        project,
+        changes: muxy_protocol::FileChanges {
+            paths: vec![muxy_protocol::ServerPath::from(path)],
+            rescan: false,
+        },
+    };
+    for event in [
+        ClientEvent::SessionsChanged { revision: 4 },
+        progress(10),
+        files("a"),
+        ClientEvent::GitChanged { project },
+        ClientEvent::SessionsChanged { revision: 3 },
+        progress(20),
+        files("b"),
+        ClientEvent::GitChanged { project },
+        ClientEvent::CatalogChanged { revision: 1 },
+    ] {
+        assert!(delivery.event(event)?.is_empty());
+    }
+    let ready: Vec<_> = delivery
+        .complete(None)
+        .into_iter()
+        .filter_map(|update| match update {
+            Update::Event(event) => Some(event),
+            _ => None,
+        })
+        .collect();
+    let mut combined = files("a");
+    combined.merge(files("b"));
+    assert_eq!(
+        ready,
+        [
+            ClientEvent::SessionsChanged { revision: 4 },
+            progress(20),
+            combined,
+            ClientEvent::GitChanged { project },
+            ClientEvent::CatalogChanged { revision: 1 },
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_deferred_server_stop_leaves_its_panes_for_the_next_restore() -> TestResult {
+    let mut delivery = delivery::Delivery::default();
+    delivery.pending = 1;
+    let session = SessionId::from(std::num::NonZeroU64::new(7).ok_or("zero session")?);
+    let stopped = ClientEvent::SessionEnded {
+        session,
+        reason: muxy_protocol::ExitReason::ServerStopped,
+    };
+    assert!(delivery.event(stopped.clone())?.is_empty());
+    let ready = delivery.complete(None);
+    assert!(
+        ready
+            .iter()
+            .any(|update| matches!(update, Update::Event(event) if *event == stopped))
+    );
+    assert!(
+        !ready
+            .iter()
+            .any(|update| matches!(update, Update::CloseSessionPanes(_)))
+    );
+    Ok(())
 }
 
 #[test]
@@ -318,159 +312,74 @@ fn a_full_event_buffer_preserves_the_only_disconnect_after_history_completion() 
     Ok(())
 }
 
-mod clipboard;
-mod resize;
-#[cfg(unix)]
-mod servers;
-
-fn identify_desktop<R: std::io::Read, W: std::io::Write>(
-    decoder: &mut Decoder<R>,
-    encoder: &mut Encoder<W>,
-) -> TestResult {
-    let (
-        CONTROL,
-        Message::Request {
-            id,
-            body: RequestBody::IdentifyClient(kind),
-        },
-    ) = decoder.next()?
-    else {
-        return Err("expected client identity".into());
-    };
-    assert_eq!(kind, muxy_protocol::ClientKind::Desktop);
-    encoder.send(
-        CONTROL,
-        &Message::Reply {
-            id,
-            body: ReplyBody::ClientIdentified(muxy_protocol::SessionClient {
-                kind,
-                ..Default::default()
-            }),
-        },
-    )?;
+#[test]
+fn resizing_or_detaching_a_session_that_already_ended_shows_no_error() -> TestResult {
+    let client = answering_every_request_with(ErrorReply {
+        code: ErrorCode::UnknownSession,
+        message: "session 7 does not exist".to_owned(),
+    })?;
+    let target = Target::Local(PathBuf::from("/nonexistent"));
+    let size = Size { cols: 80, rows: 24 };
+    assert!(perform(Work::Resize(ChannelId(3), size), &client, &target).is_none());
+    assert!(perform(Work::Detach(ChannelId(3)), &client, &target).is_none());
     Ok(())
 }
 
 #[test]
-fn pending_extension_replies_do_not_block_app_requests_or_flush() -> TestResult {
-    let directory = tempfile::Builder::new()
-        .prefix("muxy-async-")
-        .tempdir_in(crate::app_socket::test_socket_folder())?;
-    let listener = LocalListener::bind(directory.path().join("server.sock"))?;
-    let (started, pending) = mpsc::channel();
-    let server = thread::spawn(move || withhold_extension_replies(&listener, &started));
-    let (work, updates) = local_worker(directory.path().join("server.sock"))?;
-    work.send((1, Work::Connect))?;
-    assert!(matches!(updates.recv_blocking()?.2, Update::ServerInfo(_)));
-    assert!(matches!(updates.recv_blocking()?.2, Update::Connected(_)));
-    let (reply, client) = async_channel::bounded(1);
-    work.send((1, Work::ExtensionClient(reply)))?;
-    let client = client.recv_blocking()?.ok_or("missing client")?;
-    let project = muxy_protocol::ProjectId::new();
-    let files = client.files_async(muxy_protocol::FilesRequest {
-        project,
-        action: muxy_protocol::FilesAction::List(muxy_protocol::ServerPath(Vec::new())),
-    });
-    let git = client.git_async(muxy_protocol::GitRequest {
-        project,
-        action: muxy_protocol::GitAction::Status { local: true },
-    });
-    let command = client.exec_async(muxy_protocol::ExecRequest {
-        job: 1,
-        project,
-        argv: vec!["pwd".into()],
-        shell: None,
-        cwd: None,
-        stdin: Vec::new(),
-        env: std::collections::BTreeMap::new(),
-        timeout_ms: 30_000,
-    });
-    for _ in 0..3 {
-        pending.recv_timeout(Duration::from_secs(2))?;
-    }
-    work.send((
-        1,
-        Work::Git(muxy_protocol::GitRequest {
-            project,
-            action: muxy_protocol::GitAction::Summary,
-        }),
-    ))?;
-    pending.recv_timeout(Duration::from_secs(2))?;
-    for request in [
-        Work::ReadCatalog,
-        Work::ReadActivity,
-        Work::ReadServerSettings,
-        Work::ProjectSessions { project },
-        Work::ReadSaved {
-            pane: PaneId::new(),
-            session: SessionId::from(std::num::NonZeroU64::MIN),
-        },
-        Work::Flush,
-    ] {
-        work.send((1, request))?;
-    }
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let mut received = [false; 6];
-    while Instant::now() < deadline && !received.iter().all(|received| *received) {
-        match updates.try_recv() {
-            Ok((_, 1, update)) => match update {
-                Update::Catalog(_) => received[0] = true,
-                Update::Activity(_) => received[1] = true,
-                Update::ServerSettings(_) => received[2] = true,
-                Update::ProjectSessions { .. } => received[3] = true,
-                Update::Saved { .. } => received[4] = true,
-                Update::Flushed => received[5] = true,
-                _ => (),
-            },
-            _ => thread::sleep(Duration::from_millis(5)),
-        }
-    }
-    work.send((1, Work::Stop))?;
+fn terminal_requests_lost_with_the_connection_show_no_error() -> TestResult {
+    let client = answering_every_request_with(ErrorReply {
+        code: ErrorCode::BadSize,
+        message: "bad size".to_owned(),
+    })?;
     client.disconnect();
-    drop((files, git, command));
-    server.join().map_err(|_| "fake server panicked")??;
-    assert!(
-        received.iter().all(|received| *received),
-        "app catalog, activity, settings, project sessions, saved screens and flush must complete while extension replies remain pending: {received:?}"
-    );
+    let target = Target::Local(PathBuf::from("/nonexistent"));
+    let size = Size { cols: 80, rows: 24 };
+    assert!(perform(Work::Resize(ChannelId(3), size), &client, &target).is_none());
+    assert!(perform(Work::Detach(ChannelId(3)), &client, &target).is_none());
     Ok(())
 }
 
-fn withhold_extension_replies(listener: &LocalListener, started: &Sender<()>) -> TestResult {
-    let (socket, _) = listener.accept()?;
-    socket.set_read_timeout(Some(Duration::from_secs(5)))?;
-    let mut decoder = Decoder::new(socket.try_clone()?);
-    let mut encoder = Encoder::new(socket);
-    assert!(matches!(decoder.next()?, (CONTROL, Message::Hello { .. })));
-    encoder.send(
-        CONTROL,
-        &Message::HelloReply {
-            versions: SUPPORTED.to_vec(),
-            server: muxy_protocol::ServerInfo::current(),
-            features: Vec::new(),
-        },
-    )?;
-    identify_desktop(&mut decoder, &mut encoder)?;
-    while let Ok((_, message)) = decoder.next() {
-        let Message::Request { id, body } = message else {
-            continue;
-        };
-        if matches!(
-            body,
-            RequestBody::Git(_) | RequestBody::Files(_) | RequestBody::Exec(_)
-        ) {
-            started.send(())?;
-            continue;
-        }
-        let body = if matches!(body, RequestBody::ListSessions) {
-            ReplyBody::Sessions(Vec::new())
-        } else {
-            ReplyBody::Error(muxy_protocol::ErrorReply {
-                code: ErrorCode::BadRequest,
-                message: "test response".into(),
-            })
-        };
-        encoder.send(CONTROL, &Message::Reply { id, body })?;
-    }
+#[test]
+fn a_resize_the_server_refuses_for_another_reason_still_shows_an_error() -> TestResult {
+    let client = answering_every_request_with(ErrorReply {
+        code: ErrorCode::BadSize,
+        message: "bad size".to_owned(),
+    })?;
+    let target = Target::Local(PathBuf::from("/nonexistent"));
+    let size = Size { cols: 80, rows: 24 };
+    assert!(matches!(
+        perform(Work::Resize(ChannelId(3), size), &client, &target),
+        Some(Update::Error(_))
+    ));
     Ok(())
+}
+
+/// A connected client whose server answers every request with `error`.
+fn answering_every_request_with(error: ErrorReply) -> Result<Client, Box<dyn Error + Send + Sync>> {
+    let (client, server) = muxy_protocol::transport::socket_pair()?;
+    let mut decoder = Decoder::new(server.try_clone()?);
+    let mut encoder = Encoder::new(server);
+    thread::spawn(move || {
+        if decoder.next().is_err() {
+            return;
+        }
+        let hello = Message::HelloReply {
+            versions: SUPPORTED.to_vec(),
+            server: ServerInfo::current(),
+            features: Vec::new(),
+        };
+        if encoder.send(CONTROL, &hello).is_err() {
+            return;
+        }
+        while let Ok((_, Message::Request { id, .. })) = decoder.next() {
+            let reply = Message::Reply {
+                id,
+                body: ReplyBody::Error(error.clone()),
+            };
+            if encoder.send(CONTROL, &reply).is_err() {
+                return;
+            }
+        }
+    });
+    Ok(Client::from_stream(Box::new(client))?)
 }

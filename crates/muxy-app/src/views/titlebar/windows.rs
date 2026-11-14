@@ -54,17 +54,6 @@ pub(in crate::views) fn controls(window: &Window, theme: &Theme) -> Stateful<Div
         ))
 }
 
-/// The buttons in the top right corner of a window whose titlebar is
-/// `32` pixels high.
-pub(in crate::views) fn corner(window: &Window, theme: &Theme) -> Div {
-    div()
-        .absolute()
-        .right_0()
-        .top_0()
-        .h(px(32.0))
-        .child(controls(window, theme))
-}
-
 fn button(
     id: &'static str,
     icon: &'static str,

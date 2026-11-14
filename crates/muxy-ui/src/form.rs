@@ -1,7 +1,57 @@
 use gpui::prelude::FluentBuilder;
-use gpui::{AnyElement, Div, ParentElement, Styled, div, px, relative};
+use gpui::{AnyElement, App, Div, FocusHandle, ParentElement, Styled, Window, div, px, relative};
+use muxy_core::shortcuts::ShortcutId;
 
 use crate::controls::Style;
+
+gpui::actions!(form, [NextControl, PreviousControl]);
+
+pub fn register_shortcuts(registry: &mut crate::shortcuts::Registry<'_>) {
+    registry.register(ShortcutId::FormNextControl, &NextControl);
+    registry.register(ShortcutId::FormPreviousControl, &PreviousControl);
+}
+
+/// Moves focus to the next field, wrapping at the ends. With none focused,
+/// goes to the first field, or to the last when moving backwards.
+pub fn advance_focus(fields: &[FocusHandle], backwards: bool, window: &mut Window) {
+    let count = fields.len();
+    let next = match fields.iter().position(|field| field.is_focused(window)) {
+        Some(index) if backwards => (index + count - 1) % count,
+        Some(index) => (index + 1) % count,
+        None if backwards => count.wrapping_sub(1),
+        None => 0,
+    };
+    if let Some(field) = fields.get(next) {
+        field.focus(window);
+    }
+}
+
+/// Moves focus to the next tab stop inside `container`, for a surface whose stops
+/// aren't known up front. It walks the window's tab order and skips the rest of
+/// the window. With no stop inside, focus goes to `container`.
+pub fn advance_focus_within(
+    container: &FocusHandle,
+    backwards: bool,
+    window: &mut Window,
+    cx: &App,
+) {
+    let advance = |window: &mut Window| {
+        if backwards {
+            window.focus_prev();
+        } else {
+            window.focus_next();
+        }
+    };
+    advance(window);
+    let first = window.focused(cx);
+    while !container.contains_focused(window, cx) {
+        advance(window);
+        if window.focused(cx) == first {
+            container.focus(window);
+            break;
+        }
+    }
+}
 
 pub fn row(
     style: Style,
@@ -48,7 +98,32 @@ pub fn row(
         .child(div().flex_none().min_w(px(0.0)).child(control))
 }
 
-pub fn section_heading(style: Style, title: &str) -> Div {
+/// A row for a list setting: its `action`, such as an Add button, sits beside
+/// the label like any other control, and the list's `items` span the row below.
+pub fn list_row(
+    style: Style,
+    label: &str,
+    description: Option<&str>,
+    action: AnyElement,
+    items: Option<AnyElement>,
+    compact: bool,
+) -> Div {
+    let metrics = style.metrics;
+    let has_items = items.is_some();
+    div()
+        .flex()
+        .flex_col()
+        .min_w(px(0.0))
+        .child(
+            row(style, label, description, action, compact)
+                .when(has_items, |header| header.pb(metrics.spacing6())),
+        )
+        .when_some(items, |list, items| {
+            list.child(div().min_w(px(0.0)).pb(metrics.scaled(22.0)).child(items))
+        })
+}
+
+pub fn section_heading(style: Style, id: impl Into<gpui::ElementId>, title: &str) -> Div {
     let Style { theme, metrics } = style;
     div()
         .pt(metrics.spacing8())
@@ -58,7 +133,7 @@ pub fn section_heading(style: Style, title: &str) -> Div {
         .font_family(".SystemUIFontMonospaced")
         .text_size(metrics.font_body())
         .text_color(theme.fg_muted)
-        .child(title.to_owned())
+        .child(crate::accessibility::label(id, title.to_owned()))
 }
 
 pub fn note(style: Style, text: &str, error: bool) -> Div {

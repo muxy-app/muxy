@@ -4,9 +4,7 @@ use std::ffi::OsString;
 use std::io;
 use std::os::windows::ffi::OsStringExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
-use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Child, Command};
 use std::ptr;
 
 use windows_sys::Wdk::System::Threading::{
@@ -15,19 +13,15 @@ use windows_sys::Wdk::System::Threading::{
 use windows_sys::Win32::Foundation::{
     FILETIME, HANDLE, INVALID_HANDLE_VALUE, RtlNtStatusToDosError, UNICODE_STRING,
 };
-use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
-};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_BASIC_PROCESS_ID_LIST, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JobObjectBasicProcessIdList, JobObjectExtendedLimitInformation, QueryInformationJobObject,
-    SetInformationJobObject, TerminateJobObject,
+    SetInformationJobObject,
 };
 use windows_sys::Win32::System::Threading::{
-    CREATE_NO_WINDOW, CREATE_SUSPENDED, GetProcessTimes, OpenProcess, OpenThread,
-    PROCESS_BASIC_INFORMATION, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-    QueryFullProcessImageNameW, ResumeThread, THREAD_SUSPEND_RESUME,
+    GetProcessTimes, OpenProcess, PROCESS_BASIC_INFORMATION, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 
 /// A job object. The processes its members start join it too.
@@ -82,12 +76,6 @@ impl Job {
     pub(crate) fn assign(&self, process: RawHandle) -> io::Result<()> {
         // SAFETY: both handles are open; the caller owns `process`.
         check(unsafe { AssignProcessToJobObject(self.0.as_raw_handle(), process) })
-    }
-
-    /// Ends every process in the job now.
-    pub(crate) fn terminate(&self) {
-        // SAFETY: the job handle is open.
-        unsafe { TerminateJobObject(self.0.as_raw_handle(), 1) };
     }
 
     /// The processes in the job, oldest first. Processes that exit while
@@ -158,60 +146,6 @@ impl Job {
             created: creation_time(&process)?,
             handle: process,
         })
-    }
-}
-
-/// Starts `command` suspended, puts it in `job`, then lets it run, so every
-/// process it starts joins the job too. It never opens a console window.
-pub(crate) fn spawn_in(job: &Job, command: &mut Command) -> io::Result<Child> {
-    let mut child = command
-        .creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW)
-        .spawn()?;
-    let started = job
-        .assign(child.as_raw_handle())
-        .and_then(|()| resume_threads(child.id()));
-    if let Err(error) = started {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(error);
-    }
-    Ok(child)
-}
-
-/// Resumes the threads of a process created suspended: just its first one.
-fn resume_threads(pid: u32) -> io::Result<()> {
-    // SAFETY: CreateToolhelp32Snapshot has no memory arguments.
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: the snapshot handle is new and owned here.
-    let snapshot = unsafe { OwnedHandle::from_raw_handle(snapshot) };
-    let mut entry = THREADENTRY32 {
-        dwSize: size_of_u32::<THREADENTRY32>(),
-        ..THREADENTRY32::default()
-    };
-    let mut resumed = false;
-    // SAFETY: `entry` is a live structure whose size field is set.
-    let mut more = unsafe { Thread32First(snapshot.as_raw_handle(), &raw mut entry) } != 0;
-    while more {
-        if entry.th32OwnerProcessID == pid {
-            // SAFETY: OpenThread has no memory arguments.
-            let thread =
-                owned(unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) })?;
-            // SAFETY: the thread handle is open with suspend and resume access.
-            if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
-                return Err(io::Error::last_os_error());
-            }
-            resumed = true;
-        }
-        // SAFETY: as for Thread32First.
-        more = unsafe { Thread32Next(snapshot.as_raw_handle(), &raw mut entry) } != 0;
-    }
-    if resumed {
-        Ok(())
-    } else {
-        Err(io::Error::other("the new process has no thread to resume"))
     }
 }
 

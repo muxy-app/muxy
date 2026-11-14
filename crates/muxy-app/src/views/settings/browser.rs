@@ -2,14 +2,15 @@
 //! and importing from other browsers.
 
 use gpui::prelude::FluentBuilder;
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div, px};
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div};
 use muxy_app_core::browser::SearchEngine;
 use muxy_core::capability::Feature;
-use muxy_ui::controls::{self, Choice};
+use muxy_ui::controls::{self, Choice, Style};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
-use super::{Category, Change, SettingsEvent, SettingsView};
+use super::{Category, SettingsEvent, SettingsView};
+use crate::model::preferences::{BrowserChange, Change};
 
 /// A browser profile as Settings lists it.
 #[derive(Clone, Debug)]
@@ -17,23 +18,6 @@ pub(crate) struct Profile {
     pub id: String,
     pub name: String,
     pub default: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum BrowserChange {
-    Enabled(bool),
-    TerminalLinks(bool),
-    SearchEngine(SearchEngine),
-    DefaultProfile(String),
-    AddProfile(String),
-    RenameProfile(String, String),
-    ClearProfile(String),
-    DeleteProfile(String),
-    /// Imports from the listed browser at `source` into the default profile.
-    Import {
-        source: usize,
-        cookies: bool,
-    },
 }
 
 pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<AnyElement> {
@@ -93,6 +77,7 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
             controls::segmented(
                 view.style(),
                 "browser-search-engine",
+                &tr!("Search engine"),
                 &choices,
                 engine_id(settings.search_engine),
                 cx.listener(|_, selected: &gpui::SharedString, _, cx| {
@@ -151,7 +136,11 @@ fn profiles(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
         .text()
         .trim()
         .to_owned();
-    let mut list = div().flex().flex_col().gap(px(6.0)).w_full();
+    let mut list = div()
+        .flex()
+        .flex_col()
+        .gap(view.layout_metrics.scaled(6.0))
+        .w_full();
     for profile in &view.snapshot.browser_profiles {
         list = list.child(profile_row(view, profile, &name, cx));
     }
@@ -161,14 +150,13 @@ fn profiles(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(px(8.0))
-            .pt(px(4.0))
+            .gap(view.layout_metrics.scaled(8.0))
+            .pt(view.layout_metrics.scaled(4.0))
             .child(view.field("browser-profile-name"))
             .child(controls::button(
                 view.style(),
                 "browser-add-profile",
-                &tr!("Add Profile"),
-                true,
+                controls::Button::secondary(&tr!("Add Profile")),
                 cx.listener(move |view, _, _, cx| {
                     view.clear_browser_profile_name(cx);
                     cx.emit(SettingsEvent::Change(Change::Browser(
@@ -193,17 +181,18 @@ fn profile_row(
     name: &str,
     cx: &mut Context<SettingsView>,
 ) -> AnyElement {
-    let theme = &view.theme;
-    let metrics = view.style().metrics;
     let id = profile.id.clone();
-    let mut buttons = div().flex().flex_wrap().gap(px(6.0));
+    let mut buttons = div()
+        .flex()
+        .flex_wrap()
+        .gap(view.layout_metrics.scaled(6.0));
     if !profile.default {
         let chosen = id.clone();
         buttons = buttons.child(controls::button(
             view.style(),
             &format!("browser-default-{id}"),
-            &tr!("Make Default"),
-            true,
+            controls::Button::secondary(&tr!("Make Default"))
+                .named(&tr!("Make %@ Default", &profile.name)),
             cx.listener(move |_, _, _, cx| {
                 cx.emit(SettingsEvent::Change(Change::Browser(
                     BrowserChange::DefaultProfile(chosen.clone()),
@@ -215,8 +204,9 @@ fn profile_row(
     buttons = buttons.child(controls::button(
         view.style(),
         &format!("browser-rename-{id}"),
-        &tr!("Rename to Name Below"),
-        !name.is_empty(),
+        controls::Button::secondary(&tr!("Rename to Name Below"))
+            .named(&tr!("Rename %@ to Name Below", &profile.name))
+            .enabled(!name.is_empty()),
         cx.listener(move |view, _, _, cx| {
             view.clear_browser_profile_name(cx);
             cx.emit(SettingsEvent::Change(Change::Browser(
@@ -228,14 +218,15 @@ fn profile_row(
     buttons = buttons.child(controls::button(
         view.style(),
         &format!("browser-clear-{id}"),
-        &tr!("Clear Data"),
-        true,
-        cx.listener(move |_, _, window, cx| {
+        controls::Button::secondary(&tr!("Clear Data"))
+            .named(&tr!("Clear Data for %@", &profile.name)),
+        cx.listener(move |settings, _, window, cx| {
             confirm(
                 BrowserChange::ClearProfile(cleared.clone()),
                 &tr!("Clear data for “%@”?", &label),
                 &tr!("This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones."),
                 &tr!("Clear Data"),
+                settings.style(),
                 window,
                 cx,
             );
@@ -246,14 +237,14 @@ fn profile_row(
         buttons = buttons.child(controls::button(
             view.style(),
             &format!("browser-delete-{id}"),
-            &tr!("Delete"),
-            true,
-            cx.listener(move |_, _, window, cx| {
+            controls::Button::secondary(&tr!("Delete")).named(&tr!("Delete %@", &profile.name)),
+            cx.listener(move |settings, _, window, cx| {
                 confirm(
                     BrowserChange::DeleteProfile(deleted.clone()),
                     &tr!("Delete “%@”?", &label),
                     &tr!("This permanently deletes the profile's cookies, history, and browsing data. Its tabs use the default profile."),
                     &tr!("Delete"),
+                    settings.style(),
                     window,
                     cx,
                 );
@@ -265,43 +256,62 @@ fn profile_row(
         .flex_wrap()
         .items_center()
         .justify_between()
-        .gap(px(8.0))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .text_size(metrics.font_body())
-                .child(profile.name.clone())
-                .when(profile.default, |row| {
-                    row.child(
-                        div()
-                            .px(px(6.0))
-                            .rounded(metrics.radius_sm())
-                            .bg(theme.accent_soft)
-                            .text_size(metrics.font_caption())
-                            .text_color(theme.fg)
-                            .child(tr!("Default")),
-                    )
-                }),
-        )
+        .gap(view.layout_metrics.scaled(8.0))
+        .child(profile_title(view, profile))
         .child(buttons)
         .into_any_element()
 }
 
+/// A profile's name, and whether it is the default one.
+fn profile_title(view: &SettingsView, profile: &Profile) -> gpui::Div {
+    let theme = &view.theme;
+    let metrics = view.style().metrics;
+    let id = &profile.id;
+    div()
+        .flex()
+        .items_center()
+        .gap(view.layout_metrics.scaled(6.0))
+        .text_size(metrics.font_body())
+        .child(muxy_ui::accessibility::label(
+            gpui::SharedString::from(format!("browser-profile-{id}")),
+            profile.name.clone(),
+        ))
+        .when(profile.default, |row| {
+            row.child(
+                div()
+                    .px(view.layout_metrics.scaled(6.0))
+                    .rounded(metrics.radius_sm())
+                    .bg(theme.accent_soft)
+                    .text_size(metrics.font_caption())
+                    .text_color(theme.fg)
+                    .child(muxy_ui::accessibility::label(
+                        gpui::SharedString::from(format!("browser-profile-default-{id}")),
+                        tr!("Default"),
+                    )),
+            )
+        })
+}
+
 fn sources(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
     let metrics = view.style().metrics;
-    let mut list = div().flex().flex_col().gap(px(6.0)).w_full();
+    let mut list = div()
+        .flex()
+        .flex_col()
+        .gap(view.layout_metrics.scaled(6.0))
+        .w_full();
     if view.snapshot.browser_sources.is_empty() {
         return list
-            .child(view.note(
+            .child(view.readable_note(
+                "browser-no-sources",
                 &tr!("No other browsers were found on this computer."),
-                false,
             ))
             .into_any_element();
     }
     for (index, (source, has_cookies)) in view.snapshot.browser_sources.iter().enumerate() {
-        let mut buttons = div().flex().flex_wrap().gap(px(6.0));
+        let mut buttons = div()
+            .flex()
+            .flex_wrap()
+            .gap(view.layout_metrics.scaled(6.0));
         let kinds = [(false, tr!("History & Bookmarks")), (true, tr!("Cookies"))];
         for (cookies, label) in kinds
             .into_iter()
@@ -310,8 +320,11 @@ fn sources(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
             buttons = buttons.child(controls::button(
                 view.style(),
                 &format!("browser-import-{index}-{cookies}"),
-                &label,
-                true,
+                controls::Button::secondary(&label).named(&tr!(
+                    "Import %@ from %@",
+                    &label,
+                    source
+                )),
                 cx.listener(move |_, _, _, cx| {
                     cx.emit(SettingsEvent::Change(Change::Browser(
                         BrowserChange::Import {
@@ -328,7 +341,7 @@ fn sources(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
                 .flex_wrap()
                 .items_center()
                 .justify_between()
-                .gap(px(8.0))
+                .gap(view.layout_metrics.scaled(8.0))
                 .child(div().text_size(metrics.font_body()).child(source.clone()))
                 .child(buttons),
         );
@@ -353,23 +366,20 @@ fn confirm(
     title: &str,
     message: &str,
     label: &str,
+    style: Style<'_>,
     window: &mut Window,
     cx: &mut Context<SettingsView>,
 ) {
-    let (sender, answer) = async_channel::bounded(1);
-    let Ok(dialog) =
-        muxy_ui::dialog::confirm(window, cx, title, message, label, None, move |response| {
-            let _ = sender.try_send(matches!(
-                response,
-                muxy_ui::dialog::ConfirmationResponse::Confirmed { .. }
-            ));
-        })
-    else {
-        return;
-    };
+    let (title, message, label) = (title.to_owned(), message.to_owned(), label.to_owned());
+    let parent = muxy_ui::dialog::Parent::new(window.window_handle(), style);
     cx.spawn(async move |view, cx| {
-        let _dialog = dialog;
-        if answer.recv().await.unwrap_or(false) {
+        let question = muxy_ui::dialog::Question::Confirm {
+            title: &title,
+            message: &message,
+            confirm: &label,
+            checkbox: None,
+        };
+        if let Ok(Some(_)) = muxy_ui::dialog::ask(&parent, question, cx).await {
             let _ = view.update(cx, |_, cx| {
                 cx.emit(SettingsEvent::Change(Change::Browser(change)));
             });

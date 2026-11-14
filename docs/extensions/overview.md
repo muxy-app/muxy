@@ -3,9 +3,9 @@
 > **New here?** Start with [Get started](get-started.md).
 
 An extension is a web project that adds to the desktop app: tabs, panels,
-popovers, a sidebar, top bar and status bar items, palette commands, shortcuts,
-background logic, and app languages. You build it with any web tooling and Muxy
-loads the build output.
+popovers, a sidebar, top bar, rail, and status bar items, palette commands,
+shortcuts, background logic, and app languages. You build it with any web
+tooling and Muxy loads the build output.
 
 Most extensions made for Muxy 1.x work unchanged. A few 1.x features are not
 available yet; see [Coming from 1.x](get-started.md#coming-from-1x).
@@ -34,7 +34,7 @@ for local and remote projects. Web requests run in the desktop app.
 | [Events](events.md) | Workspace events and extension messages |
 | [Tabs](tabs.md) | Tab types, file openers, page data, and theme |
 | [Panels](panels.md) | Panels, popovers, and the sidebar |
-| [Bar items](bar-items.md) | Top bar and status bar items |
+| [Bar items](bar-items.md) | Top bar, rail, and status bar items |
 | [Commands](commands.md) | Palette commands, shortcuts, and scripts |
 | [Dialogs](dialogs.md) | Dialogs, pickers, and modal web views |
 | [Files](files.md) | Reading and writing project files |
@@ -48,9 +48,20 @@ Installed extensions live in the `extensions/<name>/` folder of Muxy's
 [profile folder](../features/server.md#files). Each is the build output, with
 `package.json` at its root.
 
-Manage them in **Settings → Extensions**: **Installed** lists them with their
+**Extensions** at the bottom of the sidebar offers **Create Extension…**, which
+[hands the work to an agent](agents.md), and **Manage Extensions**, which opens
+**Settings → Extensions**. There, **Installed** lists them with their
 permissions, settings, and logs; **Browse** installs from the marketplace.
-Extensions start disabled after installing or loading.
+Extensions start disabled after installing or loading. The one exception is
+**Install & Enable** in the [welcome tour](../product/app-model.md#welcome-tour),
+which offers Files and Git with their permissions listed.
+
+Muxy checks installed marketplace extensions for updates at startup, every six
+hours while it stays open, and when you open **Settings → Extensions**. A dot on
+**Extensions** at the bottom of the sidebar marks available updates. They appear
+in the installed list; use **Update all** or an extension's update controls to
+install them.
+Unpacked development extensions are excluded from these checks.
 
 ## Security
 

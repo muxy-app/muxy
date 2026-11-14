@@ -3,8 +3,10 @@
 //! Workspaces, cached project views, tabs, panes, and window state live here;
 //! server execution and UI toolkit code do not.
 
+pub mod agent_sessions;
 pub mod backup;
 pub mod browser;
+pub mod closing;
 pub mod composer;
 mod error;
 pub mod extensions;
@@ -16,27 +18,37 @@ pub mod localization;
 pub mod modal;
 pub mod opener;
 mod pane;
+mod panes;
 mod project;
 pub mod project_layouts;
+pub mod project_selector;
 pub mod qr;
 pub mod restore;
 mod servers;
+mod set_aside;
+mod settings_tab;
 mod state;
 pub mod store;
 mod tab;
-pub mod title;
+mod tab_windows;
+pub use muxy_protocol::title;
 pub mod webview;
 mod window;
 mod workspace;
 
 pub use error::AppError;
 pub use groups::{TabGroup, TabGroups};
-pub use ids::{GroupId, PaneId, ProjectId, ServerId, TabId, WorkspaceId};
+pub use ids::{GroupId, PaneId, ProjectId, ServerId, TabId, TabWindowId, WorkspaceId};
 pub use layout::{Axis, Branch, Direction, Layout};
 pub use pane::{Pane, PaneContent};
-pub use project::{Color, PROJECT_COLORS, Project, ProjectKind, ProjectStatus, initial};
+pub use panes::PlacedPane;
+pub use project::{
+    Color, PROJECT_COLORS, Project, ProjectKind, ProjectStatus, RemovedProject, initial,
+};
+pub use set_aside::LocalCatalog;
 pub use state::AppState;
 pub use tab::{Tab, TabCloseScope, TabSide};
+pub use tab_windows::{FloatScope, Floating, PaneDrop, SessionMove, TabPlace, TabWindow};
 pub use window::{WindowBounds, WindowState};
 pub use workspace::Workspace;
 

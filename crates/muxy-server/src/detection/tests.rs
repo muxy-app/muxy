@@ -151,6 +151,60 @@ fn bundled_manifests_compile_and_classify_provider_screens() {
             "",
             AgentState::Idle,
         ),
+        (
+            AgentProvider::Hermes,
+            "╭─ ⚠️  Dangerous Command ─────────╮\n│ rm -rf build                   │\n│ ❯ 1. Allow once                │\n│   2. Allow for this session    │\n│   3. Deny                      │\n╰────────────────────────────────╯",
+            "",
+            AgentState::Blocked,
+        ),
+        (
+            AgentProvider::Hermes,
+            "⚠ approval required\n❯ Allow once\n  Allow this session\n  Always allow\n  Deny",
+            "",
+            AgentState::Blocked,
+        ),
+        (
+            AgentProvider::Hermes,
+            "Hermes needs your input\n1 question",
+            "",
+            AgentState::Blocked,
+        ),
+        (
+            AgentProvider::Hermes,
+            "── ⠹ Running tests · 14s ──────────── calc helpers ─\n❯ \n gpt-5 · 12% · ~/project        enter interrupt · ctrl+c stop",
+            "",
+            AgentState::Working,
+        ),
+        (
+            AgentProvider::Hermes,
+            "⠋ thinking\nCtrl+C to interrupt…",
+            "",
+            AgentState::Working,
+        ),
+        (
+            AgentProvider::Hermes,
+            "──────────────────────────────── calc helpers ─\n❯ \n gpt-5 · 12% · ~/project        / commands · @ files · ! shell",
+            "",
+            AgentState::Idle,
+        ),
+        (
+            AgentProvider::Hermes,
+            "",
+            "⏳ calc helpers · gemma4:e4b · ~/project",
+            AgentState::Working,
+        ),
+        (
+            AgentProvider::Hermes,
+            "",
+            "⚠ calc helpers",
+            AgentState::Blocked,
+        ),
+        (
+            AgentProvider::Hermes,
+            "⠋ thinking\nCtrl+C to interrupt…",
+            "✓ calc helpers · gemma4:e4b",
+            AgentState::Idle,
+        ),
     ];
     for (provider, screen, title, expected) in fixtures {
         assert_eq!(
@@ -178,6 +232,64 @@ fn bundled_manifests_compile_and_classify_provider_screens() {
                 }
             ),
             Some((AgentState::Idle, false))
+        );
+    }
+}
+
+#[test]
+fn claude_background_shells_keep_the_agent_working() {
+    let prompt = "\n────────────────────\n❯ \n────────────────────\n  ⏵⏵ auto mode on";
+    let cases = [
+        (
+            "✻ Baked for 1m 25s · done 2:38 PM · 1 shell still running",
+            prompt,
+            AgentState::Working,
+        ),
+        (
+            "✻ Cooked for 4m 2s · 3 shells still running",
+            prompt,
+            AgentState::Working,
+        ),
+        (
+            "✻ Brewed for 12s · 2 shells, 1 monitor still running",
+            prompt,
+            AgentState::Working,
+        ),
+        (
+            "✻ Churned for 3m 40s · done 11:02 AM · 2 shells\n  still running",
+            prompt,
+            AgentState::Working,
+        ),
+        (
+            "✻ Baked for 9s · 1 monitor still running",
+            prompt,
+            AgentState::Idle,
+        ),
+        (
+            "❯ why does it say · 1 shell still running",
+            prompt,
+            AgentState::Idle,
+        ),
+        (
+            "✻ Baked for 1m 25s · 1 shell still running",
+            "\n Bash command\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel",
+            AgentState::Blocked,
+        ),
+    ];
+    for (summary, below, expected) in cases {
+        let screen = format!("{summary}\n{below}");
+        assert_eq!(
+            detect(
+                AgentProvider::Claude,
+                DetectionInput {
+                    screen: &screen,
+                    osc_title: "✳ Claude Code",
+                    osc_progress: ""
+                }
+            )
+            .map(|r| r.0),
+            Some(expected),
+            "{summary}"
         );
     }
 }
@@ -219,6 +331,55 @@ fn process_identity_uses_executable_positions_not_prompt_text() {
     );
     assert_eq!(identify("tmux", &["tmux".into(), "codex".into()]), None);
     assert_eq!(identify("tmux", &["tmux".into(), "omp".into()]), None);
+}
+
+#[test]
+fn hermes_is_identified_from_its_launcher_program_not_its_arguments() {
+    let launcher = "import os, sys\nfrom hermes_cli.main import main\nsys.exit(main())";
+    assert_eq!(
+        identify(
+            "python3.14",
+            &[
+                "/opt/hermes/bin/python3".into(),
+                "-I".into(),
+                "-c".into(),
+                launcher.into(),
+                "chat".into(),
+            ]
+        ),
+        Some(AgentProvider::Hermes)
+    );
+    assert_eq!(
+        identify(
+            "python3",
+            &["python3".into(), "/home/me/.venv/bin/hermes".into()]
+        ),
+        Some(AgentProvider::Hermes)
+    );
+    assert_eq!(
+        identify("hermes", &["hermes".into()]),
+        Some(AgentProvider::Hermes)
+    );
+    assert_eq!(
+        identify(
+            "python3",
+            &[
+                "python3".into(),
+                "-I".into(),
+                "app.py".into(),
+                "-c".into(),
+                launcher.into(),
+            ]
+        ),
+        None
+    );
+    assert_eq!(
+        identify(
+            "python3",
+            &["python3".into(), "-c".into(), "print('hermes')".into()]
+        ),
+        None
+    );
 }
 
 #[test]
@@ -731,4 +892,100 @@ fn codex_animated_idle_prompt_finishes_once_without_waiting_for_a_static_screen(
     }
     assert_eq!(detector.state, AgentState::Idle);
     assert_eq!(completions, 1);
+}
+
+#[test]
+fn reported_states_apply_at_once_and_finish_screen_detected_work() {
+    let mut detector = Detector::default();
+    let now = Instant::now();
+    detector.update(
+        Some(AgentProvider::Claude),
+        String::new(),
+        "⠋ Working",
+        "",
+        now,
+    );
+    assert_eq!(detector.state, AgentState::Working);
+    assert!(!detector.report(AgentProvider::Claude, ProgramState::Blocked));
+    assert_eq!(detector.state, AgentState::Blocked);
+    assert!(!detector.report(AgentProvider::Claude, ProgramState::Working));
+    assert!(detector.report(AgentProvider::Claude, ProgramState::Done));
+    assert_eq!(detector.state, AgentState::Idle);
+    assert!(!detector.report(AgentProvider::Claude, ProgramState::Idle));
+    assert!(!detector.report(AgentProvider::Pi, ProgramState::Error));
+    assert_eq!(detector.provider, Some(AgentProvider::Pi));
+}
+
+#[test]
+fn reports_belong_to_the_agent_they_name_or_to_the_running_one() {
+    let report = |app: &str| {
+        Some(ProgramStatus {
+            state: ProgramState::Done,
+            progress: None,
+            app: app.into(),
+        })
+    };
+    let claude = Some(AgentProvider::Claude);
+    let codex = Some(AgentProvider::Codex);
+    assert_eq!(
+        reporting_agent(None, None, report("claude-code")),
+        (claude, report("claude-code"))
+    );
+    assert_eq!(
+        reporting_agent(claude, None, report("claude-code")),
+        (claude, report("claude-code"))
+    );
+    assert_eq!(
+        reporting_agent(codex, None, report("claude-code")),
+        (codex, None)
+    );
+    assert_eq!(reporting_agent(codex, None, report("cargo")), (codex, None));
+    assert_eq!(reporting_agent(None, None, report("cargo")), (None, None));
+    assert_eq!(
+        reporting_agent(codex, None, report("")),
+        (codex, report(""))
+    );
+    assert_eq!(
+        reporting_agent(None, claude, report("")),
+        (claude, report(""))
+    );
+    assert_eq!(reporting_agent(codex, claude, None), (codex, None));
+}
+
+#[test]
+fn group_members_count_as_agents_unless_they_are_a_programs_one_shot_helper() {
+    let args = |args: &[&str]| args.iter().map(ToString::to_string).collect::<Vec<_>>();
+    let claude = Some(AgentProvider::Claude);
+    let print = args(&["/home/me/.local/bin/claude", "-p", "prompt"]);
+    assert_eq!(identify_member("claude", &print, false), None);
+    assert_eq!(identify_member("claude", &print, true), claude);
+    assert_eq!(
+        identify_member("claude", &args(&["claude", "--print", "prompt"]), false),
+        None
+    );
+    assert_eq!(
+        identify_member(
+            "node",
+            &args(&[
+                "node",
+                "/lib/@anthropic-ai/claude-code/cli.js",
+                "-p",
+                "prompt"
+            ]),
+            false
+        ),
+        None
+    );
+    assert_eq!(
+        identify_member(
+            "node",
+            &args(&["node", "/lib/@anthropic-ai/claude-code/cli.js"]),
+            false
+        ),
+        claude
+    );
+    assert_eq!(
+        identify_member("codex", &args(&["codex", "-p", "work"]), false),
+        Some(AgentProvider::Codex)
+    );
 }

@@ -8,10 +8,18 @@ description: How to drive Muxy 2 from a shell with the `muxy` command — start 
 Muxy keeps terminals in a background server. The `muxy` command talks to that
 server directly; the desktop app doesn't need to be open. Terminals you start
 keep running after your command returns, and the user can open them in the
-desktop app or the terminal UI from **Existing Terminals**.
+desktop app or the terminal UI from **Existing Terminals**, or you can show
+one to them with `muxy session show`.
 
-Run `muxy --help` and `muxy <command> --help` for every option. Add `--json`
-to any management command for machine-readable output.
+Run `muxy --help` for command groups and `muxy help session create` (or
+`muxy session create --help`) for one command. Add `--json` to management
+commands for machine-readable output. Pipes keep their original text formats;
+terminals get formatted tables. Project/session/worktree lists accept
+`--quiet` (`-q`) for IDs only; do not combine it with `--json`.
+
+Short aliases: `ls` = `session list`, `new` = `session create`, `send` =
+`session send`, `send-key` = `session send-keys`, `capture` =
+`session read-screen`, and `wait` = `session wait`.
 
 ## When to use it
 
@@ -75,8 +83,10 @@ After a terminal ends, add `--saved` to read its last saved output.
 
 ## Send input deliberately
 
-`send` types text without pressing Return; `send-keys` presses one key
-(Enter, Tab, Escape, Backspace, Ctrl+C, Ctrl+D, Ctrl+Z).
+`send` types text without pressing Return; `send-keys` presses one or more
+keys in order (Enter, Tab, Escape, Backspace, Ctrl+C, Ctrl+D, Ctrl+Z).
+`send --stdin` sends piped or redirected bytes verbatim, including newlines,
+up to 1 MiB. Larger input sends nothing; no text argument is allowed with it.
 
 ```bash
 muxy session send-keys "$WEB" Ctrl+C
@@ -88,6 +98,18 @@ muxy session send-keys "$WEB" Enter
 You are typing into a live terminal. Read the screen first if you are unsure
 what is running.
 
+## Inspect and name terminals
+
+```bash
+muxy project inspect MyProject --json
+muxy session inspect "$WEB" --json
+muxy session rename "$WEB" dev-server
+muxy session list --project MyProject --quiet
+```
+
+Inspection works for live and saved sessions. Renaming updates the shared name
+shown in every app; IDs stay unchanged and remain the targets for commands.
+
 ## End terminals you started
 
 ```bash
@@ -97,6 +119,17 @@ muxy session end "$WEB" --yes
 
 Only end terminals you created. A terminal the user is looking at closes in
 their app too.
+
+## Show a terminal to the user
+
+```bash
+muxy session show "$WEB"
+```
+
+This opens the terminal in a new tab of its project in the desktop app, or
+selects the tab that already shows it, without raising the app. Use it when
+the user should watch or take over a terminal, not for every terminal you
+start.
 
 ## Projects and worktrees
 
@@ -141,12 +174,29 @@ muxy browser read "$TAB"                           # title, URL and page text
   `muxy browser screenshot "$TAB" | base64 -D > page.png`.
 - Close only tabs you opened.
 
+## App settings
+
+`muxy config` reads and changes the desktop app's settings on this computer and
+has a running app apply them at once. Keys are dotted paths into
+`settings.toml`, or into `terminal.toml` after `terminal.`.
+
+```bash
+muxy config list                                  # every setting with its value
+muxy config get terminal.font_size
+muxy config set terminal.font_size 14
+muxy config unset terminal.font_size              # back to the default
+```
+
+- Change settings only when the user asks, and say what changed.
+- A rejected value leaves the files as they were; never edit them by hand.
+- Server settings, such as the default shell, use `muxy settings`.
+
 ## Other computers
 
 Put `--host user@computer` before a server-backed command, such as `project`,
 `session`, or `worktree`, to use another computer's server over SSH. Directories
 are then absolute paths on that computer.
 
-Folder-opening commands, `browser`, and `install-skills` do not support
-`--host`.
+Folder-opening commands, `browser`, `config`, `session show`, and `install-skills` do
+not support `--host`.
 `install-skills --dir DIR` always installs into a local directory.

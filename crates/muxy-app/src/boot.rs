@@ -1,13 +1,14 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 
 use muxy_core::worker::WorkerPool;
 use std::thread;
 
-use muxy_app_core::{AppState, PaneId, ServerId, TabId, store};
-use muxy_client::{Attachment, Client, ClientError, ClientEvent, SshTarget, Start};
+use muxy_app_core::{AppState, PaneId, ServerId, store};
+use muxy_client::{Attachment, Client, ClientError, ClientEvent, RemoteEndpoint, SshTarget, Start};
 use muxy_protocol::{
     ChannelId, ErrorCode, ForegroundProcess, HistoryPage, MouseEvent, SavedScreen, SearchPage,
     SearchSource, SessionId, SessionInfo, Size, TerminalColors,
@@ -26,6 +27,11 @@ pub(crate) type Updates = async_channel::Receiver<(ServerId, u64, Update)>;
 #[derive(Debug)]
 pub(crate) struct Boot {
     pub(crate) import_message: Option<String>,
+    /// macOS stopped the terminals after the app last quit, because Muxy may
+    /// not run in the background.
+    pub(crate) stopped_in_background: bool,
+    /// The welcome tour opens at launch, until it is finished or skipped.
+    pub(crate) show_onboarding: bool,
     pub(crate) composer: muxy_app_core::composer::ComposerStore,
     pub(crate) state: AppState,
     pub(crate) state_path: PathBuf,
@@ -56,6 +62,7 @@ impl Boot {
             )
         });
         let import_message = crate::backup::apply_pending(profile)?.or(migration);
+        reset_close_shortcuts_once(profile);
         let state = store::load(&state_path)?;
         let settings =
             muxy_app_core::settings::Settings::load(&state_path.with_file_name("settings.toml"))?;
@@ -70,8 +77,15 @@ impl Boot {
             Target::Local(state_path.with_file_name("server.sock")),
         )?;
         work.send((1, Work::Connect))?;
+        // Taken last, so a launch that fails still explains it next time.
+        #[cfg(target_os = "macos")]
+        let stopped_in_background = muxy_client::local::host::take_background_stop(profile);
+        #[cfg(not(target_os = "macos"))]
+        let stopped_in_background = false;
         Ok(Self {
             import_message,
+            stopped_in_background,
+            show_onboarding: !settings.appearance.onboarding_completed,
             composer: muxy_app_core::composer::ComposerStore::load_from(
                 state_path
                     .parent()
@@ -88,13 +102,36 @@ impl Boot {
     }
 }
 
+/// Marks a profile whose close tab and close pane shortcuts were checked.
+const CLOSE_SHORTCUTS_CHECKED: &str = "close-shortcuts-checked";
+
+/// Profiles imported from Muxy 1.x kept ⌘W on close tab. Puts close tab and
+/// close pane back on their defaults once, so a later choice of the same keys
+/// stays. A failure leaves the profile unmarked to try again next launch.
+fn reset_close_shortcuts_once(profile: &std::path::Path) {
+    let checked = profile.join(CLOSE_SHORTCUTS_CHECKED);
+    if checked.exists() {
+        return;
+    }
+    let settings = profile.join("settings.toml");
+    if muxy_app_core::settings::Keymap::reset_swapped_close_shortcuts(&settings).is_ok() {
+        let _ = std::fs::write(checked, b"");
+    }
+}
+
 /// How a worker reaches its server.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Target {
     /// This computer's server, at the socket in the profile.
     Local(PathBuf),
     /// The server on another computer, reached over SSH.
     Ssh(SshTarget),
+    /// The server on another computer that this one paired with, reached
+    /// over the network.
+    Paired {
+        endpoint: RemoteEndpoint,
+        credential: muxy_protocol::DeviceCredential,
+    },
 }
 
 impl Target {
@@ -103,13 +140,18 @@ impl Target {
         match self {
             Self::Local(socket) => Client::connect(socket),
             Self::Ssh(host) => Client::connect_ssh(host, Start::Never),
+            Self::Paired {
+                endpoint,
+                credential,
+                ..
+            } => Client::connect_remote(endpoint, *credential),
         }
     }
 
     fn socket(&self) -> Result<&std::path::Path, ClientError> {
         match self {
             Self::Local(socket) => Ok(socket),
-            Self::Ssh(_) => Err(std::io::Error::other(
+            Self::Ssh(_) | Self::Paired { .. } => Err(std::io::Error::other(
                 tr!("Updates apply only to this computer's server").to_string(),
             )
             .into()),
@@ -280,6 +322,27 @@ impl std::fmt::Debug for Workers {
     }
 }
 
+/// Pairs a `Work::CheckClose` with its `Update::CloseChecked`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CloseCheckId(u64);
+
+impl CloseCheckId {
+    pub(crate) fn new() -> Self {
+        Self(attach_tag())
+    }
+
+    /// A close check attaches to read the process, under this tag.
+    fn tag(self) -> u64 {
+        self.0
+    }
+}
+
+/// Tells each attach's terminal apart on the event stream.
+pub(crate) fn attach_tag() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 #[derive(Debug)]
 pub(crate) enum Work {
     /// Lends the worker's client.
@@ -317,6 +380,8 @@ pub(crate) enum Work {
         request: SearchRequest,
     },
     Connect,
+    /// Hangs up until the next Connect; the worker stays.
+    Disconnect,
     ReconnectAfterUpdate(u64),
     /// A connection attempt finished on its own thread.
     Connected(Box<Result<(Client, Vec<SessionInfo>), ClientError>>),
@@ -327,6 +392,8 @@ pub(crate) enum Work {
     StartPairing,
     CancelPairing,
     RevokeDevice(muxy_protocol::DeviceId),
+    SetPushNotifications(bool),
+    ResetPush(muxy_protocol::DeviceId),
     StopServer {
         restart: bool,
     },
@@ -339,20 +406,33 @@ pub(crate) enum Work {
         replace: bool,
     },
     Attach {
+        /// From `attach_tag`.
+        tag: u64,
         pane: PaneId,
         project: muxy_protocol::ProjectId,
         session: Option<SessionId>,
         directory: PathBuf,
         size: Size,
+        /// More environment for a new terminal, such as a proxy.
+        environment: BTreeMap<String, String>,
+        /// Colors for a new terminal alone, such as the Quick Terminal's theme.
+        colors: Option<TerminalColors>,
     },
     References(Vec<SessionId>),
     Discard(SessionId, muxy_protocol::OperationId),
+    /// Tells the server a terminal now belongs to another project.
+    MoveSession(SessionId, muxy_protocol::ProjectId),
     CheckClose {
-        tab: TabId,
+        check: CloseCheckId,
         session: SessionId,
         size: Size,
     },
     ReadSaved {
+        pane: PaneId,
+        session: SessionId,
+    },
+    /// Asks why `session`, which the server no longer runs, ended.
+    ReadEndReason {
         pane: PaneId,
         session: SessionId,
     },
@@ -362,6 +442,12 @@ pub(crate) enum Work {
         channel: Option<ChannelId>,
         request: HistoryRequest,
     },
+    ImageFrames {
+        pane: PaneId,
+        channel: ChannelId,
+        image: u32,
+        keys: Vec<u64>,
+    },
     EndAll(Vec<SessionId>),
     Flush,
     Completed(Box<Option<Update>>),
@@ -369,6 +455,12 @@ pub(crate) enum Work {
     Detach(ChannelId),
     Resize(ChannelId, Size),
     Colors(TerminalColors),
+    SessionColors(SessionId, Option<TerminalColors>),
+    SessionName {
+        session: SessionId,
+        name: Option<String>,
+        replacing: Option<String>,
+    },
     Input(ChannelId, Vec<u8>),
     TerminalInput(ChannelId, muxy_protocol::TerminalInput),
     ClearScreen(ChannelId),
@@ -397,6 +489,7 @@ impl Work {
             Self::MutateProject(..) => "MutateProject",
             Self::Search { .. } => "Search",
             Self::Connect => "Connect",
+            Self::Disconnect => "Disconnect",
             Self::ReconnectAfterUpdate(..) => "ReconnectAfterUpdate",
             Self::Connected(..) => "Connected",
             Self::ReadServerSettings => "ReadServerSettings",
@@ -406,15 +499,20 @@ impl Work {
             Self::StartPairing => "StartPairing",
             Self::CancelPairing => "CancelPairing",
             Self::RevokeDevice(..) => "RevokeDevice",
+            Self::SetPushNotifications(..) => "SetPushNotifications",
+            Self::ResetPush(..) => "ResetPush",
             Self::StopServer { .. } => "StopServer",
             Self::PrepareUpdate { .. } => "PrepareUpdate",
             Self::CheckServerUpdate { .. } => "CheckServerUpdate",
             Self::Attach { .. } => "Attach",
             Self::References(..) => "References",
             Self::Discard(..) => "Discard",
+            Self::MoveSession(..) => "MoveSession",
             Self::CheckClose { .. } => "CheckClose",
             Self::ReadSaved { .. } => "ReadSaved",
+            Self::ReadEndReason { .. } => "ReadEndReason",
             Self::History { .. } => "History",
+            Self::ImageFrames { .. } => "ImageFrames",
             Self::EndAll(..) => "EndAll",
             Self::Flush => "Flush",
             Self::Completed(..) => "Completed",
@@ -422,6 +520,8 @@ impl Work {
             Self::Detach(..) => "Detach",
             Self::Resize(..) => "Resize",
             Self::Colors(..) => "Colors",
+            Self::SessionColors(..) => "SessionColors",
+            Self::SessionName { .. } => "SessionName",
             Self::Input(..) => "Input",
             Self::TerminalInput(..) => "TerminalInput",
             Self::ClearScreen(..) => "ClearScreen",
@@ -484,7 +584,8 @@ pub(crate) enum Update {
         result: Result<(), ClientError>,
     },
     PreparedForInstall(Result<Option<muxy_core::file_lock::FileLock>, ClientError>),
-    ServerInfo(muxy_protocol::ServerInfo),
+    /// The server's build and instance, and what it can do.
+    ServerInfo(muxy_protocol::ServerInfo, Vec<muxy_protocol::Feature>),
     ServerChecked(Result<ServerUpdate, ClientError>),
     /// Why connecting failed, and for another computer, the kind of failure.
     ConnectFailed(String, Option<muxy_client::RemoteReason>),
@@ -504,13 +605,28 @@ pub(crate) enum Update {
         pane: PaneId,
         result: Result<SavedScreen, ClientError>,
     },
+    EndReason {
+        pane: PaneId,
+        session: SessionId,
+        result: Result<Option<muxy_protocol::ExitReason>, ClientError>,
+    },
     ReferencesSynced(Result<(), ClientError>),
+    /// A `SessionName` request finished.
+    SessionNamed {
+        session: SessionId,
+        name: Option<String>,
+        result: Result<(), ClientError>,
+    },
+    SessionMoved {
+        session: SessionId,
+        result: Result<(), ClientError>,
+    },
     Discarded {
         session: SessionId,
         result: Result<(), ClientError>,
     },
     CloseChecked {
-        tab: TabId,
+        check: CloseCheckId,
         session: SessionId,
         result: Result<Option<ForegroundProcess>, ClientError>,
     },
@@ -518,6 +634,12 @@ pub(crate) enum Update {
         pane: PaneId,
         request: HistoryRequest,
         result: Result<HistoryPage, ClientError>,
+    },
+    ImageFrames {
+        pane: PaneId,
+        image: u32,
+        keys: Vec<u64>,
+        result: Result<Vec<muxy_protocol::ImageFrame>, ClientError>,
     },
     EndedAll(Result<(), ClientError>),
     Flushed,
@@ -588,6 +710,17 @@ pub(crate) fn worker(
                         connecting = failed.is_empty();
                         failed
                     }
+                    Work::Disconnect => {
+                        generation = requested;
+                        connecting = false;
+                        delivery = delivery::Delivery::default();
+                        requests.reset();
+                        held.clear();
+                        if let Some(client) = client.take() {
+                            Client::disconnect(&client);
+                        }
+                        Vec::new()
+                    }
                     Work::Connected(connection) if requested != generation => {
                         if let Ok((stale, _)) = *connection {
                             stale.disconnect();
@@ -600,6 +733,7 @@ pub(crate) fn worker(
                         match *connection {
                             Ok((connected, sessions)) => {
                                 let info = connected.server_info().clone();
+                                let features = connected.features().to_vec();
                                 crate::diagnostics::event(
                                     "connected",
                                     format_args!(
@@ -608,13 +742,13 @@ pub(crate) fn worker(
                                     ),
                                 );
                                 client = Some(connected);
-                                vec![Update::ServerInfo(info), Update::Connected(sessions)]
+                                vec![
+                                    Update::ServerInfo(info, features),
+                                    Update::Connected(sessions),
+                                ]
                             }
                             Err(error) => {
-                                let reason = match &error {
-                                    ClientError::Remote { reason, .. } => Some(*reason),
-                                    _ => None,
-                                };
+                                let reason = error.remote_reason();
                                 vec![Update::ConnectFailed(explain(&target, &error), reason)]
                             }
                         }
@@ -666,6 +800,9 @@ pub(crate) fn worker(
                     && let Some(client) = &client
                 {
                     client.disconnect();
+                }
+                for channel in delivery.take_strays() {
+                    ready.extend(requests.push(Work::Detach(channel), &mut delivery));
                 }
                 if let Some(client) = &client {
                     ready.extend(requests.start(
@@ -746,8 +883,19 @@ fn connect(
             None => crate::server::ensure_server_running(socket)?,
         },
         Target::Ssh(host) => Client::connect_ssh(host, Start::IfNeeded)?,
+        Target::Paired { .. } => target.connect()?,
     };
     client.identify(muxy_protocol::ClientKind::Desktop)?;
+    // Older servers refuse streaming, so the app reads the pixels itself; the
+    // oldest refuse that too and keep sending pixels with every screen.
+    match client.stream_images() {
+        Ok(()) => {}
+        Err(ClientError::Server(_)) => match client.defer_images() {
+            Ok(()) | Err(ClientError::Server(_)) => {}
+            Err(error) => return Err(error),
+        },
+        Err(error) => return Err(error),
+    }
     if let Target::Local(socket) = target {
         let profile = socket
             .parent()
@@ -780,6 +928,18 @@ fn explain(target: &Target, error: &ClientError) -> String {
     match (target, error) {
         (Target::Ssh(host), ClientError::Timeout | ClientError::Disconnected) => {
             format!("{host}: {error}")
+        }
+        (Target::Paired { endpoint, .. }, error) => {
+            let address = endpoint.hosts.first().map_or("", String::as_str);
+            match error.remote_reason() {
+                Some(reason) => ClientError::Remote {
+                    reason,
+                    destination: address.to_owned(),
+                    detail: String::new(),
+                }
+                .to_string(),
+                None => format!("{address}: {error}"),
+            }
         }
         _ => error.to_string(),
     }
@@ -855,6 +1015,10 @@ fn schedule(
         })
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the failure of every kind of work exhaustive in one place"
+)]
 fn rejected(work: Work, error: ClientError) -> Update {
     match work {
         Work::WriteInput { completion, .. } => {
@@ -905,7 +1069,9 @@ fn rejected(work: Work, error: ClientError) -> Update {
         Work::ReadRemoteAccess
         | Work::WriteRemoteAccess(_)
         | Work::CancelPairing
-        | Work::RevokeDevice(_) => Update::RemoteAccess(Err(error)),
+        | Work::RevokeDevice(_)
+        | Work::SetPushNotifications(_)
+        | Work::ResetPush(_) => Update::RemoteAccess(Err(error)),
         Work::StartPairing => Update::Pairing(Err(error)),
         Work::StopServer { restart, .. } => Update::ServerStopped {
             restart,
@@ -923,9 +1089,22 @@ fn rejected(work: Work, error: ClientError) -> Update {
             pane,
             result: Err(error),
         },
+        Work::ReadEndReason { pane, session } => Update::EndReason {
+            pane,
+            session,
+            result: Err(error),
+        },
         Work::History { pane, request, .. } => Update::History {
             pane,
             request,
+            result: Err(error),
+        },
+        Work::ImageFrames {
+            pane, image, keys, ..
+        } => Update::ImageFrames {
+            pane,
+            image,
+            keys,
             result: Err(error),
         },
         Work::Search { pane, request, .. } => Update::Search {
@@ -934,12 +1113,21 @@ fn rejected(work: Work, error: ClientError) -> Update {
             result: Err(error),
         },
         Work::References(_) => Update::ReferencesSynced(Err(error)),
+        Work::SessionName { session, name, .. } => Update::SessionNamed {
+            session,
+            name,
+            result: Err(error),
+        },
+        Work::MoveSession(session, _) => Update::SessionMoved {
+            session,
+            result: Err(error),
+        },
         Work::Discard(session, _) => Update::Discarded {
             session,
             result: Err(error),
         },
-        Work::CheckClose { tab, session, .. } => Update::CloseChecked {
-            tab,
+        Work::CheckClose { check, session, .. } => Update::CloseChecked {
+            check,
             session,
             result: Err(error),
         },
@@ -1018,6 +1206,12 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
         Work::RevokeDevice(device) => {
             return Some(Update::RemoteAccess(client.revoke_device(device)));
         }
+        Work::SetPushNotifications(on) => {
+            return Some(Update::RemoteAccess(client.set_push_notifications(on)));
+        }
+        Work::ResetPush(device) => {
+            return Some(Update::RemoteAccess(client.reset_push(device)));
+        }
         Work::StopServer { restart } => {
             return Some(Update::ServerStopped {
                 restart,
@@ -1047,18 +1241,42 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             return Some(search(client, pane, source, request));
         }
         Work::Attach {
+            tag,
             pane,
             project,
             session,
             directory,
             size,
+            environment,
+            colors,
         } => {
-            return Some(attach(client, pane, project, session, &directory, size));
+            return attach(
+                client,
+                tag,
+                pane,
+                session,
+                size,
+                Launch {
+                    project,
+                    directory,
+                    environment,
+                    colors,
+                },
+            );
         }
         Work::ReadSaved { pane, session } => {
             return Some(Update::Saved {
                 pane,
                 result: client.read_saved_screen(session),
+            });
+        }
+        Work::ReadEndReason { pane, session } => {
+            return Some(Update::EndReason {
+                pane,
+                session,
+                result: client
+                    .read_saved_screen(session)
+                    .map(|screen| screen.reason),
             });
         }
         Work::History {
@@ -1069,6 +1287,19 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
         } => {
             return Some(history(client, pane, session, channel, request));
         }
+        Work::ImageFrames {
+            pane,
+            channel,
+            image,
+            keys,
+        } => {
+            return Some(Update::ImageFrames {
+                pane,
+                image,
+                result: client.image_frames(channel, image, keys.clone()),
+                keys,
+            });
+        }
         Work::References(sessions) => {
             let result = client.sync_session_references(sessions);
             if result.is_err() {
@@ -1076,37 +1307,58 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             }
             return Some(Update::ReferencesSynced(result));
         }
+        Work::MoveSession(session, project) => {
+            return Some(Update::SessionMoved {
+                session,
+                result: client.move_session(session, project),
+            });
+        }
         Work::Discard(session, operation) => {
             return Some(Update::Discarded {
                 session,
                 result: client.close_session(session, operation),
             });
         }
-        Work::CheckClose { tab, session, size } => {
-            return Some(Update::CloseChecked {
-                tab,
-                session,
-                result: check_close(client, session, size),
-            });
+        Work::CheckClose {
+            check,
+            session,
+            size,
+        } => {
+            return check_close(client, check, session, size)
+                .err()
+                .map(|error| Update::CloseChecked {
+                    check,
+                    session,
+                    result: Err(error),
+                });
         }
         Work::EndAll(referenced) => return Some(Update::EndedAll(end_all(client, referenced))),
-        Work::Detach(channel) => {
-            let result = client.detach(channel);
-            if matches!(&result, Err(ClientError::Server(reply)) if reply.code == ErrorCode::UnknownChannel)
-            {
-                return None;
-            }
-            result
-        }
-        Work::Resize(channel, size) => {
-            let result = client.resize(channel, size);
-            if matches!(&result, Err(ClientError::Server(reply)) if reply.code == ErrorCode::UnknownChannel)
-            {
-                return None;
-            }
-            result
-        }
+        Work::Detach(channel) => finished_if_gone(client.detach(channel)),
+        Work::Resize(channel, size) => finished_if_gone(client.resize(channel, size)),
         Work::Colors(colors) => client.set_terminal_colors(colors),
+        Work::SessionColors(session, colors) => match client.set_session_colors(session, colors) {
+            Err(ClientError::Server(reply))
+                if matches!(
+                    reply.code,
+                    ErrorCode::Unsupported | ErrorCode::UnknownSession
+                ) =>
+            {
+                return None;
+            }
+            result => result,
+        },
+        Work::SessionName {
+            session,
+            name,
+            replacing,
+        } => {
+            let result = client.set_session_name(session, name.clone(), replacing);
+            return Some(Update::SessionNamed {
+                session,
+                name,
+                result,
+            });
+        }
         Work::Input(channel, bytes) => client.send_input(channel, &bytes),
         Work::TerminalInput(channel, input) => client.send_terminal_input(channel, input),
         Work::ClearScreen(channel) => client.clear_screen(channel),
@@ -1126,6 +1378,7 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
         Work::CellSize(channel, cell) => client.send_cell_size(channel, cell),
         Work::Ack(channel, seq) => client.ack(channel, seq),
         Work::Connect
+        | Work::Disconnect
         | Work::ReconnectAfterUpdate(_)
         | Work::Connected(_)
         | Work::ExtensionClient(_)
@@ -1137,7 +1390,28 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             return None;
         }
     };
-    result.err().map(|error| Update::Error(error.to_string()))
+    result.err().as_ref().and_then(reported_error)
+}
+
+/// A request lost with the connection is reported by the disconnect itself.
+fn reported_error(error: &ClientError) -> Option<Update> {
+    (!matches!(error, ClientError::Disconnected)).then(|| Update::Error(error.to_string()))
+}
+
+/// A request for a channel or session the server no longer has is finished;
+/// the session's end is reported on its own.
+fn finished_if_gone(result: Result<(), ClientError>) -> Result<(), ClientError> {
+    match result {
+        Err(ClientError::Server(reply))
+            if matches!(
+                reply.code,
+                ErrorCode::UnknownChannel | ErrorCode::UnknownSession
+            ) =>
+        {
+            Ok(())
+        }
+        result => result,
+    }
 }
 
 fn stop_server(client: &Client, target: &Target) -> Result<(), ClientError> {
@@ -1147,6 +1421,30 @@ fn stop_server(client: &Client, target: &Target) -> Result<(), ClientError> {
             Err(ClientError::Disconnected) => Ok(()),
             result => result,
         },
+        Target::Paired { endpoint, .. } => match client.stop_server() {
+            Err(ClientError::Disconnected) => confirm_stopped(endpoint),
+            result => result,
+        },
+    }
+}
+
+/// The connection closed before the paired server answered, as it does when
+/// the server stops at once but also when the request never left. Only a
+/// server that refuses new connections has stopped.
+fn confirm_stopped(endpoint: &RemoteEndpoint) -> Result<(), ClientError> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        if muxy_client::accepts_connections(endpoint) == Some(false) {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(std::io::Error::other(
+                tr!("The connection closed before the server confirmed it stopped, so it may still be running.")
+                    .to_string(),
+            )
+            .into());
+        }
+        thread::sleep(std::time::Duration::from_millis(250));
     }
 }
 
@@ -1206,57 +1504,69 @@ fn end_all(client: &Client, referenced: Vec<SessionId>) -> Result<(), ClientErro
 
 fn check_close(
     client: &Client,
+    check: CloseCheckId,
     session: SessionId,
     size: Size,
-) -> Result<Option<ForegroundProcess>, ClientError> {
-    let attachment = client.attach(session, size)?;
-    match client.detach(attachment.channel) {
-        Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownChannel => {}
-        result => result?,
+) -> Result<(), ClientError> {
+    let channel = client.attach(check.tag(), session, size)?;
+    match client.detach(channel) {
+        Err(ClientError::Server(error)) if error.code == ErrorCode::UnknownChannel => Ok(()),
+        result => result,
     }
-    Ok(attachment.process)
 }
 
+/// What a new terminal starts with.
+struct Launch {
+    project: muxy_protocol::ProjectId,
+    directory: PathBuf,
+    environment: BTreeMap<String, String>,
+    colors: Option<TerminalColors>,
+}
+
+/// Attaches `pane`, creating its session first if it has none. Its terminal
+/// arrives as `Update::Attached`; only a failure returns here.
 fn attach(
     client: &Client,
+    tag: u64,
     pane: PaneId,
-    project: muxy_protocol::ProjectId,
     existing: Option<SessionId>,
-    directory: &std::path::Path,
     size: Size,
-) -> Update {
+    launch: Launch,
+) -> Option<Update> {
     let session = match existing.map_or_else(
         || {
             client
-                .create_project_session(project, pane.creation_token(), directory, size)
+                .create_project_session_with_environment(
+                    launch.project,
+                    pane.creation_token(),
+                    &launch.directory,
+                    size,
+                    launch.environment,
+                    launch.colors,
+                )
                 .map(|info| info.id)
         },
         Ok,
     ) {
         Ok(session) => session,
         Err(error) => {
-            return Update::AttachFailed {
+            return Some(Update::AttachFailed {
                 pane,
                 session: None,
                 created: false,
                 error,
-            };
+            });
         }
     };
-    match client.attach(session, size) {
-        Ok(attachment) => Update::Attached {
-            pane,
-            session,
-            attachment,
-            created: existing.is_none(),
-        },
-        Err(error) => Update::AttachFailed {
+    client
+        .attach(tag, session, size)
+        .err()
+        .map(|error| Update::AttachFailed {
             pane,
             session: Some(session),
             created: existing.is_none(),
             error,
-        },
-    }
+        })
 }
 
 pub(crate) fn missing_session(error: &ClientError) -> bool {
@@ -1268,4 +1578,4 @@ mod project_layouts;
 mod requests;
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;

@@ -1,13 +1,13 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    Window, div, px, svg,
+    IntoElement, ParentElement, Role, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Toggled, Window, div, px, svg,
 };
 use muxy_protocol::ProjectId;
 use muxy_ui::components::{ButtonInteraction, SymbolGlyph};
 use muxy_ui::controls::{self, Style};
-use muxy_ui::l10n::translate;
+use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::popover;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
@@ -15,7 +15,8 @@ use muxy_ui::tr;
 use crate::ai::{PROVIDERS, Provider};
 use crate::model::AppModel;
 use crate::repository_actions::Action;
-use crate::views::{menu, overlays::Overlay};
+use crate::views::menu;
+use crate::views::overlays::{Dismissal, Mark, Overlay, OverlayView, Placement};
 
 pub(crate) struct AiProviderMenu {
     pub(crate) action: Action,
@@ -43,13 +44,16 @@ impl AppModel {
         #[cfg(not(test))]
         self.ai.refresh_installed();
         self.dismiss_overlay(cx);
-        self.overlay = Some(Overlay::AiProvider(AiProviderMenu {
-            action,
-            project: self.ai_prompt_project(project),
-            prompt: None,
-            highlighted: None,
-            subscription: None,
-        }));
+        self.open_overlay(
+            Overlay::AiProvider(AiProviderMenu {
+                action,
+                project: self.ai_prompt_project(project),
+                prompt: None,
+                highlighted: None,
+                subscription: None,
+            }),
+            cx,
+        );
         self.overlay_focus.focus(window);
         cx.notify();
     }
@@ -112,6 +116,8 @@ impl AppModel {
             TextInput::new(InputStyle::field(&self.theme, &self.metrics), cx)
                 .with_font_family(muxy_ui::font::monospace())
                 .multiline()
+                .with_accessible_label(tr_key!("Create PR Prompt"))
+                .with_accessibility_id("settings-area-ai-project-pr-prompt")
                 .with_text(text)
         });
         let subscription =
@@ -138,17 +144,22 @@ impl AppModel {
     }
 }
 
+/// The provider's logo among the bundled icons.
+pub(crate) fn provider_icon_path(provider: Provider) -> SharedString {
+    let name = if provider.id == "droid" {
+        "factory"
+    } else {
+        provider.id
+    };
+    SharedString::from(format!("icons/provider-{name}.svg"))
+}
+
 fn provider_icon(provider: Option<Provider>, model: &AppModel) -> AnyElement {
     let size = model.metrics.icon_md();
     match provider {
         None => SymbolGlyph::new("sparkles", size, model.theme.fg).into_any_element(),
         Some(provider) => {
-            let name = if provider.id == "droid" {
-                "factory"
-            } else {
-                provider.id
-            };
-            let path = SharedString::from(format!("icons/provider-{name}.svg"));
+            let path = provider_icon_path(provider);
             if provider.id == "claude" {
                 gpui::img(path).size(size).into_any_element()
             } else {
@@ -206,6 +217,13 @@ fn provider_row(
         true,
         menu.highlighted == Some(index),
     )
+    .role(Role::MenuItem)
+    .accessibility_id(format!(
+        "ai-provider-{}",
+        if id.is_empty() { "auto" } else { id }
+    ))
+    .aria_label(title.clone())
+    .when(configured == id, |row| row.aria_toggled(Toggled::True))
     .debug_selector(move || format!("ai-provider-{id}"))
     .min_w(m.scaled(220.0))
     .button_interaction(
@@ -222,11 +240,35 @@ fn provider_row(
     .into_any_element()
 }
 
+impl OverlayView for AiProviderMenu {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        model: &AppModel,
+        window: &Window,
+        cx: &mut Context<AppModel>,
+    ) -> AnyElement {
+        render_provider_menu(self, model, window, cx)
+    }
+
+    fn placement(&self, model: &AppModel) -> Placement {
+        Placement::Above(model.ai.anchors[self.action.index()].clone())
+    }
+
+    fn marks_bounds(&self, _: &AppModel) -> bool {
+        true
+    }
+
+    fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
+        super::end_git_interaction(model)
+    }
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "Declarative provider menu and project prompt editor"
 )]
-pub(crate) fn render_provider_menu(
+fn render_provider_menu(
     menu: &AiProviderMenu,
     model: &AppModel,
     window: &Window,
@@ -247,6 +289,16 @@ pub(crate) fn render_provider_menu(
         .is_some_and(|prompt| !prompt.trim().is_empty());
     let mut view = popover::surface(theme, m)
         .id("ai-provider-menu")
+        .role(if menu.prompt.is_some() {
+            Role::Dialog
+        } else {
+            Role::Menu
+        })
+        .aria_label(if menu.prompt.is_some() {
+            tr!("Create PR Prompt")
+        } else {
+            translate(menu.action.settings_title())
+        })
         .debug_selector(|| "ai-provider-menu".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
@@ -312,8 +364,8 @@ pub(crate) fn render_provider_menu(
                         controls::button(
                             style,
                             "ai-project-prompt-reset",
-                            &tr!("Use Global Prompt"),
-                            overridden,
+                            controls::Button::secondary(&tr!("Use Global Prompt"))
+                                .enabled(overridden),
                             cx.listener(|model, _, _, cx| model.save_project_pr_prompt(true, cx)),
                         )
                         .text_color(theme.accent),
@@ -322,8 +374,7 @@ pub(crate) fn render_provider_menu(
                     .child(controls::button(
                         style,
                         "ai-project-prompt-cancel",
-                        &tr!("Cancel"),
-                        true,
+                        controls::Button::secondary(&tr!("Cancel")),
                         cx.listener(|model, _, window, cx| {
                             model.cancel_project_pr_prompt(window, cx);
                         }),
@@ -331,8 +382,8 @@ pub(crate) fn render_provider_menu(
                     .child(controls::button(
                         style,
                         "ai-project-prompt-save",
-                        &tr!("Save"),
-                        !input.read(cx).text().trim().is_empty(),
+                        controls::Button::secondary(&tr!("Save"))
+                            .enabled(!input.read(cx).text().trim().is_empty()),
                         cx.listener(|model, _, _, cx| model.save_project_pr_prompt(false, cx)),
                     )),
             );
@@ -353,6 +404,10 @@ pub(crate) fn render_provider_menu(
                     true,
                     menu.highlighted == Some(PROVIDERS.len() + 1),
                 )
+                .role(Role::MenuItem)
+                .accessibility_id("ai-project-prompt-edit")
+                .aria_label(tr!("Edit Project Prompt…"))
+                .aria_description(project_name.to_owned())
                 .debug_selector(|| "ai-project-prompt-edit".into())
                 .h(m.scaled(44.0))
                 .min_w(m.scaled(220.0))

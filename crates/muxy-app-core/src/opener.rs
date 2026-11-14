@@ -97,11 +97,14 @@ impl Target {
             }));
         }
         let (base, last) = path.to_str()?.rsplit_once(':')?;
-        let last = position(last)?;
-        let (base, line, column) = base
-            .rsplit_once(':')
-            .and_then(|(path, line)| position(line).map(|line| (path, line, Some(last))))
-            .unwrap_or((base, last, None));
+        let (base, line, column) = if let Some(line) = line_range(last) {
+            (base, line, None)
+        } else {
+            let last = position(last)?;
+            base.rsplit_once(':')
+                .and_then(|(path, line)| position(line).map(|line| (path, line, Some(last))))
+                .unwrap_or((base, last, None))
+        };
         let path = PathBuf::from(base);
         exists(&path).then_some(Self::File(FileLocation {
             path,
@@ -115,6 +118,14 @@ fn position(text: &str) -> Option<u32> {
     (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
         .then(|| text.parse::<u32>().ok().filter(|value| *value > 0))
         .flatten()
+}
+
+/// A `START-END` line range, as tools print for `path:56-60`; it opens at
+/// the first line.
+fn line_range(text: &str) -> Option<u32> {
+    let (start, end) = text.split_once('-')?;
+    let start = position(start)?;
+    (start <= position(end)?).then_some(start)
 }
 
 fn decode_path(text: &str) -> Option<PathBuf> {

@@ -4,10 +4,12 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
+use super::panels::{FrameSpec, PanelChrome, PanelScope, SizeSpec};
+
 const MAX_ICON_BYTES: u64 = 256 * 1024;
 
 /// Every permission an extension can declare. Unknown names fail the load, as on main.
-pub const PERMISSIONS: [&str; 25] = [
+pub const PERMISSIONS: [&str; 37] = [
     "panes:read",
     "panes:write",
     "tabs:read",
@@ -20,6 +22,7 @@ pub const PERMISSIONS: [&str; 25] = [
     "worktrees:read",
     "worktrees:write",
     "agents:read",
+    "agents:write",
     "git:read",
     "git:write",
     "files:read",
@@ -33,6 +36,17 @@ pub const PERMISSIONS: [&str; 25] = [
     "shortcuts:register",
     "remote:serve",
     "gh:read",
+    "ui:write",
+    "commands:read",
+    "commands:run",
+    "composer:write",
+    "layouts:read",
+    "layouts:write",
+    "preferences:read",
+    "preferences:write",
+    "clipboard:read",
+    "clipboard:write",
+    "system:open",
 ];
 
 /// An SF Symbol name or a template SVG bundled with the extension.
@@ -43,7 +57,7 @@ pub enum Icon {
 }
 
 impl Icon {
-    /// The lenient runtime form accepted by `topbar.set`, `statusbar.set`, and `tabs.setIcon`.
+    /// The lenient runtime form accepted by `topbar.set`, `rail.set`, `statusbar.set`, and `tabs.setIcon`.
     pub fn parse(value: &Value) -> Option<Self> {
         match value {
             Value::String(symbol) if !symbol.is_empty() => Some(Self::Symbol(symbol.clone())),
@@ -121,6 +135,8 @@ pub enum PanelMode {
     #[default]
     Floating,
     Pinned,
+    /// Floats freely over the window, beside other panels.
+    Detached,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
@@ -132,10 +148,15 @@ pub enum PanelControl {
     #[serde(alias = "mode")]
     Pin,
     Position,
+    Detach,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Mirrors the manifest's independent panel flags"
+)]
 pub struct Panel {
     pub id: String,
     pub title: Option<String>,
@@ -153,6 +174,22 @@ pub struct Panel {
     pub hide_topbar: bool,
     #[serde(default)]
     pub default_data: Value,
+    /// Where a detached panel first opens, and its size.
+    pub frame: Option<FrameSpec>,
+    pub min_size: Option<SizeSpec>,
+    pub max_size: Option<SizeSpec>,
+    #[serde(default)]
+    pub chrome: PanelChrome,
+    /// Unset, a panel with `chrome: "none"` is transparent and others aren't.
+    pub transparent: Option<bool>,
+    #[serde(default)]
+    pub click_through: bool,
+    #[serde(default = "visible")]
+    pub movable: bool,
+    #[serde(default = "visible")]
+    pub resizable: bool,
+    #[serde(default)]
+    pub scope: PanelScope,
 }
 
 impl Panel {
@@ -163,6 +200,43 @@ impl Panel {
     /// Whether the user's float/dock choice applies instead of the declared mode.
     pub fn allows_mode_selection(&self) -> bool {
         !self.hides(PanelControl::Pin)
+    }
+
+    /// Whether the user's choice to pop the panel out, or dock it, applies
+    /// instead of the declared mode.
+    pub fn allows_detach_selection(&self) -> bool {
+        !self.hides(PanelControl::Detach)
+    }
+
+    fn validate_floating(&self) -> Result<(), String> {
+        let id = &self.id;
+        let finite = |value: f32| value.is_finite() && value.abs() <= 16384.0;
+        if let Some(frame) = self.frame {
+            let parts = [frame.x, frame.y, frame.width, frame.height];
+            if !parts.into_iter().flatten().all(finite)
+                || frame.width.is_some_and(|width| width <= 0.0)
+                || frame.height.is_some_and(|height| height <= 0.0)
+            {
+                return Err(format!(
+                    "panel '{id}' frame needs finite numbers and a positive size"
+                ));
+            }
+        }
+        for (name, size) in [("minSize", self.min_size), ("maxSize", self.max_size)] {
+            if size.is_some_and(|size| {
+                !finite(size.width) || !finite(size.height) || size.width < 0.0 || size.height < 0.0
+            }) {
+                return Err(format!(
+                    "panel '{id}' {name} needs finite, non-negative numbers"
+                ));
+            }
+        }
+        if let (Some(min), Some(max)) = (self.min_size, self.max_size)
+            && (min.width > max.width || min.height > max.height)
+        {
+            return Err(format!("panel '{id}' minSize is larger than its maxSize"));
+        }
+        Ok(())
     }
 }
 
@@ -313,7 +387,8 @@ fn visible() -> bool {
     true
 }
 
-/// A topbar item or panel header button that runs one of the extension's commands.
+/// A topbar item, rail item, or panel header button that runs one of the
+/// extension's commands.
 #[derive(Clone, Debug, Deserialize)]
 pub struct BarItem {
     pub id: String,
@@ -442,9 +517,58 @@ pub struct Manifest {
     pub file_openers: Vec<FileOpener>,
     pub localizations: Vec<Localization>,
     pub topbar_items: Vec<BarItem>,
+    pub rail_items: Vec<BarItem>,
     pub status_bar_items: Vec<StatusBarItem>,
     pub settings: Vec<Setting>,
     pub remote_methods: Vec<RemoteMethod>,
+    /// The marketplace listing, read only to show the extension in Settings.
+    #[serde(deserialize_with = "listing")]
+    pub marketplace: Listing,
+}
+
+/// What the marketplace shows about an extension: its pictures, maker, and
+/// links. The app never acts on it, so a malformed field is left empty
+/// instead of stopping the extension from loading.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Listing {
+    pub author: Option<String>,
+    pub categories: Vec<String>,
+    /// The listing icon, relative to the resource root.
+    pub icon: Option<String>,
+    /// Listing screenshots, relative to the resource root.
+    pub screenshots: Vec<String>,
+    pub homepage: Option<String>,
+    pub repository: Option<String>,
+}
+
+fn listing<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Listing, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    let text = |key: &str| {
+        value[key]
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+    };
+    let texts = |key: &str| {
+        value[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    Ok(Listing {
+        author: text("author"),
+        categories: texts("categories"),
+        icon: text("icon"),
+        screenshots: texts("screenshots"),
+        homepage: text("homepage"),
+        repository: text("repository"),
+    })
 }
 
 impl Manifest {
@@ -717,6 +841,7 @@ impl Extension {
                 &format!("panel '{}' header button", panel.id),
                 panel.header_buttons.iter().map(|b| b.id.as_str()),
             )?;
+            panel.validate_floating()?;
         }
         distinct("popover", manifest.popovers.iter().map(|p| p.id.as_str()))?;
         for popover in &manifest.popovers {
@@ -796,6 +921,13 @@ impl Extension {
         )?;
         for item in &manifest.topbar_items {
             check("topbar item", &item.id, &item.command, &item.icon)?;
+        }
+        unique(
+            "rail item",
+            manifest.rail_items.iter().map(|i| i.id.as_str()),
+        )?;
+        for item in &manifest.rail_items {
+            check("rail item", &item.id, &item.command, &item.icon)?;
         }
         unique(
             "status bar item",

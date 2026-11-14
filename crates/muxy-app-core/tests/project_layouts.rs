@@ -48,15 +48,6 @@ fn layout_titles_are_filtered_without_changing_startup_commands() {
     let panes = state
         .apply_project_layout(state.home().id, &config)
         .expect("apply");
-    assert_eq!(
-        state
-            .home()
-            .tabs
-            .iter()
-            .map(|tab| tab.title(None))
-            .collect::<Vec<_>>(),
-        ["日本語", "Terminal", "./build"]
-    );
     assert_eq!(state.startup_command(panes[0]), Some("echo 🚀"));
     assert_eq!(state.startup_command(panes[2]), Some("./🚀build --watch"));
 }

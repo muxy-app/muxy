@@ -10,7 +10,7 @@ use std::rc::Rc;
 use block2::RcBlock;
 use gpui::{Bounds, CursorStyle, Pixels};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool};
+use objc2::runtime::{AnyObject, Bool, Sel};
 use objc2::{ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
     NSApplication, NSAutoresizingMaskOptions, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags,
@@ -41,23 +41,31 @@ struct Focus {
     /// When the user last clicked into the page.
     last_click: Cell<Option<std::time::Instant>>,
     modal: Cell<bool>,
-    shortcuts: RefCell<Vec<gpui::Keystroke>>,
+    shortcuts: RefCell<Rc<Vec<gpui::Keystroke>>>,
 }
 
 #[derive(Debug, Default)]
 struct HitTestRegions {
     occluded: RefCell<Vec<NSRect>>,
     passthrough_all: Cell<bool>,
+    /// Where the page takes clicks, from its top left corner. `None` takes
+    /// them everywhere.
+    interactive: RefCell<Option<Vec<NSRect>>>,
 }
 
 impl HitTestRegions {
-    fn excludes(&self, point: NSPoint) -> bool {
+    fn excludes(&self, point: NSPoint, page: NSPoint) -> bool {
         self.passthrough_all.get()
             || self
                 .occluded
                 .borrow()
                 .iter()
                 .any(|rect| contains_point(*rect, point))
+            || self
+                .interactive
+                .borrow()
+                .as_ref()
+                .is_some_and(|regions| !regions.iter().any(|rect| contains_point(*rect, page)))
     }
 }
 
@@ -96,9 +104,26 @@ define_class!(
         #[unsafe(method_id(hitTest:))]
         fn hit_test(&self, point: NSPoint) -> Option<Retained<NSView>> {
             let local = self.convertPoint_fromView(point, unsafe { self.superview() }.as_deref());
-            if self.ivars().excludes(local) { None }
+            let page = if self.isFlipped() { local } else { NSPoint::new(local.x, self.bounds().size.height - local.y) };
+            if self.ivars().excludes(local, page) { None }
             else { unsafe { msg_send![super(self), hitTest: point] } }
         }
+
+        // WebKit runs a key's command up the page's responders to learn
+        // whether anything wanted it. GPUI's view takes every command, so
+        // keys the page left alone would never reach the Edit menu. They
+        // go on to the window instead.
+        #[unsafe(method(doCommandBySelector:))]
+        fn do_command_by_selector(&self, selector: Sel) {
+            if let Some(window) = self.window() {
+                let _: () = unsafe { msg_send![&*window, doCommandBySelector: selector] };
+            }
+        }
+
+        // Typing the page left alone comes back here, and must not reach
+        // whatever Muxy last focused.
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, _: &NSEvent) {}
     }
 );
 
@@ -190,7 +215,7 @@ pub(crate) struct Host {
     container: Retained<Container>,
     page: Option<Retained<WKWebView>>,
     grips: Retained<GripOverlay>,
-    parent: Retained<NSView>,
+    parent: RefCell<Retained<NSView>>,
     focus: Rc<Focus>,
     monitor: Option<Retained<AnyObject>>,
     visible: Cell<bool>,
@@ -222,7 +247,7 @@ impl Host {
             container,
             page: None,
             grips,
-            parent,
+            parent: RefCell::new(parent),
             focus: Rc::default(),
             monitor: None,
             visible: Cell::new(false),
@@ -255,7 +280,7 @@ impl Host {
         self.page = Some(page);
     }
 
-    pub(crate) fn set_shortcuts(&self, modal: bool, shortcuts: Vec<gpui::Keystroke>) {
+    pub(crate) fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<gpui::Keystroke>>) {
         self.focus.modal.set(modal);
         *self.focus.shortcuts.borrow_mut() = shortcuts;
     }
@@ -283,7 +308,7 @@ impl Host {
     /// coordinates, to Muxy and shows each grip's cursor there. The page's
     /// pixels don't change. Call after [`Self::occlude`].
     pub(crate) fn set_grips(&self, grips: &[(Bounds<Pixels>, CursorStyle)]) {
-        let frame = self.parent.bounds();
+        let frame = self.parent().bounds();
         let regions: Vec<_> = visible_grips(self.bounds.get(), &self.occlusions.borrow(), grips)
             .into_iter()
             .map(|(grip, cursor)| (flipped_rect(grip), cursor))
@@ -304,20 +329,168 @@ impl Host {
         self.container.ivars().passthrough_all.set(enabled);
     }
 
+    /// Where the page takes clicks, from its top left corner; elsewhere
+    /// they reach what is under it. `None` takes them everywhere.
+    pub(crate) fn set_hit_regions(&self, regions: Option<&[Bounds<Pixels>]>) {
+        let regions = regions.map(|regions| {
+            regions
+                .iter()
+                .map(|region| {
+                    NSRect::new(
+                        NSPoint::new(
+                            f64::from(f32::from(region.origin.x)),
+                            f64::from(f32::from(region.origin.y)),
+                        ),
+                        NSSize::new(
+                            f64::from(f32::from(region.size.width)),
+                            f64::from(f32::from(region.size.height)),
+                        ),
+                    )
+                })
+                .collect()
+        });
+        *self.container.ivars().interactive.borrow_mut() = regions;
+    }
+
+    /// Puts these pages above every other native view in the window, the
+    /// last one in front. Views already in place are left alone, so calling
+    /// this every frame costs nothing, and the front page moves only when
+    /// something else covers it: raising a page that was just clicked moves
+    /// the pages that go under it instead, so the click isn't interrupted.
+    pub(crate) fn order_front(hosts: &[&Self]) {
+        let mut remaining = hosts.to_vec();
+        while let Some(first) = remaining.first() {
+            let parent = first.parent();
+            let (group, rest): (Vec<_>, Vec<_>) = remaining.into_iter().partition(|host| {
+                ptr::eq(
+                    Retained::as_ptr(&host.parent.borrow()),
+                    Retained::as_ptr(&parent),
+                )
+            });
+            Self::order_front_in_parent(&group);
+            remaining = rest;
+        }
+    }
+
+    /// [`Self::order_front`] for pages that share one parent.
+    fn order_front_in_parent(hosts: &[&Self]) {
+        let Some(front) = hosts.last() else {
+            return;
+        };
+        let ours: Vec<*const NSView> = hosts
+            .iter()
+            .flat_map(|host| [host.container_ptr(), host.grips_ptr()])
+            .collect();
+        let views = front.subview_order();
+        let at = |views: &[*const NSView], view: *const NSView| {
+            views.iter().position(|entry| ptr::eq(*entry, view))
+        };
+        let covered = at(&views, front.container_ptr()).is_none_or(|index| {
+            views[index + 1..]
+                .iter()
+                .any(|view| !ours.iter().any(|entry| ptr::eq(*entry, *view)))
+                || at(&views, front.grips_ptr()) != Some(index + 1)
+        });
+        if covered {
+            front.place(NSWindowOrderingMode::Above, None);
+        }
+        for pair in hosts.windows(2).rev() {
+            let (below, above) = (pair[0], pair[1]);
+            let views = front.subview_order();
+            let in_place = match (
+                at(&views, below.container_ptr()),
+                at(&views, above.container_ptr()),
+            ) {
+                (Some(container), Some(anchor)) => {
+                    container + 2 == anchor && at(&views, below.grips_ptr()) == Some(container + 1)
+                }
+                _ => false,
+            };
+            if !in_place {
+                below.place(NSWindowOrderingMode::Below, Some(&above.container));
+            }
+        }
+    }
+
+    fn parent(&self) -> Retained<NSView> {
+        self.parent.borrow().clone()
+    }
+
+    /// Moves the page into `parent`, another window's GPUI view, keeping it
+    /// loaded. It stays hidden there until the next [`Self::sync`] and
+    /// [`Self::set_visible`] place it in that window, and the keyboard
+    /// returns to it with the next [`Self::focus`] or key Muxy routes to it.
+    pub(crate) fn move_to(&self, parent: Retained<NSView>) {
+        if ptr::eq(
+            Retained::as_ptr(&self.parent.borrow()),
+            Retained::as_ptr(&parent),
+        ) {
+            return;
+        }
+        self.blur();
+        self.container.setHidden(true);
+        self.grips.setHidden(true);
+        self.grips.removeFromSuperview();
+        self.container.removeFromSuperview();
+        parent.addSubview(&self.container);
+        parent.addSubview_positioned_relativeTo(
+            &self.grips,
+            NSWindowOrderingMode::Above,
+            Some(&self.container),
+        );
+        self.grips.setFrame(parent.bounds());
+        self.grips.ivars().borrow_mut().clear();
+        if let Some(window) = parent.window() {
+            window.invalidateCursorRectsForView(&self.grips);
+        }
+        *self.parent.borrow_mut() = parent;
+        *self.applied.borrow_mut() = Applied::default();
+    }
+
+    /// The parent's subviews, back to front, as they are now.
+    fn subview_order(&self) -> Vec<*const NSView> {
+        let subviews = self.parent().subviews();
+        (0..subviews.count())
+            .map(|index| Retained::as_ptr(&subviews.objectAtIndex(index)))
+            .collect()
+    }
+
+    fn container_ptr(&self) -> *const NSView {
+        Retained::as_ptr(&self.container).cast()
+    }
+
+    fn grips_ptr(&self) -> *const NSView {
+        Retained::as_ptr(&self.grips).cast()
+    }
+
+    /// Moves the page and its grips next to `relative`, or to the front,
+    /// keeping the keyboard on the page if it had it.
+    fn place(&self, ordering: NSWindowOrderingMode, relative: Option<&NSView>) {
+        let focused = self.page.as_ref().is_some_and(|page| {
+            self.container.window().is_some_and(|window| {
+                window.firstResponder().is_some_and(|responder| {
+                    responder
+                        .downcast_ref::<NSView>()
+                        .is_some_and(|view| view.isDescendantOf(page))
+                })
+            })
+        });
+        let parent = self.parent();
+        parent.addSubview_positioned_relativeTo(&self.container, ordering, relative);
+        parent.addSubview_positioned_relativeTo(
+            &self.grips,
+            NSWindowOrderingMode::Above,
+            Some(&self.container),
+        );
+        if focused {
+            self.focus();
+        }
+    }
+
     pub(crate) fn sync(&self, bounds: Bounds<Pixels>, clip: Bounds<Pixels>, radius: f64) {
         self.bounds.set(bounds);
         self.clip.set(clip);
-        let top = f64::from(f32::from(bounds.top()));
-        let height = f64::from(f32::from(bounds.size.height));
-        let y = if self.parent.isFlipped() {
-            top
-        } else {
-            self.parent.bounds().size.height - top - height
-        };
-        let frame = NSRect::new(
-            NSPoint::new(f64::from(f32::from(bounds.left())), y),
-            NSSize::new(f64::from(f32::from(bounds.size.width)), height),
-        );
+        let frame = crate::appkit::frame_in(&self.parent(), bounds);
         let mut applied = self.applied.borrow_mut();
         if applied.frame != Some(frame) {
             self.container.setFrame(frame);
@@ -441,7 +614,7 @@ impl Host {
                     .is_some_and(|view| view.isDescendantOf(&self.container))
             })
         {
-            window.makeFirstResponder(Some(&self.parent));
+            window.makeFirstResponder(Some(&*self.parent()));
         }
     }
 
@@ -590,65 +763,14 @@ fn subtract(region: Bounds<Pixels>, cut: Bounds<Pixels>) -> Vec<Bounds<Pixels>> 
     .collect()
 }
 
-fn keystroke(event: &NSEvent) -> gpui::Keystroke {
-    native_keystroke(
-        event.keyCode(),
-        &event
-            .charactersIgnoringModifiers()
-            .map_or_else(String::new, |text| text.to_string()),
-        event.modifierFlags(),
-    )
-}
-
-fn native_keystroke(code: u16, characters: &str, flags: NSEventModifierFlags) -> gpui::Keystroke {
-    let mut shift = flags.contains(NSEventModifierFlags::Shift);
-    let key = match code {
-        36 | 76 => "enter".into(),
-        48 => "tab".into(),
-        49 => "space".into(),
-        51 => "backspace".into(),
-        53 => "escape".into(),
-        114 => "insert".into(),
-        115 => "home".into(),
-        116 => "pageup".into(),
-        117 => "delete".into(),
-        119 => "end".into(),
-        121 => "pagedown".into(),
-        123 => "left".into(),
-        124 => "right".into(),
-        125 => "down".into(),
-        126 => "up".into(),
-        _ => match characters.chars().next() {
-            Some(character) if (0xf704..=0xf726).contains(&u32::from(character)) => {
-                format!("f{}", u32::from(character) - 0xf704 + 1)
-            }
-            _ => {
-                if shift
-                    && !characters
-                        .chars()
-                        .all(|character| character.is_ascii_alphabetic())
-                {
-                    shift = false;
-                }
-                characters.to_lowercase()
-            }
-        },
-    };
-    gpui::Keystroke {
-        key,
+/// What GPUI reads from a key event, without its text: a kept shortcut no
+/// binding takes must not type through `dispatch_keystroke`.
+fn keystroke(event: &NSEvent) -> Option<gpui::Keystroke> {
+    let event = ptr::from_ref(event).cast_mut().cast();
+    gpui::keystroke_from_native_event(event).map(|keystroke| gpui::Keystroke {
         key_char: None,
-        modifiers: gpui::Modifiers {
-            control: flags.contains(NSEventModifierFlags::Control),
-            alt: flags.contains(NSEventModifierFlags::Option),
-            shift,
-            platform: flags.contains(NSEventModifierFlags::Command),
-            function: flags.contains(NSEventModifierFlags::Function)
-                && characters
-                    .chars()
-                    .next()
-                    .is_none_or(|character| !(0xf700..=0xf747).contains(&u32::from(character))),
-        },
-    }
+        ..keystroke
+    })
 }
 
 fn monitor(
@@ -718,10 +840,12 @@ fn monitor(
             }
             return event;
         }
+        let Some(keystroke) = keystroke(event_ref) else {
+            return event;
+        };
         if route_key_event(
-            keystroke(event_ref),
-            focus.modal.get(),
-            &focus.shortcuts.borrow(),
+            keystroke,
+            &focus,
             &*on_signal,
             || page_key_equivalent(&page, event_ref),
             || {
@@ -793,25 +917,31 @@ fn native_menu_key_equivalent(
 
 fn route_key_event(
     keystroke: gpui::Keystroke,
-    modal: bool,
-    shortcuts: &[gpui::Keystroke],
+    focus: &Focus,
     on_signal: &dyn Fn(Signal) -> bool,
     page_key_equivalent: impl FnOnce() -> bool,
     menu_key_equivalent: impl FnOnce() -> bool,
     page_key_down: impl FnOnce(),
 ) -> bool {
-    if keystroke.key == "escape" && modal {
+    if keystroke.key == "escape" && focus.modal.get() {
         on_signal(Signal::Escape);
         return true;
     }
-    if shortcuts
+    // Routing can redraw Muxy before it returns, as when WebKit hands a key
+    // back to GPUI, and a redraw sets new shortcuts. So the list is cloned out
+    // and never borrowed across a call back into Muxy.
+    let shortcuts = focus.shortcuts.borrow().clone();
+    let kept = shortcuts
         .iter()
-        .any(|key| key.key == keystroke.key && key.modifiers == keystroke.modifiers)
-    {
+        .any(|key| key.key == keystroke.key && key.modifiers == keystroke.modifiers);
+    if kept {
         return on_signal(Signal::Shortcut(keystroke));
     }
+    // The page sees a command key first, as in Safari, so editors keep
+    // their own select all and undo. WebKit sends back keys the page
+    // leaves alone, and those then reach the Edit menu.
     if keystroke.modifiers.platform {
-        menu_key_equivalent() || page_key_equivalent()
+        page_key_equivalent() || menu_key_equivalent()
     } else {
         page_key_down();
         true
@@ -823,13 +953,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_shortcuts_try_native_menu_before_webkit() {
+    fn command_shortcuts_try_webkit_before_native_menu() {
         let emitted = RefCell::new(0);
         let on_key = |_: Signal| {
             *emitted.borrow_mut() += 1;
             true
         };
         for modal in [false, true] {
+            let focus = Focus::default();
+            focus.modal.set(modal);
             for binding in [
                 "cmd-f",
                 "cmd-g",
@@ -849,8 +981,7 @@ mod tests {
                     let deliveries = RefCell::new(Vec::new());
                     let handled = route_key_event(
                         gpui::Keystroke::parse(binding).expect("binding"),
-                        modal,
-                        &[],
+                        &focus,
                         &on_key,
                         || {
                             deliveries.borrow_mut().push("page");
@@ -865,10 +996,10 @@ mod tests {
                     assert_eq!(handled, page_handled || menu_handled);
                     assert_eq!(
                         *deliveries.borrow(),
-                        if menu_handled {
-                            vec!["menu"]
+                        if page_handled {
+                            vec!["page"]
                         } else {
-                            vec!["menu", "page"]
+                            vec!["page", "menu"]
                         },
                     );
                     assert_eq!(*emitted.borrow(), 0);
@@ -885,24 +1016,62 @@ mod tests {
             true
         };
         let shortcut = gpui::Keystroke::parse("cmd-t").expect("binding");
+        let focus = Focus::default();
+        *focus.shortcuts.borrow_mut() = Rc::new(vec![shortcut.clone()]);
         assert!(route_key_event(
-            shortcut.clone(),
-            false,
-            std::slice::from_ref(&shortcut),
+            shortcut,
+            &focus,
             &on_key,
             || panic!("kept shortcut must not reach the page"),
             || panic!("kept shortcut must not reach the menu"),
             || panic!("kept shortcut must not reach the page"),
         ));
+        focus.modal.set(true);
         assert!(route_key_event(
             gpui::Keystroke::parse("escape").expect("binding"),
-            true,
-            &[],
+            &focus,
             &on_key,
             || panic!("modal escape must not reach the page"),
             || panic!("modal escape must not reach the menu"),
             || panic!("modal escape must not reach the page"),
         ));
         assert_eq!(emitted.borrow().len(), 2);
+    }
+
+    #[test]
+    fn shortcuts_can_change_while_a_key_is_routed() {
+        let shortcut = gpui::Keystroke::parse("cmd-t").expect("binding");
+        let focus = Focus::default();
+        let redraws = Cell::new(0);
+        let redraw = || {
+            *focus.shortcuts.borrow_mut() = Rc::new(vec![shortcut.clone()]);
+            redraws.set(redraws.get() + 1);
+        };
+        let on_key = |_: Signal| {
+            redraw();
+            true
+        };
+        for (binding, handled, routed_redraws) in
+            [("j", true, 1), ("cmd-j", false, 2), ("cmd-t", true, 1)]
+        {
+            *focus.shortcuts.borrow_mut() = Rc::new(vec![shortcut.clone()]);
+            redraws.set(0);
+            let result = route_key_event(
+                gpui::Keystroke::parse(binding).expect("binding"),
+                &focus,
+                &on_key,
+                || {
+                    redraw();
+                    false
+                },
+                || {
+                    redraw();
+                    false
+                },
+                redraw,
+            );
+            assert_eq!(result, handled, "{binding}");
+            assert_eq!(redraws.get(), routed_redraws, "{binding}");
+        }
     }
 }

@@ -30,16 +30,7 @@ impl ExecRequest {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         if self.job == 0
             || self.argv.first().is_some_and(String::is_empty)
-            || self.env.len() > 128
-            || self.env.iter().any(|(key, value)| {
-                key.is_empty() || key.contains(['=', '\0']) || value.contains('\0')
-            })
-            || self
-                .env
-                .iter()
-                .map(|(key, value)| key.len() + value.len())
-                .sum::<usize>()
-                > 64 * 1024
+            || crate::validate_environment(&self.env).is_err()
             || self.argv.len() > 4096
             || self.stdin.len() > MAX_EXEC_OUTPUT
             || self.timeout_ms == 0

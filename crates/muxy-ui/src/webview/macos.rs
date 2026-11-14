@@ -1,6 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ptr;
+use std::rc::Rc;
 
 use async_channel::{Receiver, Sender};
 use block2::{DynBlock, RcBlock};
@@ -9,7 +10,7 @@ use muxy_core::worker::WorkerPool;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_app_kit::{NSColor, NSView};
+use objc2_app_kit::NSColor;
 use objc2_foundation::{
     NSData, NSDictionary, NSError, NSJSONReadingOptions, NSJSONSerialization, NSJSONWritingOptions,
     NSNumber, NSObject, NSObjectNSKeyValueCoding, NSObjectProtocol, NSRect, NSString, NSURL,
@@ -21,7 +22,6 @@ use objc2_web_kit::{
     WKURLSchemeHandler, WKURLSchemeTask, WKUserContentController, WKUserScript,
     WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWindowFeatures,
 };
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use super::host::{Host, Signal};
 use super::{AssetResult, Event, Pointer, assets, assets::Source, rules};
@@ -275,11 +275,10 @@ impl NativeWebview {
         source: Source,
         script: &str,
         background: Rgba,
-        transparent_background: bool,
     ) -> Result<(Self, Receiver<Event>), String> {
         let url = source.entry_url().map_err(|error| error.to_string())?;
         let mtm = MainThreadMarker::new().ok_or("webview must be created on the main thread")?;
-        let parent = parent_view(window)?;
+        let parent = crate::appkit::gpui_view(window)?;
         let (sender, receiver) = async_channel::bounded(256);
         let delegate = Delegate::alloc(mtm).set_ivars(State {
             source,
@@ -320,12 +319,10 @@ impl NativeWebview {
         view.setWantsLayer(true);
         unsafe {
             view.setUnderPageBackgroundColor(Some(&background_color(background)));
-            if transparent_background {
-                view.setValue_forKey(
-                    Some(&NSNumber::new_bool(false)),
-                    &NSString::from_str("drawsBackground"),
-                );
-            }
+            view.setValue_forKey(
+                Some(&NSNumber::new_bool(false)),
+                &NSString::from_str("drawsBackground"),
+            );
         }
         let mut host = Host::new(parent, mtm);
         host.container().addSubview(&view);
@@ -349,7 +346,7 @@ impl NativeWebview {
         ))
     }
 
-    pub(super) fn set_shortcuts(&self, modal: bool, shortcuts: Vec<gpui::Keystroke>) {
+    pub(super) fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<gpui::Keystroke>>) {
         self.host.set_shortcuts(modal, shortcuts);
     }
 
@@ -370,6 +367,20 @@ impl NativeWebview {
 
     pub(super) fn set_mouse_passthrough(&self, enabled: bool) {
         self.host.set_mouse_passthrough(enabled);
+    }
+
+    pub(super) fn set_hit_regions(&self, regions: Option<&[Bounds<Pixels>]>) {
+        self.host.set_hit_regions(regions);
+    }
+
+    pub(super) fn move_to_window(&self, window: &Window) -> Result<(), String> {
+        self.host.move_to(crate::appkit::gpui_view(window)?);
+        Ok(())
+    }
+
+    pub(super) fn order_front(views: &[&Self]) {
+        let hosts: Vec<_> = views.iter().map(|view| &view.host).collect();
+        Host::order_front(&hosts);
     }
 
     pub(super) fn generation(&self) -> u64 {
@@ -453,6 +464,10 @@ impl NativeWebview {
         self.host.occlude(occlusions);
     }
 
+    pub(super) fn occlude_also(&self, bounds: Bounds<Pixels>) {
+        self.host.occlude_also(bounds);
+    }
+
     pub(super) fn set_visible(&self, visible: bool) {
         self.host.set_visible(visible);
     }
@@ -501,18 +516,6 @@ impl NativeWebview {
     pub(super) fn choose(&self, _option: Option<usize>) {}
 }
 
-/// The native view GPUI draws into, which pages are added to.
-pub(crate) fn parent_view(window: &Window) -> Result<Retained<NSView>, String> {
-    let RawWindowHandle::AppKit(handle) = HasWindowHandle::window_handle(window)
-        .map_err(|error| error.to_string())?
-        .as_raw()
-    else {
-        return Err("expected AppKit window".into());
-    };
-    unsafe { Retained::retain(handle.ns_view.as_ptr().cast::<NSView>()) }
-        .ok_or_else(|| "missing native view".into())
-}
-
 fn install_script(controller: &WKUserContentController, source: &str, mtm: MainThreadMarker) {
     unsafe {
         controller.removeAllUserScripts();
@@ -550,12 +553,14 @@ impl Drop for NativeWebview {
     }
 }
 
+/// The color the engine draws past the page's edges: clear for a page that lets
+/// what is behind it show through, and otherwise the opaque theme color.
 fn background_color(background: Rgba) -> Retained<NSColor> {
     NSColor::colorWithSRGBRed_green_blue_alpha(
         f64::from(background.r),
         f64::from(background.g),
         f64::from(background.b),
-        1.0,
+        if background.a <= 0.0 { 0.0 } else { 1.0 },
     )
 }
 

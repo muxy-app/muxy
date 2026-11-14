@@ -2,6 +2,7 @@ use gpui::{AppContext, Context, FocusHandle, Pixels, Point, Window, px};
 use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping};
 use muxy_app_core::{PaneContent, PaneId, ProjectId, ServerId, TabId};
 use muxy_protocol::{ActivityKind, AgentProvider, AgentState, SessionId};
+use muxy_ui::floating::{Edges, FloatingDrag, FloatingFrame, SizeLimits};
 use muxy_ui::panel::{PanelId, PanelMode, PanelPlacement, PanelPosition, PanelResizeState};
 
 use super::AppModel;
@@ -22,6 +23,16 @@ pub(crate) enum AgentStatus {
 
 impl AgentStatus {
     pub(crate) const ALL: [Self; 4] = [Self::Blocked, Self::Working, Self::Completed, Self::Idle];
+
+    /// How early a row sorts. Completed and idle agents rank together, so
+    /// opening a finished agent, which reads its finish, doesn't move it.
+    pub(crate) fn urgency(self) -> u8 {
+        match self {
+            Self::Blocked => 0,
+            Self::Working => 1,
+            Self::Completed | Self::Idle => 2,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,6 +44,7 @@ pub(crate) struct RunningAgent {
     pub(crate) pane: PaneId,
     pub(crate) provider: AgentProvider,
     pub(crate) status: AgentStatus,
+    pub(crate) finished_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -66,17 +78,17 @@ impl Entry {
             Self::Worktree { project, .. } => EntryKey::Worktree(*project),
         }
     }
+}
 
-    pub(crate) fn status(&self) -> AgentStatus {
-        match self {
-            Self::Agent(agent) => agent.status,
-            Self::Worktree { counts, .. } => AgentStatus::ALL
-                .into_iter()
-                .zip(counts)
-                .find(|(_, count)| **count > 0)
-                .map_or(AgentStatus::Idle, |(status, _)| status),
-        }
-    }
+/// Whether the agent at `index` is the first listed for its project, so a
+/// project heading goes above it when the panel shows headings. Project rows
+/// have no headings.
+pub(crate) fn starts_project_group(entries: &[Entry], index: usize) -> bool {
+    let Entry::Agent(agent) = &entries[index] else {
+        return false;
+    };
+    index == 0
+        || !matches!(&entries[index - 1], Entry::Agent(previous) if previous.project == agent.project)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -89,15 +101,7 @@ pub(crate) enum Placement {
 
 #[derive(Clone, Copy)]
 pub(crate) enum Drag {
-    Move {
-        pointer: Point<Pixels>,
-        origin: [f32; 2],
-    },
-    Resize {
-        pointer: Point<Pixels>,
-        size: [f32; 2],
-        axes: [bool; 2],
-    },
+    Floating(FloatingDrag),
     Docked {
         pointer: Pixels,
         height: f32,
@@ -117,6 +121,7 @@ pub(crate) struct AgentsPanel {
     pub(crate) resize: PanelResizeState,
     pub(crate) docked_height: std::rc::Rc<std::cell::Cell<Pixels>>,
     pub(crate) owner: gpui::Entity<()>,
+    pub(crate) clock: Option<gpui::Task<()>>,
 }
 
 impl AgentsPanel {
@@ -129,29 +134,35 @@ impl AgentsPanel {
             resize: PanelResizeState::default(),
             docked_height: std::rc::Rc::default(),
             owner: cx.new(|_| ()),
+            clock: None,
         }
     }
 }
 
 impl AppModel {
+    /// The agents in the projects the sidebar lists, on every server.
     pub(crate) fn running_agents(&self) -> Vec<RunningAgent> {
         type Index<'a> = (
             std::collections::HashMap<SessionId, &'a muxy_protocol::AgentActivity>,
             std::collections::HashSet<SessionId>,
+            &'a std::collections::HashMap<SessionId, u64>,
         );
         let mut servers: Vec<(ServerId, Option<Index<'_>>)> = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
         let mut agents: Vec<RunningAgent> = Vec::new();
         for project in self.state.projects() {
+            if !self.project_listed(project) {
+                continue;
+            }
             let position = servers
                 .iter()
                 .position(|(server, _)| *server == project.server_id)
                 .unwrap_or_else(|| {
                     let index = self
                         .activity(project.server_id)
-                        .map(|activity| &activity.snapshot)
-                        .filter(|snapshot| !snapshot.agents.is_empty())
-                        .map(|snapshot| {
+                        .filter(|activity| !activity.snapshot.agents.is_empty())
+                        .map(|activity| {
+                            let snapshot = &activity.snapshot;
                             let agents = snapshot
                                 .agents
                                 .iter()
@@ -166,12 +177,12 @@ impl AppModel {
                                 })
                                 .map(|event| event.session)
                                 .collect();
-                            (agents, finished)
+                            (agents, finished, &activity.finished)
                         });
                     servers.push((project.server_id, index));
                     servers.len() - 1
                 });
-            let Some((by_session, finished)) = &servers[position].1 else {
+            let Some((by_session, finished, finished_at)) = &servers[position].1 else {
                 continue;
             };
             for tab in &project.tabs {
@@ -194,6 +205,10 @@ impl AppModel {
                         _ if finished.contains(&session) => AgentStatus::Completed,
                         _ => AgentStatus::Idle,
                     };
+                    let finished_at = finished_at
+                        .get(&session)
+                        .copied()
+                        .filter(|_| matches!(status, AgentStatus::Completed | AgentStatus::Idle));
                     agents.push(RunningAgent {
                         server: project.server_id,
                         session,
@@ -202,11 +217,12 @@ impl AppModel {
                         pane: pane.id,
                         provider: agent.provider,
                         status,
+                        finished_at,
                     });
                 }
             }
         }
-        agents.sort_by_key(|agent| agent.status);
+        agents.sort_by_key(|agent| agent.status.urgency());
         agents
     }
 
@@ -214,8 +230,13 @@ impl AppModel {
         self.agents_panel_entries_from(self.running_agents())
     }
 
-    pub(crate) fn agents_panel_entries_from(&self, agents: Vec<RunningAgent>) -> Vec<Entry> {
+    /// Agents grouped by project in sidebar order, most urgent first within a
+    /// project; or one row per project running agents.
+    pub(crate) fn agents_panel_entries_from(&self, mut agents: Vec<RunningAgent>) -> Vec<Entry> {
+        let order = self.agents_project_order();
+        let rank = |project: &ProjectId| order.get(project).copied().unwrap_or(usize::MAX);
         if self.appearance.agents_panel_grouping == AgentsPanelGrouping::Agents {
+            agents.sort_by_key(|agent| (rank(&agent.project), agent.status.urgency()));
             return agents.into_iter().map(Entry::Agent).collect();
         }
         let mut entries: Vec<(ProjectId, [usize; 4])> = Vec::new();
@@ -232,15 +253,28 @@ impl AppModel {
                 entries.push((agent.project, counts));
             }
         }
-        let mut entries: Vec<_> = entries
+        entries.sort_by_key(|(project, _)| rank(project));
+        entries
             .into_iter()
             .map(|(project, counts)| Entry::Worktree { project, counts })
+            .collect()
+    }
+
+    /// Each project's position in the sidebar, with worktrees after their project.
+    fn agents_project_order(&self) -> std::collections::HashMap<ProjectId, usize> {
+        let mut parents: Vec<_> = self
+            .state
+            .projects()
+            .iter()
+            .filter(|project| project.parent_id.is_none())
             .collect();
-        entries.sort_by_key(|entry| match entry {
-            Entry::Worktree { counts, .. } => (entry.status(), std::cmp::Reverse(*counts)),
-            Entry::Agent(_) => (entry.status(), std::cmp::Reverse([0; 4])),
-        });
-        entries
+        self.sort_parents(&mut parents);
+        parents
+            .into_iter()
+            .flat_map(|parent| std::iter::once(parent).chain(self.worktree_children(parent.id)))
+            .enumerate()
+            .map(|(index, project)| (project.id, index))
+            .collect()
     }
 
     pub(crate) fn agents_panel_placement(&self) -> Placement {
@@ -267,7 +301,7 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_agents_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_prompt.is_some() {
+        if self.dialogs.is_open() {
             return;
         }
         let focused = self.agents_panel.focus.contains_focused(window, cx);
@@ -284,7 +318,7 @@ impl AppModel {
             Placement::Popup => {
                 if !matches!(self.overlay, Some(Overlay::Agents)) {
                     self.dismiss_overlay(cx);
-                    self.overlay = Some(Overlay::Agents);
+                    self.open_overlay(Overlay::Agents, cx);
                 }
             }
             Placement::Docked | Placement::Right | Placement::Floating => {
@@ -292,6 +326,9 @@ impl AppModel {
                     self.dismiss_overlay(cx);
                 }
             }
+        }
+        if self.agents_panel_placement() == Placement::Floating {
+            self.raise_floating(&PanelId::new(PANEL), cx);
         }
         self.focus_agents_panel(window);
         cx.notify();
@@ -322,12 +359,14 @@ impl AppModel {
     pub(crate) fn active_agents_entry(&self, entries: &[Entry]) -> Option<EntryKey> {
         let project = self.state.current_project();
         let tab = self.active_tab();
-        let session = self.active_pane().and_then(|pane| self.pane_session(pane));
+        let session = self
+            .active_pane()
+            .and_then(|pane| self.state.pane_session(pane));
         entries
             .iter()
             .find(|entry| match entry {
                 Entry::Agent(agent) => {
-                    agent.server == project.server_id && Some(agent.session) == session
+                    session == Some((agent.server, agent.session))
                 }
                 Entry::Worktree { project: id, .. } => *id == project.id,
             })
@@ -366,10 +405,13 @@ impl AppModel {
             .unwrap_or(0);
         let next = current.saturating_add_signed(delta).min(entries.len() - 1);
         self.agents_panel.selected = Some(entries[next].key());
-        let headings = 1 + entries[..=next]
-            .windows(2)
-            .filter(|pair| pair[0].status() != pair[1].status())
-            .count();
+        let headings = if self.agents_panel_headings() {
+            (0..=next)
+                .filter(|index| starts_project_group(&entries, *index))
+                .count()
+        } else {
+            0
+        };
         self.agents_panel.scroll.scroll_to_item(next + headings);
         cx.notify();
     }
@@ -419,7 +461,7 @@ impl AppModel {
                 .iter()
                 .any(|entry| entry.id == tab && entry.panes.iter().any(|entry| entry.id == pane))
         });
-        if !present {
+        if !present || self.raise_pane_window(pane, cx) {
             return;
         }
         self.select_project(project, cx);
@@ -443,6 +485,36 @@ impl AppModel {
             self.panels.remove(&id);
             self.agents_panel.resize.end();
         }
+        self.sync_agents_panel_clock(cx);
+    }
+
+    fn sync_agents_panel_clock(&mut self, cx: &mut Context<Self>) {
+        if !(self.appearance.agents_panel_visible && self.appearance.agents_panel_idle_time) {
+            self.agents_panel.clock = None;
+            return;
+        }
+        if self.agents_panel.clock.is_some() {
+            return;
+        }
+        self.agents_panel.clock = Some(cx.spawn(async move |model, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(60))
+                    .await;
+                let tick = model.update(cx, |model, cx| {
+                    if model
+                        .running_agents()
+                        .iter()
+                        .any(|agent| agent.finished_at.is_some())
+                    {
+                        cx.notify();
+                    }
+                });
+                if tick.is_err() {
+                    break;
+                }
+            }
+        }));
     }
 
     pub(crate) fn agents_right_placement() -> PanelPlacement {
@@ -477,6 +549,9 @@ impl AppModel {
         self.agents_panel.resize.end();
         self.save_appearance(cx);
         self.sync_agents_panel(cx);
+        if detached {
+            self.raise_floating(&PanelId::new(PANEL), cx);
+        }
         if self.agents_panel_placement() == Placement::Popup {
             self.focus_active(window, cx);
         } else {
@@ -485,29 +560,37 @@ impl AppModel {
         cx.notify();
     }
 
+    /// Whether the panel puts a heading naming each project above its agents.
+    pub(crate) fn agents_panel_headings(&self) -> bool {
+        self.appearance.agents_panel_grouped
+            && self.appearance.agents_panel_grouping == AgentsPanelGrouping::Agents
+    }
+
     pub(crate) fn focus_agents_panel(&mut self, window: &mut Window) {
         self.agents_panel.selected = None;
-        self.agents_panel.focus.focus(window);
-        self.focus_requested = false;
+        self.focus_owner.place(&self.agents_panel.focus, window);
     }
 
     pub(crate) fn agents_panel_frame(&self, viewport: gpui::Size<Pixels>) -> [f32; 4] {
-        let scale = f32::from(self.metrics.scaled(1.0));
-        let [x, y, width, height] = self
-            .appearance
+        self.appearance
             .agents_panel_frame
-            .filter(|frame| frame.iter().all(|value| value.is_finite()))
-            .unwrap_or(DEFAULT_FRAME);
-        let max_width = (f32::from(viewport.width) / scale).max(MIN_WIDTH);
-        let max_height = (f32::from(viewport.height) / scale).max(MIN_HEIGHT);
-        let width = width.clamp(MIN_WIDTH, max_width);
-        let height = height.clamp(MIN_HEIGHT, max_height);
-        [
-            x.clamp(0.0, max_width - width),
-            y.clamp(0.0, max_height - height),
-            width,
-            height,
-        ]
+            .map(FloatingFrame::from_array)
+            .filter(|frame| frame.is_finite())
+            .unwrap_or(FloatingFrame::from_array(DEFAULT_FRAME))
+            .clamped(Self::agents_area(self, viewport), Self::agents_limits())
+            .to_array()
+    }
+
+    fn agents_area(&self, viewport: gpui::Size<Pixels>) -> gpui::Size<f32> {
+        let scale = self.metrics.multiplier();
+        gpui::Size {
+            width: f32::from(viewport.width) / scale,
+            height: f32::from(viewport.height) / scale,
+        }
+    }
+
+    fn agents_limits() -> SizeLimits {
+        SizeLimits::at_least(MIN_WIDTH, MIN_HEIGHT)
     }
 
     pub(crate) fn begin_agents_panel_drag(
@@ -517,18 +600,14 @@ impl AppModel {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let [x, y, width, height] = self.agents_panel_frame(window.viewport_size());
-        self.agents_panel.drag = Some(match resize {
-            Some(axes) => Drag::Resize {
-                pointer,
-                size: [width, height],
-                axes,
-            },
-            None => Drag::Move {
-                pointer,
-                origin: [x, y],
-            },
-        });
+        let frame = FloatingFrame::from_array(self.agents_panel_frame(window.viewport_size()));
+        self.agents_panel.drag = Some(Drag::Floating(match resize {
+            Some([true, true]) => FloatingDrag::resizing(pointer, frame, Edges::BOTTOM_RIGHT),
+            Some([true, false]) => FloatingDrag::resizing(pointer, frame, Edges::RIGHT),
+            Some(_) => FloatingDrag::resizing(pointer, frame, Edges::BOTTOM),
+            None => FloatingDrag::moving(pointer, frame),
+        }));
+        self.raise_floating(&PanelId::new(PANEL), cx);
         cx.notify();
     }
 
@@ -541,7 +620,7 @@ impl AppModel {
         let Some(drag) = self.agents_panel.drag else {
             return;
         };
-        let scale = f32::from(self.metrics.scaled(1.0));
+        let scale = self.metrics.multiplier();
         match drag {
             Drag::Docked {
                 pointer: from,
@@ -550,8 +629,6 @@ impl AppModel {
                 let height = height - f32::from(pointer.y - from) / scale;
                 self.appearance.agents_panel_docked_height =
                     Some(self.clamp_docked_height(height, window.viewport_size()));
-                cx.notify();
-                return;
             }
             Drag::Scroll {
                 pointer: from,
@@ -562,41 +639,17 @@ impl AppModel {
                 let max = scroll.max_offset().height;
                 let target = (offset + (pointer.y - from) * ratio).clamp(px(0.0), max);
                 scroll.set_offset(gpui::point(scroll.offset().x, -target));
-                cx.notify();
-                return;
             }
-            Drag::Move { .. } | Drag::Resize { .. } => {}
+            Drag::Floating(drag) => {
+                let frame = drag.frame_at(
+                    pointer,
+                    scale,
+                    self.agents_area(window.viewport_size()),
+                    Self::agents_limits(),
+                );
+                self.appearance.agents_panel_frame = Some(frame.to_array());
+            }
         }
-        let [x, y, width, height] = self.agents_panel_frame(window.viewport_size());
-        let offset = |from: Point<Pixels>| {
-            [
-                f32::from(pointer.x - from.x) / scale,
-                f32::from(pointer.y - from.y) / scale,
-            ]
-        };
-        let frame = match drag {
-            Drag::Move { pointer, origin } => {
-                let [dx, dy] = offset(pointer);
-                [origin[0] + dx, origin[1] + dy, width, height]
-            }
-            Drag::Resize {
-                pointer,
-                size,
-                axes,
-            } => {
-                let [dx, dy] = offset(pointer);
-                [
-                    x,
-                    y,
-                    if axes[0] { size[0] + dx } else { width },
-                    if axes[1] { size[1] + dy } else { height },
-                ]
-            }
-            Drag::Docked { .. } | Drag::Scroll { .. } => return,
-        };
-        self.appearance.agents_panel_frame = Some(frame);
-        let clamped = self.agents_panel_frame(window.viewport_size());
-        self.appearance.agents_panel_frame = Some(clamped);
         cx.notify();
     }
 
@@ -614,7 +667,7 @@ impl AppModel {
     }
 
     pub(crate) fn clamp_docked_height(&self, height: f32, viewport: gpui::Size<Pixels>) -> f32 {
-        let scale = f32::from(self.metrics.scaled(1.0));
+        let scale = self.metrics.multiplier();
         let max = (f32::from(viewport.height) / scale * 0.7).max(MIN_HEIGHT);
         height.clamp(MIN_HEIGHT, max)
     }
@@ -625,7 +678,7 @@ impl AppModel {
         height: Pixels,
         cx: &mut Context<Self>,
     ) {
-        let scale = f32::from(self.metrics.scaled(1.0));
+        let scale = self.metrics.multiplier();
         self.agents_panel.drag = Some(Drag::Docked {
             pointer,
             height: f32::from(height) / scale,

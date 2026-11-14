@@ -1,5 +1,6 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -77,6 +78,8 @@ impl NativeBrowser {
                     shared,
                     modal: Cell::new(false),
                     passthrough: Cell::new(false),
+                    hit_regions: RefCell::new(None),
+                    pressed_inside: Cell::new(0),
                     placed: Cell::new(None),
                     shown: Cell::new(None),
                 },
@@ -93,7 +96,12 @@ impl NativeBrowser {
     pub fn browser(&self) -> &Self {
         self
     }
-    pub fn set_shortcuts(&self, modal: bool, shortcuts: Vec<Keystroke>) {
+    /// The page renders off screen and any window draws its snapshots, so
+    /// there is nothing to move.
+    pub fn move_to_window(&self, window: &Window) -> std::result::Result<(), String> {
+        self.page.move_to_window(window)
+    }
+    pub fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<Keystroke>>) {
         self.page.set_shortcuts(modal, shortcuts);
     }
     pub fn set_focused(&self, focused: bool) {
@@ -357,9 +365,6 @@ pub fn import_cookies(
 pub(super) fn error(message: &str) -> Error {
     Error::backend(Engine::WebKit, message)
 }
-
-#[cfg(test)]
-mod tests;
 
 pub fn close_profile(profile: &Profile, done: impl FnOnce(Result<()>) + Send + 'static) {
     let profile = profile.clone();

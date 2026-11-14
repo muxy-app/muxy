@@ -1,7 +1,8 @@
 # Get started
 
 This page builds a working extension in a few minutes: a panel you toggle from
-the top bar or a shortcut.
+the top bar or a shortcut. To have a coding agent do this for you, see
+[Build with an agent](agents.md).
 
 ## 1. Create the files
 
@@ -70,7 +71,8 @@ The extension shows an **Unpacked** badge. After editing, choose **Reload**.
 
 For anything bigger, use any web tooling, such as Vite. Point every `entry` at
 paths inside your build output, and copy `package.json` into `dist/` as part of
-the build. Only `dist/` is published.
+the build. Only `dist/` is published. For TypeScript, copy
+[`types/muxy.d.ts`](types/muxy.d.ts) into your source to type `window.muxy`.
 
 ```json
 "scripts": {
@@ -80,6 +82,10 @@ the build. Only `dist/` is published.
 
 ## Debugging
 
+- `muxy extension dev <folder>` builds and reloads the extension each time
+  you save, and prints whether it loaded with the log lines it added. See
+  [Developing and testing](../features/muxy-cli.md#developing-and-testing)
+  for opening its pages and driving them from the command line.
 - `console.log`, `console.warn`, and `console.error` from pages and scripts go
   to the extension's log, along with uncaught errors.
 - The extension's page in **Settings → Extensions** shows recent log lines,
@@ -93,6 +99,7 @@ the build. Only `dist/` is published.
 - Add [tabs](tabs.md), [panels](panels.md), [bar items](bar-items.md), and
   [commands](commands.md).
 - Work with [files](files.md), [Git](git.md), and [events](events.md).
+- [Build with an agent](agents.md).
 - [Publish it](contributing.md).
 
 ## Coming from 1.x
@@ -101,14 +108,20 @@ Most 1.x extensions work unchanged. The differences:
 
 - **Install folder.** Extensions live in Muxy 2's profile folder, not
   `~/.config/muxy/extensions`. Importing the installed 1.x copies them over.
-- **No scaffold.** There is no **Create** button or starter kit. Use
-  **Load Unpacked…**.
+- **No scaffold.** There is no starter kit. Use **Load Unpacked…**, or
+  **Create Extension…** to [build with an agent](agents.md).
 - **Lowercase names.** Pages only load for names made of `a-z`, `0-9`, `.`,
   and `-`.
 - **Background scripts run in-process,** in JavaScriptCore on their own thread.
-- **Not supported yet:** remote methods for the phone app, home views, reading
-  extension settings at runtime, and the `worktree.offline` event.
-- **Bar items** always sit in the top bar. There is no icon rail.
+- **Not supported yet:** remote methods for the phone app, home views, and the
+  `worktree.offline` event.
+- **Bar items** go where the extension declares them: `topbarItems`,
+  `railItems`, or `statusBarItems`. 1.x's **Show Extension Icon Rail** let users
+  move panel toggles to the rail; in 2.x the extension chooses with
+  `railItems`, and the 1.x preference imports as the rail's open state. See
+  [The rail](bar-items.md#the-rail).
 - **New:** the `openPanel` command action, `visible` on panel header buttons,
-  `execAsync` on pages and scripts, and the `modal.opened` and `modal.closed`
-  events.
+  `execAsync` on pages and scripts, the `modal.opened` and `modal.closed`
+  events, reading settings with `muxy.settings`, and app controls: `ui`,
+  `commands`, `composer`, `layouts`, `preferences`, `clipboard`, and more
+  `tabs`, `panes`, and `projects` calls. See the [API reference](api.md).

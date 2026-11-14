@@ -78,9 +78,11 @@ impl PointerState {
         });
         window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, _| {
             if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
+                let line_height =
+                    window.line_height() / muxy_ui::theme::Metrics::of_window(window).multiplier();
                 native(Pointer::Scrolled {
                     position: event.position - bounds.origin,
-                    delta: event.delta.pixel_delta(window.line_height()),
+                    delta: event.delta.pixel_delta(line_height),
                     modifiers: event.modifiers,
                 });
             }

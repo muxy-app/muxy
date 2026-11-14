@@ -1,13 +1,13 @@
-use crate::components::{IconGlyph, SymbolGlyph, Tooltip};
+use crate::components::{IconGlyph, SymbolGlyph};
 use crate::icon::Icon;
 use crate::theme::{Metrics, Theme};
 use crate::tr;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, CursorStyle, DispatchPhase, ElementId, FocusHandle, FontWeight,
+    AnyElement, App, CursorStyle, DispatchPhase, ElementId, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
-    canvas, div, px,
+    ParentElement, Point, RenderOnce, Role, SharedString, StatefulInteractiveElement, Styled,
+    Window, canvas, div, px,
 };
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -346,6 +346,9 @@ enum PanelActionContent {
 pub enum PanelControl {
     Move(PanelPosition),
     Mode(PanelMode),
+    /// Pops a docked panel out to float freely, or docks a detached one;
+    /// `true` while it is detached.
+    Detach(bool),
     Close,
 }
 
@@ -360,6 +363,8 @@ impl PanelControl {
             }
             Self::Mode(PanelMode::Pinned) => (tr!("Float Panel"), "pin.slash"),
             Self::Mode(PanelMode::Floating) => (tr!("Dock Panel"), "pin"),
+            Self::Detach(false) => (tr!("Pop Out Panel"), "arrow.up.left.and.arrow.down.right"),
+            Self::Detach(true) => (tr!("Dock Panel"), "rectangle.righthalf.inset.filled"),
             Self::Close => (tr!("Close"), "xmark"),
         }
     }
@@ -369,6 +374,7 @@ impl PanelControl {
 pub struct PanelAction {
     id: ElementId,
     label: SharedString,
+    shortcut: Option<SharedString>,
     content: PanelActionContent,
     focus_handle: FocusHandle,
     handler: PanelActionHandler,
@@ -396,6 +402,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Symbol(symbol.into()),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -413,6 +420,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Glyph(glyph.into()),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -430,6 +438,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Icon(icon),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -447,6 +456,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Element(element.into_any_element()),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -456,6 +466,12 @@ impl PanelAction {
 
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    /// Shows the key that does the same in the tooltip, after the label.
+    pub fn shortcut(mut self, key: Option<SharedString>) -> Self {
+        self.shortcut = key;
         self
     }
 
@@ -476,8 +492,10 @@ pub struct PanelChrome {
     focus_handle: FocusHandle,
     move_action: Option<PanelAction>,
     mode_action: Option<PanelAction>,
+    detach_action: Option<PanelAction>,
     close_action: Option<PanelAction>,
     trailing_actions: Vec<PanelAction>,
+    tooltip_cover: Option<crate::components::TooltipCover>,
     theme: Theme,
     metrics: Metrics,
 }
@@ -502,8 +520,10 @@ impl PanelChrome {
             focus_handle,
             move_action: Some(move_action),
             mode_action: Some(mode_action),
+            detach_action: None,
             close_action: Some(close_action),
             trailing_actions: Vec::new(),
+            tooltip_cover: None,
             theme: style.theme,
             metrics: style.metrics,
         }
@@ -511,6 +531,19 @@ impl PanelChrome {
 
     pub fn with_trailing_action(mut self, action: PanelAction) -> Self {
         self.trailing_actions.push(action);
+        self
+    }
+
+    /// Keeps the header's tooltips visible above native pages, such as the
+    /// panel's own page under the header.
+    pub fn cover_tooltips(mut self, cover: impl Fn(gpui::Bounds<gpui::Pixels>) + 'static) -> Self {
+        self.tooltip_cover = Some(Rc::new(cover));
+        self
+    }
+
+    /// Adds the control that pops the panel out to float, or docks it.
+    pub fn with_detach_action(mut self, action: PanelAction) -> Self {
+        self.detach_action = Some(action);
         self
     }
 
@@ -532,6 +565,7 @@ impl PanelChrome {
 
 impl RenderOnce for PanelChrome {
     fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let cover = self.tooltip_cover.clone();
         let mut title = div()
             .flex()
             .flex_row()
@@ -549,7 +583,7 @@ impl RenderOnce for PanelChrome {
                 .text_size(self.metrics.font_body())
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(self.theme.fg)
-                .child(self.title),
+                .child(crate::accessibility::label("panel-title", self.title)),
         );
 
         div()
@@ -564,23 +598,21 @@ impl RenderOnce for PanelChrome {
             .border_color(self.theme.border)
             .track_focus(&self.focus_handle)
             .child(title)
-            .children(
-                self.trailing_actions
-                    .into_iter()
-                    .map(|action| panel_action(action, &self.theme, self.metrics, window)),
-            )
-            .children(
-                self.move_action
-                    .map(|action| panel_action(action, &self.theme, self.metrics, window)),
-            )
-            .children(
-                self.mode_action
-                    .map(|action| panel_action(action, &self.theme, self.metrics, window)),
-            )
-            .children(
-                self.close_action
-                    .map(|action| panel_action(action, &self.theme, self.metrics, window)),
-            )
+            .children(self.trailing_actions.into_iter().map(|action| {
+                panel_action(action, &self.theme, self.metrics, cover.as_ref(), window)
+            }))
+            .children(self.move_action.map(|action| {
+                panel_action(action, &self.theme, self.metrics, cover.as_ref(), window)
+            }))
+            .children(self.mode_action.map(|action| {
+                panel_action(action, &self.theme, self.metrics, cover.as_ref(), window)
+            }))
+            .children(self.detach_action.map(|action| {
+                panel_action(action, &self.theme, self.metrics, cover.as_ref(), window)
+            }))
+            .children(self.close_action.map(|action| {
+                panel_action(action, &self.theme, self.metrics, cover.as_ref(), window)
+            }))
     }
 }
 
@@ -588,17 +620,20 @@ fn panel_action(
     action: PanelAction,
     theme: &Theme,
     metrics: Metrics,
+    cover: Option<&crate::components::TooltipCover>,
     window: &Window,
 ) -> AnyElement {
     let PanelAction {
         id,
         label,
+        shortcut,
         content,
         focus_handle,
         handler,
         selected,
     } = action;
     let selector = SharedString::from(id.to_string());
+    let accessibility_id = selector.clone();
     let group = SharedString::from(format!("panel-action-{id}"));
     let color = if selected {
         theme.accent
@@ -621,16 +656,20 @@ fn panel_action(
         PanelActionContent::Element(element) => element,
         PanelActionContent::Glyph(glyph) => div().child(glyph).into_any_element(),
     };
+    let tooltip = shortcut.map_or_else(
+        || label.clone(),
+        |key| crate::shortcuts::with_key(&label, &key),
+    );
     let click_handler = handler.clone();
     let key_handler = handler;
     let focus_for_mouse = focus_handle.clone();
     let focused = focus_handle.is_focused(window);
-    let tooltip_background = theme.raised();
-    let theme_background = theme.bg;
-    let tooltip_foreground = theme.fg;
-    let tooltip_border = theme.border;
     div()
         .id(id)
+        .role(Role::Button)
+        .accessibility_id(accessibility_id)
+        .aria_label(label.clone())
+        .when(selected, |button| button.aria_selected(true))
         .group(group)
         .debug_selector(move || selector.to_string())
         .flex()
@@ -657,17 +696,13 @@ fn panel_action(
             key_handler(window, cx);
             cx.stop_propagation();
         })
-        .tooltip(move |_, cx| {
-            cx.new(|_| {
-                Tooltip::new(
-                    label.clone(),
-                    tooltip_background,
-                    tooltip_foreground,
-                    tooltip_border,
-                    theme_background,
-                )
-            })
-            .into()
+        .map(|button| match cover {
+            Some(cover) => button.tooltip(crate::components::covering_tooltip(
+                tooltip,
+                theme,
+                cover.clone(),
+            )),
+            None => button.tooltip(crate::components::tooltip(tooltip, theme)),
         })
         .child(glyph)
         .into_any_element()
@@ -785,19 +820,11 @@ impl RenderOnce for PanelFrame {
         let bounds = self.sizing.bounds;
         let resize_state = self.sizing.resize_state.clone();
         let down_resize_state = resize_state.clone();
-        let group = SharedString::from(format!("panel-resize-{}", self.placement.id.as_str()));
-        let selector = group.clone();
-        let separator = div()
-            .absolute()
-            .bg(if resize_state.is_active() {
-                self.theme.accent
-            } else {
-                self.theme.border
-            })
-            .group_hover(group.clone(), |style| style.bg(self.theme.accent));
+        let id = SharedString::from(format!("panel-resize-{}", self.placement.id.as_str()));
+        let selector = id.clone();
+        let separator = div().absolute().bg(self.theme.border);
         let resize_handle = div()
-            .id(group.clone())
-            .group(group)
+            .id(id)
             .debug_selector(move || selector.to_string())
             .absolute()
             .occlude()
@@ -914,5 +941,29 @@ impl std::fmt::Debug for PanelFrame {
             .field("placement", &self.placement)
             .field("sizing", &self.sizing)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PanelControl, PanelMode, PanelPosition};
+
+    #[test]
+    fn every_header_control_has_an_icon_on_every_platform() {
+        for control in [
+            PanelControl::Move(PanelPosition::Right),
+            PanelControl::Move(PanelPosition::Bottom),
+            PanelControl::Mode(PanelMode::Pinned),
+            PanelControl::Mode(PanelMode::Floating),
+            PanelControl::Detach(false),
+            PanelControl::Detach(true),
+            PanelControl::Close,
+        ] {
+            let (_, symbol) = control.appearance();
+            assert!(
+                crate::icon::Icon::from_symbol(symbol).is_some(),
+                "{control:?} uses '{symbol}', which only macOS draws"
+            );
+        }
     }
 }

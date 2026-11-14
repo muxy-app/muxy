@@ -1,7 +1,8 @@
 #![allow(
     clippy::unwrap_used,
     clippy::panic,
-    reason = "Tests fail immediately on fixture errors"
+    clippy::float_cmp,
+    reason = "Tests fail immediately on fixture errors and compare exact parsed values"
 )]
 use super::*;
 use serde_json::json;
@@ -31,6 +32,162 @@ fn unpacked_packages_require_explicit_enable_and_unload_keeps_sources() {
 }
 
 #[test]
+fn reloading_replaces_old_load_errors_instead_of_piling_them_up() {
+    let profile = tempfile::tempdir().unwrap();
+    let broken = Registry::load(profile.path()).directory().join("broken");
+    fs::create_dir_all(&broken).unwrap();
+    fs::write(broken.join("package.json"), "not json").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert_eq!(registry.errors.len(), 1);
+    registry.reload();
+    registry.reload();
+    assert_eq!(registry.errors.len(), 1);
+    fs::remove_dir_all(&broken).unwrap();
+    registry.reload();
+    assert!(registry.errors.is_empty());
+}
+
+#[test]
+fn a_saved_preference_error_outlives_a_reload() {
+    let profile = tempfile::tempdir().unwrap();
+    fs::write(profile.path().join("extension-enabled.json"), "{}").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert_eq!(registry.errors.len(), 1);
+    registry.reload();
+    assert_eq!(registry.errors.len(), 1);
+}
+
+#[test]
+fn reloading_one_extension_reads_only_it_and_keeps_it_when_broken() {
+    let profile = tempfile::tempdir().unwrap();
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    package(first.path(), "first");
+    package(second.path(), "second");
+    let mut registry = Registry::load(profile.path());
+    registry.load_unpacked(first.path()).unwrap();
+    registry.load_unpacked(second.path()).unwrap();
+    assert_eq!(
+        registry.source_folder("first"),
+        Some(first.path().canonicalize().unwrap().as_path())
+    );
+
+    let bump = |root: &Path, name: &str, version: &str| {
+        fs::write(
+            root.join("package.json"),
+            json!({"name": name, "version": version, "muxy": {}}).to_string(),
+        )
+        .unwrap();
+    };
+    bump(first.path(), "first", "2.0.0");
+    bump(second.path(), "second", "2.0.0");
+    registry.reload_one("first").unwrap();
+    assert_eq!(registry.extensions["first"].version, "2.0.0");
+    assert_eq!(registry.extensions["second"].version, "1.0.0");
+
+    fs::write(first.path().join("package.json"), "not json").unwrap();
+    assert!(registry.reload_one("first").is_err());
+    assert_eq!(registry.extensions["first"].version, "2.0.0");
+
+    bump(first.path(), "renamed", "3.0.0");
+    assert!(
+        registry
+            .reload_one("first")
+            .unwrap_err()
+            .contains("renamed")
+    );
+    assert_eq!(registry.extensions["first"].version, "2.0.0");
+    assert!(registry.reload_one("missing").is_err());
+}
+
+#[test]
+fn reloading_a_folder_that_failed_at_startup_loads_it_and_clears_its_error() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    Registry::load(profile.path())
+        .load_unpacked(source.path())
+        .unwrap();
+    let good = fs::read(source.path().join("package.json")).unwrap();
+    fs::write(source.path().join("package.json"), "not json").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert!(registry.extensions.is_empty());
+    assert_eq!(registry.errors.len(), 1);
+    fs::write(source.path().join("package.json"), good).unwrap();
+    registry.reload_one("hello").unwrap();
+    assert!(registry.extensions.contains_key("hello"));
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+}
+
+#[test]
+fn a_folder_that_no_longer_loads_can_still_be_unloaded() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "gone");
+    let mut registry = Registry::load(profile.path());
+    registry.load_unpacked(source.path()).unwrap();
+    registry.set_enabled("gone", true).unwrap();
+    fs::remove_file(source.path().join("package.json")).unwrap();
+
+    let mut restarted = Registry::load(profile.path());
+    assert!(restarted.extensions.is_empty());
+    assert_eq!(restarted.errors.len(), 1);
+    assert!(restarted.set_enabled("gone", true).is_err());
+    restarted.remove("gone").unwrap();
+    assert!(restarted.errors.is_empty(), "{:?}", restarted.errors);
+
+    let later = Registry::load(profile.path());
+    assert!(later.errors.is_empty(), "{:?}", later.errors);
+    assert!(!later.is_unpacked("gone"));
+}
+
+#[test]
+fn a_folder_cant_be_loaded_twice_under_two_names() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    let mut registry = Registry::load(profile.path());
+    registry.load_unpacked(source.path()).unwrap();
+    package(source.path(), "renamed");
+    let error = registry.load_unpacked(source.path()).unwrap_err();
+    assert!(error.contains("'hello'"), "{error}");
+    assert!(!registry.extensions.contains_key("renamed"));
+}
+
+#[test]
+fn a_repaired_folder_can_be_loaded_again_after_failing_at_startup() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    Registry::load(profile.path())
+        .load_unpacked(source.path())
+        .unwrap();
+    let good = fs::read(source.path().join("package.json")).unwrap();
+    fs::write(source.path().join("package.json"), "not json").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert!(registry.extensions.is_empty());
+    fs::write(source.path().join("package.json"), good).unwrap();
+    assert_eq!(registry.load_unpacked(source.path()).unwrap(), "hello");
+}
+
+#[test]
+fn rewriting_a_preferences_file_clears_the_error_it_was_read_with() {
+    let profile = tempfile::tempdir().unwrap();
+    let source = tempfile::tempdir().unwrap();
+    package(source.path(), "hello");
+    Registry::load(profile.path())
+        .load_unpacked(source.path())
+        .unwrap();
+    fs::write(profile.path().join("extension-enabled.json"), "{}").unwrap();
+    let mut registry = Registry::load(profile.path());
+    assert_eq!(registry.errors.len(), 1);
+    registry.set_enabled("hello", true).unwrap();
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+    registry.reload();
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+}
+
+#[test]
 fn manifests_reject_escaping_resources_and_invalid_commands() {
     let root = tempfile::tempdir().unwrap();
     package(root.path(), "files");
@@ -47,6 +204,44 @@ fn manifests_reject_escaping_resources_and_invalid_commands() {
     value["muxy"]["commands"][0]["action"]["tabType"] = json!("absent");
     fs::write(path, value.to_string()).unwrap();
     assert!(Extension::load(root.path()).is_err());
+}
+
+#[test]
+fn a_malformed_marketplace_listing_never_stops_an_extension_loading() {
+    let root = tempfile::tempdir().unwrap();
+    package(root.path(), "files");
+    let path = root.path().join("package.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        Extension::load(root.path()).unwrap().manifest.marketplace,
+        Listing::default()
+    );
+    value["muxy"]["marketplace"] = json!({
+        "author": " Ada ",
+        "categories": ["git", 7, ""],
+        "icon": "assets/icon.svg",
+        "screenshots": "one.png",
+        "homepage": {"url": "https://example.com"},
+        "repository": "https://github.com/example/files",
+    });
+    fs::write(&path, value.to_string()).unwrap();
+    assert_eq!(
+        Extension::load(root.path()).unwrap().manifest.marketplace,
+        Listing {
+            author: Some("Ada".into()),
+            categories: vec!["git".into()],
+            icon: Some("assets/icon.svg".into()),
+            screenshots: Vec::new(),
+            homepage: None,
+            repository: Some("https://github.com/example/files".into()),
+        }
+    );
+    value["muxy"]["marketplace"] = json!("not a listing");
+    fs::write(&path, value.to_string()).unwrap();
+    assert_eq!(
+        Extension::load(root.path()).unwrap().manifest.marketplace,
+        Listing::default()
+    );
 }
 
 #[test]
@@ -190,6 +385,37 @@ fn write_package(root: &Path, muxy: &serde_json::Value, files: &[(&str, &str)]) 
 }
 
 #[test]
+fn trust_allows_every_gate_over_saved_rules_until_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let mut grants = Grants::load(root.path()).unwrap();
+    let exec = Request::for_call("files", "exec", &json!({"argv":["rm","-rf"]}), "").unwrap();
+    let push = Request::for_call("files", "git.push", &json!({}), "/repo").unwrap();
+    let fetch = Request::http("example.com", "GET", "https://example.com");
+    grants.remember("files", &exec, Choice::Block).unwrap();
+    grants
+        .remember("files", &push, Choice::DenyAndRemember)
+        .unwrap();
+    assert!(Choice::Trust.allows() && Choice::Trust.remembers());
+    assert_eq!(exec.rule(Choice::Trust), None);
+    grants.remember("files", &fetch, Choice::Trust).unwrap();
+    let reloaded = Grants::load(root.path()).unwrap();
+    assert!(reloaded.trusted("files"));
+    assert!(!reloaded.trusted("git"));
+    for request in [&exec, &push, &fetch] {
+        assert_eq!(reloaded.decision("files", request), Consent::Allow);
+        assert_eq!(reloaded.decision("git", request), Consent::Ask);
+    }
+    assert_eq!(reloaded.rules("files").len(), 2);
+    grants.set_trusted("files", false).unwrap();
+    assert_eq!(grants.decision("files", &exec), Consent::Blocked);
+    assert_eq!(grants.decision("files", &push), Consent::Deny);
+    assert_eq!(grants.decision("files", &fetch), Consent::Ask);
+    grants.set_trusted("files", true).unwrap();
+    grants.clear("files").unwrap();
+    assert!(!Grants::load(root.path()).unwrap().trusted("files"));
+}
+
+#[test]
 fn earlier_grant_keys_keep_their_decisions() {
     let root = tempfile::tempdir().unwrap();
     fs::write(
@@ -303,4 +529,243 @@ fn manifests_load_whatever_main_accepts() {
     assert!(!only("a*b").matches("a*x"));
     assert!(!only("?").matches("ab"));
     assert!(only("src/*.rs").matches("SRC/lib.RS"));
+}
+
+#[test]
+fn a_one_x_sidebar_manifest_loads_unchanged() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("sidebar")).unwrap();
+    fs::write(root.path().join("sidebar/index.html"), "<!doctype html>").unwrap();
+    fs::write(
+        root.path().join("package.json"),
+        json!({
+            "name": "workspace-nav",
+            "version": "0.1.0",
+            "private": true,
+            "type": "module",
+            "scripts": { "dev": "vite", "build": "vite build" },
+            "devDependencies": { "vite": "^5.0.0" },
+            "muxy": {
+                "permissions": ["projects:read", "projects:write"],
+                "events": ["project.switched"],
+                "sidebar": {
+                    "id": "main",
+                    "title": "Workspace",
+                    "icon": "sidebar.left",
+                    "entry": "sidebar/index.html"
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let extension = Registry::unpacked_extension(root.path()).unwrap();
+    let sidebar = extension.manifest.sidebar.unwrap();
+    assert_eq!(sidebar.id, "main");
+    assert_eq!(sidebar.title.as_deref(), Some("Workspace"));
+    assert_eq!(sidebar.entry, "sidebar/index.html");
+}
+
+#[test]
+fn detached_panels_declare_their_floating_defaults() {
+    use crate::extensions::panels::{PanelChrome, PanelScope};
+    let root = tempfile::tempdir().unwrap();
+    write_package(
+        root.path(),
+        &json!({
+            "panels": [
+                {"id": "plain", "entry": "index.html"},
+                {
+                    "id": "pet",
+                    "entry": "index.html",
+                    "mode": "detached",
+                    "frame": {"x": 40, "y": 60, "width": 160, "height": 120},
+                    "minSize": {"width": 32, "height": 32},
+                    "chrome": "none",
+                    "transparent": true,
+                    "clickThrough": true,
+                    "movable": false,
+                    "resizable": false,
+                    "scope": "project",
+                    "hiddenControls": ["detach"]
+                }
+            ],
+        }),
+        &[("index.html", "")],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    let plain = extension.manifest.panel("plain").unwrap();
+    assert_eq!(plain.mode, PanelMode::Floating);
+    assert_eq!(plain.chrome, PanelChrome::Standard);
+    assert!(plain.movable && plain.resizable && !plain.click_through);
+    assert_eq!(plain.transparent, None);
+    assert_eq!(plain.scope, PanelScope::Global);
+    assert!(plain.allows_detach_selection());
+    let pet = extension.manifest.panel("pet").unwrap();
+    assert_eq!(pet.mode, PanelMode::Detached);
+    assert_eq!(pet.frame.unwrap().width, Some(160.0));
+    assert_eq!(pet.min_size.unwrap().height, 32.0);
+    assert_eq!(pet.chrome, PanelChrome::None);
+    assert!(pet.click_through && !pet.movable && !pet.resizable);
+    assert_eq!(pet.transparent, Some(true));
+    assert_eq!(pet.scope, PanelScope::Project);
+    assert!(!pet.allows_detach_selection());
+}
+
+#[test]
+fn detached_panel_frames_must_be_sane() {
+    for frame in [
+        json!({"frame": {"width": 0}}),
+        json!({"frame": {"height": -10}}),
+        json!({"frame": {"x": 1e30}}),
+        json!({"minSize": {"width": -1, "height": 4}}),
+        json!({"minSize": {"width": 90, "height": 4}, "maxSize": {"width": 40, "height": 40}}),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let mut panel = json!({"id": "p", "entry": "index.html", "mode": "detached"});
+        panel
+            .as_object_mut()
+            .unwrap()
+            .extend(frame.as_object().unwrap().clone());
+        write_package(
+            root.path(),
+            &json!({"panels": [panel]}),
+            &[("index.html", "")],
+        );
+        assert!(Extension::load(root.path()).is_err(), "{frame}");
+    }
+}
+
+#[test]
+fn app_control_verbs_need_their_permissions() {
+    let none = json!({});
+    for (verb, permission) in [
+        ("tabs.close", Some("tabs:write")),
+        ("tabs.rename", Some("tabs:write")),
+        ("tabs.pin", Some("tabs:write")),
+        ("tabs.move", Some("tabs:write")),
+        ("tabs.list", Some("tabs:read")),
+        ("panes.split", Some("panes:write")),
+        ("panes.zoom", Some("panes:write")),
+        ("panes.list", Some("panes:read")),
+        ("projects.next", Some("projects:write")),
+        ("projects.removed", Some("projects:read")),
+        ("projects.openIn", Some("system:open")),
+        ("projects.reveal", Some("system:open")),
+        ("app.openExternal", Some("system:open")),
+        ("agents.focus", Some("agents:write")),
+        ("ui.setSidebar", Some("ui:write")),
+        ("ui.quickTerminal", Some("ui:write")),
+        ("commands.list", Some("commands:read")),
+        ("commands.run", Some("commands:run")),
+        ("commands.anything", Some("commands:run")),
+        ("composer.setDraft", Some("composer:write")),
+        ("composer.submit", Some("composer:write")),
+        ("layouts.list", Some("layouts:read")),
+        ("layouts.apply", Some("layouts:write")),
+        ("preferences.get", Some("preferences:read")),
+        ("preferences.set", Some("preferences:write")),
+        ("clipboard.readText", Some("clipboard:read")),
+        ("clipboard.writeText", Some("clipboard:write")),
+        ("ui.state", None),
+        ("app.info", None),
+        ("settings.get", None),
+        ("settings.set", None),
+    ] {
+        assert_eq!(required_permission(verb, &none), permission, "{verb}");
+        if let Some(permission) = permission {
+            assert!(PERMISSIONS.contains(&permission), "{permission}");
+        }
+    }
+    assert_eq!(
+        event_permission("preferences.changed"),
+        Some("preferences:read")
+    );
+    for event in ["settings.changed", "theme.changed", "ui.changed"] {
+        assert_eq!(event_permission(event), None, "{event}");
+    }
+}
+
+#[test]
+fn sending_the_composer_and_reading_the_clipboard_ask_first() {
+    let none = json!({});
+    for verb in ["composer.submit", "composer.insert"] {
+        let request = Request::for_call("sample", verb, &none, "").unwrap();
+        assert_eq!(request.gate, Gate::PanesSend, "{verb}");
+    }
+    let request = Request::for_call("sample", "clipboard.readText", &none, "").unwrap();
+    assert_eq!(request.gate, Gate::ClipboardRead);
+    assert_eq!(request.gate.name(), "clipboard.read");
+    let request = Request::custom_command("Deploy", "make deploy");
+    assert_eq!(request.gate, Gate::TabsRunCommand);
+    assert_eq!(request.pattern, "command:make deploy");
+    for verb in [
+        "composer.setDraft",
+        "clipboard.writeText",
+        "commands.run",
+        "ui.setSidebar",
+    ] {
+        assert!(
+            Request::for_call("sample", verb, &none, "").is_none(),
+            "{verb}"
+        );
+    }
+}
+
+#[test]
+fn manifests_accept_the_app_control_permissions() {
+    let root = tempfile::tempdir().unwrap();
+    write_package(
+        root.path(),
+        &json!({
+            "permissions": ["ui:write", "commands:read", "commands:run", "composer:write", "layouts:read", "layouts:write", "preferences:read", "preferences:write", "clipboard:read", "clipboard:write", "system:open", "agents:write"],
+            "events": ["preferences.changed", "settings.changed", "theme.changed", "ui.changed"],
+        }),
+        &[],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    assert!(extension.allows("clipboard:read"));
+    assert!(extension.allows_event("preferences.changed"));
+    assert!(extension.allows_event("ui.changed"));
+}
+
+#[test]
+fn rail_items_are_checked_like_topbar_items() {
+    let root = tempfile::tempdir().unwrap();
+    let manifest = |rail: serde_json::Value| {
+        json!({
+            "commands": [{"id": "toggle", "title": "Toggle"}],
+            "topbarItems": [{"id": "same", "icon": "star", "command": "toggle"}],
+            "railItems": rail,
+        })
+    };
+    write_package(
+        root.path(),
+        &manifest(json!([
+            {"id": "same", "icon": "star", "command": "toggle", "tooltip": "Star"},
+            {"id": "hidden", "icon": "bolt", "command": "toggle", "visible": false},
+        ])),
+        &[],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    let rail = &extension.manifest.rail_items;
+    assert_eq!(rail.len(), 2);
+    assert_eq!(rail[0].tooltip.as_deref(), Some("Star"));
+    assert!(rail[0].visible);
+    assert!(!rail[1].visible);
+    for invalid in [
+        json!([{"id": "a", "icon": "star", "command": "absent"}]),
+        json!([
+            {"id": "a", "icon": "star", "command": "toggle"},
+            {"id": "a", "icon": "bolt", "command": "toggle"},
+        ]),
+        json!([{"id": "", "icon": "star", "command": "toggle"}]),
+    ] {
+        write_package(root.path(), &manifest(invalid.clone()), &[]);
+        assert!(Extension::load(root.path()).is_err(), "{invalid}");
+    }
+    assert_eq!(
+        required_permission("rail.set", &json!({})),
+        Some("panels:write")
+    );
 }

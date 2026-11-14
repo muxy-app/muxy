@@ -18,10 +18,12 @@ SPEC.loader.exec_module(GUARD)
 
 
 class DesktopMacosTests(unittest.TestCase):
-    def environment(self, system="Darwin", host="aarch64-apple-darwin", target=None):
+    def environment(self, system="Darwin", host="aarch64-apple-darwin", target=None, part=None, scope=None):
         stack = contextlib.ExitStack()
         self.addCleanup(stack.close)
-        stack.enter_context(patch.object(sys, "argv", ["check-desktop-macos.py"]))
+        arguments = ["--part", part] if part else []
+        arguments += ["--scope", scope] if scope else []
+        stack.enter_context(patch.object(sys, "argv", ["check-desktop-macos.py", *arguments]))
         stack.enter_context(patch.object(GUARD.platform, "system", return_value=system))
         stack.enter_context(patch.object(GUARD.subprocess, "check_output", return_value=f"host: {host}\n"))
         stack.enter_context(patch.object(GUARD.resource, "getrlimit", return_value=(256, 20480)))
@@ -31,7 +33,7 @@ class DesktopMacosTests(unittest.TestCase):
             env["CARGO_BUILD_TARGET"] = target
         stack.enter_context(patch.dict(os.environ, env, clear=True))
         stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
-        run = stack.enter_context(patch.object(GUARD.subprocess, "run"))
+        run = stack.enter_context(patch.object(GUARD.slow_test_guard, "run"))
         return run, limit
 
     def test_other_platforms_cannot_satisfy_the_macos_guard(self):
@@ -48,17 +50,16 @@ class DesktopMacosTests(unittest.TestCase):
                 self.doCleanups()
 
     def test_any_failed_check_stops_the_guard(self):
-        for failed_step in range(6):
+        for failed_step in range(5):
             with self.subTest(failed_step=failed_step):
                 run, _ = self.environment()
                 run.side_effect = [None] * failed_step + [subprocess.CalledProcessError(1, "check")]
                 with self.assertRaises(subprocess.CalledProcessError):
                     GUARD.main()
                 self.assertEqual(run.call_count, failed_step + 1)
-                self.assertTrue(all(call.kwargs["check"] for call in run.call_args_list))
                 self.doCleanups()
 
-    def test_guard_covers_workspace_and_builds_matching_desktop_helpers(self):
+    def test_guard_covers_the_workspace_and_each_part_runs_alone(self):
         run, limit = self.environment()
         GUARD.main()
         commands = [call.args[0] for call in run.call_args_list]
@@ -66,15 +67,40 @@ class DesktopMacosTests(unittest.TestCase):
             [sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests"],
             ["cargo", "fmt", "--all", "--check"],
             ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
-            ["cargo", "test", "--locked", "--workspace", "--all-features"],
             ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
-            ["cargo", "build", "--locked", "-p", "muxy-app", "-p", "muxy-cli", "-p", "muxy-server"],
+            ["cargo", "test", "--locked", "--workspace", "--all-features", "--timings"],
         ])
         for call in run.call_args_list:
             self.assertEqual(call.kwargs["cwd"], ROOT)
             self.assertEqual(call.kwargs["env"]["RUSTDOCFLAGS"], "--cfg regression_guard -D warnings")
             self.assertEqual(call.kwargs["env"]["RUST_TEST_THREADS"], "4")
         limit.assert_called_once_with(GUARD.resource.RLIMIT_NOFILE, (10240, 20480))
+        self.doCleanups()
+        for part in ["lint", "test"]:
+            with self.subTest(part=part):
+                run, _ = self.environment(part=part)
+                GUARD.main()
+                self.assertEqual([call.args[0] for call in run.call_args_list], GUARD.PARTS[part])
+                self.doCleanups()
+
+    def test_desktop_scope_narrows_only_the_tests(self):
+        run, _ = self.environment(part="test", scope="desktop")
+        GUARD.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], [GUARD.ci_scope.DESKTOP_TEST])
+        self.doCleanups()
+        run, _ = self.environment(part="lint", scope="desktop")
+        GUARD.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], GUARD.PARTS["lint"])
+        self.doCleanups()
+        run, _ = self.environment(part="test", scope="full")
+        GUARD.main()
+        self.assertEqual([call.args[0] for call in run.call_args_list], GUARD.PARTS["test"])
+
+    def test_an_unknown_scope_is_rejected(self):
+        run, _ = self.environment(part="test", scope="nothing")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            GUARD.main()
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

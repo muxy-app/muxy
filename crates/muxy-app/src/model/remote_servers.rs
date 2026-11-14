@@ -7,11 +7,12 @@ use muxy_app_core::ServerId;
 use muxy_app_core::settings::ServerEntry;
 use muxy_client::SshTarget;
 use muxy_core::capability::Feature;
+use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, Quitting, ServerStatus};
 
-/// One remote server as the Remote section lists it.
+/// One remote server as the Servers section lists it.
 #[derive(Clone, Debug)]
 pub(crate) struct RemoteServer {
     pub(crate) entry: ServerEntry,
@@ -38,8 +39,7 @@ pub(crate) struct PendingRemote {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RemoteIntent {
-    /// Add Project opens its folder picker.
-    AddProject,
+    Folders(crate::views::project_picker::Purpose),
     /// A terminal tab opens in its Home.
     HomeTab,
 }
@@ -119,7 +119,7 @@ pub(crate) fn incompatible_guidance(name: &str, there: Option<&str>) -> String {
 
 /// What the server form submits.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct DeviceForm {
+pub(crate) struct ServerFields {
     pub(crate) name: String,
     /// A host or `~/.ssh/config` alias, or a whole destination when the user
     /// and port fields are empty.
@@ -132,9 +132,11 @@ pub(crate) struct DeviceForm {
     /// Kept in memory until Muxy quits, so connecting doesn't ask; empty
     /// asks when connecting.
     pub(crate) password: String,
+    /// Empty leaves it ungrouped.
+    pub(crate) group: String,
 }
 
-impl DeviceForm {
+impl ServerFields {
     pub(crate) fn destination(&self) -> Result<String, String> {
         match &self.ssh_command {
             Some(command) => Ok(command.trim().to_owned()),
@@ -147,7 +149,7 @@ impl DeviceForm {
             .unwrap_or_else(|_| self.host.trim().to_owned())
     }
 
-    /// The settings entry for this form: the device `id`, or a new one.
+    /// The settings entry for this form: the server `id`, or a new one.
     fn entry(&self, id: Option<ServerId>) -> Result<ServerEntry, String> {
         let destination = self.destination()?;
         let name = match self.name.trim() {
@@ -166,9 +168,32 @@ impl DeviceForm {
         if let Some(id) = id {
             entry.id = id;
         }
+        entry.group = group_name(&self.group);
         entry.validate().map_err(|error| error.to_string())?;
         Ok(entry)
     }
+}
+
+/// Servers under their groups, in the listed order, then the ungrouped.
+pub(crate) fn by_group<'a, T>(
+    servers: &'a [T],
+    entry: impl Fn(&'a T) -> &'a ServerEntry,
+) -> Vec<(Option<&'a str>, Vec<&'a T>)> {
+    let mut groups: Vec<(Option<&str>, Vec<&T>)> = Vec::new();
+    for server in servers {
+        let group = entry(server).group.as_deref();
+        match groups.iter_mut().find(|(name, _)| *name == group) {
+            Some((_, members)) => members.push(server),
+            None => groups.push((group, vec![server])),
+        }
+    }
+    groups.sort_by_key(|(group, _)| group.is_none());
+    groups
+}
+
+/// A typed group name, or none when it is blank.
+fn group_name(typed: &str) -> Option<String> {
+    Some(typed.trim().to_owned()).filter(|group| !group.is_empty())
 }
 
 /// An SSH destination from the editor's host, user, and port. With no user
@@ -283,7 +308,7 @@ impl AppModel {
     pub(crate) fn save_remote_server(
         &mut self,
         id: Option<ServerId>,
-        form: &DeviceForm,
+        form: &ServerFields,
         cx: &mut Context<Self>,
     ) -> Result<ServerId, String> {
         if self.quitting != Quitting::Idle {
@@ -318,14 +343,16 @@ impl AppModel {
             self.servers.passwords.forget(server);
         }
         self.sync_servers(cx);
+        self.connect_on_demand(server, cx);
         Ok(server)
     }
 
     /// Matches the running servers to the list in settings, which also takes
-    /// in hand edits made since launch. A new server, or one reached in a new
-    /// way, gets a worker and connects. One no longer listed stops, and its
+    /// in hand edits made since launch. A new server gets a worker and stays
+    /// disconnected; one reached in a new way gets a new worker and connects
+    /// again if it was connected. One no longer listed stops, and its
     /// projects stay hidden until it returns.
-    fn sync_servers(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn sync_servers(&mut self, cx: &mut Context<Self>) {
         let listed = self.settings.servers.clone();
         let unlisted: Vec<_> = self
             .servers
@@ -345,15 +372,17 @@ impl AppModel {
             let target = self.servers.target(&entry).ok();
             let Some(runtime) = self.servers.get(entry.id) else {
                 self.servers.restart(&entry);
-                self.connect_server(entry.id, cx);
                 continue;
             };
             if runtime.target == target {
                 continue;
             }
+            let connected = runtime.connection != ConnectionState::Disconnected;
             self.disconnect(entry.id, cx);
             self.servers.restart(&entry);
-            self.connect_server(entry.id, cx);
+            if connected {
+                self.connect_server(entry.id, cx);
+            }
         }
         self.sync_preferences(cx);
         cx.notify();
@@ -376,7 +405,7 @@ impl AppModel {
     pub(crate) fn test_remote_server(
         &mut self,
         id: Option<ServerId>,
-        form: &DeviceForm,
+        form: &ServerFields,
         cx: &mut Context<Self>,
     ) {
         self.run_server_probe(id, form, None, None, cx);
@@ -385,7 +414,7 @@ impl AppModel {
     pub(crate) fn trust_test_server(
         &mut self,
         id: Option<ServerId>,
-        form: &DeviceForm,
+        form: &ServerFields,
         cx: &mut Context<Self>,
     ) {
         let Ok(destination) = form.destination() else {
@@ -405,7 +434,7 @@ impl AppModel {
     pub(crate) fn install_test_server(
         &mut self,
         id: Option<ServerId>,
-        form: &DeviceForm,
+        form: &ServerFields,
         source: crate::remote_install::Source,
         cx: &mut Context<Self>,
     ) {
@@ -415,7 +444,7 @@ impl AppModel {
     fn run_server_probe(
         &mut self,
         id: Option<ServerId>,
-        form: &DeviceForm,
+        form: &ServerFields,
         install: Option<crate::remote_install::Source>,
         trusted_host: Option<String>,
         cx: &mut Context<Self>,
@@ -495,10 +524,11 @@ impl AppModel {
         &mut self,
         id: Option<ServerId>,
         entry: &ServerEntry,
-        form: &DeviceForm,
+        form: &ServerFields,
         trusted_host: Option<String>,
     ) -> Result<(SshTarget, Option<String>), String> {
-        let target = super::servers::ssh_target(entry).map_err(|error| error.to_string())?;
+        let target = super::servers::ssh_target(entry, self.servers.proxy.as_ref())
+            .map_err(|error| error.to_string())?;
         if target.is_custom_command() {
             return Ok((target, None));
         }
@@ -525,55 +555,191 @@ impl AppModel {
         Ok((target.with_askpass(askpass), Some(token)))
     }
 
-    pub(crate) fn confirm_forget_server(
+    /// Asks once, then forgets every server in `servers`.
+    pub(crate) fn confirm_forget_servers(
         &mut self,
-        server: ServerId,
+        servers: Vec<ServerId>,
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        let Some(name) = self.server_name(server).map(str::to_owned) else {
-            return;
+        let servers: Vec<_> = servers
+            .into_iter()
+            .filter(|server| self.server_name(*server).is_some())
+            .collect();
+        let name = match servers.as_slice() {
+            [] => return,
+            [server] => self.server_name(*server).map(str::to_owned),
+            _ => None,
         };
-        if self.close_prompt.is_some() || self.quitting != Quitting::Idle {
+        if self.quitting != Quitting::Idle {
             return;
         }
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let response = crate::views::confirm::prompt_forget_server(window, &name, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
+        let count = servers.len();
+        self.ask_once(
+            super::dialogs::Question::ForgetServers(servers.clone()),
+            window,
+            async move |parent, cx| match name {
+                Some(name) => crate::views::confirm::prompt_forget_server(parent, &name, cx).await,
+                None => crate::views::confirm::prompt_forget_servers(parent, count, cx).await,
+            },
+            move |model, response, cx| {
                 let result = match response {
-                    Ok(true) => model.forget_remote_server(server, cx),
+                    Ok(true) => model.forget_remote_servers(&servers, cx),
                     Ok(false) => Ok(()),
                     Err(error) => Err(error),
                 };
                 if let Err(error) = result {
                     model.fail(error, cx);
                 }
-                cx.notify();
-            });
-        }));
+            },
+            cx,
+        );
     }
 
-    /// Removes a remote server from settings and its projects and layouts from
-    /// this app. Nothing on that computer changes.
-    pub(crate) fn forget_remote_server(
+    /// Removes remote servers from settings in one write, and their projects
+    /// and layouts from this app. Nothing on those computers changes.
+    pub(crate) fn forget_remote_servers(
         &mut self,
-        server: ServerId,
+        servers: &[ServerId],
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         if self.quitting != Quitting::Idle {
             return Err(tr!("Muxy is quitting").to_string());
         }
+        let taken = self.take_pairings(servers)?;
         let path = self.path.with_file_name("settings.toml");
-        self.settings
-            .remove_server(server, &path)
-            .map_err(|error| error.to_string())?;
-        self.servers.passwords.forget(server);
+        if let Err(error) = self.settings.remove_servers(servers, &path) {
+            self.restore_pairings(&taken);
+            return Err(error.to_string());
+        }
+        for server in servers {
+            self.servers.passwords.forget(*server);
+        }
+        self.remote_selection
+            .retain(|selected| !servers.contains(selected));
         self.sync_servers(cx);
-        if self.edit_project(|state| state.forget_server(server), cx) {
+        let forgotten = self.edit_project(
+            |state| {
+                servers
+                    .iter()
+                    .try_for_each(|server| state.forget_server(*server))
+            },
+            cx,
+        );
+        if forgotten {
             self.select_listed_project(cx);
         }
         Ok(())
+    }
+
+    /// Moves remote servers to the end of `group`, or of the ungrouped.
+    pub(crate) fn move_remote_servers(
+        &mut self,
+        servers: &[ServerId],
+        group: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self.quitting != Quitting::Idle {
+            return Err(tr!("Muxy is quitting").to_string());
+        }
+        let group = group.and_then(group_name);
+        let listed = &self.settings.servers;
+        let before = listed
+            .iter()
+            .rposition(|entry| entry.group == group && !servers.contains(&entry.id))
+            .and_then(|last| {
+                listed[last + 1..]
+                    .iter()
+                    .find(|entry| !servers.contains(&entry.id))
+            })
+            .map(|entry| entry.id);
+        let path = self.path.with_file_name("settings.toml");
+        self.settings
+            .place_servers(servers, group.as_deref(), before, &path)
+            .map_err(|error| error.to_string())?;
+        self.sync_servers(cx);
+        Ok(())
+    }
+
+    /// Renames a group, or ungroups its servers, where they are listed.
+    pub(crate) fn regroup_remote_servers(
+        &mut self,
+        servers: &[ServerId],
+        group: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self.quitting != Quitting::Idle {
+            return Err(tr!("Muxy is quitting").to_string());
+        }
+        let group = group.and_then(group_name);
+        let path = self.path.with_file_name("settings.toml");
+        self.settings
+            .set_servers_group(servers, group.as_deref(), &path)
+            .map_err(|error| error.to_string())?;
+        self.sync_servers(cx);
+        Ok(())
+    }
+
+    /// Asks, then deletes a group; its servers stay, ungrouped.
+    pub(crate) fn confirm_delete_server_group(
+        &mut self,
+        servers: Vec<ServerId>,
+        group: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let message = tr!("Delete “%@”? Its servers will not be removed.", group).to_string();
+        self.confirm(
+            tr_key!("Delete Group?"),
+            message,
+            tr_key!("Delete"),
+            cx,
+            move |model, cx| {
+                if let Err(error) = model.regroup_remote_servers(&servers, None, cx) {
+                    model.fail(error, cx);
+                }
+            },
+        );
+    }
+
+    /// Hangs up on the remote servers that are connected or connecting.
+    /// They stay disconnected, with their terminals running there, until
+    /// Connect or until one of their projects is opened.
+    pub(crate) fn disconnect_remote_servers(
+        &mut self,
+        servers: &[ServerId],
+        cx: &mut Context<Self>,
+    ) {
+        for &server in servers {
+            if server.is_local() || self.connection(server) == ConnectionState::Disconnected {
+                continue;
+            }
+            let Some(runtime) = self
+                .servers
+                .get_mut(server)
+                .filter(|runtime| !runtime.stopping)
+            else {
+                continue;
+            };
+            let Some(generation) = runtime.generation.checked_add(1) else {
+                continue;
+            };
+            runtime.generation = generation;
+            runtime.retry.hold();
+            runtime.error = None;
+            runtime.failure = None;
+            if let Some(worker) = &runtime.work {
+                let _ = worker.send((generation, super::Work::Disconnect));
+            }
+            if self
+                .pending_remote
+                .is_some_and(|pending| pending.server == server)
+            {
+                self.pending_remote = None;
+            }
+            self.disconnect(server, cx);
+        }
+        self.sync_preferences(cx);
+        cx.notify();
     }
 
     pub(crate) fn confirm_install_server(
@@ -588,23 +754,23 @@ impl AppModel {
         ) else {
             return;
         };
-        if self.close_prompt.is_some() || self.quitting != Quitting::Idle {
+        if self.quitting != Quitting::Idle {
             return;
         }
-        self.close_prompt = Some(cx.spawn(async move |model, cx| {
-            let source = crate::remote_install::Source::Release(version.into());
-            let response =
-                crate::views::confirm::prompt_install_server(window, &name, &source, cx).await;
-            let _ = model.update(cx, |model, cx| {
-                model.finish_confirmation(cx);
-                match response {
-                    Ok(true) => model.install_server(server, version, cx),
-                    Ok(false) => {}
-                    Err(error) => model.fail(error, cx),
-                }
-                cx.notify();
-            });
-        }));
+        self.ask_once(
+            super::dialogs::Question::InstallServer(server),
+            window,
+            async move |parent, cx| {
+                let source = crate::remote_install::Source::Release(version.into());
+                crate::views::confirm::prompt_install_server(parent, &name, &source, cx).await
+            },
+            move |model, response, cx| match response {
+                Ok(true) => model.install_server(server, version, cx),
+                Ok(false) => {}
+                Err(error) => model.fail(error, cx),
+            },
+            cx,
+        );
     }
 
     /// Installs release `version` on a remote server over its SSH login,
@@ -618,7 +784,7 @@ impl AppModel {
         let Some(runtime) = self.servers.get_mut(server) else {
             return;
         };
-        let Some(target) = runtime.target.clone() else {
+        let Some(crate::boot::Target::Ssh(target)) = runtime.target.clone() else {
             return;
         };
         if runtime.install == Some(Install::Running) {
@@ -661,7 +827,7 @@ impl AppModel {
             return;
         };
         runtime.error = Some(incompatible_guidance(&name, None));
-        let Some(target) = runtime.target.clone() else {
+        let Some(crate::boot::Target::Ssh(target)) = runtime.target.clone() else {
             return;
         };
         let generation = runtime.generation;
@@ -706,6 +872,28 @@ impl AppModel {
         self.connect_remote_server(server, cx);
     }
 
+    /// Connects, or connects again, each of `servers`. Only the first one
+    /// whose password isn't known yet asks for it.
+    pub(crate) fn reconnect_remote_servers(
+        &mut self,
+        servers: &[ServerId],
+        cx: &mut Context<Self>,
+    ) {
+        let (asking, ready): (Vec<_>, Vec<_>) = servers
+            .iter()
+            .copied()
+            .filter(|server| self.server_name(*server).is_some())
+            .partition(|server| {
+                self.settings
+                    .server(*server)
+                    .is_some_and(|entry| entry.password_login)
+                    && !self.servers.passwords.has(*server)
+            });
+        for server in ready.into_iter().chain(asking.into_iter().take(1)) {
+            self.reconnect_remote_server(server, cx);
+        }
+    }
+
     /// Opens a terminal tab in another computer's Home. A server whose Home
     /// isn't known yet connects first, asking for its password if needed, and
     /// the tab opens once its catalog arrives.
@@ -713,6 +901,7 @@ impl AppModel {
         if self.server_name(server).is_none() {
             return;
         }
+        self.reveal_server(server, cx);
         if let Some(home) = self.state.server_home(server).map(|home| home.id) {
             self.pending_remote = None;
             self.new_tab_in(home, cx);
@@ -733,12 +922,16 @@ impl AppModel {
         else {
             return;
         };
-        if self.overlay.is_some() || pending.asked.elapsed() > PATIENCE {
+        let elsewhere = self
+            .overlay
+            .as_ref()
+            .is_some_and(|overlay| !matches!(overlay, crate::views::overlays::Overlay::Onboarding));
+        if elsewhere || pending.asked.elapsed() > PATIENCE {
             self.pending_remote = None;
             return;
         }
         match pending.intent {
-            RemoteIntent::AddProject => self.open_remote_project_picker(server, cx),
+            RemoteIntent::Folders(purpose) => self.open_remote_folders(server, purpose, cx),
             RemoteIntent::HomeTab if self.state.server_home(server).is_some() => {
                 self.new_remote_home_tab(server, cx);
             }
@@ -773,7 +966,7 @@ impl AppModel {
 
     /// Whether a password prompt or form may open now.
     pub(crate) fn accepts_prompts(&self) -> bool {
-        self.quitting == Quitting::Idle && self.close_prompt.is_none()
+        !self.quitting() && !self.dialogs.is_open()
     }
 
     /// The server refused the last login, so its password was wrong.

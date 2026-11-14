@@ -1,8 +1,12 @@
 use super::worktrees::{Sent, connected, pruning_fixture};
 use super::*;
-use crate::model::agents_panel::{AgentStatus, Entry, EntryKey, Placement};
+use crate::model::agents_panel::{
+    AgentStatus, Entry, EntryKey, Placement, RunningAgent, starts_project_group,
+};
 use gpui::Modifiers;
-use muxy_app_core::settings::{AgentsPanelDock, AgentsPanelGrouping, AppLayout};
+use muxy_app_core::settings::{
+    AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping, AgentsPanelIcon,
+};
 use muxy_core::shortcuts::ShortcutId;
 use muxy_protocol::{
     ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity, AgentProvider, AgentState,
@@ -91,7 +95,7 @@ fn agents(cx: &mut TestAppContext) -> (Entity<AppModel>, &mut VisualTestContext,
 }
 
 #[gpui::test]
-fn the_panel_lists_each_shown_session_once_most_urgent_first(cx: &mut TestAppContext) {
+fn the_panel_lists_each_shown_session_once_grouped_by_project(cx: &mut TestAppContext) {
     let (view, cx, fixture) = agents(cx);
     let [root_pane, _, worktree_pane, home_pane] = fixture.panes;
     view.read_with(cx, |model, _| {
@@ -112,80 +116,157 @@ fn the_panel_lists_each_shown_session_once_most_urgent_first(cx: &mut TestAppCon
         );
     });
     view.update(cx, |model, _| {
+        let home = model.state.home().id;
+        let entries = model.agents_panel_entries();
+        let panes: Vec<_> = entries
+            .iter()
+            .map(|entry| match entry {
+                Entry::Agent(agent) => agent.pane,
+                Entry::Worktree { .. } => unreachable!("agent rows"),
+            })
+            .collect();
+        assert_eq!(
+            panes,
+            [home_pane, root_pane, worktree_pane],
+            "agents follow sidebar order, with a worktree after its project"
+        );
+        assert!(
+            (0..entries.len()).all(|index| starts_project_group(&entries, index)),
+            "each project gets its own heading"
+        );
+
+        let resting = |pane, project, session, status| RunningAgent {
+            server: ServerId::local(),
+            session: SessionId::new(session).expect("session"),
+            project,
+            tab: model.state.project(project).expect("project").tabs[0].id,
+            pane,
+            provider: AgentProvider::Codex,
+            status,
+            finished_at: None,
+        };
+        let entries = model.agents_panel_entries_from(vec![
+            resting(root_pane, fixture.root, 1, AgentStatus::Idle),
+            resting(home_pane, home, 3, AgentStatus::Idle),
+            resting(worktree_pane, fixture.root, 2, AgentStatus::Blocked),
+        ]);
+        let order: Vec<_> = entries
+            .iter()
+            .map(|entry| match entry {
+                Entry::Agent(agent) => (agent.project, agent.status),
+                Entry::Worktree { .. } => unreachable!("agent rows"),
+            })
+            .collect();
+        assert_eq!(
+            order,
+            [
+                (home, AgentStatus::Idle),
+                (fixture.root, AgentStatus::Blocked),
+                (fixture.root, AgentStatus::Idle),
+            ],
+            "the most urgent agent leads its project"
+        );
+        assert_eq!(
+            (0..entries.len())
+                .map(|index| starts_project_group(&entries, index))
+                .collect::<Vec<_>>(),
+            [true, true, false]
+        );
+
         model.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
         let entries = model.agents_panel_entries();
         assert!(matches!(
-            entries.first(),
-            Some(Entry::Worktree { project, counts: [1, 0, 0, 0] }) if *project == fixture.worktree
+            entries.as_slice(),
+            [
+                Entry::Worktree { project: first, counts: [0, 0, 1, 0] },
+                Entry::Worktree { project: second, counts: [0, 1, 0, 0] },
+                Entry::Worktree { project: third, counts: [1, 0, 0, 0] },
+            ] if *first == home && *second == fixture.root && *third == fixture.worktree
         ));
-        assert!(entries.iter().any(|entry| matches!(
-            entry,
-            Entry::Worktree { project, counts: [0, 1, 0, 0] } if *project == fixture.root
-        )));
-        assert_eq!(entries.len(), 3);
+        assert!(
+            !starts_project_group(&entries, 0),
+            "project rows have no headings"
+        );
     });
 }
 
 #[gpui::test]
-fn the_active_card_follows_tabs_and_projects_without_a_fallback(cx: &mut TestAppContext) {
+fn idle_time_comes_from_the_last_finish_of_resting_agents(cx: &mut TestAppContext) {
     let (view, cx, fixture) = agents(cx);
-    view.update_in(cx, |model, window, cx| {
-        let active = |model: &AppModel| model.active_agents_entry(&model.agents_panel_entries());
-        let local = ServerId::local();
-        let key = |id| EntryKey::Agent(local, SessionId::new(id).expect("session"));
-        let root_tab = model.pane_tab(fixture.panes[0]).expect("root tab");
-        assert_eq!(active(model), Some(key(1)));
-
-        model.open_agents_entry(key(2), window, cx);
-        assert_eq!(active(model), Some(key(2)));
-        model.select_tab(root_tab, cx);
-        assert_eq!(active(model), Some(key(1)));
-
-        let tab = model.state.open_terminal_tab(fixture.root).expect("tab");
-        assert_eq!(active(model), None, "a plain terminal has no active agent");
-        let pane = model.active_pane().expect("pane");
-        model.receive_attached(
-            local,
-            pane,
-            SessionId::new(4).expect("session"),
-            attachment(),
-            true,
-            cx,
-        );
-        assert_eq!(active(model), Some(key(4)));
-        model.select_tab(root_tab, cx);
-        assert_eq!(active(model), Some(key(1)));
-        model.select_tab(tab, cx);
-        assert_eq!(active(model), Some(key(4)));
-
+    let [root_pane, _, worktree_pane, home_pane] = fixture.panes;
+    let finished_at = |model: &AppModel| {
         model
-            .servers
-            .local
-            .activity
-            .snapshot
-            .agents
-            .retain(|agent| agent.session != SessionId::new(4).expect("session"));
+            .running_agents()
+            .into_iter()
+            .map(|agent| (agent.pane, agent.status, agent.finished_at))
+            .collect::<Vec<_>>()
+    };
+    view.read_with(cx, |model, _| {
         assert_eq!(
-            active(model),
-            None,
-            "an agent that stops leaves no stale highlight"
+            finished_at(model),
+            [
+                (worktree_pane, AgentStatus::Blocked, None),
+                (root_pane, AgentStatus::Working, None),
+                (home_pane, AgentStatus::Completed, Some(0)),
+            ],
+            "a working agent's earlier finish is not its idle time"
         );
-        model.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
-        assert_eq!(active(model), Some(EntryKey::Worktree(fixture.root)));
-        model.select_project(fixture.worktree, cx);
-        assert_eq!(active(model), Some(EntryKey::Worktree(fixture.worktree)));
-        let empty = model
-            .state
-            .projects()
-            .iter()
-            .find(|project| project.parent_id == Some(fixture.root) && project.tabs.is_empty())
-            .expect("empty worktree")
-            .id;
-        model.select_project(empty, cx);
+    });
+    let receive = |view: &Entity<AppModel>,
+                   cx: &mut VisualTestContext,
+                   revision,
+                   home: AgentState,
+                   events: Vec<ActivityEvent>| {
+        view.update(cx, |model, cx| {
+            let agent = |id, state| AgentActivity {
+                session: SessionId::new(id).expect("session"),
+                project: fixture.root,
+                provider: AgentProvider::Claude,
+                state,
+            };
+            model.receive_activity(
+                ServerId::local(),
+                Ok(ActivitySnapshot {
+                    revision,
+                    agents: vec![
+                        agent(1, AgentState::Idle),
+                        agent(2, AgentState::Idle),
+                        agent(3, home),
+                    ],
+                    events,
+                }),
+                cx,
+            );
+        });
+    };
+    let attention = ActivityEvent {
+        id: 3,
+        session: SessionId::new(1).expect("session"),
+        project: fixture.root,
+        provider: AgentProvider::Claude,
+        timestamp: 300,
+        kind: ActivityKind::Attention,
+        read: false,
+    };
+    receive(&view, cx, 2, AgentState::Idle, vec![attention]);
+    view.read_with(cx, |model, _| {
         assert_eq!(
-            active(model),
-            None,
-            "an unlisted project has no active card"
+            finished_at(model),
+            [
+                (home_pane, AgentStatus::Idle, Some(0)),
+                (root_pane, AgentStatus::Idle, None),
+                (worktree_pane, AgentStatus::Idle, None),
+            ],
+            "an acknowledged finish keeps its time, and an attention request is not a finish"
+        );
+    });
+    receive(&view, cx, 3, AgentState::Working, Vec::new());
+    receive(&view, cx, 4, AgentState::Idle, Vec::new());
+    view.read_with(cx, |model, _| {
+        assert_eq!(
+            finished_at(model).first(),
+            Some(&(home_pane, AgentStatus::Idle, None)),
+            "work that ends without a finish does not reuse the previous one"
         );
     });
 }
@@ -253,81 +334,6 @@ fn the_active_card_follows_a_mirrored_session_from_another_tab(cx: &mut TestAppC
 }
 
 #[gpui::test]
-fn long_agent_labels_stay_inside_the_card_in_every_placement(cx: &mut TestAppContext) {
-    let (view, cx, fixture) = agents(cx);
-    cx.simulate_resize(size(px(1200.0), px(800.0)));
-    let agent = view.update(cx, |model, _| {
-        let agent = model
-            .running_agents()
-            .into_iter()
-            .find(|agent| agent.pane == fixture.panes[2])
-            .expect("worktree agent");
-        model
-            .state
-            .set_tab_title(
-                agent.tab,
-                Some("Investigate a very long agent task title ".repeat(10)),
-            )
-            .expect("title");
-        model
-            .state
-            .rename_project(fixture.root, &"long-project-name-".repeat(10))
-            .expect("project name");
-        model
-            .state
-            .rename_project(fixture.worktree, &"long-worktree-name-".repeat(10))
-            .expect("worktree name");
-        agent
-    });
-    for (dock, expanded, detached) in [
-        (AgentsPanelDock::Left, true, false),
-        (AgentsPanelDock::Right, true, false),
-        (AgentsPanelDock::Left, false, false),
-        (AgentsPanelDock::Left, true, true),
-    ] {
-        for grouping in [AgentsPanelGrouping::Agents, AgentsPanelGrouping::Worktrees] {
-            view.update(cx, |model, cx| {
-                model.appearance.agents_panel_visible = true;
-                model.appearance.agents_panel_dock = dock;
-                model.appearance.sidebar_expanded = expanded;
-                model.appearance.agents_panel_detached = detached;
-                model.appearance.agents_panel_grouping = grouping;
-                model.appearance.agents_panel_right_width = Some(220.0);
-                model.appearance.agents_panel_frame = Some([80.0, 80.0, 220.0, 360.0]);
-                model.overlay = (!expanded).then_some(Overlay::Agents);
-                cx.notify();
-            });
-            cx.update(|window, _| window.refresh());
-            cx.run_until_parked();
-            let key = match grouping {
-                AgentsPanelGrouping::Agents => EntryKey::Agent(agent.server, agent.session),
-                AgentsPanelGrouping::Worktrees => EntryKey::Worktree(fixture.worktree),
-            };
-            let row = cx
-                .debug_bounds(format!("agents-panel-row-{key}").leak())
-                .expect("agent card");
-            let panel = cx.debug_bounds("agents-panel").expect("panel");
-            let max_line_height = view.read_with(cx, |model, _| model.metrics.font_body() * 2.0);
-            assert!(row.right() <= panel.right(), "card fits in the panel");
-            for label in ["title", "detail"] {
-                if label == "detail" && grouping == AgentsPanelGrouping::Worktrees {
-                    continue;
-                }
-                let bounds = cx
-                    .debug_bounds(format!("agents-panel-{label}-{key}").leak())
-                    .expect("label");
-                assert!(bounds.right() < row.right(), "{label} fits inside the card");
-                assert!(bounds.size.width > px(0.0), "{label} remains visible");
-                assert!(
-                    bounds.size.height < max_line_height,
-                    "{label} stays on one line"
-                );
-            }
-        }
-    }
-}
-
-#[gpui::test]
 fn the_shortcut_shows_and_focuses_then_hides_and_keys_open_only_live_panes(
     cx: &mut TestAppContext,
 ) {
@@ -339,7 +345,7 @@ fn the_shortcut_shows_and_focuses_then_hides_and_keys_open_only_live_panes(
     view.update(cx, |model, cx| {
         model.appearance.sidebar_expanded = true;
         model.appearance.agents_panel_visible = false;
-        model.focus_requested = true;
+        model.focus_owner.request_active_pane();
         cx.notify();
     });
     cx.run_until_parked();
@@ -396,115 +402,6 @@ fn the_shortcut_shows_and_focuses_then_hides_and_keys_open_only_live_panes(
 }
 
 #[gpui::test]
-fn the_layout_menu_shows_and_hides_the_panel_without_changing_layout(cx: &mut TestAppContext) {
-    let (view, cx, _fixture) = agents(cx);
-    let click = |selector: &'static str, cx: &mut VisualTestContext| {
-        cx.update(|window, _| window.refresh());
-        cx.run_until_parked();
-        let bounds = cx.debug_bounds(selector).expect(selector);
-        cx.simulate_click(bounds.center(), Modifiers::none());
-        cx.run_until_parked();
-    };
-    for detached in [false, true] {
-        view.update_in(cx, |model, window, cx| {
-            model.appearance.layout = AppLayout::TabFocused;
-            model.appearance.sidebar_expanded = true;
-            model.appearance.agents_panel_visible = false;
-            model.appearance.agents_panel_detached = detached;
-            model.focus_active(window, cx);
-            cx.notify();
-        });
-        click("layout-menu", cx);
-        view.read_with(cx, |model, _| {
-            assert_eq!(
-                model.menu_outline()[0].last().map(String::as_str),
-                Some("Show agents panel")
-            );
-        });
-        click("menu-item-3", cx);
-        view.update_in(cx, |model, window, cx| {
-            assert!(model.overlay.is_none());
-            assert!(model.agents_panel_shown());
-            assert!(model.settings.appearance.agents_panel_visible);
-            assert!(model.agents_panel.focus.contains_focused(window, cx));
-            assert_eq!(model.appearance.layout, AppLayout::TabFocused);
-            model.focus_active(window, cx);
-        });
-
-        click("layout-menu", cx);
-        view.read_with(cx, |model, _| {
-            assert_eq!(
-                model.menu_outline()[0].last().map(String::as_str),
-                Some("Hide agents panel")
-            );
-        });
-        click("menu-item-3", cx);
-        view.update_in(cx, |model, window, cx| {
-            assert!(model.overlay.is_none());
-            assert!(!model.agents_panel_shown());
-            assert!(!model.settings.appearance.agents_panel_visible);
-            assert!(!model.agents_panel.focus.contains_focused(window, cx));
-            assert_eq!(model.appearance.layout, AppLayout::TabFocused);
-        });
-    }
-}
-
-#[gpui::test]
-fn the_panel_keeps_keyboard_focus_over_an_empty_project(cx: &mut TestAppContext) {
-    let (view, cx, fixture) = agents(cx);
-    cx.update(|_, cx| {
-        crate::views::workspace::bind_keys(&muxy_app_core::settings::Keymap::default(), cx);
-    });
-    for (dock, detached) in [
-        (AgentsPanelDock::Left, false),
-        (AgentsPanelDock::Right, false),
-        (AgentsPanelDock::Right, true),
-    ] {
-        view.update(cx, |model, cx| {
-            model.appearance.agents_panel_dock = dock;
-            let empty = model
-                .state
-                .projects()
-                .iter()
-                .find(|project| project.parent_id == Some(fixture.root) && project.tabs.is_empty())
-                .expect("empty worktree")
-                .id;
-            model.appearance.sidebar_expanded = true;
-            model.appearance.agents_panel_detached = detached;
-            model.appearance.agents_panel_visible = false;
-            model.select_project(empty, cx);
-            assert!(model.active_pane().is_none());
-        });
-        cx.run_until_parked();
-        cx.simulate_keystrokes(ShortcutId::ToggleAgentsPanel.definition().keys[0]);
-        cx.run_until_parked();
-        view.update_in(cx, |model, window, cx| {
-            assert!(model.agents_panel.focus.contains_focused(window, cx));
-        });
-        cx.simulate_keystrokes(ShortcutId::ToggleAgentsPanel.definition().keys[0]);
-        cx.run_until_parked();
-        view.read_with(cx, |model, _| assert!(!model.agents_panel_shown()));
-
-        cx.simulate_keystrokes(ShortcutId::ToggleAgentsPanel.definition().keys[0]);
-        cx.run_until_parked();
-        cx.simulate_keystrokes("enter");
-        view.read_with(cx, |model, _| {
-            assert_eq!(model.active_pane(), Some(fixture.panes[2]));
-            assert_eq!(model.state.current_project().id, fixture.worktree);
-        });
-        view.update_in(cx, |model, window, cx| {
-            model.focus_agents_panel(window);
-            model.focus_requested = true;
-            cx.notify();
-        });
-        cx.run_until_parked();
-        view.update_in(cx, |model, window, cx| {
-            assert!(!model.agents_panel.focus.contains_focused(window, cx));
-        });
-    }
-}
-
-#[gpui::test]
 fn a_collapsed_sidebar_opens_the_panel_as_a_popup_that_escape_closes(cx: &mut TestAppContext) {
     let (view, cx, _fixture) = agents(cx);
     cx.update(|_, cx| {
@@ -555,7 +452,7 @@ fn a_collapsed_sidebar_opens_the_panel_as_a_popup_that_escape_closes(cx: &mut Te
         );
     });
     view.update(cx, |model, cx| {
-        model.change_preference(crate::views::settings::Change::AgentsPanel(true), cx);
+        model.change_preference(crate::model::preferences::Change::AgentsPanel(true), cx);
         assert!(model.overlay.is_none());
     });
     cx.update(|window, _| window.refresh());
@@ -567,7 +464,7 @@ fn a_collapsed_sidebar_opens_the_panel_as_a_popup_that_escape_closes(cx: &mut Te
     cx.simulate_keystrokes(ShortcutId::ToggleAgentsPanel.definition().keys[0]);
     view.update(cx, |model, cx| {
         assert!(model.agents_panel_shown());
-        model.change_preference(crate::views::settings::Change::AgentsPanel(false), cx);
+        model.change_preference(crate::model::preferences::Change::AgentsPanel(false), cx);
         assert!(!model.agents_panel_shown());
         assert!(model.overlay.is_none());
     });
@@ -581,206 +478,6 @@ fn a_collapsed_sidebar_opens_the_panel_as_a_popup_that_escape_closes(cx: &mut Te
             "the hidden button cannot reopen the popup"
         );
     });
-}
-
-#[gpui::test]
-fn keyboard_navigation_keeps_the_active_card_until_confirmed(cx: &mut TestAppContext) {
-    let (view, cx, fixture) = agents(cx);
-    cx.update(|_, cx| {
-        crate::views::workspace::bind_keys(&muxy_app_core::settings::Keymap::default(), cx);
-    });
-    view.update_in(cx, |model, window, cx| {
-        model.appearance.sidebar_expanded = true;
-        model.appearance.agents_panel_visible = true;
-        model.focus_agents_panel(window);
-        cx.notify();
-    });
-    cx.run_until_parked();
-    cx.simulate_keystrokes("up");
-    view.read_with(cx, |model, _| {
-        let entries = model.agents_panel_entries();
-        assert_eq!(model.state.current_project().id, fixture.root);
-        assert_eq!(
-            model.active_agents_entry(&entries),
-            Some(EntryKey::Agent(
-                ServerId::local(),
-                SessionId::new(1).expect("session")
-            ))
-        );
-        assert_eq!(
-            model.selected_agents_entry(&entries),
-            Some(EntryKey::Agent(
-                ServerId::local(),
-                SessionId::new(2).expect("session")
-            ))
-        );
-    });
-    cx.simulate_keystrokes("escape");
-    view.update_in(cx, |model, window, cx| {
-        model.focus_agents_panel(window);
-        let entries = model.agents_panel_entries();
-        assert_eq!(
-            model.selected_agents_entry(&entries),
-            model.active_agents_entry(&entries),
-            "refocusing discards the temporary cursor"
-        );
-        cx.notify();
-    });
-    cx.run_until_parked();
-    cx.simulate_keystrokes("up enter");
-    view.read_with(cx, |model, _| {
-        assert_eq!(model.state.current_project().id, fixture.worktree);
-        assert_eq!(model.active_pane(), Some(fixture.panes[2]));
-    });
-    view.update_in(cx, |model, window, cx| {
-        model.select_project(fixture.root, cx);
-        model.focus_agents_panel(window);
-        let entries = model.agents_panel_entries();
-        assert_eq!(
-            model.selected_agents_entry(&entries),
-            model.active_agents_entry(&entries),
-            "keyboard navigation restarts at the newly active tab"
-        );
-        cx.notify();
-    });
-    cx.run_until_parked();
-    cx.simulate_keystrokes("enter");
-    view.read_with(cx, |model, _| {
-        assert_eq!(model.state.current_project().id, fixture.root);
-        assert_eq!(model.active_pane(), Some(fixture.panes[0]));
-    });
-}
-
-#[gpui::test]
-fn keyboard_navigation_uses_the_highlighted_row_after_selection_changes(cx: &mut TestAppContext) {
-    let (view, cx, fixture) = agents(cx);
-    cx.update(|_, cx| {
-        crate::views::workspace::bind_keys(&muxy_app_core::settings::Keymap::default(), cx);
-    });
-    view.update_in(cx, |model, window, cx| {
-        model.appearance.sidebar_expanded = true;
-        model.appearance.agents_panel_visible = true;
-        model.focus_agents_panel(window);
-        cx.notify();
-    });
-    cx.run_until_parked();
-    cx.simulate_keystrokes("up enter");
-    view.read_with(cx, |model, _| {
-        assert_eq!(model.active_pane(), Some(fixture.panes[2]));
-        assert_eq!(model.state.current_project().id, fixture.worktree);
-    });
-
-    view.update_in(cx, |model, window, cx| {
-        model
-            .servers
-            .local
-            .activity
-            .snapshot
-            .agents
-            .retain(|agent| agent.session != SessionId::new(2).expect("session"));
-        model.focus_agents_panel(window);
-        cx.notify();
-    });
-    cx.run_until_parked();
-    cx.simulate_keystrokes("enter");
-    view.read_with(cx, |model, _| {
-        assert_eq!(model.active_pane(), Some(fixture.panes[0]));
-        assert_eq!(model.state.current_project().id, fixture.root);
-    });
-
-    view.update_in(cx, |model, window, cx| {
-        model.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
-        model.focus_agents_panel(window);
-        cx.notify();
-    });
-    cx.run_until_parked();
-    cx.simulate_keystrokes("down enter");
-    view.read_with(cx, |model, _| {
-        assert_eq!(model.state.current_project().id, model.state.home().id);
-    });
-}
-
-#[gpui::test]
-fn header_controls_move_between_sides_and_reattach_to_the_last_side(cx: &mut TestAppContext) {
-    let (view, cx, _fixture) = agents(cx);
-    cx.update(|_, cx| {
-        crate::views::workspace::bind_keys(&muxy_app_core::settings::Keymap::default(), cx);
-    });
-    cx.simulate_resize(size(px(1200.0), px(800.0)));
-    let click = |selector: &'static str, cx: &mut VisualTestContext| {
-        cx.update(|window, _| window.refresh());
-        cx.run_until_parked();
-        let bounds = cx.debug_bounds(selector).expect(selector);
-        cx.simulate_click(bounds.center(), Modifiers::none());
-        cx.run_until_parked();
-    };
-    for layout in [
-        AppLayout::ProjectFocused,
-        AppLayout::TabFocused,
-        AppLayout::AgentsFocused,
-    ] {
-        view.update(cx, |model, cx| {
-            model.appearance.layout = layout;
-            model.appearance.sidebar_expanded = true;
-            cx.notify();
-        });
-        click("agents-panel-move", cx);
-        view.update_in(cx, |model, window, cx| {
-            assert_eq!(model.agents_panel_placement(), Placement::Right);
-            assert!(model.agents_panel.focus.contains_focused(window, cx));
-            assert_eq!(
-                model.settings.appearance.agents_panel_dock,
-                AgentsPanelDock::Right
-            );
-            model.appearance.sidebar_expanded = false;
-            cx.notify();
-        });
-        cx.run_until_parked();
-        let bounds = cx.debug_bounds("agents-panel").expect("right panel");
-        assert!(
-            bounds.left() > px(800.0),
-            "Agents occupies the right, not the sidebar"
-        );
-        view.update(cx, |model, cx| {
-            assert!(crate::views::agents_panel::collapsed_button(model, cx).is_none());
-        });
-        click("agents-panel-dock", cx);
-        view.read_with(cx, |model, _| {
-            assert_eq!(model.agents_panel_placement(), Placement::Floating);
-            assert!(model.panels.is_empty());
-        });
-        click("agents-panel-dock", cx);
-        view.read_with(cx, |model, _| {
-            assert_eq!(model.agents_panel_placement(), Placement::Right);
-            assert!(model.agents_panel_shown());
-        });
-        click("agents-panel-move", cx);
-        view.read_with(cx, |model, _| {
-            assert_eq!(model.agents_panel_placement(), Placement::Popup);
-            assert!(model.panels.is_empty());
-            assert_eq!(
-                model.settings.appearance.agents_panel_dock,
-                AgentsPanelDock::Left
-            );
-        });
-        cx.simulate_keystrokes(ShortcutId::ToggleAgentsPanel.definition().keys[0]);
-        click("agents-panel-move", cx);
-        view.read_with(cx, |model, _| {
-            assert!(
-                model.overlay.is_none(),
-                "moving out of a popup dismisses it"
-            );
-            assert_eq!(model.agents_panel_placement(), Placement::Right);
-        });
-        view.update_in(cx, |model, window, cx| {
-            model.set_agents_panel_detached(true, window, cx);
-        });
-        click("agents-panel-move", cx);
-        view.read_with(cx, |model, _| {
-            assert_eq!(model.agents_panel_placement(), Placement::Popup);
-            assert!(!model.appearance.agents_panel_detached);
-        });
-    }
 }
 
 #[gpui::test]
@@ -837,6 +534,7 @@ fn right_agents_share_the_panel_host_without_losing_the_composer_draft(cx: &mut 
         let saved = crate::model::webviews::panel_sessions::SavedPanel {
             owner: "test-extension".into(),
             kind: "right".into(),
+            instance: None,
             position: PanelPosition::Right,
             data: serde_json::Value::Null,
         };
@@ -853,71 +551,6 @@ fn right_agents_share_the_panel_host_without_losing_the_composer_draft(cx: &mut 
         assert!(!model.agents_panel_shown());
         assert!(model.panels.is_empty());
     });
-}
-
-#[gpui::test]
-fn right_panel_width_is_saved_on_release_and_restored_at_startup(cx: &mut TestAppContext) {
-    use muxy_app_core::settings::Settings;
-
-    let settings = {
-        let (view, cx, _fixture) = agents(cx);
-        cx.simulate_resize(size(px(1200.0), px(800.0)));
-        view.update_in(cx, |model, window, cx| {
-            model.set_agents_panel_dock(AgentsPanelDock::Right, window, cx);
-        });
-        cx.run_until_parked();
-        let start = cx
-            .debug_bounds("panel-resize-builtin:agents")
-            .expect("resize grip")
-            .center();
-        let end = start - gpui::point(px(80.0), px(0.0));
-        cx.simulate_mouse_down(start, gpui::MouseButton::Left, Modifiers::none());
-        cx.simulate_mouse_move(end, Some(gpui::MouseButton::Left), Modifiers::none());
-        view.read_with(cx, |model, _| {
-            assert_eq!(
-                model.settings.appearance.agents_panel_right_width, None,
-                "no disk writes during the drag"
-            );
-        });
-        cx.simulate_mouse_up(end, gpui::MouseButton::Left, Modifiers::none());
-        cx.run_until_parked();
-        view.read_with(cx, |model, _| {
-            let settings = Settings::load(&model.path.with_file_name("settings.toml"))
-                .expect("saved settings");
-            let width = settings
-                .appearance
-                .agents_panel_right_width
-                .expect("saved width");
-            assert!((width - 400.0).abs() < 1.0);
-            settings
-        })
-    };
-    let (mut boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
-    boot.settings = settings;
-    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(1200.0), px(800.0)));
-    cx.run_until_parked();
-    view.read_with(cx, |model, _| {
-        assert!(model.agents_panel_shown());
-        assert_eq!(model.agents_panel_placement(), Placement::Right);
-    });
-    let bounds = cx
-        .debug_bounds("agents-panel")
-        .expect("restored right panel");
-    assert!((f32::from(bounds.size.width) - 400.0).abs() < 1.0);
-    cx.simulate_resize(size(px(500.0), px(400.0)));
-    cx.run_until_parked();
-    let bounds = cx
-        .debug_bounds("agents-panel")
-        .expect("clamped right panel");
-    assert!(bounds.left() >= px(100.0) && bounds.right() <= px(500.0));
-    view.update(cx, |model, cx| {
-        model.appearance.agents_panel_right_width = Some(f32::NAN);
-        cx.notify();
-    });
-    cx.run_until_parked();
-    let bounds = cx.debug_bounds("agents-panel").expect("finite right panel");
-    assert!(f32::from(bounds.size.width).is_finite());
 }
 
 #[gpui::test]
@@ -943,61 +576,6 @@ fn appearance_merges_keep_the_panel_host_in_sync_with_another_windows_dock_choic
             );
             assert_eq!(model.panels.is_empty(), dock == AgentsPanelDock::Left);
         }
-    });
-}
-
-#[gpui::test]
-fn the_shortcut_uses_the_merged_dock_choice_with_a_collapsed_sidebar(cx: &mut TestAppContext) {
-    let (view, cx, _fixture) = agents(cx);
-    cx.update(|_, cx| {
-        crate::views::workspace::bind_keys(&muxy_app_core::settings::Keymap::default(), cx);
-    });
-    for (from, to) in [
-        (AgentsPanelDock::Right, AgentsPanelDock::Left),
-        (AgentsPanelDock::Left, AgentsPanelDock::Right),
-    ] {
-        view.update_in(cx, |model, window, cx| {
-            model.appearance.sidebar_expanded = false;
-            model.appearance.agents_panel_dock = from;
-            model.hide_agents_panel(window, cx);
-            let mut other = model.appearance.clone();
-            other.agents_panel_dock = to;
-            other
-                .save(&model.path.with_file_name("settings.toml"))
-                .expect("other window's choice");
-        });
-        cx.simulate_keystrokes(ShortcutId::ToggleAgentsPanel.definition().keys[0]);
-        cx.run_until_parked();
-        view.update_in(cx, |model, window, cx| {
-            assert_eq!(model.appearance.agents_panel_dock, to);
-            assert!(
-                model.agents_panel_shown(),
-                "the first shortcut must show the merged placement"
-            );
-            assert!(model.agents_panel.focus.contains_focused(window, cx));
-            assert_eq!(
-                matches!(model.overlay, Some(Overlay::Agents)),
-                to == AgentsPanelDock::Left
-            );
-            assert_eq!(model.panels.is_empty(), to == AgentsPanelDock::Left);
-        });
-    }
-    view.update_in(cx, |model, window, cx| {
-        model.set_agents_panel_dock(AgentsPanelDock::Left, window, cx);
-        model.toggle_agents_panel(window, cx);
-        assert!(matches!(model.overlay, Some(Overlay::Agents)));
-        let mut other = model.appearance.clone();
-        other.agents_panel_dock = AgentsPanelDock::Right;
-        other
-            .save(&model.path.with_file_name("settings.toml"))
-            .expect("other window's choice");
-        model.appearance.tips_visible = !model.appearance.tips_visible;
-        model.save_appearance(cx);
-        assert!(
-            model.overlay.is_none(),
-            "an unrelated save must not leave a duplicate popup"
-        );
-        assert!(model.agents_panel_shown());
     });
 }
 
@@ -1085,60 +663,415 @@ fn the_floating_panel_moves_by_its_header_and_resizes_by_its_corner(cx: &mut Tes
 }
 
 #[gpui::test]
-fn the_docked_panel_resizes_by_its_top_edge_and_scrolls_by_its_thumb(cx: &mut TestAppContext) {
+fn normal_rows_add_a_details_line_and_compact_rows_fit_on_one(cx: &mut TestAppContext) {
     let (view, cx, _fixture) = agents(cx);
     cx.simulate_resize(size(px(1200.0), px(800.0)));
-    let drag = |selector: &'static str, by: gpui::Pixels, cx: &mut VisualTestContext| {
-        cx.update(|window, _| window.refresh());
-        cx.run_until_parked();
-        let start = cx.debug_bounds(selector).expect(selector).center();
-        let end = start + gpui::point(px(0.0), by);
-        cx.simulate_mouse_down(start, gpui::MouseButton::Left, Modifiers::none());
-        cx.simulate_mouse_move(end, Some(gpui::MouseButton::Left), Modifiers::none());
-        cx.simulate_mouse_up(end, gpui::MouseButton::Left, Modifiers::none());
-        cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let key = EntryKey::Agent(ServerId::local(), SessionId::new(1).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, selector: String| {
+        cx.debug_bounds(selector.leak()).expect("bounds")
     };
+    let row = bounds(cx, format!("agents-panel-row-{key}"));
+    let title = bounds(cx, format!("agents-panel-title-{key}"));
+    let details = bounds(cx, format!("agents-panel-details-{key}"));
+    let status = bounds(cx, format!("agents-panel-status-{key}"));
+    assert!(
+        title.bottom() <= details.top(),
+        "details sit under the title"
+    );
+    assert!(status.left() >= title.right() && status.right() <= row.right());
+    assert!(
+        cx.debug_bounds(format!("agents-panel-{key}-progress").leak())
+            .is_some(),
+        "a working agent shows the tab's progress glyph"
+    );
+    let normal = row.size.height;
 
-    let scrolled = |view: &Entity<AppModel>, cx: &mut VisualTestContext| {
-        view.read_with(cx, |model, _| -model.agents_panel.scroll.offset().y)
-    };
-    for layout in [
-        AppLayout::ProjectFocused,
-        AppLayout::TabFocused,
-        AppLayout::AgentsFocused,
-    ] {
+    view.update(cx, |model, cx| {
+        model.appearance.agents_panel_density = AgentsPanelDensity::Compact;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let row = bounds(cx, format!("agents-panel-row-{key}"));
+    let title = bounds(cx, format!("agents-panel-title-{key}"));
+    assert!(
+        row.size.height <= px(24.0) && row.size.height < normal,
+        "compact rows are one short line: {row:?}"
+    );
+    assert!(
+        title.size.width > row.size.width * 0.5,
+        "the title gets the row's room: {title:?} in {row:?}"
+    );
+}
+
+#[gpui::test]
+fn every_row_option_lays_out_the_same_at_either_density(cx: &mut TestAppContext) {
+    let (view, cx, _fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let local = ServerId::local();
+    let working = EntryKey::Agent(local, SessionId::new(1).expect("session"));
+    let finished = EntryKey::Agent(local, SessionId::new(3).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, selector: String| cx.debug_bounds(selector.leak());
+    let render = |cx: &mut VisualTestContext,
+                  update: &dyn Fn(&mut muxy_app_core::settings::Appearance)| {
         view.update(cx, |model, cx| {
-            model.appearance.layout = layout;
             model.appearance.sidebar_expanded = true;
             model.appearance.agents_panel_visible = true;
-            model.appearance.agents_panel_docked_height =
-                Some(crate::model::agents_panel::MIN_HEIGHT);
-            model
-                .agents_panel
-                .scroll
-                .set_offset(gpui::point(px(0.0), px(0.0)));
+            update(&mut model.appearance);
             cx.notify();
         });
         cx.update(|window, _| window.refresh());
         cx.run_until_parked();
-        assert!(
-            view.read_with(cx, |model, _| model.agents_panel.scroll.max_offset().height) > px(0.0),
-            "the short panel overflows in {layout:?}"
-        );
-        drag("agents-panel-scrollbar", px(40.0), cx);
-        assert!(
-            scrolled(&view, cx) > px(0.0),
-            "the thumb scrolls the list in {layout:?}"
-        );
-
-        drag("agents-panel-docked-resize", px(-60.0), cx);
-        let height = view.read_with(cx, |model, _| {
-            model.settings.appearance.agents_panel_docked_height
+    };
+    let mut headers = Vec::new();
+    let mut glyphs = Vec::new();
+    for density in [AgentsPanelDensity::Normal, AgentsPanelDensity::Compact] {
+        render(cx, &|appearance| {
+            appearance.agents_panel_density = density;
+            appearance.agents_panel_icon = AgentsPanelIcon::Agent;
+            appearance.agents_panel_project_colors = false;
+            appearance.agents_panel_idle_time = true;
         });
-        let expected = crate::model::agents_panel::MIN_HEIGHT + 60.0;
-        assert!(
-            height.is_some_and(|height| (height - expected).abs() < 1.0),
-            "dragging the top edge up makes it taller and is saved in {layout:?}: {height:?}"
+        let plain = bounds(cx, format!("agents-panel-icon-{finished}")).expect("icon");
+        render(cx, &|appearance| {
+            appearance.agents_panel_project_colors = true;
+        });
+        let row = bounds(cx, format!("agents-panel-row-{finished}")).expect("row");
+        let icon = bounds(cx, format!("agents-panel-icon-{finished}")).expect("icon");
+        let status = bounds(cx, format!("agents-panel-status-{finished}")).expect("status");
+        let idle = bounds(cx, format!("agents-panel-idle-{finished}")).expect("idle time");
+        assert_eq!(
+            icon, plain,
+            "{density:?}: the color leaves the icon in place"
         );
+        if density == AgentsPanelDensity::Normal {
+            let color = bounds(cx, format!("agents-panel-color-{finished}")).expect("color");
+            assert!(
+                color.right() < icon.left(),
+                "the color sits apart from the icon: {color:?} {icon:?}"
+            );
+            assert_eq!(
+                color.top() - row.top(),
+                row.bottom() - color.bottom(),
+                "the color is centered on the row"
+            );
+            assert!(
+                color.size.height > row.size.height * 0.5,
+                "the color spans the row: {color:?} in {row:?}"
+            );
+            let details = bounds(cx, format!("agents-panel-details-{finished}")).expect("details");
+            assert!(
+                details.right() <= idle.left(),
+                "the idle time isn't part of the details"
+            );
+        }
+        assert!(
+            status.right() <= idle.left(),
+            "{density:?}: the idle time follows the status"
+        );
+        let edge = row.right() - idle.right();
+        assert!(
+            edge > px(0.0) && edge <= px(8.0),
+            "{density:?}: the idle time sits at the far right: {idle:?} in {row:?}"
+        );
+        let working_status = bounds(cx, format!("agents-panel-status-{working}")).expect("glyph");
+        assert_eq!(
+            row.right() - working_status.right(),
+            edge,
+            "{density:?}: a glyph without a time sits as far right as a time"
+        );
+        headers.push(
+            bounds(cx, "agents-panel-header".into())
+                .expect("header")
+                .size,
+        );
+        glyphs.push(status.size);
     }
+    assert_eq!(headers[0], headers[1], "density only changes the rows");
+    assert_eq!(glyphs[0], glyphs[1], "status glyphs keep one size");
+}
+
+#[gpui::test]
+fn a_compact_row_shows_only_its_icon(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model.appearance.agents_panel_density = AgentsPanelDensity::Compact;
+        model.appearance.agents_panel_grouped = false;
+        model.appearance.agents_panel_project_colors = true;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let key = EntryKey::Agent(ServerId::local(), SessionId::new(1).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, part: &str| {
+        cx.debug_bounds(format!("agents-panel-{part}-{key}").leak())
+    };
+    assert!(bounds(cx, "icon").is_some(), "the agent icon shows");
+    assert!(bounds(cx, "color").is_none(), "no color beside the icon");
+    assert!(bounds(cx, "details").is_none(), "no second line");
+    assert!(
+        cx.debug_bounds(format!("agents-panel-heading-{}", fixture.root).leak())
+            .is_none(),
+        "ungrouped agents have no headings"
+    );
+}
+
+#[gpui::test]
+fn an_idle_agents_time_sits_as_far_right_as_a_glyph(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    let [_, _, _, home_pane] = fixture.panes;
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let local = ServerId::local();
+    let working = EntryKey::Agent(local, SessionId::new(1).expect("session"));
+    let finished = EntryKey::Agent(local, SessionId::new(3).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, selector: String| cx.debug_bounds(selector.leak());
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model.appearance.agents_panel_idle_time = true;
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
+        snapshot.revision += 1;
+        for event in &mut snapshot.events {
+            event.read = true;
+        }
+        model.receive_activity(local, Ok(snapshot), cx);
+        model.set_pane_completed(home_pane, false);
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let row = bounds(cx, format!("agents-panel-row-{finished}")).expect("row");
+    let idle = bounds(cx, format!("agents-panel-idle-{finished}")).expect("idle time");
+    let working_status = bounds(cx, format!("agents-panel-status-{working}")).expect("glyph");
+    assert!(
+        bounds(cx, format!("agents-panel-status-{finished}")).is_none(),
+        "an idle agent shows no glyph"
+    );
+    assert_eq!(
+        row.right() - idle.right(),
+        row.right() - working_status.right(),
+        "with no glyph, the idle time takes the far right"
+    );
+}
+
+#[gpui::test]
+fn the_docked_panel_lines_up_with_the_agents_focused_sidebar(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let tab = view.update(cx, |model, cx| {
+        model.appearance.layout = muxy_app_core::settings::AppLayout::AgentsFocused;
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model
+            .appearance
+            .tab_focused_expanded
+            .insert(fixture.root, true);
+        cx.notify();
+        let root = model.state.project(fixture.root).expect("root");
+        model.sidebar_tabs(root).next().expect("agent tab").id
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let key = EntryKey::Agent(ServerId::local(), SessionId::new(1).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, selector: String| {
+        cx.debug_bounds(selector.leak()).expect("bounds")
+    };
+    let sidebar_row = bounds(cx, format!("sidebar-tab-{tab}"));
+    let panel_row = bounds(cx, format!("agents-panel-row-{key}"));
+    assert_eq!(panel_row.left(), sidebar_row.left());
+    assert_eq!(panel_row.right(), sidebar_row.right());
+    assert_eq!(
+        bounds(cx, format!("agents-panel-heading-{}", fixture.root)).left(),
+        bounds(cx, format!("tab-project-title-{}", fixture.root)).left()
+    );
+    assert_eq!(
+        bounds(cx, format!("agents-panel-status-{key}")).center().x,
+        bounds(cx, format!("sidebar-tab-accessory-{tab}"))
+            .center()
+            .x,
+        "the status lines up with the tab's"
+    );
+}
+
+#[gpui::test]
+fn rows_sit_under_their_project_heading_with_status_on_the_right(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let key = EntryKey::Agent(ServerId::local(), SessionId::new(1).expect("session"));
+    let bounds = |cx: &mut VisualTestContext, selector: String| {
+        cx.debug_bounds(selector.leak()).expect("bounds")
+    };
+    let heading = bounds(cx, format!("agents-panel-heading-{}", fixture.root));
+    let title = bounds(cx, format!("agents-panel-title-{key}"));
+    let status = bounds(cx, format!("agents-panel-status-{key}"));
+    assert!(heading.bottom() <= title.top());
+    assert!(
+        status.left() >= title.right(),
+        "status sits right of the title"
+    );
+    let name = bounds(cx, "agents-panel-name".into());
+    let hide = bounds(cx, "agents-panel-hide".into());
+    assert_eq!(
+        heading.left(),
+        name.left(),
+        "headings line up with the panel name"
+    );
+    assert_eq!(
+        status.center().x,
+        hide.center().x,
+        "status lines up with the hide button"
+    );
+}
+
+#[gpui::test]
+fn pressing_a_row_highlights_it_instead_of_the_agent_being_left(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    let [root_pane, _, _, home_pane] = fixture.panes;
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model.focus_pane(root_pane, cx);
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let home = EntryKey::Agent(ServerId::local(), SessionId::new(3).expect("session"));
+    let row = cx
+        .debug_bounds(format!("agents-panel-row-{home}").leak())
+        .expect("row")
+        .center();
+    cx.simulate_mouse_down(row, gpui::MouseButton::Left, Modifiers::none());
+    view.read_with(cx, |model, _| {
+        let entries = model.agents_panel_entries();
+        assert_eq!(
+            model.selected_agents_entry(&entries),
+            Some(home),
+            "the pressed row lights up, not the active agent"
+        );
+    });
+    cx.simulate_mouse_up(row, gpui::MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.active_pane(), Some(home_pane));
+        assert_eq!(
+            model.active_agents_entry(&model.agents_panel_entries()),
+            Some(home)
+        );
+    });
+}
+
+#[gpui::test]
+fn reading_a_finish_keeps_the_row_in_place(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    let local = ServerId::local();
+    let session = |id| SessionId::new(id).expect("session");
+    view.update(cx, |model, cx| {
+        let tab = model.state.open_terminal_tab(fixture.root).expect("tab");
+        let pane = model
+            .state
+            .project(fixture.root)
+            .and_then(|project| project.tabs.iter().find(|entry| entry.id == tab))
+            .expect("tab")
+            .panes[0]
+            .id;
+        model.receive_attached(local, pane, session(5), attachment(), false, cx);
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
+        snapshot.revision += 1;
+        snapshot.agents = vec![
+            AgentActivity {
+                session: session(1),
+                project: fixture.root,
+                provider: AgentProvider::Claude,
+                state: AgentState::Idle,
+            },
+            AgentActivity {
+                session: session(5),
+                project: fixture.root,
+                provider: AgentProvider::Claude,
+                state: AgentState::Idle,
+            },
+        ];
+        snapshot.events = vec![ActivityEvent {
+            id: 9,
+            session: session(5),
+            project: fixture.root,
+            provider: AgentProvider::Claude,
+            timestamp: 0,
+            kind: ActivityKind::Completed,
+            read: false,
+        }];
+        model.receive_activity(local, Ok(snapshot), cx);
+    });
+    let order = |view: &Entity<AppModel>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |model, _| {
+            model
+                .agents_panel_entries()
+                .iter()
+                .map(Entry::key)
+                .collect::<Vec<_>>()
+        })
+    };
+    let before = order(&view, cx);
+    assert_eq!(
+        before,
+        [
+            EntryKey::Agent(local, session(1)),
+            EntryKey::Agent(local, session(5))
+        ],
+        "a finished agent doesn't jump ahead of a resting one"
+    );
+    view.update(cx, |model, cx| {
+        let mut snapshot = model.servers.local.activity.snapshot.clone();
+        snapshot.revision += 1;
+        snapshot.events[0].read = true;
+        model.receive_activity(local, Ok(snapshot), cx);
+    });
+    assert_eq!(order(&view, cx), before, "reading the finish moves nothing");
+}
+
+#[gpui::test]
+fn a_worktree_row_shows_its_counts_once(cx: &mut TestAppContext) {
+    let (view, cx, fixture) = agents(cx);
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.agents_panel_visible = true;
+        model.appearance.agents_panel_grouping = AgentsPanelGrouping::Worktrees;
+        cx.notify();
+    });
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let key = EntryKey::Worktree(fixture.root);
+    let bounds = |cx: &mut VisualTestContext, part: &str| {
+        cx.debug_bounds(format!("agents-panel-{part}-{key}").leak())
+    };
+    let row = bounds(cx, "row").expect("row");
+    let title = bounds(cx, "title").expect("title");
+    assert!(
+        bounds(cx, "details").is_none(),
+        "the counts on the right aren't repeated under the title"
+    );
+    assert_eq!(
+        title.center().y,
+        row.center().y,
+        "the title is centered on its row"
+    );
 }

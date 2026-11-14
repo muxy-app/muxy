@@ -1,41 +1,60 @@
+mod active;
+mod adoption;
+pub(crate) mod agent_sessions;
 pub(crate) mod agents_panel;
 pub(crate) mod ai;
+mod background;
 pub(crate) mod banners;
 pub(crate) mod browsers;
 pub(crate) mod capabilities;
 mod catalog;
+mod client_access;
+mod close_check;
 pub(crate) mod commands;
 mod composer;
+mod coverage;
 mod diagnostics;
+pub(crate) mod dialogs;
 pub(crate) mod extensions;
+pub(crate) mod floating;
+pub(crate) mod focus;
 pub(crate) mod git;
 mod language;
 mod links;
-mod mobile;
-mod preferences;
+pub(crate) mod onboarding;
+mod pairing;
+pub(crate) use pairing::PairingForm;
+mod pane_runtime;
+pub(crate) mod preferences;
+pub(crate) mod project_apps;
+mod project_icons;
 pub(crate) mod project_layouts;
+pub(crate) mod proxy;
 mod quick_terminal;
 mod reconnect;
 pub(crate) mod remote_files;
 mod remote_servers;
 pub(crate) use remote_servers::{
-    ConnectionTest, DeviceForm, Install, PendingRemote, RemoteIntent, RemoteServer,
+    ConnectionTest, Install, PendingRemote, RemoteIntent, RemoteServer, ServerFields, by_group,
     join_destination, released_version, split_destination,
 };
+mod server_groups;
 mod server_status;
 mod servers;
 pub(crate) use server_status::ServerStatus;
+pub(crate) mod tab_windows;
 mod tabs;
 pub(crate) mod tips;
 mod updates;
 pub(crate) use updates::UpdateAction;
-mod voice;
+mod usage_ping;
 mod webviews;
+mod window_accessibility;
 mod workspaces;
 mod worktrees;
 pub(crate) use worktrees::removes_worktree;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -44,14 +63,14 @@ use muxy_app_core::{
     AppState, Direction, PaneContent, PaneId, ProjectId, ProjectStatus, ServerId, TabId,
     WindowBounds, restore, store,
 };
-use muxy_client::{ClientEvent, RunGrid};
-use muxy_protocol::{SessionId, SessionInfo, Size};
+use muxy_client::ClientEvent;
+use muxy_protocol::{ExitReason, SessionId, SessionInfo, Size};
 
-use crate::boot::{Boot, Update, Work, missing_session};
+use crate::boot::{Boot, CloseCheckId, Update, Work, missing_session};
 use crate::views::overlays::Overlay;
 use crate::views::terminal::colors::Palette;
-use crate::views::terminal::pane::{PaneEvent, PaneState, TerminalPane};
-use crate::views::terminal::scroll::{Scroll, output_changed};
+use crate::views::terminal::pane::{PaneEvent, PaneState, Screen, TerminalPane};
+use close_check::CloseCheck;
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
 
@@ -99,23 +118,35 @@ struct CloseRequest {
     tab: TabId,
     tabs: Vec<TabId>,
     panes: Vec<PaneId>,
+    /// The sessions closing `panes` would end, asked about one at a time.
+    ending: Vec<(PaneId, ServerId, SessionId)>,
     checking: usize,
     whole_tab: bool,
     behavior: muxy_app_core::settings::CloseBehavior,
+    /// The pane gets a new terminal in its place, with the proxy or without.
+    restart: Option<bool>,
+    /// The confirmation asked for the session being checked.
+    dialog: Option<dialogs::DialogId>,
 }
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Independent window state flags"
+)]
 pub(crate) struct AppModel {
     pub(crate) extensions: extensions::Runtime,
     pub(crate) sidebar_view: Entity<crate::views::cached::CachedView<Self>>,
     pub(crate) webviews: webviews::Webviews,
     pub(crate) browsers: browsers::Browsers,
     pub(crate) panels: muxy_ui::panel::PanelHost,
+    pub(crate) floating: floating::Floating,
     pub(crate) composer: composer::ComposerRuntime,
-    pub(crate) voice: voice::VoiceRuntime,
     pub(crate) git: git::GitState,
     pub(crate) ai: ai::Runtime,
     pub(crate) servers: servers::Servers,
+    pub(crate) proxy: proxy::ProxyState,
     project_layouts: project_layouts::ProjectLayouts,
+    pub(crate) project_apps: project_apps::ProjectApps,
     pub(crate) existing_sessions: crate::views::session_picker::ExistingSessions,
     pub(crate) quick: quick_terminal::QuickTerminalRuntime,
     pub(crate) window: gpui::AnyWindowHandle,
@@ -132,46 +163,60 @@ pub(crate) struct AppModel {
     pub(crate) settings: muxy_app_core::settings::Settings,
     terminal: muxy_app_core::settings::TerminalSettings,
     server_preferences: preferences::ServerPreferences,
-    mobile: mobile::MobileAccess,
+    client_access: client_access::ClientAccess,
     /// The last Test Connection in Settings, with the destination it tried.
     server_probe: Option<(String, ConnectionTest)>,
     server_probe_generation: u64,
+    pub(crate) pairing: pairing::Pairing,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
+    pub(crate) extensions_anchor: muxy_ui::popover::PopoverAnchor,
+    /// Servers selected on the Servers page, and where a ⇧-click range
+    /// starts.
+    pub(crate) remote_selection: Vec<ServerId>,
+    pub(crate) remote_selection_anchor: Option<ServerId>,
+    pub(crate) servers_page: crate::views::servers_page::ServersPage,
     pub(crate) pending_remote: Option<PendingRemote>,
     pub(crate) pending_folders: Vec<PathBuf>,
     pub(crate) remote_links: remote_files::RemoteLinks,
     pub(crate) tips: tips::Tips,
-    pub(crate) settings_window: Option<preferences::SettingsWindowState>,
-    pending_extension_updates: Option<Entity<crate::views::settings::extensions::ExtensionsView>>,
-    font_sizes: HashMap<PaneId, f32>,
+    pub(crate) onboarding: onboarding::Onboarding,
+    pub(crate) settings_tab: Option<preferences::SettingsTabState>,
+    pane_runtime: HashMap<PaneId, pane_runtime::PaneRuntime>,
     terminal_preview: Option<preferences::TerminalPreview>,
     terminal_background: preferences::TerminalBackground,
-    initial_directories: HashMap<PaneId, PathBuf>,
     pub(crate) theme: Theme,
     pub(crate) themes: crate::theme::Catalog,
     pub(crate) metrics: Metrics,
+    traffic_lights: Option<gpui::Point<gpui::Pixels>>,
     pub(crate) palette: Palette,
     pub(crate) dark: bool,
     pub(crate) overlay: Option<Overlay>,
     pub(crate) overlay_focus: FocusHandle,
-    pub(crate) focus_requested: bool,
-    /// What a requested focus goes back to, instead of the active pane.
-    pub(crate) focus_return: Option<gpui::WeakFocusHandle>,
+    pub(crate) focus_owner: focus::FocusOwner,
     pub(crate) split_resize: crate::views::splits::SplitResizeState,
     pub(crate) sidebar_resize: Option<crate::views::sidebar::SidebarResize>,
     #[cfg(not(target_os = "macos"))]
     pub(crate) sidebar_available_width: gpui::Pixels,
+    pub(crate) agent_sessions: agent_sessions::AgentSessions,
     pub(crate) agents_panel: agents_panel::AgentsPanel,
     pub(crate) tab_drag: crate::views::tab_strip::TabDragState,
+    pub(crate) tab_windows: tab_windows::TabWindows,
+    pub(crate) move_drag: crate::views::move_drag::MoveDragState,
     pub(crate) layout_drag: crate::views::splits::drag::LayoutDragState,
+    pub(crate) project_icons: project_icons::ProjectIcons,
     pub(crate) project_logo_task: Option<Task<()>>,
     pub(crate) project_logos: crate::views::project_editor::logo::Cache,
     pub(crate) expanded_worktrees: HashSet<ProjectId>,
     pub(crate) tab_sidebar_selection: Option<(ProjectId, Option<TabId>)>,
+    pub(crate) projects_without_tabs_shown: bool,
     pub(crate) shortcut_hints: crate::views::shortcut_hints::ShortcutHints,
     #[cfg(target_os = "macos")]
     pub(crate) window_drag: Option<muxy_ui::window_drag::WindowDrag>,
+    #[cfg(test)]
+    pub(crate) window_moves_begun: usize,
+    #[cfg(test)]
+    pub(crate) window_move_cancels: usize,
     #[cfg(target_os = "macos")]
     pub(crate) sidebar_vibrancy: Option<muxy_ui::vibrancy::SidebarVibrancy>,
     pub(crate) overlay_subscription: Option<Subscription>,
@@ -185,23 +230,19 @@ pub(crate) struct AppModel {
     notice_task: Option<Task<()>>,
     language_task: Option<Task<()>>,
     path: PathBuf,
-    bounds_save: Option<Task<()>>,
+    deferred_save: Option<Task<()>>,
     webview_shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
     pub(crate) spinners: crate::views::tab_activity::Spinners,
     /// Panes waiting for an attachment or saved output, with the server asked.
     pending: HashMap<PaneId, ServerId>,
     detached_pending: HashSet<PaneId>,
-    pending_close: Option<TabId>,
+    pending_close: Option<CloseCheckId>,
     close_request: Option<CloseRequest>,
-    pub(crate) close_prompt: Option<Task<()>>,
-    retained: HashSet<PaneId>,
-    loaded: HashSet<PaneId>,
-    snapshots: HashMap<PaneId, RunGrid>,
-    scrolls: HashMap<PaneId, Scroll>,
+    pub(crate) dialogs: dialogs::Dialogs,
     pub(crate) window_active: bool,
+    window_accessibility: window_accessibility::WindowAccessibility,
     notifications: muxy_ui::notifications::Notifications,
     pub(crate) capabilities: muxy_core::capability::Capabilities,
-    pub(crate) completions: HashSet<PaneId>,
     /// Servers still finishing their work before the app quits.
     flushing: HashSet<ServerId>,
     quitting: Quitting,
@@ -210,7 +251,7 @@ pub(crate) struct AppModel {
     _appearance: Subscription,
     _bounds: Subscription,
     _activation: Subscription,
-    _panes: Subscription,
+    _changes: Subscription,
     _quit: Subscription,
 }
 
@@ -218,9 +259,24 @@ impl AppModel {
     pub(crate) fn terminal(&self, id: &PaneId) -> Option<&PaneView> {
         self.grids.get(id)
     }
+
+    /// Where a dialog opens: on `window`, in the app's theme.
+    pub(crate) fn dialog_parent(&self, window: gpui::AnyWindowHandle) -> muxy_ui::dialog::Parent {
+        muxy_ui::dialog::Parent::new(
+            window,
+            muxy_ui::controls::Style {
+                theme: &self.theme,
+                metrics: &self.metrics,
+            },
+        )
+    }
+
     pub(crate) fn refresh_theme(&mut self, cx: &mut Context<Self>) {
+        self.refresh_metrics();
         let previous_colors = self.palette.terminal_colors();
-        let (theme, palette) = self.themes.resolve(&self.appearance, self.dark);
+        let (theme, palette) = self
+            .themes
+            .resolve(self.appearance.theme(self.dark), self.dark);
         self.theme = theme;
         self.palette = palette.with_options(&self.terminal.options);
         if previous_colors != self.palette.terminal_colors() {
@@ -230,27 +286,59 @@ impl AppModel {
                 }
             }
         }
-        for pane in self.grids.values() {
+        for (id, pane) in &self.grids {
+            if self.is_quick_terminal(*id) {
+                continue;
+            }
             pane.view.update(cx, |pane, cx| {
                 pane.palette = self.palette;
-                pane.update_find_theme(&self.theme, cx);
+                pane.update_find_appearance(&self.theme, self.metrics, cx);
                 cx.notify();
             });
         }
         self.refresh_quick_terminal(cx);
+        if let Some(input) = self.agent_sessions.input.as_ref() {
+            input.update(cx, |input, cx| {
+                input.set_style(
+                    muxy_ui::text_input::InputStyle::compact(&self.theme, &self.metrics),
+                    cx,
+                );
+            });
+        }
+        if let Some(input) = self.servers_page.search_input() {
+            input.update(cx, |input, cx| {
+                input.set_style(
+                    muxy_ui::text_input::InputStyle::compact(
+                        &self.theme,
+                        &self.servers_page.metrics,
+                    ),
+                    cx,
+                );
+            });
+        }
+        if let Some(input) = self.servers_page.port_input() {
+            input.update(cx, |input, cx| {
+                input.set_style(
+                    muxy_ui::text_input::InputStyle::field(&self.theme, &self.servers_page.metrics),
+                    cx,
+                );
+            });
+        }
         if let Some(view) = &self.composer.view {
             view.update(cx, |view, cx| {
                 view.appearance(self.theme.clone(), self.metrics, cx);
             });
         }
-        if let Some(view) = &self.voice.view {
-            view.update(cx, |view, cx| {
-                view.appearance(self.theme.clone(), self.metrics, cx);
-            });
-        }
         self.sync_preferences(cx);
-        if let Some(Overlay::Commands { palette, dark }) = &self.overlay {
-            let active = self.themes.active_name(&self.appearance, *dark);
+        if let Some(Overlay::ExtensionAgent(open)) = &self.overlay {
+            let (theme, metrics) = (self.theme.clone(), self.metrics);
+            open.picker
+                .update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
+        }
+        if let Some(Overlay::Commands(crate::views::command_palette::Palette { palette, dark })) =
+            &self.overlay
+        {
+            let active = self.themes.active_name(self.appearance.theme(*dark), *dark);
             palette.update(cx, |palette, cx| {
                 palette.set_appearance(self.theme.clone(), self.metrics, cx);
                 if palette.is_page(crate::views::theme_picker::PAGE_ID) {
@@ -259,6 +347,25 @@ impl AppModel {
             });
         }
         cx.notify();
+    }
+
+    pub(crate) fn sync_traffic_lights(&mut self, window: &Window) {
+        let position =
+            crate::views::titlebar::traffic_light_position(self.metrics, window.scale_factor());
+        if self.traffic_lights != Some(position) {
+            window.set_traffic_light_position(position);
+            self.traffic_lights = Some(position);
+        }
+    }
+
+    fn refresh_metrics(&mut self) {
+        let metrics = Metrics::new(self.appearance.interface_size.multiplier());
+        if metrics == self.metrics {
+            return;
+        }
+        self.metrics = metrics;
+        self.agent_sessions.list.remeasure();
+        self.servers_page.set_metrics(metrics);
     }
 
     pub(crate) fn reload_configuration(&mut self, cx: &mut Context<Self>) {
@@ -273,34 +380,41 @@ impl AppModel {
             Ok(terminal)
         });
         match result {
-            Ok(terminal) => {
-                let themes = crate::theme::Catalog::load(&self.path.with_file_name("themes"));
-                self.terminal = terminal;
-                self.themes = themes;
-                self.set_configuration_error(None);
-                for pane in self.grids.values() {
-                    let old = pane.view.read(cx);
-                    let zoom = (old.terminal.font_size.to_bits()
-                        != old.configured_font_size.to_bits())
-                    .then_some(old.terminal.font_size);
-                    pane.view.update(cx, |pane, cx| {
-                        pane.terminal = self.terminal.clone();
-                        pane.configured_font_size = self.terminal.font_size;
-                        if let Some(size) = zoom {
-                            pane.terminal.font_size = size;
-                        }
-                        cx.notify();
-                    });
-                }
-                self.refresh_theme(cx);
-            }
-            Err(error) => {
-                self.set_configuration_error(Some(
-                    tr!("Could not reload configuration: %@", error.to_string()).to_string(),
-                ));
-                cx.notify();
-            }
+            Ok(terminal) => self.adopt_terminal(terminal, cx),
+            Err(error) => self.configuration_failed(&error.to_string(), cx),
         }
+    }
+
+    pub(crate) fn configuration_failed(&mut self, error: &str, cx: &mut Context<Self>) {
+        self.set_configuration_error(Some(
+            tr!("Could not reload configuration: %@", error).to_string(),
+        ));
+        cx.notify();
+    }
+
+    /// Runs the terminals with `terminal`, already saved, and the themes
+    /// folder as it is now.
+    pub(crate) fn adopt_terminal(
+        &mut self,
+        terminal: muxy_app_core::settings::TerminalSettings,
+        cx: &mut Context<Self>,
+    ) {
+        let themes = crate::theme::Catalog::load(&self.path.with_file_name("themes"));
+        self.terminal = terminal;
+        self.themes = themes;
+        self.set_configuration_error(None);
+        for pane in self.grids.values() {
+            let zoom = pane.view.read(cx).zoomed_font_size();
+            pane.view.update(cx, |pane, cx| {
+                pane.terminal = self.terminal.clone();
+                pane.configured_font_size = self.terminal.font_size;
+                if let Some(size) = zoom {
+                    pane.terminal.font_size = size;
+                }
+                cx.notify();
+            });
+        }
+        self.refresh_theme(cx);
     }
 
     pub(crate) fn reload_themes(&mut self, cx: &mut Context<Self>) {
@@ -314,18 +428,6 @@ impl AppModel {
         self.refresh_theme(cx);
     }
 
-    pub(crate) fn save_project_search_root(&mut self, root: PathBuf, cx: &mut Context<Self>) {
-        if let Err(error) = self
-            .settings
-            .set_project_search_root(root, &self.path.with_file_name("settings.toml"))
-        {
-            self.fail(
-                tr!("Could not save search location: %@", error.to_string()).to_string(),
-                cx,
-            );
-        }
-    }
-
     pub(crate) fn save_appearance(&mut self, cx: &mut Context<Self>) {
         match self.appearance.save_changes(
             &self.settings.appearance,
@@ -333,10 +435,13 @@ impl AppModel {
         ) {
             Ok(saved) => {
                 let theme_changed = self.appearance.dark_theme != saved.dark_theme
-                    || self.appearance.light_theme != saved.light_theme;
+                    || self.appearance.light_theme != saved.light_theme
+                    || self.appearance.interface_size != saved.interface_size;
                 self.appearance = saved;
                 self.settings.appearance = self.appearance.clone();
                 self.sync_agents_panel(cx);
+                self.sync_agent_sessions(cx);
+                self.filter_agent_sessions(cx);
                 if theme_changed {
                     self.refresh_theme(cx);
                 }
@@ -359,8 +464,9 @@ impl AppModel {
         }) && self.state.select_tab(project, tab).is_ok()
         {
             self.navigation.commit(index);
+            self.reveal_server(self.state.current_project().server_id, cx);
             self.changed(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             self.connect_on_demand(self.state.current_project().server_id, cx);
         }
     }
@@ -368,7 +474,8 @@ impl AppModel {
     fn navigation_target_exists(&self, project: ProjectId, tab: TabId) -> bool {
         self.state.project(project).is_some_and(|project| {
             project.status() == ProjectStatus::Available
-                && project.tabs.iter().any(|candidate| candidate.id == tab)
+                && self.project_listed(project)
+                && project.listed_tabs().any(|candidate| candidate.id == tab)
         })
     }
 
@@ -382,6 +489,12 @@ impl AppModel {
 
     fn activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.window_active = window.is_window_active();
+        if self.window_active {
+            let surface = self
+                .focused_float(window, cx)
+                .map_or(tab_windows::Surface::Main, tab_windows::Surface::Tab);
+            self.enter_surface(surface);
+        }
         self.update_shortcut_hints(
             if self.window_active {
                 window.modifiers()
@@ -399,6 +512,7 @@ impl AppModel {
             self.notifications.refresh();
             self.refresh_git(cx);
             self.refresh_project_statuses(cx);
+            self.project_icons.refresh();
             self.reconnect_waiting(cx);
         } else {
             self.cancel_titlebar_drag(cx);
@@ -416,6 +530,8 @@ impl AppModel {
         reason = "Application startup wires independent state and subscriptions"
     )]
     pub(crate) fn new(boot: Boot, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let stopped_in_background = boot.stopped_in_background;
+        let show_onboarding = boot.show_onboarding;
         let events = cx.spawn(async move |this, cx| {
             while let Ok(update) = boot.updates.recv().await {
                 if this
@@ -435,23 +551,26 @@ impl AppModel {
             model.save_bounds(window, cx);
         });
         let activation = cx.observe_window_activation(window, Self::activation_changed);
-        let panes = cx.observe(&cx.entity(), |model: &mut Self, _, cx| {
+        let changes = cx.observe_in(&cx.entity(), window, |model: &mut Self, _, window, cx| {
             model.sync_pane_focus(cx);
             model.update_worktree_switcher(cx);
+            model.schedule_extension_events(window, cx);
+            model.sync_onboarding(cx);
         });
         let quit = cx.on_app_quit(|model: &mut Self, cx| {
             #[cfg(not(test))]
             crate::ai::terminate_all();
-            model.close_voice(cx);
             model.save(cx);
             model.flush_composer(cx)
         });
         let themes = crate::theme::Catalog::load(&boot.state_path.with_file_name("themes"));
-        let (theme, palette) = themes.resolve(&boot.settings.appearance, dark);
+        let (theme, palette) = themes.resolve(boot.settings.appearance.theme(dark), dark);
         let palette = palette.with_options(&boot.terminal.options);
+        let metrics = Metrics::new(boot.settings.appearance.interface_size.multiplier());
         let configuration_error = boot.import_message;
         let theme_error = (!themes.errors.is_empty()).then(|| themes.errors.join("; "));
         cx.on_release(|model: &mut Self, cx| {
+            model.project_icons.release(cx);
             for (_, (_, image)) in model.project_logos.drain() {
                 image.remove_asset(cx);
             }
@@ -461,6 +580,8 @@ impl AppModel {
         let (notifications, opened) = muxy_ui::notifications::Notifications::start();
         #[cfg(test)]
         let (notifications, opened) = muxy_ui::notifications::Notifications::absent();
+        #[cfg(test)]
+        muxy_ui::dialog::simulate(cx);
         Self::follow_notifications(opened, cx);
         muxy_ui::webview::set_data_directory(&boot.state_path.with_file_name("webviews"));
         let mut capabilities = capabilities::backends();
@@ -486,8 +607,8 @@ impl AppModel {
             webviews: webviews::Webviews::default(),
             browsers: browsers::Browsers::default(),
             panels: muxy_ui::panel::PanelHost::default(),
+            floating: floating::Floating::default(),
             composer: composer::ComposerRuntime::new(boot.composer),
-            voice: voice::VoiceRuntime::default(),
             git: git::GitState::default(),
             ai: ai::Runtime::default(),
             servers: servers::Servers::new(
@@ -495,7 +616,9 @@ impl AppModel {
                 boot.work,
                 boot.state_path
                     .with_file_name(format!("askpass-{}.sock", std::process::id())),
+                boot.state_path.with_file_name("paired-servers.toml"),
             ),
+            proxy: proxy::ProxyState::load(boot.state_path.with_file_name("proxy.toml")),
             existing_sessions: crate::views::session_picker::ExistingSessions::default(),
             quick: quick_terminal::QuickTerminalRuntime::new(&boot.settings.quick_terminal, cx),
             window: window.window_handle(),
@@ -511,46 +634,61 @@ impl AppModel {
             appearance: boot.settings.appearance.clone(),
             project_logo_task: None,
             project_logos: HashMap::new(),
+            project_icons: project_icons::ProjectIcons::default(),
             expanded_worktrees: HashSet::new(),
             tab_sidebar_selection: None,
+            projects_without_tabs_shown: boot.settings.appearance.remember_projects_without_tabs
+                && boot.settings.appearance.projects_without_tabs_shown,
             shortcut_hints: crate::views::shortcut_hints::ShortcutHints::default(),
             settings: boot.settings,
             terminal: boot.terminal,
             server_preferences: preferences::ServerPreferences::default(),
-            mobile: mobile::MobileAccess::default(),
+            client_access: client_access::ClientAccess::default(),
             server_probe: None,
             server_probe_generation: 0,
+            pairing: pairing::Pairing::default(),
             server_anchor: Rc::default(),
             remote_anchor: Rc::default(),
+            extensions_anchor: Rc::default(),
+            remote_selection: Vec::new(),
+            remote_selection_anchor: None,
+            servers_page: crate::views::servers_page::ServersPage::new(metrics),
             pending_remote: None,
             pending_folders: Vec::new(),
             remote_links: remote_files::RemoteLinks::default(),
             tips: tips::Tips::default(),
-            settings_window: None,
-            pending_extension_updates: None,
-            font_sizes: HashMap::new(),
+            onboarding: onboarding::Onboarding::default(),
+            settings_tab: None,
+            pane_runtime: HashMap::new(),
             terminal_preview: None,
             terminal_background: preferences::TerminalBackground::default(),
-            initial_directories: HashMap::new(),
             project_layouts: project_layouts::ProjectLayouts::default(),
+            project_apps: project_apps::ProjectApps::default(),
             theme,
             themes,
-            metrics: Metrics::new(1.0),
+            metrics,
+            traffic_lights: None,
             palette,
             dark,
             overlay: None,
             overlay_focus: cx.focus_handle(),
-            focus_requested: false,
-            focus_return: None,
+            focus_owner: focus::FocusOwner::default(),
             split_resize: crate::views::splits::SplitResizeState::default(),
             sidebar_resize: None,
             #[cfg(not(target_os = "macos"))]
             sidebar_available_width: gpui::px(f32::MAX),
+            agent_sessions: agent_sessions::AgentSessions::new(cx),
             agents_panel: agents_panel::AgentsPanel::new(cx),
             tab_drag: crate::views::tab_strip::TabDragState::default(),
+            tab_windows: tab_windows::TabWindows::default(),
+            move_drag: crate::views::move_drag::MoveDragState::default(),
             layout_drag: crate::views::splits::drag::LayoutDragState::default(),
             #[cfg(target_os = "macos")]
-            window_drag: muxy_ui::window_drag::WindowDrag::new(&window.window_title()),
+            window_drag: muxy_ui::window_drag::WindowDrag::new(window),
+            #[cfg(test)]
+            window_moves_begun: 0,
+            #[cfg(test)]
+            window_move_cancels: 0,
             #[cfg(target_os = "macos")]
             sidebar_vibrancy: None,
             overlay_subscription: None,
@@ -564,22 +702,18 @@ impl AppModel {
             notice_task: None,
             language_task: None,
             path: boot.state_path,
-            bounds_save: None,
+            deferred_save: None,
             webview_shortcuts: None,
             spinners: crate::views::tab_activity::Spinners::default(),
             pending: HashMap::new(),
             detached_pending: HashSet::new(),
             pending_close: None,
             close_request: None,
-            close_prompt: None,
-            retained: HashSet::new(),
-            loaded: HashSet::new(),
-            snapshots: HashMap::new(),
-            scrolls: HashMap::new(),
+            dialogs: dialogs::Dialogs::default(),
             window_active: window.is_window_active(),
+            window_accessibility: window_accessibility::WindowAccessibility::default(),
             capabilities,
             notifications,
-            completions: HashSet::new(),
             flushing: HashSet::new(),
             quitting: Quitting::Idle,
             updates: updates::Updater::default(),
@@ -587,18 +721,25 @@ impl AppModel {
             _appearance: appearance,
             _bounds: bounds,
             _activation: activation,
-            _panes: panes,
+            _changes: changes,
             _quit: quit,
         };
-        if !model.project_shown(model.state.current_project()) {
+        if !model.project_listed(model.state.current_project()) {
             let home = model.state.home().id;
             let _ = model.state.select_project(home);
         }
+        model.reveal_restored_server(cx);
         model.sync_agents_panel(cx);
+        model.ensure_servers_search(cx);
         model.bind_extension_keys(cx);
         model.refresh_installed_extensions(cx);
         #[cfg(not(test))]
+        model.refresh_extension_workspace(cx);
+        model.start_webview_demo(cx);
+        #[cfg(not(test))]
         Self::discover_ai_providers(cx);
+        #[cfg(not(test))]
+        Self::discover_project_apps(cx);
         model.sync_visible(cx);
         model.sync_pane_focus(cx);
         model.save_bounds(window, cx);
@@ -611,11 +752,23 @@ impl AppModel {
         }
         Self::start_diagnostics(cx);
         model.start_update_checks(cx);
-        model.start_servers(cx);
+        model.start_usage_ping(cx);
+        model.start_tips(window, cx);
+        model.sync_ssh_proxy(cx);
+        model.start_servers();
+        if stopped_in_background {
+            model.explain_background_stop(cx);
+        }
+        if show_onboarding {
+            model.open_onboarding(cx);
+        }
         model
     }
 
     pub(crate) fn active_tab(&self) -> Option<TabId> {
+        if let tab_windows::Surface::Tab(id) = self.surface() {
+            return self.window_tab(id);
+        }
         let project = self.state.current_project();
         let selected = self.state.window().selected_tab.get(&project.id).copied()?;
         if project.status() == ProjectStatus::Missing {
@@ -625,16 +778,54 @@ impl AppModel {
     }
 
     pub(crate) fn active_pane(&self) -> Option<PaneId> {
+        if let tab_windows::Surface::Tab(id) = self.surface() {
+            return self
+                .state
+                .tab_window(id)
+                .and_then(|(_, _, window)| window.active_pane());
+        }
         self.active_tab()?;
         self.state.window().active_pane
     }
 
-    /// The tab each of the current project's groups shows.
+    /// The tab each of the current project's groups shows, or the tab of the
+    /// tab window the model works for.
     pub(crate) fn visible_tabs(&self) -> Vec<TabId> {
-        if self.active_tab().is_none() {
+        let Some(active) = self.active_tab() else {
             return Vec::new();
+        };
+        if self.surface() != tab_windows::Surface::Main {
+            return vec![active];
         }
         self.state.visible_tabs(self.state.current_project().id)
+    }
+
+    /// The tabs the main window shows, whichever window the model works for.
+    pub(crate) fn main_visible_tabs(&self) -> Vec<TabId> {
+        let project = self.state.current_project();
+        if project.status() == ProjectStatus::Missing
+            || !self.state.window().selected_tab.contains_key(&project.id)
+        {
+            return Vec::new();
+        }
+        self.state.visible_tabs(project.id)
+    }
+
+    /// The main window's focused pane, whichever window the model works for.
+    pub(crate) fn main_active_pane(&self) -> Option<PaneId> {
+        if self.main_visible_tabs().is_empty() {
+            return None;
+        }
+        self.state.window().active_pane
+    }
+
+    /// Whether `tab` shows in some window: the main window, or its own.
+    pub(crate) fn tab_shown(&self, tab: TabId) -> bool {
+        self.main_visible_tabs().contains(&tab)
+            || self
+                .tab(tab)
+                .and_then(|tab| tab.window.as_ref())
+                .is_some_and(|window| !window.is_floating() || self.float_shown(window.id))
     }
 
     pub(crate) fn visible_panes(&self) -> Vec<PaneId> {
@@ -645,6 +836,28 @@ impl AppModel {
             .collect()
     }
 
+    /// The working directory `source` reports, when new tabs and panes start
+    /// where the focused pane is.
+    fn inherited_directory(&self, source: PaneId, cx: &gpui::App) -> Option<PathBuf> {
+        if self.settings.panes.new_pane_directory
+            != muxy_app_core::settings::NewPaneDirectory::Current
+        {
+            return None;
+        }
+        self.terminal(&source)
+            .and_then(|pane| pane.view.read(cx).directory())
+    }
+
+    /// Where a new tab in `project` starts: the focused pane's working
+    /// directory when that pane belongs to `project` and the setting asks for it.
+    pub(crate) fn new_tab_directory(&self, project: ProjectId, cx: &gpui::App) -> Option<PathBuf> {
+        let source = self.active_pane()?;
+        if self.state.pane_project(source)?.id != project {
+            return None;
+        }
+        self.inherited_directory(source, cx)
+    }
+
     pub(crate) fn split_pane(&mut self, edge: Direction, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle || self.close_request.is_some() {
             return;
@@ -652,15 +865,12 @@ impl AppModel {
         let Some(source) = self.active_pane() else {
             return;
         };
-        let directory = if self.settings.panes.new_pane_directory
-            == muxy_app_core::settings::NewPaneDirectory::Current
-        {
-            self.terminal(&source)
-                .and_then(|pane| pane.view.read(cx).directory())
-                .unwrap_or_else(|| self.state.current_project().directory.clone())
-        } else {
-            self.state.current_project().directory.clone()
-        };
+        let directory = self.inherited_directory(source, cx).unwrap_or_else(|| {
+            self.state.pane_project(source).map_or_else(
+                || self.state.current_project().directory.clone(),
+                |project| project.directory.clone(),
+            )
+        });
         let mut size = self
             .terminal(&source)
             .and_then(|pane| pane.view.read(cx).viewport())
@@ -669,22 +879,26 @@ impl AppModel {
             muxy_app_core::Axis::Horizontal => size.cols = (size.cols / 2).max(1),
             muxy_app_core::Axis::Vertical => size.rows = (size.rows / 2).max(1),
         }
-        let previous = self.state.clone();
-        let pane = match self.state.split_pane(source, edge) {
-            Ok(pane) => pane,
+        let proxy = self.pane_uses_proxy(source).then_some(true);
+        let split = self.transact(
+            |state| {
+                let pane = state.split_pane(source, edge)?;
+                state.plan_creation(pane, Some(&directory), proxy);
+                Ok::<_, muxy_app_core::AppError>(pane)
+            },
+            cx,
+        );
+        let pane = match split {
+            Ok(Some(pane)) => pane,
+            Ok(None) => return,
             Err(error) => {
                 self.fail(error.to_string(), cx);
                 return;
             }
         };
-        if !self.save(cx) {
-            self.state = previous;
-            return;
-        }
-        self.initial_directories.insert(pane, directory);
         self.split_resize.end();
         self.sync_visible(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         let server = self.state.pane_server(pane).unwrap_or_else(ServerId::local);
         match self.connection(server) {
             ConnectionState::Ready => self.start_attach(pane, size, cx),
@@ -695,16 +909,43 @@ impl AppModel {
     }
 
     pub(crate) fn focus_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
+        if let Some(id) = self.state.pane_window(pane) {
+            if self.quitting == Quitting::Idle
+                && self.float_shown(id)
+                && self.key_float() != Some(id)
+            {
+                self.enter_surface(tab_windows::Surface::Tab(id));
+                cx.notify();
+            }
+            if self.quitting == Quitting::Idle
+                && self
+                    .state
+                    .tab_window(id)
+                    .is_some_and(|(_, _, window)| window.active_pane() != Some(pane))
+                && self.state.focus_pane(pane).is_ok()
+            {
+                self.tab_windows.request_focus(id);
+                self.changed(cx);
+            }
+            return;
+        }
         if self.quitting != Quitting::Idle
             || self
+                .state
                 .pane_tab(pane)
-                .is_none_or(|tab| !self.visible_tabs().contains(&tab))
-            || self.active_pane() == Some(pane)
+                .is_none_or(|tab| !self.tab_shown(tab))
         {
             return;
         }
+        if self.key_float().is_some() {
+            self.enter_surface(tab_windows::Surface::Main);
+            cx.notify();
+        }
+        if self.main_active_pane() == Some(pane) {
+            return;
+        }
         if self.state.focus_pane(pane).is_ok() {
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             self.changed(cx);
         }
     }
@@ -736,7 +977,7 @@ impl AppModel {
             && self.state.toggle_zoom(pane).is_ok()
         {
             self.split_resize.end();
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             self.changed(cx);
         }
     }
@@ -747,7 +988,7 @@ impl AppModel {
         }
     }
 
-    fn tab_project(&self, tab: TabId) -> Option<&muxy_app_core::Project> {
+    pub(crate) fn tab_project(&self, tab: TabId) -> Option<&muxy_app_core::Project> {
         self.state
             .projects()
             .iter()
@@ -767,9 +1008,10 @@ impl AppModel {
             return;
         }
         if self.state.select_project(project).is_ok() {
+            self.reveal_server(self.state.current_project().server_id, cx);
             self.dismiss_overlay(cx);
             self.changed(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             self.connect_on_demand(self.state.current_project().server_id, cx);
         }
     }
@@ -809,7 +1051,7 @@ impl AppModel {
         directory: PathBuf,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
-        self.add_project_on(ServerId::local(), directory, cx)
+        self.add_project_on(ServerId::local(), directory, false, cx)
     }
 
     /// Adds `directory` on `server` as a project; another computer's must be
@@ -818,12 +1060,44 @@ impl AppModel {
         &mut self,
         server: ServerId,
         directory: PathBuf,
+        initial_terminal: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<ProjectId> {
+        self.create_project(
+            server,
+            initial_terminal,
+            |state| state.add_project(server, directory),
+            cx,
+        )
+    }
+
+    pub(crate) fn restore_removed_project(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(removed) = self.state.removed_projects().get(index) {
+            let server = removed.server_id;
+            self.create_project(
+                server,
+                true,
+                |state| state.restore_removed_project(index),
+                cx,
+            );
+        }
+    }
+
+    fn create_project(
+        &mut self,
+        server: ServerId,
+        initial_terminal: bool,
+        create: impl FnOnce(&mut AppState) -> Result<ProjectId, muxy_app_core::AppError>,
         cx: &mut Context<Self>,
     ) -> Option<ProjectId> {
         let mut added = None;
         if !self.edit_project(
             |state| {
-                added = Some(state.add_project(server, directory)?);
+                let project = create(state)?;
+                if initial_terminal {
+                    state.open_terminal_tab(project)?;
+                }
+                added = Some(project);
                 Ok(())
             },
             cx,
@@ -831,7 +1105,11 @@ impl AppModel {
             return None;
         }
         let project = added?;
+        self.reveal_server(server, cx);
         self.hide_new_project_worktrees(project, cx);
+        if initial_terminal && self.connection(server) == ConnectionState::Disconnected {
+            self.connect_server(server, cx);
+        }
         Some(project)
     }
 
@@ -843,25 +1121,55 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return false;
         }
-        let previous = self.state.clone();
-        if let Err(error) = edit(&mut self.state) {
-            self.state = previous;
-            self.fail(error.to_string(), cx);
-            return false;
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return false;
+        let waiting = self.waiting_project_edits();
+        match self.transact(edit, cx) {
+            Ok(Some(())) => {}
+            Ok(None) => return false,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return false;
+            }
         }
         if let Some(tab) = self.active_tab() {
             self.navigation
                 .record((self.state.current_project().id, tab));
         }
         self.replay_projects(cx);
+        self.connect_for_project_edits(&waiting, cx);
         self.sync_visible(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         cx.notify();
         true
+    }
+
+    /// How many project edits each server has waiting.
+    fn waiting_project_edits(&self) -> Vec<(ServerId, usize)> {
+        self.servers
+            .ids()
+            .into_iter()
+            .map(|server| (server, self.state.project_intents(server).len()))
+            .collect()
+    }
+
+    /// Another computer's server that the edit just made waits for connects,
+    /// so the edit doesn't wait for the user to open one of its projects.
+    /// Servers with only older edits waiting stay as they are.
+    fn connect_for_project_edits(&mut self, before: &[(ServerId, usize)], cx: &mut Context<Self>) {
+        let waiting: Vec<_> = self
+            .servers
+            .ids()
+            .into_iter()
+            .filter(|server| {
+                let earlier = before
+                    .iter()
+                    .find_map(|(listed, count)| (listed == server).then_some(*count))
+                    .unwrap_or(0);
+                !server.is_local() && self.state.project_intents(*server).len() > earlier
+            })
+            .collect();
+        for server in waiting {
+            self.connect_on_demand(server, cx);
+        }
     }
 
     /// Adds the projects, tabs, and workspaces Muxy 1.x had to the running
@@ -955,6 +1263,7 @@ impl AppModel {
             cx,
         ) {
             self.discard_pending(server, cx);
+            self.forget_expired_calls(cx);
         }
     }
 
@@ -967,40 +1276,119 @@ impl AppModel {
         cx.notify();
     }
 
+    /// Opens a terminal tab in the current project, or, from a tab window,
+    /// in that tab's project, showing it in the main window.
     pub(crate) fn new_tab(&mut self, cx: &mut Context<Self>) {
-        self.new_tab_in(self.state.current_project().id, cx);
+        let surface = self.surface();
+        let project = match surface {
+            tab_windows::Surface::Tab(id) => self.state.tab_window(id).map_or_else(
+                || self.state.current_project().id,
+                |(project, ..)| project.id,
+            ),
+            tab_windows::Surface::Main => self.state.current_project().id,
+        };
+        let directory = self.new_tab_directory(project, cx);
+        if surface != tab_windows::Surface::Main {
+            self.raise_main_window(cx);
+        }
+        self.open_new_tab(project, directory.as_deref(), cx);
     }
 
     /// Opens a terminal tab in `project` and shows it, switching the sidebar's
     /// workspace when it doesn't list the project.
     pub(crate) fn new_tab_in(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let directory = self.new_tab_directory(project, cx);
+        self.open_new_tab(project, directory.as_deref(), cx);
+    }
+
+    fn open_new_tab(
+        &mut self,
+        project: ProjectId,
+        directory: Option<&std::path::Path>,
+        cx: &mut Context<Self>,
+    ) {
         if self.quitting != Quitting::Idle {
             return;
         }
         match self.state.open_terminal_tab(project) {
             Ok(_) => {
+                if let Some(pane) = self.state.window().active_pane {
+                    self.state.plan_creation(pane, directory, None);
+                }
                 self.changed(cx);
-                self.focus_requested = true;
+                self.focus_owner.request_active_pane();
             }
             Err(error) => self.fail(error.to_string(), cx),
         }
         let server = self.state.current_project().server_id;
+        self.reveal_server(server, cx);
         if self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
         }
     }
 
+    pub(crate) fn new_home_tab_at(
+        &mut self,
+        server: ServerId,
+        directory: &std::path::Path,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.edit_tab(
+            |state| {
+                let home = state
+                    .server_home(server)
+                    .ok_or_else(|| {
+                        muxy_app_core::AppError::InvalidState("server has no Home project".into())
+                    })?
+                    .id;
+                state.open_terminal_tab(home)?;
+                let pane = state.window().active_pane.ok_or_else(|| {
+                    muxy_app_core::AppError::InvalidState("terminal has no active pane".into())
+                })?;
+                state.prepare_creation(pane, directory);
+                Ok(())
+            },
+            cx,
+        ) {
+            return false;
+        }
+        self.changed(cx);
+        self.reveal_server(server, cx);
+        self.focus_owner.request_active_pane();
+        if self.connection(server) == ConnectionState::Disconnected {
+            self.connect_server(server, cx);
+        }
+        true
+    }
+
     pub(crate) fn select_tab(&mut self, tab: TabId, cx: &mut Context<Self>) {
+        if let Some(pane) = self
+            .tab(tab)
+            .and_then(|tab| tab.window.as_ref())
+            .and_then(muxy_app_core::TabWindow::active_pane)
+        {
+            self.raise_pane_window(pane, cx);
+            return;
+        }
+        if self.key_float().is_some() {
+            self.enter_surface(tab_windows::Surface::Main);
+            self.focus_owner.request_active_pane();
+            cx.notify();
+        }
         if self.active_tab() == Some(tab) {
             return;
         }
         let Some(project) = self.tab_project(tab).map(|project| project.id) else {
             return;
         };
+        let elsewhere = self.state.current_project().id != project;
         match self.state.select_tab(project, tab) {
             Ok(()) => {
+                if elsewhere {
+                    self.reveal_server(self.state.current_project().server_id, cx);
+                }
                 self.changed(cx);
-                self.focus_requested = true;
+                self.focus_owner.request_active_pane();
                 self.connect_on_demand(self.state.current_project().server_id, cx);
             }
             Err(error) => self.fail(error.to_string(), cx),
@@ -1008,6 +1396,9 @@ impl AppModel {
     }
 
     pub(crate) fn cycle_tab(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if self.surface() != tab_windows::Surface::Main {
+            return;
+        }
         let tabs = self.navigation_tabs();
         if tabs.is_empty() {
             return;
@@ -1053,37 +1444,39 @@ impl AppModel {
     }
 
     pub(crate) fn close_tab(&mut self, tab: TabId, cx: &mut Context<Self>) {
-        self.begin_close_tabs(vec![tab], None, cx);
+        self.begin_close_tabs(vec![tab], None, None, cx);
     }
 
     pub(crate) fn close_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
-        if let Some(tab) = self.pane_tab(pane) {
-            self.begin_close_tabs(vec![tab], Some(pane), cx);
+        if let Some(tab) = self.state.pane_tab(pane) {
+            self.begin_close_tabs(vec![tab], Some(pane), None, cx);
         }
+    }
+
+    pub(crate) fn quitting(&self) -> bool {
+        self.quitting != Quitting::Idle
     }
 
     pub(crate) fn can_detach_terminal(&self, pane: PaneId) -> bool {
         self.quitting == Quitting::Idle
             && self.close_request.is_none()
             && self.pending_close.is_none()
-            && self.close_prompt.is_none()
-            && self.pane_tab(pane).is_some()
-            && self.pane_session(pane).is_some()
+            && !self.dialogs.is_open()
+            && self.state.pane_tab(pane).is_some()
+            && self.state.pane_session(pane).is_some()
     }
 
     pub(crate) fn detach_terminal(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         if !self.can_detach_terminal(pane) {
             return;
         }
-        let previous = self.state.clone();
-        if let Err(error) = self.state.detach_pane(pane) {
-            self.state = previous;
-            self.fail(error.to_string(), cx);
-            return;
-        }
-        if !self.save(cx) {
-            self.state = previous;
-            return;
+        match self.transact(|state| state.detach_pane(pane), cx) {
+            Ok(Some(())) => {}
+            Ok(None) => return,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return;
+            }
         }
         if self.pending.contains_key(&pane) {
             self.detached_pending.insert(pane);
@@ -1094,16 +1487,21 @@ impl AppModel {
         }
         self.split_resize.end();
         self.dismiss_overlay(cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         self.sync_visible(cx);
         cx.notify();
     }
 
-    fn begin_close_tabs(&mut self, tabs: Vec<TabId>, pane: Option<PaneId>, cx: &mut Context<Self>) {
+    fn begin_close_tabs(
+        &mut self,
+        tabs: Vec<TabId>,
+        pane: Option<PaneId>,
+        restart: Option<bool>,
+        cx: &mut Context<Self>,
+    ) {
         if self.quitting != Quitting::Idle
             || self.close_request.is_some()
             || self.pending_close.is_some()
-            || self.close_prompt.is_some()
         {
             return;
         }
@@ -1122,9 +1520,12 @@ impl AppModel {
             .filter(|target| tabs.contains(&target.id))
             .collect();
         if targets.len() != tabs.len()
-            || targets
-                .iter()
-                .any(|target| target.pinned && (pane.is_none() || target.panes.len() == 1))
+            || restart.is_none()
+                && targets.iter().any(|target| {
+                    target.pinned
+                        && !target.detached()
+                        && (pane.is_none() || target.panes.len() == 1)
+                })
         {
             return;
         }
@@ -1137,13 +1538,21 @@ impl AppModel {
             },
             |pane| vec![pane],
         );
+        let ending = self.state.sessions_ended_by_closing(&panes);
         self.close_request = Some(CloseRequest {
             tab,
             tabs,
             panes,
+            ending,
             checking: 0,
             whole_tab: pane.is_none(),
-            behavior: self.settings.window.close_behavior,
+            behavior: if restart.is_some() {
+                muxy_app_core::settings::CloseBehavior::CloseSession
+            } else {
+                self.settings.window.close_behavior
+            },
+            restart,
+            dialog: None,
         });
         self.check_webview_closes(cx);
     }
@@ -1152,71 +1561,33 @@ impl AppModel {
         while let Some(request) = &self.close_request {
             if request.behavior == muxy_app_core::settings::CloseBehavior::Detach
                 || !self.settings.window.confirm_running_process
-                || request.checking == request.panes.len()
+                || request.checking == request.ending.len()
             {
                 self.close_confirmed(cx);
                 return;
             }
             let tab = request.tab;
-            let pane = request.panes[request.checking];
-            let server = self.state.pane_server(pane).unwrap_or_else(ServerId::local);
-            if let Some(session) = self.pane_session(pane)
-                && self.session_used_outside(server, session, &request.panes)
-            {
-                if let Some(request) = &mut self.close_request {
-                    request.checking += 1;
+            let (pane, server, session) = request.ending[request.checking];
+            match self.check_close(server, pane, session, cx) {
+                CloseCheck::Asked(check) => {
+                    self.pending_close = Some(check);
+                    return;
                 }
-                continue;
-            }
-            if self.ready(server)
-                && !self.retained.contains(&pane)
-                && let Some(session) = self.pane_session(pane)
-            {
-                let size = self
-                    .terminal(&pane)
-                    .and_then(|pane| pane.view.read(cx).viewport())
-                    .unwrap_or(Size { cols: 80, rows: 24 });
-                self.pending_close = Some(tab);
-                if !self.send(server, Work::CheckClose { tab, session, size }, cx) {
+                CloseCheck::Unsent => {
                     self.close_request = None;
-                    self.pending_close = None;
+                    return;
                 }
-                return;
-            }
-            if let Some(view) = self.terminal(&pane).map(|pane| pane.view.read(cx))
-                && view.channel().is_some()
-                && view.state == PaneState::Live
-                && view
-                    .process
-                    .as_ref()
-                    .is_some_and(|process| !process.is_shell)
-            {
-                self.confirm_close(tab, cx);
-                return;
-            }
-            if let Some(request) = &mut self.close_request {
-                request.checking += 1;
+                CloseCheck::Running => {
+                    self.ask_close(tab, cx);
+                    return;
+                }
+                CloseCheck::Safe => {
+                    if let Some(request) = &mut self.close_request {
+                        request.checking += 1;
+                    }
+                }
             }
         }
-    }
-
-    fn session_used_outside(
-        &self,
-        server: ServerId,
-        session: SessionId,
-        closing: &[PaneId],
-    ) -> bool {
-        self.state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
-            .any(|pane| {
-                !closing.contains(&pane.id)
-                    && self.pane_session(pane.id) == Some(session)
-                    && self.state.pane_server(pane.id) == Some(server)
-            })
     }
 
     pub(crate) fn closing_one_pane(&self) -> bool {
@@ -1225,36 +1596,40 @@ impl AppModel {
             .is_some_and(|request| !request.whole_tab)
     }
 
+    pub(crate) fn restarting_terminal(&self) -> bool {
+        self.close_request
+            .as_ref()
+            .is_some_and(|request| request.restart.is_some())
+    }
+
     pub(crate) fn closing_multiple_tabs(&self) -> bool {
         self.close_request
             .as_ref()
             .is_some_and(|request| request.tabs.len() > 1)
     }
 
-    pub(crate) fn finish_confirmation(&mut self, cx: &mut Context<Self>) {
-        self.close_prompt = None;
-        let model = cx.weak_entity();
-        cx.defer(move |cx| {
-            let _ = model.update(cx, Self::resume_worktree_removal_confirmation);
-        });
-        cx.notify();
+    fn ask_close(&mut self, tab: TabId, cx: &mut Context<Self>) {
+        let dialog = self.confirm_close(tab, cx);
+        if let Some(request) = &mut self.close_request {
+            request.dialog = Some(dialog);
+        }
     }
 
-    pub(crate) fn finish_close_prompt(
+    pub(crate) fn finish_close_confirmation(
         &mut self,
         tab: TabId,
         response: Result<muxy_ui::dialog::ConfirmationResponse, String>,
         cx: &mut Context<Self>,
     ) {
-        self.finish_confirmation(cx);
-        self.focus_requested = true;
-        if self
+        self.focus_owner.request_active_pane();
+        let Some(request) = self
             .close_request
-            .as_ref()
-            .is_none_or(|request| request.tab != tab)
-        {
+            .as_mut()
+            .filter(|request| request.tab == tab)
+        else {
             return;
-        }
+        };
+        request.dialog = None;
         match response {
             Ok(muxy_ui::dialog::ConfirmationResponse::Confirmed { dont_ask_again }) => {
                 if dont_ask_again
@@ -1273,7 +1648,7 @@ impl AppModel {
                     );
                 }
                 if let Some(request) = &mut self.close_request {
-                    request.checking = request.panes.len();
+                    request.checking = request.ending.len();
                 }
                 self.check_next_close(cx);
             }
@@ -1303,8 +1678,12 @@ impl AppModel {
         };
         if project.status() == ProjectStatus::Missing
             || request.tabs.iter().any(|id| {
-                self.tab(*id)
-                    .is_none_or(|tab| tab.pinned && (request.whole_tab || tab.panes.len() == 1))
+                self.tab(*id).is_none_or(|tab| {
+                    request.restart.is_none()
+                        && tab.pinned
+                        && !tab.detached()
+                        && (request.whole_tab || tab.panes.len() == 1)
+                })
             })
         {
             return;
@@ -1314,10 +1693,28 @@ impl AppModel {
         let closing: Vec<_> = request
             .panes
             .iter()
-            .filter_map(|pane| self.pane_session(*pane))
+            .filter_map(|pane| self.state.pane_session(*pane).map(|(_, session)| session))
             .collect();
         let detach = request.behavior == muxy_app_core::settings::CloseBehavior::Detach;
-        let result = if detach {
+        let restart = request.restart.map(|proxy| {
+            let pane = request.panes[0];
+            let view = self.terminal(&pane).map(|pane| pane.view.read(cx));
+            let directory = view
+                .and_then(TerminalPane::directory)
+                .unwrap_or_else(|| project.directory.clone());
+            let size = view
+                .and_then(TerminalPane::viewport)
+                .unwrap_or(Size { cols: 80, rows: 24 });
+            (proxy, directory, size)
+        });
+        let mut restarted = None;
+        let result = if let Some((proxy, directory, _)) = &restart {
+            self.state.restart_terminal(request.panes[0]).map(|pane| {
+                self.state
+                    .plan_creation(pane, Some(directory), Some(*proxy));
+                restarted = Some(pane);
+            })
+        } else if detach {
             request
                 .panes
                 .iter()
@@ -1339,6 +1736,18 @@ impl AppModel {
             self.state = previous;
             return;
         }
+        if let (Some(pane), Some((_, _, size))) = (restarted, restart) {
+            self.sync_visible(cx);
+            self.discard_pending(server, cx);
+            match self.connection(server) {
+                ConnectionState::Ready => self.start_attach(pane, size, cx),
+                ConnectionState::Disconnected => self.connect_server(server, cx),
+                ConnectionState::Connecting => {}
+            }
+            self.focus_owner.request_active_pane();
+            cx.notify();
+            return;
+        }
         if detach {
             self.detached_pending.extend(
                 request
@@ -1353,7 +1762,7 @@ impl AppModel {
                 .record((self.state.current_project().id, tab));
         }
         self.split_resize.end();
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         self.sync_visible(cx);
         self.discard_pending(server, cx);
         cx.notify();
@@ -1370,6 +1779,7 @@ impl AppModel {
         if self.quitting != Quitting::Idle || !self.preferences_before_quit(cx) {
             return;
         }
+        self.restore_client_access_before_quit(cx);
         self.quitting = Quitting::Preserve;
         if !self.flush_servers(cx) {
             self.quitting = Quitting::Idle;
@@ -1388,6 +1798,7 @@ impl AppModel {
             );
             return;
         }
+        self.restore_client_access_before_quit(cx);
         let mut sessions = self.state.session_references(local);
         sessions.extend(self.state.pending_discards(local));
         self.quitting = Quitting::EndAll;
@@ -1398,35 +1809,8 @@ impl AppModel {
 
     fn is_terminal(&self, id: PaneId) -> bool {
         self.state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
-            .any(|pane| pane.id == id && matches!(pane.content, PaneContent::Terminal { .. }))
-    }
-
-    pub(crate) fn pane_session(&self, id: PaneId) -> Option<SessionId> {
-        self.state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
-            .find(|pane| pane.id == id)
-            .and_then(|pane| match pane.content {
-                PaneContent::Terminal { session } => session,
-                PaneContent::Settings | PaneContent::Webview(_) | PaneContent::Browser(_) => None,
-            })
-    }
-
-    fn pane_tab(&self, id: PaneId) -> Option<TabId> {
-        self.state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .find(|tab| tab.panes.iter().any(|pane| pane.id == id))
-            .map(|tab| tab.id)
+            .pane(id)
+            .is_some_and(|pane| matches!(pane.content, PaneContent::Terminal { .. }))
     }
 
     fn discard_pending(&mut self, server: ServerId, cx: &mut Context<Self>) {
@@ -1478,9 +1862,11 @@ impl AppModel {
         self.state.reveal_current_project();
         self.sync_extension_events(cx);
         self.split_resize.end();
-        if let Some(tab) = self.active_tab() {
-            self.navigation
-                .record((self.state.current_project().id, tab));
+        let project = self.state.current_project().id;
+        if !self.main_visible_tabs().is_empty()
+            && let Some(tab) = self.state.window().selected_tab.get(&project).copied()
+        {
+            self.navigation.record((project, tab));
         }
         self.save(cx);
         self.sync_visible(cx);
@@ -1492,8 +1878,33 @@ impl AppModel {
         cx.notify();
     }
 
+    /// Applies `edit` to the state and saves it, leaving memory and disk the
+    /// same if either fails. A failed edit returns its error for the caller to
+    /// show. A failed save returns `Ok(None)`, and `save` has reported it.
+    fn transact<T, E>(
+        &mut self,
+        edit: impl FnOnce(&mut AppState) -> Result<T, E>,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<T>, E> {
+        let previous = self.state.clone();
+        let value = match edit(&mut self.state) {
+            Ok(value) => value,
+            Err(error) => {
+                self.state = previous;
+                return Err(error);
+            }
+        };
+        if self.save(cx) {
+            self.sync_session_names(cx);
+            Ok(Some(value))
+        } else {
+            self.state = previous;
+            Ok(None)
+        }
+    }
+
     fn save(&mut self, cx: &mut Context<Self>) -> bool {
-        self.bounds_save = None;
+        self.deferred_save = None;
         match store::save(&self.path, &self.state) {
             Ok(()) => true,
             Err(error) => {
@@ -1517,23 +1928,29 @@ impl AppModel {
         if self.state.window().bounds != Some(bounds)
             && self.state.set_window_bounds(Some(bounds)).is_ok()
         {
-            self.bounds_save = Some(cx.spawn(async move |model, cx| {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_millis(200))
-                    .await;
-                let _ = model.update(cx, AppModel::save);
-            }));
+            self.save_soon(cx);
         }
+    }
+
+    /// Saves shortly, once changes that come in bursts settle.
+    fn save_soon(&mut self, cx: &mut Context<Self>) {
+        self.deferred_save = Some(cx.spawn(async move |model, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(200))
+                .await;
+            let _ = model.update(cx, AppModel::save);
+        }));
     }
 
     /// Tells each connected server which of its sessions this app shows, so
     /// a server whose last pane closed hears an empty list.
     fn sync_references(&mut self, cx: &mut Context<Self>) {
         for server in self.servers.ids() {
+            let references = self.state.session_references(server);
+            self.note_shown_sessions(server, &references, cx);
             if !self.ready(server) {
                 continue;
             }
-            let references = self.state.session_references(server);
             if self
                 .servers
                 .get(server)
@@ -1544,23 +1961,93 @@ impl AppModel {
                 runtime.references = Some(references);
             }
         }
+        self.sync_session_names(cx);
+    }
+
+    /// Tells each connected server the names renamed tabs give its sessions,
+    /// and clears only the names this app gave, so another app's stay.
+    fn sync_session_names(&mut self, cx: &mut Context<Self>) {
+        for server in self.servers.ids() {
+            if !self.ready(server) || !self.identified(server) {
+                continue;
+            }
+            let wanted = self.state.session_names(server);
+            let given = self.state.given_session_names(server);
+            let Some(runtime) = self.servers.get_mut(server) else {
+                continue;
+            };
+            runtime
+                .names_asked
+                .retain(|session, _| wanted.contains_key(session) || given.contains_key(session));
+            let changes: Vec<_> = wanted
+                .iter()
+                .map(|(session, name)| (*session, Some(name.clone())))
+                .chain(
+                    given
+                        .keys()
+                        .filter(|session| !wanted.contains_key(session))
+                        .map(|session| (*session, None)),
+                )
+                .filter(|(session, name)| runtime.names_asked.get(session) != Some(name))
+                .collect();
+            for (session, name) in changes {
+                let replacing = name
+                    .is_none()
+                    .then(|| given.get(&session).cloned())
+                    .flatten();
+                let work = Work::SessionName {
+                    session,
+                    name: name.clone(),
+                    replacing,
+                };
+                if !self.send(server, work, cx) {
+                    break;
+                }
+                if let Some(runtime) = self.servers.get_mut(server) {
+                    runtime.names_asked.insert(session, name);
+                }
+            }
+        }
+    }
+
+    /// Remembers a name the server took, or one it no longer needs because
+    /// the session is gone; other failures wait for the next connection.
+    fn receive_session_named(
+        &mut self,
+        server: ServerId,
+        session: SessionId,
+        name: Option<String>,
+        result: Result<(), muxy_client::ClientError>,
+        cx: &mut Context<Self>,
+    ) {
+        let name = match result {
+            Ok(()) => name,
+            Err(muxy_client::ClientError::Server(reply))
+                if reply.code == muxy_protocol::ErrorCode::UnknownSession =>
+            {
+                None
+            }
+            Err(_) => return,
+        };
+        if self.state.given_session_names(server).get(&session) != name.as_ref() {
+            self.state.record_session_name(server, session, name);
+            self.save(cx);
+        }
     }
 
     /// The project shown is always one the sidebar lists, never a removed
-    /// server's project or another computer's Home outside Remote Servers, so
-    /// new tabs never open somewhere the user can't see.
+    /// server's, so new tabs never open somewhere the user can't see.
     fn sync_visible(&mut self, cx: &mut Context<Self>) {
-        if self.state.remote_servers_selected() && !self.remote_servers_offered() {
-            let _ = self.state.select_workspace(None);
-        }
         if !self.project_listed(self.state.current_project()) {
             let home = self.state.home().id;
             let _ = self.state.select_project(home);
             self.state.reveal_current_project();
         }
+        self.sync_agent_sessions(cx);
         self.sync_composer(cx);
         self.sync_project_layouts(cx);
-        self.sync_voice(cx);
+        self.sync_servers_page(false, cx);
+        self.sync_settings_tab(cx);
         self.sync_git(cx);
         self.sync_references(cx);
         self.refresh_existing_sessions(cx);
@@ -1573,20 +2060,11 @@ impl AppModel {
             .collect();
         for id in hidden {
             if let Some(pane) = self.grids.remove(&id) {
-                let terminal = pane.view.read(cx);
-                if terminal.terminal.font_size.to_bits() == terminal.configured_font_size.to_bits()
-                {
-                    self.font_sizes.remove(&id);
-                } else {
-                    self.font_sizes.insert(id, terminal.terminal.font_size);
-                }
+                let zoom = pane.view.read(cx).zoomed_font_size();
+                self.set_pane_zoom(id, zoom);
                 pane.view.update(cx, |pane, cx| {
                     pane.set_focused(false, cx);
-                    pane.native_visible = false;
-                    #[cfg(target_os = "macos")]
-                    if let Some(scroll) = &pane.native_scroll {
-                        scroll.set_visible(false);
-                    }
+                    pane.set_native_visible(false, cx);
                 });
                 if let Some((server, channel)) = pane.view.read(cx).attachment()
                     && self.ready(server)
@@ -1594,27 +2072,19 @@ impl AppModel {
                     self.send(server, Work::Detach(channel), cx);
                 }
                 let (grid, scroll) = pane.view.update(cx, |pane, _| {
-                    (pane.grid.take(), std::mem::take(&mut pane.scroll))
+                    (
+                        pane.grid.take().map(Screen::into_grid),
+                        std::mem::take(&mut pane.scroll),
+                    )
                 });
                 if let Some(grid) = grid {
-                    self.snapshots.insert(id, grid);
-                    if scroll.view.is_some() {
-                        self.scrolls.insert(id, scroll);
-                    }
+                    self.keep_hidden_screen(id, grid, scroll);
                 }
-                self.loaded.remove(&id);
+                self.set_pane_loaded(id, false);
             }
         }
-        let panes: HashSet<_> = self
-            .state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .chain(self.state.quick_terminal())
-            .map(|pane| pane.id)
-            .collect();
-        self.completions.retain(|id| panes.contains(id));
+        let panes: HashSet<_> = self.state.panes().map(|placed| placed.pane.id).collect();
+        self.pane_runtime.retain(|id, _| panes.contains(id));
         for server in self.servers.ids() {
             let sessions = self.state.session_references(server);
             if let Some(runtime) = self.servers.get_mut(server) {
@@ -1622,12 +2092,6 @@ impl AppModel {
             }
             self.sync_activity_panes(server, sessions);
         }
-        self.font_sizes.retain(|id, _| panes.contains(id));
-        self.initial_directories.retain(|id, _| panes.contains(id));
-        self.snapshots.retain(|id, _| panes.contains(id));
-        self.scrolls.retain(|id, _| panes.contains(id));
-        self.retained.retain(|id| panes.contains(id));
-        self.loaded.retain(|id| panes.contains(id));
         for id in visible {
             if self.grids.contains_key(&id) {
                 continue;
@@ -1638,25 +2102,31 @@ impl AppModel {
             self.create_terminal_view(id, cx);
         }
         self.ensure_visible(cx);
+        self.sync_floats();
+        self.sync_tab_windows(cx);
     }
 
     fn create_terminal_view(&mut self, id: PaneId, cx: &mut Context<Self>) {
         let mut terminal = self.terminal.clone();
-        if let Some(font_size) = self.font_sizes.get(&id) {
-            terminal.font_size = *font_size;
+        if let Some(font_size) = self.pane_zoom(id) {
+            terminal.font_size = font_size;
         }
         let open_context = self.opener_context(id);
-        let snapshot = self.snapshots.remove(&id);
-        let scroll = self.scrolls.remove(&id).unwrap_or_default();
+        let (snapshot, scroll) = self.take_hidden_screen(id);
         let state = self.pane_state(id);
+        let palette = self
+            .is_quick_terminal(id)
+            .then(|| self.quick_theme())
+            .flatten()
+            .map_or(self.palette, |(_, palette)| palette);
         let view = cx.new(|cx| {
-            let mut pane = TerminalPane::new(self.palette, terminal, cx);
+            let mut pane = TerminalPane::new(palette, terminal, cx);
             pane.native_vibrancy =
                 self.terminal_background.available && !self.is_quick_terminal(id);
             pane.configured_font_size = self.terminal.font_size;
             pane.copy_on_select = self.settings.clipboard.copy_on_select;
             pane.open_context = open_context;
-            pane.grid = snapshot;
+            pane.grid = snapshot.map(Screen::Detached);
             pane.set_state(state, cx);
             if state == PaneState::Live {
                 pane.scroll = scroll;
@@ -1684,13 +2154,20 @@ impl AppModel {
             PaneEvent::SelectionCopied => {
                 model.show_notice(tr!("Copied to clipboard").to_string(), cx);
             }
-            PaneEvent::Bell => cx.notify(),
+            PaneEvent::Bell | PaneEvent::HeaderBackground => cx.notify(),
             PaneEvent::Focused => {
+                model.blur_webviews(cx);
                 if !model.is_quick_terminal(id) {
                     model.focus_pane(id, cx);
                 }
             }
             PaneEvent::History(request) => model.fetch_history(id, *request, cx),
+            PaneEvent::ImageFrames { image, keys } => {
+                model.fetch_image_frames(id, *image, keys.clone(), cx);
+            }
+            PaneEvent::Ack(channel, seq) => {
+                model.send_channel(id, Work::Ack(*channel, *seq), cx);
+            }
             PaneEvent::Search(request) => model.search(id, request.clone(), cx),
             PaneEvent::Viewport(size) => model.viewport(id, *size, cx),
             PaneEvent::Input(channel, bytes) => {
@@ -1700,7 +2177,7 @@ impl AppModel {
                         "pane={id} channel={channel:?} length={} quitting={:?} retained={}",
                         bytes.len(),
                         model.quitting,
-                        model.retained.contains(&id)
+                        model.pane_retained(id)
                     ),
                 );
                 model.send_channel(id, Work::Input(*channel, bytes.clone()), cx);
@@ -1725,15 +2202,15 @@ impl AppModel {
                 _subscription: subscription,
             },
         );
-        if !self.is_quick_terminal(id) && self.pane_tab(id) == self.active_tab() {
-            self.focus_requested = true;
+        if !self.is_quick_terminal(id) && self.state.pane_tab(id) == self.active_tab() {
+            self.focus_owner.request_active_pane();
         }
     }
 
     /// Sends a pane's channel work to the server that attached it.
     fn send_channel(&mut self, pane: PaneId, work: Work, cx: &mut Context<Self>) {
         if self.quitting == Quitting::Idle
-            && !self.retained.contains(&pane)
+            && !self.pane_retained(pane)
             && let Some((server, _)) = self.attachment(pane, cx)
         {
             self.send(server, work, cx);
@@ -1745,7 +2222,7 @@ impl AppModel {
         match self.connection(server) {
             ConnectionState::Connecting => PaneState::Connecting,
             ConnectionState::Disconnected => PaneState::Disconnected,
-            ConnectionState::Ready if self.retained.contains(&id) => PaneState::Exited {
+            ConnectionState::Ready if self.pane_retained(id) => PaneState::Exited {
                 reason: None,
                 unavailable: false,
             },
@@ -1773,20 +2250,38 @@ impl AppModel {
         if server.is_local() {
             self.restore_quick_terminal(sessions, cx);
         }
-        let plan = restore::plan(&self.state, server, sessions);
+        self.state.settle_session_moves(server, sessions);
+        let mut plan = restore::plan(&self.state, server, sessions);
+        if !self.server_supports(server, muxy_protocol::Feature::SESSION_MOVE) {
+            for (moved, _) in plan.moves.drain(..) {
+                plan.close.extend(
+                    self.state
+                        .session_panes(moved.server, moved.session)
+                        .map(|pane| (pane, moved.session)),
+                );
+            }
+        }
+        for (moved, origin) in std::mem::take(&mut plan.moves) {
+            self.resend_session_move(moved, origin, cx);
+        }
         let active = self.active_pane();
         for (pane, _) in plan.close {
-            if let Err(error) = self.state.close_session_pane(pane) {
+            if let Err(error) = self.state.close_ended_pane(pane) {
                 self.fail(error.to_string(), cx);
                 return;
             }
         }
-        self.focus_requested |= active != self.active_pane();
+        if active != self.active_pane() {
+            self.focus_owner.request_active_pane();
+        }
         self.save(cx);
         self.discard_pending(server, cx);
-        self.loaded
-            .retain(|pane| self.state.pane_server(*pane) != Some(server));
+        self.forget_pane_loads(server);
         self.pending.retain(|_, owner| *owner != server);
+        for (pane, session) in plan.restart {
+            self.pending.insert(pane, server);
+            self.send(server, Work::ReadEndReason { pane, session }, cx);
+        }
         for (id, pane) in &self.grids {
             if self.state.pane_server(*id) != Some(server) {
                 continue;
@@ -1822,9 +2317,9 @@ impl AppModel {
             if self.pending.contains_key(&id) || !self.ready(server) || !self.confirmed(server) {
                 continue;
             }
-            if self.retained.contains(&id) {
-                if !self.loaded.contains(&id)
-                    && let Some(session) = self.pane_session(id)
+            if self.pane_retained(id) {
+                if !self.pane_loaded(id)
+                    && let Some((_, session)) = self.state.pane_session(id)
                 {
                     self.pending.insert(id, server);
                     self.send(server, Work::ReadSaved { pane: id, session }, cx);
@@ -1868,42 +2363,43 @@ impl AppModel {
         if !self.is_terminal(pane) {
             return;
         }
-        let Some(project) = self.state.projects().iter().find(|project| {
-            (self.is_quick_terminal(pane) && project.id == self.state.home().id)
-                || project
-                    .tabs
-                    .iter()
-                    .any(|tab| tab.panes.iter().any(|candidate| candidate.id == pane))
-        }) else {
+        let Some(project) = self.state.pane_project(pane) else {
             return;
         };
         if project.status() == ProjectStatus::Missing {
             return;
         }
-        let directory = self
-            .initial_directories
-            .get(&pane)
-            .unwrap_or(&project.directory)
-            .clone();
+        let directory = project.directory.clone();
         let project_id = project.id;
         let directory = self.state.prepare_creation(pane, &directory);
+        let session = self.state.pane_session(pane).map(|(_, session)| session);
+        let environment = if session.is_none() {
+            self.creation_environment(pane, server)
+        } else {
+            BTreeMap::new()
+        };
+        let colors = (session.is_none() && self.is_quick_terminal(pane))
+            .then(|| self.quick_theme())
+            .flatten()
+            .map(|(_, palette)| palette.terminal_colors());
         if !self.save(cx) {
             return;
         }
-        // A server sends only paths this computer can hold, so an empty one
-        // is never asked for here.
-        let directory = directory.to_path_buf().unwrap_or_default();
+        let directory = PathBuf::from(directory);
         if self.pending.insert(pane, server).is_some() {
             return;
         }
         self.send(
             server,
             Work::Attach {
+                tag: crate::boot::attach_tag(),
                 pane,
                 project: project_id,
-                session: self.pane_session(pane),
+                session,
                 directory,
                 size,
+                environment,
+                colors,
             },
             cx,
         );
@@ -1933,26 +2429,54 @@ impl AppModel {
         }
     }
 
+    fn fetch_image_frames(
+        &mut self,
+        pane: PaneId,
+        image: u32,
+        keys: Vec<u64>,
+        cx: &mut Context<Self>,
+    ) {
+        let attached = self
+            .attachment(pane, cx)
+            .filter(|(server, _)| self.quitting == Quitting::Idle && self.ready(*server));
+        let Some((server, channel)) = attached else {
+            // The pane counts its requests, so one that isn't sent still fails.
+            if let Some(pane) = self.terminal(&pane) {
+                pane.view.update(cx, |pane, cx| {
+                    pane.receive_image_frames(image, &keys, None, cx);
+                });
+            }
+            return;
+        };
+        self.send(
+            server,
+            Work::ImageFrames {
+                pane,
+                channel,
+                image,
+                keys,
+            },
+            cx,
+        );
+    }
+
     fn fetch_history(
         &mut self,
         pane: PaneId,
         request: crate::views::terminal::scroll::HistoryRequest,
         cx: &mut Context<Self>,
     ) {
-        let Some(server) = self.state.pane_server(pane) else {
+        let Some((server, session)) = self.state.pane_session(pane) else {
             return;
         };
         if self.quitting != Quitting::Idle || !self.ready(server) {
             return;
         }
-        let Some(session) = self.pane_session(pane) else {
-            return;
-        };
         let channel = self
             .attachment(pane, cx)
             .filter(|(owner, _)| *owner == server)
             .map(|(_, channel)| channel);
-        if channel.is_none() && !self.retained.contains(&pane) {
+        if channel.is_none() && !self.pane_retained(pane) {
             return;
         }
         self.send(
@@ -1973,22 +2497,19 @@ impl AppModel {
         request: crate::views::terminal::find::SearchRequest,
         cx: &mut Context<Self>,
     ) {
-        let Some(server) = self.state.pane_server(pane) else {
+        let Some((server, session)) = self.state.pane_session(pane) else {
             return;
         };
         if self.quitting != Quitting::Idle || !self.ready(server) {
             return;
         }
-        let Some(session) = self.pane_session(pane) else {
-            return;
-        };
         let channel = self
             .attachment(pane, cx)
             .filter(|(owner, _)| *owner == server)
             .map(|(_, channel)| channel);
         let source = match channel {
             Some(channel) => muxy_protocol::SearchSource::Live(channel),
-            None if self.retained.contains(&pane) => muxy_protocol::SearchSource::Saved(session),
+            None if self.pane_retained(pane) => muxy_protocol::SearchSource::Saved(session),
             None => return,
         };
         self.send(
@@ -2024,11 +2545,19 @@ impl AppModel {
         runtime.activity = activity::ActivityView::default();
         runtime.activity.navigation = navigation;
         runtime.references = None;
+        runtime.names_asked.clear();
         runtime.sessions_revision = 0;
+        runtime.last_channel = 0;
         self.forget_server_sessions(server, cx);
         self.sync_preferences(cx);
         if server.is_local() || (failure.is_some() && self.error == failure) {
             self.set_banner_error(None);
+        }
+        if let Some(message) = self.unreadable_message(server) {
+            self.server_problem(server, message, cx);
+        }
+        if server.is_local() {
+            self.forget_quick_colors();
         }
         if !self.send(server, Work::Colors(self.palette.terminal_colors()), cx) {
             return;
@@ -2043,9 +2572,12 @@ impl AppModel {
         }
         self.discard_pending(server, cx);
         self.refresh_catalog(server, cx);
-        if server.is_local() && self.settings_window.is_some() {
+        if server.is_local() && self.settings_tab.is_some() {
             self.read_server_settings(cx);
-            self.read_remote_access(cx);
+        }
+        if server.is_local() {
+            self.sync_servers_page(true, cx);
+            self.settle_restored_access(cx);
         }
         cx.notify();
     }
@@ -2091,9 +2623,10 @@ impl AppModel {
             Update::ProjectMutated { operation, result } => {
                 self.receive_project_mutation(server, operation, result, cx);
             }
-            Update::ServerInfo(info) => {
+            Update::ServerInfo(info, features) => {
                 if let Some(runtime) = self.servers.get_mut(server) {
                     runtime.info = Some(info.clone());
+                    runtime.features = features;
                 }
                 if local {
                     self.receive_server_info(info, cx);
@@ -2128,6 +2661,7 @@ impl AppModel {
                     self.update_connect_failed();
                 }
                 self.disconnect(server, cx);
+                let error = self.name_unpaired(server, reason).unwrap_or(error);
                 if let Some(runtime) = self.servers.get_mut(server) {
                     runtime.failure = reason;
                     runtime.error = Some(error.clone());
@@ -2166,6 +2700,11 @@ impl AppModel {
                 error,
             } => self.receive_attach_failed(server, pane, session, created, &error, cx),
             Update::Saved { pane, result } => self.receive_saved(pane, result, cx),
+            Update::EndReason {
+                pane,
+                session,
+                result,
+            } => self.receive_end_reason(server, pane, session, &result, cx),
             Update::History {
                 pane,
                 request,
@@ -2175,6 +2714,21 @@ impl AppModel {
                     pane.view
                         .update(cx, |pane, cx| pane.receive_history(request, result, cx));
                 }
+            }
+            Update::ImageFrames {
+                pane,
+                image,
+                keys,
+                result,
+            } => {
+                if let Some(pane) = self.terminal(&pane) {
+                    pane.view.update(cx, |pane, cx| {
+                        pane.receive_image_frames(image, &keys, result.ok(), cx);
+                    });
+                }
+            }
+            Update::ReferencesSynced(Err(muxy_client::ClientError::Disconnected)) => {
+                self.disconnect(server, cx);
             }
             Update::ReferencesSynced(Err(error)) => {
                 self.disconnect(server, cx);
@@ -2187,22 +2741,19 @@ impl AppModel {
             Update::Discarded { session, result } => {
                 self.receive_discarded(server, session, result, cx);
             }
+            Update::SessionNamed {
+                session,
+                name,
+                result,
+            } => self.receive_session_named(server, session, name, result, cx),
+            Update::SessionMoved { session, result } => {
+                self.session_moved(server, session, result, cx);
+            }
             Update::CloseChecked {
-                tab,
+                check,
                 session,
                 result,
-            } => {
-                if local
-                    && self
-                        .quick
-                        .closing
-                        .is_some_and(|(closing, _)| closing == tab)
-                {
-                    self.check_quick_close(result, cx);
-                } else {
-                    self.receive_close_checked(tab, session, result, cx);
-                }
-            }
+            } => self.receive_close_checked(check, session, result, cx),
             Update::EndedAll(result) if local => self.finish_end_all(result, cx),
             Update::Flushed if self.quitting == Quitting::Preserve => {
                 if self.flushed(server, cx) {
@@ -2244,13 +2795,16 @@ impl AppModel {
             "terminal.attached",
             format_args!(
                 "pane={pane} server={server} session={session:?} channel={:?} created={created} visible={} detached_pending={}",
-                attachment.channel,
+                attachment.terminal.channel(),
                 self.terminal(&pane).is_some(),
                 self.detached_pending.contains(&pane)
             ),
         );
         self.pending.remove(&pane);
-        self.initial_directories.remove(&pane);
+        self.state.forget_starting_proxy(pane);
+        if let Some(runtime) = self.servers.get_mut(server) {
+            runtime.last_channel = runtime.last_channel.max(attachment.terminal.channel().0);
+        }
         let detached = self.detached_pending.remove(&pane);
         if detached {
             if let Some(runtime) = self.servers.get_mut(server) {
@@ -2264,9 +2818,13 @@ impl AppModel {
             if created && !detached {
                 self.discard_created(server, session, cx);
             } else {
-                self.send(server, Work::Detach(attachment.channel), cx);
+                self.send(server, Work::Detach(attachment.terminal.channel()), cx);
+                self.dismiss_session(server, session, cx);
             }
             return;
+        }
+        if server.is_local() && self.is_quick_terminal(pane) {
+            self.refresh_quick_terminal(cx);
         }
         let command = self.state.take_startup_command(pane);
         let saved = self.save(cx);
@@ -2275,7 +2833,10 @@ impl AppModel {
             && (!saved
                 || !self.send(
                     server,
-                    Work::Input(attachment.channel, format!("{command}\r").into_bytes()),
+                    Work::Input(
+                        attachment.terminal.channel(),
+                        format!("{command}\r").into_bytes(),
+                    ),
                     cx,
                 ))
         {
@@ -2283,22 +2844,14 @@ impl AppModel {
             self.save(cx);
         }
         if let Some(view) = self.terminal(&pane).map(|pane| pane.view.clone()) {
-            let channel = attachment.channel;
+            let channel = attachment.terminal.channel();
             let size = view.update(cx, |pane, cx| pane.attach(server, attachment, cx));
             if let Some(size) = size {
                 self.send(server, Work::Resize(channel, size), cx);
             }
         } else {
-            self.send(server, Work::Detach(attachment.channel), cx);
-            if self.terminal.options.scroll_on_output
-                && self
-                    .snapshots
-                    .get(&pane)
-                    .is_some_and(|grid| output_changed(grid, &attachment.grid))
-            {
-                self.scrolls.remove(&pane);
-            }
-            self.snapshots.insert(pane, attachment.grid);
+            self.send(server, Work::Detach(attachment.terminal.channel()), cx);
+            self.refresh_hidden_screen(pane, attachment.terminal.grid);
         }
     }
 
@@ -2327,26 +2880,34 @@ impl AppModel {
             self.sync_references(cx);
         }
         if server.is_local() && self.is_quick_terminal(pane) && missing_session(error) {
-            self.close_quick_terminal(cx);
+            self.close_ended_quick_terminal(cx);
             return;
         }
         if let Some(session) = session {
-            self.initial_directories.remove(&pane);
+            self.state.forget_starting_proxy(pane);
             if self.state.pane_server(pane) != Some(server)
                 || self.state.set_pane_session(pane, Some(session)).is_err()
             {
                 if created && !detached {
                     self.discard_created(server, session, cx);
+                } else {
+                    self.dismiss_session(server, session, cx);
                 }
                 return;
             }
             self.save(cx);
         }
-        if self.pane_tab(pane).is_none() && !self.is_quick_terminal(pane) {
+        if self.state.pane_tab(pane).is_none() && !self.is_quick_terminal(pane) {
             return;
         }
-        if missing_session(error) {
-            if let Some(session) = self.pane_session(pane) {
+        if session.is_none()
+            && matches!(error, muxy_client::ClientError::Server(reply) if reply.code == muxy_protocol::ErrorCode::BadPath)
+            && self.state.pane_session(pane).is_none()
+            && self.state.starts_outside_project(pane)
+        {
+            self.renew_ended_pane(server, pane, false, cx);
+        } else if missing_session(error) {
+            if let Some((_, session)) = self.state.pane_session(pane) {
                 self.close_ended_session(server, session, cx);
             }
         } else {
@@ -2354,37 +2915,34 @@ impl AppModel {
         }
     }
 
-    fn receive_close_checked(
+    fn receive_tab_close_checked(
         &mut self,
-        tab: TabId,
         session: SessionId,
-        result: Result<Option<muxy_protocol::ForegroundProcess>, muxy_client::ClientError>,
+        running: Result<bool, String>,
         cx: &mut Context<Self>,
     ) {
-        if self.pending_close != Some(tab) {
-            return;
-        }
         self.pending_close = None;
-        let pane = self
-            .close_request
-            .as_ref()
-            .filter(|request| request.tab == tab)
-            .and_then(|request| request.panes.get(request.checking))
-            .copied();
-        if pane.and_then(|pane| self.pane_session(pane)) != Some(session) {
+        let Some(request) = &self.close_request else {
+            return;
+        };
+        let tab = request.tab;
+        let still_shown =
+            request
+                .ending
+                .get(request.checking)
+                .is_some_and(|&(pane, server, checked)| {
+                    checked == session && self.state.pane_session(pane) == Some((server, session))
+                });
+        if !still_shown {
             self.close_request = None;
             return;
         }
-        match result {
-            Ok(Some(process)) if !process.is_shell => self.confirm_close(tab, cx),
-            Ok(_) => self.advance_close(cx),
-            Err(error) if missing_session(&error) => self.advance_close(cx),
-            Err(error) => {
+        match running {
+            Ok(true) => self.ask_close(tab, cx),
+            Ok(false) => self.advance_close(cx),
+            Err(message) => {
                 self.close_request = None;
-                self.fail(
-                    tr!("Could not check the running process: %@", error.to_string()).to_string(),
-                    cx,
-                );
+                self.fail(message, cx);
             }
         }
     }
@@ -2396,6 +2954,71 @@ impl AppModel {
         self.check_next_close(cx);
     }
 
+    /// Closes a pane whose shell exited or was ended while this app was away,
+    /// and puts a new terminal in a pane whose session ended any other way,
+    /// as when the server stopped, or whose reason couldn't be read. While
+    /// disconnected nothing is decided; the next restore asks again.
+    fn receive_end_reason(
+        &mut self,
+        server: ServerId,
+        pane: PaneId,
+        session: SessionId,
+        result: &Result<Option<ExitReason>, muxy_client::ClientError>,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending.remove(&pane);
+        if self.state.pane_session(pane) != Some((server, session)) {
+            return;
+        }
+        if !self.ready(server) {
+            return;
+        }
+        if let Ok(Some(ExitReason::Exited(_) | ExitReason::Ended)) = result {
+            self.close_ended_session(server, session, cx);
+        } else {
+            self.renew_ended_pane(server, pane, true, cx);
+        }
+    }
+
+    /// Puts a new terminal in `pane`'s place, in the folder it was last in
+    /// when `last_folder` allows and that folder can be used, or else in its
+    /// project's folder.
+    fn renew_ended_pane(
+        &mut self,
+        server: ServerId,
+        pane: PaneId,
+        last_folder: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let size = self
+            .terminal(&pane)
+            .and_then(|pane| pane.view.read(cx).viewport())
+            .unwrap_or(Size { cols: 80, rows: 24 });
+        let active = self.active_pane();
+        let local = server.is_local();
+        let renewed = match self
+            .state
+            .renew_ended_terminal(pane, |folder| last_folder && (!local || folder.is_dir()))
+        {
+            Ok(renewed) => renewed,
+            Err(error) => {
+                self.fail(error.to_string(), cx);
+                return;
+            }
+        };
+        if active != self.active_pane() {
+            self.focus_owner.request_active_pane();
+        }
+        self.changed(cx);
+        if self
+            .state
+            .pane_project(renewed)
+            .is_some_and(|project| project.status() == ProjectStatus::Available)
+        {
+            self.start_attach(renewed, size, cx);
+        }
+    }
+
     fn receive_saved(
         &mut self,
         pane: PaneId,
@@ -2403,10 +3026,10 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         self.pending.remove(&pane);
-        if self.pane_tab(pane).is_none() {
+        if self.state.pane_tab(pane).is_none() {
             return;
         }
-        self.loaded.insert(pane);
+        self.set_pane_loaded(pane, true);
         if let Some(view) = self.terminal(&pane).map(|pane| pane.view.clone()) {
             match result {
                 Ok(screen) => view.update(cx, |pane, cx| pane.restore(screen, cx)),
@@ -2431,7 +3054,7 @@ impl AppModel {
                 }
             }
         } else {
-            self.loaded.remove(&pane);
+            self.set_pane_loaded(pane, false);
         }
     }
 
@@ -2461,29 +3084,15 @@ impl AppModel {
                 .any(|agent| agent.session == session)
         {
             let active = self.active_pane();
-            for pane in self.server_session_panes(server, session) {
-                if Some(pane) != active {
-                    self.completions.insert(pane);
+            let panes: Vec<_> = self.state.session_panes(server, session).collect();
+            for pane in panes {
+                let shown_quick = self.quick.visible && self.is_quick_terminal(pane);
+                if Some(pane) != active && !shown_quick {
+                    self.set_pane_completed(pane, true);
                 }
             }
         }
         cx.notify();
-    }
-
-    /// Panes in projects that show `server`'s `session`.
-    fn server_session_panes(&self, server: ServerId, session: SessionId) -> Vec<PaneId> {
-        self.state
-            .projects()
-            .iter()
-            .filter(|project| project.server_id == server)
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .filter(|pane| {
-                matches!(pane.content,
-                PaneContent::Terminal { session: Some(id) } if id == session)
-            })
-            .map(|pane| pane.id)
-            .collect()
     }
 
     fn receive_session_metadata(
@@ -2498,9 +3107,14 @@ impl AppModel {
             metadata.process.as_ref(),
             &metadata.directory,
         );
-        let panes = self.server_session_panes(server, session);
+        let panes: Vec<_> = self.state.session_panes(server, session).collect();
+        let mut moved = false;
         for pane in panes {
             let _ = self.state.set_pane_title(pane, title.clone());
+            moved |= self.state.remember_directory(pane, &metadata.directory);
+        }
+        if moved {
+            self.save_soon(cx);
         }
         self.sync_extension_events(cx);
         cx.notify();
@@ -2543,24 +3157,36 @@ impl AppModel {
             }
             ClientEvent::RemoteAccessChanged { .. } if local => self.remote_access_changed(cx),
             ClientEvent::Frame { channel, frame } => {
-                if let Some(pane) = self.attached_view(server, channel, cx) {
-                    let seq = frame.seq;
-                    pane.update(cx, |pane, cx| pane.apply(&frame, cx));
+                let seq = match self.attached_view(server, channel, cx) {
+                    Some(pane) => pane.update(cx, |pane, cx| pane.apply(&frame, cx)),
+                    None => self
+                        .servers
+                        .get(server)
+                        .is_some_and(|runtime| channel.0 <= runtime.last_channel)
+                        .then_some(frame.seq),
+                };
+                if let Some(seq) = seq {
                     self.send(server, Work::Ack(channel, seq), cx);
                 }
             }
-            ClientEvent::SessionEnded { session, .. } => {
+            ClientEvent::SessionEnded { session, reason } => {
                 if local {
                     self.updates.sessions = self.updates.sessions.saturating_sub(1);
                 }
-                self.close_ended_session(server, session, cx);
+                if reason == ExitReason::ServerStopped {
+                    self.forget_session_activity(server, session, cx);
+                } else {
+                    self.close_ended_session(server, session, cx);
+                }
                 self.refresh_session_picker(cx);
                 if local {
                     self.reconcile_server_update(cx);
                 }
             }
             ClientEvent::ServerRestarting if local => self.expect_server_restart(),
-            ClientEvent::RemoteAccessChanged { .. } | ClientEvent::ServerRestarting => {}
+            ClientEvent::RemoteAccessChanged { .. }
+            | ClientEvent::ServerRestarting
+            | ClientEvent::Attached { .. } => {}
             ClientEvent::Disconnected if local => self.receive_disconnect(cx),
             ClientEvent::Disconnected => {
                 self.disconnect(server, cx);
@@ -2611,9 +3237,9 @@ impl AppModel {
             && self
                 .state
                 .quick_terminal()
-                .is_some_and(|pane| self.pane_session(pane.id) == Some(session))
+                .is_some_and(|pane| pane.session() == Some(session))
         {
-            self.close_quick_terminal(cx);
+            self.close_ended_quick_terminal(cx);
         }
         let active = self.active_pane();
         if let Err(error) = self.state.close_session_panes(server, session) {
@@ -2624,13 +3250,17 @@ impl AppModel {
             request
                 .panes
                 .iter()
-                .any(|pane| self.pane_tab(*pane).is_none())
-        }) {
-            self.close_request = None;
+                .any(|pane| self.state.pane_tab(*pane).is_none())
+        }) && let Some(request) = self.close_request.take()
+        {
             self.pending_close = None;
-            self.finish_confirmation(cx);
+            if let Some(dialog) = request.dialog {
+                self.dismiss_dialog(dialog, cx);
+            }
         }
-        self.focus_requested |= active != self.active_pane();
+        if active != self.active_pane() {
+            self.focus_owner.request_active_pane();
+        }
         self.changed(cx);
         self.discard_pending(server, cx);
     }
@@ -2663,23 +3293,23 @@ impl AppModel {
             return;
         }
         let local = ServerId::local();
-        let previous = self.state.clone();
-        if let Err(error) = self.state.clear_terminal_panes(local) {
-            self.state = previous;
-            self.fail(
+        let cleared = self.transact(
+            |state| {
+                state.clear_terminal_panes(local)?;
+                for session in state.pending_discards(local).to_vec() {
+                    state.complete_discard(local, session);
+                }
+                Ok::<_, muxy_app_core::AppError>(())
+            },
+            cx,
+        );
+        match cleared {
+            Ok(Some(())) => cx.quit(),
+            Ok(None) => self.sync_visible(cx),
+            Err(error) => self.fail(
                 tr!("Could not clear terminal panes: %@", error.to_string()).to_string(),
                 cx,
-            );
-            return;
-        }
-        for session in self.state.pending_discards(local).to_vec() {
-            self.state.complete_discard(local, session);
-        }
-        if self.save(cx) {
-            cx.quit();
-        } else {
-            self.state = previous;
-            self.sync_visible(cx);
+            ),
         }
     }
 
@@ -2697,59 +3327,79 @@ impl Drop for AppModel {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     mod capabilities;
-    pub(super) mod extensions;
     mod webviews;
     use muxy_protocol::ExitReason;
+    mod active;
     mod activity;
+    mod adoption;
+    mod agent_sessions;
     mod agents_panel;
     mod ai;
+    mod background;
     // Windows has no browser engine yet.
     #[cfg(not(windows))]
     mod browsers;
     mod commands;
     mod composer;
+    mod coverage;
     mod detach;
+    mod dialogs;
+    mod extension_authoring;
     mod find;
+    mod floating;
+    mod floating_tabs;
+    mod focus;
     mod git;
     mod layout_drag;
     mod links;
+    // Remote servers are reached over SSH, which Windows builds don't offer.
+    #[cfg(unix)]
+    mod manage_servers;
+    mod new_tab;
+    mod onboarding;
     mod preferences;
+    mod project_apps;
     mod project_layouts;
+    mod project_order;
     mod projects;
+    mod proxy;
     mod quick_terminal;
     // Remote servers are reached over SSH, which Windows builds don't offer.
     #[cfg(unix)]
-    mod remote_devices;
-    #[cfg(unix)]
     mod remote_parity;
     mod servers;
+    mod session_names;
     mod session_ownership;
-    mod shortcut_hints;
+    mod session_show;
     mod splits;
     mod tab_groups;
     mod tab_menu;
-    mod tui;
+    mod tab_sidebar;
+    mod tab_windows;
+    mod tips;
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     mod updates;
+    mod window_title;
     mod worktrees;
 
-    use muxy_client::Client;
-    use std::io::{self, Write};
-    use std::thread;
-    use std::time::{Duration, Instant};
+    use std::io;
+    use std::time::Duration;
 
     use gpui::{Keystroke, Modifiers, TestAppContext, VisualTestContext, px, size};
 
     use super::*;
 
-    type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
     pub(in crate::model) fn acknowledge_catalog(model: &mut AppModel, cx: &mut Context<AppModel>) {
         if let Some(sessions) = &mut model.servers.local.catalog.restore {
             for session in sessions {
-                if let Some(project) = model.state.projects().iter().find(|project| project.tabs.iter().flat_map(|tab| &tab.panes).any(|pane| matches!(pane.content, PaneContent::Terminal { session: Some(id) } if id == session.id))) {
+                if let Some(project) = model
+                    .state
+                    .panes()
+                    .find(|placed| placed.pane.session() == Some(session.id))
+                    .and_then(|placed| placed.project)
+                {
                     session.project = project.id;
                 }
             }
@@ -2763,7 +3413,7 @@ mod tests {
         {
             model
                 .state
-                .complete_project_intent(ServerId::local(), intent.operation)
+                .complete_project_intent(ServerId::local(), intent.operation, true)
                 .expect("fixture server acknowledged project");
         }
         let page = muxy_protocol::CatalogPage {
@@ -2789,10 +3439,9 @@ mod tests {
     }
 
     fn acknowledge_close(model: &mut AppModel, cx: &mut Context<AppModel>) {
-        while let Some(tab) = model.pending_close {
+        while let Some(check) = model.pending_close {
             let request = model.close_request.as_ref().expect("close request");
-            let pane = request.panes[request.checking];
-            let session = model.pane_session(pane).expect("session");
+            let (pane, _, session) = request.ending[request.checking];
             let process = model
                 .terminal(&pane)
                 .and_then(|pane| pane.view.read(cx).process.clone());
@@ -2801,7 +3450,7 @@ mod tests {
                     ServerId::local(),
                     model.servers.local.generation,
                     Update::CloseChecked {
-                        tab,
+                        check,
                         session,
                         result: Ok(process),
                     },
@@ -2811,7 +3460,7 @@ mod tests {
         }
     }
 
-    pub(super) fn stub_boot(state: AppState) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>) {
+    pub(crate) fn stub_boot(state: AppState) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>) {
         let (boot, requests, _) = remote_boot(state, Vec::new());
         (boot, requests)
     }
@@ -2842,6 +3491,8 @@ mod tests {
         (
             Boot {
                 import_message: None,
+                stopped_in_background: false,
+                show_onboarding: false,
                 composer: muxy_app_core::composer::ComposerStore::load_from(&directory),
                 state,
                 state_path: directory.join("state.json"),
@@ -2921,11 +3572,7 @@ mod tests {
             assert!(
                 !work
                     .iter()
-                    .any(|work| matches!(work, Work::ReadSaved { .. }))
-            );
-            assert!(
-                work.iter()
-                    .any(|work| matches!(work, Work::Discard(id, _) if *id == session))
+                    .any(|work| matches!(work, Work::ReadSaved { .. } | Work::Discard(..)))
             );
             model.receive(
                 (
@@ -3050,8 +3697,20 @@ mod tests {
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
-            model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Connected(vec![SessionInfo {
+                        project: model.state.home().id,
+                        id: session,
+                        directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+                    }]),
+                ),
+                cx,
+            );
             acknowledge_catalog(model, cx);
+            model.settings.window.confirm_running_process = false;
             model.close_tab(tab, cx);
             assert_eq!(model.state.home().tabs.len(), 1);
             assert_eq!(model.active_tab(), Some(other));
@@ -3248,7 +3907,7 @@ mod tests {
         view.update(cx, acknowledge_close);
         cx.run_until_parked();
         view.read_with(cx, |model, _| {
-            assert!(model.close_prompt.is_some());
+            assert!(model.dialogs.is_open());
             assert!(model.overlay.is_none());
             assert_eq!(model.state.home().tabs.len(), 1);
             assert!(model.state.pending_discards(ServerId::local()).is_empty());
@@ -3266,7 +3925,7 @@ mod tests {
         cx.simulate_prompt_answer("Cancel");
         cx.run_until_parked();
         assert!(!cx.has_pending_prompt());
-        assert!(view.read_with(cx, |model, _| model.close_prompt.is_none()));
+        assert!(view.read_with(cx, |model, _| !model.dialogs.is_open()));
         assert!(view.read_with(cx, |model, _| model.settings.window.confirm_running_process));
         assert!(
             !requests
@@ -3333,7 +3992,7 @@ mod tests {
                 assert!(terminal.view.read(cx).channel().is_none());
                 model.close_tab(first, cx);
                 model.close_tab(first, cx);
-                assert_eq!(model.pending_close, Some(first));
+                let check = model.pending_close.expect("close check");
                 assert_eq!(model.state.home().tabs.len(), 2);
                 assert!(model.state.pending_discards(ServerId::local()).is_empty());
                 let work: Vec<_> = requests.try_iter().map(|(_, work)| work).collect();
@@ -3341,7 +4000,7 @@ mod tests {
                 assert_eq!(
                     work.iter()
                         .filter(
-                            |work| matches!(work, Work::CheckClose { tab, .. } if *tab == first)
+                            |work| matches!(work, Work::CheckClose { check: sent, .. } if *sent == check)
                         )
                         .count(),
                     1
@@ -3351,7 +4010,7 @@ mod tests {
                         ServerId::local(),
                         generation,
                         Update::CloseChecked {
-                            tab: first,
+                            check,
                             session,
                             result: Ok(Some(muxy_protocol::ForegroundProcess {
                                 name: "sleep".into(),
@@ -3361,7 +4020,7 @@ mod tests {
                     ),
                     cx,
                 );
-                assert!(model.close_prompt.is_some());
+                assert!(model.dialogs.is_open());
             });
             cx.run_until_parked();
             assert_eq!(
@@ -3377,30 +4036,34 @@ mod tests {
             view.read_with(cx, |model, _| {
                 assert_eq!(model.state.home().tabs.len(), 2);
                 assert!(model.state.pending_discards(ServerId::local()).is_empty());
-                assert!(model.close_prompt.is_none());
+                assert!(!model.dialogs.is_open());
             });
         }
     }
 
     pub(in crate::model) fn attachment() -> muxy_client::Attachment {
+        attachment_on(1)
+    }
+
+    pub(in crate::model) fn attachment_on(channel: u32) -> muxy_client::Attachment {
         let screen = saved_screen();
+        let grid = muxy_client::RunGrid {
+            graphics: muxy_protocol::Graphics::default(),
+            prompts: std::collections::BTreeSet::default(),
+            prompt_state: muxy_client::ScreenPrompts::default(),
+            links: muxy_client::ScreenLinks::default(),
+            size: screen.size,
+            rows: screen.rows.into_iter().map(|row| row.runs).collect(),
+            cursor: screen.cursor,
+            modes: muxy_protocol::Modes::default(),
+            history: std::collections::VecDeque::new(),
+            history_cursor: None,
+            history_total: 0,
+            history_fresh: true,
+        };
         muxy_client::Attachment {
-            channel: muxy_protocol::ChannelId(1),
+            terminal: muxy_client::AttachedTerminal::new(muxy_protocol::ChannelId(channel), grid),
             server_input: false,
-            grid: RunGrid {
-                graphics: muxy_protocol::Graphics::default(),
-                prompts: std::collections::BTreeSet::default(),
-                prompt_state: muxy_client::ScreenPrompts::default(),
-                links: muxy_client::ScreenLinks::default(),
-                size: screen.size,
-                rows: screen.rows.into_iter().map(|row| row.runs).collect(),
-                cursor: screen.cursor,
-                modes: muxy_protocol::Modes::default(),
-                history: std::collections::VecDeque::new(),
-                history_cursor: None,
-                history_total: 0,
-                history_fresh: true,
-            },
             title: String::new(),
             directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
             process: Some(muxy_protocol::ForegroundProcess {
@@ -3411,7 +4074,9 @@ mod tests {
     }
 
     #[gpui::test]
-    fn restore_closes_dead_tabs_and_rejects_stale_connections(cx: &mut TestAppContext) {
+    fn restore_renews_dead_tabs_in_their_folder_and_rejects_stale_connections(
+        cx: &mut TestAppContext,
+    ) {
         let mut state = AppState::bootstrap().expect("state");
         state.open_terminal_tab(state.home().id).expect("tab");
         let pane = state.home().tabs[0].panes[0].id;
@@ -3419,18 +4084,42 @@ mod tests {
         state
             .set_pane_session(pane, Some(session))
             .expect("session");
+        let folder = std::env::temp_dir();
+        assert!(state.remember_directory(pane, &folder.as_path().into()));
         let (boot, requests) = stub_boot(state);
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-        view.update(cx, |model, cx| {
+        let renewed = view.update(cx, |model, cx| {
             model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
-            assert!(model.state.home().tabs.is_empty());
-            assert!(
-                store::load(&model.path)
-                    .expect("saved state")
-                    .home()
-                    .tabs
-                    .is_empty()
+            assert_eq!(
+                model.state.pane_session(pane),
+                Some((ServerId::local(), session))
+            );
+            assert!(requests.try_iter().any(|(_, work)| matches!(
+                work,
+                Work::ReadEndReason { pane: asked, session: ended }
+                    if asked == pane && ended == session
+            )));
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::EndReason {
+                        pane,
+                        session,
+                        result: Ok(Some(ExitReason::ServerStopped)),
+                    },
+                ),
+                cx,
+            );
+            assert_eq!(model.state.home().tabs.len(), 1);
+            let renewed = model.state.home().tabs[0].panes[0].id;
+            assert_ne!(renewed, pane);
+            assert!(model.state.pane_tab(pane).is_none());
+            assert_eq!(model.active_pane(), Some(renewed));
+            assert_eq!(
+                store::load(&model.path).expect("saved state").home().tabs[0].panes[0].id,
+                renewed
             );
             model.receive(
                 (
@@ -3453,14 +4142,197 @@ mod tests {
             model.receive((ServerId::local(), 2, Update::Connected(vec![])), cx);
             acknowledge_catalog(model, cx);
             assert!(model.servers.local.connection == ConnectionState::Ready);
-            assert!(model.state.home().tabs.is_empty());
-            assert!(model.grids.is_empty());
+            assert_eq!(model.state.home().tabs.len(), 1);
+            assert_eq!(model.state.home().tabs[0].panes[0].id, renewed);
+            renewed
         });
+        let attaches: Vec<_> = requests
+            .try_iter()
+            .filter_map(|(_, work)| match work {
+                Work::Attach {
+                    pane,
+                    session,
+                    directory,
+                    ..
+                } => Some((pane, session, directory)),
+                _ => None,
+            })
+            .collect();
+        assert!(!attaches.is_empty());
         assert!(
-            !requests
-                .try_iter()
-                .any(|(_, work)| matches!(work, Work::Attach { .. } | Work::ReadSaved { .. }))
+            attaches
+                .iter()
+                .all(|attach| *attach == (renewed, None, folder.clone()))
         );
+    }
+
+    #[gpui::test]
+    fn a_server_stop_keeps_panes_until_they_start_again_and_an_exit_still_closes(
+        cx: &mut TestAppContext,
+    ) {
+        let mut state = AppState::bootstrap().expect("state");
+        let home = state.home().id;
+        state.open_terminal_tab(home).expect("tab");
+        let left = state.window().active_pane.expect("pane");
+        let right = state.split_pane(left, Direction::Right).expect("split");
+        let stopped = SessionId::new(42).expect("ID");
+        let exited = SessionId::new(43).expect("ID");
+        state
+            .set_pane_session(left, Some(stopped))
+            .expect("session");
+        state
+            .set_pane_session(right, Some(exited))
+            .expect("session");
+        let (boot, _requests) = stub_boot(state);
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Connected(
+                        [stopped, exited]
+                            .map(|id| SessionInfo {
+                                project: home,
+                                id,
+                                directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+                            })
+                            .to_vec(),
+                    ),
+                ),
+                cx,
+            );
+            acknowledge_catalog(model, cx);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Event(ClientEvent::SessionEnded {
+                        session: exited,
+                        reason: ExitReason::Exited(0),
+                    }),
+                ),
+                cx,
+            );
+            assert_eq!(model.state.home().tabs[0].layout.leaves(), vec![left]);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Event(ClientEvent::SessionEnded {
+                        session: stopped,
+                        reason: ExitReason::ServerStopped,
+                    }),
+                ),
+                cx,
+            );
+            assert_eq!(model.state.home().tabs[0].layout.leaves(), vec![left]);
+            assert_eq!(
+                model.state.pane_session(left),
+                Some((ServerId::local(), stopped))
+            );
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Event(ClientEvent::Disconnected),
+                ),
+                cx,
+            );
+            model.connect(cx);
+            model.receive((ServerId::local(), 2, Update::Connected(vec![])), cx);
+            acknowledge_catalog(model, cx);
+            assert_eq!(model.state.home().tabs[0].layout.leaves(), vec![left]);
+            model.receive(
+                (
+                    ServerId::local(),
+                    2,
+                    Update::EndReason {
+                        pane: left,
+                        session: stopped,
+                        result: Ok(Some(ExitReason::ServerStopped)),
+                    },
+                ),
+                cx,
+            );
+            let leaves = model.state.home().tabs[0].layout.leaves();
+            assert_eq!(leaves.len(), 1);
+            assert_ne!(leaves[0], left);
+        });
+    }
+
+    #[gpui::test]
+    fn an_unreadable_end_reason_renews_and_a_missing_folder_falls_back_once(
+        cx: &mut TestAppContext,
+    ) {
+        let mut state = AppState::bootstrap().expect("state");
+        state.open_terminal_tab(state.home().id).expect("tab");
+        let pane = state.home().tabs[0].panes[0].id;
+        let session = SessionId::new(42).expect("ID");
+        state
+            .set_pane_session(pane, Some(session))
+            .expect("session");
+        let folder = std::env::temp_dir().join("muxy-renew-elsewhere");
+        std::fs::create_dir_all(&folder).expect("folder");
+        assert!(state.remember_directory(pane, &folder.as_path().into()));
+        let (boot, _requests) = stub_boot(state);
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model.receive((ServerId::local(), 1, Update::Connected(vec![])), cx);
+            acknowledge_catalog(model, cx);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::EndReason {
+                        pane,
+                        session,
+                        result: Err(muxy_client::ClientError::Timeout),
+                    },
+                ),
+                cx,
+            );
+            let renewed = model.state.home().tabs[0].panes[0].id;
+            assert_ne!(renewed, pane);
+            assert!(model.state.starts_outside_project(renewed));
+            let bad_path = || {
+                muxy_client::ClientError::Server(muxy_protocol::ErrorReply {
+                    code: muxy_protocol::ErrorCode::BadPath,
+                    message: "not a directory".into(),
+                })
+            };
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::AttachFailed {
+                        pane: renewed,
+                        session: None,
+                        created: false,
+                        error: bad_path(),
+                    },
+                ),
+                cx,
+            );
+            let fallback = model.state.home().tabs[0].panes[0].id;
+            assert_ne!(fallback, renewed);
+            assert!(!model.state.starts_outside_project(fallback));
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::AttachFailed {
+                        pane: fallback,
+                        session: None,
+                        created: false,
+                        error: bad_path(),
+                    },
+                ),
+                cx,
+            );
+            assert_eq!(model.state.home().tabs[0].panes[0].id, fallback);
+        });
+        let _ = std::fs::remove_dir(folder);
     }
 
     #[gpui::test]
@@ -3493,8 +4365,11 @@ mod tests {
                 }],
                 cx,
             );
-            assert_eq!(model.pane_session(valid), Some(session));
-            assert!(model.pane_tab(invalid).is_none());
+            assert_eq!(
+                model.state.pane_session(valid),
+                Some((ServerId::local(), session))
+            );
+            assert!(model.state.pane_tab(invalid).is_none());
             assert!(
                 !model
                     .state
@@ -3587,6 +4462,72 @@ mod tests {
     }
 
     #[gpui::test]
+    fn ended_sessions_close_their_panes_and_keep_their_saved_output(cx: &mut TestAppContext) {
+        let mut state = AppState::bootstrap().expect("state");
+        let home = state.home().id;
+        let ended = SessionId::new(42).expect("ID");
+        let gone = SessionId::new(43).expect("ID");
+        for session in [ended, gone] {
+            state.open_terminal_tab(home).expect("tab");
+            let pane = state.window().active_pane.expect("pane");
+            state
+                .set_pane_session(pane, Some(session))
+                .expect("session");
+        }
+        let (boot, requests) = stub_boot(state);
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Connected(vec![SessionInfo {
+                        project: home,
+                        id: ended,
+                        directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+                    }]),
+                ),
+                cx,
+            );
+            acknowledge_catalog(model, cx);
+            assert_eq!(model.state.home().tabs.len(), 2);
+            let away = model.state.home().tabs[1].panes[0].id;
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::EndReason {
+                        pane: away,
+                        session: gone,
+                        result: Ok(Some(ExitReason::Exited(0))),
+                    },
+                ),
+                cx,
+            );
+            assert_eq!(model.state.home().tabs.len(), 1);
+            assert!(model.state.pane_tab(away).is_none());
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Event(ClientEvent::SessionEnded {
+                        session: ended,
+                        reason: ExitReason::Ended,
+                    }),
+                ),
+                cx,
+            );
+            assert!(model.state.home().tabs.is_empty());
+            assert!(model.state.pending_discards(ServerId::local()).is_empty());
+            assert!(
+                !requests
+                    .try_iter()
+                    .any(|(_, work)| matches!(work, Work::Discard(_, _)))
+            );
+        });
+    }
+
+    #[gpui::test]
     fn reconnect_surviving_session_and_failed_end_all_preserve_tabs(cx: &mut TestAppContext) {
         let mut state = AppState::bootstrap().expect("state");
         state.open_terminal_tab(state.home().id).expect("tab");
@@ -3646,7 +4587,7 @@ mod tests {
                 ),
                 cx,
             );
-            assert!(!model.retained.contains(&pane));
+            assert!(!model.pane_retained(pane));
             assert!(
                 model
                     .terminal(&pane)
@@ -3728,88 +4669,6 @@ mod tests {
         });
     }
 
-    fn active_process<'a>(
-        model: &'a AppModel,
-        cx: &'a gpui::App,
-    ) -> Option<&'a muxy_protocol::ForegroundProcess> {
-        model
-            .active_pane()
-            .and_then(|pane| model.terminal(&pane))
-            .and_then(|pane| pane.view.read(cx).process.as_ref())
-    }
-
-    fn active_session(view: &Entity<AppModel>, cx: &VisualTestContext) -> Result<SessionId> {
-        view.read_with(cx, |model, _| {
-            model
-                .active_pane()
-                .and_then(|pane| model.pane_session(pane))
-        })
-        .ok_or_else(|| io::Error::other("no active session").into())
-    }
-
-    fn wait_live(cx: &mut VisualTestContext, view: &Entity<AppModel>) -> Result {
-        wait(cx, view, |model, cx| {
-            model
-                .active_pane()
-                .and_then(|id| model.terminal(&id))
-                .is_some_and(|pane| pane.view.read(cx).channel().is_some())
-        })
-    }
-
-    fn active_grid<'a>(model: &'a AppModel, cx: &'a gpui::App) -> Option<&'a RunGrid> {
-        model
-            .terminal(&model.active_pane()?)?
-            .view
-            .read(cx)
-            .grid
-            .as_ref()
-    }
-
-    fn screen(view: &Entity<AppModel>, cx: &VisualTestContext) -> String {
-        view.read_with(cx, |model, cx| {
-            active_grid(model, cx)
-                .map(|grid| {
-                    (0..grid.rows.len())
-                        .map(|row| grid.row_text(row))
-                        .filter(|row| !row.trim().is_empty())
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_default()
-        })
-    }
-
-    fn wait(
-        cx: &mut VisualTestContext,
-        view: &Entity<AppModel>,
-        condition: impl Fn(&AppModel, &gpui::App) -> bool,
-    ) -> Result {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            cx.run_until_parked();
-            if view.read_with(cx, &condition) {
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                return Err(io::Error::other(format!(
-                    "verification timed out; error={:?}; screen={} ",
-                    view.read_with(cx, |model, _| model.error.clone()),
-                    screen(view, cx)
-                ))
-                .into());
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    fn wait_text(cx: &mut VisualTestContext, view: &Entity<AppModel>, expected: &str) -> Result {
-        wait(cx, view, |model, cx| {
-            active_grid(model, cx).is_some_and(|grid| {
-                (0..grid.rows.len()).any(|row| grid.row_text(row).contains(expected))
-            })
-        })
-    }
-
     fn type_text(cx: &mut VisualTestContext, text: &str) {
         for ch in text.chars() {
             let key = Keystroke {
@@ -3822,16 +4681,6 @@ mod tests {
             });
         }
         cx.run_until_parked();
-    }
-
-    fn shell(cx: &mut VisualTestContext, command: &str) {
-        type_text(cx, command);
-        cx.simulate_keystrokes("enter");
-    }
-
-    fn report(message: &str) -> Result {
-        writeln!(io::stdout(), "{message}")?;
-        Ok(())
     }
 }
 

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use gpui::Context;
 use muxy_app_core::{PaneId, ServerId, TabId};
@@ -17,9 +17,34 @@ pub(crate) struct ActivityView {
     pub(crate) loaded: bool,
     pub(super) navigation: Option<u64>,
     pub(super) pane_sessions: Vec<SessionId>,
+    pub(crate) finished: HashMap<SessionId, u64>,
     acknowledging: HashSet<u64>,
     ended_during_read: HashSet<SessionId>,
     ack_failed: bool,
+}
+
+impl ActivityView {
+    fn remember_finishes(&mut self, snapshot: &ActivitySnapshot) {
+        self.finished.extend(
+            snapshot
+                .events
+                .iter()
+                .filter(|event| event.kind == muxy_protocol::ActivityKind::Completed)
+                .map(|event| (event.session, event.timestamp)),
+        );
+        let resting: HashSet<_> = snapshot
+            .agents
+            .iter()
+            .filter(|agent| {
+                !matches!(
+                    agent.state,
+                    muxy_protocol::AgentState::Working | muxy_protocol::AgentState::Blocked
+                )
+            })
+            .map(|agent| agent.session)
+            .collect();
+        self.finished.retain(|session, _| resting.contains(session));
+    }
 }
 
 /// Each server numbers its own events, so another computer's carry its server.
@@ -60,8 +85,7 @@ impl AppModel {
 
     /// The agent the pane's server reports for the pane's session.
     pub(crate) fn pane_agent(&self, pane: PaneId) -> Option<&AgentActivity> {
-        let server = self.state.pane_server(pane)?;
-        let session = self.pane_session(pane)?;
+        let (server, session) = self.state.pane_session(pane)?;
         self.activity(server)?
             .snapshot
             .agents
@@ -86,20 +110,9 @@ impl AppModel {
         session: SessionId,
     ) -> Option<(&muxy_app_core::Project, TabId, PaneId)> {
         self.state
-            .projects()
-            .iter()
-            .filter(|project| project.server_id == server)
-            .find_map(|project| {
-                project.tabs.iter().find_map(|tab| {
-                    tab.panes
-                        .iter()
-                        .find(|pane| {
-                            matches!(pane.content,
-                                muxy_app_core::PaneContent::Terminal { session: Some(id) } if id == session)
-                        })
-                        .map(|pane| (project, tab.id, pane.id))
-                })
-            })
+            .panes()
+            .filter(|placed| placed.server == server && placed.pane.session() == Some(session))
+            .find_map(|placed| Some((placed.project?, placed.tab?.id, placed.pane.id)))
     }
 
     pub(crate) fn refresh_activity(&mut self, server: ServerId, cx: &mut Context<Self>) {
@@ -172,11 +185,16 @@ impl AppModel {
     }
 
     fn focused_activity_session(&self) -> Option<(ServerId, SessionId)> {
-        if !self.window_active || self.overlay.is_some() || self.close_prompt.is_some() {
+        let active = self.window_active
+            || self
+                .tab_windows
+                .key_window()
+                .is_some_and(|id| !self.is_float(id));
+        if !active || self.overlay.is_some() || self.dialogs.is_open() {
             return None;
         }
         let pane = self.active_pane()?;
-        Some((self.state.pane_server(pane)?, self.pane_session(pane)?))
+        self.state.pane_session(pane)
     }
 
     pub(super) fn receive_activity(
@@ -198,6 +216,7 @@ impl AppModel {
                 snapshot
                     .agents
                     .retain(|agent| !activity.ended_during_read.contains(&agent.session));
+                activity.remember_finishes(&snapshot);
                 snapshot.events.retain(|event| {
                     !event.read && !activity.ended_during_read.contains(&event.session)
                 });
@@ -228,15 +247,12 @@ impl AppModel {
                     .collect();
                 let agent_panes: Vec<_> = self
                     .state
-                    .projects()
-                    .iter()
-                    .filter(|project| project.server_id == server)
-                    .flat_map(|project| &project.tabs)
-                    .flat_map(|tab| &tab.panes)
-                    .filter_map(|pane| self.pane_agent(pane.id).map(|_| pane.id))
+                    .panes()
+                    .filter(|placed| placed.server == server)
+                    .filter_map(|placed| self.pane_agent(placed.pane.id).map(|_| placed.pane.id))
                     .collect();
                 for pane in agent_panes {
-                    self.completions.remove(&pane);
+                    self.set_pane_completed(pane, false);
                 }
                 let Some(activity) = self.activity_mut(server) else {
                     return;
@@ -294,6 +310,7 @@ impl AppModel {
             .snapshot
             .events
             .retain(|event| event.session != session);
+        activity.finished.remove(&session);
         activity.acknowledging.retain(|id| !ids.contains(id));
         if activity.navigation.is_some_and(|id| ids.contains(&id)) {
             activity.navigation = None;
@@ -441,11 +458,15 @@ impl AppModel {
             .session_pane(server, event.session)
             .map(|(project, tab, pane)| (project.id, tab, pane))
         {
+            if self.raise_pane_window(pane, cx) {
+                self.dismiss_overlay(cx);
+                return;
+            }
             self.select_project(project, cx);
             self.select_tab(tab, cx);
             self.focus_pane(pane, cx);
             self.dismiss_overlay(cx);
-            self.focus_requested = true;
+            self.focus_owner.request_active_pane();
             self.raise_window(cx);
         } else if server.is_local() && !self.quick.visible && self.supports(Feature::QuickTerminal)
         {

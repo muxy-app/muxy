@@ -4,7 +4,8 @@ use std::rc::Rc;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TerminalEvent {
     Title(String),
-    Directory(String),
+    /// The working directory reported by OSC 7, as the program sent it.
+    Directory(Vec<u8>),
     ClipboardWrite(String),
     Bell,
     Progress(muxy_protocol::SessionProgress),

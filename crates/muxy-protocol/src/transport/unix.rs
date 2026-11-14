@@ -10,9 +10,8 @@ use std::fs::{self, File};
 use std::io::{self, IoSlice, Read, Write};
 use std::net::Shutdown;
 use std::path::Path;
-use std::sync::{Condvar, Mutex};
-use std::time::Duration;
 
+use crate::transport::accepting::Accepting;
 use crate::transport::{BindError, ByteStream, Listener, StreamCancellation};
 
 /// A connected local socket.
@@ -29,10 +28,16 @@ pub type LocalListener = std::os::unix::net::UnixListener;
 #[cfg(windows)]
 pub type LocalListener = uds_windows::UnixListener;
 
+/// A listening local socket that poll(2), or `WSAPoll`, can wait on.
+#[cfg(unix)]
+type Listening = LocalListener;
+/// A listening local socket that poll(2), or `WSAPoll`, can wait on.
+#[cfg(windows)]
+type Listening = windows::Pollable;
+
 #[derive(Debug)]
 pub struct UnixSocketListener {
-    socket: Mutex<Option<LocalListener>>,
-    closed: Condvar,
+    socket: Accepting<Listening>,
 }
 
 impl UnixSocketListener {
@@ -64,46 +69,20 @@ impl UnixSocketListener {
         };
         socket.set_nonblocking(true)?;
         Ok(Self {
-            socket: Mutex::new(Some(socket)),
-            closed: Condvar::new(),
+            socket: Accepting::new(Listening::from(socket))?,
         })
     }
 }
 
 impl Listener for UnixSocketListener {
     fn accept(&self) -> io::Result<Box<dyn ByteStream>> {
-        let mut guard = self
-            .socket
-            .lock()
-            .map_err(|_| io::Error::other("listener lock poisoned"))?;
-        loop {
-            let socket = guard
-                .as_ref()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "listener is closed"))?;
-            match socket.accept() {
-                Ok((stream, _)) => {
-                    stream.set_nonblocking(false)?;
-                    return Ok(Box::new(stream));
-                }
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    (guard, _) = self
-                        .closed
-                        .wait_timeout(guard, Duration::from_millis(10))
-                        .map_err(|_| io::Error::other("listener lock poisoned"))?;
-                }
-                Err(error) => return Err(error),
-            }
-        }
+        let stream = self.socket.accept(Listening::accept)?.0;
+        stream.set_nonblocking(false)?;
+        Ok(Box::new(stream))
     }
 
     fn close(&self) {
-        let mut guard = self
-            .socket
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        guard.take();
-        self.closed.notify_all();
+        self.socket.close();
     }
 }
 
@@ -181,7 +160,7 @@ fn pair_at(
     path: &Path,
     after_bind: impl FnOnce() -> io::Result<()>,
 ) -> io::Result<(LocalStream, LocalStream)> {
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     const ACCEPT_TIMEOUT: Duration = Duration::from_secs(5);
 

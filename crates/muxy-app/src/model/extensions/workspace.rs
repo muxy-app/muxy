@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 
 use gpui::Context;
 use muxy_app_core::{
-    PaneContent, PaneId, Project, ProjectId, TabId, Workspace, WorkspaceId,
+    Direction, PaneContent, PaneId, Project, ProjectId, TabId, Workspace, WorkspaceId,
     webview::WebviewDescriptor,
 };
 use serde_json::{Value, json};
@@ -29,25 +29,14 @@ pub(super) fn standardized(path: &str) -> PathBuf {
     normalized
 }
 
-pub(crate) fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let value = chunk
-            .iter()
-            .enumerate()
-            .fold(0_u32, |value, (index, byte)| {
-                value | (u32::from(*byte) << (16 - 8 * index))
-            });
-        for index in 0..4 {
-            text.push(if index <= chunk.len() {
-                char::from(ALPHABET[(value >> (18 - 6 * index)) as usize & 63])
-            } else {
-                '='
-            });
-        }
-    }
-    text
+/// A palette color by name, like `blue`, or a hex color.
+pub(super) fn parse_color(color: &str) -> Result<muxy_app_core::Color, String> {
+    muxy_app_core::PROJECT_COLORS
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(color))
+        .map_or(color, |(_, hex)| *hex)
+        .parse()
+        .map_err(|_| format!("unknown color '{color}'"))
 }
 
 fn key_bytes(key: &str) -> Result<&'static [u8], String> {
@@ -117,7 +106,7 @@ impl AppModel {
                     "iconColor": project.color.as_str(),
                     "icon": project.icon,
                     "logo": project.logo.as_ref().map(|logo| {
-                        format!("data:image/png;base64,{}", base64(logo))
+                        format!("data:image/png;base64,{}", muxy_core::base64::encode(logo))
                     }),
                     "worktreesEnabled": !project.home && self.worktrees_visible(project.id),
                 })
@@ -221,12 +210,7 @@ impl AppModel {
                 let id = self.mutable_project(text("identifier")?)?;
                 let color = match call.args["color"].as_str() {
                     None => muxy_app_core::Color::default(),
-                    Some(color) => muxy_app_core::PROJECT_COLORS
-                        .iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case(color))
-                        .map_or(color, |(_, hex)| *hex)
-                        .parse()
-                        .map_err(|_| format!("unknown color '{color}'"))?,
+                    Some(color) => parse_color(color)?,
                 };
                 self.apply_project_edit(|state| state.set_project_color(id, color), cx)
             }
@@ -456,8 +440,12 @@ impl AppModel {
         let project = self.state.current_project();
         match call.verb.as_str() {
             "tabs.list" => Ok(Value::Array(
-                project
-                    .tabs
+                if call.args["project"].is_string() {
+                    self.state.project(call.project).unwrap_or(project)
+                } else {
+                    project
+                }
+                .tabs
                     .iter()
                     .enumerate()
                     .map(|(index, tab)| {
@@ -475,6 +463,11 @@ impl AppModel {
                             "kind": kind,
                             "title": self.webview_title(tab, cx),
                             "isActive": Some(tab.id) == self.active_tab(),
+                            "isPinned": tab.pinned,
+                            "color": tab.color.as_ref().map(muxy_app_core::Color::as_str),
+                            "customTitle": tab.custom_title,
+                            "isDetached": tab.detached(),
+                            "paneIDs": tab.panes.iter().map(|pane| pane.id.to_string()).collect::<Vec<_>>(),
                         })
                     })
                     .collect(),
@@ -514,20 +507,50 @@ impl AppModel {
                 self.select_tab(tab, cx);
                 Ok(Value::Null)
             }
-            "tabs.new" => {
-                self.new_tab(cx);
-                Ok(json!(self.active_tab().map(|tab| tab.to_string())))
-            }
             "tabs.next" | "tabs.previous" => {
                 self.cycle_tab(call.verb == "tabs.next", cx);
                 Ok(Value::Null)
             }
             "tabs.open" => self.extension_open_tab(&call.args, cx),
+            "tabs.split" => self.extension_split_tab(&call.args, cx),
             _ => Err(format!("unsupported extension API: {}", call.verb)),
         }
     }
 
     /// Validation main performs before asking for consent to open a tab.
+    pub(super) fn extension_split_tab(
+        &mut self,
+        args: &Value,
+        cx: &mut Context<Self>,
+    ) -> Result<Value, String> {
+        let tab = self.current_project_tab(&args["tabId"])?;
+        let beside = self.current_project_tab(&args["besideId"])?;
+        let edge = match args["edge"].as_str() {
+            None | Some("right") => Direction::Right,
+            Some("left") => Direction::Left,
+            Some("up") => Direction::Up,
+            Some("down") => Direction::Down,
+            Some(edge) => return Err(format!("invalid edge '{edge}'")),
+        };
+        self.transact(|state| state.split_tab(tab, beside, edge), cx)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| muxy_ui::tr!("Could not save tabs").to_string())?;
+        self.changed(cx);
+        self.focus_owner.request_active_pane();
+        Ok(Value::Null)
+    }
+
+    fn current_project_tab(&self, identifier: &Value) -> Result<TabId, String> {
+        let identifier = identifier.as_str().unwrap_or("");
+        self.state
+            .current_project()
+            .tabs
+            .iter()
+            .find(|tab| tab.id.to_string() == identifier)
+            .map(|tab| tab.id)
+            .ok_or_else(|| format!("tab not found {identifier}"))
+    }
+
     pub(super) fn check_tab_request(&self, args: &Value) -> Result<(), String> {
         match args["kind"].as_str() {
             Some("terminal") => self.tab_directory(args).map(|_| ()),
@@ -582,37 +605,21 @@ impl AppModel {
         self.check_tab_request(args)?;
         if args["kind"] == "terminal" {
             let directory = self.tab_directory(args)?;
-            let tab = self
-                .state
-                .open_terminal_tab(self.state.current_project().id)
-                .map_err(|error| error.to_string())?;
-            let pane = self
-                .state
-                .projects()
-                .iter()
-                .flat_map(|project| &project.tabs)
-                .find(|candidate| candidate.id == tab)
-                .and_then(|tab| tab.panes.first())
-                .map(|pane| pane.id)
-                .ok_or("could not create tab")?;
-            if let Some(directory) = directory {
-                self.initial_directories.insert(pane, directory);
-            }
-            if let Some(command) = args["command"]
+            let command = args["command"]
                 .as_str()
                 .map(str::trim)
-                .filter(|c| !c.is_empty())
-            {
-                self.state
-                    .set_startup_command(pane, command)
-                    .map_err(|error| error.to_string())?;
-            }
-            self.changed(cx);
-            self.focus_requested = true;
-            let server = self.state.current_project().server_id;
-            if self.connection(server) == super::super::ConnectionState::Disconnected {
-                self.connect_server(server, cx);
-            }
+                .filter(|command| !command.is_empty());
+            let (tab, _) = self
+                .open_terminal(
+                    crate::model::tabs::OpenTerminal {
+                        project: self.state.current_project().id,
+                        title: None,
+                        command,
+                        directory: directory.as_deref(),
+                    },
+                    cx,
+                )?
+                .ok_or_else(|| muxy_ui::tr!("Could not save tabs").to_string())?;
             return Ok(json!(tab.to_string()));
         }
         if args["kind"] == "browser" {
@@ -631,7 +638,7 @@ impl AppModel {
                 },
                 cx,
             )?;
-            return Ok(json!(self.pane_tab(pane).map(|tab| tab.to_string())));
+            return Ok(json!(self.state.pane_tab(pane).map(|tab| tab.to_string())));
         }
         let target = &args["extension"];
         let (id, tab_type) = (
@@ -658,7 +665,7 @@ impl AppModel {
             target["singleton"].as_bool().unwrap_or(false),
             cx,
         )?;
-        Ok(json!(self.pane_tab(pane).map(|tab| tab.to_string())))
+        Ok(json!(self.state.pane_tab(pane).map(|tab| tab.to_string())))
     }
 
     fn terminal_pane(&self, args: &Value) -> Result<(PaneId, TabId), String> {
@@ -668,15 +675,9 @@ impl AppModel {
             .map_err(|_| "invalid pane ID".to_owned())?;
         let tab = self
             .state
-            .projects()
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .find(|tab| {
-                tab.panes.iter().any(|candidate| {
-                    candidate.id == pane
-                        && matches!(candidate.content, PaneContent::Terminal { .. })
-                })
-            })
+            .placed_pane(pane)
+            .filter(|placed| matches!(placed.pane.content, PaneContent::Terminal { .. }))
+            .and_then(|placed| placed.tab)
             .map(|tab| tab.id)
             .ok_or_else(|| format!("pane not found {identifier}"))?;
         Ok((pane, tab))
@@ -700,12 +701,8 @@ impl AppModel {
             let active = self.active_pane();
             return Ok(Value::Array(
                 self.state
-                    .projects()
-                    .iter()
-                    .flat_map(|project| project.tabs.iter().map(move |tab| (project, tab)))
-                    .flat_map(|(project, tab)| {
-                        tab.panes.iter().map(move |pane| (project, tab, pane))
-                    })
+                    .panes()
+                    .filter_map(|placed| Some((placed.project?, placed.tab?, placed.pane)))
                     .filter(|(_, _, pane)| matches!(pane.content, PaneContent::Terminal { .. }))
                     .map(|(project, tab, pane)| {
                         let directory = self
@@ -717,6 +714,10 @@ impl AppModel {
                             "title": tab.custom_title.clone().unwrap_or_else(|| pane.title.clone()),
                             "workingDirectory": directory.display().to_string(),
                             "isFocused": Some(pane.id) == active,
+                            "tabID": tab.id.to_string(),
+                            "projectID": super::events::root_of(project).to_string(),
+                            "worktreeID": project.id.to_string(),
+                            "isZoomed": tab.zoomed == Some(pane.id),
                         })
                     })
                     .collect(),
@@ -753,8 +754,7 @@ impl AppModel {
                             .map(|grid| screen_text(grid, lines))
                     })
                     .or_else(|| {
-                        self.snapshots
-                            .get(&pane)
+                        self.hidden_screen(pane)
                             .map(|grid| screen_text(grid, lines))
                     })
                     .ok_or_else(not_ready)?;
@@ -769,10 +769,9 @@ impl AppModel {
                     .as_str()
                     .ok_or("missing argument 'title'")?;
                 let title = Some(title.trim().to_owned()).filter(|title| !title.is_empty());
-                let previous = self.state.clone();
-                if self.state.set_tab_title(tab, title).is_err() || !self.save(cx) {
-                    self.state = previous;
-                    return Err("could not rename pane".into());
+                match self.transact(|state| state.set_tab_title(tab, title), cx) {
+                    Ok(Some(())) => {}
+                    Ok(None) | Err(_) => return Err("could not rename pane".into()),
                 }
                 cx.notify();
                 Ok(Value::Null)

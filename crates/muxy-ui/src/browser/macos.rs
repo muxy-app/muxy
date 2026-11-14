@@ -5,6 +5,7 @@
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::rc::Rc;
 
 use async_channel::{Receiver, Sender};
 use gpui::{Bounds, CursorStyle, Pixels, Window};
@@ -72,7 +73,7 @@ impl NativeBrowser {
     /// before its pane is ever shown can lay out and be pictured.
     pub fn new(window: &Window, options: &Options<'_>) -> Result<(Self, Receiver<Event>), String> {
         let mtm = MainThreadMarker::new().ok_or("browser must be created on the main thread")?;
-        let parent = crate::webview::parent_view(window)?;
+        let parent = crate::appkit::gpui_view(window)?;
         let mut host = Host::new(parent.clone(), mtm);
         host.container().setFrame(parent.bounds());
         let (sender, receiver) = async_channel::unbounded();
@@ -122,12 +123,21 @@ impl NativeBrowser {
         ))
     }
 
+    /// Moves the page into `window`, keeping it loaded with its history, for
+    /// a pane that is now drawn there. It shows again once synced and made
+    /// visible in that window, and takes the keyboard back on
+    /// [`Self::focus`].
+    pub fn move_to_window(&self, window: &Window) -> Result<(), String> {
+        self.host.move_to(crate::appkit::gpui_view(window)?);
+        Ok(())
+    }
+
     /// The page itself: navigation, scripts, cookies, find, and more.
     pub fn browser(&self) -> &Browser {
         &self.browser
     }
 
-    pub fn set_shortcuts(&self, modal: bool, shortcuts: Vec<gpui::Keystroke>) {
+    pub fn set_shortcuts(&self, modal: bool, shortcuts: Rc<Vec<gpui::Keystroke>>) {
         self.host.set_shortcuts(modal, shortcuts);
     }
 

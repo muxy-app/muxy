@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::rc::Rc;
 
 use async_channel::Receiver;
 use gpui::{Bounds, CursorStyle, Keystroke, Pixels, Rgba, Window};
@@ -24,11 +25,10 @@ impl NativeWebview {
         _source: Source,
         _script: &str,
         _background: Rgba,
-        _transparent_background: bool,
     ) -> Result<(Self, Receiver<Event>), String> {
         Err(Feature::ExtensionWebviews.unsupported_reason().into_owned())
     }
-    pub(super) fn set_shortcuts(&self, _modal: bool, _shortcuts: Vec<Keystroke>) {
+    pub(super) fn set_shortcuts(&self, _modal: bool, _shortcuts: Rc<Vec<Keystroke>>) {
         match *self {}
     }
     pub(super) fn set_focused(&self, _focused: bool) {
@@ -38,6 +38,16 @@ impl NativeWebview {
         match *self {}
     }
     pub(super) fn set_mouse_passthrough(&self, _enabled: bool) {
+        match *self {}
+    }
+    pub(super) fn set_hit_regions(&self, _regions: Option<&[Bounds<Pixels>]>) {
+        match *self {}
+    }
+    pub(super) fn move_to_window(&self, _window: &Window) -> Result<(), String> {
+        match *self {}
+    }
+    pub(super) fn order_front(_views: &[&Self]) {}
+    pub(super) fn occlude_also(&self, _bounds: Bounds<Pixels>) {
         match *self {}
     }
     pub(super) fn generation(&self) -> u64 {

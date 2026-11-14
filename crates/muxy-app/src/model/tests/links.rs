@@ -20,15 +20,14 @@ fn terminal_menu_focuses_the_clicked_split_and_routes_clipboard_actions(cx: &mut
     view.update(cx, |model, cx| {
         model.servers.local.connection = ConnectionState::Ready;
         for (id, channel) in [(first, 1), (second, 2)] {
-            let mut attachment = attachment();
-            attachment.channel = ChannelId(channel);
+            let attachment = attachment_on(channel);
             model.receive(
                 (
                     ServerId::local(),
                     1,
                     Update::Attached {
                         pane: id,
-                        session: model.pane_session(id).expect("session"),
+                        session: model.state.pane_session(id).expect("session").1,
                         attachment,
                         created: false,
                     },

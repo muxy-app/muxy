@@ -72,7 +72,7 @@ impl TabGroups {
     }
 
     /// Adds `tab` to the group holding `near`, or to the first group.
-    fn insert(&mut self, tab: TabId, near: Option<TabId>) {
+    pub(crate) fn insert(&mut self, tab: TabId, near: Option<TabId>) {
         let index = near
             .and_then(|near| {
                 self.groups
@@ -111,16 +111,10 @@ impl TabGroups {
 
     /// The group beside `id`, preferring the right, then left, below, above.
     fn neighbor(&self, id: GroupId) -> Option<&TabGroup> {
-        [
-            Direction::Right,
-            Direction::Left,
-            Direction::Down,
-            Direction::Up,
-        ]
-        .into_iter()
-        .find_map(|direction| self.layout.neighbor(id, direction))
-        .and_then(|neighbor| self.group(neighbor))
-        .or_else(|| self.groups.iter().find(|group| group.id != id))
+        self.layout
+            .nearest(id)
+            .and_then(|neighbor| self.group(neighbor))
+            .or_else(|| self.groups.iter().find(|group| group.id != id))
     }
 
     pub(crate) fn remap_tabs(&mut self, tabs: &BTreeMap<TabId, TabId>) {
@@ -191,7 +185,7 @@ impl Project {
     pub fn group_tabs(&self, tab: TabId) -> Vec<TabId> {
         match self.groups.as_ref().and_then(|groups| groups.group_of(tab)) {
             Some(group) => group.tabs.clone(),
-            None => self.tabs.iter().map(|tab| tab.id).collect(),
+            None => self.listed_tabs().map(|tab| tab.id).collect(),
         }
     }
 
@@ -211,10 +205,10 @@ impl Project {
     /// tabs follow the project's order, unknown tabs go to `focused`'s group,
     /// empty groups disappear, and `focused` is its group's selected tab.
     pub(crate) fn sync_groups(&mut self, focused: Option<TabId>) {
+        let order: Vec<_> = self.listed_tabs().map(|tab| tab.id).collect();
         let Some(groups) = &mut self.groups else {
             return;
         };
-        let order: Vec<_> = self.tabs.iter().map(|tab| tab.id).collect();
         let leaves: HashSet<_> = groups.layout.leaves().into_iter().collect();
         let mut seen = HashSet::new();
         let mut orphans = Vec::new();
@@ -304,7 +298,7 @@ impl AppState {
         let project = self.shared_project(tab, beside)?;
         let focused = self.window.selected_tab.get(&project).copied();
         let target = self.project_mut(project)?;
-        let order: Vec<_> = target.tabs.iter().map(|tab| tab.id).collect();
+        let order: Vec<_> = target.listed_tabs().map(|tab| tab.id).collect();
         let groups = target
             .groups
             .get_or_insert_with(|| TabGroups::single(order, focused.unwrap_or(beside)));
@@ -413,6 +407,15 @@ impl AppState {
             .find(|project| project.tabs.iter().any(|candidate| candidate.id == tab))
             .ok_or_else(|| AppError::InvalidState("unknown tab".into()))?;
         project.require_available()?;
+        if project
+            .tabs
+            .iter()
+            .any(|candidate| [tab, other].contains(&candidate.id) && candidate.detached())
+        {
+            return Err(AppError::InvalidState(
+                "a tab in its own window can't join a group".into(),
+            ));
+        }
         if !project.tabs.iter().any(|candidate| candidate.id == other) {
             return Err(AppError::InvalidState(
                 "tabs must belong to the same project".into(),

@@ -413,7 +413,7 @@ impl AppModel {
         });
         view.focus_handle(cx).focus(window);
         self.overlay_subscription = None;
-        self.overlay = Some(Overlay::Native(view.clone()));
+        self.open_overlay(Overlay::Native(view.clone()), cx);
         let request = id.clone();
         let weak = view.downgrade();
         cx.spawn(async move |model, cx| {
@@ -422,7 +422,7 @@ impl AppModel {
                 if matches!(&model.overlay, Some(Overlay::Native(view)) if view.entity_id() == weak.entity_id())
                 {
                     model.overlay = None;
-                    model.focus_requested = true;
+                    model.focus_owner.request_active_pane();
                 }
                 let value = selected.map_or(Value::Null, |item| {
                     json!({"id": item.id, "title": item.title, "subtitle": item.subtitle})

@@ -1,5 +1,5 @@
 use muxy_app_core::browser::{BrowserPane, resolve_target};
-use muxy_app_core::settings::{BrowserSettings, Settings};
+use muxy_app_core::settings::Settings;
 use muxy_app_core::{AppState, PaneContent, ProjectId, ProjectKind, ServerId, restore};
 use muxy_protocol::{CatalogPage, ProjectDescriptor, ServerIdentity, ServerPath};
 
@@ -89,6 +89,38 @@ fn background_tabs_leave_the_view_alone() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn a_background_tab_is_what_its_empty_project_shows() -> TestResult {
+    let (mut state, ids) = projects()?;
+    state.select_project(ids.api)?;
+    let api_tab = state.open_terminal_tab(ids.api)?;
+    let before = state.window().clone();
+
+    let (tab, pane) = state.open_browser(ids.web, browser("https://a.dev"), false)?;
+    assert_eq!(state.window().selected_tab.get(&ids.web), Some(&tab));
+    assert_eq!(state.window().current_project, ids.api);
+    assert_eq!(state.window().active_pane, before.active_pane);
+    assert_eq!(state.window().selected_tab.get(&ids.api), Some(&api_tab));
+
+    let (later, _) = state.open_browser(ids.web, browser("https://b.dev"), false)?;
+    assert_ne!(later, tab);
+    assert_eq!(state.window().selected_tab.get(&ids.web), Some(&tab));
+
+    state.select_project(ids.web)?;
+    assert_eq!(state.window().active_pane, Some(pane));
+    Ok(())
+}
+
+#[test]
+fn a_background_tab_in_the_empty_project_on_screen_is_focused() -> TestResult {
+    let (mut state, ids) = projects()?;
+    state.select_project(ids.web)?;
+    let (tab, pane) = state.open_browser(ids.web, browser("https://a.dev"), false)?;
+    assert_eq!(state.window().selected_tab.get(&ids.web), Some(&tab));
+    assert_eq!(state.window().active_pane, Some(pane));
+    Ok(())
+}
+
 struct Ids {
     api: ProjectId,
     web: ProjectId,
@@ -99,6 +131,10 @@ struct Ids {
 /// A remote server with projects `api` and `web`, each with a `feature`
 /// worktree.
 fn projects() -> TestResult<(AppState, Ids)> {
+    projects_with_worktrees("feature", "feature")
+}
+
+fn projects_with_worktrees(api_worktree: &str, web_worktree: &str) -> TestResult<(AppState, Ids)> {
     let mut state = AppState::bootstrap()?;
     let home = ProjectId::new();
     let ids = Ids {
@@ -115,7 +151,7 @@ fn projects() -> TestResult<(AppState, Ids)> {
             icon: None,
             logo: None,
             color: "#808080".into(),
-            directory: ServerPath(directory.as_bytes().to_vec()),
+            directory: ServerPath::from(directory),
             kind: parent.map(|_| ProjectKind::Worktree),
             parent_id: parent,
         };
@@ -131,13 +167,13 @@ fn projects() -> TestResult<(AppState, Ids)> {
                 descriptor(ids.web, "web", "/srv/web", None),
                 descriptor(
                     ids.api_feature,
-                    "feature",
+                    api_worktree,
                     "/srv/wt/api-feature",
                     Some(ids.api),
                 ),
                 descriptor(
                     ids.web_feature,
-                    "feature",
+                    web_worktree,
                     "/srv/wt/web-feature",
                     Some(ids.web),
                 ),
@@ -203,12 +239,50 @@ fn a_project_folder_is_named_whatever_its_case_on_windows() -> TestResult {
 }
 
 #[test]
-fn browser_settings_have_safe_defaults_and_check_the_home_page() -> TestResult {
-    let defaults = BrowserSettings::default();
-    assert!(defaults.enabled);
-    assert!(!defaults.open_terminal_links);
-    assert_eq!(defaults.home_url(), None);
+fn targets_match_names_that_differ_in_case() -> TestResult {
+    let (mut state, ids) = projects()?;
+    state.select_project(ids.web)?;
+    assert_eq!(resolve_target(&state, Some("API"), None), Ok(ids.api));
+    assert_eq!(
+        resolve_target(&state, None, Some("FEATURE")),
+        Ok(ids.web_feature)
+    );
+    assert_eq!(
+        resolve_target(&state, Some("API"), Some("FEATURE")),
+        Ok(ids.api_feature)
+    );
+    assert_eq!(
+        resolve_target(&state, None, Some("API-FEATURE")),
+        Ok(ids.api_feature)
+    );
+    assert_eq!(
+        resolve_target(&state, Some("API"), Some("MISSING")),
+        Err("no worktree named 'MISSING'".into())
+    );
+    Ok(())
+}
 
+#[test]
+fn an_exact_worktree_name_elsewhere_beats_a_nearby_one_that_differs_in_case() -> TestResult {
+    let (mut state, ids) = projects_with_worktrees("feature", "Feature")?;
+    state.select_project(ids.web)?;
+    assert_eq!(
+        resolve_target(&state, None, Some("feature")),
+        Ok(ids.api_feature)
+    );
+    assert_eq!(
+        resolve_target(&state, None, Some("FEATURE")),
+        Ok(ids.web_feature)
+    );
+    assert_eq!(
+        resolve_target(&state, Some("web"), Some("feature")),
+        Ok(ids.web_feature)
+    );
+    Ok(())
+}
+
+#[test]
+fn browser_settings_have_safe_defaults_and_check_the_home_page() -> TestResult {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("settings.toml");
     std::fs::write(

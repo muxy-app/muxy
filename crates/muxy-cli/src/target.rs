@@ -6,19 +6,9 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use muxy_client::{Client, ClientError, SshTarget, Start};
-use muxy_protocol::ServerIdentity;
+use muxy_client::{Backoff, Client, ClientError, SshTarget, Start};
+use muxy_protocol::{ServerIdentity, SessionId};
 
-/// How long to wait after each failed attempt in a row to reach another
-/// computer; the last wait repeats. Backing off spares its sshd and keeps
-/// tools like fail2ban from blocking this computer.
-const SSH_RETRIES: [Duration; 5] = [
-    Duration::from_millis(500),
-    Duration::from_secs(1),
-    Duration::from_secs(2),
-    Duration::from_secs(5),
-    Duration::from_secs(10),
-];
 const LOCAL_RETRY: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Debug)]
@@ -30,7 +20,10 @@ pub(crate) enum Target {
     },
     /// The server on another computer. The TUI still keeps its layouts in the
     /// local profile.
-    Ssh { profile: PathBuf, host: SshTarget },
+    Ssh {
+        profile: PathBuf,
+        host: Box<SshTarget>,
+    },
 }
 
 impl Target {
@@ -38,7 +31,10 @@ impl Target {
     pub(crate) fn new(host: Option<SshTarget>) -> io::Result<Self> {
         let profile = muxy_core::dirs::muxy_dir()?;
         Ok(match host {
-            Some(host) => Self::Ssh { profile, host },
+            Some(host) => Self::Ssh {
+                profile,
+                host: Box::new(host),
+            },
             None => Self::Local {
                 profile,
                 executable: muxy_client::local::server_executable()?,
@@ -84,7 +80,8 @@ impl Target {
     pub(crate) fn retry_delay(&self, failures: usize) -> Duration {
         match self {
             Self::Local { .. } => LOCAL_RETRY,
-            Self::Ssh { .. } => SSH_RETRIES[failures.saturating_sub(1).min(SSH_RETRIES.len() - 1)],
+            Self::Ssh { .. } => Backoff::Interactive
+                .delay(u32::try_from(failures.saturating_sub(1)).unwrap_or(u32::MAX)),
         }
     }
 
@@ -99,4 +96,11 @@ impl Target {
             _ => error,
         }
     }
+}
+
+/// The session this command runs in, when it runs in a terminal of `server`.
+pub(crate) fn hosting_session(server: ServerIdentity) -> Option<SessionId> {
+    let inherited: ServerIdentity = std::env::var("MUXY_SERVER_ID").ok()?.parse().ok()?;
+    (inherited == server).then_some(())?;
+    SessionId::new(std::env::var("MUXY_SESSION_ID").ok()?.parse().ok()?)
 }

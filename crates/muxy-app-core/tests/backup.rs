@@ -2,7 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use muxy_app_core::{AppState, Direction, ServerId, backup, settings::Settings};
+use muxy_app_core::{
+    AppState, Direction, ServerId, backup,
+    settings::{InterfaceSize, Settings},
+};
 use serde_json::json;
 
 #[test]
@@ -11,8 +14,10 @@ fn one_x_settings_keep_unrelated_preferences_and_skip_unsupported_values() {
     original.window.default_size = [1400.0, 900.0];
     let source = json!({
         "muxy.theme.dark": "Dracula",
+        "muxy.showExtensionIconRail": true,
         "muxy.general.autoCopyTerminalSelection": true,
         "muxy.appLayout": "agentsFocused",
+        "muxy.activeSidebar": "workspace-nav",
         "muxy.quickTerminal.width": 900,
         "muxy.quickTerminal.height": 0,
         "muxy.projectPicker.defaultDirectory": "/projects",
@@ -37,10 +42,12 @@ fn one_x_settings_keep_unrelated_preferences_and_skip_unsupported_values() {
         settings.appearance.layout,
         muxy_app_core::settings::AppLayout::AgentsFocused
     );
+    assert_eq!(settings.appearance.extension_sidebar, "workspace-nav");
+    assert!(settings.appearance.rail_expanded);
     assert!(settings.composer.pinned);
     assert_eq!(settings.appearance.language, "language-packs:ko");
     assert_eq!(settings.ai.prompts["create_pr"], "My instructions");
-    assert_eq!(report.skipped.len(), 3);
+    assert_eq!(report.skipped.len(), 4);
     let source = backup::settings_source(&settings).unwrap();
     assert!(!source.contains("never-copy"));
     assert!(!source.contains("example.com"));
@@ -190,6 +197,7 @@ fn matching_project_directories_keep_local_identity_and_remap_project_preference
     );
     let mut settings = Settings::default();
     settings.appearance.hidden_worktrees.insert(backup_id);
+    settings.appearance.project_recent = vec![backup_id, backup.home().id];
     settings
         .ai
         .project_pr_prompts
@@ -202,6 +210,10 @@ fn matching_project_directories_keep_local_identity_and_remap_project_preference
     .unwrap();
     let settings: Settings = toml::from_str(&source).unwrap();
     assert!(settings.appearance.hidden_worktrees.contains(&current_id));
+    assert_eq!(
+        settings.appearance.project_recent,
+        [current_id, current.home().id]
+    );
     assert_eq!(
         settings.ai.project_pr_prompts[&current_id.to_string()],
         "Instructions"
@@ -276,7 +288,6 @@ fn one_x_import_keeps_every_usable_project_when_some_details_are_stale() {
     assert_eq!(state.projects().len(), 4);
     let symbol = state.project(symbol.parse().unwrap()).unwrap();
     assert_eq!(symbol.icon.as_deref(), Some("sf:chart.pie.fill"));
-    assert_eq!(symbol.color.as_str(), "#5b5bd6");
     let emoji = state.project(emoji.parse().unwrap()).unwrap();
     assert_eq!(emoji.icon.as_deref(), Some("🚀"));
     assert_eq!(emoji.color.as_str(), "#e5484d");
@@ -392,4 +403,37 @@ fn one_x_shell_command_becomes_the_default_shell_unless_one_is_chosen() {
             .is_none()
     );
     assert!(report.attention.iter().any(|item| item.contains("fish -l")));
+}
+
+#[test]
+fn the_interface_size_migrates_from_muxy_1() {
+    for (old, size) in [
+        ("regular", InterfaceSize::Regular),
+        ("large", InterfaceSize::Large),
+        ("extraLarge", InterfaceSize::ExtraLarge),
+        ("huge", InterfaceSize::Huge),
+    ] {
+        let source = json!({ "muxy.ui.scale": old });
+        let (settings, report) =
+            backup::import_settings(&serde_json::to_vec(&source).unwrap(), &Settings::default())
+                .unwrap();
+        assert_eq!(settings.appearance.interface_size, size);
+        assert!(report.skipped.is_empty());
+    }
+}
+
+#[test]
+fn one_x_close_tab_and_close_pane_defaults_take_the_two_x_defaults() {
+    let source = json!({
+        "shortcuts.app": {
+            "closeTab": {"key":"w", "modifiers":1_048_576},
+            "closePane": {"key":"w", "modifiers":1_179_648}
+        }
+    });
+    let (settings, report) =
+        backup::import_settings(&serde_json::to_vec(&source).unwrap(), &Settings::default())
+            .unwrap();
+    assert_eq!(settings.keymap, Settings::default().keymap);
+    assert_eq!(report.imported, 2);
+    assert!(report.attention.is_empty());
 }

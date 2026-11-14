@@ -1,7 +1,12 @@
-use super::{Category, Change, PickerKind, SettingsEvent, SettingsView, Snapshot};
+use super::slider::{Commit, Slider};
+use super::{Category, PickerKind, SettingsEvent, SettingsView, Snapshot};
+use crate::model::preferences::{AgentsPanelToggle, Change, WorktreeToggle};
 use gpui::{AnyElement, Context, InteractiveElement, IntoElement};
 use muxy_app_core::localization;
-use muxy_app_core::settings::{AgentsPanelGrouping, CloseBehavior, SidebarCollapsedStyle};
+use muxy_app_core::settings::{
+    AgentsPanelDensity, AgentsPanelGrouping, AgentsPanelIcon, CloseBehavior, InterfaceSize,
+    SidebarCollapsedStyle,
+};
 use muxy_ui::controls::{self, Choice};
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::tr;
@@ -29,6 +34,7 @@ pub(super) fn rows(
             controls::segmented(
                 pane.style(),
                 "close-behavior",
+                &tr!("When closing tabs or panes"),
                 &[
                     Choice::new("close", tr!("Close sessions")),
                     Choice::new("detach", tr!("Detach")),
@@ -57,8 +63,7 @@ pub(super) fn rows(
                 controls::button(
                     pane.style(),
                     "browse-languages",
-                    &tr!("Browse language extensions…"),
-                    true,
+                    controls::Button::secondary(&tr!("Browse language extensions…")),
                     cx.listener(|pane, _, _, cx| pane.browse_languages(cx)),
                 )
                 .debug_selector(|| "settings-browse-languages".into())
@@ -79,6 +84,9 @@ pub(super) fn rows(
             ));
         }
     }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Size")) {
+        rows.push(interface_size(pane, cx));
+    }
     for (id, label, value, change) in [
         (
             "sidebar",
@@ -91,6 +99,18 @@ pub(super) fn rows(
             tr_key!("Show status bar"),
             appearance.status_bar_visible,
             Change::StatusBar(!appearance.status_bar_visible),
+        ),
+        (
+            "rail",
+            tr_key!("Show rail"),
+            appearance.rail_enabled,
+            Change::Rail(!appearance.rail_enabled),
+        ),
+        (
+            "pane-headers",
+            tr_key!("Show pane headers"),
+            appearance.pane_headers,
+            Change::PaneHeaders(!appearance.pane_headers),
         ),
         (
             "confirm-process",
@@ -113,6 +133,9 @@ pub(super) fn rows(
     {
         rows.push(collapsed_sidebar_style(pane, cx));
     }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Active sidebar")) {
+        rows.push(active_sidebar(pane, cx));
+    }
     if category == Category::Appearance && pane.matches(category, tr_key!("Sidebar vibrancy")) {
         rows.push(pane.row(
             "sidebar-vibrancy",
@@ -130,7 +153,17 @@ pub(super) fn rows(
         rows.push(pane.row(
             "sidebar-vibrancy-level",
             tr_key!("Sidebar vibrancy level"),
-            pane.field("sidebar-vibrancy-level"),
+            pane.slider(
+                Slider::new(
+                    "sidebar-vibrancy-level",
+                    (0.0, 100.0),
+                    1.0,
+                    "%",
+                    Commit::Field,
+                ),
+                f32::from(appearance.sidebar_vibrancy_level),
+                cx,
+            ),
         ));
     }
     if category == Category::Appearance && pane.matches(category, tr_key!("Show tips")) {
@@ -145,46 +178,59 @@ pub(super) fn rows(
             ),
         ));
     }
-    for (id, label, value) in [
+    if category == Category::Appearance
+        && pane.matches(category, tr_key!("Remember shown projects without tabs"))
+    {
+        rows.push(pane.row(
+            "remember-projects-without-tabs",
+            tr_key!("Remember shown projects without tabs"),
+            pane.toggle(
+                "remember-projects-without-tabs",
+                appearance.remember_projects_without_tabs,
+                Change::RememberProjectsWithoutTabs(!appearance.remember_projects_without_tabs),
+                cx,
+            ),
+        ));
+    }
+    if category == Category::Appearance
+        && pane.matches(category, tr_key!("Show other servers in the sidebar"))
+    {
+        rows.push(pane.row(
+            "sidebar-servers",
+            tr_key!("Show other servers in the sidebar"),
+            pane.toggle(
+                "sidebar-servers",
+                appearance.sidebar_remote_servers,
+                Change::SidebarServers(!appearance.sidebar_remote_servers),
+                cx,
+            ),
+        ));
+    }
+    for (toggle, label, value) in [
         (
-            "auto-expand-worktrees",
+            WorktreeToggle::AutoExpand,
             tr_key!("Expand worktrees when switching projects"),
             appearance.auto_expand_worktrees,
         ),
         (
-            "worktree-unread",
+            WorktreeToggle::Unread,
             tr_key!("Show unread worktree indicators"),
             appearance.worktree_show_unread,
         ),
         (
-            "worktree-recent-order",
+            WorktreeToggle::RecentOrder,
             tr_key!("Order the worktree switcher by recent use"),
             appearance.worktree_recent_order,
         ),
     ] {
         if category == Category::Appearance && pane.matches(category, label) {
+            let id = toggle.id();
             rows.push(pane.row(
                 id,
                 label,
-                pane.toggle(id, value, Change::Worktrees(id, !value), cx),
+                pane.toggle(id, value, Change::Worktrees(toggle, !value), cx),
             ));
         }
-    }
-    let sidebars = &pane.snapshot.sidebars;
-    if category == Category::Appearance
-        && !sidebars.is_empty()
-        && pane.matches(category, tr_key!("Active sidebar"))
-    {
-        let built_in = tr!("Built-in");
-        let selected = sidebars
-            .iter()
-            .find(|(id, _)| *id == appearance.extension_sidebar)
-            .map_or(built_in.as_str(), |(_, label)| label.as_str());
-        rows.push(pane.row(
-            "extension-sidebar",
-            tr_key!("Active sidebar"),
-            pane.picker(PickerKind::ExtensionSidebar, selected, cx),
-        ));
     }
     if category == Category::Appearance && pane.matches(category, tr_key!("Show agents panel")) {
         rows.push(pane.row(
@@ -201,6 +247,45 @@ pub(super) fn rows(
     if category == Category::Appearance && pane.matches(category, tr_key!("Agents panel rows")) {
         rows.push(agents_panel_grouping(pane, cx));
     }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Agents panel icon")) {
+        rows.push(agents_panel_icon(pane, cx));
+    }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Agents panel density")) {
+        rows.push(agents_panel_density(pane, cx));
+    }
+    for (toggle, label, value) in [
+        (
+            AgentsPanelToggle::Grouped,
+            tr_key!("Group by project"),
+            appearance.agents_panel_grouped,
+        ),
+        (
+            AgentsPanelToggle::ProjectColors,
+            tr_key!("Show project colors"),
+            appearance.agents_panel_project_colors,
+        ),
+        (
+            AgentsPanelToggle::IdleTime,
+            tr_key!("Show idle time"),
+            appearance.agents_panel_idle_time,
+        ),
+    ] {
+        let applies = match toggle {
+            AgentsPanelToggle::Grouped => {
+                appearance.agents_panel_grouping == AgentsPanelGrouping::Agents
+            }
+            AgentsPanelToggle::ProjectColors => appearance.agents_panel_colors_apply(),
+            AgentsPanelToggle::IdleTime => true,
+        };
+        if category == Category::Appearance && applies && pane.matches(category, label) {
+            let id = toggle.id();
+            rows.push(pane.row(
+                id,
+                label,
+                pane.toggle(id, value, Change::AgentsPanelOption(toggle, !value), cx),
+            ));
+        }
+    }
     if category == Category::General && pane.matches(category, tr_key!("Open files with")) {
         rows.push(pane.row(
             "file-opener",
@@ -208,9 +293,24 @@ pub(super) fn rows(
             pane.picker(PickerKind::FileOpener, &file_opener(&pane.snapshot), cx),
         ));
     }
+    let size = pane.snapshot.settings.window.default_size;
+    for (index, id, label, minimum) in [
+        (0, "width", tr_key!("Default window width"), 640.0),
+        (1, "height", tr_key!("Default window height"), 400.0),
+    ] {
+        if category == Category::General && pane.matches(category, label) {
+            rows.push(pane.row(
+                id,
+                label,
+                pane.slider_field(
+                    Slider::new(id, (minimum, 16384.0), 10.0, "", Commit::Field),
+                    size[index],
+                    cx,
+                ),
+            ));
+        }
+    }
     for (id, label) in [
-        ("width", tr_key!("Default window width")),
-        ("height", tr_key!("Default window height")),
         (
             "worktree-template",
             tr_key!("Default worktree path template"),
@@ -221,6 +321,16 @@ pub(super) fn rows(
             rows.push(pane.row(id, label, pane.field(id)));
         }
     }
+    if category == Category::General
+        && pane.matches(category, tr_key!("Send an anonymous daily ping"))
+    {
+        let enabled = pane.snapshot.settings.privacy.usage_ping;
+        rows.push(pane.row(
+            "usage-ping",
+            tr_key!("Send an anonymous daily ping"),
+            pane.toggle("usage-ping", enabled, Change::UsagePing(!enabled), cx),
+        ));
+    }
     rows
 }
 
@@ -230,6 +340,60 @@ pub(super) const FILE_OPENERS: [(&str, &str); 3] = [
     ("system.finder", crate::opener::FILE_MANAGER),
     ("system.application", tr_key!("Default application")),
 ];
+
+/// Which sidebar shows. The row is there before any extension provides one,
+/// and says where to get one; a chosen one that is no longer enabled stays
+/// chosen, and the row says the built-in sidebar shows meanwhile.
+fn active_sidebar(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+    let selected = &pane.snapshot.settings.appearance.extension_sidebar;
+    let unavailable =
+        !selected.is_empty() && !pane.snapshot.sidebars.iter().any(|(id, _)| id == selected);
+    let note = if !pane.snapshot.extensions_loaded {
+        None
+    } else if unavailable {
+        Some(tr!(
+            "The selected sidebar's extension is unavailable, so Muxy is showing the built-in sidebar."
+        ))
+    } else if pane.snapshot.sidebars.is_empty() {
+        Some(tr!(
+            "No enabled extension provides a sidebar. Install or enable one in Extensions."
+        ))
+    } else {
+        None
+    };
+    pane.row_with_description(
+        "extension-sidebar",
+        tr_key!("Active sidebar"),
+        note.as_ref().map(AsRef::as_ref),
+        pane.picker(
+            PickerKind::ExtensionSidebar,
+            &sidebar_label(&pane.snapshot, selected),
+            cx,
+        ),
+        pane.compact,
+    )
+}
+
+/// The label of a sidebar selection: built in, a provider, or an unavailable one.
+pub(super) fn sidebar_label(snapshot: &Snapshot, selected: &str) -> String {
+    if selected.is_empty() {
+        return tr!("Built-in").to_string();
+    }
+    snapshot
+        .sidebars
+        .iter()
+        .find(|(id, _)| id == selected)
+        .map_or_else(
+            || {
+                if snapshot.extensions_loaded {
+                    tr!("%@ (unavailable)", selected).to_string()
+                } else {
+                    selected.to_owned()
+                }
+            },
+            |(_, label)| label.clone(),
+        )
+}
 
 /// The chosen file opener's label. A chosen extension opener that is no
 /// longer enabled stays chosen, marked unavailable.
@@ -307,6 +471,7 @@ fn agents_panel_grouping(pane: &SettingsView, cx: &mut Context<SettingsView>) ->
         controls::segmented(
             pane.style(),
             "agents-panel-grouping",
+            &tr!("Agents panel rows"),
             &[
                 Choice::new("agents", tr!("Agents")),
                 Choice::new("worktrees", tr!("Worktrees")),
@@ -328,6 +493,100 @@ fn agents_panel_grouping(pane: &SettingsView, cx: &mut Context<SettingsView>) ->
     )
 }
 
+fn agents_panel_density(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+    let appearance = &pane.snapshot.settings.appearance;
+    pane.row(
+        "agents-panel-density",
+        tr_key!("Agents panel density"),
+        controls::segmented(
+            pane.style(),
+            "agents-panel-density",
+            &tr!("Agents panel density"),
+            &[
+                Choice::new("normal", tr!("Normal")),
+                Choice::new("compact", tr!("Compact")),
+            ],
+            match appearance.agents_panel_density {
+                AgentsPanelDensity::Normal => "normal",
+                AgentsPanelDensity::Compact => "compact",
+            },
+            cx.listener(|_, selected: &gpui::SharedString, _, cx| {
+                cx.emit(SettingsEvent::Change(Change::AgentsPanelDensity(
+                    if selected.as_ref() == "compact" {
+                        AgentsPanelDensity::Compact
+                    } else {
+                        AgentsPanelDensity::Normal
+                    },
+                )));
+            }),
+        ),
+    )
+}
+
+fn agents_panel_icon(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+    let appearance = &pane.snapshot.settings.appearance;
+    pane.row(
+        "agents-panel-icon",
+        tr_key!("Agents panel icon"),
+        controls::segmented(
+            pane.style(),
+            "agents-panel-icon",
+            &tr!("Agents panel icon"),
+            &[
+                Choice::new("agent", tr!("Agent")),
+                Choice::new("project", tr!("Project")),
+            ],
+            match appearance.agents_panel_icon {
+                AgentsPanelIcon::Agent => "agent",
+                AgentsPanelIcon::Project => "project",
+            },
+            cx.listener(|_, selected: &gpui::SharedString, _, cx| {
+                cx.emit(SettingsEvent::Change(Change::AgentsPanelIcon(
+                    if selected.as_ref() == "project" {
+                        AgentsPanelIcon::Project
+                    } else {
+                        AgentsPanelIcon::Agent
+                    },
+                )));
+            }),
+        ),
+    )
+}
+
+fn interface_size(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+    pane.row(
+        "interface-size",
+        tr_key!("Size"),
+        controls::segmented(
+            pane.style(),
+            "interface-size",
+            &tr!("Interface size"),
+            &[
+                Choice::new("regular", tr!("Default")),
+                Choice::new("large", tr!("Large")),
+                Choice::new("extra_large", tr!("Extra Large")),
+                Choice::new("huge", tr!("Huge")),
+            ],
+            match pane.snapshot.settings.appearance.interface_size {
+                InterfaceSize::Regular => "regular",
+                InterfaceSize::Large => "large",
+                InterfaceSize::ExtraLarge => "extra_large",
+                InterfaceSize::Huge => "huge",
+            },
+            cx.listener(|_, selected: &gpui::SharedString, _, cx| {
+                cx.emit(SettingsEvent::Change(Change::InterfaceSize(
+                    match selected.as_ref() {
+                        "large" => InterfaceSize::Large,
+                        "extra_large" => InterfaceSize::ExtraLarge,
+                        "huge" => InterfaceSize::Huge,
+                        _ => InterfaceSize::Regular,
+                    },
+                )));
+            }),
+        ),
+    )
+}
+
 fn collapsed_sidebar_style(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
     let appearance = &pane.snapshot.settings.appearance;
     pane.row(
@@ -336,6 +595,7 @@ fn collapsed_sidebar_style(pane: &SettingsView, cx: &mut Context<SettingsView>) 
         controls::segmented(
             pane.style(),
             "sidebar-collapsed-style",
+            &tr!("Collapsed sidebar style"),
             &[
                 Choice::new("icons", tr!("Icons")),
                 Choice::new("hidden", tr!("Hidden")),

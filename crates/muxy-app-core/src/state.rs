@@ -1,24 +1,31 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use muxy_protocol::SessionId;
 use serde::{Deserialize, Serialize};
 
 use crate::servers::ServerState;
+use crate::set_aside::SetAsideView;
 use crate::{
-    AppError, Branch, Color, Direction, Pane, PaneContent, PaneId, Project, ProjectId,
-    ProjectStatus, ServerId, Tab, TabId, WindowBounds, WindowState, Workspace,
+    AppError, Branch, Color, Direction, Pane, PaneContent, PaneId, Project, ProjectId, ProjectKind,
+    ProjectStatus, RemovedProject, ServerId, Tab, TabId, WindowBounds, WindowState, Workspace,
 };
 
 /// The layout this build writes. Versions 1 and 2 kept one server's catalog
 /// and pending work at the top level; version 3 keeps them per server.
 pub(crate) const VERSION: u32 = 3;
 
+const REMOVED_PROJECTS: usize = 10;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "StoredState")]
 pub struct AppState {
     pub(crate) servers: BTreeMap<ServerId, ServerState>,
     pub(crate) starting_directories: BTreeMap<PaneId, muxy_protocol::ServerPath>,
+    /// Whether a pane's terminal, once it starts, uses the proxy, where someone
+    /// chose. Other new terminals follow the whole-app setting.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) starting_proxies: BTreeMap<PaneId, bool>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) startup_commands: BTreeMap<PaneId, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -27,7 +34,15 @@ pub struct AppState {
     pub(crate) projects: Vec<Project>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) workspaces: Vec<Workspace>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) removed_projects: Vec<RemovedProject>,
     pub(crate) window: WindowState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) set_aside: Option<SetAsideView>,
+    /// Terminals the app asked a server to give another project, until it
+    /// answers, so a request lost to a disconnect or crash is sent again.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) session_moves: Vec<crate::SessionMove>,
 }
 
 #[derive(Deserialize)]
@@ -37,6 +52,8 @@ struct StoredState {
     #[serde(default)]
     starting_directories: BTreeMap<PaneId, muxy_protocol::ServerPath>,
     #[serde(default)]
+    starting_proxies: BTreeMap<PaneId, bool>,
+    #[serde(default)]
     startup_commands: BTreeMap<PaneId, String>,
     #[serde(default)]
     quick_terminal: Option<Pane>,
@@ -44,7 +61,13 @@ struct StoredState {
     projects: Vec<Project>,
     #[serde(default)]
     workspaces: Vec<Workspace>,
+    #[serde(default)]
+    removed_projects: Vec<RemovedProject>,
     window: WindowState,
+    #[serde(default)]
+    set_aside: Option<SetAsideView>,
+    #[serde(default)]
+    session_moves: Vec<crate::SessionMove>,
     /// Versions 1 and 2 kept the local server's state here, at the top level.
     #[serde(default)]
     catalog_server: Option<muxy_protocol::ServerIdentity>,
@@ -77,6 +100,8 @@ impl TryFrom<StoredState> for AppState {
                     pending_cancellations: stored.pending_cancellations,
                     pending_discards: stored.pending_discards,
                     close_operations: stored.close_operations,
+                    given_names: BTreeMap::new(),
+                    dismissed: BTreeSet::new(),
                 },
             )])
         } else {
@@ -85,13 +110,31 @@ impl TryFrom<StoredState> for AppState {
         let mut state = Self {
             servers,
             starting_directories: stored.starting_directories,
+            starting_proxies: stored.starting_proxies,
             startup_commands: stored.startup_commands,
             quick_terminal: stored.quick_terminal,
             version: VERSION,
             projects: stored.projects,
             workspaces: stored.workspaces,
+            removed_projects: stored.removed_projects,
             window: stored.window,
+            set_aside: stored.set_aside,
+            session_moves: stored.session_moves,
         };
+        let detached: HashSet<_> = state
+            .projects
+            .iter_mut()
+            .flat_map(|project| &mut project.tabs)
+            .filter_map(|tab| {
+                let layout = tab.layout.clone();
+                tab.window.as_mut()?.retain_in(&layout);
+                Some(tab.id)
+            })
+            .collect();
+        state
+            .window
+            .selected_tab
+            .retain(|_, tab| !detached.contains(tab));
         let previous_project = state.window.current_project;
         let previous_tab = state.window.selected_tab.get(&previous_project).copied();
         state.ensure_home()?;
@@ -138,27 +181,8 @@ impl TryFrom<StoredState> for AppState {
             .focus_history
             .retain(|pane| panes.contains(pane));
         state.validate()?;
-        let legacy_settings: Vec<_> = state
-            .projects
-            .iter()
-            .flat_map(|project| &project.tabs)
-            .flat_map(|tab| &tab.panes)
-            .filter(|pane| pane.content == PaneContent::Settings)
-            .map(|pane| pane.id)
-            .collect();
-        let restore_focus = state
-            .window
-            .active_pane
-            .is_some_and(|pane| legacy_settings.contains(&pane));
-        if restore_focus {
-            state.window.active_pane = None;
-        }
-        for pane in legacy_settings {
-            state.remove_pane(pane)?;
-        }
-        if restore_focus {
-            state.focus_selected_tab();
-        }
+        state.retain_one_settings_pane()?;
+        state.remove_saved_devices_panes()?;
         state.validate()?;
         Ok(state)
     }
@@ -175,23 +199,28 @@ impl AppState {
                 id: PaneId::new(),
                 title: "Quick Terminal".into(),
                 content: PaneContent::Terminal { session: None },
+                proxy: false,
             })
             .id
     }
 
     pub fn close_quick_terminal(&mut self) {
+        if let Some(session) = self.take_quick_terminal() {
+            self.discard_unreferenced(ServerId::local(), session);
+        }
+    }
+
+    /// Removes the Quick Terminal after its session ended. Its saved output
+    /// stays on the server.
+    pub fn close_ended_quick_terminal(&mut self) {
+        self.take_quick_terminal();
+    }
+
+    fn take_quick_terminal(&mut self) -> Option<SessionId> {
         if let Some(pane) = &self.quick_terminal {
             self.cancel_pending_creation(pane.id);
         }
-        if let Some(Pane {
-            content: PaneContent::Terminal {
-                session: Some(session),
-            },
-            ..
-        }) = self.quick_terminal.take()
-        {
-            self.discard_unreferenced(ServerId::local(), session);
-        }
+        self.quick_terminal.take()?.session()
     }
 
     pub fn version(&self) -> u32 {
@@ -265,6 +294,33 @@ impl AppState {
         server: ServerId,
         directory: PathBuf,
     ) -> Result<ProjectId, AppError> {
+        self.create_project(server, directory, |_| {})
+    }
+
+    pub fn removed_projects(&self) -> &[RemovedProject] {
+        &self.removed_projects
+    }
+
+    pub fn restore_removed_project(&mut self, index: usize) -> Result<ProjectId, AppError> {
+        let removed = self
+            .removed_projects
+            .get(index)
+            .cloned()
+            .ok_or_else(|| AppError::InvalidState("removed project is gone".into()))?;
+        self.create_project(removed.server_id, removed.directory, |descriptor| {
+            descriptor.name = removed.name;
+            descriptor.icon = removed.icon;
+            descriptor.logo = removed.logo;
+            descriptor.color = removed.color.to_string();
+        })
+    }
+
+    fn create_project(
+        &mut self,
+        server: ServerId,
+        directory: PathBuf,
+        customize: impl FnOnce(&mut muxy_protocol::ProjectDescriptor),
+    ) -> Result<ProjectId, AppError> {
         if server.is_local() && !(directory.is_absolute() && directory.is_dir()) {
             return Err(AppError::InvalidState(
                 "project path must be an existing absolute directory".into(),
@@ -281,13 +337,14 @@ impl AppState {
                 "connect to the server before adding projects to it".into(),
             ));
         }
-        let descriptor = muxy_protocol::ProjectDescriptor::new(
+        let mut descriptor = muxy_protocol::ProjectDescriptor::new(
             path,
             self.projects
                 .iter()
                 .filter(|project| project.server_id == server)
                 .map(|project| project.color.as_str()),
         );
+        customize(&mut descriptor);
         let project = Project::from_descriptor(server, &descriptor)?;
         let id = project.id;
         self.queue_project(server, muxy_protocol::ProjectMutation::Create(descriptor))?;
@@ -367,7 +424,22 @@ impl AppState {
     }
 
     pub fn remove_project(&mut self, id: ProjectId) -> Result<Vec<SessionId>, AppError> {
-        self.remove_project_with_mutation(id, muxy_protocol::ProjectMutation::Delete(id))
+        let removed = self
+            .project(id)
+            .filter(|project| {
+                project.parent_id.is_none() && project.kind != Some(ProjectKind::Worktree)
+            })
+            .map(RemovedProject::from);
+        let sessions =
+            self.remove_project_with_mutation(id, muxy_protocol::ProjectMutation::Delete(id))?;
+        if let Some(removed) = removed {
+            self.removed_projects.retain(|entry| {
+                entry.server_id != removed.server_id || entry.directory != removed.directory
+            });
+            self.removed_projects.insert(0, removed);
+            self.removed_projects.truncate(REMOVED_PROJECTS);
+        }
+        Ok(sessions)
     }
 
     pub(crate) fn remove_project_with_mutation(
@@ -398,6 +470,8 @@ impl AppState {
         let mut sessions = Vec::new();
         for pane in project.tabs.into_iter().flat_map(|tab| tab.panes) {
             self.startup_commands.remove(&pane.id);
+            self.starting_directories.remove(&pane.id);
+            self.starting_proxies.remove(&pane.id);
             if let PaneContent::Terminal {
                 session: Some(session),
             } = pane.content
@@ -414,21 +488,47 @@ impl AppState {
         self.open_terminal_tab_near(project, focused)
     }
 
+    /// Opens a terminal tab at the end of `project` while the window stays on
+    /// its current project, selected tabs and focused pane. The tab is selected
+    /// only when `project` had no selected tab.
+    pub fn open_background_terminal_tab(&mut self, project: ProjectId) -> Result<PaneId, AppError> {
+        let selected = self.window.selected_tab.get(&project).copied();
+        let (id, pane) = self.push_terminal_tab(project, selected)?;
+        self.window.selected_tab.entry(project).or_insert(id);
+        self.sync_groups(project);
+        Ok(pane)
+    }
+
     /// Opens a terminal tab at the end of `project`, in `near`'s group.
     fn open_terminal_tab_near(
         &mut self,
         project: ProjectId,
         near: Option<TabId>,
     ) -> Result<TabId, AppError> {
-        self.project_mut(project)?.require_available()?;
-        let tab = Tab::terminal();
-        let id = tab.id;
-        self.window.activate(tab.layout.leaves().first().copied());
-        self.add_tab(project, tab, near)?;
+        let (id, pane) = self.push_terminal_tab(project, near)?;
+        self.window.activate(Some(pane));
         self.window.selected_tab.insert(project, id);
         self.window.current_project = project;
         self.sync_groups(project);
         Ok(id)
+    }
+
+    fn push_terminal_tab(
+        &mut self,
+        project: ProjectId,
+        near: Option<TabId>,
+    ) -> Result<(TabId, PaneId), AppError> {
+        self.project_mut(project)?.require_available()?;
+        let tab = Tab::terminal();
+        let id = tab.id;
+        let pane = tab
+            .layout
+            .leaves()
+            .first()
+            .copied()
+            .ok_or_else(|| AppError::InvalidState("new terminal has no pane".into()))?;
+        self.add_tab(project, tab, near)?;
+        Ok((id, pane))
     }
 
     pub fn open_terminal_tab_adjacent(
@@ -514,49 +614,22 @@ impl AppState {
         for pane in panes {
             self.cancel_pending_creation(pane);
         }
-        let active = self.window.active_pane;
-        let history = self.window.focus_history.clone();
-        let target = self.project_mut(project)?;
-        let next = target.tab_after_close(tab);
-        let grouped = target.groups.is_some();
-        let tabs = &mut target.tabs;
+        self.drop_tab(project, tab)
+    }
+
+    /// Removes `tab` without cancelling its terminals' creation, so its panes
+    /// can live on elsewhere.
+    pub(crate) fn drop_tab(&mut self, project: ProjectId, tab: TabId) -> Result<(), AppError> {
+        self.unlist_tab(project, tab)?;
+        let tabs = &mut self.project_mut(project)?.tabs;
         let index = tabs
             .iter()
             .position(|candidate| candidate.id == tab)
             .ok_or(AppError::UnknownTab { project, tab })?;
-        let removed_active = active.is_some_and(|pane| tabs[index].layout.contains(pane));
         let removed = tabs.remove(index);
-        let next = next.and_then(|next| tabs.iter_mut().find(|tab| tab.id == next));
-        let next_pane = next.as_ref().and_then(|next| {
-            let shown = |pane: &&PaneId| next.layout.contains(**pane);
-            let previous = history.iter().rev().find(shown);
-            grouped
-                .then(|| next.zoomed.or(previous.copied()))
-                .flatten()
-                .or_else(|| next.layout.leaves().first().copied())
-        });
-        let next = next.map(|next| {
-            if removed_active && !grouped {
-                next.zoomed = None;
-            }
-            next.id
-        });
-        if let Some(groups) = &mut target.groups {
-            groups.remove(tab);
-        }
         self.window
             .focus_history
             .retain(|pane| !removed.layout.contains(*pane));
-        if self.window.selected_tab.get(&project) == Some(&tab) {
-            if let Some(next) = next {
-                self.window.selected_tab.insert(project, next);
-            } else {
-                self.window.selected_tab.remove(&project);
-            }
-        }
-        if removed_active {
-            self.window.activate(next_pane);
-        }
         self.sync_groups(project);
         Ok(())
     }
@@ -572,6 +645,16 @@ impl AppState {
         self.remove_pane(pane)
     }
 
+    /// Closes a pane whose session its server no longer lists, even in a
+    /// project whose folder is gone. The session's saved output stays on the
+    /// server, so nothing is discarded.
+    pub fn close_ended_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
+        self.starting_directories.remove(&pane);
+        self.remove_pane(pane)
+    }
+
+    /// Closes the panes of a session that has ended. Its saved output stays on
+    /// the server, so nothing is discarded.
     pub fn close_session_panes(
         &mut self,
         server: ServerId,
@@ -585,7 +668,6 @@ impl AppState {
         for pane in panes {
             self.remove_pane(pane)?;
         }
-        self.discard_unreferenced(server, session);
         Ok(())
     }
 
@@ -623,7 +705,14 @@ impl AppState {
         Ok(())
     }
 
-    fn remove_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
+    pub(crate) fn remove_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
+        self.cancel_pending_creation(pane);
+        self.extract_pane(pane)
+    }
+
+    /// Takes `pane` out of its tab, closing the tab once empty, without
+    /// cancelling its terminal's creation.
+    pub(crate) fn extract_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
         let (project, tab) = self
             .projects
             .iter()
@@ -636,7 +725,7 @@ impl AppState {
                 })
             })
             .ok_or(AppError::UnknownPane(pane))?;
-        self.cancel_pending_creation(pane);
+        let history = self.window.focus_history.clone();
         let target = self
             .project_mut(project)?
             .tabs
@@ -644,22 +733,31 @@ impl AppState {
             .find(|item| item.id == tab)
             .ok_or(AppError::UnknownTab { project, tab })?;
         if target.panes.len() == 1 {
-            return self.close_tab(project, tab);
+            return self.drop_tab(project, tab);
         }
-        let neighbor = [
-            Direction::Right,
-            Direction::Left,
-            Direction::Down,
-            Direction::Up,
-        ]
-        .into_iter()
-        .find_map(|direction| target.layout.neighbor(pane, direction));
+        let history = target
+            .window
+            .as_ref()
+            .map_or(history, |window| window.focus_history().to_vec());
+        let neighbor = target.layout.nearest(pane);
         target.layout.remove(pane);
         target.panes.retain(|candidate| candidate.id != pane);
         if target.zoomed == Some(pane) {
             target.zoomed = None;
         }
-        let fallback = neighbor.or_else(|| target.layout.leaves().first().copied());
+        let fallback = history
+            .iter()
+            .rev()
+            .copied()
+            .find(|previous| *previous != pane && target.layout.contains(*previous))
+            .or(neighbor)
+            .or_else(|| target.layout.leaves().first().copied());
+        if let Some(window) = &mut target.window {
+            window.forget(pane);
+            if window.active_pane() == Some(pane) {
+                window.activate(fallback);
+            }
+        }
         self.window
             .focus_history
             .retain(|previous| *previous != pane);
@@ -675,6 +773,7 @@ impl AppState {
             id: PaneId::new(),
             title: "Terminal".into(),
             content: PaneContent::Terminal { session: None },
+            proxy: false,
         };
         tab.layout.split(pane, new.id, edge);
         let id = new.id;
@@ -682,6 +781,106 @@ impl AppState {
         tab.panes.push(new);
         self.focus_pane(id)?;
         Ok(id)
+    }
+
+    /// Puts a new terminal where `pane` is, with its title, and returns it.
+    /// The old terminal's session is the caller's to end.
+    pub fn restart_terminal(&mut self, pane: PaneId) -> Result<PaneId, AppError> {
+        self.cancel_pending_creation(pane);
+        let tab = self.pane_tab_mut(pane)?;
+        let index = tab
+            .panes
+            .iter()
+            .position(|candidate| candidate.id == pane)
+            .ok_or(AppError::UnknownPane(pane))?;
+        if !matches!(tab.panes[index].content, PaneContent::Terminal { .. }) {
+            return Err(AppError::NotTerminal(pane));
+        }
+        let new = Pane {
+            id: PaneId::new(),
+            title: tab.panes[index].title.clone(),
+            content: PaneContent::Terminal { session: None },
+            proxy: false,
+        };
+        let id = new.id;
+        tab.layout.replace(pane, id);
+        tab.panes[index] = new;
+        if tab.zoomed == Some(pane) {
+            tab.zoomed = Some(id);
+        }
+        if let Some(window) = &mut tab.window {
+            window.replace(pane, id);
+        }
+        for previous in &mut self.window.focus_history {
+            if *previous == pane {
+                *previous = id;
+            }
+        }
+        if self.window.active_pane == Some(pane) {
+            self.window.active_pane = Some(id);
+        }
+        Ok(id)
+    }
+
+    /// Puts a new terminal where `pane` is, after its session ended without
+    /// the shell exiting, as when the server stopped. The new one keeps the
+    /// old one's proxy choice and a startup command that never ran, and
+    /// starts in the folder the old one was last in while `usable` accepts
+    /// it, or else in its project's folder.
+    pub fn renew_ended_terminal(
+        &mut self,
+        pane: PaneId,
+        usable: impl FnOnce(&std::path::Path) -> bool,
+    ) -> Result<PaneId, AppError> {
+        let directory = self
+            .starting_directories
+            .get(&pane)
+            .filter(|directory| usable(directory.as_path()))
+            .cloned();
+        let proxy = self.pane(pane).map(|pane| pane.proxy);
+        let command = self.startup_commands.get(&pane).cloned();
+        let id = self.restart_terminal(pane)?;
+        if let Some(command) = command {
+            self.startup_commands.insert(id, command);
+        }
+        if let Some(directory) = directory {
+            self.starting_directories.insert(id, directory);
+        }
+        if let Some(proxy) = proxy {
+            self.starting_proxies.insert(id, proxy);
+        }
+        Ok(id)
+    }
+
+    /// Whether `pane`'s terminal starts somewhere other than its project's
+    /// folder.
+    pub fn starts_outside_project(&self, pane: PaneId) -> bool {
+        self.starting_directories
+            .get(&pane)
+            .zip(self.pane_project(pane))
+            .is_some_and(|(directory, project)| directory.as_path() != project.directory)
+    }
+
+    /// Notes the folder `pane`'s terminal is in, so a terminal that replaces
+    /// it starts there. Returns whether that changed.
+    pub fn remember_directory(
+        &mut self,
+        pane: PaneId,
+        directory: &muxy_protocol::ServerPath,
+    ) -> bool {
+        if !directory.as_path().is_absolute()
+            || self.pane_tab(pane).is_none()
+            || self.starting_directories.get(&pane) == Some(directory)
+        {
+            return false;
+        }
+        self.starting_directories.insert(pane, directory.clone());
+        true
+    }
+
+    pub fn set_pane_proxy(&mut self, pane: PaneId, proxy: bool) -> Result<(), AppError> {
+        self.pane_mut(pane)?.proxy = proxy;
+        Ok(())
     }
 
     pub fn move_pane(
@@ -722,6 +921,10 @@ impl AppState {
         if tab.zoomed.is_some() {
             tab.zoomed = Some(pane);
         }
+        if let Some(window) = &mut tab.window {
+            window.activate(Some(pane));
+            return Ok(());
+        }
         let tab = tab.id;
         let project = self
             .projects
@@ -760,6 +963,29 @@ impl AppState {
         self.tab_mut(tab)?.layout.set_ratio(path, ratio)
     }
 
+    /// Moves the divider nearest `pane` toward `direction`. Returns whether
+    /// one moved; a zoomed tab shows no dividers, so none does.
+    pub fn resize_pane(
+        &mut self,
+        pane: PaneId,
+        direction: Direction,
+        step: f32,
+    ) -> Result<bool, AppError> {
+        let tab = self.pane_tab_mut(pane)?;
+        Ok(tab.zoomed.is_none() && tab.layout.resize(pane, direction, step))
+    }
+
+    /// Whether `resize_pane` would move a divider for `pane`.
+    pub fn can_resize_pane(&self, pane: PaneId, direction: Direction, step: f32) -> bool {
+        self.projects
+            .iter()
+            .flat_map(|project| &project.tabs)
+            .find(|tab| tab.layout.contains(pane))
+            .is_some_and(|tab| {
+                tab.zoomed.is_none() && tab.layout.clone().resize(pane, direction, step)
+            })
+    }
+
     pub fn equalize_splits(&mut self, pane: PaneId) -> Result<(), AppError> {
         let tab = self.pane_tab_mut(pane)?;
         tab.layout = tab
@@ -769,7 +995,7 @@ impl AppState {
         Ok(())
     }
 
-    fn tab_mut(&mut self, id: TabId) -> Result<&mut Tab, AppError> {
+    pub(crate) fn tab_mut(&mut self, id: TabId) -> Result<&mut Tab, AppError> {
         let project = self
             .projects
             .iter_mut()
@@ -799,13 +1025,18 @@ impl AppState {
 
     pub fn select_tab(&mut self, project: ProjectId, tab: TabId) -> Result<(), AppError> {
         self.project_mut(project)?.require_available()?;
-        if !self
+        let Some(target) = self
             .project_mut(project)?
             .tabs
             .iter()
-            .any(|item| item.id == tab)
-        {
+            .find(|item| item.id == tab)
+        else {
             return Err(AppError::UnknownTab { project, tab });
+        };
+        if target.detached() {
+            return Err(AppError::InvalidState(
+                "the tab shows in a window of its own".into(),
+            ));
         }
         self.window.selected_tab.insert(project, tab);
         self.window.current_project = project;
@@ -842,6 +1073,14 @@ impl AppState {
     /// The pane `tab` shows as its own: the active pane, or the one last
     /// focused in it.
     pub fn shown_pane(&self, tab: &Tab) -> Option<PaneId> {
+        if let Some(pane) = tab
+            .window
+            .as_ref()
+            .and_then(crate::TabWindow::active_pane)
+            .filter(|pane| tab.layout.contains(*pane))
+        {
+            return Some(pane);
+        }
         self.window
             .active_pane
             .into_iter()
@@ -922,9 +1161,10 @@ impl AppState {
                 *current = session;
                 Ok(())
             }
-            PaneContent::Settings | PaneContent::Webview(_) | PaneContent::Browser(_) => {
-                Err(AppError::NotTerminal(pane))
-            }
+            PaneContent::Settings
+            | PaneContent::Webview(_)
+            | PaneContent::Browser(_)
+            | PaneContent::Servers => Err(AppError::NotTerminal(pane)),
         }
     }
 
@@ -1004,7 +1244,16 @@ impl AppState {
         }
         let mut tabs = HashSet::new();
         let mut panes = HashSet::new();
+        let mut windows = HashSet::new();
         for tab in self.projects.iter().flat_map(|project| &project.tabs) {
+            if let Some(window) = &tab.window {
+                if !windows.insert(window.id) {
+                    return Err(AppError::InvalidState("duplicate tab window".into()));
+                }
+                if let Some(bounds) = window.bounds {
+                    bounds.validate()?;
+                }
+            }
             if !tabs.insert(tab.id) {
                 return Err(AppError::InvalidState(format!(
                     "duplicate tab ID {}",
@@ -1023,8 +1272,18 @@ impl AppState {
         }
 
         for project in &self.projects {
+            if let Some(selected) = self.window.selected_tab.get(&project.id)
+                && project
+                    .tabs
+                    .iter()
+                    .any(|tab| tab.id == *selected && tab.detached())
+            {
+                return Err(AppError::InvalidState(
+                    "a tab in its own window can't be selected".into(),
+                ));
+            }
             if let Some(groups) = &project.groups {
-                let order: Vec<_> = project.tabs.iter().map(|tab| tab.id).collect();
+                let order: Vec<_> = project.listed_tabs().map(|tab| tab.id).collect();
                 groups.validate(&order, self.window.selected_tab.get(&project.id).copied())?;
             }
         }

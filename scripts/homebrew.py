@@ -79,7 +79,7 @@ def formula(version, sums, repository):
   desc "Terminal multiplexer: the muxy CLI, terminal UI, and server"
   homepage "https://github.com/{repository}"
   version "{version}"
-  license "MIT"
+  license "Apache-2.0"
 
   on_macos do
     depends_on macos: :sonoma

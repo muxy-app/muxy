@@ -1,15 +1,12 @@
 //! Worktrees belong to a top-level project. Called on a worktree project, the
 //! calls that list and add worktrees act on its parent.
 
-use muxy_client::ClientError;
 use muxy_protocol::{
-    GitAction, GitReply, OperationId, ProjectDescriptor, ProjectId, ServerPath, WorktreeAction,
-    WorktreeIntent,
+    OperationId, ProjectDescriptor, ProjectId, ServerPath, WorktreeAction, WorktreeIntent,
 };
 
 use super::GitRepository;
 use super::records::{GitWorktree, WorktreeRemoval, collect};
-use super::repository::unexpected;
 use crate::MobileError;
 use crate::connection::find_project;
 use crate::records::{Project, server_path};
@@ -19,10 +16,7 @@ impl GitRepository {
     /// The repository's worktrees; `registered` names the project of each.
     pub fn worktrees(&self) -> Result<Vec<GitWorktree>, MobileError> {
         let root = self.root()?;
-        match self.request_in(root.id, GitAction::Worktrees)? {
-            GitReply::Worktrees(worktrees) => Ok(collect(worktrees)),
-            other => Err(unexpected(other)),
-        }
+        Ok(collect(self.client.git_worktrees(root.id)?))
     }
 
     /// Checks out `branch` in a new worktree and returns its project. `base`
@@ -38,10 +32,7 @@ impl GitRepository {
         directory: Option<String>,
     ) -> Result<Project, MobileError> {
         let root = self.root()?;
-        let directory = match directory {
-            Some(directory) => server_path(directory),
-            None => suggested_folder(&root, &branch)?,
-        };
+        let directory = directory.map_or_else(|| suggested_folder(&root, &branch), server_path);
         self.add_worktree(
             &root,
             WorktreeAction::Create {
@@ -73,10 +64,10 @@ impl GitRepository {
         directory: Option<String>,
     ) -> Result<Project, MobileError> {
         let root = self.root()?;
-        let directory = match directory {
-            Some(directory) => server_path(directory),
-            None => suggested_folder(&root, &format!("pr-{number}"))?,
-        };
+        let directory = directory.map_or_else(
+            || suggested_folder(&root, &format!("pr-{number}")),
+            server_path,
+        );
         self.add_worktree(
             &root,
             WorktreeAction::CheckoutPullRequest {
@@ -90,22 +81,15 @@ impl GitRepository {
     /// Describes this worktree project for confirming its removal, such as
     /// whether it has uncommitted changes.
     pub fn inspect_worktree_removal(&self) -> Result<WorktreeRemoval, MobileError> {
-        match self.request(GitAction::InspectRemoval)? {
-            GitReply::Removal(removal) => Ok(removal.into()),
-            other => Err(unexpected(other)),
-        }
+        Ok(self.client.git_inspect_removal(self.project)?.into())
     }
 
     /// Deletes this worktree project and its folder, and ends its terminals,
     /// if nothing changed since `inspect_worktree_removal`.
     pub fn remove_worktree(&self, expected: WorktreeRemoval) -> Result<(), MobileError> {
-        self.run(GitAction::Worktree(WorktreeIntent {
-            options: None,
-            operation: OperationId::new(),
-            action: WorktreeAction::Remove {
-                expected: expected.into(),
-            },
-        }))
+        Ok(self
+            .client
+            .git_remove_worktree(self.project, expected.into(), None)?)
     }
 }
 
@@ -131,22 +115,17 @@ impl GitRepository {
             operation: OperationId::new(),
             action,
         };
-        match self.request_in(root.id, GitAction::Worktree(intent))? {
-            GitReply::Project(project) => Ok(Project::from(&project)),
-            other => Err(unexpected(other)),
-        }
+        let added = self.client.git_add_worktree(root.id, intent)?;
+        Ok(Project::from(&added.project))
     }
 }
 
 /// Next to the project's folder, named after the project and `suffix`.
-fn suggested_folder(project: &ProjectDescriptor, suffix: &str) -> Result<ServerPath, MobileError> {
-    let directory = project
-        .directory
-        .to_path_buf()
-        .map_err(ClientError::Invalid)?;
+fn suggested_folder(project: &ProjectDescriptor, suffix: &str) -> ServerPath {
+    let directory = project.directory.as_path();
     let name = format!("{}-{}", folder_name(&project.name), folder_name(suffix));
-    let folder = directory.parent().unwrap_or(&directory).join(name);
-    Ok(ServerPath::from_path(&folder).map_err(ClientError::Invalid)?)
+    let folder = directory.parent().unwrap_or(directory).join(name);
+    ServerPath::from(folder)
 }
 
 /// Slashes would nest folders, so they become dashes.

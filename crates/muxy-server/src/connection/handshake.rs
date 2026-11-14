@@ -7,23 +7,26 @@ use muxy_protocol::{CONTROL, ErrorCode, ErrorReply, FEATURES, Message, SUPPORTED
 pub(super) fn accept(
     decoder: &mut Decoder<impl Read>,
     encoder: &mut Encoder<impl Write>,
+    server: ServerInfo,
 ) -> Result<bool, WireError> {
-    negotiate(decoder, encoder, |message| {
+    negotiate(decoder, encoder, server, |message| {
         log::error!("fatal protocol error: {message}");
     })
 }
 
-/// Unauthenticated network peers are reported at a limited rate instead.
+/// Unauthenticated network peers are reported at a limited rate instead, and
+/// never learn about this computer's files.
 pub(super) fn accept_remote(
     decoder: &mut Decoder<impl Read>,
     encoder: &mut Encoder<impl Write>,
 ) -> Result<bool, WireError> {
-    negotiate(decoder, encoder, super::auth::report)
+    negotiate(decoder, encoder, ServerInfo::current(), super::auth::report)
 }
 
 fn negotiate(
     decoder: &mut Decoder<impl Read>,
     encoder: &mut Encoder<impl Write>,
+    server: ServerInfo,
     report: impl Fn(&str),
 ) -> Result<bool, WireError> {
     let reject = |message: String| {
@@ -37,7 +40,7 @@ fn negotiate(
                     CONTROL,
                     &Message::HelloReply {
                         versions: SUPPORTED.to_vec(),
-                        server: ServerInfo::current(),
+                        server,
                         features: FEATURES.to_vec(),
                     },
                 )?;

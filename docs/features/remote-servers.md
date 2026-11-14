@@ -1,9 +1,10 @@
 # Remote Servers
 
-Muxy can work with projects on other computers over SSH. Each computer runs its
+Muxy can work with projects on other computers over SSH, or by
+[pairing](#pair-with-another-computer) with them. Each computer runs its
 own `muxy-server`, so remote terminals keep running when you disconnect, just
-like local ones. Remote projects sit in the same sidebar as local ones, marked
-with their server.
+like local ones. Remote projects sit in the same sidebar as local ones, under
+their server's heading.
 
 ```mermaid
 flowchart LR
@@ -24,22 +25,85 @@ On Linux hosts that end your processes when you log out, run
 
 ## In the desktop app
 
-1. Open the **Remote** section at the bottom of the sidebar and choose
+1. Open the **Servers** section at the bottom of the sidebar and choose
    **Add Server…**.
 2. Enter the SSH host (a host name, address, or `~/.ssh/config` alias), and
    optionally the user, port, and identity file.
 3. Choose **Test Connection**. If Muxy isn't installed there, the app offers to
    install the same version into `~/.local/bin`.
-4. Add projects with **Add Project → Remote**, which browses the server's
-   folders.
+4. Expand it in the sidebar, then add projects with its **Add Project →
+   Folder…**, which browses its folders.
 
+- Servers start disconnected each time Muxy opens, and their projects show
+  what was last known. Opening one of a server's projects or tabs, expanding it
+  in the sidebar before its projects are known, or **Connect** in its menu
+  connects it. So does renaming or removing one of its projects, which waits
+  for it. A server you add or pair connects right away. Its terminals that
+  have nothing to show yet say it is disconnected, with **Connect**.
 - Passwords are asked when connecting and kept only in memory until you quit.
-- A dropped server reconnects on its own, waiting longer each time. It stops
+- A connected server that drops reconnects on its own, waiting longer each time. It stops
   retrying when it needs you, for example for a password or a new host key.
+- Right-click a server in the **Servers** popover for its actions, or hover it
+  and use its pencil to edit it.
+- Put servers in a **Group** from **Add Server…** or **Edit…**, or with
+  **Move to Group** in their menu. The popover and **Settings → Servers** list
+  them by group. In `settings.toml`, it is `group = "…"`.
+- **Manage Servers…** opens **Settings → Servers**. Under **Other Servers** it
+  has every server by group:
+  - Tick servers' boxes, or **Select all**, to act on several; `Shift`-click a
+    box to tick a range. The bar above the list connects, disconnects,
+    regroups, or forgets the ticked servers, and so does right-clicking one.
+  - Each group heading connects its servers, and renames or deletes the group.
+    Deleting a group keeps its servers.
+- **Disconnect** hangs up without ending terminals there. The server stays
+  disconnected until you connect it or open one of its projects.
 - **Forget** a server to remove it and its projects from this app. Nothing on
   the server changes.
-- The status bar shows the current project's server, with connect, restart, and
-  stop.
+- The status bar shows the current project's server, with connect, restart,
+  and stop.
+
+### In the sidebar
+
+The sidebar lists every server under its own heading: **This Mac** (**This
+Computer** on Linux) first, then the others in the Servers popover's order.
+Each heading shows how its server is doing, and clicking it expands or
+collapses that server's Home, projects, and **Add Project** row. This computer
+starts expanded and the others collapsed, and the app remembers each choice,
+also after a restart. Opening something on a collapsed server, such as from
+**New Tab in Project…**, expands it, and expanding a server that hasn't listed
+its projects yet connects to it. Workspaces filter the projects under every
+heading, and **Focus Current Project** shows only the current project, without
+headings. To list only this computer's projects, turn off **Settings →
+Appearance → Show other servers in the sidebar**; the Servers button still
+manages the others, and **New Tab in Project…** still offers their projects.
+
+Nothing switches the app between servers. **Add Project** adds to its own
+server; ⌘O and **New Tab in Project…** browse the current project's server, and
+the latter also offers every server's projects and the other servers by name.
+
+Terminals that another client, such as a phone or the terminal UI, shows on
+this computer's server open here as tabs in their project, without taking
+focus. Terminals other clients show on another computer's server, and those
+nobody shows, such as detached ones, stay in **Existing Terminals**. Closing or
+detaching one here leaves it running for the clients still showing it, and the
+app doesn't open it here again. It stays in **Existing Terminals** to open it
+again.
+
+### Pair with another computer
+
+Pairing needs no SSH setup, only Muxy on both computers, macOS or Linux, which
+can reach each other on the network or through a VPN.
+
+1. On the other computer, open **Settings → Servers** (**Manage Servers…** in the
+   sidebar's **Servers** popover). Under **Clients**, turn on **Allow
+   clients**, choose **Show Pairing Code**, then **Copy Link**.
+2. Here, in the **Servers** popover or **Settings → Servers**, choose **Pair with
+   Link…** and paste it.
+
+The paired computer works like any remote server, except that it can't be
+restarted from here. This computer is listed under **Clients** in the other
+computer's **Settings → Servers**, where **Revoke** disconnects it. If it was revoked or reset, paste a
+new link in its **Edit…** form to pair again.
 
 ### Custom SSH commands
 

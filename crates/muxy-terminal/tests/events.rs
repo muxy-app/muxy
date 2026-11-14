@@ -76,3 +76,16 @@ fn osc_52_clipboard_writes_ignore_unsupported_or_invalid_requests() -> TestResul
     assert!(terminal.take_events().is_empty());
     Ok(())
 }
+
+#[test]
+fn working_directory_keeps_bytes_that_are_not_utf8() -> TestResult {
+    let mut terminal = Terminal::new(Size { cols: 80, rows: 24 }, 1024)?;
+    terminal.feed(b"\x1b]7;file://host/tmp/caf\xe9\x07");
+    assert_eq!(
+        terminal.take_events(),
+        [TerminalEvent::Directory(
+            b"file://host/tmp/caf\xe9".to_vec()
+        )]
+    );
+    Ok(())
+}

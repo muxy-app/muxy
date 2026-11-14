@@ -59,12 +59,7 @@ fn pane_bounds(
     pane: PaneId,
     cx: &mut VisualTestContext,
 ) -> Bounds<gpui::Pixels> {
-    view.read_with(cx, |model, cx| {
-        model.grids[&pane]
-            .view
-            .read(cx)
-            .geometry
-            .expect("geometry")
-            .0
-    })
+    view.read_with(cx, |model, _| assert!(model.grids.contains_key(&pane)));
+    cx.debug_bounds(format!("pane-{pane}").leak())
+        .expect("pane bounds")
 }

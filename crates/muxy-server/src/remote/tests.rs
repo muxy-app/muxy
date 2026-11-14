@@ -27,6 +27,7 @@ fn request(secret: [u8; 16]) -> PairRequest {
     PairRequest {
         secret,
         name: " Phone ".into(),
+        kind: DeviceKind::Phone,
     }
 }
 
@@ -122,28 +123,67 @@ fn unauthenticated_admissions_are_capped_and_released() {
 }
 
 #[test]
-fn turning_access_off_keeps_an_unreadable_store_for_recovery()
+fn an_unreadable_store_is_moved_aside_and_access_starts_off()
 -> Result<(), Box<dyn std::error::Error>> {
     let directory =
         std::env::temp_dir().join(format!("muxy-remote-{}", muxy_protocol::OperationId::new()));
     std::fs::create_dir(&directory)?;
     let path = directory.join("remote.json");
     std::fs::write(&path, "damaged")?;
-    let remote = RemoteAccess::open(path.clone());
-    assert!(matches!(
+    let remote = RemoteAccess::open(path.clone())?;
+    assert_eq!(
         remote.state(&HashSet::new()).status,
-        ListenerStatus::Failed(_)
-    ));
-    remote.configure(RemoteAccessSettings {
-        enabled: false,
-        port: 7419,
-    })?;
-    assert_eq!(std::fs::read_to_string(&path)?, "damaged");
+        ListenerStatus::Disabled
+    );
+    let kept = remote
+        .unreadable()
+        .map(|file| PathBuf::from(file.kept_as.clone()))
+        .ok_or("the unreadable store is not reported")?;
+    assert_eq!(std::fs::read_to_string(kept)?, "damaged");
+    assert!(!path.exists());
     remote.configure(RemoteAccessSettings {
         enabled: true,
         port: 7419,
     })?;
     assert!(store::load(&path)?.identity.is_some());
     std::fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[test]
+fn a_computer_keeps_its_kind_and_unknown_kinds_pair_as_phones() -> Result<(), ServerError> {
+    let remote = enabled()?;
+    let mut kinds = Vec::new();
+    for kind in [DeviceKind::Computer, DeviceKind::Unrecognized(9)] {
+        let secret = offer(&remote, ClientId::new());
+        let paired = remote
+            .pair(
+                &PairRequest {
+                    kind,
+                    ..request(secret)
+                },
+                server(),
+            )
+            .ok_or_else(|| ServerError::new(ErrorCode::BadRequest, "not paired"))?;
+        let authenticated = remote.authenticate(&paired.credential);
+        kinds.push(authenticated.map(|(_, kind)| kind));
+    }
+    assert_eq!(kinds, [Some(DeviceKind::Computer), Some(DeviceKind::Phone)]);
+    let listed: Vec<_> = remote
+        .state(&HashSet::new())
+        .devices
+        .iter()
+        .map(|device| device.kind)
+        .collect();
+    assert_eq!(listed, [DeviceKind::Computer, DeviceKind::Phone]);
+    Ok(())
+}
+
+#[test]
+fn nothing_is_saved_once_access_is_closed() -> Result<(), ServerError> {
+    let remote = enabled()?;
+    remote.close();
+    assert!(remote.set_push_notifications(false).is_err());
+    assert!(remote.push_notifications());
     Ok(())
 }

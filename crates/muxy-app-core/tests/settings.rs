@@ -11,7 +11,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::{
-    CellHeight, KeyChord, Keymap, ServerEntry, Settings, TerminalSettings,
+    Appearance, InterfaceSize, KeyChord, Keymap, PairedServer, ServerEntry, Settings,
+    TerminalSettings,
 };
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -41,6 +42,73 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn project_sort_modes_preserve_legacy_name_settings_and_unrelated_preferences() -> Result {
+    use muxy_app_core::settings::{Appearance, ProjectOrder};
+
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[appearance]\ntab_focused_project_order = \"name\"\ntips_visible = false\n[window]\nconfirm_running_process = false\n",
+    )?;
+    let mut appearance = Appearance::load(&path)?;
+    assert_eq!(appearance.sidebar_project_order, ProjectOrder::Name);
+    for order in [
+        ProjectOrder::NameDescending,
+        ProjectOrder::RecentlyActive,
+        ProjectOrder::DateAdded,
+        ProjectOrder::Manual,
+        ProjectOrder::Name,
+    ] {
+        let previous = appearance.clone();
+        appearance.sidebar_project_order = order;
+        appearance = appearance.save_changes(&previous, &path)?;
+        let saved = Settings::load(&path)?;
+        assert_eq!(saved.appearance, appearance);
+        assert!(!saved.appearance.tips_visible);
+        assert!(!saved.window.confirm_running_process);
+    }
+    Ok(())
+}
+
+#[test]
+fn sidebar_servers_start_with_this_computer_expanded_and_keep_each_choice() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "[appearance]\ntips_visible = false\n")?;
+    let mut appearance = Appearance::load(&path)?;
+    let remote = ServerId::new();
+    assert!(appearance.server_expanded(ServerId::local()));
+    assert!(!appearance.server_expanded(remote));
+
+    let previous = appearance.clone();
+    appearance
+        .sidebar_servers_expanded
+        .insert(ServerId::local(), false);
+    appearance.sidebar_servers_expanded.insert(remote, true);
+    appearance = appearance.save_changes(&previous, &path)?;
+    let saved = Appearance::load(&path)?;
+    assert_eq!(saved, appearance);
+    assert!(!saved.server_expanded(ServerId::local()));
+    assert!(saved.server_expanded(remote));
+    assert!(!saved.tips_visible);
+
+    let stale = saved.clone();
+    let mut other = saved.clone();
+    let elsewhere = ServerId::new();
+    other.sidebar_servers_expanded.insert(elsewhere, true);
+    other.save_changes(&stale, &path)?;
+    let mut here = stale.clone();
+    here.sidebar_servers_expanded.remove(&remote);
+    let merged = here.save_changes(&stale, &path)?;
+    assert!(
+        merged.server_expanded(elsewhere),
+        "another app's choice is kept"
+    );
+    assert!(!merged.sidebar_servers_expanded.contains_key(&remote));
+    assert_eq!(Appearance::load(&path)?, merged);
+    Ok(())
 }
 
 #[test]
@@ -93,6 +161,25 @@ fn agents_panel_docking_preserves_legacy_floating_settings_and_saved_geometry() 
 }
 
 #[test]
+fn usage_ping_is_on_by_default_and_saves_without_touching_other_sections() -> Result {
+    let fixture = Fixture::new()?;
+    assert!(Settings::default().privacy.usage_ping);
+    let path = fixture.write(
+        "settings.toml",
+        "[window]\nconfirm_running_process = false\n",
+    )?;
+    let mut settings = Settings::load(&path)?;
+    assert!(settings.privacy.usage_ping);
+    settings.privacy.usage_ping = false;
+    settings.save_privacy(&path)?;
+    let loaded = Settings::load(&path)?;
+    assert!(!loaded.privacy.usage_ping);
+    assert!(!loaded.window.confirm_running_process);
+    assert!(fs::read_to_string(&path)?.contains("[privacy]\nusage_ping = false"));
+    Ok(())
+}
+
+#[test]
 fn saving_close_confirmation_preserves_invalid_files_and_in_memory_preferences() -> Result {
     let fixture = Fixture::new()?;
     for source in ["not valid TOML", "window = 'invalid'"] {
@@ -140,46 +227,30 @@ fn every_default_binding_round_trips_and_resolves_both_directions() -> Result {
 }
 
 #[test]
-fn ghostty_defaults_are_created_once_and_existing_config_is_preserved() -> Result {
-    let fixture = Fixture::new()?;
-    let path = fixture.0.join("ghostty.conf");
-    assert_eq!(TerminalSettings::load(&path)?, TerminalSettings::default());
-    let source = "font-family = Monaco\nfont-size = 16\n";
-    fs::write(&path, source)?;
-    let settings = TerminalSettings::load(&path)?;
-    assert_eq!(settings.font_size, 16.0);
-    assert_eq!(settings.font_families, ["Monaco"]);
-    assert_eq!(fs::read_to_string(path)?, source);
-    Ok(())
-}
-
-#[test]
 fn ghostty_theme_is_ignored_because_the_settings_theme_colors_terminals() -> Result {
     let fixture = Fixture::new()?;
-    let path = fixture.write("ghostty.conf", "theme = \"Cursor Dark\"\nfont-size = 16\n")?;
-    let settings = TerminalSettings::load(&path)?;
+    fixture.write("ghostty.conf", "theme = \"Cursor Dark\"\nfont-size = 16\n")?;
+    let settings = TerminalSettings::load_native(&fixture.0.join("terminal.toml"))?;
     assert_eq!(settings.font_size, 16.0);
     assert_eq!(settings.options, TerminalSettings::default().options);
-    assert!(
-        settings
-            .diagnostics
-            .iter()
-            .any(|warning| warning.contains("theme is not supported by Muxy"))
-    );
     Ok(())
 }
 
 #[test]
 fn ghostty_includes_apply_last_and_detect_cycles() -> Result {
     let fixture = Fixture::new()?;
-    fixture.write("fonts", "font-size = 17\n")?;
-    let path = fixture.write(
+    fixture.write("fonts", "font-size = 17\nfont-family = Monaco\n")?;
+    fixture.write(
         "ghostty.conf",
-        "config-file = ?missing\nconfig-file = fonts\nfont-size = 15\n",
+        "config-file = ?missing\nconfig-file = fonts\nfont-size = 15\nfont-family = Menlo\n",
     )?;
-    assert_eq!(TerminalSettings::load(&path)?.font_size, 17.0);
+    let path = fixture.0.join("terminal.toml");
+    let migrated = TerminalSettings::load_native(&path)?;
+    assert_eq!(migrated.font_size, 17.0);
+    assert_eq!(migrated.font_families, ["Menlo", "Monaco"]);
+    fs::remove_file(&path)?;
     fixture.write("fonts", "config-file = ghostty.conf\n")?;
-    let error = TerminalSettings::load(&path)
+    let error = TerminalSettings::load_native(&path)
         .err()
         .ok_or("cycle accepted")?
         .to_string();
@@ -192,6 +263,7 @@ fn existing_bindings_take_precedence_over_new_project_defaults_and_round_trip() 
     let fixture = Fixture::new()?;
     for project_action in [
         ShortcutId::AddProject,
+        ShortcutId::NewTabInProject,
         ShortcutId::PreviousProject,
         ShortcutId::NextProject,
         ShortcutId::SelectProject1,
@@ -212,6 +284,44 @@ fn existing_bindings_take_precedence_over_new_project_defaults_and_round_trip() 
             assert_eq!(Settings::load(&path)?, settings);
             fs::write(&path, toml::to_string(&settings)?)?;
             assert_eq!(Settings::load(&path)?, settings);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn defaults_for_new_commands_yield_to_keys_already_bound() -> Result {
+    let fixture = Fixture::new()?;
+    let custom = "command.build";
+    for command in [
+        ShortcutId::SwitchProject,
+        ShortcutId::RenameTab,
+        ShortcutId::MoveTabLeft,
+        ShortcutId::MoveTabRight,
+        ShortcutId::ResizePaneLeft,
+        ShortcutId::ResizePaneRight,
+        ShortcutId::ResizePaneUp,
+        ShortcutId::ResizePaneDown,
+        ShortcutId::FloatPane,
+        ShortcutId::DockFloatingTerminal,
+        ShortcutId::ShowFloatingTerminalInAllProjects,
+        ShortcutId::ShowFloatingTerminalInItsProject,
+        ShortcutId::MoveTabToMainWindow,
+        ShortcutId::ApplyLayout,
+        ShortcutId::OpenProjectInDefaultApp,
+        ShortcutId::ToggleAgentSessions,
+    ] {
+        let key = command.definition().keys[0];
+        let chord: KeyChord = key.parse()?;
+        assert_eq!(Keymap::default().chord(command), Some(&chord));
+        for existing in [ShortcutId::NewTab.name(), custom] {
+            let source = format!("[keymap]\n\"{existing}\" = '{chord}'\n");
+            let path = fixture.write("settings.toml", &source)?;
+            let settings = Settings::load(&path)?;
+            assert_eq!(settings.keymap.binding(existing), Some(&chord));
+            assert_eq!(settings.keymap.chord(command), None);
+            let reloaded: Settings = toml::from_str(&toml::to_string(&settings)?)?;
+            assert_eq!(reloaded.keymap, settings.keymap);
         }
     }
     Ok(())
@@ -308,58 +418,29 @@ fn a_command_keeps_a_key_a_newer_default_claims_but_cannot_take_one_in_use() -> 
 }
 
 #[test]
-fn terminal_save_preserves_comments_unknown_keys_and_includes_and_returns_effective_values()
--> Result {
+fn legacy_project_tab_conflicts_load_without_changing_existing_bindings() -> Result {
     let fixture = Fixture::new()?;
-    fixture.write("included.conf", "font-size = 22\n")?;
-    let path = fixture.write("ghostty.conf", "# keep this comment\r\nunknown-option = keep\r\nconfig-file = included.conf\r\nfont-family = Menlo\r\nfont-size = 13\r\nfont-size = 14\r\nadjust-cell-height = 0")?;
-    let requested = TerminalSettings {
-        font: muxy_app_core::settings::FontOptions::default(),
-        font_families: vec!["SF Mono".into(), "Menlo".into()],
-        font_size: 18.0,
-        cell_height: CellHeight::Percent(10.0),
-        macos_option_as_alt: muxy_app_core::settings::OptionAsAlt::default(),
-        ..TerminalSettings::default()
-    };
-    let effective = requested.save(&path)?;
-    assert_eq!(effective.font_size, 22.0);
-    assert_eq!(effective.font_families, requested.font_families);
-    assert_eq!(effective.cell_height, requested.cell_height);
-    let source = fs::read_to_string(&path)?;
-    assert!(source.starts_with(
-        "# keep this comment\r\nunknown-option = keep\r\nconfig-file = included.conf\r\n"
-    ));
-    assert_eq!(source.matches("font-size =").count(), 1);
-    assert_eq!(TerminalSettings::load(&path)?, effective);
-    Ok(())
-}
+    for key in ["cmd-shift-n", "ctrl-alt-n"] {
+        let source = format!("[keymap]\nnew_tab_in_project = '{key}'\nnew_tab = '{key}'\n");
+        let path = fixture.write("settings.toml", &source)?;
+        let keymap = Settings::load(&path)?.keymap;
+        let chord: KeyChord = key.parse()?;
+        assert_eq!(keymap.chord(ShortcutId::NewTab), Some(&chord));
+        assert_ne!(keymap.chord(ShortcutId::NewTabInProject), Some(&chord));
+        assert_eq!(fs::read_to_string(&path)?, source);
+        assert!(
+            keymap
+                .with_binding("new_tab_in_project", Some(chord))
+                .is_err()
+        );
+        keymap.save(&path)?;
+        assert!(!fs::read_to_string(&path)?.contains("new_tab_in_project"));
+        assert_eq!(Settings::load(&path)?.keymap, keymap);
 
-#[test]
-fn invalid_terminal_values_or_includes_leave_the_original_file_unchanged() -> Result {
-    let fixture = Fixture::new()?;
-    let path = fixture.write(
-        "ghostty.conf",
-        "# original\nfont-size = 13\nconfig-file = missing.conf\n",
-    )?;
-    let original = fs::read(&path)?;
-    assert!(TerminalSettings::default().save(&path).is_err());
-    assert_eq!(fs::read(&path)?, original);
-    for settings in [
-        TerminalSettings {
-            font_size: f32::NAN,
-            ..TerminalSettings::default()
-        },
-        TerminalSettings {
-            cell_height: CellHeight::Percent(f32::INFINITY),
-            ..TerminalSettings::default()
-        },
-        TerminalSettings {
-            font_families: vec!["Menlo\nfont-size = 32".into()],
-            ..TerminalSettings::default()
-        },
-    ] {
-        assert!(settings.save(&path).is_err());
-        assert_eq!(fs::read(&path)?, original);
+        let reassigned =
+            keymap.with_binding("new_tab_in_project", Some("ctrl-alt-f24".parse()?))?;
+        reassigned.save(&path)?;
+        assert_eq!(Settings::load(&path)?.keymap, reassigned);
     }
     Ok(())
 }
@@ -402,23 +483,7 @@ fn runtime_keymap_rebinding_reset_and_persistence_preserve_contexts_and_other_se
 }
 
 #[test]
-fn editing_terminal_values_does_not_copy_included_fonts_into_the_root() -> Result {
-    let fixture = Fixture::new()?;
-    fixture.write("included.conf", "font-family = Monaco\nfont-size = 13\n")?;
-    let path = fixture.write(
-        "ghostty.conf",
-        "font-family = Menlo\nfont-size = 13\nconfig-file = included.conf\n",
-    )?;
-    let mut settings = TerminalSettings::load(&path)?;
-    assert_eq!(settings.font_families, ["Menlo", "Monaco"]);
-    let keys = TerminalSettings::included_keys(&path)?;
-    assert!(keys.contains("font-family") && keys.contains("font-size"));
-    for height in [CellHeight::Pixels(2), CellHeight::Pixels(4)] {
-        settings.cell_height = height;
-        settings = settings.save(&path)?;
-        assert_eq!(settings.font_families, ["Menlo", "Monaco"]);
-        assert!(!fs::read_to_string(&path)?.contains("font-family = Monaco"));
-    }
+fn a_command_cannot_be_unbound_while_another_claims_its_default_key() -> Result {
     let claimed = Keymap::default().with_binding(
         "new_tab",
         Some(ShortcutId::NewHomeTab.definition().keys[0].parse()?),
@@ -428,10 +493,28 @@ fn editing_terminal_values_does_not_copy_included_fonts_into_the_root() -> Resul
 }
 
 #[test]
-fn ghostty_terminal_options_bindings_and_diagnostics_round_trip() -> Result {
-    use muxy_app_core::settings::{TerminalAction, TerminalColor};
+fn resetting_either_of_two_swapped_shortcuts_resets_both() -> Result {
+    let tab = ShortcutId::CloseTab.definition().keys[0];
+    let pane = ShortcutId::ClosePane.definition().keys[0];
     let fixture = Fixture::new()?;
     let path = fixture.write(
+        "settings.toml",
+        &format!("[keymap]\nclose_tab = '{pane}'\nclose_pane = '{tab}'\nnew_tab = 'cmd-alt-n'\n"),
+    )?;
+    let swapped = Settings::load(&path)?.keymap;
+    let mut expected = Keymap::default();
+    expected = expected.with_binding("new_tab", Some("cmd-alt-n".parse()?))?;
+    for id in ["close_tab", "close_pane"] {
+        assert_eq!(swapped.with_binding(id, None)?, expected);
+    }
+    Ok(())
+}
+
+#[test]
+fn ghostty_terminal_options_bindings_and_diagnostics_migrate() -> Result {
+    use muxy_app_core::settings::{TerminalAction, TerminalColor};
+    let fixture = Fixture::new()?;
+    fixture.write(
         "ghostty.conf",
         r"# keep this comment
 background = #123456
@@ -464,7 +547,7 @@ keybind = global:super+a=new_window
 window-save-state = always
 ",
     )?;
-    let mut settings = TerminalSettings::load(&path)?;
+    let settings = TerminalSettings::load_native(&fixture.0.join("terminal.toml"))?;
     let options = &settings.options;
     assert_eq!(options.background, Some(0x12_34_56));
     assert_eq!(options.palette[&196], 0x23_45_67);
@@ -493,19 +576,6 @@ window-save-state = always
             .iter()
             .all(|warning| warning.contains("ghostty.conf:"))
     );
-    settings.font_size = 21.0;
-    assert_eq!(settings.save(&path)?, settings);
-    assert!(fs::read_to_string(&path)?.contains("keybind = shift+enter=text:\\x1b\\r"));
-    settings.options.background = Some(0x65_43_21);
-    settings.options.palette.remove(&1);
-    settings
-        .keybindings
-        .bindings
-        .insert("ctrl--".parse()?, TerminalAction::Text(vec![0, 0xff, 0x1b]));
-    let saved = settings.save(&path)?;
-    assert_eq!(saved.options, settings.options);
-    assert_eq!(saved.keybindings, settings.keybindings);
-    assert!(fs::read_to_string(&path)?.contains("# keep this comment"));
     Ok(())
 }
 
@@ -535,6 +605,8 @@ fn servers_load_and_saves_keep_other_settings_and_hand_edits() -> Result {
             ssh_command: None,
             identity_file: None,
             password_login: false,
+            group: None,
+            paired: None,
         }]
     );
     assert_eq!(
@@ -577,13 +649,134 @@ fn servers_load_and_saves_keep_other_settings_and_hand_edits() -> Result {
     let backup: Settings = toml::from_str(&muxy_app_core::backup::settings_source(&loaded)?)?;
     assert_eq!(backup.servers, settings.servers);
 
-    settings.remove_server(first, &path)?;
+    settings.remove_servers(&[first], &path)?;
     assert_eq!(server_names(&settings), ["builder", "hand"]);
-    settings.remove_server(build.id, &path)?;
-    settings.remove_server(hand.id, &path)?;
+    settings.remove_servers(&[build.id, hand.id], &path)?;
     assert!(settings.servers.is_empty());
     assert!(!fs::read_to_string(&path)?.contains("servers"));
     assert!(!Settings::load(&path)?.window.confirm_running_process);
+    Ok(())
+}
+
+#[test]
+fn server_groups_are_set_in_one_write_and_keep_hand_edits() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[window]\nconfirm_running_process = false\n",
+    )?;
+    let mut settings = Settings::load(&path)?;
+    let api = ServerEntry::new("api".into(), "deploy@api".into());
+    let db = ServerEntry::new("db".into(), "deploy@db".into());
+    let devbox = ServerEntry {
+        group: Some("personal".into()),
+        ..ServerEntry::new("devbox".into(), "me@devbox".into())
+    };
+    for server in [&api, &db, &devbox] {
+        settings.add_server(server.clone(), &path)?;
+    }
+    let source = fs::read_to_string(&path)?;
+    assert_eq!(
+        source.matches("group = ").count(),
+        1,
+        "no group is left out"
+    );
+    let hand = ServerEntry::new("hand".into(), "hand@host".into());
+    fs::write(
+        &path,
+        format!(
+            "{source}\n[[servers]]\nid = \"{}\"\nname = \"hand\"\nssh = \"hand@host\"\ngroup = \"Production\"\n",
+            hand.id
+        ),
+    )?;
+
+    settings.set_servers_group(&[api.id, db.id, ServerId::new()], Some("Production"), &path)?;
+    let loaded = Settings::load(&path)?;
+    assert_eq!(loaded.servers, settings.servers);
+    assert_eq!(server_names(&loaded), ["api", "db", "devbox", "hand"]);
+    assert_eq!(loaded.server_groups(), ["Production", "personal"]);
+    let backup: Settings = toml::from_str(&muxy_app_core::backup::settings_source(&loaded)?)?;
+    assert_eq!(backup.servers, loaded.servers);
+
+    settings.set_servers_group(&[devbox.id, hand.id], None, &path)?;
+    assert_eq!(Settings::load(&path)?.server_groups(), ["Production"]);
+    let before = fs::read_to_string(&path)?;
+    for invalid in ["", " ", "Prod\u{7}", &"g".repeat(257)] {
+        assert!(
+            settings
+                .set_servers_group(&[api.id], Some(invalid), &path)
+                .is_err(),
+            "{invalid:?}"
+        );
+        assert_eq!(fs::read_to_string(&path)?, before);
+    }
+    settings.set_servers_group(&[api.id], Some(" Spaced "), &path)?;
+    let spaced = Settings::load(&path)?;
+    assert_eq!(
+        spaced
+            .server(api.id)
+            .and_then(|server| server.group.as_deref()),
+        Some(" Spaced "),
+        "a hand-written group with spaces still loads"
+    );
+    assert!(!spaced.window.confirm_running_process);
+    Ok(())
+}
+
+#[test]
+fn servers_are_placed_and_regrouped_in_one_write_in_listed_order() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[window]\nconfirm_running_process = false\n",
+    )?;
+    let mut settings = Settings::load(&path)?;
+    let server = |name: &str, group: Option<&str>| ServerEntry {
+        group: group.map(str::to_owned),
+        ..ServerEntry::new(name.into(), format!("dev@{name}"))
+    };
+    let (a, b, c, d) = (
+        server("a", None),
+        server("b", Some("Build")),
+        server("c", Some("Build")),
+        server("d", Some("Deploy")),
+    );
+    for entry in [&a, &b, &c, &d] {
+        settings.add_server(entry.clone(), &path)?;
+    }
+    let listed = |settings: &Settings| -> Vec<(String, Option<String>)> {
+        settings
+            .servers
+            .iter()
+            .map(|server| (server.name.clone(), server.group.clone()))
+            .collect()
+    };
+    let named = |name: &str, group: Option<&str>| (name.to_owned(), group.map(str::to_owned));
+
+    settings.place_servers(&[d.id], Some("Build"), Some(c.id), &path)?;
+    assert_eq!(
+        listed(&settings),
+        [
+            named("a", None),
+            named("b", Some("Build")),
+            named("d", Some("Build")),
+            named("c", Some("Build")),
+        ]
+    );
+    settings.place_servers(&[a.id, b.id], Some("Deploy"), None, &path)?;
+    assert_eq!(
+        listed(&settings),
+        [
+            named("d", Some("Build")),
+            named("c", Some("Build")),
+            named("a", Some("Deploy")),
+            named("b", Some("Deploy")),
+        ]
+    );
+    assert_eq!(settings.server_groups(), ["Build", "Deploy"]);
+    let loaded = Settings::load(&path)?;
+    assert_eq!(loaded.servers, settings.servers);
+    assert!(!loaded.window.confirm_running_process);
     Ok(())
 }
 
@@ -651,6 +844,75 @@ fn custom_commands_round_trip_beside_legacy_ssh_and_reject_ambiguous_logins() ->
     Ok(())
 }
 
+fn paired(fingerprint: &str) -> PairedServer {
+    PairedServer {
+        hosts: vec!["192.168.1.5".into(), "studio.local".into()],
+        port: 7419,
+        fingerprint: fingerprint.into(),
+        device: muxy_protocol::DeviceId::from_u128(3),
+    }
+}
+
+#[test]
+fn paired_servers_round_trip_and_name_their_first_address() -> Result {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "")?;
+    let mut settings = Settings::load(&path)?;
+    let studio = ServerEntry::paired("Studio".into(), paired(&"c3".repeat(32)));
+    settings.add_server(studio.clone(), &path)?;
+    assert_eq!(
+        Settings::load(&path)?.servers,
+        std::slice::from_ref(&studio)
+    );
+    assert_eq!(studio.destination(), "192.168.1.5");
+    assert_eq!(
+        studio.paired.as_ref().and_then(PairedServer::fingerprint),
+        Some([0xc3; 32])
+    );
+    assert!(!fs::read_to_string(&path)?.contains("ssh"));
+    Ok(())
+}
+
+#[test]
+fn paired_servers_need_a_full_endpoint_and_no_ssh() {
+    let valid = paired(&"c3".repeat(32));
+    for entry in [
+        ServerEntry::paired("a".into(), paired("c3")),
+        ServerEntry::paired(
+            "a".into(),
+            PairedServer {
+                hosts: Vec::new(),
+                ..valid.clone()
+            },
+        ),
+        ServerEntry::paired(
+            "a".into(),
+            PairedServer {
+                port: 80,
+                ..valid.clone()
+            },
+        ),
+        ServerEntry::paired(
+            "a".into(),
+            PairedServer {
+                hosts: vec!["bad host".into()],
+                ..valid.clone()
+            },
+        ),
+        ServerEntry {
+            ssh: "dev@box".into(),
+            ..ServerEntry::paired("a".into(), valid.clone())
+        },
+        ServerEntry {
+            password_login: true,
+            ..ServerEntry::paired("a".into(), valid.clone())
+        },
+    ] {
+        assert!(entry.validate().is_err(), "{entry:?}");
+    }
+    assert!(ServerEntry::paired("a".into(), valid).validate().is_ok());
+}
+
 #[test]
 fn invalid_servers_are_rejected_without_changing_the_file() -> Result {
     let fixture = Fixture::new()?;
@@ -689,6 +951,186 @@ fn invalid_servers_are_rejected_without_changing_the_file() -> Result {
     assert!(settings.update_server(unknown, &path).is_err());
     assert_eq!(fs::read_to_string(&path)?, before);
     assert!(settings.servers.is_empty());
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn linux_defaults_avoid_the_command_key_and_replace_former_worktree_keys() -> Result {
+    for key in muxy_core::shortcuts::ALL
+        .iter()
+        .flat_map(|shortcut| shortcut.keys)
+    {
+        assert!(!key.contains("cmd"), "{key} needs a Linux key");
+    }
+    let fixture = Fixture::new()?;
+    let path = fixture.write(
+        "settings.toml",
+        "[keymap]\nnew_worktree = 'cmd-alt-n'\nswitch_worktree = 'ctrl-alt-f24'\n",
+    )?;
+    let keymap = Settings::load(&path)?.keymap;
+    assert_eq!(
+        keymap.chord(ShortcutId::NewWorktree),
+        Some(&"ctrl-shift-alt-n".parse()?)
+    );
+    assert_eq!(
+        keymap.chord(ShortcutId::SwitchWorktree),
+        Some(&"ctrl-alt-f24".parse()?)
+    );
+    let path = fixture.write("settings.toml", "[keymap]\nswitch_worktree = 'cmd-alt-w'\n")?;
+    assert_eq!(
+        Settings::load(&path)?
+            .keymap
+            .chord(ShortcutId::SwitchWorktree),
+        Some(&"ctrl-shift-alt-w".parse()?)
+    );
+    Ok(())
+}
+
+#[test]
+fn an_extension_that_took_tab_keeps_it_over_the_form_defaults() -> Result {
+    let fixture = Fixture::new()?;
+    let source = "[keymap]\n\"popover.tab_pressed\" = 'f13'\n\"settings.next_control\" = 'f14'\n\"extension.acme.run\" = 'tab'\n";
+    let path = fixture.write("settings.toml", source)?;
+    let keymap = Settings::load(&path)?.keymap;
+    assert_eq!(keymap.binding("extension.acme.run"), Some(&"tab".parse()?));
+    assert_eq!(keymap.chord(ShortcutId::FormNextControl), None);
+    assert_eq!(
+        keymap.chord(ShortcutId::FormPreviousControl),
+        Some(&"shift-tab".parse()?)
+    );
+    assert_eq!(fs::read_to_string(&path)?, source);
+    Ok(())
+}
+
+#[test]
+fn interface_sizes_keep_the_multipliers_of_muxy_1() -> Result<()> {
+    assert_eq!(InterfaceSize::default(), InterfaceSize::Regular);
+    for (size, name, multiplier) in [
+        (InterfaceSize::Regular, "regular", 1.0),
+        (InterfaceSize::Large, "large", 1.12),
+        (InterfaceSize::ExtraLarge, "extra_large", 1.24),
+        (InterfaceSize::Huge, "huge", 1.40),
+    ] {
+        assert_eq!(size.multiplier().to_bits(), f32::to_bits(multiplier));
+        let fixture = Fixture::new()?;
+        let path = fixture.write(
+            "settings.toml",
+            &format!("[appearance]\ninterface_size = \"{name}\"\n"),
+        )?;
+        assert_eq!(Appearance::load(&path)?.interface_size, size);
+    }
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "[appearance]\ntips_visible = false\n")?;
+    assert_eq!(
+        Appearance::load(&path)?.interface_size,
+        InterfaceSize::Regular
+    );
+    Ok(())
+}
+
+#[test]
+fn the_welcome_tour_is_still_due_for_settings_saved_before_it_existed() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "[appearance]\ntips_visible = false\n")?;
+    assert!(!Appearance::load(&path)?.onboarding_completed);
+    Ok(())
+}
+
+#[test]
+fn finishing_the_welcome_tour_is_saved_beside_other_appearance_settings() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "[appearance]\ntips_visible = false\n")?;
+    let previous = Appearance::load(&path)?;
+    let finished = Appearance {
+        onboarding_completed: true,
+        ..previous.clone()
+    };
+    finished.save_changes(&previous, &path)?;
+    let saved = Appearance::load(&path)?;
+    assert!(saved.onboarding_completed);
+    assert!(!saved.tips_visible);
+    Ok(())
+}
+
+#[test]
+fn a_panel_layout_round_trips_and_a_broken_frame_keeps_the_pop_out_choice() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let path = fixture.write("settings.toml", "")?;
+    let mut settings = Settings::load(&path)?;
+    let layout = muxy_app_core::settings::PanelLayout {
+        detached: Some(true),
+        frame: Some([10.0, 20.0, 300.0, 200.0]),
+    };
+    settings.set_panel_layout("notes-ext", "note", layout, &path)?;
+    let saved = Settings::load(&path)?;
+    assert_eq!(saved.panel_layout("notes-ext", "note"), layout);
+    assert_eq!(
+        saved.panel_layout("notes-ext", "other"),
+        muxy_app_core::settings::PanelLayout::default()
+    );
+    let broken = fixture.write(
+        "broken.toml",
+        "[panel_layouts.notes-ext.note]\ndetached = true\nframe = [nan, 1.0, 2.0, 3.0]\n",
+    )?;
+    let broken = Settings::load(&broken)?;
+    assert_eq!(
+        broken.panel_layout("notes-ext", "note"),
+        muxy_app_core::settings::PanelLayout {
+            detached: Some(true),
+            frame: None,
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn close_tab_and_close_pane_swapped_by_a_one_x_import_return_to_their_defaults() -> Result {
+    let fixture = Fixture::new()?;
+    let pane = ShortcutId::ClosePane.definition().keys[0];
+    let tab = ShortcutId::CloseTab.definition().keys[0];
+    let path = fixture.write(
+        "settings.toml",
+        &format!("[keymap]\nclose_tab = '{pane}'\nclose_pane = '{tab}'\nnew_tab = 'cmd-alt-n'\n"),
+    )?;
+    assert!(Keymap::reset_swapped_close_shortcuts(&path)?);
+    let keymap = Settings::load(&path)?.keymap;
+    let defaults = Keymap::default();
+    assert_eq!(
+        keymap.chord(ShortcutId::ClosePane),
+        defaults.chord(ShortcutId::ClosePane)
+    );
+    assert_eq!(
+        keymap.chord(ShortcutId::CloseTab),
+        defaults.chord(ShortcutId::CloseTab)
+    );
+    assert_eq!(
+        keymap.binding("new_tab").map(KeyChord::as_str),
+        Some("cmd-alt-n")
+    );
+    assert!(!Keymap::reset_swapped_close_shortcuts(&path)?);
+    Ok(())
+}
+
+#[test]
+fn chosen_close_shortcuts_and_missing_files_are_left_alone() -> Result {
+    let fixture = Fixture::new()?;
+    let source = "[keymap]\nclose_tab = 'cmd-alt-w'\n";
+    let path = fixture.write("settings.toml", source)?;
+    assert!(!Keymap::reset_swapped_close_shortcuts(&path)?);
+    assert_eq!(fs::read_to_string(&path)?, source);
+    let missing = fixture.0.join("missing.toml");
+    assert!(!Keymap::reset_swapped_close_shortcuts(&missing)?);
+    assert!(!missing.exists());
+    Ok(())
+}
+
+#[test]
+fn a_key_bound_before_floating_terminals_existed_keeps_its_command() -> Result {
+    let key: KeyChord = ShortcutId::ToggleFloatingTerminals.definition().keys[0].parse()?;
+    let keymap = Keymap::default().with_binding("new_tab", Some(key.clone()))?;
+    assert_eq!(keymap.chord(ShortcutId::NewTab), Some(&key));
+    assert_eq!(keymap.chord(ShortcutId::ToggleFloatingTerminals), None);
     Ok(())
 }
 

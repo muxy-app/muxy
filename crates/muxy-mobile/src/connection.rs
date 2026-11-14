@@ -1,20 +1,19 @@
+use std::sync::Arc;
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
 use muxy_client::{Client, ClientError, ClientEvent, RemoteEndpoint};
-use muxy_protocol::{
-    DeviceCredential, ErrorCode, OperationId, ProjectDescriptor, ProjectId, ProjectSession,
-    SessionId, Size,
-};
+use muxy_protocol::{DeviceCredential, OperationId, ProjectDescriptor, ProjectId, SessionId, Size};
 
 use crate::MobileError;
 use crate::channel::BridgeChannel;
 use crate::files::ProjectFiles;
 use crate::git::GitRepository;
+use crate::push::{PushEnvironment, PushPlatform, PushRegistration};
 use crate::records::{Activity, Project, ServerCredential, Session, SessionStatus, text};
 use crate::terminal::Terminal;
 use crate::terminals::{Delivery, Terminals};
+use crate::titles::Titles;
 
 /// Receives connection events on an SDK thread; hop to the main thread before touching UI.
 #[uniffi::export(with_foreign)]
@@ -31,6 +30,11 @@ pub enum ConnectionEvent {
     /// The terminal's title, directory, history size, or mouse modes changed.
     MetadataChanged {
         session_id: u64,
+    },
+    /// What to call the session changed, for its tab whether or not it is attached.
+    TitleChanged {
+        session_id: u64,
+        title: String,
     },
     SessionEnded {
         session_id: u64,
@@ -62,9 +66,9 @@ pub enum ConnectionEvent {
 pub struct Connection {
     client: Client,
     terminals: Arc<Terminals>,
-    /// Frames are held only for channels newer than every attached one, which
-    /// is true only while attaches run one at a time.
-    attaching: Mutex<()>,
+    titles: Arc<Titles>,
+    /// Paired rather than over SSH, so the server knows the phone.
+    paired: bool,
 }
 
 impl std::fmt::Debug for Connection {
@@ -110,7 +114,7 @@ impl Connection {
                 .try_into()
                 .map_err(|_| MobileError::InvalidCredential)?,
         };
-        Self::start(Client::connect_remote(&endpoint, device)?, listener)
+        Self::start(Client::connect_remote(&endpoint, device)?, listener, true)
     }
 
     /// Connects through an SSH exec channel that the app opened to run
@@ -127,7 +131,7 @@ impl Connection {
             Ok(_) | Err(ClientError::Server(_)) => {}
             Err(error) => return Err(error.into()),
         }
-        Self::start(client, listener)
+        Self::start(client, listener, false)
     }
 
     pub fn server_version(&self) -> String {
@@ -152,9 +156,17 @@ impl Connection {
     /// Every session of a project, including ended ones whose content is kept.
     pub fn sessions(&self, project_id: String) -> Result<Vec<Session>, MobileError> {
         let project = project(&project_id)?;
-        Ok(all_sessions(&self.client, project)?
+        Ok(self
+            .client
+            .all_project_sessions(project, |_| true)?
+            .sessions
             .iter()
-            .map(Session::from)
+            .map(|listed| {
+                let title =
+                    self.titles
+                        .listed(listed.info.id, listed.name.clone(), &listed.info.directory);
+                Session::listed(listed, title)
+            })
             .collect())
     }
 
@@ -171,10 +183,7 @@ impl Connection {
         let info = self.client.create_project_session(
             project,
             OperationId::new(),
-            &descriptor
-                .directory
-                .to_path_buf()
-                .map_err(ClientError::Invalid)?,
+            descriptor.directory.as_path(),
             Size {
                 cols: columns,
                 rows,
@@ -187,7 +196,74 @@ impl Connection {
             status: SessionStatus::Live,
             owner: None,
             attached: false,
+            title: self.titles.listed(info.id, None, &info.directory),
         })
+    }
+
+    /// The session with this id, under the project it belongs to now, for
+    /// opening a notification's pane. `None` when it is no longer running. A
+    /// session that moves between the two reads is looked up again.
+    pub fn find_session(&self, session_id: u64) -> Result<Option<Session>, MobileError> {
+        let id = session(session_id)?;
+        let running = |listed: &muxy_protocol::ProjectSession| {
+            listed.info.id == id
+                && matches!(
+                    listed.status,
+                    muxy_protocol::SessionStatus::Live | muxy_protocol::SessionStatus::Starting
+                )
+        };
+        for _ in 0..2 {
+            let Some(live) = self
+                .client
+                .list_sessions()?
+                .into_iter()
+                .find(|live| live.id == id)
+            else {
+                return Ok(None);
+            };
+            let page = self.client.all_project_sessions(live.project, running)?;
+            if let Some(listed) = page.sessions.first() {
+                let title =
+                    self.titles
+                        .listed(listed.info.id, listed.name.clone(), &listed.info.directory);
+                return Ok(Some(Session::listed(listed, title)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Whether this server takes `registerPush`: a paired connection to a
+    /// server new enough. Doesn't talk to the server.
+    pub fn supports_push_notifications(&self) -> bool {
+        self.paired
+            && self
+                .client
+                .supports(muxy_protocol::Feature::PUSH_NOTIFICATIONS)
+    }
+
+    /// Gives this phone's push token to the server, on every connect while
+    /// notifications are on and whenever the token changes. Keep the
+    /// returned key for this server. Can take up to 20 seconds.
+    pub fn register_push(
+        &self,
+        platform: PushPlatform,
+        token: String,
+        environment: Option<PushEnvironment>,
+    ) -> Result<PushRegistration, MobileError> {
+        self.require_pairing()?;
+        let token = crate::push::token(platform, token, environment);
+        if token.validate().is_err() {
+            return Err(MobileError::Server {
+                reason: "The push token isn't valid.".into(),
+            });
+        }
+        Ok(self.client.register_push(token)?.into())
+    }
+
+    /// Stops this server's notifications to the phone; the server forgets its key.
+    pub fn unregister_push(&self) -> Result<(), MobileError> {
+        self.require_pairing()?;
+        Ok(self.client.unregister_push()?)
     }
 
     /// Ends the session for every client; its panes close everywhere.
@@ -203,22 +279,17 @@ impl Connection {
         rows: u16,
     ) -> Result<Arc<Terminal>, MobileError> {
         let session = session(session_id)?;
-        let _attaching = self
-            .attaching
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let attachment = self.client.attach(
-            session,
-            Size {
-                cols: columns,
-                rows,
-            },
-        )?;
-        let channel = attachment.channel;
-        let (view, acknowledge) = self.terminals.install(session, attachment);
-        if let Some(seq) = acknowledge {
-            self.client.ack(channel, seq)?;
+        let (tag, attached) = self.terminals.start_attach();
+        let size = Size {
+            cols: columns,
+            rows,
+        };
+        if let Err(error) = self.client.attach(tag, session, size) {
+            self.terminals.cancel_attach(tag);
+            return Err(error.into());
         }
+        let view = attached.recv().map_err(|_| MobileError::Disconnected)?;
+        view.lock().claim_if_shown(size);
         Ok(Arc::new(Terminal {
             client: self.client.clone(),
             view,
@@ -253,23 +324,46 @@ impl Connection {
 }
 
 impl Connection {
+    fn require_pairing(&self) -> Result<(), MobileError> {
+        if self.paired {
+            Ok(())
+        } else {
+            Err(MobileError::Server {
+                reason: "Push notifications need a paired connection, not SSH.".into(),
+            })
+        }
+    }
+
     fn start(
         client: Client,
         listener: Arc<dyn ConnectionListener>,
+        paired: bool,
     ) -> Result<Arc<Self>, MobileError> {
         let events = client.events().ok_or(MobileError::Disconnected)?;
         let terminals = Arc::<Terminals>::default();
-        let pump = (client.clone(), Arc::clone(&terminals));
+        let titles = Arc::<Titles>::default();
+        let pump = Pump {
+            client: client.clone(),
+            terminals: Arc::clone(&terminals),
+            titles: Arc::clone(&titles),
+        };
         thread::Builder::new()
             .name("muxy-mobile-events".into())
-            .spawn(move || deliver(&pump.0, &events, &pump.1, listener.as_ref()))
+            .spawn(move || deliver(&pump, &events, listener.as_ref()))
             .map_err(|error| MobileError::Unreachable {
                 reason: error.to_string(),
             })?;
+        // Phones draw no images, so they never read their pixels. An older
+        // server refuses and keeps sending them.
+        let _ = client.defer_images();
+        if client.watch_session_metadata().is_ok() {
+            titles.watching();
+        }
         Ok(Arc::new(Self {
             client,
             terminals,
-            attaching: Mutex::new(()),
+            titles,
+            paired,
         }))
     }
 }
@@ -298,43 +392,49 @@ fn session(id: u64) -> Result<SessionId, MobileError> {
     })
 }
 
-/// Reads every page of one consistent listing, retrying if the catalog changes meanwhile.
-fn all_sessions(client: &Client, project: ProjectId) -> Result<Vec<ProjectSession>, ClientError> {
-    let mut changed = None;
-    for _ in 0..8 {
-        match session_pages(client, project) {
-            Err(ClientError::Server(error)) if error.code == ErrorCode::CatalogChanged => {
-                changed = Some(error);
-            }
-            result => return result,
-        }
-    }
-    Err(changed.map_or(ClientError::Timeout, ClientError::Server))
-}
-
-fn session_pages(client: &Client, project: ProjectId) -> Result<Vec<ProjectSession>, ClientError> {
-    let mut page = client.project_sessions(project, None, None)?;
-    let revision = page.revision;
-    let mut sessions = std::mem::take(&mut page.sessions);
-    while let Some(after) = page.next {
-        page = client.project_sessions(project, Some(after), Some(revision))?;
-        if page.next.is_some_and(|next| next <= after) {
-            return Err(ClientError::Protocol("invalid session pagination".into()));
-        }
-        sessions.append(&mut page.sessions);
-    }
-    Ok(sessions)
+/// What the event thread applies events to.
+struct Pump {
+    client: Client,
+    terminals: Arc<Terminals>,
+    titles: Arc<Titles>,
 }
 
 /// Applies frames and acknowledges them, then tells the app what to read again.
-fn deliver(
-    client: &Client,
-    events: &Receiver<ClientEvent>,
-    terminals: &Terminals,
-    listener: &dyn ConnectionListener,
-) {
+fn deliver(pump: &Pump, events: &Receiver<ClientEvent>, listener: &dyn ConnectionListener) {
+    let Pump {
+        client,
+        terminals,
+        titles,
+    } = pump;
+    let retitled = |session: SessionId, title: Option<String>| {
+        if let Some(title) = title {
+            listener.on_event(ConnectionEvent::TitleChanged {
+                session_id: session.get(),
+                title,
+            });
+        }
+    };
     for event in events {
         let notice = match event {
+            ClientEvent::Attached {
+                tag,
+                session,
+                attachment,
+            } => {
+                retitled(
+                    session,
+                    titles.attached(
+                        session,
+                        &attachment.title,
+                        &attachment.directory,
+                        attachment.process.as_ref(),
+                    ),
+                );
+                if let Some(channel) = terminals.attached(tag, session, *attachment) {
+                    client.detach_async(channel).on_complete(drop);
+                }
+                None
+            }
             ClientEvent::Frame { channel, frame } => match terminals.frame(channel, frame) {
                 Delivery::Applied { session, seq } => {
                     let _ = client.ack(channel, seq);
@@ -342,17 +442,29 @@ fn deliver(
                         session_id: session.get(),
                     })
                 }
-                Delivery::Held | Delivery::Unknown => None,
+                Delivery::Closed { seq } => {
+                    let _ = client.ack(channel, seq);
+                    None
+                }
+                Delivery::Unknown => None,
             },
             ClientEvent::Metadata { channel, event } => {
+                if let Some(session) = terminals.session(channel) {
+                    retitled(session, titles.event(session, &event));
+                }
                 terminals
                     .metadata(channel, event)
                     .map(|session| ConnectionEvent::MetadataChanged {
                         session_id: session.get(),
                     })
             }
+            ClientEvent::SessionMetadata { session, metadata } => {
+                retitled(session, titles.metadata(session, metadata));
+                None
+            }
             ClientEvent::SessionEnded { session, .. } => {
                 terminals.ended(session);
+                titles.ended(session);
                 Some(ConnectionEvent::SessionEnded {
                     session_id: session.get(),
                 })
@@ -373,11 +485,11 @@ fn deliver(
             }),
             ClientEvent::ServerRestarting => Some(ConnectionEvent::ServerRestarting),
             ClientEvent::Disconnected => {
+                terminals.disconnected();
                 listener.on_event(ConnectionEvent::Disconnected);
                 return;
             }
-            ClientEvent::SessionMetadata { .. }
-            | ClientEvent::ClipboardWrite { .. }
+            ClientEvent::ClipboardWrite { .. }
             | ClientEvent::Progress { .. }
             | ClientEvent::RemoteAccessChanged { .. } => None,
         };

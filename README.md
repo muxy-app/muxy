@@ -54,4 +54,4 @@ See [docs](https://muxy.app/docs).
 
 ## License
 
-[MIT](LICENSE)
+[Apache 2.0](LICENSE). Code contributed before the switch from MIT remains under the MIT License; see [NOTICE](NOTICE).

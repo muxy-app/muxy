@@ -1,4 +1,5 @@
 pub(crate) mod drag;
+mod header;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -6,12 +7,14 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, CursorStyle, DispatchPhase, HitboxBehavior, Hsla,
-    InteractiveElement, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement,
-    Pixels, Point, SharedString, Styled, Window, canvas, div, point, px, relative,
+    AnyElement, Bounds, Context, CursorStyle, DispatchPhase, InteractiveElement, IntoElement,
+    MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Role, SharedString,
+    StatefulInteractiveElement, Styled, Window, canvas, div, point, px, relative,
 };
-use muxy_app_core::{Axis, Branch, GroupId, Layout, ProjectId, Tab, TabGroup, TabId};
+use muxy_app_core::{Axis, Branch, GroupId, Layout, PaneContent, ProjectId, Tab, TabGroup, TabId};
+use muxy_ui::tr;
 
+use super::terminal::pane::PaneEvent;
 use crate::model::AppModel;
 
 #[derive(Clone, Default)]
@@ -47,8 +50,7 @@ impl SplitResize {
         let ratio = self.ratio_at(pointer);
         match self.owner {
             SplitOwner::Tab(tab) => {
-                model.visible_tabs().contains(&tab)
-                    && model.state.set_ratio(tab, &self.path, ratio).is_ok()
+                model.tab_shown(tab) && model.state.set_ratio(tab, &self.path, ratio).is_ok()
             }
             SplitOwner::Groups(project) => {
                 model.state.current_project().id == project
@@ -67,12 +69,6 @@ impl SplitResizeState {
     }
     pub(crate) fn end(&self) -> bool {
         self.0.borrow_mut().take().is_some()
-    }
-    fn resizing(&self, owner: SplitOwner, path: &[Branch]) -> bool {
-        self.0
-            .borrow()
-            .as_ref()
-            .is_some_and(|resize| resize.owner == owner && resize.path == path)
     }
     fn cursor(&self) -> Option<CursorStyle> {
         self.0
@@ -98,8 +94,9 @@ pub(crate) fn render(
     let project = model.state.current_project();
     let content = match project.groups() {
         Some(groups) => {
-            let width =
-                f32::from(super::titlebar::content_size(window).width) - model.sidebar_width();
+            let width = f32::from(super::titlebar::content_size(window).width)
+                - model.sidebar_width()
+                - super::rail::width(model);
             let widths: HashMap<_, _> = groups
                 .layout()
                 .rects()
@@ -123,6 +120,20 @@ pub(crate) fn render(
             ))
             .into_any_element(),
     )
+}
+
+/// A tab window's panes.
+pub(crate) fn tab_window_body(
+    tab: &Tab,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    div()
+        .relative()
+        .size_full()
+        .child(tab_content(tab, model, cx))
+        .child(resize_tracker(model, cx))
+        .into_any_element()
 }
 
 /// Follows the pointer while a divider is dragged.
@@ -178,8 +189,8 @@ fn resize_tracker(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
 fn tab_content(tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let id = tab.id;
     let content = match tab.zoomed {
-        Some(zoomed) => zoomed_frame(zoomed, model, cx),
-        None => node(&tab.layout, id, Vec::new(), model, cx),
+        Some(zoomed) => zoomed_frame(zoomed, tab, model, cx),
+        None => node(&tab.layout, tab, Vec::new(), model, cx),
     };
     let geometry = model.layout_drag.geometry.clone();
     div()
@@ -188,7 +199,14 @@ fn tab_content(tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>) -> AnyEl
         .child(content)
         .child(
             canvas(
-                move |bounds, window, _| geometry.set(id, bounds, window.scale_factor()),
+                move |bounds, window, _| {
+                    geometry.set(
+                        window.window_handle().window_id(),
+                        id,
+                        bounds,
+                        window.scale_factor(),
+                    );
+                },
                 |_, (), _, _| {},
             )
             .absolute()
@@ -271,6 +289,7 @@ fn group_element(
 
 fn zoomed_frame(
     pane: muxy_app_core::PaneId,
+    tab: &Tab,
     model: &AppModel,
     cx: &Context<AppModel>,
 ) -> AnyElement {
@@ -310,14 +329,14 @@ fn zoomed_frame(
                 .border_color(model.theme.border_solid())
                 .shadow(muxy_ui::theme::Elevation::Elevated.shadow(model.theme.bg))
                 .overflow_hidden()
-                .child(pane_element(pane, model, cx)),
+                .child(pane_element(pane, tab, model, cx)),
         )
         .into_any_element()
 }
 
 fn node(
     layout: &Layout,
-    tab: TabId,
+    tab: &Tab,
     path: Vec<Branch>,
     model: &AppModel,
     cx: &Context<AppModel>,
@@ -330,7 +349,7 @@ fn node(
             second,
         } => (axis, ratio, first, second),
         Layout::Leaf(id) => {
-            return pane_element(*id, model, cx);
+            return pane_element(*id, tab, model, cx);
         }
     };
     let mut first_path = path.clone();
@@ -340,7 +359,7 @@ fn node(
     let first = node(first, tab, first_path, model, cx);
     let second = node(second, tab, second_path, model, cx);
     split(
-        SplitOwner::Tab(tab),
+        SplitOwner::Tab(tab.id),
         path,
         *axis,
         *ratio,
@@ -360,11 +379,7 @@ fn split(
 ) -> AnyElement {
     let bounds = Rc::new(Cell::new(Bounds::default()));
     let measured = bounds.clone();
-    let divider = Rc::new(Cell::new(Bounds::default()));
-    let measured_divider = divider.clone();
     let state = model.split_resize.clone();
-    let resizing = state.resizing(owner, &path);
-    let hoverable = !state.active();
     let (id, selector) = match owner {
         SplitOwner::Tab(tab) => (
             format!("split-{tab}-{path:?}"),
@@ -382,7 +397,6 @@ fn split(
         .absolute()
         .block_mouse_except_scroll()
         .cursor(resize_cursor(axis))
-        .child(highlight(divider, resizing, hoverable, model.theme.accent))
         .when(!model.webviews.panes.is_empty(), |hit| {
             hit.child(model.webview_grip(None, resize_cursor(axis)))
         })
@@ -426,7 +440,6 @@ fn split(
                     measured.set(bounds);
                     let [first_bounds, divider, second_bounds] =
                         split_bounds(bounds, axis, ratio, window.scale_factor());
-                    measured_divider.set(divider);
                     first.layout_as_root(first_bounds.size.into(), window, cx);
                     first.prepaint_at(first_bounds.origin, window, cx);
                     second.layout_as_root(second_bounds.size.into(), window, cx);
@@ -443,34 +456,6 @@ fn split(
         )
         .child(hit)
         .into_any_element()
-}
-
-/// Paints `divider` in the accent color while it is dragged, or while the
-/// pointer is over this element and `hoverable`.
-fn highlight(
-    divider: Rc<Cell<Bounds<Pixels>>>,
-    resizing: bool,
-    hoverable: bool,
-    accent: Hsla,
-) -> AnyElement {
-    canvas(
-        |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
-        move |_, hitbox, window, _| {
-            let hovered = hitbox.is_hovered(window);
-            if resizing || (hoverable && hovered) {
-                window.paint_quad(gpui::fill(divider.get(), accent));
-            }
-            let view = window.current_view();
-            window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
-                if phase == DispatchPhase::Capture && hitbox.is_hovered(window) != hovered {
-                    cx.notify(view);
-                }
-            });
-        },
-    )
-    .absolute()
-    .size_full()
-    .into_any_element()
 }
 
 fn split_bounds(
@@ -508,7 +493,122 @@ fn split_bounds(
     ]
 }
 
-fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+/// What a pane's region is called: the kind of thing it shows and, when it says
+/// more than that, its title.
+fn pane_name(content: &PaneContent, title: &str) -> SharedString {
+    let kind = match content {
+        PaneContent::Terminal { .. } => tr!("Terminal"),
+        PaneContent::Settings => tr!("Settings"),
+        PaneContent::Webview(_) => tr!("Extension"),
+        PaneContent::Browser(_) => tr!("Browser"),
+        PaneContent::Servers => tr!("Servers"),
+    };
+    if title.is_empty() || title == kind.as_ref() {
+        kind
+    } else {
+        tr!("%@: %@", kind.as_ref(), title)
+    }
+}
+
+fn pane_state(focused: bool, zoomed: bool) -> Option<SharedString> {
+    super::sidebar::describe([
+        focused.then(|| tr!("Focused")),
+        zoomed.then(|| tr!("Zoomed")),
+    ])
+}
+
+/// How much of a pane that isn't focused is covered by its background.
+const UNFOCUSED_DIM: f32 = 0.35;
+
+/// A named region around what a pane shows, so a client can tell the panes of a
+/// split apart.
+fn pane_element(
+    id: muxy_app_core::PaneId,
+    tab: &Tab,
+    model: &AppModel,
+    cx: &Context<AppModel>,
+) -> AnyElement {
+    let pane = tab.panes.iter().find(|pane| pane.id == id);
+    let name = pane.map_or_else(
+        || tr!("Pane"),
+        |pane| {
+            let title = match pane.content {
+                PaneContent::Browser(_) => model.browser_title(id, cx),
+                _ => None,
+            };
+            pane_name(&pane.content, title.unwrap_or(&pane.title))
+        },
+    );
+    let group = SharedString::from(format!("pane-{id}"));
+    let dimmed =
+        model.active_pane().is_some_and(|active| active != id) && model.visible_panes().len() > 1;
+    let actions = model.grids.contains_key(&id).then(|| {
+        super::sidebar::client_button(
+            format!("pane-actions-{id}"),
+            tr!("Actions for %@", name.as_ref()),
+            cx,
+            move |model, position, _, cx| {
+                if let Some(pane) = model.terminal(&id) {
+                    pane.view
+                        .update(cx, |_, cx| cx.emit(PaneEvent::ContextMenu(position)));
+                }
+            },
+        )
+    });
+    div()
+        .id(group.clone())
+        .debug_selector(move || format!("pane-{id}"))
+        .group(group.clone())
+        .role(Role::Group)
+        .aria_label(name)
+        .when_some(
+            pane_state(model.active_pane() == Some(id), tab.zoomed == Some(id)),
+            StatefulInteractiveElement::aria_description,
+        )
+        .relative()
+        .flex()
+        .flex_col()
+        .size_full()
+        .min_w(px(0.0))
+        .min_h(px(0.0))
+        .children(actions)
+        .when_some(
+            pane.filter(|pane| {
+                model.appearance.pane_headers
+                    && matches!(pane.content, PaneContent::Terminal { .. })
+            }),
+            |element, pane| element.child(header::header(pane, tab, group, model, cx)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_1()
+                .min_w(px(0.0))
+                .min_h(px(0.0))
+                .child(pane_content(id, model, cx)),
+        )
+        .when(dimmed, |element| {
+            element.child(
+                div()
+                    .debug_selector(move || format!("pane-dim-{id}"))
+                    .absolute()
+                    .inset_0()
+                    .bg(header::colors(id, model, cx).0.opacity(UNFOCUSED_DIM)),
+            )
+        })
+        .into_any_element()
+}
+
+fn pane_content(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
+    if model.state.is_settings_pane(id)
+        && let Some(settings) = &model.settings_tab
+    {
+        return div()
+            .size_full()
+            .capture_any_mouse_down(cx.listener(move |model, _, _, cx| model.focus_pane(id, cx)))
+            .child(settings.root.clone())
+            .into_any_element();
+    }
     if let Some(surface) = model.webviews.panes.get(&id) {
         return surface.view.clone().into_any_element();
     }
@@ -543,7 +643,7 @@ fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
         .flat_map(|p| &p.tabs)
         .flat_map(|t| &t.panes)
         .find_map(|pane| match &pane.content {
-            muxy_app_core::PaneContent::Webview(descriptor) if pane.id == id => Some(descriptor),
+            PaneContent::Webview(descriptor) if pane.id == id => Some(descriptor),
             _ => None,
         })
     {
@@ -570,5 +670,89 @@ fn pane_element(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
     let Some(pane) = model.grids.get(&id) else {
         return div().size_full().into_any_element();
     };
-    pane.element()
+    let offline = model.state.pane_server(id).filter(|server| {
+        !server.is_local()
+            && model.status_of(*server) != crate::model::ServerStatus::Connected
+            && pane.view.read(cx).displayed_grid().is_none()
+    });
+    let Some(server) = offline else {
+        return pane.element();
+    };
+    div()
+        .relative()
+        .size_full()
+        .child(pane.element())
+        .child(offline_notice(id, server, model, cx))
+        .into_any_element()
+}
+
+/// A terminal of another computer's server that has nothing to show yet: the
+/// server isn't connected, and Connect connects it.
+fn offline_notice(
+    id: muxy_app_core::PaneId,
+    server: muxy_app_core::ServerId,
+    model: &AppModel,
+    cx: &Context<AppModel>,
+) -> AnyElement {
+    let m = model.metrics;
+    let theme = &model.theme;
+    let name = model.server_label(server);
+    let connecting = model.status_of(server) != crate::model::ServerStatus::Disconnected;
+    let text = if connecting {
+        tr!("Connecting to %@…", &name)
+    } else {
+        tr!("%@ is disconnected", &name)
+    };
+    div()
+        .debug_selector(move || format!("pane-offline-{id}"))
+        .absolute()
+        .inset_0()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(m.spacing4())
+        .text_size(m.font_body())
+        .text_color(theme.fg_muted)
+        .child(muxy_ui::accessibility::label(
+            SharedString::from(format!("pane-offline-text-{id}")),
+            text,
+        ))
+        .when(!connecting, |notice| {
+            notice.child(
+                div()
+                    .debug_selector(move || format!("pane-connect-{id}"))
+                    .child(muxy_ui::controls::button(
+                        muxy_ui::controls::Style { theme, metrics: &m },
+                        &format!("pane-connect-{id}"),
+                        muxy_ui::controls::Button::secondary(&tr!("Connect")),
+                        cx.listener(move |model, _, _, cx| {
+                            model.connect_server(server, cx);
+                            cx.notify();
+                        }),
+                    )),
+            )
+        })
+        .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pane_says_what_it_shows_and_its_title_when_that_adds_anything() {
+        let terminal = PaneContent::Terminal { session: None };
+        assert_eq!(pane_name(&terminal, "Terminal").as_ref(), "Terminal");
+        assert_eq!(pane_name(&terminal, "").as_ref(), "Terminal");
+        assert_eq!(pane_name(&terminal, "vim").as_ref(), "Terminal: vim");
+    }
+
+    #[test]
+    fn a_pane_says_whether_it_is_focused_or_zoomed() {
+        assert_eq!(pane_state(false, false), None);
+        assert_eq!(pane_state(true, false), Some("Focused".into()));
+        assert_eq!(pane_state(false, true), Some("Zoomed".into()));
+        assert_eq!(pane_state(true, true), Some("Focused, Zoomed".into()));
+    }
 }

@@ -1,8 +1,8 @@
 use gpui::{
-    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Role,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use muxy_ui::components::{ButtonInteraction, IconGlyph, Tooltip};
+use muxy_ui::components::{ButtonInteraction, IconGlyph};
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
 
@@ -52,9 +52,11 @@ fn problem(
 ) -> AnyElement {
     let theme = &model.theme;
     let m = model.metrics;
-    let tooltip_theme = theme.clone();
     let close = div()
         .id("dismiss-workspace-toast")
+        .role(Role::Button)
+        .accessibility_id("dismiss-workspace-toast")
+        .aria_label(tr!("Dismiss"))
         .debug_selector(|| "dismiss-workspace-toast".into())
         .flex()
         .flex_none()
@@ -64,18 +66,7 @@ fn problem(
         .rounded(m.radius_sm())
         .cursor_pointer()
         .hover(|style| style.bg(theme.hover))
-        .tooltip(move |_, cx| {
-            cx.new(|_| {
-                Tooltip::new(
-                    tr!("Dismiss"),
-                    tooltip_theme.raised(),
-                    tooltip_theme.fg,
-                    tooltip_theme.border,
-                    tooltip_theme.bg,
-                )
-            })
-            .into()
-        })
+        .tooltip(muxy_ui::components::tooltip(tr!("Dismiss"), theme))
         .button_interaction(cx.listener(|model, _, window, cx| {
             model.dismiss_problem(cx);
             model.focus_active(window, cx);
@@ -92,13 +83,18 @@ fn placed(
     window: &Window,
 ) -> AnyElement {
     let progress = toast.motion.sample(window);
+    let id = if close.is_some() {
+        "workspace-problem-toast"
+    } else {
+        "workspace-notice-toast"
+    };
     div()
         .flex()
         .justify_center()
         .max_w_full()
         .mt(-model.metrics.scaled(12.0) * (1.0 - progress))
         .opacity(progress)
-        .child(
+        .child(muxy_ui::toast::announced(
             muxy_ui::toast::toast(
                 toast.kind,
                 &toast.message,
@@ -106,9 +102,14 @@ fn placed(
                 &model.theme,
                 model.metrics,
             )
+            .id(id)
+            .accessibility_id(id)
             .min_w(px(0.0))
             .children(close)
             .child(model.webview_occlusion()),
-        )
+            toast.kind,
+            &toast.message,
+            toast.body.as_deref(),
+        ))
         .into_any_element()
 }

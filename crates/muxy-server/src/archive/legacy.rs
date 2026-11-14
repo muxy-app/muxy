@@ -1,19 +1,25 @@
-use muxy_protocol::{Color, ExitReason, Size};
+//! Layouts written before rendering kept cursor shapes, graphics and underline
+//! styles. Frozen.
+
+use muxy_protocol::Color;
 use serde::Deserialize;
+
+use super::layout::{StoredExitReason, StoredSize};
 
 #[derive(Deserialize)]
 pub(super) struct Record {
-    pub(super) version: u32,
+    /// Checked before the rest is read.
+    _version: u32,
     pub(super) screen: Screen,
     pub(super) history: Vec<Vec<Run>>,
 }
 
 #[derive(Deserialize)]
 pub(super) struct Screen {
-    size: Size,
+    size: StoredSize,
     rows: Vec<Row>,
     cursor: Cursor,
-    reason: Option<ExitReason>,
+    reason: Option<StoredExitReason>,
 }
 
 #[derive(Deserialize)]
@@ -53,7 +59,7 @@ impl From<Screen> for muxy_protocol::SavedScreen {
     fn from(screen: Screen) -> Self {
         Self {
             graphics: muxy_protocol::Graphics::default(),
-            size: screen.size,
+            size: screen.size.into(),
             rows: screen
                 .rows
                 .into_iter()
@@ -68,7 +74,7 @@ impl From<Screen> for muxy_protocol::SavedScreen {
                 visible: screen.cursor.visible,
                 shape: muxy_protocol::CursorShape::Block,
             },
-            reason: screen.reason,
+            reason: screen.reason.map(Into::into),
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use muxy_protocol::{
     AttachSnapshot, Cursor, HistoryCursor, HistoryPage, Modes, Row, Run, SavedScreen, ScreenFrame,
@@ -38,12 +38,17 @@ impl RunGrid {
             history_fresh: true,
         };
         grid.replace_rows(&snapshot.rows);
+        grid.replace_links(snapshot.links.clone(), true);
+        let above = grid.history.len();
+        grid.place_history(snapshot.history_graphics.clone(), above);
         grid
     }
 
     pub fn apply(&mut self, frame: &ScreenFrame) {
         if let Some(graphics) = &frame.graphics {
-            self.graphics = graphics.clone();
+            let mut graphics = graphics.clone();
+            graphics.keep_pixels(&self.graphics);
+            self.graphics = graphics;
         }
         self.links.frame_seq = frame.seq;
         self.prompt_state.frame_seq = frame.seq;
@@ -71,14 +76,40 @@ impl RunGrid {
         self.modes = frame.modes;
     }
 
+    /// Takes the new size until the server's next frame, which always
+    /// replaces the whole screen. The screen keeps its rows meanwhile, ending
+    /// at the cursor's like the server's terminal and cut to its width, so it
+    /// never goes blank.
     pub fn resize(&mut self, size: Size) {
         self.graphics = muxy_protocol::Graphics::default();
         self.links.rows.clear();
+        self.links.history.clear();
         self.prompts.clear();
         self.prompt_state.pending = false;
         self.prompt_state.rows.clear();
         self.size = size;
-        self.rows = blank_rows(size.rows);
+        let height = usize::from(size.rows);
+        let dropped = (usize::from(self.cursor.row) + 1)
+            .saturating_sub(height)
+            .min(self.rows.len());
+        self.rows.drain(..dropped);
+        self.rows.resize_with(height, Vec::new);
+        for row in &mut self.rows {
+            let fitting = row
+                .iter()
+                .scan(0_u16, |used, run| {
+                    *used = used.saturating_add(run.width);
+                    Some(*used <= size.cols)
+                })
+                .take_while(|fits| *fits)
+                .count();
+            row.truncate(fitting);
+        }
+        self.cursor.row = self
+            .cursor
+            .row
+            .saturating_sub(u16::try_from(dropped).unwrap_or(u16::MAX));
+        self.cursor.col = self.cursor.col.min(size.cols.saturating_sub(1));
         self.history.clear();
         self.history_cursor = None;
         self.history_fresh = false;
@@ -106,20 +137,31 @@ impl RunGrid {
     pub fn replace_history(&mut self, page: HistoryPage) {
         self.prompts = page.prompts.into_iter().map(usize::from).collect();
         self.prompt_state.pending = false;
+        let has_screen = page.screen.is_some();
         if let Some(screen) = page.screen {
-            self.links.rows.clear();
             self.graphics = screen.graphics;
             self.size = screen.size;
             self.rows = screen.rows.into_iter().map(|row| row.runs).collect();
             self.cursor = screen.cursor;
         }
+        let rows = page.rows.len();
         self.history = page.rows.into();
+        self.place_history(page.graphics, rows);
+        self.replace_links(page.links, has_screen);
         self.history_cursor = page.next;
         self.history_total = page.total_rows;
         self.history_fresh = true;
     }
 
     pub fn fetch_older(&mut self, page: HistoryPage) {
+        let history = self.history.len() + page.rows.len();
+        for row in page.links.into_iter().flatten() {
+            if usize::from(row.row) < page.rows.len() {
+                self.links
+                    .history
+                    .insert(history - usize::from(row.row), row.spans);
+            }
+        }
         self.prompts = self
             .prompts
             .iter()
@@ -129,10 +171,49 @@ impl RunGrid {
         for row in page.rows.into_iter().rev() {
             self.history.push_front(row);
         }
+        self.place_history(page.graphics, history);
         self.history_cursor = page.next;
     }
 
+    /// Adds the images a history page places, whose first row is `above`
+    /// rows over the screen, with rows counted from the top of the screen as
+    /// the screen's own are. A placement already listed is kept once.
+    fn place_history(&mut self, graphics: Option<muxy_protocol::Graphics>, above: usize) {
+        let Some(graphics) = graphics else {
+            return;
+        };
+        let Ok(above) = i32::try_from(above) else {
+            return;
+        };
+        if self.graphics.placements.is_empty() {
+            self.graphics.cell = graphics.cell;
+        }
+        for image in graphics.images {
+            match self
+                .graphics
+                .images
+                .iter_mut()
+                .find(|kept| kept.id == image.id)
+            {
+                Some(kept) if kept.rgba.is_empty() && !image.rgba.is_empty() => *kept = image,
+                Some(_) => {}
+                None => self.graphics.images.push(image),
+            }
+        }
+        for mut placement in graphics.placements {
+            let Some(row) = placement.row.checked_sub(above) else {
+                continue;
+            };
+            placement.row = row;
+            if !self.graphics.placements.contains(&placement) {
+                self.graphics.placements.push(placement);
+            }
+        }
+    }
+
     pub fn clear_history(&mut self) {
+        self.graphics.shift_up(0, i64::MAX);
+        self.links.history.clear();
         let history = self.history.len();
         self.prompts = self
             .prompts
@@ -176,6 +257,37 @@ impl RunGrid {
         }
     }
 
+    pub fn content_links(&self, index: usize) -> &[muxy_protocol::LinkSpan] {
+        if index < self.history.len() {
+            self.links
+                .history
+                .get(&(self.history.len() - index))
+                .map_or(&[], Vec::as_slice)
+        } else {
+            u16::try_from(index - self.history.len())
+                .ok()
+                .map_or(&[], |row| self.links.row(row, self.size))
+        }
+    }
+
+    fn replace_links(&mut self, rows: Option<Vec<muxy_protocol::LinkRow>>, screen: bool) {
+        self.links.history.clear();
+        if screen {
+            self.links.rows.clear();
+            self.links.seq = self.links.frame_seq;
+        }
+        for mut row in rows.into_iter().flatten() {
+            if usize::from(row.row) < self.history.len() {
+                self.links
+                    .history
+                    .insert(self.history.len() - usize::from(row.row), row.spans);
+            } else if screen {
+                row.row -= u16::try_from(self.history.len()).unwrap_or(u16::MAX);
+                self.links.rows.push(row);
+            }
+        }
+    }
+
     pub fn search_content_row(&self, row: u64, total_rows: u64) -> Option<usize> {
         if self.history_total != total_rows {
             return None;
@@ -208,6 +320,7 @@ fn blank_rows(count: u16) -> Vec<Vec<Run>> {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ScreenLinks {
     rows: Vec<muxy_protocol::LinkRow>,
+    history: BTreeMap<usize, Vec<muxy_protocol::LinkSpan>>,
     seq: u64,
     frame_seq: u64,
 }
@@ -258,6 +371,7 @@ mod tests {
 
     fn snapshot() -> AttachSnapshot {
         AttachSnapshot {
+            links: None,
             graphics: muxy_protocol::Graphics::default(),
             prompts: Vec::new(),
             channel: ChannelId(1),
@@ -275,6 +389,7 @@ mod tests {
             history: vec![],
             history_cursor: None,
             history_total: 0,
+            history_graphics: None,
         }
     }
 
@@ -295,6 +410,152 @@ mod tests {
                 application_cursor_keys: true,
                 bracketed_paste: true,
             },
+        }
+    }
+
+    #[test]
+    fn history_images_count_rows_from_the_top_of_the_screen() {
+        let image = |id| muxy_protocol::GraphicImage {
+            id,
+            width: 1,
+            height: 1,
+            rgba: vec![255; 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        };
+        let placed = |image, row| muxy_protocol::GraphicPlacement {
+            image,
+            id: 0,
+            column: 0,
+            row,
+            offset: [0, 0],
+            size: [8, 32],
+            source: [0, 0, 1, 1],
+            z: 0,
+        };
+        let graphics = |placements: &[(u32, i32)]| muxy_protocol::Graphics {
+            cell: muxy_protocol::CellSize::default(),
+            images: placements.iter().map(|&(id, _)| image(id)).collect(),
+            placements: placements
+                .iter()
+                .map(|&(id, row)| placed(id, row))
+                .collect(),
+        };
+        let snapshot = snapshot();
+        let page = |rows: u16, graphics, screen| HistoryPage {
+            links: None,
+            prompts: vec![],
+            rows: (0..rows).map(|index| row(index, "line")).collect(),
+            next: None,
+            total_rows: 8,
+            screen,
+            graphics,
+        };
+        let mut grid = RunGrid::from_snapshot(&snapshot);
+        grid.replace_history(page(
+            5,
+            Some(graphics(&[(1, 2), (9, 4)])),
+            Some(SavedScreen {
+                graphics: graphics(&[(9, -1)]),
+                size: snapshot.size,
+                rows: snapshot.rows.clone(),
+                cursor: snapshot.cursor,
+                reason: None,
+            }),
+        ));
+        grid.fetch_older(page(3, Some(graphics(&[(2, 0)])), None));
+        let rows = |grid: &RunGrid| -> Vec<(u32, i32)> {
+            grid.graphics
+                .placements
+                .iter()
+                .map(|placement| (placement.image, placement.row))
+                .collect()
+        };
+        assert_eq!(
+            rows(&grid),
+            [(9, -1), (1, -3), (2, -8)],
+            "the image the screen and history both reach is placed once"
+        );
+        assert_eq!(grid.graphics.images.len(), 3);
+        grid.graphics.placements.push(placed(9, 40));
+        grid.clear_history();
+        assert_eq!(
+            rows(&grid),
+            [(9, -1), (9, 40)],
+            "only the screen's stay, even under rows the grid hasn't grown to yet"
+        );
+        assert_eq!(grid.graphics.images.len(), 1);
+
+        let mut attached = snapshot.clone();
+        attached.history = (0..4).map(|index| row(index, "line")).collect();
+        attached.history_graphics = Some(graphics(&[(3, 1)]));
+        let grid = RunGrid::from_snapshot(&attached);
+        assert_eq!(
+            rows(&grid),
+            [(3, -3)],
+            "an attach places its history's images"
+        );
+    }
+
+    #[test]
+    fn links_stay_with_history_when_paging_refreshing_and_clearing() {
+        let link = |row, uri: &str| muxy_protocol::LinkRow {
+            row,
+            spans: vec![muxy_protocol::LinkSpan {
+                start: 0,
+                end: 4,
+                uri: uri.into(),
+            }],
+        };
+        let mut snapshot = snapshot();
+        snapshot.history = vec![row(0, "link")];
+        snapshot.history_total = 2;
+        snapshot.links = Some(vec![link(0, "https://history"), link(1, "https://screen")]);
+        let mut grid = RunGrid::from_snapshot(&snapshot);
+        assert_eq!(grid.content_links(0)[0].uri, "https://history");
+        assert_eq!(grid.content_links(1)[0].uri, "https://screen");
+        grid.fetch_older(HistoryPage {
+            links: Some(vec![link(0, "https://older")]),
+            prompts: vec![],
+            rows: vec![row(0, "link")],
+            next: None,
+            total_rows: 2,
+            screen: None,
+            graphics: None,
+        });
+        for (index, uri) in ["https://older", "https://history", "https://screen"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(grid.content_links(index)[0].uri, uri);
+        }
+        grid.links.replace(2, vec![link(0, "https://future")]);
+        assert!(grid.content_links(2).is_empty());
+        grid.replace_history(HistoryPage {
+            links: Some(vec![link(1, "https://refreshed")]),
+            prompts: vec![],
+            rows: vec![row(0, "plain")],
+            next: None,
+            total_rows: 1,
+            screen: Some(SavedScreen {
+                graphics: muxy_protocol::Graphics::default(),
+                size: snapshot.size,
+                rows: snapshot.rows.clone(),
+                cursor: snapshot.cursor,
+                reason: None,
+            }),
+            graphics: None,
+        });
+        assert!(grid.content_links(0).is_empty());
+        assert_eq!(grid.content_links(1)[0].uri, "https://refreshed");
+        assert!(grid.links.history.is_empty());
+        for operation in 0..3 {
+            let mut grid = RunGrid::from_snapshot(&snapshot);
+            match operation {
+                0 => grid.clear_history(),
+                1 => grid.resize(Size { cols: 5, rows: 3 }),
+                _ => grid.apply(&frame(3, true, vec![])),
+            }
+            assert!(grid.links.history.is_empty());
         }
     }
 
@@ -324,6 +585,33 @@ mod tests {
         assert_eq!(grid.rows.len(), 5);
         assert_eq!(grid.row_text(1), "");
         assert_eq!(grid.row_text(4), "fifth");
+    }
+
+    #[test]
+    fn resizing_keeps_the_screen_ending_at_the_cursor_until_the_next_frame() {
+        let mut grid = RunGrid::from_snapshot(&snapshot());
+        grid.resize(Size { cols: 6, rows: 2 });
+        assert_eq!(grid.size, Size { cols: 6, rows: 2 });
+        assert_eq!(grid.rows, vec![vec![], vec![run("third")]]);
+        assert_eq!(grid.cursor.row, 1);
+        grid.resize(Size { cols: 4, rows: 2 });
+        assert_eq!(
+            grid.rows,
+            vec![vec![], vec![]],
+            "no run runs past the width"
+        );
+        assert_eq!(grid.cursor.col, 3);
+        grid.apply(&frame(1, true, vec![row(1, "third")]));
+        grid.resize(Size { cols: 6, rows: 2 });
+        assert_eq!(grid.rows, vec![vec![], vec![run("third")]]);
+        assert_eq!(grid.cursor.row, 0);
+        grid.cursor.row = 1;
+        grid.resize(Size { cols: 6, rows: 4 });
+        assert_eq!(grid.rows, vec![vec![], vec![run("third")], vec![], vec![]]);
+        assert_eq!(grid.cursor.row, 1);
+        grid.apply(&frame(2, true, vec![row(0, "fresh")]));
+        assert_eq!(grid.row_text(0), "fresh");
+        assert_eq!(grid.row_text(1), "");
     }
 
     #[test]
@@ -362,6 +650,7 @@ mod prompt_tests {
 
     fn grid() -> RunGrid {
         RunGrid::from_snapshot(&AttachSnapshot {
+            links: None,
             graphics: muxy_protocol::Graphics::default(),
             prompts: vec![0, 3],
             channel: ChannelId(1),
@@ -385,6 +674,7 @@ mod prompt_tests {
             ],
             history_cursor: Some(HistoryCursor(2)),
             history_total: 4,
+            history_graphics: None,
         })
     }
 

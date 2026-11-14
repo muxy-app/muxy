@@ -1,6 +1,6 @@
 use gpui::Context;
 use muxy_app_core::{
-    Direction, PaneId, ProjectStatus,
+    Direction, PaneId, Project, ProjectStatus, Tab,
     extensions::FileOpener,
     opener::{OpenContext, OpenRequest, Target},
 };
@@ -15,13 +15,7 @@ use crate::views::{
 
 impl AppModel {
     pub(super) fn opener_context(&self, pane: PaneId) -> Option<OpenContext> {
-        let project = self.state.projects().iter().find(|project| {
-            (self.is_quick_terminal(pane) && project.id == self.state.home().id)
-                || project
-                    .tabs
-                    .iter()
-                    .any(|tab| tab.panes.iter().any(|p| p.id == pane))
-        })?;
+        let project = self.state.pane_project(pane)?;
         Some(OpenContext {
             project: project.id,
             pane,
@@ -140,6 +134,72 @@ impl AppModel {
             .collect()
     }
 
+    /// Menu items that move pane `id` out of `tab`: into a new tab, a new
+    /// window, or another project.
+    fn pane_move_items(&self, id: PaneId, project: &Project, tab: &Tab) -> Vec<Item> {
+        let missing = project.status() == ProjectStatus::Missing;
+        let alone = tab.panes.len() < 2;
+        let mut to_tab = Item::action(
+            tr!("Move to New Tab"),
+            Command::MovePaneToTab(id, project.id),
+        )
+        .separated();
+        let mut to_window = Item::action(tr!("Move to New Window"), Command::MovePaneToWindow(id));
+        if missing || (alone && !tab.detached()) {
+            to_tab = to_tab.disabled();
+        }
+        if missing || (alone && tab.detached() && !tab.floating()) {
+            to_window = to_window.disabled();
+        }
+        let mut items = Vec::new();
+        if tab.detached() {
+            let label = if tab.floating() {
+                tr!("Dock as Tab")
+            } else {
+                tr!("Move to Main Window")
+            };
+            items.push(
+                Item::action(
+                    label,
+                    Command::Tab(tab.id, crate::views::tab_menu::Action::ReturnToMainWindow),
+                )
+                .separated(),
+            );
+        }
+        items.extend([to_tab, to_window]);
+        items.extend(self.float_items(id, project, tab));
+        if !missing {
+            items.extend(crate::views::tab_menu::move_to_project(
+                &self.move_destinations(project.id),
+                |project| Command::MovePaneToTab(id, project),
+            ));
+        }
+        items
+    }
+
+    /// Menu items that float pane `id`, or choose which projects the
+    /// floating tab it is in shows over.
+    fn float_items(&self, id: PaneId, project: &Project, tab: &Tab) -> Vec<Item> {
+        let Some(window) = tab.window.as_ref().filter(|window| window.is_floating()) else {
+            let mut float = Item::action(tr!("Float Pane"), Command::FloatPane(id));
+            if project.status() == ProjectStatus::Missing {
+                float = float.disabled();
+            }
+            return vec![float];
+        };
+        let (label, scope) = match self.float_scope(window.id) {
+            Some(muxy_app_core::FloatScope::AllProjects) => (
+                tr!("Show Only in %@", self.project_title(project).as_str()),
+                muxy_app_core::FloatScope::Project,
+            ),
+            _ => (
+                tr!("Show in All Projects"),
+                muxy_app_core::FloatScope::AllProjects,
+            ),
+        };
+        vec![Item::action(label, Command::FloatScope(window.id, scope))]
+    }
+
     pub(super) fn terminal_menu(
         &self,
         id: PaneId,
@@ -149,7 +209,9 @@ impl AppModel {
         let Some(pane) = self.terminal(&id) else {
             return;
         };
-        let project = self.state.current_project();
+        let Some(project) = self.state.pane_project(id) else {
+            return;
+        };
         let Some(tab) = project
             .tabs
             .iter()
@@ -210,7 +272,7 @@ impl AppModel {
         if tab.pinned && tab.panes.len() == 1 {
             close = close.disabled();
         }
-        let items = vec![
+        let mut items = vec![
             copy,
             paste,
             all,
@@ -219,11 +281,11 @@ impl AppModel {
             split_down,
             zoom,
             equalize,
-            detach.separated(),
-            close,
         ];
+        items.extend(self.pane_move_items(id, project, tab));
+        items.extend([self.proxy_menu_item(id).separated(), detach, close]);
         let model = cx.entity().downgrade();
-        let window = self.window;
+        let window = self.window_for_pane(id);
         cx.defer(move |cx| {
             let _ = window.update(cx, |_, window, cx| {
                 let _ = model.update(cx, |model, cx| {

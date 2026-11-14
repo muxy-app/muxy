@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use muxy_protocol::ProjectDescriptor;
+use muxy_protocol::{ProjectDescriptor, ServerPath};
 
 use crate::{AppError, AppState, Project, ServerId, WindowState};
 
@@ -15,17 +15,21 @@ impl AppState {
             selected_tab: HashMap::new(),
             bounds: None,
             workspace: None,
-            remote_servers: false,
+            floats_hidden: false,
         };
         Ok(Self {
             servers: BTreeMap::new(),
             starting_directories: BTreeMap::new(),
+            starting_proxies: BTreeMap::new(),
             startup_commands: BTreeMap::new(),
             quick_terminal: None,
             version: crate::state::VERSION,
             projects: vec![home],
             workspaces: Vec::new(),
+            removed_projects: Vec::new(),
             window,
+            set_aside: None,
+            session_moves: Vec::new(),
         })
     }
 
@@ -72,10 +76,10 @@ impl AppState {
             self.projects
                 .iter()
                 .find(|candidate| candidate.id == *project)
-                .is_some_and(|project| project.tabs.iter().any(|candidate| candidate.id == *tab))
+                .is_some_and(|project| project.listed_tabs().any(|candidate| candidate.id == *tab))
         });
         for project in &self.projects {
-            if let Some(tab) = project.tabs.first() {
+            if let Some(tab) = project.listed_tabs().next() {
                 self.window.selected_tab.entry(project.id).or_insert(tab.id);
             }
         }
@@ -116,6 +120,6 @@ fn home_directory() -> Result<PathBuf, AppError> {
 }
 
 fn new_home(directory: &Path) -> Result<Project, AppError> {
-    let home = ProjectDescriptor::home(crate::catalog::server_path(directory));
+    let home = ProjectDescriptor::home(ServerPath::from(directory));
     Project::from_descriptor(ServerId::local(), &home)
 }

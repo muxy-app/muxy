@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use gpui::{AppContext, Context, Entity, Focusable, Window};
+use gpui::{AnyElement, AppContext, Context, Entity, Focusable, IntoElement, Window};
 use muxy_app_core::project_layouts::{Config, Descriptor};
 use muxy_app_core::{PaneId, ProjectId, ProjectStatus, ServerId, TabId};
 use muxy_ui::icon::Icon;
@@ -13,7 +13,7 @@ use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, Quitting};
 use crate::boot::Work;
-use crate::views::overlays::Overlay;
+use crate::views::overlays::{Mark, Overlay, OverlayView};
 
 #[derive(Default)]
 pub(crate) struct ProjectLayouts {
@@ -35,6 +35,18 @@ pub(crate) struct LayoutPicker {
     directory: PathBuf,
     request: u64,
     loading: bool,
+}
+
+impl OverlayView for LayoutPicker {
+    fn render(
+        &self,
+        _: Option<Mark>,
+        _: &AppModel,
+        _: &Window,
+        _: &mut Context<AppModel>,
+    ) -> AnyElement {
+        self.picker.clone().into_any_element()
+    }
 }
 
 impl AppModel {
@@ -98,9 +110,7 @@ impl AppModel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt.is_some()
-            || self.close_request.is_some()
-            || self.quitting != Quitting::Idle
+        if self.dialogs.is_open() || self.close_request.is_some() || self.quitting != Quitting::Idle
         {
             return;
         }
@@ -132,13 +142,16 @@ impl AppModel {
                 PickerEvent::QueryChanged { .. } => model.update_layout_picker(cx),
                 _ => {}
             }));
-        self.overlay = Some(Overlay::Layouts(LayoutPicker {
-            picker,
-            project,
-            directory,
-            request,
-            loading: false,
-        }));
+        self.open_overlay(
+            Overlay::Layouts(LayoutPicker {
+                picker,
+                project,
+                directory,
+                request,
+                loading: false,
+            }),
+            cx,
+        );
         self.update_layout_picker(cx);
         cx.notify();
     }
@@ -277,6 +290,18 @@ impl AppModel {
                 return;
             }
         };
+        self.confirm_project_layout(project, directory, &layout.name, config, cx);
+    }
+
+    /// Asks before `config` replaces the tabs of `project`, still in `directory`.
+    pub(crate) fn confirm_project_layout(
+        &mut self,
+        project: ProjectId,
+        directory: PathBuf,
+        name: &str,
+        config: Config,
+        cx: &mut Context<Self>,
+    ) {
         let Some(target) = self.state.project(project) else {
             return;
         };
@@ -287,7 +312,7 @@ impl AppModel {
             .collect();
         let message = tr!(
             "Apply “%@” to “%@”? This replaces all of this project's tabs, including pinned tabs, and runs the layout's commands. Terminals no longer shown by any app will end. Only apply layouts you trust.",
-            &layout.name,
+            name,
             &target.name
         )
         .to_string();
@@ -347,7 +372,7 @@ impl AppModel {
         self.cancel_titlebar_drag(cx);
         self.changed(cx);
         self.discard_pending(server, cx);
-        self.focus_requested = true;
+        self.focus_owner.request_active_pane();
         match self.connection(server) {
             ConnectionState::Ready => {
                 for pane in panes {

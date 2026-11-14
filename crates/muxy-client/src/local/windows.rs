@@ -9,6 +9,7 @@ use std::os::windows::process::ExitStatusExt;
 use std::path::Path;
 use std::process::ExitStatus;
 use std::ptr;
+use std::time::Duration;
 
 use muxy_protocol::transport::{self, LocalStream};
 use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
@@ -31,6 +32,12 @@ pub struct Detached(OwnedHandle);
 impl Detached {
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         self.status(0)
+    }
+
+    /// Waits up to `timeout` for the program to exit.
+    pub fn wait_timeout(&mut self, timeout: Duration) -> io::Result<Option<ExitStatus>> {
+        let milliseconds = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
+        self.status(milliseconds.min(INFINITE - 1))
     }
 
     pub fn wait(&mut self) -> io::Result<ExitStatus> {

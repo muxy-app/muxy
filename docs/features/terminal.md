@@ -17,8 +17,22 @@ quit the app, and every app shows the same screen and history.
 | Next / previous tab | `Cmd+]` / `Cmd+[` |
 | Go to tab 1–9 | `Cmd+1`–`Cmd+9` |
 
-- New panes open in the project folder. Set **Settings → Terminal → New pane
-  directory** to open them in the current pane's folder instead.
+- Every terminal pane has a header with its icon (an agent's own icon while one
+  runs there) and title. At a prompt, the header names the shell, such as
+  `zsh`, rather than the folder, unless the shell sets its own title. Beside
+  the title, dimmed, the header shows the folder the terminal works in, such as
+  `~/Projects/muxy`, unless the title already shows it. The focused pane, or
+  the one under the pointer, shows buttons there to split it right or down,
+  float it, maximize it, or close it.
+  Drag a pane by its title to move it, as with `Cmd`-drag.
+  A terminal's header takes the background a full-screen app paints its screen
+  in, so it blends with the app. Turn headers off with **Settings → Appearance
+  → Show pane headers**.
+- Panes that aren't focused are dimmed, and the focused pane's tab is
+  underlined.
+- New tabs and panes open in the project folder. Turn on **Settings → Terminal →
+  Keep working directory** to open them in the focused pane's folder instead. A
+  new tab in another project still opens in that project's folder.
 - Drag dividers to resize, or even them out with **Equalize Splits**
   (`Cmd+Ctrl+=`, or a pane's right-click menu). `Cmd`-drag a pane onto another
   pane to swap them, or onto an edge to dock it there.
@@ -27,6 +41,40 @@ quit the app, and every app shows the same screen and history.
 
 See [Keyboard shortcuts](../user-guide/keyboard-shortcuts.md) for the full
 list.
+
+## Floating terminals
+
+A terminal can float over the workspace in a panel of its own, like a small
+window inside Muxy.
+
+- **Float Pane** in a terminal's pane header, its right-click menu, or the
+  command palette floats it. A pane alone in its tab takes its tab along. Only terminals float.
+- Drag the empty part of the pane headers along the panel's top to move it,
+  and its edges or corners to resize it. With pane headers turned off, the
+  panel has a bar of its own to drag. Clicking a panel brings it to the front.
+  Muxy remembers where each one sits.
+- A floating terminal belongs to its project and starts out showing only while
+  that project is selected. The scope button in its pane header (a folder, or
+  a globe once it shows everywhere), **Show in All Projects** in its
+  right-click menu, or the command palette keeps it over every project
+  instead; **Show Only in** the project goes back.
+- Inside a floating panel, `Cmd+D` and `Cmd+Shift+D` split it, and its panes
+  move by their titles or with `Cmd`-drag into other tabs, onto the tab bar,
+  or into another project, as in a tab window. Terminal panes dragged onto it
+  dock there.
+- **Dock as Tab** in its pane header or right-click menu puts it back among its
+  project's tabs. **Move to New Window** gives it a window of its own, and
+  **Float Pane** floats a tab window's terminal back over the main window.
+- **Minimize** (the minus button) collapses a floating terminal into a pill at
+  the bottom right of the window. Click its icon and title to restore it to its
+  previous size and position. Its splits and terminals stay running. Minimized
+  terminals follow their project scope; scroll the row when it fills up.
+- **Toggle Floating Terminals** (`Cmd+Opt+F`, or the View menu) hides every
+  floating terminal and shows them again. Hidden terminals keep running.
+  Clicking a notification for a hidden one shows it.
+- Floating terminals, where they sit, and whether they are hidden or minimized
+  come back after a restart. Toggling floating terminals preserves minimization;
+  clicking a notification for a minimized terminal restores it.
 
 ## Closing and detaching
 
@@ -80,14 +128,24 @@ terminal's folder, and you can:
 - Select a command's output with **Select Command Output** in the Edit menu or
   the right-click menu.
 
+## Program status
+
+Tabs show the progress a program reports with OSC 9;4 or the
+[program status protocol](https://www.superlogical.com/rex/docs/build/program-status)
+(OSC 7501), which wins when a program sends both. Working and waiting clear
+when the program exits; a reported error stays until the next report. Scripts
+can report with `muxy status`, for example
+`muxy status working --app deploy --msg "Uploading"`.
+
 ## Quick Terminal
 
 A terminal that drops down from the top of the screen from anywhere. Record a
 global shortcut in **Settings → Quick Terminal** first; none is set by default.
 
 It keeps one terminal in Home, hides when it loses focus, and has its own size
-and transparency settings. `Cmd+W` closes it and ends its terminal, whatever
-the close setting, unless another pane still shows it.
+and transparency settings. Click the pin button to keep it open and above other
+windows on every desktop; Muxy remembers the choice. `Cmd+W` closes it and ends
+its terminal, whatever the close setting, unless another pane still shows it.
 
 ## Appearance and configuration
 
@@ -98,5 +156,25 @@ Themes are in **Settings → Appearance**. See
 
 - `Cmd+=` and `Cmd+-` change the focused pane's font size. `Cmd+0` resets it.
 - `Option` acts as `Alt` by default (configurable in Terminal settings).
-- Images use the Kitty graphics protocol. Sixel and iTerm2 images are not
-  supported.
+- Programs can show images with the Kitty graphics protocol, Sixel, or iTerm2
+  inline images. Kitty images can also be passed as a file, a temporary file,
+  or shared memory, by programs on the computer that runs the terminal. Muxy
+  reads only regular files. As in Kitty and Ghostty, it deletes a temporary
+  file or shared memory once it has read the image. Kitty's PNG format also
+  accepts JPEG, GIF, WebP, BMP, TIFF and ICO files. Pictures over about a
+  million pixels are scaled down to fit. Raw pixels sent with the Kitty
+  protocol show at full size up to about two million pixels, and larger ones
+  are scaled down to that. Programs that replace their image many times a
+  second, such as `mpv --vo=kitty` or remote desktop viewers, play smoothly:
+  each picture stays until the next is ready.
+- Animated images play in the desktop app: animations a program sends with
+  the Kitty graphics protocol, and animated GIFs shown as iTerm2 inline images
+  or through Kitty's PNG format. A GIF sent through Kitty's PNG format plays
+  when the same command sends and shows it; one sent first and placed later
+  shows its first frame. GIFs play without end. A GIF whose frames pass about
+  32 MB is scaled down to fit, and a very long one loses its last frames. A
+  terminal keeps about 136 MB of images; past that, the oldest ones go, as in
+  Kitty and Ghostty. A saved screen keeps the frame that was showing.
+- Images stay with their rows when output pushes them into scrollback, and
+  scrolling back shows them again, as stills. A terminal's saved history,
+  read after it ends or the server restarts, keeps only its text.

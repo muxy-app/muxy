@@ -53,9 +53,10 @@ pub(super) fn agent_provider(group: u32) -> Option<muxy_protocol::AgentProvider>
     let mut pids = processes::pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group }).ok()?;
     pids.sort_unstable();
     pids.into_iter().take(128).find_map(|pid| {
+        let leader = pid == group;
         let pid = i32::try_from(pid).ok()?;
         let name = proc_pid::name(pid).ok()?;
-        crate::detection::identify(&name, &process_arguments(pid))
+        crate::detection::identify_member(&name, &process_arguments(pid), leader)
     })
 }
 
@@ -124,5 +125,58 @@ mod tests {
     fn vnode_layout_matches_the_darwin_abi() {
         assert_eq!(size_of::<VnodePathInfo>(), 2352);
         assert_eq!(std::mem::offset_of!(VnodePath, path), 152);
+    }
+
+    fn agent_of_group_running_claude(
+        label: &str,
+        args: &[String],
+    ) -> Option<muxy_protocol::AgentProvider> {
+        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::process::CommandExt;
+
+        let directory =
+            std::env::temp_dir().join(format!("muxy-group-{label}-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("directory");
+        let claude = directory.join("claude");
+        std::fs::write(&claude, "#!/bin/sh\nsleep 30\n").expect("script");
+        std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755))
+            .expect("permissions");
+        let mut leader = std::process::Command::new("/bin/sh")
+            .args(["-c", "\"$0\" \"$@\"; :"])
+            .arg(&claude)
+            .args(args)
+            .process_group(0)
+            .spawn()
+            .expect("spawn");
+        let group = leader.id();
+        let started = (0..500).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            processes::pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group })
+                .is_ok_and(|members| members.len() >= 3)
+        });
+        let agent = agent_provider(group);
+        let _ = std::process::Command::new("/bin/kill")
+            .args(["-9", "--", &format!("-{group}")])
+            .status();
+        let _ = leader.wait();
+        let _ = std::fs::remove_dir_all(&directory);
+        assert!(started, "the group's members never started");
+        agent
+    }
+
+    #[test]
+    fn a_one_shot_agent_a_program_started_is_not_the_terminals_agent() {
+        assert_eq!(
+            agent_of_group_running_claude("session", &[]),
+            Some(muxy_protocol::AgentProvider::Claude)
+        );
+        assert_eq!(
+            agent_of_group_running_claude("one-shot", &["-p".into(), "prompt".into()]),
+            None
+        );
+        assert_eq!(
+            agent_of_group_running_claude("long-prompt", &["-p".into(), "x".repeat(100 * 1024)]),
+            None
+        );
     }
 }

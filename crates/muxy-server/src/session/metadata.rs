@@ -21,6 +21,8 @@ pub(super) struct Metadata {
     pub(super) directory: ServerPath,
     pub(super) process: Option<ForegroundProcess>,
     pub(super) agent: Option<muxy_protocol::AgentProvider>,
+    /// The session's own shell is in the foreground, so no program it ran is.
+    pub(super) shell_foreground: bool,
     next_agent: std::time::Instant,
     agent_group: Option<u32>,
     observed_directory: Option<ServerPath>,
@@ -74,6 +76,19 @@ impl Foreground {
     }
 }
 
+/// The foreground process group on Unix; on Windows the newest program the
+/// shell started.
+pub(super) fn foreground_group(shell: &Shell) -> Option<u32> {
+    #[cfg(unix)]
+    {
+        shell.pty.foreground_pid()
+    }
+    #[cfg(windows)]
+    {
+        Foreground::of(shell).map(|foreground| foreground.group)
+    }
+}
+
 impl Metadata {
     pub(super) fn new(directory: ServerPath) -> Self {
         Self {
@@ -81,6 +96,7 @@ impl Metadata {
             directory,
             process: None,
             agent: None,
+            shell_foreground: false,
             next_agent: std::time::Instant::now(),
             agent_group: None,
             observed_directory: None,
@@ -96,13 +112,15 @@ impl Metadata {
         let mut events = Vec::new();
         let previous_directory = self.directory.clone();
         let group = foreground.as_ref().map(|foreground| foreground.group);
+        self.shell_foreground = foreground.as_ref().is_some_and(Foreground::is_idle_shell);
         if self.next_agent <= std::time::Instant::now() || self.agent_group != group {
             self.next_agent = std::time::Instant::now() + std::time::Duration::from_millis(500);
             self.agent_group = group;
-            self.agent = foreground
-                .as_ref()
-                .filter(|foreground| !foreground.is_idle_shell())
-                .and_then(Foreground::agent);
+            self.agent = if self.shell_foreground {
+                None
+            } else {
+                foreground.as_ref().and_then(Foreground::agent)
+            };
         }
         if let Some(foreground) = foreground {
             let process = ForegroundProcess {
@@ -150,16 +168,16 @@ impl Metadata {
 
 /// The folder an OSC 7 report names. Windows takes only drive paths, as
 /// `file:///C:/…`, `file://host/C:/…` or `C:\…`.
-fn terminal_directory(value: &str, windows: bool) -> Option<ServerPath> {
-    let path = if let Some(url) = value.strip_prefix("file://") {
-        let (_, path) = url.split_once('/')?;
+fn terminal_directory(value: &[u8], windows: bool) -> Option<ServerPath> {
+    let path = if let Some(url) = value.strip_prefix(b"file://") {
+        let path = &url[url.iter().position(|byte| *byte == b'/')? + 1..];
         let mut path = percent_decoded(path)?;
         if !windows {
             path.insert(0, b'/');
         }
         path
     } else {
-        value.as_bytes().to_vec()
+        value.to_vec()
     };
     if path.contains(&0) {
         return None;
@@ -182,8 +200,8 @@ fn terminal_directory(value: &str, windows: bool) -> Option<ServerPath> {
     })
 }
 
-fn percent_decoded(text: &str) -> Option<Vec<u8>> {
-    let mut bytes = text.bytes();
+fn percent_decoded(text: &[u8]) -> Option<Vec<u8>> {
+    let mut bytes = text.iter().copied();
     let mut decoded = Vec::with_capacity(text.len());
     while let Some(byte) = bytes.next() {
         decoded.push(if byte == b'%' {
@@ -202,8 +220,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn terminal_directories_keep_raw_and_percent_encoded_bytes() {
+        assert_eq!(
+            terminal_directory(b"file://host/tmp/caf\xe9", false),
+            Some(ServerPath(b"/tmp/caf\xe9".to_vec()))
+        );
+        assert_eq!(
+            terminal_directory(b"file://host/tmp/caf%E9", false),
+            Some(ServerPath(b"/tmp/caf\xe9".to_vec()))
+        );
+    }
+
+    #[test]
     fn unix_reports_keep_their_bytes() {
-        let unix = |value| terminal_directory(value, false).map(|path| path.0);
+        let unix = |value: &str| terminal_directory(value.as_bytes(), false).map(|path| path.0);
         assert_eq!(unix("file:///tmp/a%20b"), Some(b"/tmp/a b".to_vec()));
         assert_eq!(unix("file://host/tmp/%FF"), Some(b"/tmp/\xff".to_vec()));
         assert_eq!(unix("/tmp"), Some(b"/tmp".to_vec()));
@@ -213,7 +243,7 @@ mod tests {
 
     #[test]
     fn windows_reports_name_drive_folders_only() {
-        let windows = |value| terminal_directory(value, true).map(|path| path.0);
+        let windows = |value: &str| terminal_directory(value.as_bytes(), true).map(|path| path.0);
         assert_eq!(
             windows("file:///C:/Users/a%20b"),
             Some(br"C:\Users\a b".to_vec())

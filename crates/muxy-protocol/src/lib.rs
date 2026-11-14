@@ -2,10 +2,14 @@
 //! child-process transports.
 //!
 //! Client and server runtime policy, persistence, UI, and native terminal
-//! execution stay with their owners.
+//! execution stay with their owners. Encodings and digests that aren't wire
+//! types come from `muxy-core`.
 
 mod build;
-pub use build::{BuildInfo, COMPATIBILITY, ServerInfo};
+pub use build::{
+    BuildInfo, CATALOG_FILE, COMPATIBILITY, MAX_UNREADABLE_ERROR, MAX_UNREADABLE_FILES, ServerInfo,
+    UNREADABLE_SUFFIX, UnreadableFile,
+};
 mod control;
 mod exec;
 pub use exec::{ExecRequest, ExecResult, MAX_EXEC_OUTPUT};
@@ -24,7 +28,7 @@ pub use control::{
     ErrorCode, ErrorReply, ReplyBody, RequestBody, ServerSettingsDoc, TerminalColors,
 };
 pub use ids::{CONTROL, ChannelId, RequestId, SessionId};
-pub use message::{ChannelKind, Message, Topic};
+pub use message::{ChannelKind, CoalesceKey, Message, Topic};
 pub use path::ServerPath;
 pub use screen::{
     Color, Cursor, CursorShape, Modes, Row, Run, ScreenFrame, Size, Style, Underline,
@@ -36,31 +40,35 @@ pub use session::{
     SessionClient, SessionInfo, SessionMetadata, SessionProgress, TerminalProgress,
 };
 pub use validate::{
-    MAX_CLIPBOARD_TEXT, MAX_COLS, MAX_INPUT, MAX_LINK_SPANS, MAX_LINK_URI, MAX_ROWS,
-    validate_input, validate_path, validate_search, validate_size, validate_versions,
+    MAX_CLIPBOARD_TEXT, MAX_COLS, MAX_INPUT, MAX_LINK_SPANS, MAX_LINK_URI, MAX_PATH, MAX_ROWS,
+    validate_absolute_path, validate_environment, validate_input, validate_path,
+    validate_relative_path, validate_search, validate_size, validate_versions,
 };
 pub use version::{CURRENT, FEATURES, Feature, SUPPORTED, V1, V2, Version};
 
 mod graphics;
 pub use graphics::{
-    CellSize, GraphicImage, GraphicPlacement, Graphics, MAX_GRAPHICS_BYTES, MAX_GRAPHICS_PLACEMENTS,
+    CellSize, GraphicFrame, GraphicImage, GraphicPlacement, Graphics, ImageFrame,
+    MAX_GRAPHICS_BYTES, MAX_GRAPHICS_FRAMES, MAX_GRAPHICS_PLACEMENTS, Playback, PlaybackState,
+    validate_image_frames,
 };
 
 mod project;
 pub use project::{
     CATALOG_PAGE_SIZE, CatalogPage, ClientId, DeviceId, MAX_PROJECT_LOGO_BYTES, MAX_PROJECTS,
-    OperationId, PROJECT_COLORS, ProjectDescriptor, ProjectId, ProjectIntent, ProjectKind,
-    ProjectMutation, ProjectPatch, ProjectSession, ProjectSessions, ServerIdentity, SessionStatus,
-    is_project_symbol,
+    MAX_SESSION_NAME, OperationId, PROJECT_COLORS, ProjectDescriptor, ProjectId, ProjectIntent,
+    ProjectKind, ProjectMutation, ProjectPatch, ProjectSession, ProjectSessions, ServerIdentity,
+    SessionStatus, is_project_symbol, validate_session_name,
 };
 
 mod remote;
 pub use remote::{
-    DEFAULT_REMOTE_PORT, DeviceCredential, ListenerStatus, MAX_DEVICE_NAME, MAX_DEVICES,
-    MAX_PAIRING_HOSTS, PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer,
+    DEFAULT_REMOTE_PORT, DeviceCredential, DeviceKind, ListenerStatus, MAX_DEVICE_NAME,
+    MAX_DEVICES, MAX_PAIRING_HOSTS, PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer,
     RemoteAccessSettings, RemoteAccessState, validate_device_name, validate_pairing_hosts,
 };
 
+pub mod title;
 pub mod wire;
 
 pub mod transport;
@@ -84,7 +92,12 @@ mod files;
 pub use files::{
     FileBytes, FileChanges, FileContent, FileEntry, FileInfo, FilesAction, FilesReply,
     FilesRequest, MAX_FILE_BYTES, MAX_FILE_CHANGES, MAX_FILE_ENTRIES, MAX_FILE_PATH_BYTES,
-    validate_folder_names, validate_folder_path,
+    validate_folder_names,
+};
+
+mod push;
+pub use push::{
+    PUSH_KEY_BYTES, PushEnvironment, PushPlatform, PushRegistration, PushStatus, PushToken,
 };
 
 mod upload;

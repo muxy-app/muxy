@@ -25,13 +25,14 @@ impl AppModel {
                     && !self.is_background(*id)
                 {
                     self.extensions.scripts.remove(id);
+                    self.forget_expired_calls(cx);
                 }
                 Ok(Value::Null)
             }
             "console" => {
                 self.console(&call);
                 call.reply.send(Ok(Value::Null), cx);
-                if self.settings_window.is_some() {
+                if self.settings_tab.is_some() {
                     cx.notify();
                 }
                 return;
@@ -55,8 +56,23 @@ impl AppModel {
                 self.extension_storage(call, cx);
                 return;
             }
+            "tabs.new" | "tabs.close" | "tabs.rename" | "tabs.setColor" | "tabs.pin"
+            | "tabs.move" | "tabs.moveToWindow" | "tabs.dock" => self.tab_control(&call, cx),
             verb if verb.starts_with("tabs.") => self.tabs_call(&call, cx),
+            "panes.split"
+            | "panes.focus"
+            | "panes.zoom"
+            | "panes.equalize"
+            | "panes.detach"
+            | "panes.restart"
+            | "panes.scrollToBottom"
+            | "panes.float"
+            | "panes.moveToTab"
+            | "panes.moveToWindow" => self.pane_control(&call, cx),
             verb if verb.starts_with("panes.") => self.panes_call(&call, cx),
+            "projects.next" | "projects.previous" | "projects.focus" | "projects.sort"
+            | "projects.removed" | "projects.restore" | "projects.apps" | "projects.openIn"
+            | "projects.reveal" => self.project_control(&call, cx),
             "projects.create" => {
                 self.create_extension_project(call, cx);
                 return;
@@ -82,11 +98,26 @@ impl AppModel {
                 return;
             }
             "agents.list" => Ok(Value::Array(self.agent_statuses().into_values().collect())),
+            "agents.focus" => self.focus_extension_agent(&call, cx),
+            verb if verb.starts_with("ui.") => self.ui_call(&call, window, cx),
+            "commands.list" | "commands.run" => self.commands_call(&call, window, cx),
+            verb if verb.starts_with("composer.") => self.composer_call(&call, window, cx),
+            verb if verb.starts_with("preferences.") => self.preferences_call(&call, cx),
+            verb if verb.starts_with("clipboard.") => Self::clipboard_call(&call, cx),
+            verb if verb.starts_with("app.") => self.app_call(&call, cx),
+            verb if verb.starts_with("settings.") => {
+                self.settings_call(call, cx);
+                return;
+            }
+            "layouts.list" | "layouts.apply" => {
+                self.layouts_call(call, cx);
+                return;
+            }
             "gh.user" => {
                 self.gh_user(call, cx);
                 return;
             }
-            "panels.open" | "panels.toggle" | "panels.close" => {
+            "panels.open" | "panels.toggle" | "panels.close" | "panels.update" | "panels.list" => {
                 self.panel_operation(&call.owner, &call.verb, &call.args, window, cx)
             }
             "popover.close" => {
@@ -94,7 +125,7 @@ impl AppModel {
                 Ok(Value::Null)
             }
             "popover.resize" => self.resize_popover(&call.owner, &call.args, cx),
-            "topbar.set" | "statusbar.set" => self.set_item(&call, cx),
+            "topbar.set" | "rail.set" | "statusbar.set" => self.set_item(&call, cx),
             verb if verb.starts_with("shortcuts.") => self.shortcuts_call(&call, cx),
             "modal.open" | "modal.feed" | "modal.finish" | "modal.await" => {
                 match self.script_modal(&call, window, cx) {
@@ -271,22 +302,20 @@ impl AppModel {
             );
         }
         let requested = call.args["paneID"].as_str();
-        let target = self.state.projects().iter().find_map(|project| {
-            project.tabs.iter().find_map(|tab| {
-                tab.panes
-                    .iter()
-                    .find(|pane| {
-                        requested.map_or_else(
-                            || {
-                                project.id == self.state.current_project().id
-                                    && matches!(pane.content, PaneContent::Terminal { .. })
-                            },
-                            |requested| pane.id.to_string() == requested,
-                        )
-                    })
-                    .map(|pane| (project, tab.id, pane.id))
+        let target = self
+            .state
+            .panes()
+            .filter_map(|placed| Some((placed.project?, placed.tab?.id, placed.pane)))
+            .find(|(project, _, pane)| {
+                requested.map_or_else(
+                    || {
+                        project.id == self.state.current_project().id
+                            && matches!(pane.content, PaneContent::Terminal { .. })
+                    },
+                    |requested| pane.id.to_string() == requested,
+                )
             })
-        });
+            .map(|(project, tab, pane)| (project, tab, pane.id));
         let (project, tab, pane) = match target {
             Some((project, tab, pane)) => (project, tab.to_string(), pane.to_string()),
             None => (self.state.current_project(), String::new(), String::new()),
@@ -344,10 +373,7 @@ impl AppModel {
             .map(str::to_owned)
             .to_vec(),
             shell: None,
-            cwd: home
-                .directory
-                .to_str()
-                .map(|path| ServerPath(path.as_bytes().into())),
+            cwd: home.directory.to_str().map(ServerPath::from),
             env: std::collections::BTreeMap::new(),
             stdin: Vec::new(),
             timeout_ms: 30_000,
@@ -751,9 +777,7 @@ pub(super) fn exec_request(call: &Call, job: u64) -> Result<ExecRequest, String>
         project: call.project,
         argv: arguments,
         shell: shell.map(str::to_owned),
-        cwd: options["cwd"]
-            .as_str()
-            .map(|p| ServerPath(p.as_bytes().into())),
+        cwd: options["cwd"].as_str().map(ServerPath::from),
         stdin: options["stdin"].as_str().unwrap_or("").as_bytes().into(),
         timeout_ms: u32::try_from(timeout).map_err(|e| e.to_string())?,
     };

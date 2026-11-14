@@ -31,15 +31,20 @@ Every payload value is a string.
 | `agent.status` | `projectID`, `worktreeID`, `paneID`, `providerID`, `status` (`working`, `waiting`, `idle`) | `agents:read` |
 | `file.changed` | `path`, `projectPath` | `files:read` |
 | `notification.posted` | `paneID`, `projectID`, `worktreeID`, `worktreePath`, `tabID`, `source`, `title`, `body` | |
-| `panel.opened`, `panel.closed` | `extensionID`, `panelID` | |
+| `panel.opened`, `panel.closed` | `extensionID`, `panelID`, and `instance` for a named [instance](panels.md#instances) | |
 | `popover.opened`, `popover.closed` | `extensionID`, `popoverID` | |
 | `modal.opened`, `modal.closed` | `extensionID`, `modalID` | |
+| `ui.changed` | Everything `ui.state()` returns | |
+| `theme.changed` | `name`, `colorScheme` (`light` or `dark`) | |
+| `preferences.changed` | `key`, `value`, once per [preference](api.md#preferences) that changed | `preferences:read` |
+| `settings.changed` | `key` of the extension's own setting that changed | |
 
 **Tab context:** `tabID`, `projectID`, `worktreeID`, `areaID`, `title`,
-`projectPath`, and `kind` (`terminal`, `extensionWebView`, or `browser`).
-Terminal tabs add `paneID` and `cwd`. Extension tabs add `extensionID`,
-`tabTypeID`, `tabInstanceID`, and `data` as a JSON string. Browser tabs add
-`paneID` and `url`.
+`projectPath`, `isPinned`, `color` when set, and `kind` (`terminal`,
+`extensionWebView`, or `browser`).
+Terminal tabs add `paneID` and `cwd`. Extension tabs add
+`extensionID`, `tabTypeID`, `tabInstanceID`, and `data` as a JSON string.
+Browser tabs add `paneID` and `url`.
 
 - `projectID` is the top-level project. `worktreeID` is the project or
   worktree the tab belongs to.
@@ -47,7 +52,7 @@ Terminal tabs add `paneID` and `cwd`. Extension tabs add `extensionID`,
   tabs open.
 - `agent.status` reports the busiest agent per worktree; `providerID` is
   `claude`, `codex`, `opencode`, `cursor`, `copilot`, `droid`, `pi`, `grok`,
-  `kiro`, `xal`, `antigravity`, `omp`, or `other`.
+  `kiro`, `xal`, `antigravity`, `omp`, `hermes`, or `other`.
 
 ## Command events
 
