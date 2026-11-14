@@ -26,7 +26,7 @@ PARTS = {
 
 def main():
     parser = argparse.ArgumentParser(description="Run the native macOS desktop regression guard.")
-    parser.add_argument("--part", choices=sorted(PARTS), help="run only this part; without it, lint then test")
+    parser.add_argument("--part", choices=sorted(PARTS), help="run only this part; CI runs the parts in parallel")
     parser.add_argument("--scope", choices=ci_scope.SCOPES, default=ci_scope.FULL, help="which crates to test")
     args = parser.parse_args()
     if platform.system() != "Darwin":

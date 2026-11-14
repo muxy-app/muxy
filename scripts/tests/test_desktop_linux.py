@@ -103,16 +103,18 @@ class DesktopLinuxTests(unittest.TestCase):
             CHECK.main()
         run.assert_not_called()
 
-    def test_ci_runs_lint_and_test_in_one_x86_64_job_beside_the_headless_and_macos_jobs(self):
+    def test_ci_runs_lint_and_test_in_parallel_on_x86_64_beside_the_headless_and_macos_jobs(self):
         for expected in [
-            'python3 scripts/check-desktop-macos.py --scope "$SCOPE"',
+            'python3 scripts/check-desktop-macos.py --part "${{ matrix.part }}" --scope "$SCOPE"',
             "python3 scripts/check-headless.py --target x86_64-unknown-linux-gnu",
-            'python3 scripts/check-desktop-linux.py --target x86_64-unknown-linux-gnu --scope "$SCOPE"',
+            "python3 scripts/check-desktop-linux.py --target x86_64-unknown-linux-gnu\n"
+            '          --part "${{ matrix.part }}" --scope "$SCOPE"',
+            "part: [lint, test]",
             "runs-on: ubuntu-22.04\n",
             "runs-on: ubuntu-24.04\n",
         ]:
             self.assertIn(expected, WORKFLOW)
-        for absent in ["-arm", "matrix.", "--part", "continue-on-error"]:
+        for absent in ["-arm", "matrix.runner", "continue-on-error"]:
             self.assertNotIn(absent, WORKFLOW)
 
 

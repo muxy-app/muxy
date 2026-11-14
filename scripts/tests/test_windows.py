@@ -113,7 +113,8 @@ class WindowsTests(unittest.TestCase):
 
     def test_ci_runs_the_windows_check_on_x86_64(self):
         for expected in [
-            'python scripts/check-windows.py --target x86_64-pc-windows-msvc --scope "$env:SCOPE"',
+            "python scripts/check-windows.py --target x86_64-pc-windows-msvc\n"
+            '          --part "${{ matrix.part }}" --scope "$env:SCOPE"',
             "runs-on: windows-latest\n",
             "git config --global core.autocrlf false\n          git config --global core.longpaths true\n"
             "      - uses: actions/checkout@v4\n",

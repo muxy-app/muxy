@@ -36,6 +36,10 @@ jobs:
   macos:
     needs: scope
     if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [lint, test]
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -44,7 +48,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: python3 scripts/protocol_fixtures.py append-only --base "$PROTOCOL_BASE"
+      - if: matrix.part == 'lint'
+        run: python3 scripts/protocol_fixtures.py append-only --base "$PROTOCOL_BASE"
         env:
           PROTOCOL_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
       - uses: dtolnay/rust-toolchain@stable
@@ -62,17 +67,18 @@ jobs:
           key: zig-macos-15-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: python3 scripts/check-desktop-macos.py --scope "$SCOPE"
+      - run: python3 scripts/check-desktop-macos.py --part "${{ matrix.part }}" --scope "$SCOPE"
       - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: .zig-cache
           key: ${{ steps.zig-cache.outputs.cache-primary-key }}
-      - if: env.SCOPE != 'desktop'
+      - if: matrix.part == 'test' && env.SCOPE != 'desktop'
         run: python3 scripts/protocol_fixtures.py last-release
-      - if: ${{ !cancelled() }}
+      - if: matrix.part == 'test' && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: cargo-timings-macos
@@ -119,6 +125,10 @@ jobs:
   linux-desktop:
     needs: scope
     if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [lint, test]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -146,15 +156,18 @@ jobs:
           key: zig-ubuntu-24.04-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: python3 scripts/check-desktop-linux.py --target x86_64-unknown-linux-gnu --scope "$SCOPE"
+      - run: >-
+          python3 scripts/check-desktop-linux.py --target x86_64-unknown-linux-gnu
+          --part "${{ matrix.part }}" --scope "$SCOPE"
       - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: .zig-cache
           key: ${{ steps.zig-cache.outputs.cache-primary-key }}
-      - if: ${{ !cancelled() }}
+      - if: matrix.part == 'test' && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: cargo-timings-linux
@@ -165,6 +178,10 @@ jobs:
   windows:
     needs: scope
     if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [lint, test]
     runs-on: windows-latest
     timeout-minutes: 90
     env:
@@ -192,15 +209,18 @@ jobs:
           key: zig-windows-latest-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: python scripts/check-windows.py --target x86_64-pc-windows-msvc --scope "$env:SCOPE"
+      - run: >-
+          python scripts/check-windows.py --target x86_64-pc-windows-msvc
+          --part "${{ matrix.part }}" --scope "$env:SCOPE"
       - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: .zig-cache
           key: ${{ steps.zig-cache.outputs.cache-primary-key }}
-      - if: ${{ !cancelled() }}
+      - if: matrix.part == 'test' && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: cargo-timings-windows
