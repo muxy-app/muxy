@@ -96,6 +96,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/topbarItem" }
         },
+        "railItems": {
+          "type": "array",
+          "description": "Icons on the rail, a column on the right edge of the window. They move to the top bar when the user turns the rail off.",
+          "items": { "$ref": "#/$defs/topbarItem" }
+        },
         "statusBarItems": {
           "type": "array",
           "items": { "$ref": "#/$defs/statusBarItem" }

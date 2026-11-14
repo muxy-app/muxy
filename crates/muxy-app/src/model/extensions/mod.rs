@@ -24,6 +24,7 @@ mod worktrees;
 pub(crate) use commands::{ExtensionShortcut, RunCommand};
 pub(in crate::model) use events::root_of;
 pub(crate) use installs::{ActiveInstall, FinishedInstall};
+pub(crate) use items::Placement;
 pub(crate) use logs::log_file;
 pub(crate) use pages::is_page_verb;
 

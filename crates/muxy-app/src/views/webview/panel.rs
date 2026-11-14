@@ -290,7 +290,10 @@ impl AppModel {
         cx: &gpui::App,
     ) -> (gpui::Size<f32>, gpui::Size<f32>) {
         let mut available = gpui::size(
-            (f32::from(window.viewport_size().width) - self.sidebar_width()).max(0.0),
+            (f32::from(window.viewport_size().width)
+                - self.sidebar_width()
+                - crate::views::rail::width(self))
+            .max(0.0),
             (f32::from(window.viewport_size().height) - 160.0).max(0.0),
         );
         if let Some(composer) = &self.composer.view

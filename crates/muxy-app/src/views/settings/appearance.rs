@@ -101,6 +101,12 @@ pub(super) fn rows(
             Change::StatusBar(!appearance.status_bar_visible),
         ),
         (
+            "rail",
+            tr_key!("Show rail"),
+            appearance.rail_enabled,
+            Change::Rail(!appearance.rail_enabled),
+        ),
+        (
             "pane-headers",
             tr_key!("Show pane headers"),
             appearance.pane_headers,

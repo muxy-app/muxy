@@ -1067,6 +1067,7 @@
 "Keep Quick Terminal open and above other windows when it loses focus. Same as its pin button." = "Keep Quick Terminal open and above other windows when it loses focus. Same as its pin button.";
 "Keep Waiting" = "Keep Waiting";
 "Keep a layout in .muxy/layouts to reopen the same workspace." = "Keep a layout in .muxy/layouts to reopen the same workspace.";
+"Keep extension icons that ask for the rail in a column on the right, opened from the top bar. Off puts them in the top bar." = "Keep extension icons that ask for the rail in a column on the right, opened from the top bar. Off puts them in the top bar.";
 "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused." = "Keep projects without tabs shown after a restart in Tab Focused and Agents Focused.";
 "Keep terminals running after quitting" = "Keep terminals running after quitting";
 "Keep working directory" = "Keep working directory";
@@ -1821,6 +1822,7 @@
 "Show project colors" = "Show project colors";
 "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed." = "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed.";
 "Show project names alongside their icons in the workspace sidebar." = "Show project names alongside their icons in the workspace sidebar.";
+"Show rail" = "Show rail";
 "Show status bar" = "Show status bar";
 "Show the agents panel, or its button when the sidebar is collapsed." = "Show the agents panel, or its button when the sidebar is collapsed.";
 "Show tips" = "Show tips";
@@ -2059,6 +2061,7 @@
 "Toggle Full Screen" = "Toggle Full Screen";
 "Toggle Pane Zoom" = "Toggle Pane Zoom";
 "Toggle Project Focus" = "Toggle Project Focus";
+"Toggle Rail" = "Toggle Rail";
 "Toggle Sidebar" = "Toggle Sidebar";
 "Toggle Status Bar" = "Toggle Status Bar";
 "Toggle Tab Pin" = "Toggle Tab Pin";

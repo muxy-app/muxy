@@ -125,7 +125,7 @@ impl AppModel {
                 Ok(Value::Null)
             }
             "popover.resize" => self.resize_popover(&call.owner, &call.args, cx),
-            "topbar.set" | "statusbar.set" => self.set_item(&call, cx),
+            "topbar.set" | "rail.set" | "statusbar.set" => self.set_item(&call, cx),
             verb if verb.starts_with("shortcuts.") => self.shortcuts_call(&call, cx),
             "modal.open" | "modal.feed" | "modal.finish" | "modal.await" => {
                 match self.script_modal(&call, window, cx) {

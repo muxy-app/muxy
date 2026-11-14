@@ -290,6 +290,11 @@ declare namespace Muxy {
       show(id: string): Promise<void>;
       hide(id: string): Promise<void>;
     };
+    rail: {
+      set(item: Omit<ItemUpdate, "text">): Promise<void>;
+      show(id: string): Promise<void>;
+      hide(id: string): Promise<void>;
+    };
     statusbar: {
       set(item: ItemUpdate): Promise<void>;
       show(id: string): Promise<void>;

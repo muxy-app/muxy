@@ -11,6 +11,10 @@ const MAPPINGS: &[(&str, &[&str])] = &[
     ("muxy.theme.dark", &["appearance", "dark_theme"]),
     ("muxy.theme.light", &["appearance", "light_theme"]),
     ("muxy.showStatusBar", &["appearance", "status_bar_visible"]),
+    (
+        "muxy.showExtensionIconRail",
+        &["appearance", "rail_expanded"],
+    ),
     ("muxy.tips.visible", &["appearance", "tips_visible"]),
     (
         "muxy.general.autoExpandWorktreesOnProjectSwitch",

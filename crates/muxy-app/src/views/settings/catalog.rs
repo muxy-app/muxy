@@ -364,6 +364,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
+        id: "rail",
+        label: tr_key!("Show rail"),
+        description: tr_key!(
+            "Keep extension icons that ask for the rail in a column on the right, opened from the top bar. Off puts them in the top bar."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "pane-headers",
         label: tr_key!("Show pane headers"),
         description: tr_key!(

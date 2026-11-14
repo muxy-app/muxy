@@ -15,7 +15,7 @@ On macOS, choose **About Muxy** (or **About Muxy Beta**) from the app menu to op
 | General | Closing behavior, the app that opens files, window size, worktree locations, the anonymous daily ping |
 | Quick Terminal | Global shortcut, pinning, size, transparency |
 | Composer | Clearing, image submission, font |
-| Appearance | Language, light and dark themes, interface size, sidebar, status bar, pane headers, tips |
+| Appearance | Language, light and dark themes, interface size, sidebar, status bar, rail, pane headers, tips |
 | Keyboard | Every shortcut. See [Keyboard shortcuts](keyboard-shortcuts.md) |
 | Commands | Your own commands, each run in a new tab, with optional shortcuts |
 | Terminal | Fonts, spacing, transparency, vibrancy, colors, cursor, padding, selection, scrolling, Option keys, key bindings |
@@ -176,6 +176,11 @@ Updates are manual: use **Update all**, or update one from its page. Building
 your own? Choose **Create Extension…** to
 [have an agent build it](../extensions/agents.md), or see
 [Extensions](../extensions/overview.md).
+
+Extensions can put icons on the rail, a column on the right edge of the
+window. Open and close it with the rail button at the end of the top bar. Turn
+off **Settings → Appearance → Show rail** to hide the rail and its button and
+show those icons in the top bar instead.
 
 Language packs are extensions too. Pick a language in **Settings → Appearance →
 App language**, or choose **Browse language extensions…**.

@@ -14,6 +14,7 @@ fn one_x_settings_keep_unrelated_preferences_and_skip_unsupported_values() {
     original.window.default_size = [1400.0, 900.0];
     let source = json!({
         "muxy.theme.dark": "Dracula",
+        "muxy.showExtensionIconRail": true,
         "muxy.general.autoCopyTerminalSelection": true,
         "muxy.appLayout": "agentsFocused",
         "muxy.activeSidebar": "workspace-nav",
@@ -42,6 +43,7 @@ fn one_x_settings_keep_unrelated_preferences_and_skip_unsupported_values() {
         muxy_app_core::settings::AppLayout::AgentsFocused
     );
     assert_eq!(settings.appearance.extension_sidebar, "workspace-nav");
+    assert!(settings.appearance.rail_expanded);
     assert!(settings.composer.pinned);
     assert_eq!(settings.appearance.language, "language-packs:ko");
     assert_eq!(settings.ai.prompts["create_pr"], "My instructions");

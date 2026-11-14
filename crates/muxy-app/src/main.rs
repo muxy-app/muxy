@@ -51,6 +51,7 @@ mod views {
     pub(crate) mod project_picker;
     pub(crate) mod proxy;
     pub(crate) mod quick_terminal;
+    pub(crate) mod rail;
     pub(crate) mod remote_servers;
     pub(crate) mod server_menu;
     pub(crate) mod server_status;

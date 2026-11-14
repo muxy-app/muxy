@@ -3,9 +3,9 @@
 > **New here?** Start with [Get started](get-started.md).
 
 An extension is a web project that adds to the desktop app: tabs, panels,
-popovers, a sidebar, top bar and status bar items, palette commands, shortcuts,
-background logic, and app languages. You build it with any web tooling and Muxy
-loads the build output.
+popovers, a sidebar, top bar, rail, and status bar items, palette commands,
+shortcuts, background logic, and app languages. You build it with any web
+tooling and Muxy loads the build output.
 
 Most extensions made for Muxy 1.x work unchanged. A few 1.x features are not
 available yet; see [Coming from 1.x](get-started.md#coming-from-1x).
@@ -34,7 +34,7 @@ for local and remote projects. Web requests run in the desktop app.
 | [Events](events.md) | Workspace events and extension messages |
 | [Tabs](tabs.md) | Tab types, file openers, page data, and theme |
 | [Panels](panels.md) | Panels, popovers, and the sidebar |
-| [Bar items](bar-items.md) | Top bar and status bar items |
+| [Bar items](bar-items.md) | Top bar, rail, and status bar items |
 | [Commands](commands.md) | Palette commands, shortcuts, and scripts |
 | [Dialogs](dialogs.md) | Dialogs, pickers, and modal web views |
 | [Files](files.md) | Reading and writing project files |

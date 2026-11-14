@@ -166,6 +166,14 @@ pub fn anchored_popover_above(
     positioned_popover(anchor, content, above_origin, on_anchor_lost)
 }
 
+pub fn anchored_popover_left(
+    anchor: PopoverAnchor,
+    content: AnyElement,
+    on_anchor_lost: impl FnOnce(&mut Window, &mut App) + 'static,
+) -> AnyElement {
+    positioned_popover(anchor, content, left_origin, on_anchor_lost)
+}
+
 fn positioned_popover(
     anchor: PopoverAnchor,
     mut content: AnyElement,
@@ -240,6 +248,20 @@ pub fn above_origin(
 ) -> Point<Pixels> {
     clamp_to_viewport(
         point(anchor.left(), anchor.top() - panel.height - px(4.0)),
+        panel,
+        viewport,
+    )
+}
+
+/// Where a panel opens beside `anchor` on its left, top edges aligned, for a
+/// control at the right edge of the window.
+pub fn left_origin(
+    anchor: Bounds<Pixels>,
+    panel: Size<Pixels>,
+    viewport: Size<Pixels>,
+) -> Point<Pixels> {
+    clamp_to_viewport(
+        point(anchor.left() - panel.width - px(4.0), anchor.top()),
         panel,
         viewport,
     )
@@ -329,5 +351,27 @@ impl std::fmt::Debug for PopoverSurface {
             .field("width", &self.width)
             .field("height", &self.height)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Bounds, size};
+
+    #[test]
+    fn a_left_popover_opens_beside_its_anchor_and_stays_on_screen() {
+        let viewport = size(px(1000.0), px(600.0));
+        let panel = size(px(200.0), px(300.0));
+        let anchor = Bounds::new(point(px(960.0), px(100.0)), size(px(28.0), px(28.0)));
+        assert_eq!(
+            left_origin(anchor, panel, viewport),
+            point(px(756.0), px(100.0))
+        );
+        let low = Bounds::new(point(px(960.0), px(500.0)), size(px(28.0), px(28.0)));
+        assert_eq!(
+            left_origin(low, panel, viewport),
+            point(px(756.0), px(292.0))
+        );
     }
 }

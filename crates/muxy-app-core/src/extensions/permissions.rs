@@ -90,6 +90,7 @@ pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
         | "popover.close"
         | "popover.resize"
         | "topbar.set"
+        | "rail.set"
         | "statusbar.set"
         | "modal.openWebview"
         | "modal.submitWebview"

@@ -1,11 +1,14 @@
 # Bar Items
 
-Extensions can add icons to the top bar and the status bar. Clicking one runs
-one of the extension's [commands](commands.md).
+Extensions can add icons to the top bar, the rail, and the status bar.
+Clicking one runs one of the extension's [commands](commands.md).
 
 ```json
 "topbarItems": [
   { "id": "hello", "icon": "sparkles", "command": "toggle", "tooltip": "Hello" }
+],
+"railItems": [
+  { "id": "notes", "icon": "note.text", "command": "toggle-notes", "tooltip": "Notes" }
 ],
 "statusBarItems": [
   { "id": "count", "icon": "bolt", "text": "0", "side": "right", "command": "show-status" }
@@ -23,6 +26,19 @@ one of the extension's [commands](commands.md).
 Items appear grouped by extension, in manifest order. An item whose command
 opens a popover anchors the popover to itself; see [Popovers](panels.md#popovers).
 
+## The rail
+
+The rail is a column of icons on the right edge of the window, below the top
+bar. Put an item there instead of the top bar when it opens something the user
+returns to, such as a panel, so the top bar stays short.
+
+- The rail starts collapsed. A button at the end of the top bar opens and
+  closes it, and Muxy remembers the choice. The button shows only while some
+  extension has a visible rail item.
+- A popover opened from the rail appears to the left of its icon.
+- Users can turn the rail off in **Settings → Appearance → Show rail**. Rail
+  items then sit in the top bar, after the extension's top bar items.
+
 ## Changing items at runtime
 
 With `panels:write`, pages, scripts, and background scripts can change an item
@@ -32,8 +48,9 @@ they declared:
 muxy.statusbar.set({ id: "count", text: "3", icon: "bolt.fill" });
 muxy.topbar.hide("hello");
 muxy.topbar.show("hello");
+muxy.rail.set({ id: "notes", icon: "note.text.badge.plus" });
 ```
 
-`set` takes `id` plus any of `icon`, `visible`, and, for the status bar,
-`text` (`null` clears it). Changes are not saved; items start from the
+`muxy.rail` works like `muxy.topbar`, for rail items. `set` takes `id` plus
+any of `icon`, `visible`, and, for the status bar, `text` (`null` clears it). Changes are not saved; items start from the
 manifest again after a restart.

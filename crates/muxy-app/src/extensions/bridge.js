@@ -87,6 +87,7 @@
     hide: id => dispatch(verb, { id: text(id), visible: false }),
   });
   muxy.topbar = items('topbar.set', false);
+  muxy.rail = items('rail.set', false);
   muxy.statusbar = items('statusbar.set', true);
   if (background) {
     muxy.tabs = { open: request => dispatch('tabs.open', request || {}) };
