@@ -22,6 +22,7 @@ struct Metadata {
     title: Option<String>,
     prompt: Option<String>,
     child: bool,
+    reject: bool,
 }
 
 pub(super) fn read(
@@ -39,14 +40,17 @@ pub(super) fn read(
     let mut metadata = Metadata::default();
     let mut line = Vec::new();
     let mut consumed = 0;
+    let mut saw_newline = false;
     while reader.read_until(b'\n', &mut line)? > 0 {
         consumed += line.len() as u64;
         *budget = budget.saturating_sub(line.len() as u64);
-        if line.last() == Some(&b'\n')
-            && let Ok(value) = serde_json::from_slice(&line)
+        let ended = line.last() == Some(&b'\n');
+        if (ended || (!saw_newline && consumed == length))
+            && let Some(value) = json_record(&line)
         {
             metadata.visit(provider, &value, false);
         }
+        saw_newline |= ended;
         line.clear();
     }
     if length > consumed {
@@ -62,11 +66,17 @@ pub(super) fn read(
         while tail.read_until(b'\n', &mut line)? > 0 {
             *budget = budget.saturating_sub(line.len() as u64);
             if line.last() == Some(&b'\n')
-                && let Ok(value) = serde_json::from_slice(&line)
+                && let Some(value) = json_record(&line)
             {
                 metadata.visit(provider, &value, true);
             }
             line.clear();
+        }
+    }
+    if provider == AgentProvider::Cursor {
+        cursor_identity(path, &mut metadata);
+        if metadata.reject {
+            return Ok(None);
         }
     }
     let Some(id) = metadata.id.filter(|id| valid_id(id)) else {
@@ -168,8 +178,46 @@ impl Metadata {
                     }
                 }
             }
+            AgentProvider::Cursor => {
+                if value.get("schemaVersion").is_some() || value.get("hasConversation").is_some() {
+                    self.reject |=
+                        value["hasConversation"] != true || !value["createdAtMs"].is_number();
+                    self.child |= value["isSubagent"] == true;
+                    if self.directory.is_none() {
+                        self.directory = value["cwd"].as_str().map(PathBuf::from);
+                    }
+                    if self.title.is_none() {
+                        self.title = text(&value["title"]);
+                    }
+                }
+            }
             _ => {}
         }
+    }
+}
+
+/// One JSON value from a transcript line. A finished line ends in a newline.
+/// Cursor writes `meta.json` as a single object and does not end the file
+/// with a newline, so that value is passed here without one.
+fn json_record(line: &[u8]) -> Option<Value> {
+    let line = line.strip_suffix(b"\n").unwrap_or(line);
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    if line.is_empty() {
+        return None;
+    }
+    serde_json::from_slice(line).ok()
+}
+
+fn cursor_identity(path: &Path, metadata: &mut Metadata) {
+    if !path.with_file_name("store.db").is_file() {
+        metadata.reject = true;
+        return;
+    }
+    if metadata.id.is_none() {
+        metadata.id = path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .map(|name| name.to_string_lossy().into_owned());
     }
 }
 

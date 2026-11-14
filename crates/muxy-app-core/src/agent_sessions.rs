@@ -34,6 +34,7 @@ pub fn supported(provider: AgentProvider) -> bool {
             | AgentProvider::Pi
             | AgentProvider::OhMyPi
             | AgentProvider::Xal
+            | AgentProvider::Cursor
     )
 }
 
@@ -69,6 +70,7 @@ impl Session {
             AgentProvider::Pi => "pi --session",
             AgentProvider::OhMyPi => "omp --resume",
             AgentProvider::Xal => "xal resume",
+            AgentProvider::Cursor => "cursor-agent --resume",
             _ => return None,
         };
         Some(format!("{command} {}", self.id))
