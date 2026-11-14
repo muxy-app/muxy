@@ -248,7 +248,13 @@
         "patterns": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
-          "default": ["*"]
+          "default": [],
+          "description": "Case-insensitive filename globs, or project-relative globs when containing a slash. Empty or omitted registers no automatic types; use * explicitly for all files."
+        },
+        "fileTypes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Automatic file-type registrations, overriding patterns when present. Uses the same glob syntax. Older Muxy versions ignore this field and continue using patterns, so an extension can retain its legacy behavior while advertising precise types to new Muxy versions. An empty array disables automatic registration."
         },
         "singleton": { "type": "boolean", "default": true }
       }

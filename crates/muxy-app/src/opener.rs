@@ -76,12 +76,19 @@ pub(crate) fn resolve(text: &str, context: &OpenContext) -> Option<Target> {
     })
 }
 
+pub(crate) fn project_file(path: &Path, project: &Path) -> Option<String> {
+    let path = path.canonicalize().ok()?;
+    if !path.is_file() {
+        return None;
+    }
+    let project = project.canonicalize().ok()?;
+    path.strip_prefix(project).ok()?.to_str().map(str::to_owned)
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Handler {
     Browser,
     Finder,
-    System,
-    Editor,
 }
 
 fn registry() -> &'static Registry<Handler> {
@@ -94,29 +101,12 @@ fn registry() -> &'static Registry<Handler> {
             |r| matches!(&r.target, Target::Url(url) if Target::web_url(url).is_some()),
             Handler::Browser,
         );
-        for (id, title, handler) in [
-            (
-                "system.finder",
-                if cfg!(target_os = "macos") {
-                    "Finder"
-                } else {
-                    "File Manager"
-                },
-                Handler::Finder,
-            ),
-            ("system.application", "Default Application", Handler::System),
-            ("system.editor", "Project Editor", Handler::Editor),
-        ] {
-            registry.register(
-                id,
-                title,
-                |r| {
-                    r.context.server == muxy_app_core::ServerId::local()
-                        && matches!(r.target, Target::File(_))
-                },
-                handler,
-            );
-        }
+        registry.register(
+            "system.finder",
+            FILE_MANAGER,
+            |r| r.context.server.is_local() && matches!(r.target, Target::File(_)),
+            Handler::Finder,
+        );
         registry
     })
 }
@@ -125,18 +115,17 @@ pub(crate) fn open(
     request: &OpenRequest,
     settings: &muxy_app_core::settings::OpenerSettings,
 ) -> io::Result<()> {
-    open_with(request, settings, editors, launch)
+    open_with(request, settings, launch)
 }
 
-fn open_with<'a>(
+fn open_with(
     request: &OpenRequest,
     settings: &muxy_app_core::settings::OpenerSettings,
-    editors: impl FnOnce() -> &'a [Editor],
     mut launch: impl FnMut(&Launch) -> io::Result<()>,
 ) -> io::Result<()> {
     let (preferred, fallback) = match request.target {
-        Target::Url(_) => (&settings.url, "system.browser"),
-        Target::File(_) => (&settings.file, "system.editor"),
+        Target::Url(_) => (settings.url.as_str(), "system.browser"),
+        Target::File(_) => ("system.finder", "system.finder"),
     };
     let handler = registry()
         .resolve(request, preferred, fallback)
@@ -145,24 +134,6 @@ fn open_with<'a>(
     match (&request.target, handler) {
         (Target::Url(url), Handler::Browser) => launch(&Launch::system([OsString::from(url)])),
         (Target::File(file), Handler::Finder) => launch(&finder(&file.path)),
-        (Target::File(file), Handler::System) => {
-            launch(&Launch::system([file.path.clone().into_os_string()]))
-        }
-        (Target::File(file), Handler::Editor) => {
-            let selected = settings.project_target.as_deref();
-            if selected == Some(FINDER) {
-                return launch(&finder(&file.path));
-            }
-            let editors = editors();
-            let editor = selected
-                .and_then(|id| editors.iter().find(|editor| editor.bundle == id))
-                .or_else(|| editors.first());
-            let command = editor.map_or_else(
-                || finder(&file.path),
-                |editor| editor.command(file, &request.context.project_directory),
-            );
-            launch(&command).or_else(|_| launch(&finder(&file.path)))
-        }
         _ => Err(io::Error::other(
             tr!("Opener does not support this resource").to_string(),
         )),

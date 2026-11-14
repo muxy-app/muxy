@@ -39,6 +39,7 @@ mod views {
     pub(crate) mod confirm;
     pub(crate) mod disconnected;
     pub(crate) mod extension_agent;
+    pub(crate) mod file_opener;
     pub(crate) mod floating;
     pub(crate) mod floating_tab;
     pub(crate) mod font_picker;

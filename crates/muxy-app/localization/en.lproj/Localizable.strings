@@ -144,6 +144,7 @@
 "Add Project…" = "Add Project…";
 "Add Prompt" = "Add Prompt";
 "Add Remote Server" = "Add Remote Server";
+"Add Rule" = "Add Rule";
 "Add Server…" = "Add Server…";
 "Add a GitHub remote named origin to open a pull request" = "Add a GitHub remote named origin to open a pull request";
 "Add a Project…" = "Add a Project…";
@@ -201,7 +202,11 @@
 "Always Allow…" = "Always Allow…";
 "Always allow %@?" = "Always allow %@?";
 "Always allowed: every permission request from this extension is allowed without asking, and the rules below don't apply." = "Always allowed: every permission request from this extension is allowed without asking, and the rules below don't apply.";
+"Always ask" = "Always ask";
 "Always running" = "Always running";
+"Always show the file opener" = "Always show the file opener";
+"Always use for %@: Off" = "Always use for %@: Off";
+"Always use for %@: On" = "Always use for %@: On";
 "Amber" = "Amber";
 "An agent can guide you through it, and explains what publishing does before it changes anything." = "An agent can guide you through it, and explains what publishing does before it changes anything.";
 "An agent is waiting for your attention." = "An agent is waiting for your attention.";
@@ -435,6 +440,7 @@
 "Choose an existing folder for the terminal." = "Choose an existing folder for the terminal.";
 "Choose an existing folder, or use Create & Add Project." = "Choose an existing folder, or use Create & Add Project.";
 "Choose an extension folder containing package.json or a built dist folder" = "Choose an extension folder containing package.json or a built dist folder";
+"Choose an extension, the file manager, or Always ask." = "Choose an extension, the file manager, or Always ask.";
 "Choose an image smaller than 20 MB." = "Choose an image smaller than 20 MB.";
 "Choose file…" = "Choose file…";
 "Choose the initial blink behavior. Terminal programs can change it." = "Choose the initial blink behavior. Terminal programs can change it.";
@@ -648,6 +654,7 @@
 "Could not save appearance: %@" = "Could not save appearance: %@";
 "Could not save close confirmation preference: %@" = "Could not save close confirmation preference: %@";
 "Could not save composer: %@" = "Could not save composer: %@";
+"Could not save file rule: %@" = "Could not save file rule: %@";
 "Could not save panel pin: %@" = "Could not save panel pin: %@";
 "Could not save project prompt: %@" = "Could not save project prompt: %@";
 "Could not save tabs" = "Could not save tabs";
@@ -709,6 +716,7 @@
 "Cursor thickness" = "Cursor thickness";
 "Custom command" = "Custom command";
 "Custom commands shell terminal shortcuts" = "Custom commands shell terminal shortcuts";
+"Custom rules only" = "Custom rules only";
 "Cut" = "Cut";
 "Cyan" = "Cyan";
 "Cylinder" = "Cylinder";
@@ -718,7 +726,6 @@
 "Decrease Font Size" = "Decrease Font Size";
 "Decrease font size" = "Decrease font size";
 "Default" = "Default";
-"Default application" = "Default application";
 "Default shell (executable path)" = "Default shell (executable path)";
 "Default terminal text size. Individual panes can still be zoomed independently." = "Default terminal text size. Individual panes can still be zoomed independently.";
 "Default window height" = "Default window height";
@@ -804,6 +811,7 @@
 "English is built in. Additional languages can be provided by enabled extensions." = "English is built in. Additional languages can be provided by enabled extensions.";
 "Enter a branch name." = "Enter a branch name.";
 "Enter a commit message of up to 10,000 characters" = "Enter a commit message of up to 10,000 characters";
+"Enter a file pattern, such as *.md or Dockerfile." = "Enter a file pattern, such as *.md or Dockerfile.";
 "Enter a group name" = "Enter a group name";
 "Enter a path on %@…" = "Enter a path on %@…";
 "Enter a port from 1 to 65535" = "Enter a port from 1 to 65535";
@@ -825,6 +833,7 @@
 "Every target must have a live terminal before sending." = "Every target must have a live terminal before sending.";
 "Everything else is in the command palette. Change any shortcut in Settings → Keyboard." = "Everything else is in the command palette. Change any shortcut in Settings → Keyboard.";
 "Everything starts with a project" = "Everything starts with a project";
+"Examples: *.md, *.tar.gz, Dockerfile, or docs/*.txt." = "Examples: *.md, *.tar.gz, Dockerfile, or docs/*.txt.";
 "Existing Terminals…" = "Existing Terminals…";
 "Expand Composer" = "Expand Composer";
 "Expand Project" = "Expand Project";
@@ -859,6 +868,8 @@
 "File Manager" = "File Manager";
 "File and Git panels sliding in beside a terminal." = "File and Git panels sliding in beside a terminal.";
 "File manager" = "File manager";
+"File pattern" = "File pattern";
+"File type rules" = "File type rules";
 "Files" = "Files";
 "Files and images" = "Files and images";
 "Files:" = "Files:";
@@ -1191,12 +1202,14 @@
 "Move %@ Up" = "Move %@ Up";
 "Move %@.app to Applications and reopen it before installing its command line tool." = "Move %@.app to Applications and reopen it before installing its command line tool.";
 "Move %@.app to Applications and reopen it before updating" = "Move %@.app to Applications and reopen it before updating";
+"Move Down" = "Move Down";
 "Move Pane to New Tab" = "Move Pane to New Tab";
 "Move Pane to New Window" = "Move Pane to New Window";
 "Move Tab Left" = "Move Tab Left";
 "Move Tab Right" = "Move Tab Right";
 "Move Tab to Main Window" = "Move Tab to Main Window";
 "Move Tab to New Window" = "Move Tab to New Window";
+"Move Up" = "Move Up";
 "Move tab here" = "Move tab here";
 "Move to Bottom" = "Move to Bottom";
 "Move to Group" = "Move to Group";
@@ -1282,7 +1295,9 @@
 "No commit was created" = "No commit was created";
 "No custom commands yet." = "No custom commands yet.";
 "No custom key bindings yet." = "No custom key bindings yet.";
+"No custom rules. Matching extensions open automatically; overlaps show a chooser. Unmatched local files go to the file manager." = "No custom rules. Matching extensions open automatically; overlaps show a chooser. Unmatched local files go to the file manager.";
 "No enabled extension provides a sidebar. Install or enable one in Extensions." = "No enabled extension provides a sidebar. Install or enable one in Extensions.";
+"No enabled extensions register file types." = "No enabled extensions register file types.";
 "No extensions found" = "No extensions found";
 "No extensions installed" = "No extensions installed";
 "No fonts found" = "No fonts found";
@@ -1345,6 +1360,7 @@
 "One terminal, any client" = "One terminal, any client";
 "Only within this computer" = "Only within this computer";
 "Open" = "Open";
+"Open %@ with…" = "Open %@ with…";
 "Open Browser Tab" = "Open Browser Tab";
 "Open Login Items" = "Open Login Items";
 "Open Page in Default Browser" = "Open Page in Default Browser";
@@ -1360,7 +1376,6 @@
 "Open a live terminal before sending." = "Open a live terminal before sending.";
 "Open a new terminal tab to start working in this project." = "Open a new terminal tab to start working in this project.";
 "Open configuration files in the system editor. After editing app settings, run muxy config reload or restart Muxy. Terminal settings reload when Muxy or Settings becomes active." = "Open configuration files in the system editor. After editing app settings, run muxy config reload or restart Muxy. Terminal settings reload when Muxy or Settings becomes active.";
-"Open files with" = "Open files with";
 "Open in Default Browser" = "Open in Default Browser";
 "Open in External Browser" = "Open in External Browser";
 "Open on GitHub" = "Open on GitHub";
@@ -1368,6 +1383,7 @@
 "Open the composer" = "Open the composer";
 "Open the same terminal from several apps at once." = "Open the same terminal from several apps at once.";
 "Open web pages in browser tabs and let muxy browser commands drive them." = "Open web pages in browser tabs and let muxy browser commands drive them.";
+"Open with" = "Open with";
 "OpenType features separated by commas, such as ss01 or zero. Put a minus before one to turn it off, such as -calt." = "OpenType features separated by commas, such as ss01 or zero. Put a minus before one to turn it off, such as -calt.";
 "Opened a pull request from %@." = "Opened a pull request from %@.";
 "Opener does not support this resource" = "Opener does not support this resource";
@@ -1375,7 +1391,6 @@
 "Opener timed out" = "Opener timed out";
 "Opening PR" = "Opening PR";
 "Opens Settings" = "Opens Settings";
-"Opens files you click in a terminal. An extension opener opens only the files it supports; other files open in the project editor." = "Opens files you click in a terminal. An extension opener opens only the files it supports; other files open in the project editor.";
 "Opens the browser tab's page in the default browser." = "Opens the browser tab's page in the default browser.";
 "Opens the list of servers in the command palette." = "Opens the list of servers in the command palette.";
 "Optical Disc" = "Optical Disc";
@@ -1426,6 +1441,7 @@
 "Paste the whole pairing link from the other computer's Settings → Servers." = "Paste the whole pairing link from the other computer's Settings → Servers.";
 "Paste this into the agent: %@" = "Paste this into the agent: %@";
 "Path template is required." = "Path template is required.";
+"Patterns declared by enabled extensions. The project app in the topbar only opens the project when clicked." = "Patterns declared by enabled extensions. The project app in the topbar only opens the project when clicked.";
 "Pause" = "Pause";
 "Pause Push Notifications?" = "Pause Push Notifications?";
 "Pencil" = "Pencil";
@@ -1486,7 +1502,6 @@
 "Project Focused" = "Project Focused";
 "Project Logo" = "Project Logo";
 "Project edit is pending: %@" = "Project edit is pending: %@";
-"Project editor" = "Project editor";
 "Project folder is missing" = "Project folder is missing";
 "Project is unavailable" = "Project is unavailable";
 "Projects" = "Projects";
@@ -1559,6 +1574,7 @@
 "Refresh sessions" = "Refresh sessions";
 "Refresh the pull request status before trying again." = "Refresh the pull request status before trying again.";
 "Regex" = "Regex";
+"Registered file types" = "Registered file types";
 "Reload" = "Reload";
 "Reload Configuration" = "Reload Configuration";
 "Reload Page" = "Reload Page";
@@ -1566,6 +1582,7 @@
 "Reloaded" = "Reloaded";
 "Reloading…" = "Reloading…";
 "Remember shown projects without tabs" = "Remember shown projects without tabs";
+"Remote file actions" = "Remote file actions";
 "Remote project on %@" = "Remote project on %@";
 "Remote projects sit beside your local ones." = "Remote projects sit beside your local ones.";
 "Remote servers are not available on this platform yet." = "Remote servers are not available on this platform yet.";
@@ -1808,6 +1825,7 @@
 "Show Welcome Tour" = "Show Welcome Tour";
 "Show Worktrees" = "Show Worktrees";
 "Show a Muxy tip from time to time in the bottom-right corner of the window." = "Show a Muxy tip from time to time in the bottom-right corner of the window.";
+"Show a chooser for supported files, even with one matching extension or a saved default." = "Show a chooser for supported files, even with one matching extension or a saved default.";
 "Show a one-time code to scan with the Muxy phone app, or a link to paste on another computer." = "Show a one-time code to scan with the Muxy phone app, or a link to paste on another computer.";
 "Show a persistent home-directory shell with a shortcut." = "Show a persistent home-directory shell with a shortcut.";
 "Show agents panel" = "Show agents panel";
@@ -1961,6 +1979,7 @@
 "The extension was updated but could not be enabled: %@" = "The extension was updated but could not be enabled: %@";
 "The extension's files changed while checking them. Publish again." = "The extension's files changed while checking them. Publish again.";
 "The extension's page could not be loaded." = "The extension's page could not be loaded.";
+"The first matching available rule wins. Choose a default, Always ask, or the file manager. Assign custom types to an extension here. Remove a rule to restore automatic matching." = "The first matching available rule wins. Choose a default, Always ask, or the file manager. Assign custom types to an extension here. Remove a rule to restore automatic matching.";
 "The folder operation was cancelled." = "The folder operation was cancelled.";
 "The image is empty." = "The image is empty.";
 "The installed app changed. Reopen Muxy to update the server." = "The installed app changed. Reopen Muxy to update the server.";

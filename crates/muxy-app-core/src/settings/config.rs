@@ -395,16 +395,21 @@ pub struct ClipboardSettings {
 #[serde(default, deny_unknown_fields)]
 pub struct OpenerSettings {
     pub url: String,
+    #[serde(skip_serializing)]
     pub file: String,
     pub project_target: Option<String>,
+    pub always_ask: bool,
+    pub file_rules: Vec<crate::opener::FileRule>,
 }
 
 impl Default for OpenerSettings {
     fn default() -> Self {
         Self {
             url: "system.browser".into(),
-            file: "system.editor".into(),
+            file: String::new(),
             project_target: None,
+            always_ask: false,
+            file_rules: Vec::new(),
         }
     }
 }

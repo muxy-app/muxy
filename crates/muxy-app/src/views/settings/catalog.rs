@@ -253,10 +253,28 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Closing terminals"),
     },
     Setting {
-        id: "file-opener",
-        label: tr_key!("Open files with"),
+        id: "always-ask-files",
+        label: tr_key!("Always show the file opener"),
         description: tr_key!(
-            "Opens files you click in a terminal. An extension opener opens only the files it supports; other files open in the project editor."
+            "Show a chooser for supported files, even with one matching extension or a saved default."
+        ),
+        category: Category::General,
+        section: tr_key!("Files"),
+    },
+    Setting {
+        id: "file-rules",
+        label: tr_key!("File type rules"),
+        description: tr_key!(
+            "The first matching available rule wins. Choose a default, Always ask, or the file manager. Assign custom types to an extension here. Remove a rule to restore automatic matching."
+        ),
+        category: Category::General,
+        section: tr_key!("Files"),
+    },
+    Setting {
+        id: "file-registrations",
+        label: tr_key!("Registered file types"),
+        description: tr_key!(
+            "Patterns declared by enabled extensions. The project app in the topbar only opens the project when clicked."
         ),
         category: Category::General,
         section: tr_key!("Files"),
@@ -946,6 +964,8 @@ pub(super) const SETTINGS: &[Setting] = &[
 /// the setting's label, or for a field inside a setting, what that field holds.
 pub(super) fn control_label(id: &str) -> Option<&'static str> {
     setting(id).map(|setting| setting.label).or(match id {
+        "file-pattern" => Some(tr_key!("File pattern")),
+        "file-opener" => Some(tr_key!("Open with")),
         "command-name" => Some(tr_key!("Name")),
         "command-text" => Some(tr_key!("Command")),
         "quick-width" => Some(tr_key!("Width")),
@@ -970,6 +990,9 @@ pub(super) fn setting(id: &str) -> Option<&'static Setting> {
 pub(super) fn search_aliases(id: &str) -> &'static str {
     match id {
         "interface-size" => "zoom density",
+        "file-rules" | "file-registrations" | "always-ask-files" => {
+            "open files with opener default custom extension associations patterns chooser"
+        }
         "extension-sidebar" => "custom replace",
         "usage-ping" => "telemetry analytics tracking statistics",
         "server" => "stop restart connect local mac computer",

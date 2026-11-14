@@ -5,6 +5,11 @@ use std::path::{Path, PathBuf};
 
 use crate::{PaneId, ProjectId, ServerId};
 
+mod files;
+pub use files::{
+    FileHandler, FileResolution, FileRule, file_pattern, matches_pattern, resolve_file,
+};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OpenContext {
     pub project: ProjectId,
