@@ -179,6 +179,7 @@
 "Agents panel density" = "Agents panel density";
 "Agents panel icon" = "Agents panel icon";
 "Agents panel rows" = "Agents panel rows";
+"Agents start from sh, bash, zsh or fish. Change the default shell in Settings → Servers, then try again." = "Agents start from sh, bash, zsh or fish. Change the default shell in Settings → Servers, then try again.";
 "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy." = "Agents use the muxy command to load and reload the extensions they build. Muxy will link it at ~/.local/bin/muxy.";
 "All" = "All";
 "All Projects" = "All Projects";

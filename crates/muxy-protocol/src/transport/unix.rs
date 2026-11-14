@@ -85,8 +85,8 @@ impl UnixSocketListener {
 }
 
 impl Listener for UnixSocketListener {
-    /// Closes, unread, any connection [`trusted_peer`] refuses, wherever the
-    /// socket file lives and whoever can reach it.
+    /// Closes, unread, any connection from another user (other than root),
+    /// wherever the socket file lives and whoever can reach it.
     fn accept(&self) -> io::Result<Box<dyn ByteStream>> {
         let stream = loop {
             let stream = self.socket.accept(Listening::accept)?.0;

@@ -9,6 +9,10 @@ use std::path::{Component, Path};
 /// A folder held open, whose files open relative to it.
 #[derive(Debug)]
 pub(crate) struct Folder {
+    #[cfg_attr(
+        windows,
+        allow(dead_code, reason = "held open so the folder can't be renamed")
+    )]
     file: File,
     #[cfg(windows)]
     path: std::path::PathBuf,

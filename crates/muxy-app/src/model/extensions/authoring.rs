@@ -256,6 +256,19 @@ impl AppModel {
         self.start_extension_agent_at(provider, task, root, &executable, muxy_directory, cx)
     }
 
+    /// The shell new terminals on this computer start: the server's default,
+    /// or else `$SHELL`, as the server picks it.
+    #[cfg(not(windows))]
+    fn local_shell(&self) -> Option<PathBuf> {
+        use std::os::unix::ffi::OsStrExt;
+        self.server_preferences
+            .document
+            .as_ref()
+            .and_then(|settings| settings.default_shell.as_ref())
+            .map(|shell| std::ffi::OsStr::from_bytes(&shell.0).into())
+            .or_else(|| std::env::var_os("SHELL").map(Into::into))
+    }
+
     fn start_extension_agent_at(
         &mut self,
         provider: Provider,
@@ -270,6 +283,15 @@ impl AppModel {
             AgentTask::Settings { profile } => Some(profile.as_path()),
             _ => None,
         };
+        #[cfg(not(windows))]
+        if let Some(shell) = self.local_shell()
+            && !authoring::reads_launch_line(&shell)
+        {
+            return Err(tr!(
+                "Agents start from sh, bash, zsh or fish. Change the default shell in Settings → Servers, then try again."
+            )
+            .to_string());
+        }
         let command =
             authoring::launch_line(provider, executable, &start.prompt, muxy_directory, profile);
         authoring::typed_safely(&command)?;

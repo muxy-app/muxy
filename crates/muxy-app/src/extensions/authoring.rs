@@ -197,6 +197,23 @@ pub(crate) fn shell_quote(text: &str) -> String {
     quoted
 }
 
+/// Whether `shell` reads the lines [`launch_line`] types: sh and the shells
+/// built on its grammar, and fish. Others, such as `PowerShell` or nu, read the
+/// same quotes differently, so a folder's name could end a word early and run
+/// the rest of it; the line isn't typed into them at all.
+#[cfg(not(windows))]
+pub(crate) fn reads_launch_line(shell: &Path) -> bool {
+    let name = shell
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .trim_start_matches('-');
+    matches!(
+        name,
+        "sh" | "bash" | "zsh" | "dash" | "ash" | "ksh" | "ksh93" | "mksh" | "fish"
+    )
+}
+
 /// A line is typed into the shell, so a control character in it, such as from a
 /// folder's name, would act on the line instead of being part of it. A
 /// replacement character means a path wasn't text, so it would name another file.
@@ -698,28 +715,30 @@ mod tests {
                 );
             }
         }
-        let pwsh = [
-            "/usr/bin/pwsh",
-            "/usr/local/bin/pwsh",
-            "/opt/homebrew/bin/pwsh",
-        ];
-        for shell in pwsh.into_iter().filter(|shell| Path::new(shell).exists()) {
-            // PowerShell reads POSIX quoting differently, but never runs any of it.
-            for text in &texts {
-                std::process::Command::new(shell)
-                    .args(["-NoProfile", "-NonInteractive", "-Command"])
-                    .arg(format!(
-                        "& {{ [Console]::Out.Write($args[0]) }} {}",
-                        shell_quote(text)
-                    ))
-                    .output()?;
-                assert!(
-                    !folder.path().join("ran").exists(),
-                    "{shell} ran part of {text:?}"
-                );
-            }
-        }
         Ok(())
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn launch_lines_are_typed_only_into_shells_that_read_them() {
+        for shell in [
+            "/bin/sh",
+            "/bin/bash",
+            "-zsh",
+            "/usr/bin/dash",
+            "/opt/homebrew/bin/fish",
+        ] {
+            assert!(reads_launch_line(Path::new(shell)), "{shell}");
+        }
+        for shell in [
+            "/usr/local/bin/pwsh",
+            "/usr/bin/nu",
+            "/bin/tcsh",
+            "/usr/bin/xonsh",
+            "",
+        ] {
+            assert!(!reads_launch_line(Path::new(shell)), "{shell}");
+        }
     }
 
     #[cfg(windows)]
