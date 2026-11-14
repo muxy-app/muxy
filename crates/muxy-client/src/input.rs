@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use muxy_protocol::{Modes, ServerPath, validate_absolute_path};
+use muxy_protocol::{ForegroundProcess, Modes, ServerPath, validate_absolute_path};
 
 /// Pasted text with newlines sent as Return and escape sequences removed, so
 /// the text can't end a bracketed paste early or act as keystrokes.
@@ -12,72 +12,204 @@ pub fn paste(text: &str, modes: Modes) -> Vec<u8> {
     bracket(text.into_bytes(), modes)
 }
 
-/// Absolute paths quoted for a POSIX shell and separated by spaces, as a
-/// paste. Returns `None` for a path that isn't absolute, holds a NUL byte, or
-/// is longer than `MAX_PATH`.
-#[cfg(not(windows))]
+/// How pasted paths are quoted, which depends on the program that reads them:
+/// a quote one shell reads as text can end a word in another, and turn the
+/// rest of a file's name into a command.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PathQuoting {
+    /// bash, zsh and ksh: single quotes, and `$'…'` for control characters.
+    Bash,
+    /// Other POSIX shells: single quotes, with curly single quotes outside
+    /// them. Control characters are refused.
+    Posix,
+    /// fish: as [`Self::Posix`], with backslashes outside the quotes too,
+    /// since fish reads `\\` and `\'` inside them as escapes.
+    Fish,
+    /// `PowerShell`: single quotes, which it also reads from the curly ones.
+    PowerShell,
+    /// `cmd.exe`: double quotes. Paths with `%`, `!` or `"` are refused,
+    /// since it expands those even inside quotes.
+    Cmd,
+    /// A program that isn't a shell, which reads the text as it is: quoted as
+    /// the shells of the path's own platform would quote it.
+    Program,
+    /// The terminal's program isn't known yet, so only paths that every shell
+    /// Muxy can quote for would read the same way are pasted.
+    Unknown,
+}
+
+impl PathQuoting {
+    /// The quoting for the program in a terminal's foreground, or `None` for
+    /// a shell whose grammar isn't known, such as tcsh or nu, where any
+    /// quoting could be wrong. A program that isn't a shell reads the text as
+    /// it is, so it gets [`Self::Program`].
+    pub fn for_process(process: Option<&ForegroundProcess>) -> Option<Self> {
+        let Some(process) = process else {
+            return Some(Self::Unknown);
+        };
+        let name = process.name.trim_start_matches('-').to_ascii_lowercase();
+        let name = name.strip_suffix(".exe").unwrap_or(&name);
+        Some(match name {
+            "bash" | "zsh" | "ksh" | "ksh93" | "mksh" => Self::Bash,
+            "sh" | "dash" | "ash" => Self::Posix,
+            "fish" => Self::Fish,
+            "pwsh" | "powershell" => Self::PowerShell,
+            "cmd" => Self::Cmd,
+            "" => Self::Unknown,
+            "csh" | "tcsh" | "nu" | "xonsh" | "elvish" | "ion" | "rc" | "es" | "yash" | "osh"
+            | "ysh" | "oil" | "murex" | "nushell" => return None,
+            _ if process.is_shell => return None,
+            _ => Self::Program,
+        })
+    }
+}
+
+/// Absolute paths quoted as [`PathQuoting::Unknown`]; see [`quoted_paths`].
 pub fn paths(paths: &[PathBuf], modes: Modes) -> Option<Vec<u8>> {
+    quoted_paths(paths, PathQuoting::Unknown, modes)
+}
+
+/// Absolute paths quoted as words of the program that reads them, separated
+/// by spaces, as a paste. Returns `None` for a path that isn't absolute, holds
+/// a NUL byte, is longer than `MAX_PATH`, or can't be quoted safely that way.
+pub fn quoted_paths(paths: &[PathBuf], quoting: PathQuoting, modes: Modes) -> Option<Vec<u8>> {
     let mut text = Vec::new();
     for path in paths {
         let path = ServerPath::from(path);
         validate_absolute_path(&path).ok()?;
-        let bytes = path.0.as_slice();
         if !text.is_empty() {
             text.push(b' ');
         }
-        let ansi = bytes.iter().any(u8::is_ascii_control);
-        if ansi {
-            text.push(b'$');
-        }
-        text.push(b'\'');
-        for &byte in bytes {
-            match (ansi, byte) {
-                (true, byte) if byte.is_ascii_control() => {
-                    let hex = b"0123456789abcdef";
-                    text.extend_from_slice(&[
-                        b'\\',
-                        b'x',
-                        hex[usize::from(byte >> 4)],
-                        hex[usize::from(byte & 15)],
-                    ]);
-                }
-                (true, b'\'' | b'\\') => text.extend_from_slice(&[b'\\', byte]),
-                (false, b'\'') => text.extend_from_slice(b"'\\''"),
-                _ => text.push(byte),
-            }
-        }
-        text.push(b'\'');
+        text.extend(quote_path(&path.0, quoting)?);
     }
     Some(bracket(text, modes))
 }
 
-/// Absolute paths as words of the shell Windows sessions start with, in its
-/// single quotes, separated by spaces, as a paste. That shell reads the curly
-/// single quotes as quotes too. Returns `None` for a path that isn't absolute
-/// or holds a control character.
-#[cfg(windows)]
-pub fn paths(paths: &[PathBuf], modes: Modes) -> Option<Vec<u8>> {
-    let mut words = Vec::new();
-    for path in paths {
-        validate_absolute_path(&ServerPath::from(path)).ok()?;
-        let text = path.to_str()?;
-        if text.chars().any(char::is_control) {
-            return None;
+fn quote_path(bytes: &[u8], quoting: PathQuoting) -> Option<Vec<u8>> {
+    match quoting {
+        // The path's form, not this computer's, says which platform reads it:
+        // the terminal may run on a server of another kind.
+        PathQuoting::Program if windows_path(bytes) => powershell(std::str::from_utf8(bytes).ok()?),
+        PathQuoting::Bash | PathQuoting::Program if bytes.iter().any(u8::is_ascii_control) => {
+            Some(ansi_c(bytes))
         }
-        let mut word = String::from("'");
-        for character in text.chars() {
-            if matches!(
-                character,
-                '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}'
-            ) {
-                word.push(character);
+        PathQuoting::Bash | PathQuoting::Posix | PathQuoting::Program => posix(bytes, false),
+        PathQuoting::Fish => posix(bytes, true),
+        PathQuoting::PowerShell => powershell(std::str::from_utf8(bytes).ok()?),
+        PathQuoting::Cmd => cmd(std::str::from_utf8(bytes).ok()?),
+        PathQuoting::Unknown if windows_path(bytes) => {
+            // cmd.exe reads PowerShell's quotes as text, so its operators
+            // inside them would still run.
+            let text = std::str::from_utf8(bytes).ok()?;
+            if text.contains(['%', '!', '"', '^', '&', '|', '<', '>']) {
+                return None;
             }
+            powershell(text)
+        }
+        PathQuoting::Unknown => {
+            let text = std::str::from_utf8(bytes).ok()?;
+            if text.contains(CURLY_SINGLE_QUOTES) {
+                return None;
+            }
+            posix(bytes, true)
+        }
+    }
+}
+
+/// A drive path such as `C:\a` or `C:/a`, or a UNC path such as `\\host\a`.
+fn windows_path(bytes: &[u8]) -> bool {
+    match bytes {
+        [drive, b':', b'\\' | b'/', ..] => drive.is_ascii_alphabetic(),
+        [b'\\', b'\\', ..] => true,
+        _ => false,
+    }
+}
+
+/// The characters `PowerShell` reads as single quotes.
+const CURLY_SINGLE_QUOTES: [char; 4] = ['\u{2018}', '\u{2019}', '\u{201a}', '\u{201b}'];
+
+/// `$'…'`, which only bash, zsh and ksh read.
+fn ansi_c(bytes: &[u8]) -> Vec<u8> {
+    let mut text = b"$'".to_vec();
+    for &byte in bytes {
+        match byte {
+            byte if byte.is_ascii_control() => {
+                let hex = b"0123456789abcdef";
+                text.extend_from_slice(&[
+                    b'\\',
+                    b'x',
+                    hex[usize::from(byte >> 4)],
+                    hex[usize::from(byte & 15)],
+                ]);
+            }
+            b'\'' | b'\\' => text.extend_from_slice(&[b'\\', byte]),
+            byte => text.push(byte),
+        }
+    }
+    text.push(b'\'');
+    text
+}
+
+/// Single quotes. With `backslashes_outside`, backslashes go outside the
+/// quotes, where every POSIX shell and fish read `\\` as one backslash; fish
+/// reads `\\` and `\'` inside them as escapes. `PowerShell` reads curly single
+/// quotes as quotes, so those go inside double quotes, where every shell reads
+/// them as text. A control character would act on the line editor before any
+/// shell reads it, so it is refused.
+fn posix(bytes: &[u8], backslashes_outside: bool) -> Option<Vec<u8>> {
+    if bytes.iter().any(u8::is_ascii_control) {
+        return None;
+    }
+    let mut text = b"'".to_vec();
+    let mut index = 0;
+    while let Some(&byte) = bytes.get(index) {
+        let curly = byte == 0xe2
+            && bytes.get(index + 1) == Some(&0x80)
+            && bytes
+                .get(index + 2)
+                .is_some_and(|last| (0x98..=0x9b).contains(last));
+        if curly {
+            text.extend_from_slice(b"'\"");
+            text.extend_from_slice(&bytes[index..index + 3]);
+            text.extend_from_slice(b"\"'");
+            index += 3;
+            continue;
+        }
+        match byte {
+            b'\'' => text.extend_from_slice(b"'\\''"),
+            b'\\' if backslashes_outside => text.extend_from_slice(b"'\\\\'"),
+            byte => text.push(byte),
+        }
+        index += 1;
+    }
+    text.push(b'\'');
+    Some(text)
+}
+
+/// `PowerShell`'s single quotes, in which it also reads the curly ones, so each
+/// is doubled.
+fn powershell(text: &str) -> Option<Vec<u8>> {
+    if text.chars().any(char::is_control) {
+        return None;
+    }
+    let mut word = String::from("'");
+    for character in text.chars() {
+        if character == '\'' || CURLY_SINGLE_QUOTES.contains(&character) {
             word.push(character);
         }
-        word.push('\'');
-        words.push(word);
+        word.push(character);
     }
-    Some(bracket(words.join(" ").into_bytes(), modes))
+    word.push('\'');
+    Some(word.into_bytes())
+}
+
+/// Double quotes, in which `cmd.exe` reads its operators as text but still
+/// expands `%` and, with delayed expansion, `!`.
+fn cmd(text: &str) -> Option<Vec<u8>> {
+    if text.chars().any(char::is_control) || text.contains(['%', '!', '"']) {
+        return None;
+    }
+    Some(format!("\"{text}\"").into_bytes())
 }
 
 fn bracket(text: Vec<u8>, modes: Modes) -> Vec<u8> {
@@ -99,6 +231,18 @@ mod tests {
         }
     }
 
+    fn process(name: &str, is_shell: bool) -> ForegroundProcess {
+        ForegroundProcess {
+            name: name.to_owned(),
+            is_shell,
+        }
+    }
+
+    fn quoted(path: &str, quoting: PathQuoting) -> Option<String> {
+        quoted_paths(&[PathBuf::from(path)], quoting, modes(false))
+            .map(|bytes| String::from_utf8(bytes).unwrap())
+    }
+
     #[test]
     fn paste_normalizes_newlines_and_removes_embedded_escape_sequences() {
         let text = "first\r\nsecond\n\x1b[201~\rthird\u{009b}201~界\t";
@@ -115,20 +259,104 @@ mod tests {
         assert!(paste("", modes(true)).is_empty());
     }
 
+    #[test]
+    fn quoting_follows_the_program_in_the_foreground() {
+        let of = |name, is_shell| PathQuoting::for_process(Some(&process(name, is_shell)));
+        assert_eq!(PathQuoting::for_process(None), Some(PathQuoting::Unknown));
+        assert_eq!(of("-zsh", true), Some(PathQuoting::Bash));
+        assert_eq!(of("bash", false), Some(PathQuoting::Bash));
+        assert_eq!(of("fish", true), Some(PathQuoting::Fish));
+        assert_eq!(of("dash", true), Some(PathQuoting::Posix));
+        assert_eq!(of("pwsh", true), Some(PathQuoting::PowerShell));
+        assert_eq!(of("PowerShell.exe", true), Some(PathQuoting::PowerShell));
+        assert_eq!(of("cmd", true), Some(PathQuoting::Cmd));
+        assert_eq!(of("", true), Some(PathQuoting::Unknown));
+        assert_eq!(of("tcsh", true), None, "an unknown grammar gets nothing");
+        assert_eq!(of("nu", false), None, "even when another shell started it");
+        assert_eq!(of("someshell", true), None);
+        assert_eq!(of("claude", false), Some(PathQuoting::Program));
+        assert_eq!(of("claude.exe", false), Some(PathQuoting::Program));
+    }
+
+    /// A terminal can run on a server of another kind than this computer, as
+    /// can a phone's: the path's own form picks the quoting where the shell
+    /// doesn't.
+    #[test]
+    fn windows_server_paths_keep_their_backslashes_from_any_client() {
+        assert_eq!(
+            quoted(r"C:\Users\me\it's.png", PathQuoting::Program).as_deref(),
+            Some(r"'C:\Users\me\it''s.png'")
+        );
+        assert_eq!(
+            quoted(r"C:\Users\me\a b.png", PathQuoting::Unknown).as_deref(),
+            Some(r"'C:\Users\me\a b.png'")
+        );
+        assert_eq!(
+            quoted(r"\\host\share\a.png", PathQuoting::Unknown).as_deref(),
+            Some(r"'\\host\share\a.png'")
+        );
+        assert_eq!(
+            paths(&[PathBuf::from(r"C:\Users\me\img.png")], modes(false)).as_deref(),
+            Some(r"'C:\Users\me\img.png'".as_bytes())
+        );
+        // cmd.exe may be the shell, and reads PowerShell's quotes as text.
+        assert_eq!(quoted(r"C:\a&b", PathQuoting::Unknown), None);
+        assert_eq!(
+            quoted(r"C:\a&b", PathQuoting::Program).as_deref(),
+            Some(r"'C:\a&b'")
+        );
+        assert_eq!(
+            quoted("/tmp/it's", PathQuoting::Program).as_deref(),
+            Some(r"'/tmp/it'\''s'")
+        );
+    }
+
     #[cfg(not(windows))]
     #[test]
-    fn paths_quote_for_a_shell() {
+    fn paths_quote_for_each_unix_shell() {
         let dropped = [PathBuf::from("/tmp/it's"), PathBuf::from("/tmp/a\x1bb")];
         assert_eq!(
-            paths(&dropped, modes(false)).as_deref(),
+            quoted_paths(&dropped, PathQuoting::Bash, modes(false)).as_deref(),
             Some(b"'/tmp/it'\\''s' $'/tmp/a\\x1bb'".as_slice())
+        );
+        assert_eq!(
+            quoted_paths(&dropped, PathQuoting::Posix, modes(false)),
+            None,
+            "only bash, zsh and ksh read $'…'"
+        );
+        // fish reads `\'` inside single quotes as a quote, which would end
+        // the word early and run the rest of the name.
+        assert_eq!(
+            quoted(r"/tmp/x\' ; touch pwned #", PathQuoting::Fish).as_deref(),
+            Some(r"'/tmp/x'\\''\'' ; touch pwned #'")
+        );
+        // sh reads every backslash inside single quotes as text.
+        assert_eq!(
+            quoted(r"/tmp/x\' ; touch pwned #", PathQuoting::Posix).as_deref(),
+            Some(r"'/tmp/x\'\'' ; touch pwned #'")
+        );
+        // PowerShell reads the curly quote as a quote; every shell reads it
+        // as text inside double quotes.
+        assert_eq!(
+            quoted("/tmp/it\u{2019}s", PathQuoting::Posix).as_deref(),
+            Some("'/tmp/it'\"\u{2019}\"'s'")
+        );
+        assert_eq!(
+            quoted("/tmp/it\u{2019}s; x", PathQuoting::PowerShell).as_deref(),
+            Some("'/tmp/it\u{2019}\u{2019}s; x'")
+        );
+        assert_eq!(quoted("/tmp/it\u{2019}s", PathQuoting::Unknown), None);
+        assert_eq!(quoted("/tmp/a\x1bb", PathQuoting::Unknown), None);
+        assert_eq!(
+            paths(&[PathBuf::from("/tmp/it's here")], modes(false)).as_deref(),
+            Some(b"'/tmp/it'\\''s here'".as_slice())
         );
         assert_eq!(paths(&[PathBuf::from("relative")], modes(false)), None);
     }
 
     #[cfg(windows)]
     #[test]
-    fn paths_quote_for_powershell() {
+    fn paths_quote_for_powershell_and_cmd() {
         let dropped = [
             PathBuf::from(r"C:\Users\me\it's"),
             PathBuf::from("C:\\Users\\me\\\u{2019}x y"),
@@ -143,5 +371,16 @@ mod tests {
         );
         assert_eq!(paths(&[PathBuf::from("C:\\a\x1bb")], modes(false)), None);
         assert_eq!(paths(&[PathBuf::from("relative")], modes(false)), None);
+        // PowerShell's quotes are text to cmd.exe, so `&` would run `b'`.
+        assert_eq!(quoted(r"C:\a&b", PathQuoting::Unknown), None);
+        assert_eq!(
+            quoted(r"C:\a&b", PathQuoting::PowerShell).as_deref(),
+            Some(r"'C:\a&b'")
+        );
+        assert_eq!(
+            quoted(r"C:\a&b it's", PathQuoting::Cmd).as_deref(),
+            Some(r#""C:\a&b it's""#)
+        );
+        assert_eq!(quoted(r"C:\100%", PathQuoting::Cmd), None);
     }
 }

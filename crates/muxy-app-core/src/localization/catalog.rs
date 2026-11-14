@@ -13,6 +13,8 @@ const FORMAT_KEY: &str = "NSStringLocalizedFormatKey";
 const SPEC_TYPE_KEY: &str = "NSStringFormatSpecTypeKey";
 const VALUE_TYPE_KEY: &str = "NSStringFormatValueTypeKey";
 const MAX_PLURAL_DEPTH: usize = 8;
+/// Variant formats one plural entry may check, far above any real catalog.
+const MAX_PLURAL_CHECKS: usize = 4096;
 
 /// The arguments a format reads, by position, and its plural references.
 #[derive(Debug, Default)]
@@ -76,35 +78,63 @@ fn compatible(key: &str, value: &Value) -> bool {
         }
         Value::Dictionary(entry) => Signature::new(key, 1).is_some_and(|key| {
             matches!(entry.get(FORMAT_KEY), Some(Value::String(format))
-                if plural_compatible(format, 1, entry, &key, 0))
+                if Plurals::new(entry, &key).format(format, 1, 0))
         }),
         Value::Other => false,
     }
 }
 
-fn plural_compatible(
-    format: &str,
-    first: usize,
-    entry: &BTreeMap<String, Value>,
-    key: &Signature,
-    depth: usize,
-) -> bool {
-    let Some(signature) = Signature::new(format, first).filter(|s| s.satisfies(key)) else {
-        return false;
-    };
-    depth <= MAX_PLURAL_DEPTH
-        && signature.variables.iter().all(|(name, position)| {
-            let Some(Value::Dictionary(rule)) = entry.get(name) else {
-                return false;
-            };
-            rule.iter().all(|(rule_key, value)| match value {
-                Value::String(_) if rule_key == SPEC_TYPE_KEY || rule_key == VALUE_TYPE_KEY => true,
-                Value::String(variant) => {
-                    plural_compatible(variant, *position, entry, key, depth + 1)
-                }
-                _ => false,
-            })
-        })
+/// Checks one plural entry. Rules may reference each other, so each rule is
+/// checked once per argument position and depth, and the whole entry gets a
+/// fixed budget of variant checks: a small catalog can't multiply the work.
+struct Plurals<'a> {
+    entry: &'a BTreeMap<String, Value>,
+    key: &'a Signature,
+    checked: HashMap<(&'a str, usize, usize), bool>,
+    budget: usize,
+}
+
+impl<'a> Plurals<'a> {
+    fn new(entry: &'a BTreeMap<String, Value>, key: &'a Signature) -> Self {
+        Self {
+            entry,
+            key,
+            checked: HashMap::new(),
+            budget: MAX_PLURAL_CHECKS,
+        }
+    }
+
+    fn format(&mut self, format: &str, first: usize, depth: usize) -> bool {
+        if depth > MAX_PLURAL_DEPTH || self.budget == 0 {
+            return false;
+        }
+        self.budget -= 1;
+        let Some(signature) = Signature::new(format, first).filter(|s| s.satisfies(self.key))
+        else {
+            return false;
+        };
+        signature
+            .variables
+            .iter()
+            .all(|(name, position)| self.rule(name, *position, depth))
+    }
+
+    fn rule(&mut self, name: &str, position: usize, depth: usize) -> bool {
+        let Some((name, Value::Dictionary(rule))) = self.entry.get_key_value(name) else {
+            return false;
+        };
+        let state = (name.as_str(), position, depth);
+        if let Some(&known) = self.checked.get(&state) {
+            return known;
+        }
+        let valid = rule.iter().all(|(rule_key, value)| match value {
+            Value::String(_) if rule_key == SPEC_TYPE_KEY || rule_key == VALUE_TYPE_KEY => true,
+            Value::String(variant) => self.format(variant, position, depth + 1),
+            _ => false,
+        });
+        self.checked.insert(state, valid);
+        valid
+    }
 }
 
 /// Splits a validated catalog into plain translations and plural entries.

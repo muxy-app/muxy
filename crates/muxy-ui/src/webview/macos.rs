@@ -361,6 +361,10 @@ impl NativeWebview {
     /// Sends clicks on the resize grips drawn over the page, in window
     /// coordinates, to Muxy and shows each grip's cursor there. The page's
     /// pixels don't change. Call after [`Self::occlude`].
+    pub(super) fn take_click(&self) -> bool {
+        self.host.take_click()
+    }
+
     pub(super) fn set_grips(&self, grips: &[(Bounds<Pixels>, CursorStyle)]) {
         self.host.set_grips(grips);
     }
@@ -574,11 +578,13 @@ fn asset_response(
             &*NSString::from_str("Content-Type"),
             &*NSString::from_str("Content-Length"),
             &*NSString::from_str("Cache-Control"),
+            &*NSString::from_str("Content-Security-Policy"),
         ],
         &[
             &*NSString::from_str(content_type),
             &*NSString::from_str(&length.to_string()),
             &*NSString::from_str("no-store"),
+            &*NSString::from_str(rules::CONTENT_SECURITY_POLICY),
         ],
     );
     objc2_foundation::NSHTTPURLResponse::initWithURL_statusCode_HTTPVersion_headerFields(

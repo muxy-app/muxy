@@ -61,15 +61,11 @@ impl RunGrid {
         self.history_fresh = false;
         if frame.reset {
             self.clear_history();
-            let rows = usize::from(self.size.rows).max(
-                frame
-                    .rows
-                    .iter()
-                    .map(|row| usize::from(row.index) + 1)
-                    .max()
-                    .unwrap_or(0),
-            );
-            self.rows = vec![Vec::new(); rows];
+            // A frame sent before a resize took effect may be taller than the
+            // requested size. Rows below the frame's own height are dropped,
+            // so its row numbers can't make the screen any taller.
+            let rows = self.size.rows.max(frame.size.rows);
+            self.rows = blank_rows(rows);
         }
         self.replace_rows(&frame.rows);
         self.cursor = frame.cursor;
@@ -577,14 +573,27 @@ mod tests {
     }
 
     #[test]
-    fn reset_frame_blanks_unnamed_rows_and_grows_to_its_rows() {
+    fn reset_frame_blanks_unnamed_rows_and_grows_to_its_height() {
         let mut grid = RunGrid::from_snapshot(&snapshot());
         grid.apply(&frame(1, true, vec![row(1, "only")]));
         assert_eq!(grid.rows, vec![vec![], vec![run("only")], vec![]]);
-        grid.apply(&frame(2, true, vec![row(4, "fifth")]));
+        let mut taller = frame(2, true, vec![row(4, "fifth")]);
+        taller.size.rows = 5;
+        grid.apply(&taller);
         assert_eq!(grid.rows.len(), 5);
         assert_eq!(grid.row_text(1), "");
         assert_eq!(grid.row_text(4), "fifth");
+    }
+
+    #[test]
+    fn reset_frame_rows_past_its_height_cannot_grow_the_screen() {
+        let mut grid = RunGrid::from_snapshot(&snapshot());
+        grid.apply(&frame(1, true, vec![row(0, "top"), row(u16::MAX, "")]));
+        assert_eq!(grid.rows.len(), 3);
+        assert_eq!(grid.row_text(0), "top");
+        grid.apply(&frame(2, false, vec![row(2, "last"), row(3, "below")]));
+        assert_eq!(grid.rows.len(), 3);
+        assert_eq!(grid.row_text(2), "last");
     }
 
     #[test]
@@ -619,11 +628,10 @@ mod tests {
         let mut grid = RunGrid::from_snapshot(&snapshot());
         grid.resize(Size { cols: 10, rows: 8 });
         grid.resize(Size { cols: 10, rows: 3 });
-        grid.apply(&frame(
-            1,
-            true,
-            (0..8).map(|index| row(index, "")).collect(),
-        ));
+        let mut delayed = frame(1, true, (0..8).map(|index| row(index, "")).collect());
+        delayed.size.rows = 8;
+        grid.apply(&delayed);
+        assert_eq!(grid.rows.len(), 8);
         grid.apply(&frame(
             2,
             true,

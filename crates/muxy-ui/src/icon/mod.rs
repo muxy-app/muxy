@@ -2,6 +2,7 @@ mod raster;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod sfsymbol;
+pub mod svg;
 
 pub use raster::tinted_svg;
 #[cfg(target_os = "macos")]

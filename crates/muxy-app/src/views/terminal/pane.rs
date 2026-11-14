@@ -1703,11 +1703,20 @@ impl TerminalPane {
         }
     }
 
-    /// Pastes paths quoted for a shell.
+    /// How paths pasted here are quoted, for the program in the foreground;
+    /// `None` when it is a shell whose quoting isn't known.
+    pub(crate) fn path_quoting(&self) -> Option<muxy_client::input::PathQuoting> {
+        muxy_client::input::PathQuoting::for_process(self.process.as_ref())
+    }
+
+    /// Pastes paths quoted for the program in the foreground. Nothing is
+    /// pasted where they can't be quoted safely.
     pub(crate) fn paste_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         if let Some(grid) = &self.grid
-            && let Some(bytes) = muxy_client::input::paths(
+            && let Some(quoting) = self.path_quoting()
+            && let Some(bytes) = muxy_client::input::quoted_paths(
                 paths,
+                quoting,
                 if self.server_input {
                     muxy_protocol::Modes::default()
                 } else {

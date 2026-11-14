@@ -111,11 +111,12 @@ impl Root {
             Err(cause) => return Err(error(cause)),
         };
         let temporary = OsString::from(format!(".muxy-write-{}", OperationId::new()));
-        let mut file = native::create_file(&target.parent, &temporary).map_err(error)?;
+        let mut file =
+            native::create_file(&target.parent, &temporary, replaced.is_some()).map_err(error)?;
         let result = (|| {
             file.write_all(content).map_err(error)?;
             if let Some(replaced) = &replaced {
-                native::copy_mode(&file, replaced).map_err(error)?;
+                native::copy_mode(&file, &target.parent, &target.name, replaced).map_err(error)?;
             }
             file.sync_all().map_err(error)?;
             drop(file);

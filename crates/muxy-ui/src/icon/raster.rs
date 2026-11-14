@@ -140,7 +140,12 @@ pub fn tinted_svg(
         cache
             .borrow_mut()
             .entry(key)
-            .or_insert_with(|| rasterize_svg(bytes, f32::from(size), scale, cx).map(Arc::new))
+            .or_insert_with(|| {
+                super::svg::within_budget(bytes)
+                    .then(|| rasterize_svg(bytes, f32::from(size), scale, cx))
+                    .flatten()
+                    .map(Arc::new)
+            })
             .clone()
     })?;
     let image = TINTED
@@ -172,7 +177,6 @@ fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, _cx: &App) -> Option
     reason = "The validated side is a small positive number of pixels."
 )]
 fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, cx: &App) -> Option<Mask> {
-    use std::fmt::Write as _;
     if !point_size.is_finite()
         || point_size <= 0.0
         || point_size > 256.0
@@ -184,14 +188,8 @@ fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, cx: &App) -> Option<
     // Compressed SVG is not text, and is refused before it is expanded.
     std::str::from_utf8(bytes).ok()?;
     let side = (point_size * scale).round().max(1.0) as u32;
-    let mut document = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{side}" height="{side}"><image width="{side}" height="{side}" href="data:image/svg+xml,"#
-    );
-    for byte in bytes {
-        let _ = write!(document, "%{byte:02X}");
-    }
-    document.push_str(r#""/></svg>"#);
-    let image = gpui::Image::from_bytes(gpui::ImageFormat::Svg, document.into_bytes())
+    let document = super::svg::fitted_document(bytes, side);
+    let image = gpui::Image::from_bytes(gpui::ImageFormat::Svg, document)
         .to_image_data(cx.svg_renderer())
         .ok()?;
     let alpha: Vec<u8> = image

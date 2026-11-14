@@ -1,3 +1,6 @@
+#[path = "support/printable.rs"]
+mod support;
+
 use std::env;
 use std::error::Error;
 use std::io::{self, BufRead, Write};
@@ -7,6 +10,7 @@ use std::thread;
 
 use muxy_client::{Client, ClientEvent, RunGrid};
 use muxy_protocol::{SessionId, Size};
+use support::printable;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 const SIZE: Size = Size { cols: 80, rows: 24 };
@@ -15,7 +19,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            let _ = writeln!(io::stderr(), "attach: {error}");
+            let _ = writeln!(io::stderr(), "attach: {}", printable(&error.to_string()));
             ExitCode::FAILURE
         }
     }
@@ -51,7 +55,7 @@ fn list(client: &Client) -> Result {
             stdout,
             "{}\t{}",
             session.id.get(),
-            String::from_utf8_lossy(&session.directory.0)
+            printable(&String::from_utf8_lossy(&session.directory.0))
         )?;
     }
     Ok(())
@@ -178,8 +182,8 @@ fn forward_stdin(client: &Client, channel: muxy_protocol::ChannelId) -> Result {
 fn redraw(grid: &RunGrid) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     stdout.write_all(b"\x1b[2J\x1b[H")?;
-    for index in 0..grid.rows.len() {
-        writeln!(stdout, "{}", grid.row_text(index))?;
+    for index in 0..grid.rows.len().min(usize::from(grid.size.rows)) {
+        writeln!(stdout, "{}", printable(&grid.row_text(index)))?;
     }
     stdout.flush()
 }

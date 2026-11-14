@@ -137,6 +137,52 @@ fn atomic_utf8_writes_preserve_modes_and_enforce_both_limits() {
     }));
 }
 
+/// A replacement is written while nobody else can open it, and only then
+/// gets the permissions of the file it replaces.
+#[test]
+fn a_replacement_is_private_while_its_content_is_written() {
+    let workspace = Workspace::new();
+    let directory = native::open_root(&workspace.path).unwrap();
+    let replacement =
+        native::create_file(&directory, std::ffi::OsStr::new("replacement"), true).unwrap();
+    #[cfg(unix)]
+    {
+        let mode = replacement.metadata().unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+    #[cfg(windows)]
+    {
+        let opened = std::fs::File::open(workspace.path.join("replacement"));
+        assert!(opened.is_err(), "another handle opened the replacement");
+    }
+    drop(replacement);
+}
+
+/// Windows has no mode bits, so the replaced file's DACL carries over,
+/// including one that no longer inherits from its folder.
+#[cfg(windows)]
+#[test]
+fn windows_writes_keep_a_files_own_dacl() {
+    let workspace = Workspace::new();
+    workspace.write("secret", "old").unwrap();
+    let path = workspace.path.join("secret");
+    let icacls = |args: &[&str]| {
+        let output = std::process::Command::new("icacls")
+            .arg(&path)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    let user = std::env::var("USERNAME").unwrap();
+    icacls(&["/inheritance:r", "/grant:r", &format!("{user}:F")]);
+    let before = icacls(&[]);
+    workspace.write("secret", "new").unwrap();
+    assert_eq!(icacls(&[]), before);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+}
+
 #[test]
 fn mkdir_rename_and_move_do_not_overwrite_collisions() {
     let workspace = Workspace::new();

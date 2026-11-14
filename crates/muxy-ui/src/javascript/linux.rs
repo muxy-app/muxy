@@ -133,6 +133,65 @@ functions! {
     ) -> JSStringRef;
 }
 
+/// Asked, on the script's thread, whether to end a script that has run for the
+/// whole time limit. `false` lets it run for another period.
+pub(super) type JSShouldTerminateCallback =
+    Option<unsafe extern "C" fn(JSContextRef, *mut std::ffi::c_void) -> bool>;
+
+type JSContextGroupRef = *const std::ffi::c_void;
+
+/// The engine's watchdog, from a private header. It is bound on its own, so a
+/// library without it still runs scripts.
+struct Watchdog {
+    group: unsafe extern "C" fn(JSContextRef) -> JSContextGroupRef,
+    set_limit: unsafe extern "C" fn(
+        JSContextGroupRef,
+        c_double,
+        JSShouldTerminateCallback,
+        *mut std::ffi::c_void,
+    ),
+    _library: Library,
+}
+
+static WATCHDOG: OnceLock<Option<Watchdog>> = OnceLock::new();
+
+/// Asks `callback` with `data` every `limit` seconds a script in `context`'s
+/// group keeps running. Answers whether the engine has a watchdog to ask.
+///
+/// # Safety
+///
+/// [`load`] has succeeded, `context` is live, and `data` stays valid for
+/// `callback` while the group runs script.
+pub(super) unsafe fn set_execution_time_limit(
+    context: JSContextRef,
+    limit: f64,
+    callback: JSShouldTerminateCallback,
+    data: *mut std::ffi::c_void,
+) -> bool {
+    let watchdog = WATCHDOG.get_or_init(|| {
+        // SAFETY: The library is already loaded, and each symbol is the C
+        // function of that name, with the signature its header gives it.
+        unsafe {
+            let library = Library::new(LIBRARY).ok()?;
+            let group = *library.get(b"JSContextGetGroup\0").ok()?;
+            let set_limit = *library.get(b"JSContextGroupSetExecutionTimeLimit\0").ok()?;
+            Some(Watchdog {
+                group,
+                set_limit,
+                _library: library,
+            })
+        }
+    });
+    let Some(watchdog) = watchdog else {
+        return false;
+    };
+    // SAFETY: Upheld by the caller.
+    unsafe {
+        (watchdog.set_limit)((watchdog.group)(context), limit, callback, data);
+    }
+    true
+}
+
 static API: OnceLock<Result<Api, String>> = OnceLock::new();
 
 /// Binds the library on first use. A desktop without it gets the reason.

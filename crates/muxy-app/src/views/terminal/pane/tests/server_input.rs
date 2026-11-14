@@ -312,6 +312,32 @@ const DROPPED: &str = if cfg!(windows) {
     "/tmp/a b"
 };
 
+/// A shell whose quoting isn't known gets no paths, so a file's name can't
+/// become a command there; a known one gets its own quoting.
+#[gpui::test]
+fn dropped_paths_are_quoted_for_the_shell_in_the_foreground(cx: &mut TestAppContext) {
+    let (pane, cx) = cx.add_window_view(pane);
+    let sent = record(&pane, cx);
+    let drop_into = |name: &str, cx: &mut gpui::VisualTestContext| {
+        pane.update(cx, |pane, cx| {
+            pane.process = Some(ForegroundProcess {
+                name: name.to_owned(),
+                is_shell: true,
+            });
+            pane.drop_paths(&[PathBuf::from(DROPPED)], cx);
+        });
+    };
+    drop_into("tcsh", cx);
+    assert!(sent.borrow().is_empty(), "{:?}", sent.borrow());
+    drop_into("pwsh", cx);
+    assert_eq!(
+        sent.borrow().as_slice(),
+        [Sent::Terminal(TerminalInput::Paste(
+            format!("'{DROPPED}'").into_bytes()
+        ))]
+    );
+}
+
 #[gpui::test]
 fn clipboard_paths_and_focus_do_not_use_stale_client_modes(cx: &mut TestAppContext) {
     let (pane, cx) = cx.add_window_view(pane);

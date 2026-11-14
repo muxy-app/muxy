@@ -349,6 +349,12 @@ impl Runtime {
                         c"Cache-Control".as_ptr(),
                         c"no-store".as_ptr(),
                     );
+                    let policy = cstring(rules::CONTENT_SECURITY_POLICY);
+                    g.soup_message_headers_append(
+                        headers,
+                        c"Content-Security-Policy".as_ptr(),
+                        policy.as_ptr(),
+                    );
                     g.webkit_uri_scheme_response_set_http_headers(response, headers);
                     g.webkit_uri_scheme_request_finish_with_response(request, response);
                     g.g_object_unref(response);

@@ -36,10 +36,23 @@ pub fn server_executable() -> io::Result<PathBuf> {
     ))
 }
 
-/// Connects to the local server's socket. On Windows it refuses a server in
+/// Connects to the local server's socket. On Unix it refuses a server that
+/// runs as another user, which could only be there if someone replaced the
+/// socket, before sending it anything. On Windows it refuses a server in
 /// another Windows session or at another elevation than this program.
 pub fn connect(socket: &Path) -> Result<Box<dyn ByteStream>, ClientError> {
     let stream = muxy_protocol::transport::connect_local(socket)?;
+    #[cfg(unix)]
+    if !muxy_protocol::transport::peer_is_same_user(&stream)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "the server at {} runs as another user, so it was not used",
+                socket.display()
+            ),
+        )
+        .into());
+    }
     #[cfg(windows)]
     windows::check_server(&stream)?;
     Ok(Box::new(stream))

@@ -4821,6 +4821,7 @@ dependencies = [
 name = "muxy-protocol"
 version = "2.0.0-beta-0"
 dependencies = [
+ "libc",
  "minicbor",
  "muxy-core",
  "postcard",
@@ -4898,6 +4899,7 @@ dependencies = [
  "objc2-web-kit",
  "polybrowser",
  "raw-window-handle",
+ "roxmltree",
  "serde_json",
  "unicode-segmentation",
  "windows 0.62.2",

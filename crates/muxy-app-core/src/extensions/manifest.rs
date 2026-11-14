@@ -934,6 +934,8 @@ impl Extension {
     fn validate_localizations(&self) -> Result<(), String> {
         let localizations = &self.manifest.localizations;
         unique("localization", localizations.iter().map(|l| l.id.as_str()))?;
+        let mut checked = BTreeSet::new();
+        let mut budget = crate::localization::MAX_PACK_CATALOG_BYTES;
         for localization in localizations {
             let id = &localization.id;
             if !identifier(id) {
@@ -953,8 +955,18 @@ impl Extension {
                 .ok()
                 .filter(|path| path.is_dir() && localization.bundle.ends_with(".bundle"))
                 .ok_or_else(|| format!("localization '{id}' bundle was not found"))?;
-            crate::localization::validate_bundle(&bundle, &localization.language)
-                .map_err(|error| format!("localization '{id}' {error}"))?;
+            // Declarations may share a bundle and language; check each pair once.
+            let catalogs = bundle.canonicalize().map_or_else(
+                |_| bundle.clone(),
+                |root| {
+                    let lproj = root.join(format!("{}.lproj", localization.language));
+                    lproj.canonicalize().unwrap_or(lproj)
+                },
+            );
+            if checked.insert(catalogs) {
+                crate::localization::validate_bundle(&bundle, &localization.language, &mut budget)
+                    .map_err(|error| format!("localization '{id}' {error}"))?;
+            }
         }
         Ok(())
     }

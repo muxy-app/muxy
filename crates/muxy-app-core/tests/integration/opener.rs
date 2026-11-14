@@ -113,3 +113,32 @@ fn local_targets_preserve_locations_and_decode_only_local_file_uris() {
         assert!(resolve(text).is_none(), "{text}");
     }
 }
+
+#[cfg(windows)]
+#[test]
+fn network_paths_are_never_looked_up_from_a_local_folder() {
+    let looked_up = std::cell::RefCell::new(Vec::new());
+    let resolve = |text, directory: &str| {
+        Target::file(text, Path::new(directory), None, |path| {
+            looked_up.borrow_mut().push(path.to_owned());
+            true
+        })
+    };
+    for text in [
+        r"\\attacker\share\x",
+        "//attacker/share/x",
+        "file:////attacker/share/x",
+        r"\\?\UNC\attacker\share\x",
+        r"\\.\pipe\x",
+    ] {
+        assert!(resolve(text, r"C:\project").is_none(), "{text}");
+    }
+    assert!(looked_up.borrow().is_empty(), "{:?}", looked_up.borrow());
+    assert!(resolve(r"C:\project\a.rs", r"C:\project").is_some());
+    assert!(
+        resolve(r"src\a.rs", r"\\nas\work\project").is_some(),
+        "a terminal already on a share can open its files"
+    );
+    assert!(resolve(r"\\NAS\Work\other.rs", r"\\nas\work\project").is_some());
+    assert!(resolve(r"\\other\work\a.rs", r"\\nas\work\project").is_none());
+}

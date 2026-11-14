@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
@@ -41,15 +41,31 @@ impl PartialEq for ClipboardWrite {
 
 impl Eq for ClipboardWrite {}
 
+/// Fewest entries kept before dropped notifications are swept out.
+const SWEEP_FLOOR: usize = 16;
+
 #[derive(Default)]
 pub(super) struct ClipboardWrites {
     pending: HashMap<ChannelId, Weak<Pending>>,
+    /// Channels this client attached. Only they may write its clipboard.
+    attached: HashSet<ChannelId>,
+    /// Sweep dropped notifications once `pending` reaches this size, so each
+    /// write costs constant time on average however many channels wrote.
+    sweep_at: usize,
     sequence: u64,
     consumed: Arc<AtomicU64>,
 }
 
 impl ClipboardWrites {
+    /// Lets `channel`, which this client asked to attach, write the clipboard.
+    pub(super) fn attached(&mut self, channel: ChannelId) {
+        self.attached.insert(channel);
+    }
+
     pub(super) fn push(&mut self, channel: ChannelId, text: String) -> Option<ClipboardWrite> {
+        if !self.attached.contains(&channel) {
+            return None;
+        }
         self.sequence += 1;
         let contents = Contents {
             sequence: self.sequence,
@@ -62,7 +78,10 @@ impl ClipboardWrites {
                 return None;
             }
         }
-        self.pending.retain(|_, pending| pending.strong_count() > 0);
+        if self.pending.len() >= self.sweep_at {
+            self.pending.retain(|_, pending| pending.strong_count() > 0);
+            self.sweep_at = (self.pending.len() * 2).max(SWEEP_FLOOR);
+        }
         let write = ClipboardWrite {
             pending: Arc::new(Mutex::new(Some(contents))),
             consumed: self.consumed.clone(),
@@ -82,6 +101,7 @@ mod tests {
     fn consuming_during_a_write_never_loses_the_latest_value()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut pending = ClipboardWrites::default();
+        pending.attached(ChannelId(1));
         for _ in 0..128 {
             let write = pending
                 .push(ChannelId(1), "before".into())
@@ -115,13 +135,18 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let mut pending = ClipboardWrites::default();
         for channel in 0..1024 {
+            pending.attached(ChannelId(channel));
             let write = pending
                 .push(ChannelId(channel), "discarded".into())
                 .ok_or("missing notification")?;
             let contents = Arc::downgrade(&write.pending);
             drop(write);
             assert!(contents.upgrade().is_none());
-            assert_eq!(pending.pending.len(), 1);
+            assert!(
+                pending.pending.len() <= SWEEP_FLOOR,
+                "{}",
+                pending.pending.len()
+            );
         }
         let write = pending
             .push(ChannelId(1023), "next".into())
@@ -134,6 +159,8 @@ mod tests {
     fn delayed_channels_cannot_overwrite_a_newer_consumed_clipboard()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut pending = ClipboardWrites::default();
+        pending.attached(ChannelId(1));
+        pending.attached(ChannelId(2));
         let first = pending
             .push(ChannelId(1), "first".into())
             .ok_or("missing first notification")?;
@@ -148,5 +175,36 @@ mod tests {
             .ok_or("missing next notification")?;
         assert_eq!(next.take().as_deref(), Some("next"));
         Ok(())
+    }
+
+    #[test]
+    fn only_attached_channels_write_the_clipboard() -> Result<(), Box<dyn std::error::Error>> {
+        let mut pending = ClipboardWrites::default();
+        for channel in 1..10_000 {
+            assert!(pending.push(ChannelId(channel), "forged".into()).is_none());
+        }
+        assert!(pending.pending.is_empty());
+        pending.attached(ChannelId(7));
+        let write = pending
+            .push(ChannelId(7), "copied".into())
+            .ok_or("attached channel lost its write")?;
+        assert_eq!(write.take().as_deref(), Some("copied"));
+        Ok(())
+    }
+
+    #[test]
+    fn held_notifications_are_not_rescanned_on_every_new_channel() {
+        let mut pending = ClipboardWrites::default();
+        let mut held = Vec::new();
+        for channel in 0..4096 {
+            pending.attached(ChannelId(channel));
+            held.extend(pending.push(ChannelId(channel), "held".into()));
+            // Sweeps wait for the map to double, so each costs as much as
+            // the writes since the last one.
+            assert!(pending.sweep_at >= pending.pending.len());
+            assert!(pending.sweep_at <= (2 * pending.pending.len()).max(SWEEP_FLOOR));
+        }
+        assert_eq!(held.len(), 4096);
+        assert_eq!(pending.pending.len(), 4096);
     }
 }

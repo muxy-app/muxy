@@ -80,6 +80,7 @@ impl NativeBrowser {
                     passthrough: Cell::new(false),
                     hit_regions: RefCell::new(None),
                     pressed_inside: Cell::new(0),
+                    last_click: Cell::new(None),
                     placed: Cell::new(None),
                     shown: Cell::new(None),
                 },

@@ -20,6 +20,14 @@ pub use storage::{Settings, Storage};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+/// A developer folder [`Registry::load_unpacked`] registered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unpacked {
+    pub name: String,
+    /// The name wasn't registered to this folder before.
+    pub new_source: bool,
+}
+
 /// Installed packages and explicit developer folders for this app profile.
 #[derive(Clone, Debug, Default)]
 pub struct Registry {
@@ -150,7 +158,11 @@ impl Registry {
         Ok(())
     }
 
-    pub fn load_unpacked(&mut self, path: &Path) -> Result<String, String> {
+    /// Registers a developer folder. A name that wasn't registered to this
+    /// folder before, such as one moved from a folder that no longer loads,
+    /// starts disabled, and the caller must forget its remembered consent:
+    /// the new folder's code never inherits the old one's authority.
+    pub fn load_unpacked(&mut self, path: &Path) -> Result<Unpacked, String> {
         let extension = Self::unpacked_extension(path)?;
         if self.extensions.contains_key(&extension.name) {
             return Err("an extension with this name is already loaded".into());
@@ -165,17 +177,23 @@ impl Registry {
                 "this folder is already loaded as '{loaded}'; unload it first"
             ));
         }
+        let name = extension.name.clone();
+        let new_source = self.unpacked.get(&name) != Some(&folder);
+        if new_source && self.enabled.contains(&name) {
+            let mut active = self.enabled.clone();
+            active.remove(&name);
+            self.save_enabled(active)?;
+        }
         let mut folders = self.unpacked.clone();
-        folders.insert(extension.name.clone(), folder);
+        folders.insert(name.clone(), folder);
         storage::write(
             &self.profile.join("extension-folders.json"),
             &serde_json::json!(folders),
         )?;
         self.unpacked = folders;
         self.forget_preference_error("extension-folders.json");
-        let name = extension.name.clone();
         self.extensions.insert(name.clone(), extension);
-        Ok(name)
+        Ok(Unpacked { name, new_source })
     }
 
     pub fn is_unpacked(&self, id: &str) -> bool {
@@ -211,6 +229,10 @@ impl Registry {
         } else {
             active.remove(id);
         }
+        self.save_enabled(active)
+    }
+
+    fn save_enabled(&mut self, active: BTreeSet<String>) -> Result<(), String> {
         storage::write(
             &self.profile.join("extension-enabled.json"),
             &serde_json::json!(active),

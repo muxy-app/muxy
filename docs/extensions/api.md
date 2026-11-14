@@ -184,6 +184,11 @@ Values are JSON, up to 1 MiB each and 5 MiB in total.
 host, and can't reach the local machine or private networks. Response bodies
 are capped at 10 MiB and timeouts at 120 s. Pages only.
 
+It is the only way a page reaches the network. Pages load only their own
+files and `data:` and `blob:` URLs: a remote image, style sheet, font, script,
+frame, or `fetch()` is blocked. Bundle what the page shows, or fetch it with
+`http.fetch` and show it from a `data:` or `blob:` URL.
+
 ## Notifications
 
 - `notifications.notify({ title, body })` posts a notification and the

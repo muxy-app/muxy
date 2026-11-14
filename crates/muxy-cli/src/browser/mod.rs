@@ -91,10 +91,17 @@ fn print(output: Output, out: Option<&Path>, reply: Value) -> Result<(), Box<dyn
     match output {
         Output::Ok => writeln!(stdout, "ok")?,
         Output::Json => writeln!(stdout, "{reply}")?,
-        Output::Text => match reply {
-            Value::String(text) => writeln!(stdout, "{text}")?,
-            other => writeln!(stdout, "{other}")?,
-        },
+        Output::Text => {
+            let text = match reply {
+                Value::String(text) => text,
+                other => other.to_string(),
+            };
+            if crate::output::Display::stdout().terminal {
+                writeln!(stdout, "{}", crate::output::terminal_text(&text))?;
+            } else {
+                writeln!(stdout, "{text}")?;
+            }
+        }
         Output::Tabs => {
             let display = crate::output::Display::stdout();
             let columns = ["tabId", "title", "url", "profile", "active"];
@@ -127,13 +134,7 @@ fn print(output: Output, out: Option<&Path>, reply: Value) -> Result<(), Box<dyn
                 }
             }
         }
-        Output::Page => writeln!(
-            stdout,
-            "{}\n{}\n{}",
-            text(&reply["title"]),
-            text(&reply["url"]),
-            text(&reply["text"])
-        )?,
+        Output::Page => write!(stdout, "{}", page(&reply))?,
         Output::Screenshot => {
             let png = reply["png"].as_str().ok_or(INVALID_REPLY)?;
             match out {
@@ -149,10 +150,23 @@ fn print(output: Output, out: Option<&Path>, reply: Value) -> Result<(), Box<dyn
     Ok(())
 }
 
-/// A list field kept on its line: tabs and line breaks become spaces.
+/// A page read: its title and address each on one line, then its text. The
+/// page chooses all three, so control characters show as escapes instead of
+/// reaching the terminal, where they could set its clipboard.
+fn page(reply: &Value) -> String {
+    format!(
+        "{}\n{}\n{}\n",
+        crate::output::cell(&Value::String(text(&reply["title"]).to_owned())),
+        crate::output::cell(&Value::String(text(&reply["url"]).to_owned())),
+        crate::output::terminal_text(text(&reply["text"])),
+    )
+}
+
+/// A list field kept on its line: tabs and line breaks become spaces, and
+/// other control characters show as escapes.
 fn cell(value: &Value) -> String {
     match value {
-        Value::String(text) => text.replace(['\t', '\n', '\r'], " "),
+        Value::String(text) => crate::output::terminal_text(&text.replace(['\t', '\n', '\r'], " ")),
         Value::Null => String::new(),
         other => other.to_string(),
     }
@@ -160,4 +174,30 @@ fn cell(value: &Value) -> String {
 
 fn text(value: &Value) -> &str {
     value.as_str().unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn page_reads_show_page_controlled_escapes_instead_of_sending_them() {
+        let reply = json!({
+            "title": "\u{1b}]52;c;aGk=\u{7}Title\nfake line",
+            "url": "https://example.com/\u{1b}[2J",
+            "text": "first line\n\tindented\u{1b}[31m red",
+        });
+        let output = page(&reply);
+        assert!(!output.contains('\u{1b}'), "{output:?}");
+        assert!(!output.contains('\u{7}'), "{output:?}");
+        assert_eq!(
+            output,
+            "\\u{1b}]52;c;aGk=\\u{7}Title\\nfake line\nhttps://example.com/\\u{1b}[2J\n\
+             first line\n\tindented\\u{1b}[31m red\n"
+        );
+        assert_eq!(page(&json!({})), "\n\n\n");
+        assert_eq!(cell(&json!("a\tb\u{1b}c")), "a b\\u{1b}c");
+    }
 }

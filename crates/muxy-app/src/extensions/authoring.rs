@@ -167,8 +167,10 @@ pub(crate) fn clone_name(name: &str) -> String {
 
 /// A word the shell reads literally, in every shell Muxy starts. Backslashes go
 /// outside the quotes too, because fish reads one inside them as an escape.
-/// Control characters can't be quoted, since the line editor acts on them first:
-/// see [`typed_safely`].
+/// Curly single quotes go inside double quotes, because `PowerShell` reads them
+/// as quotes and every shell reads them as text there. Control characters
+/// can't be quoted, since the line editor acts on them first: see
+/// [`typed_safely`].
 #[cfg(not(windows))]
 pub(crate) fn shell_quote(text: &str) -> String {
     let plain = !text.is_empty()
@@ -183,6 +185,11 @@ pub(crate) fn shell_quote(text: &str) -> String {
         match character {
             '\'' => quoted.push_str(r"'\''"),
             '\\' => quoted.push_str(r"'\\'"),
+            '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}' => {
+                quoted.push_str("'\"");
+                quoted.push(character);
+                quoted.push_str("\"'");
+            }
             character => quoted.push(character),
         }
     }
@@ -639,6 +646,16 @@ mod tests {
         assert_eq!(shell_quote(r"a\"), r"'a'\\''");
     }
 
+    /// `PowerShell` reads a curly single quote as a quote, so inside single
+    /// quotes it would end the word, and a folder named with one could run
+    /// the rest of its name.
+    #[cfg(not(windows))]
+    #[test]
+    fn curly_single_quotes_go_inside_double_quotes() {
+        assert_eq!(shell_quote("it\u{2019}s; rm"), "'it'\"\u{2019}\"'s; rm'");
+        assert_eq!(shell_quote("\u{2018}"), "''\"\u{2018}\"''");
+    }
+
     /// A quoted word has to come back from a real shell as the same text, with
     /// nothing in it run.
     #[cfg(not(windows))]
@@ -652,11 +669,20 @@ mod tests {
             format!(r"x\';touch {marker};#"),
             format!("it's; touch {marker} $(touch {marker}) `touch {marker}`"),
             format!(r"\\'\';touch {marker}"),
+            format!("it\u{2019}s; touch {marker}; \u{2018}x\u{201b}"),
             r"trailing\".to_owned(),
             "plain".to_owned(),
             String::new(),
         ];
-        for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
+        let fish = [
+            "/usr/bin/fish",
+            "/usr/local/bin/fish",
+            "/opt/homebrew/bin/fish",
+        ];
+        for shell in ["/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash"]
+            .into_iter()
+            .chain(fish)
+        {
             if !Path::new(shell).exists() {
                 continue;
             }
@@ -666,6 +692,27 @@ mod tests {
                     .arg(format!("printf %s {}", shell_quote(text)))
                     .output()?;
                 assert_eq!(String::from_utf8_lossy(&output.stdout), *text, "{shell}");
+                assert!(
+                    !folder.path().join("ran").exists(),
+                    "{shell} ran part of {text:?}"
+                );
+            }
+        }
+        let pwsh = [
+            "/usr/bin/pwsh",
+            "/usr/local/bin/pwsh",
+            "/opt/homebrew/bin/pwsh",
+        ];
+        for shell in pwsh.into_iter().filter(|shell| Path::new(shell).exists()) {
+            // PowerShell reads POSIX quoting differently, but never runs any of it.
+            for text in &texts {
+                std::process::Command::new(shell)
+                    .args(["-NoProfile", "-NonInteractive", "-Command"])
+                    .arg(format!(
+                        "& {{ [Console]::Out.Write($args[0]) }} {}",
+                        shell_quote(text)
+                    ))
+                    .output()?;
                 assert!(
                     !folder.path().join("ran").exists(),
                     "{shell} ran part of {text:?}"

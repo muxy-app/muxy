@@ -227,7 +227,7 @@ impl Router<'_> {
 
     /// An attach reply becomes its terminal's event; any other goes to whoever waits.
     fn reply(
-        &self,
+        &mut self,
         id: RequestId,
         body: ReplyBody,
     ) -> Option<(ClientEvent, Option<(RequestId, ChannelId)>)> {
@@ -238,6 +238,7 @@ impl Router<'_> {
         match (body, attaching) {
             (ReplyBody::Attached { snapshot, process }, Some(attaching)) => {
                 let channel = snapshot.channel;
+                self.clipboard.attached(channel);
                 let attachment = Attachment::new(*snapshot, process, self.server_input);
                 let event = ClientEvent::Attached {
                     tag: attaching.tag,

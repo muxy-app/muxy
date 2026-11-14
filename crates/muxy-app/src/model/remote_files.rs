@@ -63,25 +63,18 @@ impl RemoteFiles {
     }
 
     fn read_local(&self, path: &Path, name: &str) -> Result<Vec<u8>, String> {
-        let unreadable =
-            |error: io::Error| tr!("Could not read %@: %@", name, error.to_string()).to_string();
-        let metadata = std::fs::metadata(path).map_err(unreadable)?;
-        if metadata.is_dir() {
-            return Err(tr!(
+        read_upload(path, MAX_UPLOAD_BYTES).map_err(|error| match error {
+            UploadError::Folder => tr!(
                 "%@ is a folder. Only files can be sent to %@.",
                 name,
                 &self.name
             )
-            .to_string());
-        }
-        if metadata.len() > MAX_UPLOAD_BYTES {
-            return Err(too_large(name, &self.name));
-        }
-        let bytes = std::fs::read(path).map_err(unreadable)?;
-        if bytes.len() as u64 > MAX_UPLOAD_BYTES {
-            return Err(too_large(name, &self.name));
-        }
-        Ok(bytes)
+            .to_string(),
+            UploadError::TooLarge => too_large(name, &self.name),
+            UploadError::Unreadable(error) => {
+                tr!("Could not read %@: %@", name, error.to_string()).to_string()
+            }
+        })
     }
 
     fn send(&self, session: SessionId, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
@@ -286,30 +279,96 @@ pub(crate) fn image_extension(bytes: &[u8]) -> &'static str {
     }
 }
 
+#[derive(Debug)]
+enum UploadError {
+    Folder,
+    TooLarge,
+    Unreadable(io::Error),
+}
+
+/// A regular file's bytes, never more than `limit`: a device or pipe in a
+/// file's place, such as `/dev/zero`, could otherwise be read without end.
+fn read_upload(path: &Path, limit: u64) -> Result<Vec<u8>, UploadError> {
+    use std::io::Read;
+    if std::fs::metadata(path)
+        .map_err(UploadError::Unreadable)?
+        .is_dir()
+    {
+        return Err(UploadError::Folder);
+    }
+    let file = open_without_waiting(path).map_err(UploadError::Unreadable)?;
+    let metadata = file.metadata().map_err(UploadError::Unreadable)?;
+    if metadata.is_dir() {
+        return Err(UploadError::Folder);
+    }
+    if !metadata.is_file() {
+        return Err(UploadError::Unreadable(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        )));
+    }
+    if metadata.len() > limit {
+        return Err(UploadError::TooLarge);
+    }
+    let mut bytes = Vec::new();
+    file.take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(UploadError::Unreadable)?;
+    if bytes.len() as u64 > limit {
+        return Err(UploadError::TooLarge);
+    }
+    Ok(bytes)
+}
+
+/// Opens a file to read, without waiting for a writer when it is a pipe.
+fn open_without_waiting(path: &Path) -> io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use rustix::fs::{Mode, OFlags};
+        Ok(rustix::fs::open(
+            path,
+            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?
+        .into())
+    }
+    #[cfg(windows)]
+    {
+        std::fs::File::open(path)
+    }
+}
+
 /// Saves a read-only copy of another computer's file in this computer's
-/// temporary folder, named as a copy, and returns its path.
+/// temporary folder, named as a copy, and returns its path. Each copy gets a
+/// new private folder that only this user can enter, made where nothing was,
+/// so no one else can put a link in the copy's place.
 pub(crate) fn save_copy(bytes: &[u8], original: &Path, server: &str) -> io::Result<PathBuf> {
-    let name = display_name(original);
+    let name = display_name(original).replace(['/', '\\', '\0'], "-");
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => name.split_at(dot),
         _ => (name.as_str(), ""),
     };
-    let server = server.replace(['/', '\0'], "-");
-    let folder = std::env::temp_dir()
-        .join("Muxy Copies")
-        .join(muxy_protocol::OperationId::new().to_string());
-    muxy_core::files::private_dir(&folder)?;
+    let server = server.replace(['/', '\\', '\0'], "-");
+    let mut folder = tempfile::Builder::new();
+    folder.prefix("Muxy Copy ");
+    #[cfg(unix)]
+    folder.permissions(std::fs::Permissions::from_mode(0o700));
+    let folder = folder.tempdir()?.keep();
     let copy = folder.join(format!("{stem} (copy from {server}){extension}"));
-    std::fs::write(&copy, bytes)?;
+    let mut file = muxy_core::files::private_file()
+        .write(true)
+        .create_new(true)
+        .open(&copy)?;
+    io::Write::write_all(&mut file, bytes)?;
     #[cfg(unix)]
     let read_only = std::fs::Permissions::from_mode(0o444);
     #[cfg(windows)]
     let read_only = {
-        let mut permissions = std::fs::metadata(&copy)?.permissions();
+        let mut permissions = file.metadata()?.permissions();
         permissions.set_readonly(true);
         permissions
     };
-    std::fs::set_permissions(&copy, read_only)?;
+    file.set_permissions(read_only)?;
     Ok(copy)
 }
 
@@ -595,6 +654,81 @@ mod tests {
     use muxy_ui::pasteboard::Content;
 
     use super::*;
+
+    #[test]
+    fn uploads_read_only_regular_files_within_the_limit() {
+        let folder = tempfile::tempdir().expect("folder");
+        let file = folder.path().join("a.txt");
+        std::fs::write(&file, "hello").expect("write");
+        assert_eq!(read_upload(&file, 5).expect("read"), b"hello");
+        assert!(matches!(read_upload(&file, 4), Err(UploadError::TooLarge)));
+        assert!(matches!(
+            read_upload(folder.path(), 5),
+            Err(UploadError::Folder)
+        ));
+        #[cfg(unix)]
+        {
+            // A device reads without end, so it is never read at all.
+            assert!(matches!(
+                read_upload(Path::new("/dev/zero"), 5),
+                Err(UploadError::Unreadable(_))
+            ));
+            let pipe = folder.path().join("pipe");
+            let made = std::process::Command::new("mkfifo")
+                .arg(&pipe)
+                .status()
+                .expect("mkfifo");
+            assert!(made.success());
+            assert!(matches!(
+                read_upload(&pipe, 5),
+                Err(UploadError::Unreadable(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn copies_land_in_a_new_private_folder_read_only() {
+        let copy = save_copy(b"data", Path::new("/srv/notes.txt"), "box/one").expect("copy");
+        assert_eq!(
+            copy.file_name().and_then(|name| name.to_str()),
+            Some("notes (copy from box-one).txt")
+        );
+        assert_eq!(std::fs::read(&copy).expect("read"), b"data");
+        assert!(
+            std::fs::metadata(&copy)
+                .expect("metadata")
+                .permissions()
+                .readonly()
+        );
+        let folder = copy.parent().expect("folder").to_owned();
+        #[cfg(unix)]
+        assert_eq!(
+            std::fs::metadata(&folder)
+                .expect("folder")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        let second =
+            save_copy(b"data", Path::new("/srv/notes.txt"), "box/one").expect("second copy");
+        assert_ne!(
+            second.parent(),
+            Some(folder.as_path()),
+            "each copy gets its own folder"
+        );
+        for copy in [copy, second] {
+            let folder = copy.parent().expect("folder").to_owned();
+            let mut permissions = std::fs::metadata(&copy).expect("metadata").permissions();
+            #[allow(
+                clippy::permissions_set_readonly_false,
+                reason = "Lets the test clean up"
+            )]
+            permissions.set_readonly(false);
+            std::fs::set_permissions(&copy, permissions).expect("writable");
+            std::fs::remove_dir_all(folder).expect("clean up");
+        }
+    }
 
     #[test]
     fn project_file_uses_the_source_project_and_the_servers_resolved_path() {

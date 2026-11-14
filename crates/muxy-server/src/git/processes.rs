@@ -6,15 +6,39 @@ use rustix::process::{Pid, Signal};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// Stops every process whose working directory is inside `directory`.
+/// Stops every process whose working directory is inside `directory`, which
+/// must still be the folder with the `device` and `inode` that removal
+/// inspected, never a link to elsewhere. It is checked again before each look
+/// at the processes, so a folder swapped in during cleanup can't point it at
+/// processes outside the worktree.
 #[cfg(unix)]
-pub(super) fn stop(directory: &Path) -> Result<()> {
-    let directory = directory.canonicalize().map_err(error)?;
+pub(super) fn stop(directory: &Path, device: u64, inode: u64) -> Result<()> {
+    let expected = |path: &Path| {
+        muxy_core::files::FileId::of_link(path)
+            .is_ok_and(|id| id.device() == device && id.index() == inode)
+    };
+    let verified = || -> Result<PathBuf> {
+        let canonical = directory.canonicalize().map_err(error)?;
+        if expected(directory) && expected(&canonical) {
+            Ok(canonical)
+        } else {
+            Err(error(
+                "Worktree directory identity changed; files were preserved",
+            ))
+        }
+    };
+    let directory = verified()?;
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
+        if verified()? != directory {
+            return Err(error(
+                "Worktree directory identity changed; files were preserved",
+            ));
+        }
         let processes: Vec<_> = directories()?
             .into_iter()
-            .filter(|(_, cwd)| cwd.starts_with(&directory))
+            .filter(|cwd| cwd.path.starts_with(&directory) && cwd.inside(device, inode))
+            .map(|cwd| (cwd.pid, cwd.path))
             .collect();
         if processes.is_empty() {
             return Ok(());
@@ -37,9 +61,9 @@ pub(super) fn stop(directory: &Path) -> Result<()> {
                 continue;
             };
             for signal in [Signal::TERM, Signal::KILL] {
-                let still_here = directories()?
-                    .iter()
-                    .any(|(current, cwd)| *current == pid && cwd.starts_with(&directory));
+                let still_here = directories()?.iter().any(|cwd| {
+                    cwd.pid == pid && cwd.path.starts_with(&directory) && cwd.inside(device, inode)
+                });
                 if !still_here || identity(pid).as_ref() != Some(&before) {
                     break;
                 }
@@ -63,23 +87,92 @@ fn signal_process(pid: u32, signal: Signal) -> std::io::Result<()> {
     Ok(rustix::process::kill_process(pid, signal)?)
 }
 
+/// A process and the folder it works in.
+#[cfg(unix)]
+struct Cwd {
+    pid: u32,
+    path: PathBuf,
+    /// The folder's device and inode, as the kernel gave them, where the
+    /// platform can't open a process's folder directly.
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
+    id: Option<(u64, u64)>,
+}
+
+#[cfg(unix)]
+impl Cwd {
+    /// Whether the folder this process really works in is the one with
+    /// `device` and `inode`, or inside it. The folder is opened by identity,
+    /// not by its path, and walked up through `..`, so a path swapped to
+    /// point elsewhere can't make an outside process look inside.
+    fn inside(&self, device: u64, inode: u64) -> bool {
+        use muxy_core::files::FileId;
+        use rustix::fs::{Mode, OFlags};
+        let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+        #[cfg(target_os = "linux")]
+        let start = rustix::fs::open(format!("/proc/{}/cwd", self.pid), flags, Mode::empty());
+        #[cfg(not(target_os = "linux"))]
+        let start = rustix::fs::open(&self.path, flags | OFlags::NOFOLLOW, Mode::empty());
+        let Ok(start) = start else {
+            return false;
+        };
+        let mut current = std::fs::File::from(start);
+        let id = |file: &std::fs::File| FileId::of(file).ok().map(|id| (id.device(), id.index()));
+        #[cfg(not(target_os = "linux"))]
+        if self.id.is_none() || id(&current) != self.id {
+            return false;
+        }
+        for _ in 0..4096 {
+            let Some(here) = id(&current) else {
+                return false;
+            };
+            if here == (device, inode) {
+                return true;
+            }
+            let Ok(parent) = rustix::fs::openat(&current, "..", flags, Mode::empty()) else {
+                return false;
+            };
+            let parent = std::fs::File::from(parent);
+            if id(&parent) == Some(here) {
+                return false;
+            }
+            current = parent;
+        }
+        false
+    }
+}
+
 #[cfg(target_os = "macos")]
-fn directories() -> Result<Vec<(u32, PathBuf)>> {
+fn directories() -> Result<Vec<Cwd>> {
     use std::os::unix::ffi::OsStrExt;
     let mut command = std::process::Command::new("/usr/sbin/lsof");
-    command.args(["-n", "-P", "-a", "-d", "cwd", "-Fpn0"]);
+    command.args(["-n", "-P", "-a", "-d", "cwd", "-FpDin0"]);
     let bytes = super::command::capture(command)?;
-    let mut pid = None;
+    let (mut pid, mut device, mut inode) = (None, None, None);
     let mut result = Vec::new();
     for record in bytes.split(|b| *b == 0) {
         let record = record.strip_prefix(b"\n").unwrap_or(record);
-        if let Some(value) = record.strip_prefix(b"p") {
-            pid = std::str::from_utf8(value).ok().and_then(|s| s.parse().ok());
-        }
-        if let Some(value) = record.strip_prefix(b"n")
-            && let Some(pid) = pid
-        {
-            result.push((pid, PathBuf::from(std::ffi::OsStr::from_bytes(value))));
+        let text = || std::str::from_utf8(&record[1..]).ok();
+        match record.first() {
+            Some(b'p') => {
+                pid = text().and_then(|s| s.parse().ok());
+                (device, inode) = (None, None);
+            }
+            Some(b'D') => {
+                device = text()
+                    .and_then(|s| s.strip_prefix("0x"))
+                    .and_then(|s| u64::from_str_radix(s, 16).ok());
+            }
+            Some(b'i') => inode = text().and_then(|s| s.parse().ok()),
+            Some(b'n') => {
+                if let Some(pid) = pid {
+                    result.push(Cwd {
+                        pid,
+                        path: PathBuf::from(std::ffi::OsStr::from_bytes(&record[1..])),
+                        id: device.zip(inode),
+                    });
+                }
+            }
+            _ => {}
         }
     }
     Ok(result)
@@ -94,13 +187,17 @@ fn identity(pid: u32) -> Option<String> {
     ))
 }
 #[cfg(target_os = "linux")]
-fn directories() -> Result<Vec<(u32, PathBuf)>> {
+fn directories() -> Result<Vec<Cwd>> {
     Ok(std::fs::read_dir("/proc")
         .map_err(error)?
         .filter_map(|entry| {
             let entry = entry.ok()?;
             let pid = entry.file_name().to_str()?.parse().ok()?;
-            Some((pid, std::fs::read_link(entry.path().join("cwd")).ok()?))
+            Some(Cwd {
+                pid,
+                path: std::fs::read_link(entry.path().join("cwd")).ok()?,
+                id: None,
+            })
         })
         .collect())
 }
@@ -155,8 +252,14 @@ pub(super) fn check_unused(directory: &Path, aside: &Path) -> Result<()> {
 
 /// Deletes a folder [`set_aside`], leaving its `.git` file for last, so a
 /// folder that must go back is still a worktree Git and Muxy can open.
+///
+/// `aside` must be the folder with the `device` and `index` that removal
+/// inspected, never a junction or link swapped in for it. While its contents
+/// are deleted it stays open without sharing deletion, so neither it nor a
+/// folder above it can be renamed or replaced, and its path keeps naming it.
 #[cfg(windows)]
-pub(super) fn delete_set_aside(aside: &Path) -> std::io::Result<()> {
+pub(super) fn delete_set_aside(aside: &Path, device: u64, index: u64) -> std::io::Result<()> {
+    let pinned = pin(aside, device, index)?;
     let mut git = None;
     for entry in std::fs::read_dir(aside)? {
         let entry = entry?;
@@ -169,7 +272,40 @@ pub(super) fn delete_set_aside(aside: &Path) -> std::io::Result<()> {
     if let Some(git) = git {
         remove_retrying(&git.path(), Entry::of(git.file_type()?))?;
     }
+    drop(pinned);
+    // Removes only a link if one was swapped in after the contents were gone.
     remove_retrying(aside, Entry::Folder)
+}
+
+/// Opens the folder at `path`, refusing anything but the folder with the
+/// `device` and `index` given. The handle reads the folder's listing and
+/// doesn't share deletion, so the folder can't be renamed or deleted while it
+/// is open, and Windows refuses to rename any folder above an open one.
+#[cfg(windows)]
+fn pin(path: &Path, device: u64, index: u64) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_FLAG_OPEN_REPARSE_POINT, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, SYNCHRONIZE,
+    };
+    let folder = std::fs::OpenOptions::new()
+        .access_mode(FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    let attributes = folder.metadata()?.file_attributes();
+    let identity = muxy_core::files::FileId::of(&folder)?;
+    if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        || attributes & FILE_ATTRIBUTE_DIRECTORY == 0
+        || identity.device() != device
+        || identity.index() != index
+    {
+        return Err(std::io::Error::other(
+            "the folder set aside for removal was replaced; it was kept",
+        ));
+    }
+    Ok(folder)
 }
 
 /// How Windows deletes an entry: a link to a folder, junctions included, is
@@ -305,8 +441,9 @@ mod tests {
             .unwrap();
         std::fs::write(folder.join(".git"), "gitdir: elsewhere").unwrap();
         let aside = aside_path(&folder, 4).unwrap();
+        let identity = muxy_core::files::FileId::of_link(&folder).unwrap();
         set_aside(&folder, &aside).unwrap();
-        let deleted = delete_set_aside(&aside);
+        let deleted = delete_set_aside(&aside, identity.device(), identity.index());
         restore(&aside, &folder).unwrap();
         running.kill().unwrap();
         running.wait().unwrap();
@@ -316,6 +453,30 @@ mod tests {
             folder.join(".git").exists(),
             "the worktree's .git goes last"
         );
+        std::fs::remove_dir_all(folder.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_junction_swapped_in_for_the_set_aside_folder_is_not_followed() {
+        let folder = folder();
+        let elsewhere = folder.parent().unwrap().join("elsewhere");
+        std::fs::create_dir(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("victim.txt"), "kept").unwrap();
+        let identity = muxy_core::files::FileId::of_link(&folder).unwrap();
+        let aside = aside_path(&folder, 5).unwrap();
+        set_aside(&folder, &aside).unwrap();
+        std::fs::rename(&aside, folder.parent().unwrap().join("moved")).unwrap();
+        let status = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&aside)
+            .arg(&elsewhere)
+            .stdout(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(delete_set_aside(&aside, identity.device(), identity.index()).is_err());
+        assert!(elsewhere.join("victim.txt").exists());
+        std::fs::remove_dir(&aside).unwrap();
         std::fs::remove_dir_all(folder.parent().unwrap()).unwrap();
     }
 
@@ -347,5 +508,52 @@ mod tests {
         );
         check_unused(&folder, &aside).unwrap();
         std::fs::remove_dir_all(folder.parent().unwrap()).unwrap();
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod unix_tests {
+    use super::*;
+
+    /// A process counts as inside a folder by the identity of the folder it
+    /// really works in, whatever path names it.
+    #[test]
+    fn processes_are_matched_to_a_folder_by_its_identity() -> std::io::Result<()> {
+        let root = std::env::temp_dir().join(format!("muxy-cwd-{}", std::process::id()));
+        let inner = root.join("worktree").join("deep");
+        let other = root.join("other");
+        std::fs::create_dir_all(&inner)?;
+        std::fs::create_dir_all(&other)?;
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .current_dir(&inner)
+            .spawn()?;
+        let id = |path: &Path| {
+            muxy_core::files::FileId::of_path(path).map(|id| (id.device(), id.index()))
+        };
+        let result = (|| -> std::io::Result<()> {
+            let (device, inode) = id(&root.join("worktree"))?;
+            let (other_device, other_inode) = id(&other)?;
+            let pid = child.id();
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let cwd = loop {
+                let found = directories()
+                    .map_err(std::io::Error::other)?
+                    .into_iter()
+                    .find(|cwd| cwd.pid == pid);
+                if let Some(cwd) = found {
+                    break cwd;
+                }
+                assert!(Instant::now() < deadline, "the child never showed up");
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            assert!(cwd.inside(device, inode));
+            assert!(!cwd.inside(other_device, other_inode));
+            Ok(())
+        })();
+        let _ = child.kill();
+        let _ = child.wait();
+        std::fs::remove_dir_all(&root)?;
+        result
     }
 }

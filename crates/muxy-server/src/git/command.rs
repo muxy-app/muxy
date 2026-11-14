@@ -105,12 +105,27 @@ fn git_command(path: &Path, args: &[impl AsRef<OsStr>]) -> Command {
         .args(args)
         .current_dir(path)
         .env("LC_ALL", "C");
+    without_relative_path(&mut command);
     without_inherited_git(&mut command);
     command
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_EDITOR", "true")
         .env("GIT_MERGE_AUTOEDIT", "no");
     command
+}
+
+/// Keeps only the absolute folders of the inherited `PATH`. Git and `gh` run
+/// inside a repository, where a relative entry, or an empty one, which means
+/// the current folder, would let the repository supply `git` itself or a
+/// program they start.
+pub(super) fn without_relative_path(command: &mut Command) {
+    if let Some(path) = std::env::var_os("PATH").and_then(|path| absolute_folders(&path)) {
+        command.env("PATH", path);
+    }
+}
+
+fn absolute_folders(path: &OsStr) -> Option<OsString> {
+    std::env::join_paths(std::env::split_paths(path).filter(|folder| folder.is_absolute())).ok()
 }
 
 /// Drops the `GIT_*` variables the server inherited, which could point Git
@@ -190,4 +205,30 @@ fn finish(
     } else {
         message.trim().to_owned()
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_absolute_path_folders_are_kept() {
+        let folders = [
+            PathBuf::from(if cfg!(windows) { r"C:\bin" } else { "/usr/bin" }),
+            PathBuf::new(),
+            PathBuf::from("."),
+            PathBuf::from("node_modules/.bin"),
+            PathBuf::from(if cfg!(windows) {
+                r"D:\tools"
+            } else {
+                "/opt/bin"
+            }),
+        ];
+        let inherited = std::env::join_paths(&folders).unwrap_or_default();
+        let kept = absolute_folders(&inherited).unwrap_or_default();
+        assert_eq!(
+            std::env::split_paths(&kept).collect::<Vec<_>>(),
+            [folders[0].clone(), folders[4].clone()]
+        );
+    }
 }

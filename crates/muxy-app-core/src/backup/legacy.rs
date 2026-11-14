@@ -7,6 +7,9 @@ use serde_json::{Map, Value};
 use super::{ImportReport, Result, ServerSettings, settings_source};
 use crate::settings::{CustomCommand, KeyChord, Keymap, Settings};
 
+/// Legacy custom-command records read; Muxy keeps at most 256 commands.
+const MAX_LEGACY_COMMANDS: usize = 1024;
+
 const MAPPINGS: &[(&str, &[&str])] = &[
     ("muxy.theme.dark", &["appearance", "dark_theme"]),
     ("muxy.theme.light", &["appearance", "light_theme"]),
@@ -276,49 +279,63 @@ fn import_commands(
         .and_then(|value| value.get("key"))
         .and_then(Value::as_str)
         .is_some_and(|key| !key.is_empty());
-    for value in commands {
-        let mut candidate = settings.clone();
-        let result = (|| -> Result<Settings> {
-            let command = CustomCommand {
-                id: value["id"]
-                    .as_str()
-                    .ok_or("Missing command ID")?
-                    .to_lowercase(),
-                name: value["name"]
-                    .as_str()
-                    .filter(|name| !name.trim().is_empty())
-                    .unwrap_or("Command")
-                    .into(),
-                command: value["command"].as_str().ok_or("Missing command")?.into(),
-            };
-            command.validate()?;
-            if !prefix {
-                candidate.keymap = candidate
-                    .keymap
-                    .with_binding(&command.shortcut_id(), Some(chord(&value["combo"])?))?;
-            }
-            candidate
-                .commands
-                .retain(|existing| existing.id != command.id);
-            candidate.commands.push(command);
-            candidate.validate()?;
-            Ok(candidate)
-        })();
-        match result {
-            Ok(candidate) => {
-                *settings = candidate;
-                report.imported += 1;
-            }
-            Err(_) => report.attention.push(format!(
+    for value in commands.iter().take(MAX_LEGACY_COMMANDS) {
+        if import_command(value, prefix, settings).is_ok() {
+            report.imported += 1;
+        } else {
+            report.attention.push(format!(
                 "command {}",
                 value["name"].as_str().unwrap_or("unknown")
-            )),
+            ));
         }
+    }
+    if commands.len() > MAX_LEGACY_COMMANDS {
+        report.attention.push(format!(
+            "{} more custom commands (at most {MAX_LEGACY_COMMANDS} are read)",
+            commands.len() - MAX_LEGACY_COMMANDS
+        ));
     }
     if prefix && !commands.is_empty() {
         report
             .attention
             .push("Custom command prefix shortcuts (commands imported without shortcuts)".into());
+    }
+    Ok(())
+}
+
+/// Adds one legacy command, or leaves `settings` unchanged. The record is
+/// checked before anything is copied, and only the command list and keymap are
+/// copied, so a large setting elsewhere doesn't make each record expensive.
+fn import_command(value: &Value, prefix: bool, settings: &mut Settings) -> Result<()> {
+    let command = CustomCommand {
+        id: value["id"]
+            .as_str()
+            .ok_or("Missing command ID")?
+            .to_lowercase(),
+        name: value["name"]
+            .as_str()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or("Command")
+            .into(),
+        command: value["command"].as_str().ok_or("Missing command")?.into(),
+    };
+    command.validate()?;
+    let keymap = if prefix {
+        settings.keymap.clone()
+    } else {
+        settings
+            .keymap
+            .with_binding(&command.shortcut_id(), Some(chord(&value["combo"])?))?
+    };
+    let mut commands = settings.commands.clone();
+    commands.retain(|existing| existing.id != command.id);
+    commands.push(command);
+    let keymap = std::mem::replace(&mut settings.keymap, keymap);
+    let commands = std::mem::replace(&mut settings.commands, commands);
+    if let Err(error) = settings.validate() {
+        settings.keymap = keymap;
+        settings.commands = commands;
+        return Err(error.into());
     }
     Ok(())
 }
