@@ -173,3 +173,6 @@ fn word_class(text: &str, word_chars: &str) -> u8 {
         _ => 2,
     }
 }
+
+#[cfg(test)]
+mod tests;

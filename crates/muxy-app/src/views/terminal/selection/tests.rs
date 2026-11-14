@@ -1,11 +1,8 @@
-#[path = "../src/views/terminal/selection.rs"]
-mod selection;
-
+use super::{Point, Selection};
 use muxy_client::RunGrid;
 use muxy_protocol::{
     AttachSnapshot, ChannelId, Cursor, HistoryPage, Modes, Row, Run, ServerPath, Size, Style,
 };
-use selection::{Point, Selection};
 
 fn run(text: &str, width: u16) -> Run {
     Run {

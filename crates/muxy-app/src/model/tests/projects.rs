@@ -243,7 +243,7 @@ fn one_x_projects_join_the_running_app_and_keep_what_is_there(cx: &mut TestAppCo
 pub(super) fn two_projects() -> (AppState, ProjectId, ProjectId, PaneId, PaneId) {
     let mut state = AppState::bootstrap().expect("state");
     let first = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("first project");
     state.open_terminal_tab(first).expect("first tab");
     let first_pane = state.current_project().tabs[0].panes[0].id;
@@ -783,7 +783,7 @@ fn add_project_restores_a_recently_removed_project_with_a_terminal(cx: &mut Test
     view.read_with(cx, |model, _| {
         let project = model.state.current_project();
         assert_eq!(project.name, "Removed");
-        assert_eq!(project.directory, std::env::temp_dir());
+        assert_eq!(project.directory, crate::test_support::project_directory());
         assert_eq!(project.tabs.len(), 1);
         assert_eq!(model.state.removed_projects().len(), 1);
         assert!(model.overlay.is_none());

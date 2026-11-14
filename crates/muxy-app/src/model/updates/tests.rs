@@ -10,7 +10,7 @@ fn newer_release_replaces_downloaded_update_and_preserves_schedule(cx: &mut Test
     view.update(cx, |model, cx| {
         model.servers.local.connection = ConnectionState::Ready;
         model.updates.server = Some(muxy_protocol::ServerInfo::current());
-        model.updates.ready = Some(PreparedUpdate::fixture().expect("cached update"));
+        model.updates.ready = Some(PreparedUpdate::fixture());
         model.updates.scheduled = true;
         model.updates.retry_preparation = Some(model.servers.local.generation);
         model.updates.mode = Some(UpdateMode::EndSessions);
@@ -31,7 +31,7 @@ fn newer_release_replaces_downloaded_update_and_preserves_schedule(cx: &mut Test
             cx,
         );
         assert!(model.quitting == Quitting::Idle);
-        let mut latest = PreparedUpdate::fixture().expect("latest update");
+        let mut latest = PreparedUpdate::fixture();
         latest.version = release.version;
         model.finish_update_check(Ok(Some(latest)), cx);
         assert!(!model.updates.checking());

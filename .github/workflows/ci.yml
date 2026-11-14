@@ -65,6 +65,9 @@ jobs:
         with:
           path: .zig-cache
           key: zig-macos-15-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          # Zig keys its cache by content, so an older one is safe and saves most
+          # of the rebuild when the vendored crate changes.
+          restore-keys: zig-macos-15-0.17.0-
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.part }}
@@ -111,6 +114,7 @@ jobs:
         with:
           path: .zig-cache
           key: zig-ubuntu-22.04-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          restore-keys: zig-ubuntu-22.04-0.17.0-
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -154,6 +158,7 @@ jobs:
         with:
           path: .zig-cache
           key: zig-ubuntu-24.04-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          restore-keys: zig-ubuntu-24.04-0.17.0-
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.part }}
@@ -212,6 +217,7 @@ jobs:
         with:
           path: .zig-cache
           key: zig-windows-latest-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          restore-keys: zig-windows-latest-0.17.0-
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.part }}

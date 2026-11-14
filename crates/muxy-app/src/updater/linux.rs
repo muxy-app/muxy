@@ -125,16 +125,16 @@ impl Installation {
 
 impl PreparedUpdate {
     #[cfg(test)]
-    pub(crate) fn fixture() -> Result<Self> {
-        let root = tempfile::tempdir()?.keep();
-        Ok(Self {
+    pub(crate) fn fixture() -> Self {
+        let root = crate::test_support::directory();
+        Self {
             version: "2.0.0-beta.1234".into(),
             build: Some(muxy_protocol::BuildInfo::current()),
             installation: Installation {
                 installer: root.join("install.py"),
                 root,
             },
-        })
+        }
     }
 
     pub(crate) fn compatible_with(&self, server: &muxy_protocol::ServerInfo) -> bool {

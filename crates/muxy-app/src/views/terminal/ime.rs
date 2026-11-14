@@ -264,3 +264,6 @@ pub(super) fn paint(view: &Entity<TerminalPane>, window: &mut Window, cx: &mut A
         foreground,
     ));
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests;

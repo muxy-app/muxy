@@ -1,6 +1,6 @@
 //! The English catalog translators start from: every `tr!` and `tr_key!`
 //! literal in the app and every shortcut name, as `Localizable.strings`. Regenerate it with
-//! `MUXY_UPDATE_LOCALIZATION=1 cargo test -p muxy-app --test localization`.
+//! `MUXY_UPDATE_LOCALIZATION=1 cargo test -p muxy-app localization_tests`.
 
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -49,7 +49,7 @@ fn english_catalog_lists_every_translated_string() {
     let saved = std::fs::read_to_string(&path).unwrap_or_default();
     assert!(
         saved == catalog,
-        "{CATALOG} is out of date. Run: MUXY_UPDATE_LOCALIZATION=1 cargo test -p muxy-app --test localization"
+        "{CATALOG} is out of date. Run: MUXY_UPDATE_LOCALIZATION=1 cargo test -p muxy-app localization_tests"
     );
 }
 

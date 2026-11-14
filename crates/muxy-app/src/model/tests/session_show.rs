@@ -61,7 +61,7 @@ fn showing_a_terminal_opens_one_tab_and_then_selects_it(cx: &mut TestAppContext)
 fn showing_a_terminal_reveals_its_project_workspace(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     let work = state.create_workspace("Work").expect("workspace");
     state
@@ -179,7 +179,7 @@ fn showing_a_terminal_leaves_the_app_in_the_background(cx: &mut TestAppContext) 
 fn showing_in_the_background_keeps_the_window_where_it_is(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     let home = state.home().id;
     state.open_terminal_tab(home).expect("home tab");

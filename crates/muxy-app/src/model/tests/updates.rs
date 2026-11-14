@@ -3,7 +3,7 @@ use super::*;
 fn ready(model: &mut AppModel) {
     model.servers.local.connection = ConnectionState::Ready;
     model.updates.server = Some(muxy_protocol::ServerInfo::current());
-    model.updates.ready = Some(crate::updater::PreparedUpdate::fixture().expect("update"));
+    model.updates.ready = Some(crate::updater::PreparedUpdate::fixture());
 }
 
 #[gpui::test]

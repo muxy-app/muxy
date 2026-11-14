@@ -68,7 +68,7 @@ class DesktopLinuxTests(unittest.TestCase):
             ["cargo", "fmt", "--all", "--check"],
             ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
             ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
-            ["cargo", "test", "--locked", "--workspace", "--all-features", "--timings"],
+            ["cargo", "test", "--locked", "--workspace", "--all-features", "--tests", "--timings"],
         ])
         for call in run.call_args_list:
             env = call.kwargs["env"]

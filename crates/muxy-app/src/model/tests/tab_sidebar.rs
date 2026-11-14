@@ -7,7 +7,7 @@ fn three_projects() -> (AppState, [ProjectId; 3], TabId) {
     let mut state = AppState::bootstrap().expect("state");
     let ids = [(); 3].map(|()| {
         state
-            .add_project(ServerId::local(), std::env::temp_dir())
+            .add_project(ServerId::local(), crate::test_support::project_directory())
             .expect("project")
     });
     let tab = state.open_terminal_tab(ids[0]).expect("tab");

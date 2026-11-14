@@ -186,7 +186,7 @@ fn the_project_button_prefers_the_chosen_app_then_an_editor_then_the_file_manage
 
 #[test]
 fn projects_open_as_folders_in_the_chosen_app() {
-    let directory = std::env::temp_dir();
+    let directory = crate::test_support::project_directory();
     let editors = [Editor {
         bundle: "editor".into(),
         name: "Editor".into(),
