@@ -1,5 +1,3 @@
-//! Server executable composition root and process lifecycle.
-
 mod args;
 mod legacy;
 mod logging;

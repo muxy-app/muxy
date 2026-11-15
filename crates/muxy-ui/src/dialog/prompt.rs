@@ -26,7 +26,6 @@ use crate::tr;
 
 use super::{ADDITIONAL_PROMPT_LIMIT, PromptCheckbox, PromptChoices, PromptPicker, PromptResponse};
 
-/// A native prompt sheet. Dropping it dismisses the sheet as a cancellation.
 #[derive(Debug)]
 pub struct PromptConfirmation {
     panel: Retained<PromptPanel>,
@@ -70,7 +69,6 @@ define_class!(
                 self.finish(NSModalResponseCancel);
                 true
             } else {
-                // SAFETY: Other shortcuts retain NSPanel's normal responder-chain behavior.
                 unsafe { msg_send![super(self), performKeyEquivalent: event] }
             }
         }
@@ -97,7 +95,6 @@ impl PromptPanel {
         if !self.ivars().replace(true)
             && let Some(parent) = self.sheetParent()
         {
-            // The callback can drop the public handle while ending the sheet.
             let panel = self.retain();
             parent.endSheet_returnCode(&panel, response);
         }
@@ -322,7 +319,6 @@ impl PromptTarget {
             collapsed,
             expanded,
         });
-        // SAFETY: NSObject initialization and matching target selectors stay on the main thread.
         let target: Retained<Self> = unsafe { msg_send![super(target), init] };
         for button in &target.ivars().buttons {
             unsafe { button.setTarget(Some(&target)) };
@@ -340,7 +336,6 @@ impl PromptTarget {
 
     fn detach(&self) {
         self.ivars().input.setDelegate(None);
-        // SAFETY: Clearing a target does not invoke its action.
         for button in &self.ivars().buttons {
             unsafe { button.setTarget(None) };
         }
@@ -395,9 +390,6 @@ impl PromptState {
     }
 }
 
-/// Confirms an action with `choices`, optionally expanding a plain-text prompt
-/// in the same sheet. Only the confirmation button returns `Some`, including
-/// an empty prompt.
 #[allow(
     clippy::too_many_arguments,
     reason = "Native prompt fields and GPUI context"
@@ -416,7 +408,6 @@ pub fn confirm_with_prompt(
         .ok_or_else(|| io::Error::other("native dialogs require the main thread"))?;
     let parent = parent_window(window)?;
     let panel = PromptPanel::alloc(main_thread).set_ivars(Cell::new(false));
-    // SAFETY: This main-thread panel is retained by the handle, not released by AppKit on close.
     let panel: Retained<PromptPanel> = unsafe {
         let panel = msg_send![super(panel),
             initWithContentRect: NSRect::ZERO,
@@ -457,7 +448,6 @@ pub fn confirm_with_prompt(
     let completed = Rc::new(Cell::new(false));
     let finished = Rc::clone(&completed);
     let callback = Cell::new(Some(on_complete));
-    // The completion block retains the delegate, which holds only a weak panel reference.
     let handler = RcBlock::new(move |response| {
         let cancelled = finished.replace(true);
         target.detach();
@@ -487,7 +477,6 @@ struct PromptMeasurements {
     count_width: f64,
     helper: f64,
     buttons: [NSSize; 3],
-    /// The picker's label and pop-up.
     picker: Option<(NSSize, NSSize)>,
     checkboxes: Vec<NSSize>,
 }
@@ -712,7 +701,6 @@ fn prompt_input(
     input.setVerticallyResizable(true);
     input.setHorizontallyResizable(false);
     input.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
-    // SAFETY: The container belongs to this main-thread text view.
     if let Some(container) = unsafe { input.textContainer() } {
         container.setContainerSize(NSSize::new(size.width - 2.0 * inset, f64::MAX));
         container.setWidthTracksTextView(true);
@@ -755,7 +743,6 @@ fn prompt_checkbox(
     metrics: Metrics,
     main_thread: MainThreadMarker,
 ) -> Retained<NSButton> {
-    // SAFETY: The checkbox has no target or action; the sheet reads its state when it closes.
     let button = unsafe {
         NSButton::checkboxWithTitle_target_action(
             &NSString::from_str(&checkbox.label),
@@ -786,7 +773,6 @@ fn button(
     metrics: Metrics,
     main_thread: MainThreadMarker,
 ) -> Retained<NSButton> {
-    // SAFETY: Each selector is implemented by PromptTarget, installed before presentation.
     let button = unsafe {
         NSButton::buttonWithTitle_target_action(
             &NSString::from_str(title),

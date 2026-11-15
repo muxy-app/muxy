@@ -1,6 +1,3 @@
-//! Whether each command can run now. The palette lists a command that
-//! can't as disabled.
-
 use muxy_app_core::{Direction, ProjectStatus, TabCloseScope};
 
 use crate::model::AppModel;
@@ -17,8 +14,6 @@ pub(super) fn has_pane(model: &AppModel) -> bool {
     project_present(model) && model.active_pane().is_some()
 }
 
-/// Whether the active pane can move into a window of its own: any pane of
-/// the main window, or a pane sharing its tab window with another.
 pub(super) fn pane_can_leave_window(model: &AppModel) -> bool {
     project_present(model)
         && model
@@ -120,7 +115,6 @@ fn active_tab(model: &AppModel) -> Option<&muxy_app_core::Tab> {
     model.active_tab().and_then(|tab| model.tab(tab))
 }
 
-/// Whether the active tab sits among its project's tabs in the main window.
 pub(super) fn has_listed_tab(model: &AppModel) -> bool {
     project_present(model) && active_tab(model).is_some_and(|tab| !tab.detached())
 }
@@ -133,7 +127,6 @@ pub(super) fn has_titled_tab(model: &AppModel) -> bool {
     active_tab(model).is_some_and(|tab| tab.custom_title.is_some())
 }
 
-/// A tab in a window of its own has no tabs beside it to close.
 fn can_close_tabs(model: &AppModel, scope: TabCloseScope) -> bool {
     has_listed_tab(model)
         && model
@@ -166,7 +159,6 @@ pub(super) fn project_available(model: &AppModel) -> bool {
     model.state.current_project().status() == ProjectStatus::Available
 }
 
-/// Another computer's Home goes by its server's name, so it can't be renamed.
 pub(super) fn can_rename_project(model: &AppModel) -> bool {
     project_available(model) && !model.state.current_project().is_remote_home()
 }

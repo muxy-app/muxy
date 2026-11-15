@@ -1,6 +1,3 @@
-//! The built-in browser's model: what a browser pane saves, how typed text
-//! becomes an address, and how the CLI talks to the app about it.
-
 pub mod api;
 pub mod automation;
 mod target;
@@ -13,19 +10,15 @@ use crate::{AppError, AppState, Direction, Pane, PaneContent, PaneId, ProjectId,
 
 pub use target::resolve_target;
 
-/// The page a pane with no address shows: the start page.
 pub const BLANK: &str = "about:blank";
 pub const MIN_ZOOM: f64 = 0.5;
 pub const MAX_ZOOM: f64 = 3.0;
 const ZOOM_STEP: f64 = 1.1;
 
-/// What a browser pane keeps across restarts. Title, zoom and back/forward
-/// history belong to the live page and are not saved.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BrowserPane {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// The browser profile's ID; none means the default profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
 }
@@ -88,9 +81,6 @@ pub fn is_blank(url: &str) -> bool {
     url.is_empty() || url == BLANK
 }
 
-/// Turns what was typed in the address bar into an address, or else a
-/// search. Schemes a page could abuse, such as `javascript:` or `file:`,
-/// become searches.
 pub fn resolve_input(input: &str, engine: SearchEngine) -> Option<String> {
     let input = input.trim();
     if input.is_empty() {
@@ -99,7 +89,6 @@ pub fn resolve_input(input: &str, engine: SearchEngine) -> Option<String> {
     resolve_address(input).or_else(|| Some(engine.search_url(input)))
 }
 
-/// A web address as typed, or a host name with a scheme added.
 pub fn resolve_address(input: &str) -> Option<String> {
     let input = input.trim();
     if input.is_empty() || input.contains(char::is_whitespace) {
@@ -119,8 +108,6 @@ pub fn resolve_address(input: &str) -> Option<String> {
     Some(format!("{scheme}://{input}"))
 }
 
-/// The host part of text that names a site, such as `example.com/a` or
-/// `localhost:3000`.
 fn host_of(input: &str) -> Option<&str> {
     let host = input
         .split(['/', '?', '#'])
@@ -137,7 +124,6 @@ fn host_of(input: &str) -> Option<&str> {
     (valid && (dotted || name.eq_ignore_ascii_case("localhost"))).then_some(name)
 }
 
-/// Development servers rarely speak TLS, so these hosts get `http://`.
 fn is_local_host(host: &str) -> bool {
     host.eq_ignore_ascii_case("localhost")
         || host.to_ascii_lowercase().ends_with(".localhost")
@@ -146,8 +132,6 @@ fn is_local_host(host: &str) -> bool {
             .is_ok_and(|address| address.is_loopback() || address.is_private())
 }
 
-/// Whether a page may load `url` itself. Other schemes, such as `mailto:`
-/// or `file:`, never load in a page; a click on one goes to the system.
 pub fn engine_loads(url: &str) -> bool {
     url.split_once(':').is_some_and(|(scheme, _)| {
         ["http", "https", "about", "data", "blob"]
@@ -156,7 +140,6 @@ pub fn engine_loads(url: &str) -> bool {
     })
 }
 
-/// The host of an absolute address, for titles and cookie filters.
 pub fn url_host(url: &str) -> Option<&str> {
     let (_, rest) = url.split_once("://")?;
     let authority = rest.split(['/', '?', '#']).next()?;
@@ -170,7 +153,6 @@ pub fn url_host(url: &str) -> Option<&str> {
     (!host.is_empty()).then_some(host)
 }
 
-/// What a browser tab is called: the page title, else its host.
 pub fn display_title<'a>(title: &'a str, url: Option<&'a str>) -> Option<&'a str> {
     let title = title.trim();
     if !title.is_empty() {
@@ -204,9 +186,6 @@ fn encode_query(query: &str) -> String {
 }
 
 impl AppState {
-    /// Opens a browser tab in `project`. With `select`, the window shows it;
-    /// otherwise it waits there without moving the user's view, and becomes
-    /// the project's selected tab only if the project had none.
     pub fn open_browser(
         &mut self,
         project: ProjectId,
@@ -231,7 +210,6 @@ impl AppState {
         Ok((id, pane))
     }
 
-    /// Splits `pane` with a browser on its right.
     pub fn split_browser(
         &mut self,
         pane: PaneId,
@@ -265,8 +243,6 @@ impl AppState {
         })
     }
 
-    /// The browser pane `id` names: that pane, or the one a tab of that ID
-    /// shows, else the tab's first browser pane.
     pub fn browser_pane(&self, id: &str) -> Option<PaneId> {
         if let Some(pane) = id.parse().ok().filter(|pane| self.browser(*pane).is_some()) {
             return Some(pane);
@@ -283,7 +259,6 @@ impl AppState {
             .or_else(|| tab.layout.leaves().into_iter().find(is_browser))
     }
 
-    /// Records the page a browser pane shows, reporting whether it changed.
     pub fn set_browser_url(&mut self, pane: PaneId, url: Option<String>) -> Result<bool, AppError> {
         let browser = self.browser_mut(pane)?;
         let url = url.filter(|url| !is_blank(url));

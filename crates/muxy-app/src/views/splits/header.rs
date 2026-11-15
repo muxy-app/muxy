@@ -11,8 +11,6 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 
-/// What a header button does: something to the pane itself, or a command that
-/// acts on the active pane once the pane is made active.
 #[derive(Clone, Copy)]
 enum Perform {
     Pane(fn(&mut AppModel, PaneId, &mut Context<AppModel>)),
@@ -41,7 +39,6 @@ struct Action {
     perform: Perform,
 }
 
-/// The background a pane's header and dimming take, and the text on it.
 pub(super) fn colors(pane: PaneId, model: &AppModel, cx: &App) -> (Hsla, Hsla) {
     model.terminal(&pane).map_or_else(
         || (model.theme.bg, model.theme.fg),
@@ -49,8 +46,6 @@ pub(super) fn colors(pane: PaneId, model: &AppModel, cx: &App) -> (Hsla, Hsla) {
     )
 }
 
-/// The bar above a pane: what it shows, its title and, while the pane is
-/// active or under the pointer, its actions.
 pub(super) fn header(
     pane: &Pane,
     tab: &Tab,
@@ -155,9 +150,6 @@ pub(super) fn header(
         .into_any_element()
 }
 
-/// The pane's icon, title and, for a terminal, its folder. While the pane can
-/// be moved, they turn into a handle under the pointer: the icon becomes a
-/// move icon and dragging moves the pane, as dragging with Command held does.
 fn handle(
     pane: &Pane,
     tab: &Tab,
@@ -255,7 +247,6 @@ fn handle(
         .into_any_element()
 }
 
-/// The folder a terminal works in, unless its title already shows it.
 fn directory(pane: &Pane, title: &str, model: &AppModel, cx: &App) -> Option<String> {
     model
         .terminal(&pane.id)?
@@ -265,8 +256,6 @@ fn directory(pane: &Pane, title: &str, model: &AppModel, cx: &App) -> Option<Str
         .filter(|directory| !title.ends_with(directory.as_str()))
 }
 
-/// A terminal names its shell rather than its folder, which the project
-/// already shows, once it reports one; until then, its usual title.
 fn title(pane: &Pane, model: &AppModel, cx: &App) -> String {
     model
         .terminal(&pane.id)

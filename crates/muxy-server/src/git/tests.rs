@@ -19,8 +19,6 @@ pub(super) struct Repository {
 }
 
 impl Repository {
-    /// A committed repository that ignores `target/`, with an `origin` that
-    /// can't be reached.
     pub(super) fn new() -> Self {
         let path = std::env::temp_dir().join(format!("muxy-git-{}", OperationId::new()));
         std::fs::create_dir(&path).unwrap();

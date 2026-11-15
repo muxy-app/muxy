@@ -41,7 +41,6 @@ impl AppModel {
         }
     }
 
-    /// Sends each connected server its first project edit still waiting.
     pub(super) fn replay_projects(&mut self, cx: &mut Context<Self>) {
         for server in self.servers.ids() {
             self.replay_server_projects(server, cx);
@@ -122,10 +121,6 @@ impl AppModel {
         }
     }
 
-    /// Another computer's catalog is read again once this computer's is
-    /// known, so an entry that reaches this computer never claims its server
-    /// first. A read lost with the connection shows nothing: the status
-    /// already says the server disconnected.
     pub(super) fn receive_catalog(
         &mut self,
         server: ServerId,
@@ -231,9 +226,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Applies and saves `server`'s catalog. A fresh catalog on this
-    /// computer's server is announced once, when it replaces the known one or
-    /// is the first one the app sees while the server kept the old one aside.
     fn take_catalog(
         &mut self,
         server: ServerId,
@@ -279,18 +271,13 @@ impl AppModel {
         true
     }
 
-    /// A catalog this app can't take keeps the state as it was. For another
-    /// computer, the reason shows in the sidebar's Servers section instead.
     fn server_failed(&mut self, server: ServerId, error: &AppError, cx: &mut Context<Self>) {
-        // A replaced catalog has a new identity; keep what the server couldn't read in view.
         let cause = matches!(error, AppError::ServerChanged(_))
             .then(|| self.unreadable_message(server))
             .flatten();
         self.server_problem(server, cause.unwrap_or_else(|| error.to_string()), cx);
     }
 
-    /// Where this computer's server kept a catalog it couldn't read, which
-    /// could bring a set-aside view back.
     fn kept_catalog(&self) -> Option<String> {
         let info = self.servers.get(ServerId::local())?.info.as_ref()?;
         let file = info.unreadable.iter().find(|file| file.is_catalog())?;
@@ -303,7 +290,6 @@ pub(super) struct Synchronization {
     pub(super) pending: bool,
     pub(super) dirty: u64,
     pub(super) restore: Option<Vec<muxy_protocol::SessionInfo>>,
-    /// This connection's catalog showed the server the app knew.
     pub(super) identified: bool,
     pub(super) replaying: bool,
     pub(super) cancelling: std::collections::HashSet<OperationId>,
@@ -370,13 +356,10 @@ impl AppModel {
 }
 
 impl AppModel {
-    /// Whether the current project's server can answer.
     pub(crate) fn session_listing_ready(&self) -> bool {
         self.ready(self.state.current_project().server_id)
     }
 
-    /// The latest session list revision of the project's server, while it is
-    /// connected.
     pub(crate) fn sessions_revision(&self, project: ProjectId) -> Option<u64> {
         let server = self.state.project_server(project)?;
         self.servers
@@ -531,7 +514,6 @@ impl AppModel {
     }
 }
 
-/// Whether a session's new tab becomes the one the window shows.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Opening {
     Selected,

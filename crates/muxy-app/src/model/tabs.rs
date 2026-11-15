@@ -8,7 +8,6 @@ use muxy_app_core::{
 use super::{AppModel, ConnectionState, Quitting};
 use crate::views::tab_strip::TabDrop;
 
-/// A terminal tab to open, and what its terminal starts with.
 pub(crate) struct OpenTerminal<'a> {
     pub(crate) project: ProjectId,
     pub(crate) title: Option<&'a str>,
@@ -17,8 +16,6 @@ pub(crate) struct OpenTerminal<'a> {
 }
 
 impl AppModel {
-    /// Opens and selects a terminal tab, leaving the state as it was if any
-    /// of it fails. `Ok(None)` means saving failed, and that has been reported.
     pub(crate) fn open_terminal(
         &mut self,
         OpenTerminal {
@@ -89,8 +86,6 @@ impl AppModel {
         }
     }
 
-    /// Applies a tab drop. `previous` was shown before pressing `tab` selected
-    /// it, so the group `tab` leaves goes back to showing it.
     pub(crate) fn drop_tab(
         &mut self,
         tab: TabId,
@@ -204,8 +199,6 @@ impl AppModel {
         self.open_menu(items, position, window, cx);
     }
 
-    /// Projects a tab or pane of `project` can move to, by name: available
-    /// ones on the same computer, other than `project`.
     pub(crate) fn move_destinations(
         &self,
         project: ProjectId,

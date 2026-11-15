@@ -54,10 +54,6 @@ impl WorktreeLocation {
 }
 
 impl WorktreeSettings {
-    /// Reads only the `[worktrees]` table of the settings file at `path`, so a
-    /// section written by a newer app or holding invalid values never blocks
-    /// worktrees.
-    /// A missing file or table gives the defaults.
     pub fn load(path: &Path) -> Result<Self> {
         let context = || format!("{}: worktrees", path.display());
         let document = super::appearance::read_document(path)
@@ -80,8 +76,6 @@ impl WorktreeSettings {
             .try_for_each(WorktreeLocation::validate)
     }
 
-    /// Where a new worktree goes. `~` means `home`, the Home of the project's
-    /// computer; `None` is this computer's `$HOME`.
     pub fn directory(
         &self,
         project: &crate::Project,
@@ -100,8 +94,6 @@ impl WorktreeSettings {
         )
     }
 
-    /// [`Self::directory`] for the project named `project_name` in
-    /// `project_directory`.
     pub fn directory_in(
         &self,
         project_name: &str,

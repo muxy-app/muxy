@@ -1,17 +1,3 @@
-//! Encoding key events into terminal escape sequences,
-//!
-//! Supports both legacy encoding as well as Kitty Keyboard Protocol.
-//!
-//! # Basic Usage
-//!
-//!  1. Create an encoder instance with [`Encoder::new`].
-//!  2. Configure encoder options with the various `Encoder::set_*` methods
-//!     or [`Encoder::set_options_from_terminal`] if you have a [`Terminal`].
-//!  3. For each key event:
-//!     *  Create a key event with [`Event::new`] (or reuse an existing one)
-//!     *  Set event properties (action, key, modifiers, etc.)
-//!     *  Encode with [`Encoder::encode_to_vec`] (with a growable `Vec` buffer)
-//!        or [`Encoder::encode`] (with a fixed byte buffer).
 use std::mem::MaybeUninit;
 
 use crate::{
@@ -22,23 +8,15 @@ use crate::{
     terminal::Terminal,
 };
 
-/// Key encoder that converts key events into terminal escape sequences.
 #[derive(Debug)]
 pub struct Encoder<'alloc>(Object<'alloc, ffi::KeyEncoderImpl>);
 
 impl<'alloc> Encoder<'alloc> {
-    /// Create a new key encoder instance.
     pub fn new() -> Result<Self> {
-        // SAFETY: A NULL allocator is always valid
         unsafe { Self::new_inner(std::ptr::null()) }
     }
 
-    /// Create a new key encoder instance with a custom allocator.
-    ///
-    /// See the [crate-level documentation](crate#memory-management-and-lifetimes)
-    /// regarding custom memory management and lifetimes.
     pub fn new_with_alloc<'ctx: 'alloc>(alloc: &'alloc Allocator<'ctx>) -> Result<Self> {
-        // SAFETY: Borrow checking should forbid invalid allocators
         unsafe { Self::new_inner(alloc.to_raw()) }
     }
 
@@ -57,47 +35,21 @@ impl<'alloc> Encoder<'alloc> {
         unsafe { ffi::ghostty_key_encoder_setopt(self.0.as_raw(), option, value) }
     }
 
-    /// Encode a key event into a terminal escape sequence.
-    ///
-    /// Converts a key event into the appropriate terminal escape sequence
-    /// based on the encoder's current options.
-    ///
-    /// Not all key events produce output. For example, unmodified modifier
-    /// keys typically don't generate escape sequences. Check the returned
-    /// `Vec` to determine if any data was written.
     pub fn encode_to_vec(&mut self, event: &Event, vec: &mut Vec<u8>) -> Result<()> {
         let written = match self.encode_to_uninit_buf(event, vec.spare_capacity_mut()) {
             Ok(v) => Ok(v),
             Err(Error::OutOfSpace { required }) => {
-                // Retry with more capacity
                 vec.reserve(required);
                 self.encode_to_uninit_buf(event, vec.spare_capacity_mut())
             }
             Err(e) => Err(e),
         };
 
-        // SAFETY: A successful call to `encode_to_uninit_buf` assures us
-        // that a `written` number of bytes have been initialized.
         unsafe { vec.set_len(vec.len() + written?) };
         Ok(())
     }
 
-    /// Encode a key event into a terminal escape sequence.
-    ///
-    /// Converts a key event into the appropriate terminal escape sequence
-    /// based on the encoder's current options. The sequence is written to
-    /// the provided buffer.
-    ///
-    /// Not all key events produce output. For example, unmodified modifier
-    /// keys typically don't generate escape sequences. Check the returned
-    /// `usize` to determine if any data was written.
-    ///
-    /// If the output buffer is too small, this returns
-    /// `Err(Error::OutOfSpace { required })` where `required` is the required
-    /// buffer size. The caller can then allocate a larger buffer and call
-    /// the method again.
     pub fn encode(&mut self, event: &Event, buf: &mut [u8]) -> Result<usize> {
-        // SAFETY: It is always safe to reinterpret T as a MaybeUninit<T>.
         self.encode_to_uninit_buf(event, unsafe {
             std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast(), buf.len())
         })
@@ -121,16 +73,6 @@ impl<'alloc> Encoder<'alloc> {
         from_result_with_len(result, written)
     }
 
-    /// Set encoder options from a terminal's current state.
-    ///
-    /// Reads the terminal's current modes and flags and applies them to the
-    /// encoder's options. This sets cursor key application mode, keypad mode,
-    /// alt escape prefix, modifyOtherKeys state, and Kitty keyboard protocol
-    /// flags from the terminal state.
-    ///
-    /// Note that the `macos_option_as_alt` option cannot be determined from
-    /// terminal state and is reset to [`OptionAsAlt::False`] by this call.
-    /// Use [`Encoder::set_macos_option_as_alt`] to set it afterward if needed.
     pub fn set_options_from_terminal(&mut self, terminal: &Terminal<'_, '_>) -> &mut Self {
         unsafe {
             ffi::ghostty_key_encoder_setopt_from_terminal(self.0.as_raw(), terminal.inner.as_raw());
@@ -138,7 +80,6 @@ impl<'alloc> Encoder<'alloc> {
         self
     }
 
-    /// Set terminal DEC mode 1: cursor key application mode.
     pub fn set_cursor_key_application(&mut self, value: bool) -> &mut Self {
         unsafe {
             self.setopt(
@@ -148,7 +89,6 @@ impl<'alloc> Encoder<'alloc> {
         }
         self
     }
-    /// Set terminal DEC mode 66: keypad key application mode.
     pub fn set_keypad_key_application(&mut self, value: bool) -> &mut Self {
         unsafe {
             self.setopt(
@@ -158,7 +98,6 @@ impl<'alloc> Encoder<'alloc> {
         }
         self
     }
-    /// Set terminal DEC mode 1035: ignore keypad with numlock.
     pub fn set_ignore_keypad_with_numlock(&mut self, value: bool) -> &mut Self {
         unsafe {
             self.setopt(
@@ -168,14 +107,12 @@ impl<'alloc> Encoder<'alloc> {
         }
         self
     }
-    /// Set terminal DEC mode 1036: alt sends escape prefix.
     pub fn set_alt_esc_prefix(&mut self, value: bool) -> &mut Self {
         unsafe {
             self.setopt(Opt::ALT_ESC_PREFIX, std::ptr::from_ref(&value).cast());
         }
         self
     }
-    /// Set xterm modifyOtherKeys mode 2.
     pub fn set_modify_other_keys_state_2(&mut self, value: bool) -> &mut Self {
         unsafe {
             self.setopt(
@@ -185,7 +122,6 @@ impl<'alloc> Encoder<'alloc> {
         }
         self
     }
-    /// Set Kitty keyboard protocol flags.
     pub fn set_kitty_flags(&mut self, value: KittyKeyFlags) -> &mut Self {
         let value = value.bits();
         unsafe {
@@ -193,19 +129,12 @@ impl<'alloc> Encoder<'alloc> {
         }
         self
     }
-    /// Set macOS option-as-alt setting.
     pub fn set_macos_option_as_alt(&mut self, value: OptionAsAlt) -> &mut Self {
         unsafe {
             self.setopt(Opt::MACOS_OPTION_AS_ALT, std::ptr::from_ref(&value).cast());
         }
         self
     }
-    /// Backarrow key mode.
-    ///
-    /// See <https://vt100.net/dec/ek-vt3xx-tp-002.pdf> page 170.
-    ///
-    /// If `false` (the default), `backspace` emits 0x7f.
-    /// If `true`, `backspace` emits 0x08.
     pub fn set_backarrow_key_mode(&mut self, value: bool) -> &mut Self {
         unsafe {
             self.setopt(Opt::BACKARROW_KEY_MODE, std::ptr::from_ref(&value).cast());
@@ -220,8 +149,6 @@ impl Drop for Encoder<'_> {
     }
 }
 
-/// Keyboard input event containing information about the physical key pressed,
-/// modifiers, and generated text.
 #[derive(Debug)]
 pub struct Event<'alloc> {
     inner: Object<'alloc, ffi::KeyEventImpl>,
@@ -229,18 +156,11 @@ pub struct Event<'alloc> {
 }
 
 impl<'alloc> Event<'alloc> {
-    /// Create a new key event instance.
     pub fn new() -> Result<Self> {
-        // SAFETY: A NULL allocator is always valid
         unsafe { Self::new_inner(std::ptr::null()) }
     }
 
-    /// Create a new key event instance with a custom allocator.
-    ///
-    /// See the [crate-level documentation](crate#memory-management-and-lifetimes)
-    /// regarding custom memory management and lifetimes.
     pub fn new_with_alloc<'ctx: 'alloc>(alloc: &'alloc Allocator<'ctx>) -> Result<Self> {
-        // SAFETY: Borrow checking should forbid invalid allocators
         unsafe { Self::new_inner(alloc.to_raw()) }
     }
 
@@ -254,51 +174,43 @@ impl<'alloc> Event<'alloc> {
         })
     }
 
-    /// Set the key action (press, release, repeat).
     pub fn set_action(&mut self, action: Action) -> &mut Self {
         unsafe { ffi::ghostty_key_event_set_action(self.inner.as_raw(), action.into()) }
         self
     }
 
-    /// Get the key action (press, release, repeat).
     #[must_use]
     pub fn action(&self) -> Action {
         Action::try_from(unsafe { ffi::ghostty_key_event_get_action(self.inner.as_raw()) })
             .unwrap_or(Action::Press)
     }
 
-    /// Set the physical key code.
     pub fn set_key(&mut self, key: Key) -> &mut Self {
         unsafe { ffi::ghostty_key_event_set_key(self.inner.as_raw(), key.into()) }
         self
     }
 
-    /// Get the physical key code.
     #[must_use]
     pub fn key(&self) -> Key {
         Key::try_from(unsafe { ffi::ghostty_key_event_get_key(self.inner.as_raw()) })
             .unwrap_or(Key::Unidentified)
     }
 
-    /// Set the modifier keys bitmask.
     pub fn set_mods(&mut self, mods: Mods) -> &mut Self {
         unsafe { ffi::ghostty_key_event_set_mods(self.inner.as_raw(), mods.bits()) }
         self
     }
 
-    /// Get the modifier keys bitmask.
     #[must_use]
     pub fn mods(&self) -> Mods {
         Mods::from_bits_retain(unsafe { ffi::ghostty_key_event_get_mods(self.inner.as_raw()) })
     }
 
-    /// Set the consumed modifiers bitmask.
     pub fn set_consumed_mods(&mut self, mods: Mods) -> &mut Self {
         unsafe { ffi::ghostty_key_event_set_consumed_mods(self.inner.as_raw(), mods.bits()) }
         self
     }
 
-    /// Get the consumed modifiers bitmask.
     #[must_use]
     pub fn consumed_mods(&self) -> Mods {
         Mods::from_bits_retain(unsafe {
@@ -306,28 +218,16 @@ impl<'alloc> Event<'alloc> {
         })
     }
 
-    /// Set whether the key event is part of a composition sequence.
     pub fn set_composing(&mut self, composing: bool) -> &mut Self {
         unsafe { ffi::ghostty_key_event_set_composing(self.inner.as_raw(), composing) }
         self
     }
 
-    /// Get whether the key event is part of a composition sequence.
     #[must_use]
     pub fn is_composing(&self) -> bool {
         unsafe { ffi::ghostty_key_event_get_composing(self.inner.as_raw()) }
     }
 
-    /// Set the UTF-8 text generated by the key for the current keyboard layout.
-    ///
-    /// Must contain the unmodified character before any Ctrl/Meta transformations.
-    /// The encoder derives modifier sequences from the logical key and mods
-    /// bitmask, not from this text. Do not pass C0 control characters
-    /// (U+0000-U+001F, U+007F) or platform function key codes (e.g. macOS PUA
-    /// U+F700-U+F8FF); pass NULL instead and let the encoder use the logical key.
-    ///
-    /// The event makes an internal copy of the text since the C API
-    /// may reuse it without any rigid lifetime guarantees.
     pub fn set_utf8<S: Into<String>>(&mut self, text: Option<S>) -> &mut Self {
         self.text = text.map(Into::into);
 
@@ -346,14 +246,10 @@ impl<'alloc> Event<'alloc> {
         self
     }
 
-    /// Get the UTF-8 text generated by the key event.
     pub fn utf8(&mut self) -> Option<&str> {
-        // We actually sidestep the `ghostty_key_event_get_utf8` method to
-        // avoid unclear lifetimes. See `set_utf8`.
         self.text.as_deref()
     }
 
-    /// Set the unshifted Unicode codepoint.
     pub fn set_unshifted_codepoint(&mut self, codepoint: char) -> &mut Self {
         unsafe {
             ffi::ghostty_key_event_set_unshifted_codepoint(self.inner.as_raw(), codepoint.into());
@@ -361,7 +257,6 @@ impl<'alloc> Event<'alloc> {
         self
     }
 
-    /// Get the unshifted Unicode codepoint.
     #[must_use]
     pub fn unshifted_codepoint(&self) -> char {
         unsafe {
@@ -381,7 +276,6 @@ impl Drop for Event<'_> {
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 #[non_exhaustive]
-#[expect(missing_docs, reason = "self-explanatory")]
 pub enum Key {
     Unidentified = 0,
     Backquote = 1,
@@ -561,97 +455,47 @@ pub enum Key {
     Paste = 175,
 }
 
-/// Key event action type.
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 #[non_exhaustive]
 pub enum Action {
-    /// Key was pressed.
     Press = ffi::KeyAction::PRESS,
-    /// Key was released.
     Release = ffi::KeyAction::RELEASE,
-    /// Key is being repeated (held down).
     Repeat = ffi::KeyAction::REPEAT,
 }
 
-/// macOS option key behavior.
-///
-/// Determines whether the "option" key on macOS is treated as "alt" or not.
-/// See the Ghostty `macos-option-as-alt` configuration option for more details.
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 pub enum OptionAsAlt {
-    /// Option key is not treated as alt.
     False = ffi::OptionAsAlt::FALSE,
-    /// Option key is treated as alt.
     True = ffi::OptionAsAlt::TRUE,
-    /// Only left option key is treated as alt.
     Left = ffi::OptionAsAlt::LEFT,
-    /// Only right option key is treated as alt.
     Right = ffi::OptionAsAlt::RIGHT,
 }
 
 bitflags::bitflags! {
-    /// Keyboard modifier keys bitmask.
-    ///
-    /// A bitmask representing all keyboard modifiers. This tracks which modifier
-    /// keys are pressed and, where supported by the platform, which side (left or
-    /// right) of each modifier is active.
-    ///
-    /// Modifier side bits are only meaningful when the corresponding modifier bit
-    /// is set. Not all platforms support distinguishing between left and right
-    /// modifier keys and Ghostty is built to expect that some platforms may not
-    /// provide this information.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct Mods: u16 {
-        /// Shift key is pressed.
         const SHIFT = ffi::MODS_SHIFT;
-        /// Alt key is pressed.
         const ALT = ffi::MODS_ALT;
-        /// Control key is pressed.
         const CTRL = ffi::MODS_CTRL;
-        /// Super/Command/Windows key is pressed.
         const SUPER = ffi::MODS_SUPER;
-        /// Caps Lock is active.
         const CAPS_LOCK = ffi::MODS_CAPS_LOCK;
-        /// Num Lock is active.
         const NUM_LOCK = ffi::MODS_NUM_LOCK;
-        /// Right Shift is pressed (unset = left, set = right).
-        ///
-        /// Only valid when [`Mods::SHIFT`] is set.
         const SHIFT_SIDE = ffi::MODS_SHIFT_SIDE;
-        /// Right Alt is pressed (unset = left, set = right).
-        ///
-        /// Only valid when [`Mods::ALT`] is set.
         const ALT_SIDE = ffi::MODS_ALT_SIDE;
-        /// Right Control is pressed (unset = left, set = right).
-        ///
-        /// Only valid when [`Mods::CTRL`] is set.
         const CTRL_SIDE = ffi::MODS_CTRL_SIDE;
-        /// Right Super is pressed (unset = left, set = right).
-        ///
-        /// Only valid when [`Mods::SUPER`] is set.
         const SUPER_SIDE = ffi::MODS_SUPER_SIDE;
     }
 
-    /// Kitty keyboard protocol flags.
-    ///
-    /// Bitflags representing the various modes of the Kitty keyboard protocol.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct KittyKeyFlags: u8 {
-        /// Kitty keyboard protocol disabled (all flags off).
         const DISABLED = ffi::KITTY_KEY_DISABLED;
-        /// Disambiguate escape codes.
         const DISAMBIGUATE = ffi::KITTY_KEY_DISAMBIGUATE;
-        /// Report key press and release events.
         const REPORT_EVENTS = ffi::KITTY_KEY_REPORT_EVENTS;
-        /// Report alternate key codes.
         const REPORT_ALTERNATES = ffi::KITTY_KEY_REPORT_ALTERNATES;
-        /// Report all key events including those normally handled by the terminal.
         const REPORT_ALL = ffi::KITTY_KEY_REPORT_ALL;
-        /// Report associated text with key events
         const REPORT_ASSOCIATED = ffi::KITTY_KEY_REPORT_ASSOCIATED;
-        /// All Kitty keyboard protocol flags enabled
         const ALL = ffi::KITTY_KEY_ALL;
     }
 }

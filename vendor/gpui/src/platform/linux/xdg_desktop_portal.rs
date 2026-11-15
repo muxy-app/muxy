@@ -1,7 +1,3 @@
-//! Provides a [calloop] event source from [XDG Desktop Portal] events
-//!
-//! This module uses the [ashpd] crate
-
 use ashpd::desktop::settings::{ColorScheme, Settings};
 use calloop::channel::Channel;
 use calloop::{EventSource, Poll, PostAction, Readiness, Token, TokenFactory};
@@ -43,7 +39,6 @@ impl XDPEventSource {
                     sender.send(Event::CursorTheme(initial_theme))?;
                 }
 
-                // If u32 is used here, it throws invalid type error
                 if let Ok(initial_size) = settings
                     .read::<i32>("org.gnome.desktop.interface", "cursor-size")
                     .await

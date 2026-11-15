@@ -1,7 +1,5 @@
 use super::Content;
 
-/// Copied files, then an image, then text: a file manager offers the files'
-/// names as text beside them.
 pub fn read_content(cx: &gpui::App) -> Result<Content, String> {
     let Some(item) = cx.read_from_clipboard() else {
         return Ok(Content::Text);
@@ -24,7 +22,6 @@ pub fn read_content(cx: &gpui::App) -> Result<Content, String> {
     Ok(Content::Text)
 }
 
-/// Whether a `Lease` can hand images to a terminal program and restore the clipboard.
 pub const IMAGE_SUBMISSION: muxy_core::capability::Capability =
     muxy_core::capability::Capability::Unsupported;
 

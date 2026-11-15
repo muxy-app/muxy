@@ -1,6 +1,3 @@
-//! A phone answers an agent's question. Beside it sits the real pairing code,
-//! once there is one, and then the phone that used it.
-
 use gpui::{Div, FontWeight, ParentElement, Styled, div};
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
@@ -109,7 +106,6 @@ fn phone(frame: &Frame) -> Div {
     )
 }
 
-/// The app itself: an agent asks, the phone answers, and it gets back to work.
 fn screen(frame: &Frame) -> Div {
     let local = cycle(frame.t, PERIOD);
     let tapped = rise(local, 3.2, 0.2);
@@ -233,7 +229,6 @@ fn slot_label(frame: &Frame, content: gpui::SharedString) -> Div {
     .child(text(frame, 10.5, muted(), content))
 }
 
-/// Where the code will appear, with a beam sweeping it while it waits.
 fn waiting_card(frame: &Frame) -> Div {
     let sweep = ease_in_out(cycle(frame.t, 2.8) / 2.8);
     let corners = |x: f32, y: f32| {

@@ -1,7 +1,3 @@
-//! A web page in a pane: a polybrowser view inside the same native host as
-//! extension pages, so it follows its pane, hides under app content, and
-//! shares the keyboard with Muxy's shortcuts.
-
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -68,9 +64,6 @@ impl NativeBrowser {
     #[allow(clippy::unused_self)]
     pub fn choose(&self, _option: Option<usize>) {}
 
-    /// A hidden page in `window`; it shows once synced and made visible.
-    /// Until then it takes the window's size, so a page loaded for automation
-    /// before its pane is ever shown can lay out and be pictured.
     pub fn new(window: &Window, options: &Options<'_>) -> Result<(Self, Receiver<Event>), String> {
         let mtm = MainThreadMarker::new().ok_or("browser must be created on the main thread")?;
         let parent = crate::appkit::gpui_view(window)?;
@@ -123,16 +116,11 @@ impl NativeBrowser {
         ))
     }
 
-    /// Moves the page into `window`, keeping it loaded with its history, for
-    /// a pane that is now drawn there. It shows again once synced and made
-    /// visible in that window, and takes the keyboard back on
-    /// [`Self::focus`].
     pub fn move_to_window(&self, window: &Window) -> Result<(), String> {
         self.host.move_to(crate::appkit::gpui_view(window)?);
         Ok(())
     }
 
-    /// The page itself: navigation, scripts, cookies, find, and more.
     pub fn browser(&self) -> &Browser {
         &self.browser
     }
@@ -161,14 +149,10 @@ impl NativeBrowser {
         self.host.occlude(occlusions);
     }
 
-    /// Hides the page under `bounds` too, for app content drawn after the
-    /// frame's occlusions were applied.
     pub fn occlude_also(&self, bounds: Bounds<Pixels>) {
         self.host.occlude_also(bounds);
     }
 
-    /// Whether the user clicked into the page within `elapsed`, as opposed
-    /// to the page acting on its own.
     pub fn clicked_within(&self, elapsed: std::time::Duration) -> bool {
         self.host.clicked_within(elapsed)
     }
@@ -189,8 +173,6 @@ impl NativeBrowser {
         self.host.blur();
     }
 
-    /// Takes a picture of the page as shown, delivered as
-    /// [`Event::Snapshot`] with the returned ID. A newer request replaces it.
     pub fn snapshot(&self) -> u64 {
         let id = self.snapshot_id.get() + 1;
         self.snapshot_id.set(id);
@@ -213,8 +195,6 @@ impl Drop for NativeBrowser {
     }
 }
 
-/// The host's container, as the window polybrowser builds its view in. It
-/// outlives the handle, which only builds the view.
 struct Container<'a>(&'a NSView);
 
 impl HasWindowHandle for Container<'_> {
@@ -225,7 +205,6 @@ impl HasWindowHandle for Container<'_> {
     }
 }
 
-/// Apps that open web pages, by name and location, as the system lists them.
 pub fn installed_browsers() -> Vec<(String, std::path::PathBuf)> {
     let Some(page) = NSURL::URLWithString(&NSString::from_str("https://example.com")) else {
         return Vec::new();

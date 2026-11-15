@@ -1,14 +1,3 @@
-// Types for the `muxy` object Muxy gives extension code.
-//
-// Copy this file into an extension (for example `src/muxy.d.ts`) or point to
-// it with `/// <reference path="…/muxy.d.ts" />`. Pages get `muxy` (also
-// `window.muxy`), whose calls return Promises. Scripts and background scripts
-// get the same calls returning their values directly; type them with
-// `const api = (globalThis as any).muxy as Muxy.ScriptAPI;` or
-// `Muxy.BackgroundAPI`.
-//
-// See api.md for what each call does and the permission it needs.
-
 declare namespace Muxy {
   type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
   type Unsubscribe = () => void;
@@ -17,7 +6,6 @@ declare namespace Muxy {
     cwd?: string;
     env?: Record<string, string>;
     stdin?: string;
-    /** Up to 300000; 30000 by default. */
     timeoutMs?: number;
   }
   interface ExecResult {
@@ -49,9 +37,7 @@ declare namespace Muxy {
 
   interface ItemUpdate {
     id: string;
-    /** An SF Symbol name or an SVG path inside the extension. */
     icon?: string;
-    /** Status bar items only. */
     text?: string | null;
     visible?: boolean;
   }
@@ -118,7 +104,6 @@ declare namespace Muxy {
   }
 
   interface FileOptions {
-    /** A project ID; the current project by default. */
     project?: string;
   }
 
@@ -226,7 +211,6 @@ declare namespace Muxy {
     truncated: boolean;
   }
 
-  /** Workspace events an extension lists in its manifest's `events`. */
   type EventName =
     | "tab.created"
     | "tab.closed"
@@ -255,7 +239,6 @@ declare namespace Muxy {
     | `command.${string}`
     | `extension.${string}`;
 
-  /** The calls every surface has, as pages see them. */
   interface SharedAPI {
     readonly extensionID: string;
     notifications: { notify(notice: Notice): Promise<void> };
@@ -436,7 +419,6 @@ declare namespace Muxy {
     };
   }
 
-  /** What pages and scripts have that background scripts don't. */
   interface WorkspaceAPI {
     toast(notice: Notice): Promise<void>;
     execAsync(argv: string[], options?: ExecOptions): ExecJob;
@@ -532,7 +514,6 @@ declare namespace Muxy {
 
   interface Events {
     subscribe(name: EventName, handler: (payload: Record<string, JSONValue>) => void): Unsubscribe;
-    /** Only `extension.*` names; other enabled extensions that list the event receive it. */
     emit(name: `extension.${string}`, payload?: JSONValue): Promise<void>;
   }
 
@@ -554,7 +535,6 @@ declare namespace Muxy {
     onChange(callback: (state: PanelState) => void): Unsubscribe;
   }
 
-  /** `window.muxy` on tabs, panels, popovers, the sidebar and modal pages. */
   interface PageAPI extends Omit<SharedAPI, "tabs" | "panels" | "modal">, Omit<WorkspaceAPI, "tabs"> {
     readonly tabInstanceID: string;
     readonly panelID: string | null;
@@ -571,7 +551,6 @@ declare namespace Muxy {
       setIcon(icon: string | null): Promise<void>;
     };
     panels: SharedAPI["panels"] & {
-      /** Without an ID, closes the calling panel. */
       close(panelID?: string, instance?: string): Promise<void>;
     };
     popover: {
@@ -586,7 +565,6 @@ declare namespace Muxy {
     };
     events: Events;
     modal: SharedAPI["modal"] & {
-      /** From a modal page: resolves the `openWebview` that opened it. */
       submitWebview(result?: JSONValue): Promise<void>;
     };
     lifecycle: {
@@ -601,7 +579,6 @@ declare namespace Muxy {
     };
   }
 
-  /** The same calls, answering directly instead of with a Promise. */
   type Sync<T> = {
     [K in keyof T]: T[K] extends (...args: infer A) => Promise<infer R>
       ? (...args: A) => R
@@ -612,20 +589,17 @@ declare namespace Muxy {
           : T[K];
   };
 
-  /** `exec` with both of its forms, answering directly. */
   interface SyncExec {
     exec(argv: string[], options?: ExecOptions): ExecResult;
     exec(options: ExecOptions & ({ shell: string } | { argv: string[] })): ExecResult;
   }
 
-  /** `muxy` in a `runScript` command. */
   type ScriptAPI = Omit<Sync<SharedAPI & WorkspaceAPI>, "exec" | "execAsync"> &
     SyncExec & {
       execAsync(argv: string[], options?: ExecOptions): ExecJob;
       execAsync(options: ExecOptions & ({ shell: string } | { argv: string[] })): ExecJob;
     };
 
-  /** `muxy` in the background script. */
   type BackgroundAPI = Omit<Sync<SharedAPI>, "exec" | "modal"> &
     SyncExec & {
     events: {
@@ -633,13 +607,11 @@ declare namespace Muxy {
       unsubscribe(name: EventName, handler: (payload: Record<string, JSONValue>) => void): void;
       emit(name: `extension.${string}`, payload?: JSONValue): void;
     };
-    /** Accepted for 1.x extensions; phone apps can't call remote methods in 2.x. */
     remote: {
       handle(action: string, handler: (...args: JSONValue[]) => unknown): void;
       unhandle(action: string): void;
     };
     modal: Omit<Sync<SharedAPI["modal"]>, "open" | "openWebview"> & {
-      /** In background scripts, returns right away with the request ID. */
       open(options: ModalOptions): string | null;
       openWebview(options: ModalWebviewOptions): Promise<JSONValue | null>;
     };

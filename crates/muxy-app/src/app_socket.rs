@@ -1,6 +1,3 @@
-//! The socket `muxy browser` reaches the app on: one JSON request and one
-//! reply per connection, from processes of this user only.
-
 use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -13,7 +10,6 @@ use muxy_app_core::browser::api::{Request, encode_reply};
 use muxy_protocol::transport::{LocalListener, LocalStream};
 use serde_json::Value;
 
-/// Requests answered at once; more wait for a free slot.
 const CONCURRENT: usize = 16;
 
 pub(crate) struct Incoming {
@@ -27,7 +23,6 @@ impl Incoming {
     }
 }
 
-/// The listening socket. Dropping it removes the file.
 #[derive(Debug)]
 pub(crate) struct AppSocket {
     path: PathBuf,
@@ -39,7 +34,6 @@ impl Drop for AppSocket {
     }
 }
 
-/// Listens at `path`, unless another app already answers there.
 pub(crate) fn listen(path: &Path) -> io::Result<(AppSocket, async_channel::Receiver<Incoming>)> {
     if LocalStream::connect(path).is_ok() {
         return Err(io::Error::new(

@@ -1,5 +1,3 @@
-//! User-owned, versioned desktop installations. Package-manager files are never replaced.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

@@ -11,7 +11,6 @@ pub(crate) fn hello() -> Message {
     }
 }
 
-/// The server's identity and the features it offers, once a shared version is found.
 pub(crate) fn accept(
     received: Result<(ChannelId, Message), WireError>,
 ) -> Result<(ServerInfo, Vec<Feature>), ClientError> {
@@ -32,7 +31,6 @@ pub(crate) fn accept(
                 Err(ClientError::VersionUnsupported)
             }
         }
-        // Servers from before V2 answer in a framing this build doesn't read.
         Ok((CONTROL, Message::VersionUnsupported))
         | Err(WireError::UnsupportedVersion(_) | WireError::Decode(_)) => {
             Err(ClientError::VersionUnsupported)
@@ -117,7 +115,6 @@ mod tests {
 
     #[test]
     fn servers_from_before_v2_report_an_update() {
-        // A pre-V2 server rejects the V2 hello in its own version-1 framing.
         let legacy_fatal = [9, 0, 0, 0, 1, 0, 0, 0, 0, 0, 8, 1, 1];
         let error = accept(muxy_protocol::wire::Decoder::new(legacy_fatal.as_slice()).next())
             .expect_err("a version-1 frame is unreadable");

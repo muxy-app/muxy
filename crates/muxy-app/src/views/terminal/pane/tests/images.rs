@@ -59,8 +59,6 @@ fn a_frame_that_brings_pixels_is_acknowledged_once_they_can_be_drawn(cx: &mut Te
     cx.run_until_parked();
     assert_eq!(*acks.borrow(), [1]);
 
-    // A later screen that lists the image without its pixels keeps them,
-    // and has nothing to wait for.
     pane.update(cx, |pane, cx| {
         assert_eq!(
             pane.apply(&frame(pane, 2, graphics(1, 1, false)), cx),

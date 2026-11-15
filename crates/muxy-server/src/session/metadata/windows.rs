@@ -5,9 +5,6 @@ use muxy_protocol::{AgentProvider, ServerPath};
 use crate::platform::windows::JobProcess;
 use crate::spawn::Shell;
 
-/// The newest program the shell started that is still running, or the shell
-/// itself. Windows has no foreground process group, and its children all
-/// share the session's job.
 pub(super) struct Foreground {
     pub(super) group: u32,
     pub(super) is_shell: bool,
@@ -45,8 +42,6 @@ impl Foreground {
         self.is_shell
     }
 
-    /// An agent among the foreground program and the processes it started,
-    /// such as `claude` running on `node.exe`.
     pub(super) fn agent(&self) -> Option<AgentProvider> {
         let mut family = vec![self.group];
         for process in &self.processes {
@@ -68,8 +63,6 @@ impl Foreground {
             })
     }
 
-    /// Windows can't read another process's working directory, so the
-    /// folder comes only from OSC 7.
     #[allow(
         clippy::unused_self,
         reason = "Matches the Unix foreground's interface"
@@ -79,7 +72,6 @@ impl Foreground {
     }
 }
 
-/// `C:\…\node.exe` is `node`, as a Unix process name would be.
 fn program_name(image: &Path) -> String {
     let name = image
         .file_name()
@@ -97,9 +89,6 @@ fn program_name(image: &Path) -> String {
     }
 }
 
-/// The first arguments of a command line, split as the Microsoft C runtime
-/// does, with `\` turned into `/` and the program named as by
-/// [`program_name`], so agent detection reads them as it does on Unix.
 fn arguments(command_line: &str) -> Vec<String> {
     split_command_line(command_line)
         .into_iter()
@@ -118,7 +107,6 @@ fn arguments(command_line: &str) -> Vec<String> {
 fn split_command_line(command_line: &str) -> Vec<String> {
     let mut arguments = Vec::new();
     let mut characters = command_line.chars().peekable();
-    // The program name ends at the first space outside quotes and has no escapes.
     let mut program = String::new();
     let mut quoted = false;
     while let Some(&character) = characters.peek() {

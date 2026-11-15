@@ -82,7 +82,6 @@ pub struct GitDiff {
     pub deletions: u64,
     #[n(3)]
     pub truncated: bool,
-    /// Git compared the file as binary, so it has no rows.
     #[n(4)]
     #[cbor(default)]
     #[serde(default)]
@@ -192,7 +191,6 @@ pub enum GitPullRequestAction {
         method: GitMergeMethod,
         #[n(2)]
         delete_branch: bool,
-        /// Refuse the merge when the pull request head moved past this commit.
         #[n(3)]
         expected_head: Option<String>,
     },

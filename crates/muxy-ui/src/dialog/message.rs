@@ -1,5 +1,3 @@
-//! An alert's message, kept on screen however long it is.
-
 use objc2::rc::Retained;
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
@@ -8,27 +6,19 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
-/// How wide an alert lays out its informative text.
 const ALERT_TEXT_WIDTH: f64 = 230.0;
-/// How wide the scrolling box makes the alert, to show more of each line.
 const BOX_WIDTH: f64 = 380.0;
 const BOX_INSET: f64 = 6.0;
-/// The text view's padding beside each line, on both sides.
 const LINE_PADDING: f64 = 10.0;
-/// The bezel around the box, top and bottom.
 const BORDER: f64 = 4.0;
 const INPUT_GAP: f64 = 8.0;
 
-/// Where the alert shows its message.
 #[derive(Debug, PartialEq)]
 enum Placement {
-    /// As the alert's own informative text.
     Inline,
-    /// In a scrolling box this tall.
     Scrolling(f64),
 }
 
-/// A message that would make the alert taller than `limit` scrolls instead.
 fn placement(inline_height: f64, box_height: f64, limit: f64) -> Placement {
     if inline_height <= limit {
         Placement::Inline
@@ -37,7 +27,6 @@ fn placement(inline_height: f64, box_height: f64, limit: f64) -> Placement {
     }
 }
 
-/// The tallest a message may be: a share of the screen the sheet opens on.
 fn limit(parent: &NSWindow) -> f64 {
     parent.screen().map_or(240.0, |screen| {
         (screen.visibleFrame().size.height * 0.3).clamp(120.0, 320.0)
@@ -48,7 +37,6 @@ fn font() -> Retained<NSFont> {
     NSFont::systemFontOfSize(NSFont::smallSystemFontSize())
 }
 
-/// How tall `text` wraps to at `width`.
 fn measure(text: &str, width: f64, main_thread: MainThreadMarker) -> f64 {
     let label = NSTextField::wrappingLabelWithString(&NSString::from_str(text), main_thread);
     label.setFont(Some(&font()));
@@ -58,8 +46,6 @@ fn measure(text: &str, width: f64, main_thread: MainThreadMarker) -> f64 {
     })
 }
 
-/// Shows `message` in `alert`, with `input` below it when given. A long
-/// message scrolls in a box so the alert's buttons stay on screen.
 pub(super) fn show(
     alert: &NSAlert,
     parent: &NSWindow,
@@ -99,8 +85,6 @@ pub(super) fn show(
     alert.setAccessoryView(Some(&container));
 }
 
-/// A read-only box. Selectable text would take the keyboard focus as the
-/// sheet opens, which scrolls it away from the message's first line.
 fn scrolling_text(message: &str, height: f64, main_thread: MainThreadMarker) -> Retained<NSView> {
     let scroll = NSScrollView::initWithFrame(
         NSScrollView::alloc(main_thread),

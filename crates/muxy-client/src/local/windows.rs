@@ -1,6 +1,3 @@
-//! Starting the local server away from this console, and checking where a
-//! running one is.
-
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::windows::ffi::OsStrExt;
@@ -25,7 +22,6 @@ use windows_sys::Win32::System::Threading::{
 
 use crate::{ClientError, ServerElsewhere};
 
-/// A program started by [`spawn_detached`](super::spawn_detached).
 #[derive(Debug)]
 pub struct Detached(OwnedHandle);
 
@@ -34,7 +30,6 @@ impl Detached {
         self.status(0)
     }
 
-    /// Waits up to `timeout` for the program to exit.
     pub fn wait_timeout(&mut self, timeout: Duration) -> io::Result<Option<ExitStatus>> {
         let milliseconds = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
         self.status(milliseconds.min(INFINITE - 1))
@@ -46,14 +41,12 @@ impl Detached {
     }
 
     fn status(&self, timeout: u32) -> io::Result<Option<ExitStatus>> {
-        // SAFETY: the process handle is open.
         match unsafe { WaitForSingleObject(self.0.as_raw_handle(), timeout) } {
             WAIT_OBJECT_0 => {}
             WAIT_TIMEOUT => return Ok(None),
             _ => return Err(io::Error::last_os_error()),
         }
         let mut code = 0;
-        // SAFETY: the process handle is open and `code` is a live u32.
         if unsafe { GetExitCodeProcess(self.0.as_raw_handle(), &raw mut code) } == 0 {
             return Err(io::Error::last_os_error());
         }
@@ -61,14 +54,6 @@ impl Detached {
     }
 }
 
-/// Starts `program` with a hidden console, which the programs it starts
-/// inherit, and outside the job of the terminal that runs this program, so
-/// it outlives both. Its own console keeps that terminal's Ctrl+C from
-/// reaching it. It inherits no handles, so it can't hold open the output
-/// that someone reads from this program, and it runs in its own folder, so
-/// it doesn't keep the caller's folder from being deleted. A job that
-/// forbids leaving it still gets the program, which may then end with that
-/// job.
 pub(super) fn spawn_detached(program: &Path, arguments: &[OsString]) -> io::Result<Detached> {
     match create_process(
         program,
@@ -92,8 +77,6 @@ fn create_process(program: &Path, arguments: &[OsString], flags: u32) -> io::Res
         ..STARTUPINFOW::default()
     };
     let mut process = PROCESS_INFORMATION::default();
-    // SAFETY: the strings are live and NUL-terminated, the command line is
-    // writable as CreateProcessW requires, and both structures are live.
     let created = unsafe {
         CreateProcessW(
             application.as_ptr(),
@@ -111,7 +94,6 @@ fn create_process(program: &Path, arguments: &[OsString], flags: u32) -> io::Res
     if created == 0 {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: both handles are new and owned here.
     let (handle, _thread) = unsafe {
         (
             OwnedHandle::from_raw_handle(process.hProcess),
@@ -121,8 +103,6 @@ fn create_process(program: &Path, arguments: &[OsString], flags: u32) -> io::Res
     Ok(Detached(handle))
 }
 
-/// The command line that `CommandLineToArgvW` and the C runtime split back
-/// into `program` and `arguments`.
 fn command_line(program: &OsStr, arguments: &[OsString]) -> OsString {
     let mut line = OsString::from("\"");
     line.push(program);
@@ -158,7 +138,6 @@ fn quote(argument: &OsStr) -> OsString {
     std::os::windows::ffi::OsStringExt::from_wide(&quoted)
 }
 
-/// `text` as a NUL-terminated wide string, refusing one with a NUL inside.
 fn wide(text: &OsStr) -> io::Result<Vec<u16>> {
     let mut wide: Vec<u16> = text.encode_wide().collect();
     if wide.contains(&0) {
@@ -171,13 +150,10 @@ fn wide(text: &OsStr) -> io::Result<Vec<u16>> {
     Ok(wide)
 }
 
-/// Refuses the server at the other end of `stream` if it runs in another
-/// Windows session or at another elevation than this program.
 pub(super) fn check_server(stream: &LocalStream) -> Result<(), ClientError> {
     let ours = placement(std::process::id())?;
     let server = match placement(transport::peer_pid(stream)?) {
         Ok(server) => server,
-        // A normal program may not look into an elevated one.
         Err(error) if access_denied(&error) && !ours.elevated => Placement {
             elevated: true,
             ..ours
@@ -187,7 +163,6 @@ pub(super) fn check_server(stream: &LocalStream) -> Result<(), ClientError> {
     compare(ours, server).map_err(ClientError::ServerElsewhere)
 }
 
-/// Where a process runs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Placement {
     session: u32,
@@ -207,7 +182,6 @@ fn compare(ours: Placement, server: Placement) -> Result<(), ServerElsewhere> {
 
 fn placement(pid: u32) -> io::Result<Placement> {
     let mut session = 0;
-    // SAFETY: `session` is a live u32.
     if unsafe { ProcessIdToSessionId(pid, &raw mut session) } == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -217,18 +191,13 @@ fn placement(pid: u32) -> io::Result<Placement> {
     })
 }
 
-/// Whether process `pid` runs elevated. A normal program may not read an
-/// elevated one's token, so a refusal counts as elevated.
 fn elevated(pid: u32) -> io::Result<bool> {
-    // SAFETY: OpenProcess has no memory arguments.
     let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if process.is_null() {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: the handle is new and owned here.
     let process = unsafe { OwnedHandle::from_raw_handle(process) };
     let mut token: HANDLE = ptr::null_mut();
-    // SAFETY: the process handle is open and `token` is a live HANDLE.
     if unsafe { OpenProcessToken(process.as_raw_handle(), TOKEN_QUERY, &raw mut token) } == 0 {
         let error = io::Error::last_os_error();
         return if access_denied(&error) {
@@ -237,13 +206,10 @@ fn elevated(pid: u32) -> io::Result<bool> {
             Err(error)
         };
     }
-    // SAFETY: the handle is new and owned here.
     let token = unsafe { OwnedHandle::from_raw_handle(token) };
     let mut elevation = TOKEN_ELEVATION::default();
     let size = u32::try_from(size_of::<TOKEN_ELEVATION>()).map_err(io::Error::other)?;
     let mut returned = 0;
-    // SAFETY: the token is open, and the buffer is a live TOKEN_ELEVATION of
-    // the size passed.
     let read = unsafe {
         GetTokenInformation(
             token.as_raw_handle(),

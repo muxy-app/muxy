@@ -1,5 +1,3 @@
-//! The muxy.app push relay's HTTP API.
-
 use std::fmt;
 use std::time::Duration;
 
@@ -7,7 +5,6 @@ use muxy_protocol::{PushEnvironment, PushPlatform, PushToken};
 use serde::{Deserialize, Serialize};
 use ureq::http::{HeaderMap, Uri};
 
-/// Points the server at another relay, such as one on this computer for testing.
 pub(crate) const RELAY_VARIABLE: &str = "MUXY_PUSH_RELAY";
 const DEFAULT_RELAY: &str = "https://muxy.app";
 const PREFIX: &str = "/api/push/registrations";
@@ -15,7 +12,6 @@ const MAX_REPLY: u64 = 64 * 1024;
 const ID_LENGTH: usize = 26;
 const SECRET_LENGTH: usize = 43;
 
-/// What identifies and authorizes one registration at the relay.
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct Credentials {
     pub(crate) id: String,
@@ -32,7 +28,6 @@ impl fmt::Debug for Credentials {
 }
 
 impl Credentials {
-    /// The relay's shapes, so an id can never reach outside its path.
     pub(crate) fn new(id: String, secret: String) -> Option<Self> {
         let valid = id.len() == ID_LENGTH
             && id
@@ -46,7 +41,6 @@ impl Credentials {
     }
 }
 
-/// One notification as the relay forwards it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct Outgoing {
     pub(crate) kind: &'static str,
@@ -56,30 +50,21 @@ pub(crate) struct Outgoing {
     pub(crate) ttl: u64,
 }
 
-/// How the relay answered, by what the server does next.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RelayError {
-    /// `401`: forget the registration.
     Unauthorized,
-    /// `404`: register again.
     NotFound,
-    /// `410`: APNs or FCM rejected the token.
     Gone,
-    /// `422` or another refusal: don't retry as it is.
     Refused,
-    /// `429`.
     RateLimited(Option<Duration>),
-    /// `503`, another `5xx`, or no answer: try again later.
     Unavailable(Option<Duration>),
 }
 
 impl RelayError {
-    /// The relay may take the same call later.
     pub(crate) fn retryable(self) -> bool {
         matches!(self, Self::RateLimited(_) | Self::Unavailable(_))
     }
 
-    /// When the relay asked to be called again.
     pub(crate) fn retry_after(self) -> Option<Duration> {
         match self {
             Self::RateLimited(after) | Self::Unavailable(after) => after,
@@ -114,8 +99,6 @@ struct CreatedData {
     secret: String,
 }
 
-/// The relay over HTTPS, trusting the web PKI and honouring the usual proxy
-/// variables. Redirects aren't followed, so the token and secret go nowhere else.
 pub(crate) struct HttpRelay {
     base: Option<String>,
     agent: ureq::Agent,
@@ -148,8 +131,6 @@ impl HttpRelay {
         Self::new(base)
     }
 
-    /// A plain-HTTP relay is on this computer, and is reached directly so the
-    /// secret never crosses a network, not even to a proxy.
     pub(crate) fn new(base: Option<String>) -> Self {
         let local = base
             .as_deref()
@@ -277,7 +258,6 @@ impl Relay for HttpRelay {
     }
 }
 
-/// Names the failure without the address, which holds the registration id.
 fn describe(error: &ureq::Error) -> String {
     match error {
         ureq::Error::Timeout(_) => "timed out".into(),
@@ -309,7 +289,6 @@ fn registration(token: &PushToken) -> Result<Vec<u8>, RelayError> {
     .map_err(|_| RelayError::Refused)
 }
 
-/// `None` for success.
 fn failure(status: u16, headers: &HeaderMap) -> Option<RelayError> {
     let retry_after = || {
         headers
@@ -329,8 +308,6 @@ fn failure(status: u16, headers: &HeaderMap) -> Option<RelayError> {
     }
 }
 
-/// The relay's origin, from `https://host[:port]`, or `http://` for this
-/// computer only, so a secret never crosses a network in the clear.
 pub(crate) fn base_url(text: &str) -> Option<String> {
     let uri: Uri = text.trim().parse().ok()?;
     let host = uri.host()?;

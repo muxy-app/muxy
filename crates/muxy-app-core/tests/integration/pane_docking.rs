@@ -18,7 +18,6 @@ fn split(axis: Axis, ratio: f32, first: Layout, second: Layout) -> Layout {
     }
 }
 
-/// Each pane's `[x, y, width, height]` in a unit square, in reading order.
 fn rects(layout: &Layout) -> Vec<(PaneId, [f32; 4])> {
     fn visit(layout: &Layout, rect: [f32; 4], result: &mut Vec<(PaneId, [f32; 4])>) {
         match layout {

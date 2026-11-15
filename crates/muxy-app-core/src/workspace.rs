@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AppError, AppState, Project, ProjectId, WorkspaceId};
 
-/// A client-owned group of top-level projects; groups may overlap.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: WorkspaceId,
@@ -22,13 +21,10 @@ impl AppState {
         self.workspaces.iter().find(|workspace| workspace.id == id)
     }
 
-    /// The workspace filtering the sidebar; `None` lists every project.
     pub fn active_workspace(&self) -> Option<&Workspace> {
         self.window.workspace.and_then(|id| self.workspace(id))
     }
 
-    /// Whether the sidebar lists `project`: the active workspace lists every
-    /// server's Home and its members, with worktrees following their parent.
     pub fn is_listed(&self, project: &Project) -> bool {
         let root = project.parent_id.unwrap_or(project.id);
         self.active_workspace()
@@ -52,7 +48,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Removes the group only; its projects stay.
     pub fn delete_workspace(&mut self, id: WorkspaceId) -> Result<(), AppError> {
         self.workspace_mut(id)?;
         self.workspaces.retain(|workspace| workspace.id != id);
@@ -93,8 +88,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Adds an opened project, or a worktree's parent, to the active workspace;
-    /// Home is skipped.
     pub fn join_active_workspace(&mut self, project: ProjectId) {
         let root = self
             .project(project)
@@ -104,8 +97,6 @@ impl AppState {
         }
     }
 
-    /// Keeps the current project listed by switching to a workspace that
-    /// contains it, or to all projects.
     pub fn reveal_current_project(&mut self) {
         let current = self.current_project();
         if self.is_listed(current) {

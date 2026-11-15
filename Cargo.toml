@@ -13,8 +13,6 @@ members = [
     "crates/muxy-mobile",
 ]
 
-# Current boundary policy, not a permanent crate list. Structural changes update
-# this table and the affected crate-level documentation together.
 [workspace.metadata.architecture.allowed-dependencies]
 muxy-core = []
 muxy-protocol = ["muxy-core"]

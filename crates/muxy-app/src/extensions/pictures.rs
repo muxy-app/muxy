@@ -1,15 +1,10 @@
-//! Listing icons and screenshots shown in Settings → Extensions.
-
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-/// How large a picture is drawn, which bounds how much of it stays decoded.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum Size {
     Icon,
-    /// A screenshot on a grid card or in the gallery's thumbnail strip.
     Card,
-    /// The screenshot the gallery shows large.
     Full,
 }
 
@@ -30,16 +25,12 @@ impl Size {
     }
 }
 
-/// Where a listing picture is read from.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum Source {
-    /// A marketplace URL, for extensions that aren't installed.
     Marketplace(String),
-    /// A file inside an installed extension, already resolved within it.
     File(PathBuf),
 }
 
-/// The picture at `source`, scaled down to `size`, ready to draw.
 pub(crate) fn load(source: &Source, size: Size) -> Result<gpui::RenderImage, String> {
     let bytes = match source {
         Source::Marketplace(url) => super::marketplace::picture(url, size.limit())?,

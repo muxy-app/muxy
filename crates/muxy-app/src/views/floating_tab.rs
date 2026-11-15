@@ -1,7 +1,3 @@
-//! A tab floating over the main window: a card holding its splits. The pane
-//! headers along its top move it and hold its controls; without them, a bar
-//! of its own does.
-
 use std::collections::HashMap;
 
 use gpui::prelude::FluentBuilder;
@@ -21,8 +17,6 @@ use crate::model::AppModel;
 use crate::model::tab_windows::Surface;
 use crate::model::tab_windows::floating::panel;
 
-/// Each floating tab the main window shows, drawn as its own surface so
-/// what it asks about the active tab and pane is about the floating tab.
 pub(crate) fn cards(
     model: &mut AppModel,
     window: &mut Window,
@@ -106,8 +100,6 @@ fn card(
     )
 }
 
-/// Gives the floating tab's focused pane the keyboard when it was asked to
-/// take it.
 fn take_focus(model: &mut AppModel, id: TabWindowId, window: &mut Window, cx: &Context<AppModel>) {
     let requested = model.tab_windows.key_window() == Some(id)
         && model.overlay.is_none()
@@ -120,7 +112,6 @@ fn take_focus(model: &mut AppModel, id: TabWindowId, window: &mut Window, cx: &C
     }
 }
 
-/// The bar along the card's top: dragging it moves the card.
 fn bar(id: TabWindowId, tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let owner = cx.weak_entity();

@@ -40,7 +40,6 @@ impl Jobs {
         if let Some(cancelled) = active.get(&job) {
             cancelled.store(true, Ordering::Release);
         } else {
-            // Cancellation may arrive before the background sender transmits Exec.
             let mut cancelled = self
                 .cancelled
                 .lock()
@@ -117,8 +116,6 @@ impl Jobs {
     }
 }
 
-/// The user's login-shell PATH, which a server started from the app doesn't
-/// inherit. Windows has no login shell; the registry holds `PATH` there.
 pub(crate) fn login_path() -> Option<&'static str> {
     #[cfg(unix)]
     {
@@ -162,7 +159,6 @@ fn error(cause: impl std::fmt::Display) -> ServerError {
     ServerError::new(ErrorCode::BadRequest, cause.to_string())
 }
 
-/// Launch failures read like main's, since extensions match on the text.
 fn launch_failed(request: &ExecRequest, cause: &io::Error) -> ServerError {
     ServerError::spawn_failed(match request.argv.first() {
         Some(program)
@@ -175,17 +171,11 @@ fn launch_failed(request: &ExecRequest, cause: &io::Error) -> ServerError {
     })
 }
 
-/// Whether `program` is a program file in one of the `PATH` folders, which is
-/// how main finds a command before launching it. On Windows a name without
-/// an extension also matches each extension in `PATHEXT`.
 fn on_path(program: &str, path: Option<&String>) -> bool {
     let path = path.map_or_else(|| std::env::var_os("PATH").unwrap_or_default(), Into::into);
     find_program(program, std::env::split_paths(&path)).is_some()
 }
 
-/// The first program file `name` names in `folders`, skipping empty entries.
-/// On Windows a name without an extension also matches each extension in
-/// `PATHEXT`.
 pub(crate) fn find_program(
     name: &str,
     folders: impl IntoIterator<Item = PathBuf>,
@@ -215,8 +205,6 @@ fn program_in(folder: &Path, name: &str) -> Option<PathBuf> {
         .find(|file| crate::spawn::exists(file))
 }
 
-/// Whether `Command` can start `path` by its extension, which `PATHEXT`
-/// lists; `.js` and `.vbs` need another program.
 #[cfg(windows)]
 pub(crate) fn has_program_extension(path: &Path) -> bool {
     path.extension().is_some_and(|extension| {
@@ -244,8 +232,6 @@ fn program_extensions() -> Vec<String> {
         .collect()
 }
 
-/// A command that runs `script` with `cmd.exe /d /s /c`, which keeps the
-/// script exactly as written between the outer quotes.
 #[cfg(windows)]
 pub(crate) fn cmd_script(script: &str) -> Command {
     use std::os::windows::process::CommandExt;
@@ -255,7 +241,6 @@ pub(crate) fn cmd_script(script: &str) -> Command {
     command
 }
 
-/// The system's description of an error, without Rust's "(os error N)".
 fn os_message(error: &io::Error) -> String {
     let text = error.to_string();
     let suffix = error
@@ -265,8 +250,6 @@ fn os_message(error: &io::Error) -> String {
     text.strip_suffix(&suffix).unwrap_or(&text).to_owned()
 }
 
-/// Where a command runs: `~` is the home folder, and relative paths start in
-/// the project folder.
 fn working_directory(root: &Path, cwd: Option<&ServerPath>) -> Result<PathBuf, ServerError> {
     let Some(path) = cwd else {
         return Ok(root.to_owned());
@@ -352,9 +335,6 @@ fn execute(
     })
 }
 
-/// The program file a command names. Windows looks a bare name up in
-/// `PATH` with each `PATHEXT` extension, so `.cmd` shims run as they do in a
-/// shell; Unix leaves that to the system.
 fn program(name: &str, path: Option<&String>) -> PathBuf {
     #[cfg(windows)]
     if !name.contains(['/', '\\']) {

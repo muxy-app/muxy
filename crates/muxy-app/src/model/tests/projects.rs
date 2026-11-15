@@ -577,8 +577,6 @@ fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppC
     std::fs::remove_dir_all(root).expect("cleanup");
 }
 
-/// On another computer, as macOS file systems refuse such names here.
-/// Windows paths are always text.
 #[cfg(unix)]
 #[gpui::test]
 fn a_project_whose_folder_name_is_not_text_opens_like_any_other(cx: &mut TestAppContext) {

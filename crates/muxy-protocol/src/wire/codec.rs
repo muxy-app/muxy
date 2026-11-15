@@ -6,8 +6,6 @@ use minicbor::{Decode, Decoder, Encoder};
 use crate::wire::{HEADER_LEN, Header, MessageKind, WireError};
 use crate::{ChannelId, Message};
 
-/// Every payload except raw input is one CBOR array of the message's fields,
-/// so a newer build can append fields that older builds skip.
 pub fn encode(
     message: &Message,
     channel: ChannelId,
@@ -105,8 +103,6 @@ fn fields(
     Ok(())
 }
 
-/// Returns `None` for a message from a newer build that this build ignores:
-/// an unknown kind, or an event naming a variant this build doesn't know.
 pub fn decode(header: Header, payload: &[u8]) -> Result<Option<(ChannelId, Message)>, WireError> {
     header.validate()?;
     if payload.len() != header.payload_len()? {
@@ -123,9 +119,7 @@ pub fn decode(header: Header, payload: &[u8]) -> Result<Option<(ChannelId, Messa
     let mut fields = Fields::new(&mut decoder)?;
     let message = match message(kind, &mut fields) {
         Ok(message) => message,
-        // A skipped frame would never be acknowledged, so frames stay strict.
         Err(error) if error.is_unknown_variant() && kind != MessageKind::Frame => {
-            // Ignored events must still be well formed.
             let mut whole = Decoder::new(payload);
             whole.skip()?;
             consumed(&whole, payload)?;
@@ -209,7 +203,6 @@ fn message(kind: MessageKind, fields: &mut Fields<'_, '_>) -> Result<Message, De
     })
 }
 
-/// A payload's field array. Fields a newer build appended are skipped.
 struct Fields<'a, 'b> {
     decoder: &'a mut Decoder<'b>,
     remaining: u64,
@@ -232,8 +225,6 @@ impl<'a, 'b> Fields<'a, 'b> {
         self.decoder.decode()
     }
 
-    /// Decodes the next field, or skips it when it names a variant this build
-    /// doesn't know, such as a newer method. Invalid values stay errors.
     fn readable<T: Decode<'b, ()>>(&mut self) -> Result<Option<T>, DecodeError> {
         if self.remaining == 0 {
             return Ok(None);

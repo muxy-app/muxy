@@ -35,7 +35,6 @@ fn server() -> ServerIdentity {
     ServerIdentity::from_u128(1)
 }
 
-/// Starts pairing, falling back to a fixed offer where the machine has no network.
 fn offer(remote: &RemoteAccess, owner: ClientId) -> [u8; 16] {
     if let Ok(offer) = remote.start_pairing(owner, &[]) {
         return offer.invite.secret;

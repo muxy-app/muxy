@@ -1,5 +1,3 @@
-//! Shared shortcut catalog and configuration interface. No UI or app dependencies.
-
 use crate::capability::Feature;
 
 pub const WORKSPACE_CLIPBOARD_CONTEXT: &str =
@@ -14,12 +12,10 @@ pub struct Shortcut {
 }
 
 impl Shortcut {
-    /// The name Settings shows, also the key of its translation.
     pub fn label(&self) -> String {
         self.id.replace(['_', '.'], " ")
     }
 
-    /// What Settings shows under the name, where the name alone is unclear.
     pub fn description(&self) -> Option<&'static str> {
         match self.id {
             "close_pane" => Some(crate::tr_key!(
@@ -47,7 +43,6 @@ impl Shortcut {
         }
     }
 
-    /// The feature whose backend the shortcut's command needs.
     pub fn feature(&self) -> Option<Feature> {
         FEATURES
             .iter()
@@ -1807,9 +1802,6 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    /// Combinations that Windows or a Linux desktop takes before the app sees
-    /// them. `AltGr` needs no entry: GPUI drops its Ctrl and Alt on layouts that
-    /// have it.
     const RESERVED: [&str; 18] = [
         "alt-f4",
         "alt-tab",

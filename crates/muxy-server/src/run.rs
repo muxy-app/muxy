@@ -22,7 +22,6 @@ use crate::{args::Args, logging, settings_file, shutdown};
 
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// The connections being served; `gone` wakes whoever waits for them to end.
 #[derive(Default)]
 struct Clients {
     serving: Mutex<BTreeMap<u64, Client>>,
@@ -45,7 +44,6 @@ struct Client {
     remote: bool,
 }
 
-/// Bookkeeping shared by the local and network accept loops.
 #[derive(Clone, Default)]
 pub(crate) struct Connections {
     clients: Arc<Clients>,
@@ -53,8 +51,6 @@ pub(crate) struct Connections {
     next: Arc<AtomicU64>,
 }
 
-/// A panicked local client stops the server, as before; a panicked network
-/// client is only logged, so the network can never stop the server.
 #[derive(Default)]
 struct Workers {
     local: Vec<JoinHandle<()>>,
@@ -85,7 +81,6 @@ impl Connections {
             .name(format!("client-{id}"))
             .spawn(move || {
                 match serve(stream) {
-                    // Network peers fail handshakes routinely; devices log after authenticating.
                     Err(error) if remote => log::debug!("network client {id}: {error}"),
                     Err(error) => log::error!("client {id}: {error}"),
                     Ok(()) => {}
@@ -128,7 +123,6 @@ impl Connections {
         }
     }
 
-    /// Ends every network connection, including ones not yet authenticated.
     pub(crate) fn cancel_remote(&self) {
         for client in self.clients.lock().values().filter(|client| client.remote) {
             client.cancellation.cancel();
@@ -141,7 +135,6 @@ impl Connections {
         }
     }
 
-    /// Waits until every connection has ended, or the timeout passes.
     fn drain(&self, timeout: Duration) {
         let serving = self.clients.lock();
         let _ = self
@@ -359,7 +352,6 @@ mod tests {
 
     #[test]
     fn closed_socket_cleanup_does_not_remove_its_replacement() -> io::Result<()> {
-        // Short, because socket paths are limited to about 100 bytes.
         let base = if cfg!(unix) {
             PathBuf::from("/tmp")
         } else {
@@ -379,7 +371,6 @@ mod tests {
             assert!(muxy_protocol::transport::connect(&path).is_ok());
             drop(replacement);
         }
-        // Windows keeps its socket lock file beside the socket.
         fs::remove_dir_all(directory)
     }
 }

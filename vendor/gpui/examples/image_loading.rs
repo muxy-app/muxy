@@ -114,7 +114,6 @@ impl Render for ImageLoadingExample {
                             fail: false,
                         };
 
-                        // Load within the 'loading delay', should not show loading fallback
                         img(move |window: &mut Window, cx: &mut App| {
                             window.use_asset::<LoadImageWithParameters>(&image_source, cx)
                         })
@@ -129,7 +128,6 @@ impl Render for ImageLoadingExample {
                         })
                     })
                     .child({
-                        // Load after a long delay
                         let image_source = LoadImageParameters {
                             timeout: Duration::from_secs(5),
                             fail: false,
@@ -149,13 +147,11 @@ impl Render for ImageLoadingExample {
                         })
                     })
                     .child({
-                        // Fail to load image after a long delay
                         let image_source = LoadImageParameters {
                             timeout: Duration::from_secs(5),
                             fail: true,
                         };
 
-                        // Fail to load after a long delay
                         img(move |window: &mut Window, cx: &mut App| {
                             window.use_asset::<LoadImageWithParameters>(&image_source, cx)
                         })
@@ -170,7 +166,6 @@ impl Render for ImageLoadingExample {
                         })
                     })
                     .child({
-                        // Ensure that the normal image loader doesn't spam logs
                         let image_source = Path::new(
                             "this/file/really/shouldn't/exist/or/won't/be/an/image/I/hope",
                         )

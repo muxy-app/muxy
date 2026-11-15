@@ -3,7 +3,6 @@ use gpui::{
     px, rgb, size,
 };
 
-// https://en.wikipedia.org/wiki/Holy_grail_(web_design)
 struct HolyGrailExample {}
 
 impl Render for HolyGrailExample {

@@ -1,5 +1,3 @@
-//! Lowercase hexadecimal text for bytes such as tokens and digests.
-
 const DIGITS: &[u8; 16] = b"0123456789abcdef";
 
 pub fn encode(bytes: &[u8]) -> String {
@@ -11,8 +9,6 @@ pub fn encode(bytes: &[u8]) -> String {
     text
 }
 
-/// Exactly `N` bytes, or `None` when `text` has another length or a
-/// character that isn't a hex digit.
 pub fn decode<const N: usize>(text: &str) -> Option<[u8; N]> {
     if text.len() != N * 2 {
         return None;

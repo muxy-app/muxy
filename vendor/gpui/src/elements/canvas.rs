@@ -5,8 +5,6 @@ use crate::{
     Style, StyleRefinement, Styled, Window,
 };
 
-/// Construct a canvas element with the given paint callback.
-/// Useful for adding short term custom drawing to a view.
 pub fn canvas<T>(
     prepaint: impl 'static + FnOnce(Bounds<Pixels>, &mut Window, &mut App) -> T,
     paint: impl 'static + FnOnce(Bounds<Pixels>, T, &mut Window, &mut App),
@@ -18,8 +16,6 @@ pub fn canvas<T>(
     }
 }
 
-/// A canvas element, meant for accessing the low level paint API without defining a whole
-/// custom element
 pub struct Canvas<T> {
     prepaint: Option<Box<dyn FnOnce(Bounds<Pixels>, &mut Window, &mut App) -> T>>,
     paint: Option<Box<dyn FnOnce(Bounds<Pixels>, T, &mut Window, &mut App)>>,

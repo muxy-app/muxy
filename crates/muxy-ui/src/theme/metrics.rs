@@ -19,12 +19,10 @@ impl Metrics {
         Self { multiplier }
     }
 
-    /// The metrics a window was last given by `apply_to_window`.
     pub fn of_window(window: &Window) -> Self {
         Self::new(f32::from(window.rem_size()) / ROOT_TEXT_SIZE)
     }
 
-    /// Scales text and sizes that are not set explicitly with `window`'s views.
     pub fn apply_to_window(&self, window: &mut Window) {
         window.set_rem_size(self.scaled(ROOT_TEXT_SIZE));
     }

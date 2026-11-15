@@ -227,8 +227,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Menu items that move pane `id` out of `tab`: into a new tab, a new
-    /// window, or another project.
     fn pane_move_items(&self, id: PaneId, project: &Project, tab: &Tab) -> Vec<Item> {
         let missing = project.status() == ProjectStatus::Missing;
         let alone = tab.panes.len() < 2;
@@ -270,8 +268,6 @@ impl AppModel {
         items
     }
 
-    /// Menu items that float pane `id`, or choose which projects the
-    /// floating tab it is in shows over.
     fn float_items(&self, id: PaneId, project: &Project, tab: &Tab) -> Vec<Item> {
         let Some(window) = tab.window.as_ref().filter(|window| window.is_floating()) else {
             let mut float = Item::action(tr!("Float Pane"), Command::FloatPane(id));

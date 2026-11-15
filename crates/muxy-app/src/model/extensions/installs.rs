@@ -26,8 +26,6 @@ pub(crate) struct FinishedInstall {
     pub error: Option<String>,
 }
 
-/// The one marketplace job allowed at a time. It belongs to the model so it
-/// outlives Settings, and its result waits here until a view has shown it.
 #[derive(Default)]
 pub(crate) struct Installs {
     pub active: Option<ActiveInstall>,
@@ -37,7 +35,6 @@ pub(crate) struct Installs {
 }
 
 impl AppModel {
-    /// Returns whether the job started.
     pub(crate) fn install_marketplace_extension(
         &mut self,
         details: ExtensionDetails,
@@ -46,7 +43,6 @@ impl AppModel {
         self.install_marketplace_extension_with(details, marketplace::download, cx)
     }
 
-    /// Returns whether the job started.
     pub(crate) fn install_marketplace_extension_with(
         &mut self,
         details: ExtensionDetails,
@@ -81,7 +77,6 @@ impl AppModel {
         true
     }
 
-    /// Returns whether the job started.
     pub(crate) fn update_all_extensions(&mut self, cx: &mut Context<Self>) -> bool {
         self.update_all_extensions_with(
             marketplace::versions,

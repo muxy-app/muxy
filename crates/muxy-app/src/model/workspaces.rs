@@ -1,12 +1,9 @@
-//! User-defined workspaces that group projects and filter the sidebar.
-
 use gpui::Context;
 use muxy_app_core::{AppError, AppState, ProjectId, ProjectStatus, WorkspaceId};
 
 use super::{AppModel, Quitting};
 
 impl AppModel {
-    /// Saves a workspace edit, then keeps the current project listed.
     pub(crate) fn edit_workspaces(
         &mut self,
         edit: impl FnOnce(&mut AppState) -> Result<(), AppError>,
@@ -61,7 +58,6 @@ impl AppModel {
         self.edit_workspaces(|state| state.select_workspace(workspace), cx);
     }
 
-    /// Opening a project while a workspace is active adds it there, like main.
     pub(crate) fn join_active_workspace(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         if self.state.active_workspace().is_some() {
             self.edit_workspaces(

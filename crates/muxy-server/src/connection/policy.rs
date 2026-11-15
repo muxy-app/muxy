@@ -2,12 +2,6 @@ use muxy_protocol::{ClientKind, DeviceKind, ErrorCode, RequestBody};
 
 use crate::ServerError;
 
-/// What a connection may ask for: `device` is the paired device on the other
-/// end of a network connection. A paired device can already reach a shell, so
-/// these limits guard access management and the server's lifecycle, not data.
-/// A paired computer may do what a desktop app on this computer does, except
-/// manage which devices may connect. Only a paired phone registers for push
-/// notifications, and only for itself, since the connection is its own.
 pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(), ServerError> {
     match body {
         RequestBody::Authenticate(_) | RequestBody::Pair(_) => Err(ServerError::new(
@@ -77,7 +71,6 @@ pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(
     }
 }
 
-/// Only connections from this computer.
 fn local_only(device: Option<DeviceKind>) -> Result<(), ServerError> {
     match device {
         None => Ok(()),
@@ -88,7 +81,6 @@ fn local_only(device: Option<DeviceKind>) -> Result<(), ServerError> {
     }
 }
 
-/// Paired phones, which push notifications reach through their device record.
 fn phone_only(device: Option<DeviceKind>) -> Result<(), ServerError> {
     match device {
         Some(DeviceKind::Phone) => Ok(()),
@@ -99,7 +91,6 @@ fn phone_only(device: Option<DeviceKind>) -> Result<(), ServerError> {
     }
 }
 
-/// Connections from this computer or from a paired computer.
 fn desktop_only(device: Option<DeviceKind>) -> Result<(), ServerError> {
     match device {
         None | Some(DeviceKind::Computer) => Ok(()),

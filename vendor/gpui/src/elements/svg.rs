@@ -6,14 +6,12 @@ use crate::{
 };
 use util::ResultExt;
 
-/// An SVG element.
 pub struct Svg {
     interactivity: Interactivity,
     transformation: Option<Transformation>,
     path: Option<SharedString>,
 }
 
-/// Create a new SVG element.
 #[track_caller]
 pub fn svg() -> Svg {
     Svg {
@@ -24,14 +22,11 @@ pub fn svg() -> Svg {
 }
 
 impl Svg {
-    /// Set the path to the SVG file for this element.
     pub fn path(mut self, path: impl Into<SharedString>) -> Self {
         self.path = Some(path.into());
         self
     }
 
-    /// Transform the SVG element with the given transformation.
-    /// Note that this won't effect the hitbox or layout of the element, only the rendering.
     pub fn with_transformation(mut self, transformation: Transformation) -> Self {
         self.transformation = Some(transformation);
         self
@@ -145,7 +140,6 @@ impl InteractiveElement for Svg {
     }
 }
 
-/// A transformation to apply to an SVG element.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transformation {
     scale: Size<f32>,
@@ -164,7 +158,6 @@ impl Default for Transformation {
 }
 
 impl Transformation {
-    /// Create a new Transformation with the specified scale along each axis.
     pub fn scale(scale: Size<f32>) -> Self {
         Self {
             scale,
@@ -173,7 +166,6 @@ impl Transformation {
         }
     }
 
-    /// Create a new Transformation with the specified translation.
     pub fn translate(translate: Point<Pixels>) -> Self {
         Self {
             scale: size(1.0, 1.0),
@@ -182,7 +174,6 @@ impl Transformation {
         }
     }
 
-    /// Create a new Transformation with the specified rotation in radians.
     pub fn rotate(rotate: impl Into<Radians>) -> Self {
         let rotate = rotate.into();
         Self {
@@ -192,26 +183,22 @@ impl Transformation {
         }
     }
 
-    /// Update the scaling factor of this transformation.
     pub fn with_scaling(mut self, scale: Size<f32>) -> Self {
         self.scale = scale;
         self
     }
 
-    /// Update the translation value of this transformation.
     pub fn with_translation(mut self, translate: Point<Pixels>) -> Self {
         self.translate = translate;
         self
     }
 
-    /// Update the rotation angle of this transformation.
     pub fn with_rotation(mut self, rotate: impl Into<Radians>) -> Self {
         self.rotate = rotate.into();
         self
     }
 
     fn into_matrix(self, center: Point<Pixels>, scale_factor: f32) -> TransformationMatrix {
-        //Note: if you read this as a sequence of matrix multiplications, start from the bottom
         TransformationMatrix::unit()
             .translate(center.scale(scale_factor) + self.translate.scale(scale_factor))
             .rotate(self.rotate)

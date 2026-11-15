@@ -1,30 +1,3 @@
-//! Test support for GPUI.
-//!
-//! GPUI provides first-class support for testing, which includes a macro to run test that rely on having a context,
-//! and a test implementation of the `ForegroundExecutor` and `BackgroundExecutor` which ensure that your tests run
-//! deterministically even in the face of arbitrary parallelism.
-//!
-//! The output of the `gpui::test` macro is understood by other rust test runners, so you can use it with `cargo test`
-//! or `cargo-nextest`, or another runner of your choice.
-//!
-//! To make it possible to test collaborative user interfaces (like Zed) you can ask for as many different contexts
-//! as you need.
-//!
-//! ## Example
-//!
-//! ```
-//! use gpui;
-//!
-//! #[gpui::test]
-//! async fn test_example(cx: &TestAppContext) {
-//!   assert!(true)
-//! }
-//!
-//! #[gpui::test]
-//! async fn test_collaboration_example(cx_a: &TestAppContext, cx_b: &TestAppContext) {
-//!   assert!(true)
-//! }
-//! ```
 use crate::{Entity, Subscription, TestAppContext, TestDispatcher};
 use futures::StreamExt as _;
 use rand::prelude::*;
@@ -35,9 +8,6 @@ use std::{
     pin::Pin,
 };
 
-/// Run the given test function with the configured parameters.
-/// This is intended for use with the `gpui::test` macro
-/// and generally should not be used directly.
 pub fn run_test(
     num_iterations: usize,
     explicit_seeds: &[u64],
@@ -64,8 +34,6 @@ pub fn run_test(
                     if attempt < max_retries {
                         println!("attempt {} failed, retrying", attempt);
                         attempt += 1;
-                        // The panic payload might itself trigger an unwind on drop:
-                        // https://doc.rust-lang.org/std/panic/fn.catch_unwind.html#notes
                         std::mem::forget(error);
                     } else {
                         if is_multiple_runs {
@@ -104,10 +72,6 @@ fn calculate_seeds(
             empty_range()
         };
 
-        // if `iterations` is 1 and !(`explicit_seeds` is non-empty || `SEED` is set), then add     the run `0`
-        // if `iterations` is 1 and  (`explicit_seeds` is non-empty || `SEED` is set), then discard the run `0`
-        // if `iterations` isn't 1 and `SEED` is set, do `SEED..SEED+iterations`
-        // otherwise, do `0..iterations`
         let iterations_range = match (iterations, env_num) {
             (1, None) if explicit_seeds.is_empty() => 0..1,
             (1, None) | (1, Some(_)) => empty_range(),
@@ -115,7 +79,6 @@ fn calculate_seeds(
             (iterations, None) => 0..iterations,
         };
 
-        // if `SEED` is set, ignore `explicit_seeds`
         let explicit_seeds = if env_num.is_some() {
             &[]
         } else {
@@ -130,7 +93,6 @@ fn calculate_seeds(
     (iter, is_multiple_runs)
 }
 
-/// A test struct for converting an observation callback into a stream.
 pub struct Observation<T> {
     rx: Pin<Box<channel::Receiver<T>>>,
     _subscription: Subscription,
@@ -147,7 +109,6 @@ impl<T: 'static> futures::Stream for Observation<T> {
     }
 }
 
-/// observe returns a stream of the change events from the given `Entity`
 pub fn observe<T: 'static>(entity: &Entity<T>, cx: &mut TestAppContext) -> Observation<()> {
     let (tx, rx) = smol::channel::unbounded();
     let _subscription = cx.update(|cx| {

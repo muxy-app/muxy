@@ -1,7 +1,3 @@
-//! Pages in `WebKitGTK`. A GPUI window is not a GTK window, so a page cannot
-//! be placed inside one. Each page renders into an offscreen GTK window on a
-//! thread that runs GTK; the app draws its frames and passes it input.
-
 pub(crate) mod browser;
 mod ffi;
 mod page;
@@ -21,7 +17,6 @@ use self::page::{Key, Runtime, Setup};
 use super::{AssetResult, Event, Pointer, assets::Source};
 
 pub const CAPABILITY: Capability = Capability::Supported;
-/// The page renders offscreen, so the app draws it and passes it input.
 pub(super) const DRAWN_BY_APP: bool = true;
 
 pub(super) fn probe() -> Capability {
@@ -46,7 +41,6 @@ fn data_directory() -> Option<PathBuf> {
         .clone()
 }
 
-/// Work for the GTK thread, or the reason there is none to run it.
 type Job = Box<dyn FnOnce(Result<&Rc<Runtime>, &str>) + Send>;
 
 enum Thread {
@@ -57,8 +51,6 @@ enum Thread {
 
 static THREAD: Mutex<Thread> = Mutex::new(Thread::Idle);
 
-/// Runs `job` on the GTK thread, starting it for the first one. The caller
-/// never waits: a thread that could not start hands the job its reason.
 fn post(job: impl FnOnce(Result<&Rc<Runtime>, &str>) + Send + 'static) {
     let job: Job = Box::new(job);
     let mut thread = THREAD.lock().unwrap_or_else(PoisonError::into_inner);
@@ -108,7 +100,6 @@ fn run(queue: mpsc::Receiver<Job>) {
     }
 }
 
-/// What the GTK thread publishes about a page for the app to read.
 #[derive(Debug, Default)]
 pub(super) struct Shared {
     generation: AtomicU64,
@@ -125,9 +116,7 @@ pub(super) struct NativeWebview {
     modal: Cell<bool>,
     passthrough: Cell<bool>,
     hit_regions: RefCell<Option<Vec<Bounds<Pixels>>>>,
-    /// The buttons pressed on the page and not yet released, one bit each.
     pressed_inside: Cell<u8>,
-    /// When the user last pressed a button on the page.
     last_click: Cell<Option<std::time::Instant>>,
     placed: Cell<Option<(u32, u32, f32)>>,
     shown: Cell<Option<bool>>,
@@ -140,13 +129,10 @@ impl NativeWebview {
         script: &str,
         _background: Rgba,
     ) -> Result<(Self, Receiver<Event>), String> {
-        // A window the desktop does not show, as in a test, has nowhere to
-        // draw a page, so no engine is started for it.
         HasWindowHandle::window_handle(window).map_err(|error| error.to_string())?;
         Self::open(source, script)
     }
 
-    /// Opens a page that renders off screen, whoever draws it.
     fn open(source: Source, script: &str) -> Result<(Self, Receiver<Event>), String> {
         let url = source.entry_url().map_err(|error| error.to_string())?;
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -185,7 +171,6 @@ impl NativeWebview {
         ))
     }
 
-    /// Runs `job` for this page on the GTK thread, if the page is still open.
     fn with(&self, job: impl FnOnce(&Rc<Runtime>, &page::Page) + Send + 'static) {
         let id = self.id;
         post(move |runtime| {
@@ -197,14 +182,10 @@ impl NativeWebview {
         });
     }
 
-    /// GPUI offers a key to the app's shortcuts before the page, so only
-    /// Escape is taken back here.
     pub(super) fn set_shortcuts(&self, modal: bool, _shortcuts: Rc<Vec<Keystroke>>) {
         self.modal.set(modal);
     }
 
-    // GPUI sends keys to the page only while it is focused, and draws and
-    // hit-tests what is above the page itself.
     #[allow(clippy::unused_self)]
     pub(super) fn set_focused(&self, _focused: bool) {}
 
@@ -232,20 +213,13 @@ impl NativeWebview {
         }
     }
 
-    /// The page renders off screen and any window draws its snapshots, so
-    /// there is nothing to move.
     #[allow(clippy::unused_self, clippy::unnecessary_wraps)]
     pub(super) fn move_to_window(&self, _window: &Window) -> Result<(), String> {
         Ok(())
     }
 
-    /// GPUI draws these pages in its own order, so there is nothing to raise.
     pub(super) fn order_front(_views: &[&Self]) {}
 
-    /// The pointer event the page gets, or `None` where it lets the pointer
-    /// through to what is under it. A button pressed on the page keeps the
-    /// pointer until that same button is released, whatever the regions do
-    /// meanwhile.
     fn admit(&self, event: Pointer) -> Option<Pointer> {
         let regions = self.hit_regions.borrow();
         let inside = |position: gpui::Point<Pixels>| {
@@ -301,7 +275,6 @@ impl NativeWebview {
         self.with(move |runtime, page| page.reply(runtime, id, generation, &json));
     }
 
-    // Assets are read and answered on the GTK thread without passing here.
     #[allow(clippy::unused_self)]
     pub(super) fn complete_asset(&self, _id: u64, _result: AssetResult) {}
 
@@ -323,7 +296,6 @@ impl NativeWebview {
         self.with(move |runtime, page| page.place(runtime, placed.0, placed.1, placed.2));
     }
 
-    /// Called every frame, so only a change is passed on.
     pub(super) fn set_visible(&self, visible: bool) {
         if self.shown.replace(Some(visible)) != Some(visible) {
             self.with(move |runtime, page| page.set_visible(runtime, visible));
@@ -342,8 +314,6 @@ impl NativeWebview {
         self.with(|runtime, page| page.snapshot(runtime));
     }
 
-    /// The page sends one frame at a time, so a slow window is never behind
-    /// by more than one. Taking a frame lets the next one be sent.
     pub(super) fn accept_snapshot(&self, id: u64, generation: u64) -> bool {
         let accepted =
             self.shared.snapshot.load(Ordering::Acquire) == id && self.generation() == generation;
@@ -405,7 +375,6 @@ impl Drop for NativeWebview {
     }
 }
 
-/// Whether the keystroke is one a desktop pastes with.
 fn pastes(keystroke: &Keystroke) -> bool {
     let modifiers = keystroke.modifiers;
     if modifiers.alt || modifiers.platform || modifiers.function {

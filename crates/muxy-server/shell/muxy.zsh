@@ -38,13 +38,10 @@ _muxy_preexec() {
 
 _muxy_unbound_alt() { return 0 }
 
-# Defer until user startup files and prompt frameworks have loaded.
 _muxy_install() {
     local result=$?
     precmd_functions=(${precmd_functions:#_muxy_install} _muxy_precmd)
     preexec_functions+=(_muxy_preexec)
-    # Consume complete unbound Alt arrows so ZLE cannot insert a CSI suffix.
-    # Keep bindings installed by the user's startup files and prompt framework.
     zle -N _muxy_unbound_alt
     local keymap sequence binding
     for keymap in emacs viins vicmd; do

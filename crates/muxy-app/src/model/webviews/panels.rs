@@ -18,7 +18,6 @@ const DEFAULT_FRAME: [f32; 4] = [80.0, 80.0, 360.0, 260.0];
 const CASCADE: f32 = 24.0;
 const MIN_SIZE: (f32, f32) = (24.0, 24.0);
 
-/// How a detached panel floats, as its manifest declares it.
 #[derive(Clone, Debug, Default, PartialEq)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -37,8 +36,6 @@ pub(super) struct Style {
 }
 
 impl Style {
-    /// Whether a page opened with `options` draws nothing behind it: as
-    /// asked, or else whenever Muxy draws no frame around it.
     fn transparent_with(&self, options: &PanelOptions) -> bool {
         options
             .transparent
@@ -53,12 +50,9 @@ pub(super) struct Definition {
     pub title: Option<String>,
     pub position: PanelPosition,
     pub mode: PanelMode,
-    /// Whether the manifest opens it detached.
     pub detached: bool,
     pub default_data: Value,
-    /// Whether the user's pin choice overrides the declared mode.
     pub allows_mode_selection: bool,
-    /// Whether the user's pop-out choice overrides the declared mode.
     pub allows_detach_selection: bool,
     pub style: Style,
 }
@@ -71,37 +65,24 @@ pub(crate) struct Panel {
     pub surface: Surface,
     pub owner: String,
     pub kind: String,
-    /// Tells apart several open copies of one panel.
     pub instance: Option<String>,
     pub title: Option<String>,
-    /// Where the panel docks, and kept while it floats detached.
     pub placement: PanelPlacement,
     pub resize: PanelResizeState,
     pub controls: [FocusHandle; 5],
     pub header_controls: Vec<FocusHandle>,
-    /// Whether it floats freely beside other panels instead of docking.
     pub detached: bool,
-    /// Whether the page lets what is behind it show through. Fixed when the
-    /// page is made.
     pub transparent: bool,
-    /// Where it floats while detached, before fitting the window.
     pub frame: FloatingFrame,
     pub limits: SizeLimits,
     pub chrome: PanelChrome,
-    /// Whether the pointer passes through the panel to what is under it,
-    /// except over its hit regions.
     pub click_through: bool,
     pub movable: bool,
     pub resizable: bool,
-    /// The root project it shows in; `None` shows it in every project.
     pub scope: Option<ProjectId>,
-    /// The header controls the page hid at run time, over the manifest's.
     pub hidden_controls: Option<Vec<Hidden>>,
-    /// Where the page takes the pointer, from its top left corner.
     pub hit_regions: Option<Vec<Rect>>,
-    /// Where dragging the page moves the panel, from its top left corner.
     pub drag_regions: Vec<Rect>,
-    /// The state the page last heard about, and the document that heard it.
     reported: Option<(u64, Value)>,
     closing: bool,
     focused: bool,
@@ -117,9 +98,6 @@ impl Panel {
                 .any(|focus| focus.is_focused(window))
     }
 
-    /// Applies the parts of `options` that shape how the panel floats.
-    /// `root` is the project a project-scoped panel belongs to; the frame is
-    /// fitted to `area`.
     fn apply_style(&mut self, options: &PanelOptions, root: ProjectId, area: gpui::Size<f32>) {
         let size = |size: SizeSpec| gpui::Size {
             width: size.width,
@@ -155,8 +133,6 @@ impl Panel {
         }
     }
 
-    /// Whether the pointer reaches the page anywhere, or only over its hit
-    /// regions.
     pub(crate) fn pointer_regions(&self) -> Option<&[Rect]> {
         if !self.detached {
             return None;
@@ -179,8 +155,6 @@ impl Panel {
     }
 }
 
-/// One size for every extension panel, as on main: a right panel's width and a
-/// bottom panel's height.
 #[derive(Clone, Copy)]
 pub(crate) struct PanelSize {
     width: f32,
@@ -332,7 +306,6 @@ impl AppModel {
         )
     }
 
-    /// `panel.update|get|raise`: the calling panel acting on itself.
     pub(super) fn own_panel_request(
         &mut self,
         id: &PanelId,
@@ -356,9 +329,6 @@ impl AppModel {
         }
     }
 
-    /// `panels.open|toggle|close|update|list`. Toggling closes without asking
-    /// the page; closing asks it first. Closing an unknown panel is not an
-    /// error.
     pub(in crate::model) fn panel_operation(
         &mut self,
         owner: &str,
@@ -465,7 +435,6 @@ impl AppModel {
         Ok(self.panel_state(&id).unwrap_or(Value::Null))
     }
 
-    /// Creates a panel's page and shows it, docked or detached.
     #[allow(clippy::too_many_arguments, reason = "One panel's whole opening")]
     fn create_panel(
         &mut self,
@@ -583,8 +552,6 @@ impl AppModel {
         self.open_panels(owner).count()
     }
 
-    /// An extension's open panels: docked, or detached even while another
-    /// project hides them. A docked panel another one replaced is closed.
     fn open_panels<'a>(&'a self, owner: &'a str) -> impl Iterator<Item = &'a PanelId> + 'a {
         self.webviews
             .panels
@@ -603,9 +570,6 @@ impl AppModel {
         };
     }
 
-    /// [`Self::update_webview_panel`] for a request from an extension, which
-    /// hears `panel.opened` when the change shows a panel that was closed,
-    /// such as one a docked panel had replaced.
     fn update_and_announce_panel(
         &mut self,
         id: &PanelId,
@@ -630,9 +594,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Where a detached panel opens before anything moved it: the manifest's
-    /// frame over a default that steps down and right for each panel the
-    /// extension already floats.
     fn first_frame(&self, owner: &str, style: &Style) -> [f32; 4] {
         #[allow(
             clippy::cast_precision_loss,
@@ -655,8 +616,6 @@ impl AppModel {
             .count()
     }
 
-    /// Applies `options` to an open panel, moving it between docked and
-    /// detached as asked.
     pub(in crate::model) fn update_webview_panel(
         &mut self,
         id: &PanelId,
@@ -717,7 +676,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// What a page can learn about one of its extension's panels.
     pub(crate) fn panel_state(&self, id: &PanelId) -> Option<Value> {
         let panel = self.webviews.panels.get(id)?;
         let area = self.webviews.area;
@@ -747,7 +705,6 @@ impl AppModel {
         }))
     }
 
-    /// Whether the panel shows now: docked, or detached in this project.
     pub(crate) fn webview_panel_shown(&self, id: &PanelId) -> bool {
         self.panels.placement(id).is_some()
             || self.webviews.panels.get(id).is_some_and(|panel| {
@@ -758,7 +715,6 @@ impl AppModel {
             })
     }
 
-    /// The detached extension panels shown now.
     pub(crate) fn detached_webview_panels(&self) -> Vec<PanelId> {
         self.webviews
             .panels
@@ -796,8 +752,6 @@ impl AppModel {
         }
     }
 
-    /// Remembers where the user left a panel that has no instance name.
-    /// Named instances are the extension's to remember.
     pub(in crate::model) fn save_detached_webview_frame(
         &mut self,
         id: &PanelId,
@@ -837,8 +791,6 @@ impl AppModel {
         }
     }
 
-    /// The header's pop-out control: floats a docked panel freely, or docks
-    /// a detached one, and remembers the choice.
     pub(crate) fn toggle_webview_panel_detached(
         &mut self,
         id: &PanelId,
@@ -877,13 +829,6 @@ impl AppModel {
         }
     }
 
-    /// Extension panels belong to the root project they were opened in, as on
-    /// main. Switching projects closes the open docked panel without asking
-    /// its page, and announces the new project's panel before
-    /// `project.switched`; its page is created once the update that switched
-    /// is done, by [`Self::open_restored_panel`]. Worktree switches keep
-    /// panels. Detached panels stay open: global ones keep showing, and ones
-    /// scoped to a project hide until it returns.
     pub(in crate::model) fn switch_panel_session(&mut self, cx: &mut Context<Self>) {
         let root = root_of(self.state.current_project());
         let Some(previous) = self.webviews.panel_sessions.enter(root) else {
@@ -954,8 +899,6 @@ impl AppModel {
         }
     }
 
-    /// Built-in panels are global, so a project's panel never displaces
-    /// them; that panel reopens on a later visit instead.
     fn builtin_panel_open(&self) -> bool {
         [
             crate::views::composer::PANEL,
@@ -966,8 +909,6 @@ impl AppModel {
         .any(|id| self.panels.placement(&PanelId::new(id)).is_some())
     }
 
-    /// Creates the page of a panel reopened by a project switch. Panel
-    /// operations call it first, so they act on the reopened panel.
     pub(in crate::model) fn open_restored_panel(
         &mut self,
         window: &mut Window,
@@ -1036,8 +977,6 @@ impl AppModel {
         }
     }
 
-    /// Forgets the remembered panels of stopped extensions, closing one that
-    /// was about to reopen.
     pub(super) fn forget_extension_panels(
         &mut self,
         keep: impl Fn(&str) -> bool,
@@ -1075,8 +1014,6 @@ impl AppModel {
         self.emit_extension_event(None, event, &payload, cx);
     }
 
-    /// How the panel docks: the user's pin choice where the manifest allows
-    /// one, otherwise the manifest's mode.
     fn docked_mode(&self, owner: &str, kind: &str, definition: &Definition) -> PanelMode {
         if definition.allows_mode_selection {
             self.webview_panel_mode(owner, kind, definition.mode)
@@ -1160,7 +1097,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Closes a panel once its page allows it (`onBeforeClose`).
     pub(crate) fn dismiss_webview_panel(&mut self, id: &PanelId, cx: &mut Context<Self>) {
         let Some(panel) = self
             .webviews
@@ -1319,8 +1255,6 @@ impl AppModel {
     }
 }
 
-/// Extension names and instance names never hold `:`, so a named copy's
-/// key can't match another panel's, whatever its panel ID holds.
 pub(super) fn panel_id(owner: &str, kind: &str, instance: Option<&str>) -> PanelId {
     match instance {
         Some(instance) => PanelId::new(format!("webview-instance:{owner}:{instance}:{kind}")),

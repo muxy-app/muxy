@@ -2,9 +2,6 @@ use cocoa::base::id;
 use cocoa::foundation::NSRange;
 use objc::{class, msg_send, sel, sel_impl};
 
-/// The `cocoa` crate does not define NSAttributedString (and related Cocoa classes),
-/// which are needed for copying rich text (that is, text intermingled with images)
-/// to the clipboard. This adds access to those APIs.
 #[allow(non_snake_case)]
 pub trait NSAttributedString: Sized {
     unsafe fn alloc(_: Self) -> id {
@@ -55,9 +52,8 @@ mod tests {
     use cocoa::base::nil;
     use cocoa::foundation::NSString;
     #[test]
-    #[ignore] // This was SIGSEGV-ing on CI but not locally; need to investigate https://github.com/zed-industries/zed/actions/runs/10362363230/job/28684225486?pr=15782#step:4:1348
+    #[ignore]
     fn test_nsattributed_string() {
-        // TODO move these to parent module once it's actually ready to be used
         #[allow(non_snake_case)]
         pub trait NSTextAttachment: Sized {
             unsafe fn alloc(_: Self) -> id {
@@ -92,28 +88,14 @@ mod tests {
 
             let _len: cocoa::foundation::NSUInteger = msg_send![attr_string, length];
 
-            ///////////////////////////////////////////////////
-            // pasteboard.clearContents();
 
             let rtfd_data = attr_string.RTFDFromRange_documentAttributes_(
                 NSRange::new(0, msg_send![attr_string, length]),
                 nil,
             );
             assert_ne!(rtfd_data, nil);
-            // if rtfd_data != nil {
-            //     pasteboard.setData_forType(rtfd_data, NSPasteboardTypeRTFD);
-            // }
 
-            // let rtf_data = attributed_string.RTFFromRange_documentAttributes_(
-            //     NSRange::new(0, attributed_string.length()),
-            //     nil,
-            // );
-            // if rtf_data != nil {
-            //     pasteboard.setData_forType(rtf_data, NSPasteboardTypeRTF);
-            // }
 
-            // let plain_text = attributed_string.string();
-            // pasteboard.setString_forType(plain_text, NSPasteboardTypeString);
         }
     }
 }

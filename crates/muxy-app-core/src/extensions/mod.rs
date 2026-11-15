@@ -20,20 +20,16 @@ pub use storage::{Settings, Storage};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-/// A developer folder [`Registry::load_unpacked`] registered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Unpacked {
     pub name: String,
-    /// The name wasn't registered to this folder before.
     pub new_source: bool,
 }
 
-/// Installed packages and explicit developer folders for this app profile.
 #[derive(Clone, Debug, Default)]
 pub struct Registry {
     pub extensions: BTreeMap<String, Extension>,
     pub errors: Vec<String>,
-    /// Errors reading the saved preferences, which no reload can change.
     preference_errors: Vec<String>,
     enabled: BTreeSet<String>,
     unpacked: BTreeMap<String, PathBuf>,
@@ -76,8 +72,6 @@ impl Registry {
         }
     }
 
-    /// A preferences file that was just written no longer has the error it was
-    /// read with.
     fn forget_preference_error(&mut self, name: &str) {
         let prefix = format!("{name}:");
         self.preference_errors
@@ -135,8 +129,6 @@ impl Registry {
         Extension::load(path)
     }
 
-    /// Reads one extension again. A folder that no longer loads is an error
-    /// and leaves the loaded copy, and every other extension, as they were.
     pub fn reload_one(&mut self, id: &str) -> Result<(), String> {
         let folder = match self.unpacked.get(id) {
             Some(folder) => folder.clone(),
@@ -158,13 +150,6 @@ impl Registry {
         Ok(())
     }
 
-    /// Registers a developer folder. A name that wasn't registered to this
-    /// folder before, such as one moved from a folder that no longer loads,
-    /// starts disabled, and the caller must forget its remembered consent:
-    /// the new folder's code never inherits the old one's authority.
-    /// What [`Self::load_unpacked`] would register for `path`, changing
-    /// nothing, or the reason it would refuse. So consent is cleared only
-    /// before a folder that will take a name over, never for a refused one.
     pub fn unpacked_target(&self, path: &Path) -> Result<Unpacked, String> {
         let (extension, folder) = self.checked_unpacked(path)?;
         let new_source = self.unpacked.get(&extension.name) != Some(&folder);
@@ -174,7 +159,6 @@ impl Registry {
         })
     }
 
-    /// `path`'s package and canonical folder, if it may be loaded.
     fn checked_unpacked(&self, path: &Path) -> Result<(Extension, PathBuf), String> {
         let extension = Self::unpacked_extension(path)?;
         if self.extensions.contains_key(&extension.name) {
@@ -218,8 +202,6 @@ impl Registry {
         self.unpacked.contains_key(id)
     }
 
-    /// The folder an unpacked extension was loaded from: the source, where
-    /// `Extension::directory` is its build output.
     pub fn source_folder(&self, id: &str) -> Option<&Path> {
         self.unpacked.get(id).map(PathBuf::as_path)
     }
@@ -260,7 +242,6 @@ impl Registry {
         Ok(())
     }
 
-    /// Forget developer folders without deleting their contents.
     pub fn remove(&mut self, id: &str) -> Result<(), String> {
         self.set_enabled(id, false)?;
         if let Some(folder) = self.unpacked.get(id).cloned() {

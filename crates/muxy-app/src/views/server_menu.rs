@@ -1,6 +1,3 @@
-//! The menus of remote servers, in the Servers popover and on the Servers page:
-//! one server, the servers selected on the page, or a group.
-
 use gpui::{Context, Pixels, Point, SharedString, Window};
 use muxy_app_core::ServerId;
 use muxy_ui::tr;
@@ -9,13 +6,10 @@ use super::menu::{Command, Item};
 use super::overlays::Overlay;
 use crate::model::{AppModel, RemoteServer, ServerStatus};
 
-/// Which servers a menu row acts on.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Servers {
     One(ServerId),
-    /// The servers selected on the Servers page.
     Selected,
-    /// The group at an index of `Settings::server_groups`, or the ungrouped.
     Group(Option<usize>),
 }
 
@@ -23,17 +17,13 @@ pub(crate) enum Servers {
 pub(crate) enum Action {
     NewTab,
     AddProject,
-    /// Connects the servers that are offline.
     Connect,
     Reconnect,
     Disconnect,
     Edit,
-    /// Moves them to the group at an index of `Settings::server_groups`, or
-    /// out of theirs.
     MoveTo(Option<usize>),
     NewGroup,
     RenameGroup,
-    /// Ungroups a group's servers, after asking.
     DeleteGroup,
     Restart,
     Stop,
@@ -46,7 +36,6 @@ fn item(label: SharedString, servers: Servers, action: Action) -> Item {
     Item::action(label, Command::RemoteServers(servers, action))
 }
 
-/// It is connected or connecting.
 pub(crate) fn live(server: &RemoteServer) -> bool {
     matches!(
         server.status,
@@ -54,8 +43,6 @@ pub(crate) fn live(server: &RemoteServer) -> bool {
     )
 }
 
-/// What connecting `members` means now: Connect for those offline, or
-/// Reconnect when none are, so live connections stay up.
 pub(crate) fn connect_choice(members: &[&RemoteServer]) -> (SharedString, Action) {
     let offline = members
         .iter()
@@ -75,7 +62,6 @@ pub(crate) fn connect_choice(members: &[&RemoteServer]) -> (SharedString, Action
     (label, action)
 }
 
-/// Connect or Reconnect, then Disconnect when any of `members` is live.
 fn connection_items(servers: Servers, members: &[&RemoteServer]) -> Vec<Item> {
     let (label, action) = connect_choice(members);
     let mut items = vec![item(label, servers, action)];
@@ -99,8 +85,6 @@ fn remove_label(count: usize) -> SharedString {
     }
 }
 
-/// Each group, checked when it holds every one of `members`, then no group
-/// and a new one.
 fn move_items(groups: &[&str], servers: Servers, members: &[&RemoteServer]) -> Vec<Item> {
     let shared = |group: Option<&str>| {
         members
@@ -129,7 +113,6 @@ fn move_items(groups: &[&str], servers: Servers, members: &[&RemoteServer]) -> V
     items
 }
 
-/// One server's menu.
 fn single_server_items(server: &RemoteServer, groups: &[&str], controls: bool) -> Vec<Item> {
     let servers = Servers::One(server.entry.id);
     let mut items = vec![
@@ -168,7 +151,6 @@ fn single_server_items(server: &RemoteServer, groups: &[&str], controls: bool) -
 }
 
 impl AppModel {
-    /// Every remote server, in the order the popover and the page list them.
     pub(crate) fn listed_servers(&self) -> Vec<ServerId> {
         crate::model::by_group(&self.settings.servers, |entry| entry)
             .into_iter()
@@ -177,7 +159,6 @@ impl AppModel {
             .collect()
     }
 
-    /// The servers a menu row acts on, in the listed order.
     pub(crate) fn menu_servers(&self, servers: Servers) -> Vec<ServerId> {
         let group = match servers {
             Servers::One(id) => return vec![id],
@@ -201,7 +182,6 @@ impl AppModel {
         listed
     }
 
-    /// The servers `servers` names, with their state, in the listed order.
     pub(crate) fn menu_members(&self, servers: Servers) -> Vec<RemoteServer> {
         let ids = self.menu_servers(servers);
         let mut members: Vec<_> = self
@@ -213,8 +193,6 @@ impl AppModel {
         members
     }
 
-    /// Opens `items`. Opened from the Remote popover, the popover stays shown
-    /// under them and comes back when they close.
     fn open_server_items(
         &mut self,
         items: Vec<Item>,
@@ -229,8 +207,6 @@ impl AppModel {
         }
     }
 
-    /// A server's menu. With `selection`, a server among several selected on
-    /// the page opens the selection's menu. The selection never changes.
     pub(crate) fn open_server_menu(
         &mut self,
         id: ServerId,
@@ -267,9 +243,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// A server's menu from its sidebar heading. Another computer's is the
-    /// one the Servers popover opens; this computer's has its projects and
-    /// its server's controls.
     pub(crate) fn open_sidebar_server_menu(
         &mut self,
         server: ServerId,
@@ -329,7 +302,6 @@ impl AppModel {
         items
     }
 
-    /// Move to Group's choices for `servers`, as a menu of its own.
     pub(crate) fn open_move_menu(
         &mut self,
         servers: Servers,
@@ -346,7 +318,6 @@ impl AppModel {
         self.open_server_items(items, position, window, cx);
     }
 
-    /// A group's menu; the ungrouped servers can't be renamed or deleted.
     pub(crate) fn open_group_menu(
         &mut self,
         group: Option<&str>,
@@ -369,8 +340,6 @@ impl AppModel {
         self.open_server_items(items, position, window, cx);
     }
 
-    /// The servers of `group`, or of the ungrouped; `None` when no server
-    /// is in that group.
     pub(crate) fn group_servers(&self, group: Option<&str>) -> Option<Servers> {
         match group {
             Some(group) => self
@@ -383,9 +352,6 @@ impl AppModel {
         }
     }
 
-    /// Does what a row of those menus, or a button, says. Rows that manage
-    /// the servers leave the popover open to show the result; the others
-    /// close it.
     pub(crate) fn perform_server_menu(
         &mut self,
         servers: Servers,
@@ -469,8 +435,6 @@ impl AppModel {
         }
     }
 
-    /// Names a group, puts `servers` in it, and says whether that worked. A
-    /// renamed group keeps its servers where they are.
     pub(crate) fn name_server_group(
         &mut self,
         servers: Servers,

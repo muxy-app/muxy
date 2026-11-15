@@ -26,10 +26,7 @@ use super::{
 pub(crate) enum PaneEvent {
     Focused,
     OpenLink(muxy_app_core::opener::Target),
-    /// A link on another computer, which only its server can look up.
     ResolveLink(super::links::Candidate),
-    /// Files or an image for a terminal on another computer, which can't
-    /// reach this computer's.
     Upload(crate::model::remote_files::Upload),
     ContextMenu(gpui::Point<gpui::Pixels>),
     SelectionCopied,
@@ -40,33 +37,20 @@ pub(crate) enum PaneEvent {
     Mouse(ChannelId, MouseEvent),
     CellSize(ChannelId, muxy_protocol::CellSize),
     Title(String),
-    /// The color the pane's header takes from the terminal changed.
     HeaderBackground,
     Bell,
     History(HistoryRequest),
-    /// Frames of an image on screen whose pixels the pane doesn't have yet.
-    ImageFrames {
-        image: u32,
-        keys: Vec<u64>,
-    },
-    /// A frame is applied, its images ready to draw.
+    ImageFrames { image: u32, keys: Vec<u64> },
     Ack(ChannelId, u64),
     Search(find::SearchRequest),
-    /// Insert Path opened and needs what it browses the server's folders with.
     BrowsePaths,
-    /// Insert Path typed this path, absolute on the terminal's computer.
     PathChosen(String),
 }
 
 gpui::actions!(terminal, [CloseFind]);
 
-/// An animation never repaints sooner than this after its last frame.
 const SHORTEST_IMAGE_FRAME: Duration = Duration::from_millis(8);
-/// How long a pane waits before it asks again for frames it couldn't read.
 const IMAGE_RETRY: Duration = Duration::from_secs(1);
-/// How long scrolling has to pause before a view left less than a row above
-/// the bottom returns to it. Longer than the gap between the events of one
-/// scroll gesture, so the view never moves under a scroll still going on.
 const SCROLL_SETTLE: Duration = Duration::from_millis(200);
 
 pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>) {
@@ -76,12 +60,9 @@ pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>
     );
 }
 
-/// What a pane shows. It reads as the grid on screen.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Screen {
-    /// A terminal attached on this server.
     Attached(ServerId, AttachedTerminal),
-    /// The last screen of a terminal no longer attached, or a saved one.
     Detached(RunGrid),
 }
 
@@ -138,11 +119,8 @@ pub(crate) struct TerminalPane {
     pub(crate) render_count: usize,
     pub(crate) sent_cell_size: Option<(ChannelId, muxy_protocol::CellSize)>,
     pub(crate) images: element::images::Textures,
-    /// Repaints when an animation's next frame is due.
     image_animation: Option<(std::time::Instant, Task<()>)>,
-    /// Repaints to ask again for frames a failed request didn't bring.
     image_retry: Option<Task<()>>,
-    /// The frame to acknowledge once textures of the pixels it brought are made.
     unacked: Option<(ChannelId, u64)>,
     pub(crate) rows: std::cell::RefCell<element::Rows>,
     pub(crate) shades: element::shade::Textures,
@@ -173,7 +151,6 @@ pub(crate) struct TerminalPane {
     pub(crate) native_visible: bool,
     #[cfg(target_os = "macos")]
     pub(crate) native_scroll: Option<muxy_ui::native_scroll::NativeScrollView>,
-    /// The window the native scroll view lives in.
     #[cfg(target_os = "macos")]
     native_scroll_window: Option<gpui::WindowId>,
     #[cfg(target_os = "macos")]
@@ -184,12 +161,8 @@ pub(crate) struct TerminalPane {
     pub(crate) focused: bool,
     pub(crate) cursor_blink: super::cursor::CursorBlink,
     pub(crate) corner_radius: gpui::Pixels,
-    /// A pane header sits above the terminal, so only its bottom is rounded.
     pub(crate) below_header: bool,
     viewport: Option<Size>,
-    /// The attached session's size on its server, as its latest frame said.
-    /// It differs from `viewport` after another client, such as a phone,
-    /// resized the session.
     session_size: Option<Size>,
     pub(crate) palette: Palette,
     header_background: Option<u32>,
@@ -225,8 +198,6 @@ impl TerminalPane {
         }
     }
 
-    /// The background and text colors of the pane's header: the color the
-    /// program paints the top row in, or the terminal's own background.
     pub(crate) fn header_colors(&self) -> (gpui::Hsla, gpui::Hsla) {
         let background = self.header_background.unwrap_or(self.palette.background);
         let foreground = super::colors::readable_on(
@@ -243,8 +214,6 @@ impl TerminalPane {
         )
     }
 
-    /// The title the pane's header shows: the program's title, else what runs
-    /// in it, its shell included. `None` until the terminal reports either.
     pub(crate) fn header_title(&self) -> Option<String> {
         (self.process.is_some() || !self.title.trim().is_empty()).then(|| {
             muxy_app_core::title::derive_for_header(
@@ -255,7 +224,6 @@ impl TerminalPane {
         })
     }
 
-    /// The folder the pane's header shows beside its title.
     pub(crate) fn header_directory(&self, home: Option<&std::path::Path>) -> Option<String> {
         muxy_app_core::title::directory_for_header(&self.directory, home)
     }
@@ -350,7 +318,6 @@ impl TerminalPane {
         }
     }
 
-    /// The font size the user zoomed to, if it isn't the configured one.
     pub(crate) fn zoomed_font_size(&self) -> Option<f32> {
         (self.terminal.font_size.to_bits() != self.configured_font_size.to_bits())
             .then_some(self.terminal.font_size)
@@ -361,8 +328,6 @@ impl TerminalPane {
         path.is_absolute().then_some(path)
     }
 
-    /// The context terminal shortcuts are bound in, which the find bar
-    /// changes while it is open.
     fn key_context(&self) -> &'static str {
         if self.find.is_some() {
             "TerminalFindOpen"
@@ -371,8 +336,6 @@ impl TerminalPane {
         }
     }
 
-    /// The terminal's folder as its server spells it, which may be a path
-    /// of another kind of computer than this one.
     pub(super) fn server_directory(&self) -> Option<String> {
         self.directory
             .is_absolute()
@@ -384,7 +347,6 @@ impl TerminalPane {
         self.attachment().map(|(_, channel)| channel)
     }
 
-    /// The server that attached this pane, and its channel there.
     pub(crate) fn attachment(&self) -> Option<(ServerId, ChannelId)> {
         match &self.grid {
             Some(Screen::Attached(server, terminal)) => Some((*server, terminal.channel())),
@@ -491,7 +453,6 @@ impl TerminalPane {
             && !scrolls_on_output()
     }
 
-    /// Applies the attached terminal's next frame; returns the sequence number to acknowledge.
     pub(crate) fn apply(&mut self, frame: &ScreenFrame, cx: &mut Context<Self>) -> Option<u64> {
         let _span = crate::profiler::span(crate::profiler::Metric::FrameApply);
         crate::profiler::count(crate::profiler::Metric::FrameRows, frame.rows.len());
@@ -533,9 +494,6 @@ impl TerminalPane {
         None
     }
 
-    /// Makes textures of pixels that came with the screen on a background
-    /// thread. A frame that brought them is acknowledged once they are all
-    /// made, so the server sends no newer screens than the pane can draw.
     pub(crate) fn convert_images(
         conversions: Vec<element::images::Conversion>,
         cx: &mut Context<Self>,
@@ -580,7 +538,6 @@ impl TerminalPane {
         }
     }
 
-    /// Moves the view to `rows` above the bottom.
     pub(super) fn scroll_to(&mut self, rows: f64, cx: &mut Context<Self>) {
         if let Some(grid) = &self.grid {
             let height = usize::from(self.viewport.unwrap_or(grid.size).rows);
@@ -597,11 +554,6 @@ impl TerminalPane {
         }
     }
 
-    /// Returns the view to the bottom once scrolling stops less than a row
-    /// above it. A stray scroll of a few pixels would otherwise leave a copy
-    /// of the screen that looks live while new output stays out of sight.
-    /// The view stays while a drag is under way, or while it holds a
-    /// selection the screen would lose.
     pub(super) fn settle_scroll(&mut self, cx: &mut Context<Self>) {
         if !self.scroll.rests_at_bottom() {
             self.scroll_settle = None;
@@ -622,8 +574,6 @@ impl TerminalPane {
         }));
     }
 
-    /// Whether the selection, if any, covers the same text on the screen as
-    /// it does in the scrolled view.
     fn screen_keeps_selection(&self) -> bool {
         self.selection.is_none_or(|selection| {
             self.grid
@@ -656,7 +606,6 @@ impl TerminalPane {
         }));
     }
 
-    /// Repaints once `next` comes, when an animation shows its next frame.
     pub(crate) fn animate_images(
         &mut self,
         next: Option<std::time::Instant>,
@@ -738,8 +687,6 @@ impl TerminalPane {
         self.sync_native_scroll();
     }
 
-    /// Records whether app content leaves the pane uncovered, and applies it to
-    /// every native view the pane owns.
     pub(crate) fn set_native_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
         if self.native_visible != visible {
             self.native_visible = visible;
@@ -756,8 +703,6 @@ impl TerminalPane {
         }
     }
 
-    /// Whether the history can be scrolled with a scroll bar: the pane is
-    /// uncovered, live, and the program doesn't read the wheel itself.
     pub(super) fn scrolls_history(&self) -> bool {
         self.native_visible
             && !self.reports_wheel()
@@ -1048,8 +993,6 @@ impl TerminalPane {
         cx.notify();
     }
 
-    /// Asks the server to give the attached session this size, showing the
-    /// screen at it until the server's redraw arrives.
     fn resize_session(&mut self, size: Size, cx: &mut Context<Self>) {
         self.session_size = Some(size);
         self.scroll.reset();
@@ -1063,8 +1006,6 @@ impl TerminalPane {
         cx.notify();
     }
 
-    /// Takes the session back to this pane's size once the user works in the
-    /// pane again after another client, such as a phone, resized it.
     fn reclaim_size(&mut self, cx: &mut Context<Self>) {
         if self.state == PaneState::Live
             && self.attachment().is_some()
@@ -1690,7 +1631,6 @@ impl TerminalPane {
         cx.stop_propagation();
     }
 
-    /// Whether another computer's server runs this terminal.
     pub(crate) fn remote(&self) -> bool {
         self.attachment()
             .is_some_and(|(server, _)| !server.is_local())
@@ -1715,7 +1655,6 @@ impl TerminalPane {
         }
     }
 
-    /// Pastes dropped files' paths; another computer gets the files first.
     pub(crate) fn drop_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         if self.remote() {
             if self.state == PaneState::Live {
@@ -1728,14 +1667,10 @@ impl TerminalPane {
         }
     }
 
-    /// How paths pasted here are quoted, for the program in the foreground;
-    /// `None` when it is a shell whose quoting isn't known.
     pub(crate) fn path_quoting(&self) -> Option<muxy_client::input::PathQuoting> {
         muxy_client::input::PathQuoting::for_process(self.process.as_ref())
     }
 
-    /// Pastes paths quoted for the program in the foreground. Nothing is
-    /// pasted where they can't be quoted safely.
     pub(crate) fn paste_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         if let Some(grid) = &self.grid
             && let Some(quoting) = self.path_quoting()
@@ -1757,9 +1692,6 @@ impl TerminalPane {
         }
     }
 
-    /// Types `path` at the cursor as one word, quoted for the program in the
-    /// foreground where it needs quotes. Returns whether it was typed: a
-    /// path that can't be quoted safely there isn't.
     pub(super) fn type_path(&mut self, path: &ServerPath, cx: &mut Context<Self>) -> bool {
         let modes = match &self.grid {
             Some(grid) if !self.server_input => grid.modes,
@@ -1813,7 +1745,6 @@ impl TerminalPane {
         if !bytes.is_empty()
             && let Some(channel) = self.prepare_input(cx)
         {
-            // Each bounded chunk is a complete paste, so disconnects cannot leave an open fence.
             for chunk in input::paste_chunks(bytes) {
                 cx.emit(PaneEvent::TerminalInput(
                     channel,
@@ -1925,8 +1856,6 @@ impl TerminalPane {
         true
     }
 
-    /// Runs a terminal action that needs no key: the ones a key binding and
-    /// a command share.
     pub(crate) fn perform(
         &mut self,
         action: &muxy_app_core::settings::TerminalAction,
@@ -2019,7 +1948,6 @@ impl TerminalPane {
             return;
         }
         if self.server_input {
-            // Cocoa's selector callback drops GPUI's held flag for nonprinting keys.
             let held = event.is_held || self.keyboard.is_pressed(&event.keystroke.key);
             self.send_key(input::key_event(&event.keystroke, held, option_as_alt), cx);
             cx.stop_propagation();
@@ -2217,7 +2145,6 @@ mod tests {
         }
     }
 
-    /// Shows the pane's screen as attached on `server`.
     fn attach_screen(pane: &mut TerminalPane, server: ServerId) {
         pane.grid = pane.grid.take().map(|screen| {
             Screen::Attached(

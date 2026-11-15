@@ -21,7 +21,6 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    /// Themes in Muxy's directory replace the bundled ones.
     pub(crate) fn load(directory: &Path) -> Self {
         let mut entries: BTreeMap<_, _> = muxy_ui::assets::Assets::themes()
             .map(|(name, source)| (name.to_owned(), ColorScheme::parse(source)))
@@ -96,7 +95,6 @@ impl Catalog {
         self.find(name).or_else(|| self.find(fallback))
     }
 
-    /// Accepts a theme's file name too, such as `Dracula.conf`.
     fn find(&self, name: &str) -> Option<&Entry> {
         [name, theme_name(name)]
             .into_iter()

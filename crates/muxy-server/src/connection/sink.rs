@@ -6,10 +6,6 @@ use crate::{AttachmentEvent, ServerError};
 
 use super::Connection;
 
-/// Writes one attached channel's events straight into its connection's outbox.
-///
-/// Dropping it without an `Ended` event still fails the channel, so the
-/// client hears about a session that went away.
 pub(crate) struct OutboxSink {
     connection: Weak<Connection>,
     channel: ChannelId,
@@ -80,7 +76,6 @@ mod tests {
     const CHANNEL: ChannelId = ChannelId(1);
     const REQUEST: RequestId = RequestId(7);
 
-    /// A connection with `CHANNEL` attached and waiting on `REQUEST`, and that channel's sink.
     fn attached() -> Result<(Arc<Connection>, Receiver<impl Sized>, OutboxSink), Box<dyn Error>> {
         let connection = Arc::new(Connection::new(Arc::default()));
         let (handle, commands) = SessionHandle::fake();
@@ -217,7 +212,6 @@ mod tests {
             assert_eq!(&sent.images[0], expected, "defers: {defers}");
             assert_eq!(sent.validate(), Ok(()));
 
-            // Two frames that merge while the app is busy, then a screen read with history.
             for seq in [2, 3] {
                 assert!(sink.send(AttachmentEvent::Frame(ScreenFrame {
                     seq,

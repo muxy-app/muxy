@@ -21,23 +21,18 @@ use crate::views::terminal::find::SearchRequest;
 use crate::views::terminal::scroll::HistoryRequest;
 
 pub(crate) type Worker = Sender<(u64, Work)>;
-/// What every server's worker sends back, tagged with its server and generation.
 pub(crate) type Updates = async_channel::Receiver<(ServerId, u64, Update)>;
 
 #[derive(Debug)]
 pub(crate) struct Boot {
     pub(crate) import_message: Option<String>,
-    /// macOS stopped the terminals after the app last quit, because Muxy may
-    /// not run in the background.
     pub(crate) stopped_in_background: bool,
-    /// The welcome tour opens at launch, until it is finished or skipped.
     pub(crate) show_onboarding: bool,
     pub(crate) composer: muxy_app_core::composer::ComposerStore,
     pub(crate) state: AppState,
     pub(crate) state_path: PathBuf,
     pub(crate) settings: muxy_app_core::settings::Settings,
     pub(crate) terminal: muxy_app_core::settings::TerminalSettings,
-    /// This computer's server, already connecting.
     pub(crate) work: Worker,
     pub(crate) workers: Workers,
     pub(crate) updates: Updates,
@@ -77,7 +72,6 @@ impl Boot {
             Target::Local(state_path.with_file_name("server.sock")),
         )?;
         work.send((1, Work::Connect))?;
-        // Taken last, so a launch that fails still explains it next time.
         #[cfg(target_os = "macos")]
         let stopped_in_background = muxy_client::local::host::take_background_stop(profile);
         #[cfg(not(target_os = "macos"))]
@@ -102,12 +96,8 @@ impl Boot {
     }
 }
 
-/// Marks a profile whose close tab and close pane shortcuts were checked.
 const CLOSE_SHORTCUTS_CHECKED: &str = "close-shortcuts-checked";
 
-/// Profiles imported from Muxy 1.x kept ⌘W on close tab. Puts close tab and
-/// close pane back on their defaults once, so a later choice of the same keys
-/// stays. A failure leaves the profile unmarked to try again next launch.
 fn reset_close_shortcuts_once(profile: &std::path::Path) {
     let checked = profile.join(CLOSE_SHORTCUTS_CHECKED);
     if checked.exists() {
@@ -119,15 +109,10 @@ fn reset_close_shortcuts_once(profile: &std::path::Path) {
     }
 }
 
-/// How a worker reaches its server.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Target {
-    /// This computer's server, at the socket in the profile.
     Local(PathBuf),
-    /// The server on another computer, reached over SSH.
     Ssh(SshTarget),
-    /// The server on another computer that this one paired with, reached
-    /// over the network.
     Paired {
         endpoint: RemoteEndpoint,
         credential: muxy_protocol::DeviceCredential,
@@ -135,7 +120,6 @@ pub(crate) enum Target {
 }
 
 impl Target {
-    /// Another connection to the server the worker reached. It never starts one.
     fn connect(&self) -> Result<Client, ClientError> {
         match self {
             Self::Local(socket) => Client::connect(socket),
@@ -159,8 +143,6 @@ impl Target {
     }
 }
 
-/// Checks that another computer's server answers over SSH, and reports its
-/// version or why it doesn't.
 pub(crate) type Probe = Arc<dyn Fn(&SshTarget) -> Result<String, ProbeFailure> + Send + Sync>;
 
 #[derive(Debug)]
@@ -181,12 +163,9 @@ impl From<&str> for ProbeFailure {
     }
 }
 
-/// Runs a command on another computer over SSH, such as an installer, and
-/// returns what it printed, or why it failed.
 pub(crate) type Run =
     Arc<dyn Fn(&SshTarget, &str, Option<&std::path::Path>) -> Result<String, String> + Send + Sync>;
 
-/// Starts one worker per server.
 pub(crate) struct Workers {
     start: Box<dyn Fn(ServerId, Target) -> std::io::Result<Worker>>,
     probe: Probe,
@@ -202,7 +181,6 @@ impl Workers {
         }
     }
 
-    /// Workers from `start`, with a probe that never reaches a network.
     #[cfg(test)]
     pub(crate) fn with(
         start: impl Fn(ServerId, Target) -> std::io::Result<Worker> + 'static,
@@ -252,8 +230,6 @@ impl Workers {
     }
 }
 
-/// Runs `remote` there, waits for it, and returns its output. On failure,
-/// the last line of its error output, else of its output, says why.
 fn run(
     host: &SshTarget,
     remote: &str,
@@ -298,8 +274,6 @@ fn run(
         }))
 }
 
-/// Connects once, starting the server if needed, as a worker would. It
-/// blocks for as long as SSH takes, so it runs off the UI thread.
 pub(crate) fn probe(host: &SshTarget) -> Result<String, ProbeFailure> {
     let client = Client::connect_ssh(host, Start::IfNeeded).map_err(|error| {
         let message = explain(&Target::Ssh(host.clone()), &error);
@@ -322,7 +296,6 @@ impl std::fmt::Debug for Workers {
     }
 }
 
-/// Pairs a `Work::CheckClose` with its `Update::CloseChecked`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CloseCheckId(u64);
 
@@ -331,13 +304,11 @@ impl CloseCheckId {
         Self(attach_tag())
     }
 
-    /// A close check attaches to read the process, under this tag.
     fn tag(self) -> u64 {
         self.0
     }
 }
 
-/// Tells each attach's terminal apart on the event stream.
 pub(crate) fn attach_tag() -> u64 {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     NEXT.fetch_add(1, Ordering::Relaxed)
@@ -345,10 +316,7 @@ pub(crate) fn attach_tag() -> u64 {
 
 #[derive(Debug)]
 pub(crate) enum Work {
-    /// Lends the worker's client.
     ExtensionClient(async_channel::Sender<Option<Client>>),
-    /// Opens a separate connection to the same server, so extension work
-    /// never queues behind the app's requests or terminal frames.
     ExtensionConnection(async_channel::Sender<Result<Client, String>>),
     WriteInput {
         channel: ChannelId,
@@ -380,10 +348,8 @@ pub(crate) enum Work {
         request: SearchRequest,
     },
     Connect,
-    /// Hangs up until the next Connect; the worker stays.
     Disconnect,
     ReconnectAfterUpdate(u64),
-    /// A connection attempt finished on its own thread.
     Connected(Box<Result<(Client, Vec<SessionInfo>), ClientError>>),
     ReadServerSettings,
     WriteServerSettings(muxy_protocol::ServerSettingsDoc),
@@ -406,21 +372,17 @@ pub(crate) enum Work {
         replace: bool,
     },
     Attach {
-        /// From `attach_tag`.
         tag: u64,
         pane: PaneId,
         project: muxy_protocol::ProjectId,
         session: Option<SessionId>,
         directory: PathBuf,
         size: Size,
-        /// More environment for a new terminal, such as a proxy.
         environment: BTreeMap<String, String>,
-        /// Colors for a new terminal alone, such as the Quick Terminal's theme.
         colors: Option<TerminalColors>,
     },
     References(Vec<SessionId>),
     Discard(SessionId, muxy_protocol::OperationId),
-    /// Tells the server a terminal now belongs to another project.
     MoveSession(SessionId, muxy_protocol::ProjectId),
     CheckClose {
         check: CloseCheckId,
@@ -431,7 +393,6 @@ pub(crate) enum Work {
         pane: PaneId,
         session: SessionId,
     },
-    /// Asks why `session`, which the server no longer runs, ended.
     ReadEndReason {
         pane: PaneId,
         session: SessionId,
@@ -584,10 +545,8 @@ pub(crate) enum Update {
         result: Result<(), ClientError>,
     },
     PreparedForInstall(Result<Option<muxy_core::file_lock::FileLock>, ClientError>),
-    /// The server's build and instance, and what it can do.
     ServerInfo(muxy_protocol::ServerInfo, Vec<muxy_protocol::Feature>),
     ServerChecked(Result<ServerUpdate, ClientError>),
-    /// Why connecting failed, and for another computer, the kind of failure.
     ConnectFailed(String, Option<muxy_client::RemoteReason>),
     Attached {
         pane: PaneId,
@@ -611,7 +570,6 @@ pub(crate) enum Update {
         result: Result<Option<muxy_protocol::ExitReason>, ClientError>,
     },
     ReferencesSynced(Result<(), ClientError>),
-    /// A `SessionName` request finished.
     SessionNamed {
         session: SessionId,
         name: Option<String>,
@@ -648,9 +606,6 @@ pub(crate) enum Update {
     Error(String),
 }
 
-/// Runs one server's connection and requests on a thread of its own, so a
-/// slow or unreachable server never holds up another. Work sent while it
-/// connects waits for the connection, then runs in order.
 #[allow(
     clippy::too_many_lines,
     reason = "Keep connection and request routing together"
@@ -845,8 +800,6 @@ fn dispatch_git(
         });
 }
 
-/// Connects on a thread of its own, so Stop and a newer Connect never wait
-/// for SSH. A connection that arrives for an older generation is closed.
 fn start_connect(
     target: &Target,
     generation: u64,
@@ -886,8 +839,6 @@ fn connect(
         Target::Paired { .. } => target.connect()?,
     };
     client.identify(muxy_protocol::ClientKind::Desktop)?;
-    // Older servers refuse streaming, so the app reads the pixels itself; the
-    // oldest refuse that too and keep sending pixels with every screen.
     match client.stream_images() {
         Ok(()) => {}
         Err(ClientError::Server(_)) => match client.defer_images() {
@@ -923,7 +874,6 @@ fn connect(
     Ok((client, sessions))
 }
 
-/// Names the other computer on errors that would not say which one failed.
 fn explain(target: &Target, error: &ClientError) -> String {
     match (target, error) {
         (Target::Ssh(host), ClientError::Timeout | ClientError::Disconnected) => {
@@ -1393,13 +1343,10 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
     result.err().as_ref().and_then(reported_error)
 }
 
-/// A request lost with the connection is reported by the disconnect itself.
 fn reported_error(error: &ClientError) -> Option<Update> {
     (!matches!(error, ClientError::Disconnected)).then(|| Update::Error(error.to_string()))
 }
 
-/// A request for a channel or session the server no longer has is finished;
-/// the session's end is reported on its own.
 fn finished_if_gone(result: Result<(), ClientError>) -> Result<(), ClientError> {
     match result {
         Err(ClientError::Server(reply))
@@ -1428,9 +1375,6 @@ fn stop_server(client: &Client, target: &Target) -> Result<(), ClientError> {
     }
 }
 
-/// The connection closed before the paired server answered, as it does when
-/// the server stops at once but also when the request never left. Only a
-/// server that refuses new connections has stopped.
 fn confirm_stopped(endpoint: &RemoteEndpoint) -> Result<(), ClientError> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
@@ -1515,7 +1459,6 @@ fn check_close(
     }
 }
 
-/// What a new terminal starts with.
 struct Launch {
     project: muxy_protocol::ProjectId,
     directory: PathBuf,
@@ -1523,8 +1466,6 @@ struct Launch {
     colors: Option<TerminalColors>,
 }
 
-/// Attaches `pane`, creating its session first if it has none. Its terminal
-/// arrives as `Update::Attached`; only a failure returns here.
 fn attach(
     client: &Client,
     tag: u64,

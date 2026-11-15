@@ -9,10 +9,8 @@ use crate::model::AppModel;
 
 pub(crate) type Handler = Rc<dyn Fn(&mut AppModel, &mut Window, &mut Context<AppModel>)>;
 
-/// The open command palette, or a picker shown in it like the theme picker.
 pub(crate) struct Palette {
     pub(crate) palette: Entity<CommandPalette<Handler>>,
-    /// The appearance its theme picker previews.
     pub(crate) dark: bool,
 }
 
@@ -28,7 +26,6 @@ impl OverlayView for Palette {
     }
 }
 
-/// `command` showing the shortcut the user's keymap gives `id`.
 pub(crate) fn with_shortcut(
     model: &AppModel,
     id: ShortcutId,
@@ -40,7 +37,6 @@ pub(crate) fn with_shortcut(
     }
 }
 
-/// `chord` as the palette and menus show it.
 pub(crate) fn chord_label(chord: &muxy_app_core::settings::KeyChord) -> String {
     gpui::Keystroke::parse(chord.as_str()).map_or_else(|_| chord.to_string(), |key| key.to_string())
 }
@@ -91,8 +87,6 @@ impl AppModel {
         self.toggle_palette_page(super::theme_picker::PAGE_ID, window, cx);
     }
 
-    /// Opens the palette at one of its lists, like Switch Project…, or closes
-    /// the palette when it already shows that list.
     pub(crate) fn toggle_palette_page(
         &mut self,
         page: &str,
@@ -121,7 +115,6 @@ impl AppModel {
         self.show_palette(registry, page, window, cx);
     }
 
-    /// Shows `registry` in the palette, opened at its list `page`.
     pub(crate) fn show_palette(
         &mut self,
         registry: Registry<Handler>,

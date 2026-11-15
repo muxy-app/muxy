@@ -18,7 +18,6 @@ use crate::state::{Result, State};
 pub(crate) struct View {
     pub session: SessionId,
     pub terminal: AttachedTerminal,
-    /// False once the connection is gone; the last screen stays shown.
     pub live: bool,
     pub process: Option<ForegroundProcess>,
     pub input: InputModes,
@@ -62,21 +61,14 @@ impl View {
     }
 }
 
-/// Who waits for an attach that is under way.
 pub(crate) enum Attaching {
-    Pane {
-        id: PaneId,
-        viewport: Size,
-    },
-    /// Only what the terminal runs; the caller detaches it.
+    Pane { id: PaneId, viewport: Size },
     Process(SyncSender<Option<ForegroundProcess>>),
 }
 
-/// What a close that needs confirming would end.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Closing {
     Pane(PaneId),
-    /// The tab holding this pane.
     Tab(PaneId),
 }
 
@@ -91,7 +83,6 @@ impl Closing {
 #[derive(Default)]
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Shared {
-    /// The server, as named to the user.
     pub server: String,
     pub client: Option<Client>,
     pub state: Option<State>,
@@ -101,7 +92,6 @@ pub(crate) struct Shared {
     pub sessions_project: Option<muxy_protocol::ProjectId>,
     pub views: BTreeMap<PaneId, View>,
     pub message: String,
-    /// Counts messages, so the same text said again is shown again.
     pub message_id: u64,
     pub refresh: bool,
     pub exit: Option<Result>,
@@ -109,18 +99,15 @@ pub(crate) struct Shared {
     pub focus: Option<ChannelId>,
     pub host_unfocused: bool,
     pub ended: BTreeSet<SessionId>,
-    /// Titles and programs of the terminals in this layout, shown or not.
     pub metadata: BTreeMap<SessionId, SessionMetadata>,
     pub activity: ActivitySnapshot,
     pub activity_dirty: bool,
     attaching: BTreeMap<u64, Attaching>,
     next_tag: u64,
-    /// Channels up to this one were attached on this connection; the closed ones are acknowledged.
     last_channel: u32,
 }
 
 impl Shared {
-    /// Shows `text` to the user, replacing the last message.
     pub(crate) fn say(&mut self, text: impl Into<String>) {
         self.message = text.into();
         self.message_id = self.message_id.wrapping_add(1);
@@ -150,7 +137,6 @@ impl Shared {
         }
     }
 
-    /// Registers an attach and returns its tag.
     pub(crate) fn start_attach(&mut self, attaching: Attaching) -> u64 {
         let tag = self.next_tag;
         self.next_tag = self.next_tag.wrapping_add(1);
@@ -168,7 +154,6 @@ impl Shared {
             .any(|attaching| matches!(attaching, Attaching::Pane { id, .. } if *id == pane))
     }
 
-    /// Shows an attached terminal, or returns the channel nobody waits for.
     fn attached(
         &mut self,
         tag: u64,
@@ -378,7 +363,6 @@ impl InputWriter {
         Ok(())
     }
 
-    /// Queues `event` behind any typing, so clicks and keys keep their order.
     pub(crate) fn mouse(&self, client: Client, channel: ChannelId, event: MouseEvent) -> Result {
         self.sender
             .as_ref()
@@ -419,8 +403,6 @@ struct Fetch {
     request: HistoryRequest,
 }
 
-/// Pages scrollback in from the server off the input and request threads, so
-/// scrolling never delays typing or layout changes.
 pub(crate) struct Fetcher {
     sender: Option<SyncSender<Fetch>>,
     worker: Option<JoinHandle<()>>,
@@ -463,8 +445,6 @@ impl Fetcher {
         })
     }
 
-    /// Asks for `request` for the view on `channel`, or tells the view it
-    /// failed so it can stop waiting.
     pub(crate) fn fetch(&self, shared: &mut Shared, channel: ChannelId, request: HistoryRequest) {
         let sent = shared.client.clone().is_some_and(|client| {
             self.sender.as_ref().is_some_and(|sender| {

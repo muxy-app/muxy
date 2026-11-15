@@ -28,8 +28,6 @@ enum Hook {
     },
 }
 
-/// `~/.config/muxy/worktree.json`, or `%APPDATA%\muxy\worktree.json` on
-/// Windows.
 fn global_path() -> Result<PathBuf> {
     #[cfg(unix)]
     let root = std::env::var_os("XDG_CONFIG_HOME")
@@ -193,8 +191,6 @@ fn run_hook(command: &mut Command, timeout: Duration) -> std::result::Result<(),
     })
 }
 
-/// A command that runs a hook: through the user's shell on Unix, through
-/// `cmd.exe` on Windows.
 #[cfg(unix)]
 fn script(command: &str) -> Command {
     let mut process = Command::new(crate::process::user_shell());

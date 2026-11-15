@@ -1,4 +1,3 @@
-//! The fixtures are POSIX shell scripts.
 #![cfg(unix)]
 
 use muxy_protocol::{

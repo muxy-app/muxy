@@ -1,12 +1,9 @@
-//! Helpers shared by the transport tests.
-
 use std::io;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{env, fs, process};
 
-/// A temporary folder only this user can open, removed on drop.
 pub(crate) struct TempFolder {
     pub(crate) path: PathBuf,
 }
@@ -38,9 +35,6 @@ impl Drop for TempFolder {
     }
 }
 
-/// Runs the test named `test` of this test binary in another process, with
-/// `variable` set to `value`. That test does its part only when it sees the
-/// variable.
 #[allow(dead_code)]
 pub(crate) fn run_test_in_child(test: &str, variable: &str, value: &str) -> io::Result<Child> {
     Command::new(env::current_exe()?)

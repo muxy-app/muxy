@@ -1,5 +1,3 @@
-//! Win32 security and file identity calls behind the helpers in `files`.
-
 use std::ffi::c_void;
 use std::fs::File;
 use std::io;
@@ -24,40 +22,32 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
-/// Memory that Win32 allocated with `LocalAlloc`.
 struct Local(*mut c_void);
 
 impl Drop for Local {
     fn drop(&mut self) {
-        // SAFETY: the pointer came from a Win32 call that hands ownership to the caller.
         unsafe { LocalFree(self.0) };
     }
 }
 
-/// Gives `directory` a protected DACL for the user and SYSTEM that
-/// everything below it inherits. Setting it walks every file below, so a
-/// directory that already has it is left alone.
 pub(super) fn protect_directory(directory: &Path) -> io::Result<()> {
     let wanted = private_descriptor()?;
     if same_protected_entries(&dacl(directory)?, &sddl(wanted.0)?) {
         return Ok(());
     }
     let (mut present, mut defaulted, mut acl) = (0, 0, ptr::null_mut());
-    // SAFETY: `wanted` is a valid descriptor and the out pointers are writable.
     if unsafe {
         GetSecurityDescriptorDacl(wanted.0, &raw mut present, &raw mut acl, &raw mut defaulted)
     } == 0
     {
         return Err(io::Error::last_os_error());
     }
-    // A missing DACL would be set as a NULL DACL, which grants everyone access.
     if present == 0 || acl.is_null() {
         return Err(io::Error::other(
             "The private security descriptor has no DACL",
         ));
     }
     let path = wide(directory)?;
-    // SAFETY: `path` is NUL-terminated and `acl` lives inside `wanted`.
     let status = unsafe {
         SetNamedSecurityInfoW(
             path.as_ptr(),
@@ -79,7 +69,6 @@ fn private_descriptor() -> io::Result<Local> {
     ))
 }
 
-/// Whether `current` is protected and grants exactly what `wanted` grants.
 fn same_protected_entries(current: &str, wanted: &str) -> bool {
     matches!(
         (flags_and_entries(current), flags_and_entries(wanted)),
@@ -87,17 +76,14 @@ fn same_protected_entries(current: &str, wanted: &str) -> bool {
     )
 }
 
-/// Splits a DACL in SDDL, such as `D:PAI(A;…)`, into its flags and its entries.
 fn flags_and_entries(sddl: &str) -> Option<(&str, &str)> {
     let rest = sddl.strip_prefix("D:")?;
     Some(rest.split_at(rest.find('(')?))
 }
 
-/// The DACL of `path` in SDDL.
 pub(super) fn dacl(path: &Path) -> io::Result<String> {
     let path = wide(path)?;
     let mut descriptor = ptr::null_mut();
-    // SAFETY: `path` is NUL-terminated; only the descriptor is requested.
     let status = unsafe {
         GetNamedSecurityInfoW(
             path.as_ptr(),
@@ -117,14 +103,11 @@ pub(super) fn dacl(path: &Path) -> io::Result<String> {
 
 pub(super) fn current_user_sid() -> io::Result<String> {
     let mut token = ptr::null_mut();
-    // SAFETY: the pseudo handle needs no closing and `token` is writable.
     if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut token) } == 0 {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: `OpenProcessToken` returned a handle we now own.
     let token = unsafe { OwnedHandle::from_raw_handle(token) };
     let mut length = 0;
-    // SAFETY: a null buffer of length 0 only asks for the required length.
     unsafe {
         GetTokenInformation(
             token.as_raw_handle(),
@@ -134,9 +117,7 @@ pub(super) fn current_user_sid() -> io::Result<String> {
             &raw mut length,
         );
     }
-    // `u64`s keep the buffer aligned for `TOKEN_USER`.
     let mut buffer = vec![0_u64; (length as usize).div_ceil(8)];
-    // SAFETY: `buffer` holds at least `length` writable bytes.
     if unsafe {
         GetTokenInformation(
             token.as_raw_handle(),
@@ -149,18 +130,14 @@ pub(super) fn current_user_sid() -> io::Result<String> {
     {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: the call filled `buffer` with a `TOKEN_USER` whose SID points into it.
     let sid = unsafe { (*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid };
     let mut text = ptr::null_mut();
-    // SAFETY: `sid` is valid while `buffer` lives and `text` is writable.
     if unsafe { ConvertSidToStringSidW(sid, &raw mut text) } == 0 {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: the call returned a NUL-terminated string we now own.
     Ok(unsafe { take_wide(text) })
 }
 
-/// `sid` as SDDL writes it, which is an alias such as `LA` for some accounts.
 #[cfg(test)]
 pub(super) fn sddl_trustee(sid: &str) -> io::Result<String> {
     let entry = sddl(security_descriptor(&format!("D:(A;;FA;;;{sid})"))?.0)?;
@@ -173,7 +150,6 @@ pub(super) fn sddl_trustee(sid: &str) -> io::Result<String> {
 
 pub(super) fn file_id(file: &File) -> io::Result<(u64, u64)> {
     let mut information = BY_HANDLE_FILE_INFORMATION::default();
-    // SAFETY: the handle is open for the borrow and `information` is writable.
     if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &raw mut information) } == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -186,7 +162,6 @@ pub(super) fn file_id(file: &File) -> io::Result<(u64, u64)> {
 fn security_descriptor(sddl: &str) -> io::Result<Local> {
     let sddl: Vec<u16> = sddl.encode_utf16().chain(iter::once(0)).collect();
     let mut descriptor = ptr::null_mut();
-    // SAFETY: `sddl` is NUL-terminated and `descriptor` is writable.
     if unsafe {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
             sddl.as_ptr(),
@@ -203,7 +178,6 @@ fn security_descriptor(sddl: &str) -> io::Result<Local> {
 
 fn sddl(descriptor: *mut c_void) -> io::Result<String> {
     let mut text = ptr::null_mut();
-    // SAFETY: `descriptor` is valid for the call and `text` is writable.
     if unsafe {
         ConvertSecurityDescriptorToStringSecurityDescriptorW(
             descriptor,
@@ -216,23 +190,15 @@ fn sddl(descriptor: *mut c_void) -> io::Result<String> {
     {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: the call returned a NUL-terminated string we now own.
     Ok(unsafe { take_wide(text) })
 }
 
-/// Reads and frees a NUL-terminated string from `LocalAlloc`.
-///
-/// # Safety
-///
-/// `text` must be a NUL-terminated string allocated with `LocalAlloc`.
 unsafe fn take_wide(text: *mut u16) -> String {
     let _owned = Local(text.cast());
     let mut length = 0;
-    // SAFETY: the caller promises a NUL terminator, so reads stop inside the string.
     while unsafe { *text.add(length) } != 0 {
         length += 1;
     }
-    // SAFETY: `length` characters before the terminator are readable.
     String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, length) })
 }
 

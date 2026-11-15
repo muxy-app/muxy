@@ -292,7 +292,6 @@ impl TerminalPane {
         if self.find.is_none() {
             return;
         }
-        // Keep the scheduled deadline during a stream of frames.
         if self.find_refresh.is_none() {
             self.find_refresh = Some(cx.spawn(async move |pane, cx| {
                 cx.background_executor().timer(REFRESH).await;
@@ -303,7 +302,6 @@ impl TerminalPane {
                     {
                         return;
                     }
-                    // Finish the current walk even when a reply takes longer than a frame.
                     if pane
                         .find
                         .as_ref()

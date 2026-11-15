@@ -27,7 +27,6 @@ use crate::spawn::Shell;
 const TICK: Duration = Duration::from_millis(16);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(1);
 const CHECKPOINT: Duration = Duration::from_secs(1);
-/// CAN ends any unfinished escape sequence or character.
 const CANCEL: &[u8] = b"\x18";
 const METADATA_POLL: Duration = Duration::from_millis(100);
 
@@ -92,7 +91,6 @@ struct Owner {
     next_detection: Instant,
     detection_screen: String,
     detection_progress: String,
-    /// The foreground process group when the program status last changed.
     program_group: Option<u32>,
     program_reports: u64,
     seen_reports: u64,
@@ -512,8 +510,6 @@ impl Owner {
         }
         self.update_metadata();
         self.update_cursor_blinking()?;
-        // Establish one common baseline before adding an attachment. Existing
-        // clients receive pending changes before the new client's snapshot.
         if self.attachments.is_empty() {
             self.terminal.take_changed_rows()?;
             self.links = self.terminal.screen_links();
@@ -817,9 +813,6 @@ impl Owner {
             };
     }
 
-    /// The status the foreground program reported itself (OSC 7501). A report
-    /// the detector hasn't seen counts once after its program has gone, so a
-    /// final `done` still finishes the agent's work.
     fn reported_status(&mut self) -> Option<muxy_terminal::ProgramStatus> {
         let group = metadata::foreground_group(&self.shell);
         let shell = self.metadata.shell_foreground;
@@ -956,13 +949,11 @@ impl Owner {
         self.compress_pending = true;
         let mut snapshot = self.terminal.snapshot();
         if reason.is_some() && matches!(snapshot, Ok(None)) {
-            // The program ended inside a sequence; cancel it so its last screen is kept.
             self.terminal.feed(CANCEL);
             snapshot = self.terminal.snapshot();
         }
         let result = match snapshot {
             Ok(Some(snapshot)) => self.archive.save(self.info.id, snapshot, reason),
-            // Output stopped inside a sequence; the output that completes it schedules the save.
             Ok(None) if reason.is_none() => return,
             Ok(None) => Err(io::Error::other("output ended inside a sequence")),
             Err(error) => Err(io::Error::other(error)),

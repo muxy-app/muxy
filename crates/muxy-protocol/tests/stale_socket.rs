@@ -1,7 +1,3 @@
-//! A socket left behind by a killed process. The child is spawned from its
-//! own test binary: on macOS a child can inherit a socket that another test
-//! thread is still creating, which would keep that socket alive.
-
 mod support;
 
 use std::error::Error;
@@ -18,8 +14,6 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 
 const LISTEN: &str = "MUXY_TEST_LISTEN";
 
-/// Another process for the test below: listens on `$MUXY_TEST_LISTEN` until
-/// it is killed or its stdin closes.
 #[test]
 fn listens_for_the_parent() -> TestResult {
     let Some(path) = env::var_os(LISTEN) else {

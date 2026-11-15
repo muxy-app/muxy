@@ -34,10 +34,6 @@ pub(super) fn write(path: &Path, value: &Value) -> Result<(), String> {
     write().map_err(|error| error.to_string())
 }
 
-/// The file that holds an extension's data. Extension names are
-/// case-sensitive but filesystems may not be, so each uppercase letter is
-/// written as `^` and its lowercase form: `Foo` and `foo` never share a file.
-/// Lowercase names, nearly all of them, keep the names they always had.
 fn data_file(root: &Path, name: &str) -> PathBuf {
     let mut file = String::with_capacity(name.len() + 8);
     for character in name.chars() {
@@ -50,8 +46,6 @@ fn data_file(root: &Path, name: &str) -> PathBuf {
     root.join(file)
 }
 
-/// Renames files saved under the old case-preserving names, once, when the
-/// store opens. Best effort: a file that can't be renamed stays where it was.
 fn migrate(root: &Path) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
@@ -79,7 +73,6 @@ fn object(path: &Path) -> Result<Map<String, Value>, String> {
     }
 }
 
-/// The per-extension key/value store behind `muxy.storage`.
 #[derive(Debug)]
 pub struct Storage {
     root: PathBuf,
@@ -141,8 +134,6 @@ impl Storage {
     }
 }
 
-/// Values users set for an extension's declared settings. They outlive
-/// disabling and uninstalling so a reinstalled extension keeps its configuration.
 #[derive(Debug)]
 pub struct Settings {
     root: PathBuf,
@@ -159,12 +150,10 @@ impl Settings {
         data_file(&self.root, extension)
     }
 
-    /// The overrides stored for one extension.
     pub fn values(&self, extension: &str) -> Result<Map<String, Value>, String> {
         object(&self.path(extension))
     }
 
-    /// Stores an override, or removes it so the manifest default applies again.
     pub fn set(
         &self,
         extension: &super::Extension,

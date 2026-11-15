@@ -317,7 +317,6 @@ fn closing_tab_checks_every_hidden_pane_and_cancel_keeps_all(cx: &mut TestAppCon
     });
 }
 
-/// A folder a server reports a shell in, absolute on this computer.
 const REPORTED: &str = if cfg!(windows) { r"C:\Temp" } else { "/tmp" };
 
 #[gpui::test]
@@ -906,7 +905,6 @@ fn attach_reporting(
     );
 }
 
-/// A folder at the root of this computer's file system.
 fn absolute(name: &str) -> Vec<u8> {
     if cfg!(windows) {
         format!("C:\\{name}").into_bytes()

@@ -19,7 +19,6 @@ pub(super) struct Admitted {
     pub(super) reply: ReplyBody,
 }
 
-/// Reads the one request a network peer may send before it is trusted.
 pub(super) fn accept(
     decoder: &mut Decoder<impl Read>,
     encoder: &mut Encoder<impl Write>,
@@ -80,7 +79,6 @@ pub(super) fn accept(
     Ok(None)
 }
 
-/// A correlated reply, so the phone can tell "pair again" from a dropped network.
 pub(super) fn unauthorized(request: RequestId) -> Message {
     Message::Reply {
         id: request,
@@ -91,8 +89,6 @@ pub(super) fn unauthorized(request: RequestId) -> Message {
     }
 }
 
-/// Logs unauthenticated failures at most once per interval, so a noisy network
-/// cannot grow the server log without bound.
 pub(super) fn report(reason: &str) {
     const INTERVAL: u64 = 60;
     static LAST: AtomicU64 = AtomicU64::new(0);

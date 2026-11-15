@@ -168,8 +168,6 @@ fn a_name_moved_to_another_folder_starts_disabled() {
 
     let mut registry = Registry::load(profile.path());
     assert!(registry.extensions.is_empty());
-    // Asked first, so consent can go before the name moves; asking changes
-    // nothing.
     let target = registry.unpacked_target(replacement.path()).unwrap();
     assert_eq!((target.name.as_str(), target.new_source), ("hello", true));
     assert!(registry.extensions.is_empty());
@@ -188,7 +186,6 @@ fn a_folder_refused_for_a_loaded_name_is_refused_before_anything_changes() {
     package(other.path(), "hello");
     let mut registry = Registry::load(profile.path());
     registry.load_unpacked(loaded.path()).unwrap();
-    // Asked before consent is cleared, so a refused folder can't clear it.
     assert!(registry.unpacked_target(other.path()).is_err());
     assert!(registry.load_unpacked(other.path()).is_err());
     assert_eq!(
@@ -353,7 +350,6 @@ fn names_that_differ_only_in_case_keep_separate_data() {
     package(&root.path().join("lower"), "notes");
     let upper = Extension::load(&root.path().join("upper")).unwrap();
     let lower = Extension::load(&root.path().join("lower")).unwrap();
-    // Data an older build saved under the case-preserving name.
     let saved = root.path().join("extension-storage");
     fs::create_dir_all(&saved).unwrap();
     fs::write(saved.join("Notes.json"), r#"{"cache":1}"#).unwrap();
@@ -887,7 +883,6 @@ fn localizations_that_share_a_bundle_and_language_read_it_once() {
             json!({"id":format!("de{index}"),"language":"de","title":"Deutsch","bundle":"German.bundle"})
         })
         .collect();
-    // Forty reads of this 3 MiB catalog would pass the 64 MiB pack budget.
     let catalog = format!("\"A\" = \"{}\";", "x".repeat(3 * 1024 * 1024));
     write_package(
         root.path(),

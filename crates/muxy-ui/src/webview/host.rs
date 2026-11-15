@@ -1,8 +1,3 @@
-//! A native page shown over GPUI. The page sits in a container view that
-//! follows its pane, hides the parts app content covers, and shares the
-//! keyboard with Muxy's shortcuts. Extension pages and browser pages both
-//! live in one.
-
 use std::cell::{Cell, RefCell};
 use std::ptr;
 use std::rc::Rc;
@@ -25,7 +20,6 @@ use objc2_web_kit::WKWebView;
 
 use super::Snapshot;
 
-/// What the page hands back to Muxy: keys it keeps, and clicks.
 #[derive(Debug)]
 pub(crate) enum Signal {
     Escape,
@@ -33,12 +27,10 @@ pub(crate) enum Signal {
     Clicked,
 }
 
-/// How Muxy shows the page, as the key monitor sees it.
 #[derive(Debug, Default)]
 struct Focus {
     focused: Cell<bool>,
     clicked: Cell<bool>,
-    /// When the user last clicked into the page.
     last_click: Cell<Option<std::time::Instant>>,
     modal: Cell<bool>,
     shortcuts: RefCell<Rc<Vec<gpui::Keystroke>>>,
@@ -48,8 +40,6 @@ struct Focus {
 struct HitTestRegions {
     occluded: RefCell<Vec<NSRect>>,
     passthrough_all: Cell<bool>,
-    /// Where the page takes clicks, from its top left corner. `None` takes
-    /// them everywhere.
     interactive: RefCell<Option<Vec<NSRect>>>,
 }
 
@@ -91,8 +81,6 @@ fn contains_point(rect: NSRect, point: NSPoint) -> bool {
 }
 
 define_class!(
-    /// Holds the page. Clicks on the parts app content covers pass through
-    /// to Muxy, and its layer mask hides them.
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
     #[name = "MuxyPageContainer"]
@@ -109,10 +97,6 @@ define_class!(
             else { unsafe { msg_send![super(self), hitTest: point] } }
         }
 
-        // WebKit runs a key's command up the page's responders to learn
-        // whether anything wanted it. GPUI's view takes every command, so
-        // keys the page left alone would never reach the Edit menu. They
-        // go on to the window instead.
         #[unsafe(method(doCommandBySelector:))]
         fn do_command_by_selector(&self, selector: Sel) {
             if let Some(window) = self.window() {
@@ -120,17 +104,12 @@ define_class!(
             }
         }
 
-        // Typing the page left alone comes back here, and must not reach
-        // whatever Muxy last focused.
         #[unsafe(method(keyDown:))]
         fn key_down(&self, _: &NSEvent) {}
     }
 );
 
 define_class!(
-    /// Covers the resize grips drawn over a page, in the parent's flipped
-    /// coordinates. It takes the grips' clicks and hands them to the parent,
-    /// and its cursor rects keep WebKit from changing the cursor there.
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
     #[name = "MuxyWebviewGrips"]
@@ -161,8 +140,6 @@ define_class!(
             }
         }
 
-        // A view that leaves a click unhandled passes it to the page below,
-        // so each one is handed to the parent explicitly.
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) { self.forward(|parent| parent.mouseDown(event)); }
         #[unsafe(method(mouseDragged:))]
@@ -194,8 +171,6 @@ impl GripOverlay {
     }
 }
 
-/// Native view state as last applied. Every frame syncs the view, and each
-/// new layer mask costs a view-sized bitmap, so only changes are applied.
 #[derive(Debug, Default)]
 struct Applied {
     frame: Option<NSRect>,
@@ -226,7 +201,6 @@ pub(crate) struct Host {
 }
 
 impl Host {
-    /// An empty, hidden container in `parent`, GPUI's view.
     pub(crate) fn new(parent: Retained<NSView>, mtm: MainThreadMarker) -> Self {
         let allocated = Container::alloc(mtm).set_ivars(HitTestRegions::default());
         let container: Retained<Container> =
@@ -258,14 +232,10 @@ impl Host {
         }
     }
 
-    /// The view a page is added to.
     pub(crate) fn container(&self) -> &NSView {
         &self.container
     }
 
-    /// Starts routing keys for `page`, a view inside the container. Keys Muxy
-    /// keeps, and clicks into the page, go to `on_signal`, which reports
-    /// whether it took them.
     pub(crate) fn attach(
         &mut self,
         page: Retained<WKWebView>,
@@ -285,10 +255,6 @@ impl Host {
         *self.focus.shortcuts.borrow_mut() = shortcuts;
     }
 
-    /// Whether Muxy shows this page focused. Keys reach the page only while it
-    /// is, or after a click into it until Muxy catches up. A page that takes
-    /// the native focus itself, as when its script focuses an element, doesn't
-    /// get them.
     pub(crate) fn set_focused(&self, focused: bool) {
         self.focus.focused.set(focused);
         if focused {
@@ -296,7 +262,6 @@ impl Host {
         }
     }
 
-    /// Whether the user clicked into the page within `elapsed`.
     pub(crate) fn clicked_within(&self, elapsed: std::time::Duration) -> bool {
         self.focus
             .last_click
@@ -304,14 +269,10 @@ impl Host {
             .is_some_and(|clicked| clicked.elapsed() <= elapsed)
     }
 
-    /// Whether the user clicked into the page just now, using the click up.
     pub(crate) fn take_click(&self) -> bool {
         super::rules::take_click(&self.focus.last_click)
     }
 
-    /// Sends clicks on the resize grips drawn over the page, in window
-    /// coordinates, to Muxy and shows each grip's cursor there. The page's
-    /// pixels don't change. Call after [`Self::occlude`].
     pub(crate) fn set_grips(&self, grips: &[(Bounds<Pixels>, CursorStyle)]) {
         let frame = self.parent().bounds();
         let regions: Vec<_> = visible_grips(self.bounds.get(), &self.occlusions.borrow(), grips)
@@ -334,8 +295,6 @@ impl Host {
         self.container.ivars().passthrough_all.set(enabled);
     }
 
-    /// Where the page takes clicks, from its top left corner; elsewhere
-    /// they reach what is under it. `None` takes them everywhere.
     pub(crate) fn set_hit_regions(&self, regions: Option<&[Bounds<Pixels>]>) {
         let regions = regions.map(|regions| {
             regions
@@ -357,11 +316,6 @@ impl Host {
         *self.container.ivars().interactive.borrow_mut() = regions;
     }
 
-    /// Puts these pages above every other native view in the window, the
-    /// last one in front. Views already in place are left alone, so calling
-    /// this every frame costs nothing, and the front page moves only when
-    /// something else covers it: raising a page that was just clicked moves
-    /// the pages that go under it instead, so the click isn't interrupted.
     pub(crate) fn order_front(hosts: &[&Self]) {
         let mut remaining = hosts.to_vec();
         while let Some(first) = remaining.first() {
@@ -377,7 +331,6 @@ impl Host {
         }
     }
 
-    /// [`Self::order_front`] for pages that share one parent.
     fn order_front_in_parent(hosts: &[&Self]) {
         let Some(front) = hosts.last() else {
             return;
@@ -421,10 +374,6 @@ impl Host {
         self.parent.borrow().clone()
     }
 
-    /// Moves the page into `parent`, another window's GPUI view, keeping it
-    /// loaded. It stays hidden there until the next [`Self::sync`] and
-    /// [`Self::set_visible`] place it in that window, and the keyboard
-    /// returns to it with the next [`Self::focus`] or key Muxy routes to it.
     pub(crate) fn move_to(&self, parent: Retained<NSView>) {
         if ptr::eq(
             Retained::as_ptr(&self.parent.borrow()),
@@ -452,7 +401,6 @@ impl Host {
         *self.applied.borrow_mut() = Applied::default();
     }
 
-    /// The parent's subviews, back to front, as they are now.
     fn subview_order(&self) -> Vec<*const NSView> {
         let subviews = self.parent().subviews();
         (0..subviews.count())
@@ -468,8 +416,6 @@ impl Host {
         Retained::as_ptr(&self.grips).cast()
     }
 
-    /// Moves the page and its grips next to `relative`, or to the front,
-    /// keeping the keyboard on the page if it had it.
     fn place(&self, ordering: NSWindowOrderingMode, relative: Option<&NSView>) {
         let focused = self.page.as_ref().is_some_and(|page| {
             self.container.window().is_some_and(|window| {
@@ -519,8 +465,6 @@ impl Host {
         self.apply_mask();
     }
 
-    /// Adds `bounds` to what covers the page, for app content drawn after
-    /// the frame's occlusions were applied, such as a dropdown.
     pub(crate) fn occlude_also(&self, bounds: Bounds<Pixels>) {
         let mut occlusions = self.occlusions.borrow().clone();
         if !occlusions.contains(&bounds) {
@@ -593,7 +537,6 @@ impl Host {
         if self.visible.replace(visible) == visible && self.container.isHidden() != visible {
             return;
         }
-        // Hiding the focused page would leave the keyboard with the window.
         if !visible {
             self.blur();
         }
@@ -623,7 +566,6 @@ impl Host {
         }
     }
 
-    /// Takes a picture of the page as shown, at the display's scale.
     pub(crate) fn snapshot(&self, done: impl Fn(Snapshot) + 'static) {
         let Some(page) = &self.page else {
             return;
@@ -675,7 +617,6 @@ fn pixel_dimension(points: Pixels, scale: f64) -> Option<u32> {
     (pixels.is_finite() && (1.0..=16384.0).contains(&pixels)).then(|| pixels.round() as u32)
 }
 
-/// The parts of the grips over a page at `bounds` that nothing covers.
 fn visible_grips(
     bounds: Bounds<Pixels>,
     occlusions: &[Bounds<Pixels>],
@@ -699,7 +640,6 @@ fn visible_grips(
         .collect()
 }
 
-/// `bounds` in a flipped view that fills the parent.
 fn flipped_rect(bounds: Bounds<Pixels>) -> NSRect {
     NSRect::new(
         NSPoint::new(
@@ -768,8 +708,6 @@ fn subtract(region: Bounds<Pixels>, cut: Bounds<Pixels>) -> Vec<Bounds<Pixels>> 
     .collect()
 }
 
-/// What GPUI reads from a key event, without its text: a kept shortcut no
-/// binding takes must not type through `dispatch_keystroke`.
 fn keystroke(event: &NSEvent) -> Option<gpui::Keystroke> {
     let event = ptr::from_ref(event).cast_mut().cast();
     gpui::keystroke_from_native_event(event).map(|keystroke| gpui::Keystroke {
@@ -794,7 +732,6 @@ fn monitor(
             event_ref.r#type(),
             NSEventType::LeftMouseDown | NSEventType::RightMouseDown | NSEventType::OtherMouseDown
         ) {
-            // Muxy hears of a click from the page itself, which can be late.
             let clicked = container
                 .window()
                 .filter(|window| event_ref.window(container.mtm()).as_ref() == Some(window))
@@ -823,8 +760,6 @@ fn monitor(
                     .is_some_and(|responder| responder.isDescendantOf(&container))
             })
         };
-        // Keys follow Muxy's focus: pages take the native focus on their own,
-        // even from each other, and a click on Muxy never takes it back.
         let focused = focus.focused.get() || focus.clicked.get();
         let holds_focus = page_responder().is_some();
         if holds_focus && !focused {
@@ -880,8 +815,6 @@ fn monitor(
     }
 }
 
-/// Lets the web engine handle a command key, even in a page whose class
-/// declines key equivalents, so the page's own shortcuts see it.
 fn page_key_equivalent(page: &WKWebView, event: &NSEvent) -> bool {
     let handled: Bool =
         unsafe { msg_send![super(page, WKWebView::class()), performKeyEquivalent: event] };
@@ -932,9 +865,6 @@ fn route_key_event(
         on_signal(Signal::Escape);
         return true;
     }
-    // Routing can redraw Muxy before it returns, as when WebKit hands a key
-    // back to GPUI, and a redraw sets new shortcuts. So the list is cloned out
-    // and never borrowed across a call back into Muxy.
     let shortcuts = focus.shortcuts.borrow().clone();
     let kept = shortcuts
         .iter()
@@ -942,9 +872,6 @@ fn route_key_event(
     if kept {
         return on_signal(Signal::Shortcut(keystroke));
     }
-    // The page sees a command key first, as in Safari, so editors keep
-    // their own select all and undo. WebKit sends back keys the page
-    // leaves alone, and those then reach the Edit menu.
     if keystroke.modifiers.platform {
         page_key_equivalent() || menu_key_equivalent()
     } else {

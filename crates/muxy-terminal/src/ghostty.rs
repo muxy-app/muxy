@@ -37,12 +37,9 @@ pub struct TerminalHistory {
     pub rows: Vec<Row>,
     pub prompts: Vec<u16>,
     pub links: Vec<crate::LinkRow>,
-    /// The images placed on `rows`, rows counted from the first of them.
-    /// `None` when there are none.
     pub graphics: Option<crate::Graphics>,
 }
 
-/// A copy of a terminal that can move to another thread and become an archive there.
 #[derive(Debug)]
 pub struct TerminalSnapshot {
     bytes: Vec<u8>,
@@ -51,17 +48,13 @@ pub struct TerminalSnapshot {
 }
 
 impl TerminalSnapshot {
-    /// Renders the copy, so converting history never blocks the live terminal.
     pub fn archive(&self) -> Result<TerminalArchive, TerminalError> {
         let failed = |error| TerminalError::wrap(TerminalStep::Snapshot, error);
         let mut decoder = libghostty_vt::snapshot::Decoder::new_buf(&self.bytes).map_err(failed)?;
-        // A snapshot doesn't carry the image limit of the terminal that wrote
-        // it, and an image over the decoder's own limit is dropped.
         decoder
             .set_kitty_image_storage_limit(crate::graphics::STORAGE_LIMIT as u64)
             .map_err(failed)?;
         let mut decoder = decoder.ready().map_err(failed)?;
-        // Restored pages are counted uncompressed, so the live budget would drop older rows.
         decoder
             .terminal_mut()
             .set_scrollback_max_bytes(None)
@@ -80,7 +73,6 @@ impl TerminalSnapshot {
         let graphics = terminal.graphics()?;
         let rows = terminal.screen()?;
         let cursor = terminal.cursor()?;
-        // The primary screen keeps its history while a program uses the alternate one.
         terminal.engine.vt_write(b"\x1b[?47l");
         Ok(TerminalArchive {
             graphics,
@@ -362,7 +354,6 @@ impl Terminal {
         });
     }
 
-    /// Clear the primary screen and history; queue a shell redraw only at a semantic prompt.
     pub fn clear_screen(&mut self) -> Result<bool, TerminalError> {
         if self
             .engine
@@ -382,18 +373,14 @@ impl Terminal {
         Ok(true)
     }
 
-    /// The status the running program reported itself (OSC 7501), if any.
     pub fn program_status(&self) -> Option<crate::ProgramStatus> {
         self.progress.borrow().program().cloned()
     }
 
-    /// How many program status reports have changed the status, so callers
-    /// can tell which program sent the latest one.
     pub fn program_reports(&self) -> u64 {
         self.progress.borrow().program_reports()
     }
 
-    /// Ends the status of a program that has exited, keeping finished work.
     pub fn end_program_status(&mut self) {
         self.progress.borrow_mut().end_program();
     }
@@ -448,8 +435,6 @@ impl Terminal {
             .map_err(|error| TerminalError::wrap(TerminalStep::Render, error))
     }
 
-    /// The pixels of frames of an image in the last `graphics`, by their
-    /// keys: as many as one reply holds, in the order asked.
     pub fn image_frames(
         &self,
         image: u32,
@@ -620,7 +605,6 @@ impl Terminal {
         self.screen_with_prompts().map(|(rows, _)| rows)
     }
 
-    /// A bounded live-screen tail for server-side activity detection, independent of viewport history.
     pub fn detection_text(&mut self) -> Result<String, TerminalError> {
         let query = |error| TerminalError::wrap(TerminalStep::Render, error);
         let snapshot = self.render.update(&self.engine).map_err(query)?;
@@ -724,7 +708,6 @@ impl Terminal {
         Ok(changed)
     }
 
-    /// Full viewport hyperlinks from the most recent `take_changed_rows` call.
     pub fn screen_links(&self) -> Vec<crate::LinkRow> {
         self.links
             .iter()
@@ -759,7 +742,6 @@ impl Terminal {
             .map_err(|error| TerminalError::wrap(TerminalStep::History, error))
     }
 
-    /// Returns `None` while output stops inside an escape sequence or character.
     pub fn snapshot(&mut self) -> Result<Option<TerminalSnapshot>, TerminalError> {
         let failed = |error| TerminalError::wrap(TerminalStep::Snapshot, error);
         if !self.engine.is_vt_ground().map_err(failed)? {
@@ -849,8 +831,6 @@ impl Terminal {
         })
     }
 
-    /// History rows of `range`, their prompts and, when asked, their links
-    /// and the image placements on them, rows counted from the first row.
     fn history_with_metadata(
         &mut self,
         range: Range<usize>,
@@ -1013,7 +993,6 @@ fn row_runs(
         };
         text.clear();
         cell.graphemes_utf8(text)?;
-        // Like Ghostty, a Kitty image placeholder is drawn as a blank under its image.
         if text.is_empty() || text.starts_with(crate::graphics::PLACEHOLDER) {
             text.clear();
             text.push(' ');

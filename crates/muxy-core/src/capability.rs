@@ -1,7 +1,3 @@
-//! Which desktop features this build and its runtime services can provide.
-//! Commands, settings, and error reports read one table instead of testing
-//! the operating system.
-
 use std::borrow::Cow;
 
 use crate::tr;
@@ -34,7 +30,6 @@ impl Feature {
         Self::SshRemotes,
     ];
 
-    /// Why a build without a backend for the feature cannot offer it.
     pub fn unsupported_reason(self) -> Cow<'static, str> {
         match self {
             Self::ExtensionScripts => {
@@ -67,9 +62,7 @@ impl Feature {
 pub enum Capability {
     #[default]
     Supported,
-    /// This build has no backend for the feature.
     Unsupported,
-    /// The backend exists, but a service it needs is missing right now.
     Unavailable(String),
 }
 
@@ -86,7 +79,6 @@ impl Capability {
         *self == Self::Supported
     }
 
-    /// What an entry point reports when `feature`, in this state, cannot run.
     pub fn reason(&self, feature: Feature) -> Option<Cow<'static, str>> {
         match self {
             Self::Supported => None,
@@ -114,24 +106,19 @@ impl Capabilities {
         self.get(feature).is_supported()
     }
 
-    /// Whether this build has a backend for `feature`, whatever its services report.
     pub fn has_backend(&self, feature: Feature) -> bool {
         *self.get(feature) != Capability::Unsupported
     }
 
-    /// Fails with the reason when `feature` cannot run.
     pub fn check(&self, feature: Feature) -> Result<(), String> {
         self.reason(feature)
             .map_or(Ok(()), |reason| Err(reason.into_owned()))
     }
 
-    /// What an entry point reports when it cannot offer `feature`.
     pub fn reason(&self, feature: Feature) -> Option<Cow<'static, str>> {
         self.get(feature).reason(feature)
     }
 
-    /// Why this build cannot offer `feature` at all. `None` while a backend
-    /// exists, whatever its services report.
     pub fn unsupported(&self, feature: Feature) -> Option<Cow<'static, str>> {
         (!self.has_backend(feature)).then(|| feature.unsupported_reason())
     }

@@ -22,7 +22,6 @@ impl Root {
                 continue;
             }
             let relative = target.relative.join(&name);
-            // A name Windows can't represent on the wire is left out.
             let (Ok(wire_name), Ok(wire_relative)) =
                 (wire_path(Path::new(&name)), wire_path(&relative))
             else {

@@ -74,7 +74,6 @@ async fn prompt(
     }))
 }
 
-/// Stops or restarts a server; `name` is another computer's, `None` this one's.
 pub(crate) async fn prompt_server(
     parent: &Parent,
     restart: bool,
@@ -174,8 +173,6 @@ pub(crate) async fn prompt_reset_terminal(
 pub(crate) const BACKGROUND_TITLE: &str = tr_key!("Allow Muxy to Run in the Background?");
 pub(crate) const OPEN_LOGIN_ITEMS: &str = tr_key!("Open Login Items");
 
-/// Whether to open the setting that keeps terminals running after the app
-/// quits.
 pub(crate) async fn prompt_background_activity(
     parent: &Parent,
     cx: &mut AsyncApp,
@@ -271,7 +268,6 @@ async fn prompt_install(
     })
 }
 
-/// Reports whether the server should restart too, or `None` when declined.
 async fn install_prompt(
     parent: &Parent,
     message: &str,

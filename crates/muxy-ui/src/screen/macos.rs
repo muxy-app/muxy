@@ -17,8 +17,6 @@ pub(super) fn cursor() -> Option<ScreenPoint> {
     })
 }
 
-/// GPUI measures mouse positions from the top of the content view, flipping
-/// the event's location in the window.
 pub(super) fn local(window: &Window, point: ScreenPoint) -> Option<Point<Pixels>> {
     let window = ns_window(window).ok()?;
     let height = window.contentView()?.frame().size.height;

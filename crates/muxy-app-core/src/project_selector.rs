@@ -1,13 +1,9 @@
-//! Finds the one project a selector typed by the user refers to.
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mismatch {
     NotFound,
     Ambiguous,
 }
 
-/// The one candidate `exact` accepts or, when it accepts none, the one `loose`
-/// accepts.
 pub fn pick<T>(
     candidates: &[T],
     exact: impl Fn(&T) -> bool,

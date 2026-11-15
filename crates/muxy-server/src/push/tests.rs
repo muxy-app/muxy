@@ -17,7 +17,6 @@ enum Call {
     Send(String, Outgoing),
 }
 
-/// Answers each kind of call from its script, then with success.
 #[derive(Default)]
 struct FakeRelay {
     calls: Mutex<Vec<Call>>,
@@ -136,7 +135,6 @@ fn eventually(mut done: impl FnMut() -> bool) -> bool {
     false
 }
 
-/// Long enough for an event's grace period and a first delivery.
 fn settle() {
     thread::sleep(TIMING.grace * 4);
 }
@@ -163,7 +161,6 @@ impl Fixture {
             .map(|record| record.status)
     }
 
-    /// An agent in `session` starts waiting for the user; the event's id.
     fn blocked(&self, session_id: u64) -> u64 {
         self.registry.activity.update(
             AgentActivity {

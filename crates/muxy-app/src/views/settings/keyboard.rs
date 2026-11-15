@@ -13,7 +13,6 @@ pub(super) fn matching(pane: &SettingsView) -> Vec<usize> {
         .collect()
 }
 
-/// Extension shortcuts that match the search, in extension order.
 pub(super) fn matching_extensions(pane: &SettingsView) -> Vec<usize> {
     pane.snapshot
         .extension_shortcuts
@@ -26,8 +25,6 @@ pub(super) fn matching_extensions(pane: &SettingsView) -> Vec<usize> {
         .collect()
 }
 
-/// An extension command's shortcut: record, reset to the manifest default,
-/// or unassign, as on main.
 pub(super) fn extension_row(
     pane: &SettingsView,
     index: usize,

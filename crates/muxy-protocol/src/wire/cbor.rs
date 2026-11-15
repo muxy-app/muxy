@@ -1,10 +1,3 @@
-//! CBOR helpers for protocol types.
-//!
-//! Fields and variants carry explicit numbers instead of positions, so a peer
-//! skips fields it doesn't know and reads missing optional fields as `None`.
-
-/// Byte fields and UUIDs as CBOR byte strings. Without this, CBOR writes a
-/// byte vector as one item per byte.
 pub mod bytes {
     use std::sync::Arc;
 
@@ -97,9 +90,6 @@ pub mod bytes {
     }
 }
 
-/// Screen rows keep the compact postcard layout that saved records also store.
-///
-/// The layout is frozen: changing a row type changes both the wire and saved records.
 pub mod rows {
     use minicbor::decode::Error as DecodeError;
     use minicbor::encode::{Error as EncodeError, Write};
@@ -128,19 +118,12 @@ pub mod rows {
     }
 }
 
-/// Enums the server sends, which older builds must still read.
-///
-/// A variant without a value is written as its number, and a variant with a
-/// value as `[number, value]`. A build that doesn't know a number keeps it as
-/// an unrecognized variant and skips its value, so a newer server can add
-/// variants without breaking older clients.
 pub mod open {
     use minicbor::data::Type;
     use minicbor::decode::Error as DecodeError;
     use minicbor::encode::{Error as EncodeError, Write};
     use minicbor::{Decoder, Encode, Encoder};
 
-    /// A variant's number, read before its value.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub enum Variant {
         Unit(u32),
@@ -165,8 +148,6 @@ pub mod open {
         Ok(())
     }
 
-    /// Reads a variant's number. The value of a [`Variant::Value`] comes next:
-    /// decode it, or pass the variant to [`unrecognized`].
     pub fn variant(decoder: &mut Decoder<'_>) -> Result<Variant, DecodeError> {
         if decoder.datatype()? != Type::Array {
             return Ok(Variant::Unit(decoder.u32()?));
@@ -178,7 +159,6 @@ pub mod open {
         Ok(Variant::Value(decoder.u32()?))
     }
 
-    /// Skips the value of a variant this build doesn't know and returns its number.
     pub fn unrecognized(decoder: &mut Decoder<'_>, variant: Variant) -> Result<u32, DecodeError> {
         match variant {
             Variant::Unit(index) => Ok(index),
@@ -190,9 +170,6 @@ pub mod open {
     }
 }
 
-/// Declares an open enum whose variants carry no values. Each variant's number
-/// is written after `=` and never changes; an unknown number decodes as
-/// `Unrecognized`.
 macro_rules! open_enum {
     (
         $(#[$meta:meta])*
@@ -203,7 +180,6 @@ macro_rules! open_enum {
         $(#[$meta])*
         $vis enum $name {
             $($(#[$variant_meta])* $variant,)*
-            /// A variant from a newer build, kept by its number.
             Unrecognized(u32),
         }
 

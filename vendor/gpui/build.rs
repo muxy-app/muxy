@@ -1,8 +1,6 @@
 #![allow(clippy::disallowed_methods, reason = "build scripts are exempt")]
 #![cfg_attr(any(not(target_os = "macos"), feature = "macos-blade"), allow(unused))]
 
-//TODO: consider generating shader code for WGSL
-//TODO: deprecate "runtime-shaders" and "macos-blade"
 
 use std::env;
 
@@ -46,7 +44,6 @@ fn check_wgsl_shaders() {
 
     match naga::front::wgsl::parse_str(&shader_source) {
         Ok(_) => {
-            // All clear
         }
         Err(e) => {
             println!("cargo::error=WGSL shader compilation failed:\n{}", e);
@@ -172,8 +169,6 @@ mod macos {
         output_path
     }
 
-    /// To enable runtime compilation, we need to "stitch" the shaders file with the generated header
-    /// so that it is self-contained.
     #[cfg(feature = "runtime_shaders")]
     fn emit_stitched_shaders(header_path: &Path) {
         use std::str::FromStr;
@@ -255,11 +250,9 @@ mod windows {
     };
 
     pub(super) fn build() {
-        // Compile HLSL shaders
         #[cfg(not(debug_assertions))]
         compile_shaders();
 
-        // Embed the Windows manifest and resource file
         #[cfg(feature = "windows-manifest")]
         embed_resource();
     }
@@ -275,7 +268,6 @@ mod windows {
             .unwrap();
     }
 
-    /// You can set the `GPUI_FXC_PATH` environment variable to specify the path to the fxc.exe compiler.
     fn compile_shaders() {
         let shader_path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
             .join("src/platform/windows/shaders.hlsl");
@@ -283,10 +275,8 @@ mod windows {
 
         println!("cargo:rerun-if-changed={}", shader_path.display());
 
-        // Check if fxc.exe is available
         let fxc_path = find_fxc_compiler();
 
-        // Define all modules
         let modules = [
             "quad",
             "shadow",
@@ -325,17 +315,13 @@ mod windows {
         }
     }
 
-    /// You can set the `GPUI_FXC_PATH` environment variable to specify the path to the fxc.exe compiler.
     fn find_fxc_compiler() -> String {
-        // Check environment variable
         if let Ok(path) = std::env::var("GPUI_FXC_PATH")
             && Path::new(&path).exists()
         {
             return path;
         }
 
-        // Try to find in PATH
-        // NOTE: This has to be `where.exe` on Windows, not `where`, it must be ended with `.exe`
         if let Ok(output) = std::process::Command::new("where.exe")
             .arg("fxc.exe")
             .output()
@@ -345,7 +331,6 @@ mod windows {
             return path.trim().to_string();
         }
 
-        // Check the default path
         if Path::new(r"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe")
             .exists()
         {
@@ -363,7 +348,6 @@ mod windows {
         shader_path: &str,
         rust_binding_path: &str,
     ) {
-        // Compile vertex shader
         let output_file = format!("{}/{}_vs.h", out_dir, module);
         let const_name = format!("{}_VERTEX_BYTES", module.to_uppercase());
         compile_shader_impl(
@@ -376,7 +360,6 @@ mod windows {
         );
         generate_rust_binding(&const_name, &output_file, rust_binding_path);
 
-        // Compile fragment shader
         let output_file = format!("{}/{}_ps.h", out_dir, module);
         let const_name = format!("{}_FRAGMENT_BYTES", module.to_uppercase());
         compile_shader_impl(

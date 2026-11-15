@@ -1,7 +1,3 @@
-//! The English catalog translators start from: every `tr!` and `tr_key!`
-//! literal in the app and every shortcut name, as `Localizable.strings`. Regenerate it with
-//! `MUXY_UPDATE_LOCALIZATION=1 cargo test -p muxy-app localization_tests`.
-
 use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
@@ -79,7 +75,6 @@ fn rust_files(directory: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// Collects the literal of each macro call outside comments and macro definitions.
 fn extract(text: &str, file: &Path, keys: &mut BTreeSet<String>, problems: &mut Vec<String>) {
     for (number, line) in text.lines().enumerate() {
         let code = line.trim_start();
@@ -120,7 +115,6 @@ fn extract(text: &str, file: &Path, keys: &mut BTreeSet<String>, problems: &mut 
     }
 }
 
-/// The value of the Rust string literal at the start of `text`, after whitespace.
 fn literal(text: &str) -> Option<String> {
     let mut chars = text.trim_start().strip_prefix('"')?.chars().peekable();
     let mut value = String::new();
@@ -150,9 +144,7 @@ fn literal(text: &str) -> Option<String> {
 }
 
 fn render(keys: &BTreeSet<String>) -> String {
-    let mut catalog = String::from(
-        "/* Muxy's English strings, the source for language packs. Translate the\n   right-hand side of each line and keep its placeholders. */\n\n",
-    );
+    let mut catalog = String::new();
     for key in keys {
         let escaped = escape(key);
         let _ = writeln!(catalog, "\"{escaped}\" = \"{escaped}\";");

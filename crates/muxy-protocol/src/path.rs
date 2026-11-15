@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::ErrorCode;
 
-/// A path on the server, as its bytes: raw on Unix, and UTF-8 on Windows.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(transparent)]
 #[cbor(transparent)]
@@ -17,9 +16,6 @@ pub struct ServerPath(
 );
 
 impl ServerPath {
-    /// The path as it travels: its raw bytes on Unix, and UTF-8 on Windows,
-    /// where a path that isn't valid Unicode is refused rather than
-    /// converted lossily.
     pub fn from_path(path: &Path) -> Result<Self, ErrorCode> {
         #[cfg(unix)]
         {
@@ -34,8 +30,6 @@ impl ServerPath {
         }
     }
 
-    /// The path on this computer. On Windows, bytes that aren't UTF-8 are
-    /// refused.
     pub fn to_path_buf(&self) -> Result<PathBuf, ErrorCode> {
         #[cfg(unix)]
         {
@@ -50,9 +44,6 @@ impl ServerPath {
         }
     }
 
-    /// Whether the path is absolute on a Unix or a Windows server, whichever
-    /// this build is: `/…`, `X:\…`, `X:/…`, or `\\server\share…`. A server
-    /// also checks that it is absolute on its own system.
     pub fn is_absolute(&self) -> bool {
         match self.0.as_slice() {
             [b'/', ..] => true,
@@ -68,9 +59,6 @@ impl ServerPath {
         }
     }
 
-    /// The path on this computer. On Windows a path that isn't UTF-8 reads
-    /// as empty, which names no file; servers refuse such paths with
-    /// [`Self::to_path_buf`].
     pub fn as_path(&self) -> &Path {
         #[cfg(unix)]
         {
@@ -90,8 +78,6 @@ impl AsRef<Path> for ServerPath {
     }
 }
 
-/// A Windows path that isn't Unicode keeps bytes that aren't UTF-8, so it
-/// names no file rather than a different one.
 impl From<&Path> for ServerPath {
     fn from(path: &Path) -> Self {
         Self(path.as_os_str().as_encoded_bytes().to_vec())
@@ -128,7 +114,6 @@ impl From<String> for ServerPath {
     }
 }
 
-/// Empty on Windows when the path isn't UTF-8, as [`ServerPath::as_path`].
 impl From<ServerPath> for PathBuf {
     fn from(path: ServerPath) -> Self {
         #[cfg(unix)]
@@ -143,7 +128,6 @@ impl From<ServerPath> for PathBuf {
     }
 }
 
-/// The path as text, when it is UTF-8.
 impl<'a> TryFrom<&'a ServerPath> for &'a str {
     type Error = std::str::Utf8Error;
 

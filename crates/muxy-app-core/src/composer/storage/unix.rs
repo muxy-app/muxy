@@ -1,6 +1,3 @@
-//! Every name opens relative to the held directory, never following a
-//! symbolic link.
-
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io;
@@ -11,8 +8,6 @@ use rustix::fs::{AtFlags, FileType, Mode, OFlags};
 
 use super::PrivateDirectory;
 
-/// Modes apply only to the folders this creates, so an existing link is
-/// left as it is and then refused.
 pub(super) fn create_directory(path: &Path) -> io::Result<File> {
     muxy_core::files::private_dir(path)?;
     Ok(rustix::fs::open(
@@ -62,7 +57,6 @@ pub(super) fn open_document(path: &Path) -> io::Result<File> {
     .into())
 }
 
-/// Gives `from` the name `to`, failing if `to` exists.
 pub(super) fn link_new(directory: &PrivateDirectory, from: &OsStr, to: &OsStr) -> io::Result<()> {
     Ok(rustix::fs::linkat(
         &directory.file,
@@ -90,7 +84,6 @@ pub(super) fn remove(directory: &PrivateDirectory, name: &OsStr) -> io::Result<(
     )?)
 }
 
-/// Whether `name` is a regular file, or `None` when it doesn't exist.
 pub(super) fn is_regular(directory: &PrivateDirectory, name: &OsStr) -> io::Result<Option<bool>> {
     match rustix::fs::statat(&directory.file, name, AtFlags::SYMLINK_NOFOLLOW) {
         Ok(stat) => Ok(Some(

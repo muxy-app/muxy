@@ -25,7 +25,6 @@ fn path(path: &ServerPath) -> Result<PathBuf> {
         .map_err(|code| ServerError::new(code, "Path is not valid on this computer"))
 }
 
-/// A name or a workspace-relative path as it travels, `/`-separated.
 fn wire_path(path: &Path) -> Result<ServerPath> {
     let mut path = ServerPath::from_path(path)
         .map_err(|code| ServerError::new(code, "Path is not valid Unicode"))?;
@@ -39,8 +38,6 @@ fn wire_path(path: &Path) -> Result<ServerPath> {
     Ok(path)
 }
 
-/// Git's folder, which listings and change reports leave out. Windows file
-/// systems ignore case.
 fn is_git(name: &std::ffi::OsStr) -> bool {
     muxy_core::paths::path_eq(Path::new(name), Path::new(".git"))
 }
@@ -61,9 +58,6 @@ impl Files {
     }
 }
 
-/// The folders directly inside `directory`, an absolute path anywhere on
-/// this computer, for choosing a new project's folder. Links to folders
-/// count. A folder with more than the protocol allows lists only its first.
 pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
     let mut names: Vec<_> = contents(directory)?
         .into_iter()
@@ -74,17 +68,12 @@ pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
     Ok(names)
 }
 
-/// The files and folders directly inside `directory`, an absolute path
-/// anywhere on this computer, for typing one's path into a terminal. Links
-/// to folders count as folders. A folder with more than the protocol allows
-/// lists only its first.
 pub(crate) fn entries(directory: &ServerPath) -> Result<Vec<PathEntry>> {
     let mut entries = contents(directory)?;
     within_limits(&mut entries, |entry| &entry.name);
     Ok(entries)
 }
 
-/// Everything in `directory` whose name can travel, in no order.
 fn contents(directory: &ServerPath) -> Result<Vec<PathEntry>> {
     muxy_protocol::validate_absolute_path(directory)
         .map_err(|code| ServerError::new(code, "Use an absolute folder path"))?;
@@ -107,8 +96,6 @@ fn contents(directory: &ServerPath) -> Result<Vec<PathEntry>> {
     Ok(contents)
 }
 
-/// Sorts `items` by name ignoring case and keeps the first the protocol
-/// allows in one listing.
 fn within_limits<T>(items: &mut Vec<T>, name: impl Fn(&T) -> &ServerPath) {
     items.sort_by_cached_key(|item| String::from_utf8_lossy(&name(item).0).to_lowercase());
     items.truncate(muxy_protocol::MAX_FILE_ENTRIES);

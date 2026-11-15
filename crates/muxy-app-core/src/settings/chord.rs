@@ -29,8 +29,6 @@ impl FromStr for KeyChord {
         while let Some((component, tail)) = rest.split_once('-') {
             let Some(index) = names.iter().position(|name| {
                 component.eq_ignore_ascii_case(name)
-                    // GPUI writes the platform key as `super` on Linux and
-                    // `win` on Windows.
                     || (*name == "cmd"
                         && (component.eq_ignore_ascii_case("super")
                             || component.eq_ignore_ascii_case("win")))

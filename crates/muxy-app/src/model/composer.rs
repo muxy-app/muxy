@@ -32,9 +32,6 @@ use crate::{
     views::composer::{Composer, ComposerEvent, PANEL},
 };
 
-/// A pane to send to, with the server that attached it and its channel there.
-/// It also carries how paths are quoted for its foreground program, `None`
-/// when that is a shell whose quoting isn't known.
 type Target = (PaneId, (ServerId, ChannelId), Modes, Option<PathQuoting>);
 
 pub(crate) struct ComposerRuntime {
@@ -164,7 +161,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// The draft's text: the open composer's, or the one saved for this project.
     pub(crate) fn composer_text(&self, cx: &gpui::App) -> String {
         if let Some(view) = &self.composer.view {
             return view.read(cx).draft.text.clone();
@@ -179,7 +175,6 @@ impl AppModel {
             .unwrap_or_default()
     }
 
-    /// Opens the composer when it is closed and replaces its text.
     pub(crate) fn set_composer_text(
         &mut self,
         text: String,
@@ -202,8 +197,6 @@ impl AppModel {
         self.save_composer_draft(cx)
     }
 
-    /// Sends the open composer's draft as Send does, or with `enter` unset as
-    /// Insert does.
     pub(crate) fn send_composer(
         &mut self,
         enter: bool,
@@ -289,8 +282,6 @@ impl AppModel {
         let _ = self.save_composer_draft(cx);
     }
 
-    /// Saves the open composer's draft, answering the store's error, which
-    /// the composer also shows.
     fn save_composer_draft(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
         let (Some(key), Some(view)) = (&self.composer.key, &self.composer.view) else {
             return Ok(());
@@ -640,8 +631,6 @@ impl AppModel {
 }
 
 impl AppModel {
-    /// Closes the composer's menu with the composer, and leaves the keyboard
-    /// to the pane rather than to a composer on its way out.
     fn close_composer_menu(&mut self, cx: &mut Context<Self>) {
         use crate::views::{menu::Command, overlays::Overlay};
 
@@ -658,7 +647,6 @@ impl AppModel {
         }
     }
 
-    /// The composer's menu, drawn by the app where the system pops up none.
     pub(super) fn open_composer_menu(
         &mut self,
         choices: &[(
@@ -704,17 +692,11 @@ impl AppModel {
 #[derive(Clone)]
 enum Step {
     Text(String),
-    /// A file here: its path for this computer's terminals; another
-    /// computer's get the file sent first, and its path there.
     File(PathBuf),
-    /// An image for the clipboard; another computer gets it as a file. Every
-    /// mention of one attachment shares its bytes.
     Image(Arc<[u8]>),
 }
 
-/// The most images one submission pastes, counting each mention.
 const MAX_SUBMITTED_IMAGES: usize = 32;
-/// The most bytes of normalized images one submission holds.
 const MAX_SUBMITTED_IMAGE_BYTES: usize = 256 * 1024 * 1024;
 
 fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>, String> {
@@ -772,7 +754,6 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
                     };
                     steps.push(Step::Image(png));
                 } else {
-                    // Each image is checked once, as it would be pasted.
                     if checked.insert(filename.as_str()) {
                         images
                             .normalize_png(filename)
@@ -809,8 +790,6 @@ fn prepare(plan: &SubmissionPlan, store: &mut ComposerStore) -> Result<Vec<Step>
     Ok(steps)
 }
 
-/// Paths quoted for the terminal's foreground program, as a terminal paste.
-/// `invalid` says why when a path can't be quoted that way.
 fn quoted(
     paths: &[PathBuf],
     quoting: Option<PathQuoting>,
@@ -823,8 +802,6 @@ fn quoted(
         .ok_or_else(invalid)
 }
 
-/// Sends a file or image to the terminal's computer, and returns its path
-/// there, quoted.
 async fn send_remote(
     model: &gpui::WeakEntity<AppModel>,
     cx: &mut gpui::AsyncApp,
@@ -852,9 +829,6 @@ async fn send_remote(
 }
 
 impl AppModel {
-    /// Whether a target is still the terminal the message was prepared for.
-    /// Paths were quoted for its program then, so a different program in its
-    /// foreground, such as fish started from bash, stops the send too.
     fn composer_target_current(
         &self,
         key: &DraftId,
@@ -872,7 +846,6 @@ impl AppModel {
             })
     }
 
-    /// The worker and connection generation of each server the targets use.
     fn composer_workers(
         &self,
         targets: &[Target],
@@ -945,7 +918,6 @@ impl AppModel {
         (!plan.is_empty()).then_some((revision, plan))
     }
 
-    /// The stored strategy, or inline paths while clipboard submission cannot run here.
     fn image_strategy(&self, stored: ImageSubmissionStrategy) -> ImageSubmissionStrategy {
         if self.supports(Feature::ClipboardImages) {
             stored

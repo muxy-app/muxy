@@ -1,7 +1,6 @@
 Muxy/Resources/markdown-assets/** linguist-vendored
 scripts/** linguist-vendored
 
-# Patches and embedded scripts must not depend on core.autocrlf.
 *.patch text eol=lf
 *.sh text eol=lf
 *.ps1 text eol=lf

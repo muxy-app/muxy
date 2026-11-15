@@ -40,8 +40,6 @@ pub struct ComposerSettings {
     pub image_strategy: ImageSubmissionStrategy,
     pub font_family: String,
     pub line_height: f32,
-    /// Dictation settings from before voice input was removed, ignored so
-    /// older settings files still load.
     #[serde(default, skip_serializing, rename = "language")]
     retired_language: IgnoredAny,
     #[serde(default, skip_serializing, rename = "voice_model")]

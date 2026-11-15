@@ -65,8 +65,6 @@ jobs:
         with:
           path: .zig-cache
           key: zig-macos-15-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
-          # Zig keys its cache by content, so an older one is safe and saves most
-          # of the rebuild when the vendored crate changes.
           restore-keys: zig-macos-15-0.17.0-
       - uses: Swatinem/rust-cache@v2
         with:
@@ -89,9 +87,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # Linux and Windows run x86_64 only; the release workflow builds the other
-  # architectures. The headless CLI is checked on Ubuntu 22.04, the glibc 2.35
-  # floor it ships with.
   linux:
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.scope != 'desktop' }}
@@ -191,14 +186,11 @@ jobs:
     timeout-minutes: 90
     env:
       SCOPE: ${{ needs.scope.outputs.scope || 'full' }}
-      # Links the many test binaries far faster than link.exe.
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld.exe
     defaults:
       run:
         shell: pwsh
     steps:
-      # Real-time scanning of every file the compiler writes slows the build;
-      # the runner is discarded after the job.
       - run: Set-MpPreference -DisableRealtimeMonitoring $true
       - run: |
           git config --global core.autocrlf false

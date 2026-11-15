@@ -1,7 +1,3 @@
-//! Windows runs each command in its own job object, which stands in for a
-//! process group. Anonymous pipes can't be waited on together with a
-//! process, so threads read and write them and report to one channel.
-
 use std::io::{self, Read, Write};
 use std::os::windows::io::{AsHandle, AsRawHandle, FromRawHandle, OwnedHandle};
 use std::os::windows::process::CommandExt;
@@ -26,25 +22,20 @@ use windows_sys::Win32::System::Threading::{
 
 use super::{CANCEL_CHECK, CHUNK, Cap, Captured, DRAIN, Limits, Output};
 
-/// Learns when a child exits, without reaping it.
 #[derive(Debug)]
 pub struct ExitWatch(OwnedHandle);
 
 impl ExitWatch {
-    /// `child` must not have been reaped yet.
     pub fn new(child: &Child) -> io::Result<Self> {
         child.as_handle().try_clone_to_owned().map(Self)
     }
 
-    /// Waits up to `timeout`, or for ever with `None`. Returns whether the
-    /// child has exited.
     pub fn wait(&mut self, timeout: Option<Duration>) -> io::Result<bool> {
         let milliseconds = timeout.map_or(INFINITE, |timeout| {
             u32::try_from(timeout.as_nanos().div_ceil(1_000_000))
                 .unwrap_or(INFINITE - 1)
                 .min(INFINITE - 1)
         });
-        // SAFETY: the process handle is open.
         match unsafe { WaitForSingleObject(self.0.as_raw_handle(), milliseconds) } {
             WAIT_OBJECT_0 => Ok(true),
             WAIT_TIMEOUT => Ok(false),
@@ -53,8 +44,6 @@ impl ExitWatch {
     }
 }
 
-/// A command started by [`Running::start`]. Dropping it before
-/// [`Running::wait`] kills its job.
 #[derive(Debug)]
 pub struct Running<'a> {
     child: Child,
@@ -64,8 +53,6 @@ pub struct Running<'a> {
 }
 
 impl<'a> Running<'a> {
-    /// Starts `command` in a new job, without a console window, so every
-    /// process it starts joins the job too.
     pub fn start(command: &mut Command, limits: Limits<'a>) -> io::Result<Self> {
         let job = Job::new()?;
         let mut child = command
@@ -96,11 +83,8 @@ impl<'a> Running<'a> {
         self.group.clone()
     }
 
-    /// Feeds stdin and collects output until the command exits and its
-    /// output closes, or a limit stops it.
     pub fn wait(mut self) -> io::Result<Output> {
         let limits = &self.limits;
-        // Readers wait while chunks are pending, so a fast writer can't fill memory.
         let (sender, events) = mpsc::sync_channel(16);
         let stdout = self.child.stdout.take();
         let mut stdout = Stream::new(stdout, limits.stdout, Source::Stdout, &sender)?;
@@ -196,12 +180,10 @@ impl Drop for Running<'_> {
     }
 }
 
-/// A started command's job object, until the command is reaped.
 #[derive(Clone, Debug)]
 pub struct Group(Arc<Mutex<Option<Job>>>);
 
 impl Group {
-    /// Kills every process in the job.
     pub fn kill(&self) {
         if let Some(job) = &*self.lock() {
             job.terminate();
@@ -228,17 +210,14 @@ struct Job(OwnedHandle);
 
 impl Job {
     fn new() -> io::Result<Self> {
-        // SAFETY: null attributes and name create an unnamed, uninheritable job.
         let job = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
         if job.is_null() {
             return Err(io::Error::last_os_error());
         }
-        // SAFETY: the job handle is new and owned here.
         Ok(Self(unsafe { OwnedHandle::from_raw_handle(job) }))
     }
 
     fn assign(&self, child: &Child) -> io::Result<()> {
-        // SAFETY: both handles are open.
         if unsafe { AssignProcessToJobObject(self.0.as_raw_handle(), child.as_raw_handle()) } == 0 {
             return Err(io::Error::last_os_error());
         }
@@ -246,43 +225,34 @@ impl Job {
     }
 
     fn terminate(&self) {
-        // SAFETY: the job handle is open.
         unsafe { TerminateJobObject(self.0.as_raw_handle(), 1) };
     }
 }
 
-/// Resumes the first thread of a process created suspended.
 fn resume_threads(pid: u32) -> io::Result<()> {
-    // SAFETY: CreateToolhelp32Snapshot has no memory arguments.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: the snapshot handle is new and owned here.
     let snapshot = unsafe { OwnedHandle::from_raw_handle(snapshot) };
     let mut entry = THREADENTRY32 {
         dwSize: u32::try_from(size_of::<THREADENTRY32>()).map_err(io::Error::other)?,
         ..THREADENTRY32::default()
     };
     let mut resumed = false;
-    // SAFETY: `entry` is a live structure whose size field is set.
     let mut more = unsafe { Thread32First(snapshot.as_raw_handle(), &raw mut entry) } != 0;
     while more {
         if entry.th32OwnerProcessID == pid {
-            // SAFETY: OpenThread has no memory arguments.
             let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
             if thread.is_null() {
                 return Err(io::Error::last_os_error());
             }
-            // SAFETY: the thread handle is new and owned here.
             let thread = unsafe { OwnedHandle::from_raw_handle(thread) };
-            // SAFETY: the thread handle is open with suspend and resume access.
             if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
                 return Err(io::Error::last_os_error());
             }
             resumed = true;
         }
-        // SAFETY: as for Thread32First.
         more = unsafe { Thread32Next(snapshot.as_raw_handle(), &raw mut entry) } != 0;
     }
     if resumed {
@@ -299,12 +269,10 @@ enum Source {
 }
 
 enum Event {
-    /// A chunk of output, or `None` once the stream ends.
     Output(Source, Option<Vec<u8>>),
     Exited,
 }
 
-/// An output stream that a thread reads, and what was kept of it.
 struct Stream {
     cap: Cap,
     closed: bool,
@@ -350,8 +318,6 @@ impl Stream {
         })
     }
 
-    /// Keeps what the cap allows of `chunk`, or closes on `None`. Returns
-    /// whether the stream passed a cap that stops the command.
     fn take(&mut self, chunk: Option<Vec<u8>>) -> bool {
         let Some(chunk) = chunk else {
             self.closed = true;
@@ -365,8 +331,6 @@ impl Stream {
     }
 }
 
-/// Writes `bytes` to stdin on a thread, then closes it. A command that stops
-/// reading closes the pipe, which ends the thread.
 fn feed(mut stdin: impl Write + Send + 'static, bytes: Vec<u8>) -> io::Result<()> {
     thread::Builder::new()
         .name("child-input".into())

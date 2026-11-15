@@ -1,5 +1,3 @@
-//! The crate's integration tests, in one binary so the crate links once.
-
 mod backup;
 mod browser;
 mod catalog;

@@ -15,8 +15,6 @@ pub(crate) struct GitReceipt {
     pub(crate) hook_error: Option<String>,
     pub(crate) failed: Option<muxy_protocol::ErrorReply>,
     pub(crate) reply: Option<GitReply>,
-    /// Where a removal on Windows set the worktree folder aside before
-    /// deleting it.
     pub(crate) set_aside: Option<muxy_protocol::ServerPath>,
 }
 

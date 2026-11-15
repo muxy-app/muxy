@@ -51,7 +51,6 @@ pub(crate) struct Composer {
     pub(crate) context_label: String,
     floating_dimensions: Option<gpui::Size<gpui::Pixels>>,
     size_motion: Option<layout::SizeMotion>,
-    /// Where the button that opens the menu was last drawn.
     pub(crate) menu_anchor: std::rc::Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
     pub(crate) visibility: muxy_ui::motion::VisibilityMotion,
     input_style: InputStyle,

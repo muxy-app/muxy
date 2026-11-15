@@ -1,5 +1,3 @@
-//! Base64 text: standard and padded, or URL-safe without padding.
-
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const URL_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
@@ -7,12 +5,10 @@ pub fn encode(bytes: &[u8]) -> String {
     encode_with(bytes, ALPHABET, true)
 }
 
-/// The URL-safe alphabet without `=` padding, as in RFC 4648 §5.
 pub fn encode_url(bytes: &[u8]) -> String {
     encode_with(bytes, URL_ALPHABET, false)
 }
 
-/// Reads standard, padded text; `None` for anything else.
 pub fn decode(text: &str) -> Option<Vec<u8>> {
     let text = text.trim_end();
     if !text.len().is_multiple_of(4) {

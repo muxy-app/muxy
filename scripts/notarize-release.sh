@@ -75,7 +75,6 @@ case "$1" in
         spctl --assess --type open --context context:primary-signature --verbose=2 "$1"
         ;;
     *.zip)
-        # ZIPs and bare executables cannot be stapled. Verify the submitted bytes.
         for BINARY in muxy muxy-server; do
             unzip -p "$1" "$BINARY" > "$TEMP/$BINARY"
             chmod 755 "$TEMP/$BINARY"

@@ -1,18 +1,9 @@
-//! Keeps a finished Ghostty install for CI, where every file is checked out new.
-//!
-//! Zig rebuilds the library whenever its source files have new timestamps or
-//! inodes, even when their content is the same, so its cache can't help a
-//! fresh checkout. CI points `LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR` at a directory
-//! it keeps between runs, and the installed library is kept there too, under a
-//! key covering everything that shapes it.
-
 use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// What a Ghostty build produces its library for.
 pub struct Build<'a> {
     pub target: &'a str,
     pub host: &'a str,
@@ -26,10 +17,6 @@ pub struct KeptInstall {
 }
 
 impl KeptInstall {
-    /// Where this build's install is kept, or `None` when builds aren't kept:
-    /// outside CI, for Ghostty source or package overrides, and for shared
-    /// libraries, whose install names point into the directory they were built
-    /// in.
     pub fn find(static_link: bool, build: &Build) -> Option<Self> {
         let root = env::var_os("LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR").filter(|dir| !dir.is_empty())?;
         if !static_link
@@ -74,7 +61,6 @@ impl KeptInstall {
         })
     }
 
-    /// Copies the kept install to `prefix`, if one is kept.
     pub fn restore(&self, prefix: &Path) -> bool {
         if !self.directory.join("include/ghostty/vt.h").is_file() {
             return false;
@@ -93,8 +79,6 @@ impl KeptInstall {
         }
     }
 
-    /// Keeps the install at `prefix` for later builds, in place of older ones
-    /// for the same target. Failing to keep it only costs the next build time.
     pub fn keep(&self, prefix: &Path) {
         let Some(parent) = self.directory.parent() else {
             return;
@@ -121,7 +105,6 @@ impl KeptInstall {
         }
     }
 
-    /// Whether `name` is another kept install for this target, CPU and mode.
     fn is_older(&self, name: &str) -> bool {
         let current = self.directory.file_name().map(|name| name.to_string_lossy());
         name.strip_prefix(&self.slot)
@@ -131,8 +114,6 @@ impl KeptInstall {
     }
 }
 
-/// Copies the directories and regular files under `source`. Symlinks only
-/// name shared libraries, which static builds don't link.
 fn copy_files(source: &Path, destination: &Path) -> io::Result<()> {
     fs::create_dir_all(destination)?;
     for entry in fs::read_dir(source)? {
@@ -148,7 +129,6 @@ fn copy_files(source: &Path, destination: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// A 64-bit FNV-1a hash over length-prefixed parts.
 struct Key(u64);
 
 impl Default for Key {

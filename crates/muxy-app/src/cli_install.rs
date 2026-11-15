@@ -12,7 +12,6 @@ use gpui::{Context, SharedString};
 use muxy_core::capability::{Capability, Feature};
 use muxy_ui::tr;
 
-/// The installer links the `muxy` that was installed with the running app.
 pub(crate) const CAPABILITY: Capability = Capability::of(cfg!(unix));
 
 impl AppModel {
@@ -103,9 +102,6 @@ pub(crate) fn install() -> io::Result<PathBuf> {
     Ok(destination)
 }
 
-/// The `muxy` installed with the app at `executable`: on Linux the app, the
-/// tool and the server sit in one directory. An app run from a temporary
-/// folder is not installed, and a link into it would not last.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub(crate) fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
     #[cfg(target_os = "linux")]
@@ -137,7 +133,6 @@ pub(crate) fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
     Ok(executable.with_file_name("muxy"))
 }
 
-/// The `muxy` inside the app bundle at `executable`.
 #[cfg(target_os = "macos")]
 pub(crate) fn installed_tool(executable: &Path) -> io::Result<PathBuf> {
     let app_name = muxy_core::release::Channel::current().app_name();

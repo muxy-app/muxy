@@ -1,5 +1,3 @@
-//! Resource targets and opener selection shared by app surfaces.
-
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -54,13 +52,6 @@ impl Target {
         Some(Self::Url(text.into()))
     }
 
-    /// Resolve a file candidate against `directory`, where `~` means `home`.
-    /// The caller supplies the lookup, on this disk or through another
-    /// computer's server, so UI code can run it on a bounded worker, never in
-    /// rendering or hit testing. A path on another computer, such as
-    /// `\\server\share` on Windows, is never looked up unless `directory` is
-    /// on that same share: text a program prints could otherwise make the
-    /// lookup reach a server it names.
     pub fn file(
         text: &str,
         directory: &Path,
@@ -125,9 +116,6 @@ impl Target {
     }
 }
 
-/// Whether looking up `path` would reach another computer or a device: a
-/// Windows UNC or device path, unless `directory` is on the same share.
-/// Paths elsewhere have no such prefix.
 fn reaches_another_computer(path: &Path, directory: &Path) -> bool {
     use std::ffi::OsStr;
     use std::path::{Component, Prefix};
@@ -165,8 +153,6 @@ fn position(text: &str) -> Option<u32> {
         .flatten()
 }
 
-/// A `START-END` line range, as tools print for `path:56-60`; it opens at
-/// the first line.
 fn line_range(text: &str) -> Option<u32> {
     let (start, end) = text.split_once('-')?;
     let start = position(start)?;
@@ -196,7 +182,6 @@ fn decode_path(text: &str) -> Option<PathBuf> {
     }
     #[cfg(windows)]
     {
-        // `file:///C:/a` names `C:/a`.
         let path = String::from_utf8(bytes).ok()?;
         Some(PathBuf::from(match path.as_bytes() {
             [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => &path[1..],

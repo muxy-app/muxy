@@ -162,7 +162,6 @@ impl WindowsWindowState {
         }
     }
 
-    // Calculate the bounds used for saving and whether the window is maximized.
     fn calculate_window_bounds(&self) -> (Bounds<Pixels>, bool) {
         let placement = unsafe {
             let mut placement = WINDOWPLACEMENT {
@@ -196,10 +195,6 @@ impl WindowsWindowState {
         }
     }
 
-    /// get the logical size of the app's drawable area.
-    ///
-    /// Currently, GPUI uses the logical size of the app to handle mouse interactions (such as
-    /// whether the mouse collides with other elements of GPUI).
     fn content_size(&self) -> Size<Pixels> {
         self.logical_size
     }
@@ -412,7 +407,6 @@ impl WindowsWindow {
 
         let hinstance = get_module_handle();
         let display = if let Some(display_id) = params.display_id {
-            // if we obtain a display_id, then this ID must be valid.
             WindowsDisplay::new(display_id).unwrap()
         } else {
             WindowsDisplay::primary_monitor().unwrap()
@@ -453,8 +447,6 @@ impl WindowsWindow {
             )
         };
 
-        // Failure to create a `WindowsWindowState` can cause window creation to fail,
-        // so check the inner result first.
         let this = context.inner.take().unwrap()?;
         let hwnd = creation_result?;
 
@@ -491,7 +483,6 @@ impl rwh::HasWindowHandle for WindowsWindow {
     }
 }
 
-// todo(windows)
 impl rwh::HasDisplayHandle for WindowsWindow {
     fn display_handle(&self) -> std::result::Result<rwh::DisplayHandle<'_>, rwh::HandleError> {
         unimplemented!()
@@ -500,7 +491,6 @@ impl rwh::HasDisplayHandle for WindowsWindow {
 
 impl Drop for WindowsWindow {
     fn drop(&mut self) {
-        // clone this `Rc` to prevent early release of the pointer
         let this = self.0.clone();
         self.0
             .executor
@@ -528,10 +518,6 @@ impl PlatformWindow for WindowsWindow {
         self.0.state.borrow().window_bounds()
     }
 
-    /// get the logical size of the app's drawable area.
-    ///
-    /// Currently, GPUI uses the logical size of the app to handle mouse interactions (such as
-    /// whether the mouse collides with other elements of GPUI).
     fn content_size(&self) -> Size<Pixels> {
         self.0.state.borrow().content_size()
     }
@@ -655,8 +641,6 @@ impl PlatformWindow for WindowsWindow {
                         let button_id = match btn {
                             PromptButton::Ok(_) => IDOK.0,
                             PromptButton::Cancel(_) => IDCANCEL.0,
-                            // the first few low integer values are reserved for known buttons
-                            // so for simplicity we just go backwards from -1
                             PromptButton::Other(_) => -(index as i32) - 1,
                         };
                         button_id_map.push(button_id);
@@ -696,7 +680,6 @@ impl PlatformWindow for WindowsWindow {
                 this.set_window_placement().log_err();
 
                 unsafe {
-                    // If the window is minimized, restore it.
                     if IsIconic(hwnd).as_bool() {
                         ShowWindowAsync(hwnd, SW_RESTORE).ok().log_err();
                     }
@@ -705,11 +688,6 @@ impl PlatformWindow for WindowsWindow {
                     SetFocus(Some(hwnd)).log_err();
                 }
 
-                // premium ragebait by windows, this is needed because the window
-                // must have received an input event to be able to set itself to foreground
-                // so let's just simulate user input as that seems to be the most reliable way
-                // some more info: https://gist.github.com/Aetopia/1581b40f00cc0cadc93a0e8ccb65dc8c
-                // bonus: this bug also doesn't manifest if you have vs attached to the process
                 let inputs = [
                     INPUT {
                         r#type: INPUT_KEYBOARD,
@@ -734,8 +712,6 @@ impl PlatformWindow for WindowsWindow {
                 ];
                 unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
 
-                // todo(windows)
-                // crate `windows 0.56` reports true as Err
                 unsafe { SetForegroundWindow(hwnd).as_bool() };
             })
             .detach();
@@ -760,16 +736,12 @@ impl PlatformWindow for WindowsWindow {
 
         match background_appearance {
             WindowBackgroundAppearance::Opaque => {
-                // ACCENT_DISABLED
                 set_window_composition_attribute(hwnd, None, 0);
             }
             WindowBackgroundAppearance::Transparent => {
-                // Use ACCENT_ENABLE_TRANSPARENTGRADIENT for transparent background
                 set_window_composition_attribute(hwnd, None, 2);
             }
             WindowBackgroundAppearance::Blurred => {
-                // Enable acrylic blur
-                // ACCENT_ENABLE_ACRYLICBLURBEHIND
                 set_window_composition_attribute(hwnd, Some((0, 0, 0, 0)), 4);
             }
         }
@@ -858,7 +830,6 @@ impl PlatformWindow for WindowsWindow {
     }
 
     fn update_ime_position(&self, _bounds: Bounds<Pixels>) {
-        // There is no such thing on Windows.
     }
 }
 
@@ -1037,7 +1008,6 @@ impl ClickState {
         }
     }
 
-    /// update self and return the needed click count
     pub fn update(&mut self, button: MouseButton, new_position: Point<DevicePixels>) -> usize {
         if self.button == button && self.is_double_click(new_position) {
             self.current_count += 1;
@@ -1053,17 +1023,14 @@ impl ClickState {
 
     pub fn system_update(&mut self, wparam: usize) {
         match wparam {
-            // SPI_SETDOUBLECLKWIDTH
             29 => {
                 self.double_click_spatial_tolerance_width =
                     unsafe { GetSystemMetrics(SM_CXDOUBLECLK) }
             }
-            // SPI_SETDOUBLECLKHEIGHT
             30 => {
                 self.double_click_spatial_tolerance_height =
                     unsafe { GetSystemMetrics(SM_CYDOUBLECLK) }
             }
-            // SPI_SETDOUBLECLICKTIME
             32 => {
                 self.double_click_interval =
                     Duration::from_millis(unsafe { GetDoubleClickTime() } as u64)
@@ -1228,7 +1195,7 @@ fn get_module_handle() -> HMODULE {
             windows::core::w!("ZedModule"),
             &mut h_module,
         )
-        .expect("Unable to get module handle"); // this should never fail
+        .expect("Unable to get module handle");
 
         h_module
     }
@@ -1237,9 +1204,6 @@ fn get_module_handle() -> HMODULE {
 fn register_drag_drop(window: &Rc<WindowsWindowInner>) -> Result<()> {
     let window_handle = window.hwnd;
     let handler = WindowsDragDropHandler(window.clone());
-    // The lifetime of `IDropTarget` is handled by Windows, it won't release until
-    // we call `RevokeDragDrop`.
-    // So, it's safe to drop it here.
     let drag_drop_handler: IDropTarget = handler.into();
     unsafe {
         RegisterDragDrop(window_handle, &drag_drop_handler)
@@ -1249,13 +1213,6 @@ fn register_drag_drop(window: &Rc<WindowsWindowInner>) -> Result<()> {
 }
 
 fn calculate_window_rect(bounds: Bounds<DevicePixels>, border_offset: WindowBorderOffset) -> RECT {
-    // NOTE:
-    // The reason we're not using `AdjustWindowRectEx()` here is
-    // that the size reported by this function is incorrect.
-    // You can test it, and there are similar discussions online.
-    // See: https://stackoverflow.com/questions/12423584/how-to-set-exact-client-size-for-overlapped-window-winapi
-    //
-    // So we manually calculate these values here.
     let mut rect = RECT {
         left: bounds.left().0,
         top: bounds.top().0,
@@ -1305,7 +1262,6 @@ fn retrieve_window_placement(
         ..Default::default()
     };
     unsafe { GetWindowPlacement(hwnd, &mut placement)? };
-    // the bounds may be not inside the display
     let bounds = if display.check_given_bounds(initial_bounds) {
         initial_bounds
     } else {

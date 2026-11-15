@@ -1,8 +1,3 @@
-//! Caption buttons for the titlebar the app draws on Windows. Each is marked
-//! as the window control it stands for, so Windows handles the clicks, shows
-//! Snap layouts over Maximize, and closes through the window's close
-//! request.
-
 use gpui::{
     Div, InteractiveElement, IntoElement, ParentElement, Rgba, Stateful, Styled, Window,
     WindowControlArea, div, px, rgb, svg,
@@ -10,7 +5,6 @@ use gpui::{
 use muxy_ui::theme::Theme;
 
 const BUTTON_WIDTH: f32 = 46.0;
-/// The color Windows gives a close button under the pointer.
 const CLOSE_HOVER: u32 = 0x00c4_2b1c;
 
 pub(in crate::views) fn controls_width() -> f32 {
@@ -26,7 +20,6 @@ pub(in crate::views) fn controls(window: &Window, theme: &Theme) -> Stateful<Div
     div()
         .id("window-controls")
         .debug_selector(|| "window-controls".into())
-        // Windows acts on a press only when no focusable view behind took it.
         .occlude()
         .flex()
         .flex_none()

@@ -9,16 +9,12 @@ use muxy_ui::tr;
 use crate::ai::Provider;
 use crate::repository_actions::Action;
 
-/// Captured before confirmation and revalidated before any repository changes.
 pub(crate) struct AiConfirmation {
     pub(crate) project: ProjectId,
     pub(crate) action: Action,
     pub(crate) provider: Provider,
-    /// Providers a commit can switch to before confirming.
     pub(crate) providers: Vec<Provider>,
-    /// The commit options to remember, even when `staged` overrides one.
     pub(crate) choices: CommitChoices,
-    /// Whether anything is staged, so a commit can leave unstaged changes out.
     pub(crate) staged: bool,
     pub(crate) branch: String,
     pub(crate) head: Option<String>,
@@ -80,7 +76,6 @@ impl AiConfirmation {
         }
     }
 
-    /// Takes the provider and options the sheet was confirmed with.
     pub(crate) fn confirm(&mut self, response: &PromptResponse) {
         if let Some(provider) = response.picked.and_then(|index| self.providers.get(index)) {
             self.provider = *provider;
@@ -93,8 +88,6 @@ impl AiConfirmation {
         }
     }
 
-    /// What the action commits and whether it pushes. Pull requests always
-    /// include every change and push.
     pub(crate) fn commit_choices(&self) -> CommitChoices {
         match self.action {
             Action::Commit => CommitChoices {

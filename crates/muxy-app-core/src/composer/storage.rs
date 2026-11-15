@@ -1,6 +1,3 @@
-//! Composer files live in private folders and are published by name only
-//! once complete, never through a symbolic link.
-
 #[cfg(unix)]
 mod unix;
 #[cfg(windows)]
@@ -36,7 +33,6 @@ impl From<AtomicWriteError> for io::Error {
     }
 }
 
-// Not `muxy_core::fs::write_atomic`: drafts are written relative to a verified folder handle so symlinks can't redirect them.
 pub(super) fn write_private_durable(path: &Path, contents: &[u8]) -> Result<(), AtomicWriteError> {
     let directory = ensure_private_directory(path.parent().unwrap_or_else(|| Path::new(".")))
         .map_err(|error| AtomicWriteError {

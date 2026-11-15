@@ -30,8 +30,6 @@ pub struct Settings {
     pub servers: Vec<super::ServerEntry>,
 }
 
-/// What the user chose for one extension panel: whether it floats detached,
-/// and where it last was while it did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PanelLayout {
@@ -41,8 +39,6 @@ pub struct PanelLayout {
     pub frame: Option<[f32; 4]>,
 }
 
-/// Per-action AI choices. Hand edits are expected here, so unknown keys and
-/// non-text values are ignored instead of stopping the app from starting.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiSettings {
@@ -56,7 +52,6 @@ pub struct AiSettings {
     pub commit: CommitChoices,
 }
 
-/// The options last chosen for an AI commit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CommitChoices {
     pub include_unstaged: bool,
@@ -100,8 +95,6 @@ fn commit_choices<'de, D: serde::Deserializer<'de>>(
 #[serde(default, deny_unknown_fields)]
 pub struct PaneSettings {
     pub new_pane_directory: NewPaneDirectory,
-    /// Whether Insert Path remembers the paths it typed and lists them
-    /// first.
     pub insert_path_recents: bool,
 }
 
@@ -126,8 +119,6 @@ pub enum NewPaneDirectory {
 #[serde(default, deny_unknown_fields)]
 pub struct ProjectSettings {
     pub search_root: Option<PathBuf>,
-    /// Folders the project picker lists but never searches inside, on top of
-    /// the built-in skips. Relative entries are taken from the search root.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub search_skip: Vec<String>,
 }
@@ -148,12 +139,9 @@ pub enum CloseBehavior {
     Detach,
 }
 
-/// What the app may send about itself.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PrivacySettings {
-    /// A once-a-day ping with only the app version, OS, and architecture,
-    /// so active installs can be counted per version.
     pub usage_ping: bool,
 }
 
@@ -174,8 +162,6 @@ impl Default for WindowSettings {
 }
 
 impl Settings {
-    /// Saves one AI entry over the file's current contents, keeping hand edits,
-    /// and returns the AI settings as saved.
     pub fn save_ai_entry(
         path: &Path,
         table: &str,
@@ -185,7 +171,6 @@ impl Settings {
         Self::save_ai_entries(path, table, vec![(key, value.map(Into::into))])
     }
 
-    /// Saves the options last chosen for an AI commit.
     pub fn save_commit_choices(path: &Path, choices: CommitChoices) -> Result<AiSettings> {
         Self::save_ai_entries(
             path,

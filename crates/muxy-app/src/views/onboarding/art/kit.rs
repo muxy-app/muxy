@@ -1,6 +1,3 @@
-//! The tour art's colors and drawing pieces. Sizes are in the scene's own units
-//! and scale with the interface size.
-
 use gpui::{
     AnyElement, BoxShadow, Div, Hsla, IntoElement, ParentElement, PathBuilder, Pixels, Point,
     SharedString, Styled, canvas, div, point, px, size,
@@ -10,7 +7,6 @@ use muxy_ui::theme::Metrics;
 use super::timeline::wave;
 use crate::model::AppModel;
 
-/// The scene's size. Every scene is laid out for it and centered in the art.
 pub(super) const W: f32 = 492.0;
 pub(super) const H: f32 = 568.0;
 
@@ -30,7 +26,6 @@ pub(super) const PANEL: u32 = 0x16_15_1d;
 pub(super) const RAISED: u32 = 0x20_1e_29;
 pub(super) const TEXT: u32 = 0xf2_f0_f7;
 
-/// `hex` at `alpha`.
 pub(super) fn tint(hex: u32, alpha: f32) -> Hsla {
     let mut color: Hsla = gpui::rgb(hex).into();
     color.a = alpha;
@@ -53,12 +48,10 @@ pub(super) fn line() -> Hsla {
     tint(WHITE, 0.1)
 }
 
-/// A count as a coordinate.
 pub(crate) fn units(value: usize) -> f32 {
     f32::from(u16::try_from(value).unwrap_or(u16::MAX))
 }
 
-/// One frame of a scene: its time, in seconds since the step appeared.
 pub(super) struct Frame<'a> {
     pub(super) t: f32,
     pub(super) m: Metrics,
@@ -71,7 +64,6 @@ impl Frame<'_> {
     }
 }
 
-/// A box at a place in the scene.
 pub(super) fn place(frame: &Frame, x: f32, y: f32, width: f32, height: f32) -> Div {
     div()
         .absolute()
@@ -81,7 +73,6 @@ pub(super) fn place(frame: &Frame, x: f32, y: f32, width: f32, height: f32) -> D
         .h(frame.px(height))
 }
 
-/// One line of text.
 pub(super) fn text(
     frame: &Frame,
     points: f32,
@@ -97,7 +88,6 @@ pub(super) fn text(
         .child(content.into())
 }
 
-/// One line of terminal text.
 pub(super) fn mono(
     frame: &Frame,
     points: f32,
@@ -124,7 +114,6 @@ fn window_shadow(frame: &Frame) -> Vec<BoxShadow> {
     ]
 }
 
-/// A raised card with no window controls.
 pub(super) fn card(frame: &Frame, x: f32, y: f32, width: f32, height: f32) -> Div {
     place(frame, x, y, width, height)
         .rounded(frame.px(10.0))
@@ -134,7 +123,6 @@ pub(super) fn card(frame: &Frame, x: f32, y: f32, width: f32, height: f32) -> Di
         .shadow(window_shadow(frame))
 }
 
-/// A little app window: a card with its traffic lights in the corner.
 pub(super) fn app_window(frame: &Frame, x: f32, y: f32, width: f32, height: f32) -> Div {
     card(frame, x, y, width, height)
         .overflow_hidden()
@@ -153,7 +141,6 @@ fn traffic_lights(frame: &Frame, x: f32, y: f32) -> Div {
         .child(light(22.0, 0x28_c8_40))
 }
 
-/// A project's square icon with its first letter.
 pub(super) fn letter_icon(frame: &Frame, side: f32, color: Hsla, letter: &str) -> Div {
     div()
         .flex()
@@ -168,7 +155,6 @@ pub(super) fn letter_icon(frame: &Frame, side: f32, color: Hsla, letter: &str) -
         .child(letter.to_owned())
 }
 
-/// A short caption at the foot of the scene, fading with `opacity`.
 pub(super) fn caption(
     frame: &Frame,
     y: f32,
@@ -195,7 +181,6 @@ pub(super) fn caption(
         )
 }
 
-/// A keyboard key.
 pub(super) fn keycap(frame: &Frame, side: f32, pressed: f32, cap: String) -> Div {
     let depth = (1.0 - pressed) * 3.0;
     div()
@@ -230,20 +215,21 @@ pub(super) fn keycap(frame: &Frame, side: f32, pressed: f32, cap: String) -> Div
         .child(cap)
 }
 
-/// What a scene strokes and dots over its boxes.
 pub(super) enum Mark {
-    /// A line through the points.
     Line {
         points: Vec<(f32, f32)>,
         width: f32,
         color: Hsla,
         dash: Option<f32>,
     },
-    /// A filled circle.
-    Dot { x: f32, y: f32, r: f32, color: Hsla },
+    Dot {
+        x: f32,
+        y: f32,
+        r: f32,
+        color: Hsla,
+    },
 }
 
-/// A curve between two places in the scene.
 #[derive(Clone, Copy)]
 pub(super) struct Curve {
     pub(super) from: (f32, f32),
@@ -253,7 +239,6 @@ pub(super) struct Curve {
 }
 
 impl Curve {
-    /// The point `x` of the way along it.
     pub(super) fn at(self, x: f32) -> (f32, f32) {
         let inverse = 1.0 - x;
         let blend = |p: f32, q: f32, r: f32, s: f32| {
@@ -268,7 +253,6 @@ impl Curve {
         )
     }
 
-    /// The first `reach` of it, as a line.
     pub(super) fn points(self, reach: f32) -> Vec<(f32, f32)> {
         const SEGMENTS: usize = 28;
         (0..=SEGMENTS)
@@ -277,7 +261,6 @@ impl Curve {
     }
 }
 
-/// Paints `marks` over the whole scene.
 pub(super) fn paint_marks(frame: &Frame, marks: Vec<Mark>) -> AnyElement {
     let m = frame.m;
     canvas(
@@ -333,7 +316,6 @@ pub(super) fn paint_marks(frame: &Frame, marks: Vec<Mark>) -> AnyElement {
     .into_any_element()
 }
 
-/// A dot traveling along `curve`, with a soft halo.
 pub(super) fn packet(marks: &mut Vec<Mark>, curve: Curve, x: f32, r: f32, hex: u32, alpha: f32) {
     let (px_, py) = curve.at(x);
     marks.push(Mark::Dot {
@@ -350,7 +332,6 @@ pub(super) fn packet(marks: &mut Vec<Mark>, curve: Curve, x: f32, r: f32, hex: u
     });
 }
 
-/// A turning arc, for something at work.
 pub(super) fn spinner(t: f32, x: f32, y: f32, r: f32, color: Hsla) -> Mark {
     const SEGMENTS: usize = 18;
     let start = t * std::f32::consts::TAU * 1.1;
@@ -369,7 +350,6 @@ pub(super) fn spinner(t: f32, x: f32, y: f32, r: f32, color: Hsla) -> Mark {
     }
 }
 
-/// A blinking block cursor.
 pub(super) fn cursor(frame: &Frame, points: f32, color: Hsla) -> Div {
     let blink = if wave(frame.t, 1.1) > 0.5 { 1.0 } else { 0.25 };
     div()

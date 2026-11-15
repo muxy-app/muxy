@@ -11,8 +11,6 @@ use crate::model::preferences::Change;
 
 pub(crate) const PAGE_ID: &str = "change_theme";
 pub(crate) const QUICK_PAGE_ID: &str = "change_quick_theme";
-/// The Quick Terminal entry that follows the app's theme. No theme file can be named
-/// this. It reaches accessibility clients as part of an ID, so it holds no NUL.
 pub(crate) const SAME_AS_APP: &str = "/same-as-app";
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -30,7 +28,6 @@ impl ThemeTarget {
     }
 }
 
-/// The id of the entry to mark as current.
 pub(crate) fn current(model: &AppModel, target: ThemeTarget, dark: bool) -> String {
     match target {
         ThemeTarget::App => model.themes.active_name(model.appearance.theme(dark), dark),
@@ -41,7 +38,6 @@ pub(crate) fn current(model: &AppModel, target: ThemeTarget, dark: bool) -> Stri
     }
 }
 
-/// `None` picks Same as App for the Quick Terminal.
 fn select(target: ThemeTarget, dark: bool, name: Option<String>) -> Handler {
     Rc::new(move |model, _, cx| {
         let change = match target {

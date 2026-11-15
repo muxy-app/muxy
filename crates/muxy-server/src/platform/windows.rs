@@ -1,5 +1,3 @@
-//! The Win32 calls behind job objects and process listings on Windows.
-
 use std::ffi::OsString;
 use std::io;
 use std::os::windows::ffi::OsStringExt;
@@ -24,17 +22,13 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 
-/// A job object. The processes its members start join it too.
 #[derive(Debug)]
 pub(crate) struct Job(OwnedHandle);
 
-/// A process in a [`Job`]. Its open handle keeps its ID from being reused,
-/// so the details read later belong to the same process.
 #[derive(Debug)]
 pub(crate) struct JobProcess {
     pub(crate) pid: u32,
     pub(crate) parent: u32,
-    /// When it started, in 100 ns units since 1601.
     pub(crate) created: u64,
     handle: OwnedHandle,
 }
@@ -50,18 +44,14 @@ impl JobProcess {
 }
 
 impl Job {
-    /// A job whose processes keep running when it is dropped.
     pub(crate) fn new() -> io::Result<Self> {
-        // SAFETY: null attributes and name create an unnamed, uninheritable job.
         owned(unsafe { CreateJobObjectW(ptr::null(), ptr::null()) }).map(Self)
     }
 
-    /// A job whose processes all end when it is dropped.
     pub(crate) fn killed_on_drop() -> io::Result<Self> {
         let job = Self::new()?;
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        // SAFETY: `limits` is a live structure of the size passed.
         check(unsafe {
             SetInformationJobObject(
                 job.0.as_raw_handle(),
@@ -74,12 +64,9 @@ impl Job {
     }
 
     pub(crate) fn assign(&self, process: RawHandle) -> io::Result<()> {
-        // SAFETY: both handles are open; the caller owns `process`.
         check(unsafe { AssignProcessToJobObject(self.0.as_raw_handle(), process) })
     }
 
-    /// The processes in the job, oldest first. Processes that exit while
-    /// they are read are left out.
     pub(crate) fn processes(&self) -> Vec<JobProcess> {
         let mut processes: Vec<_> = self
             .process_ids()
@@ -101,8 +88,6 @@ impl Job {
             header: JOBOBJECT_BASIC_PROCESS_ID_LIST::default(),
             more: [0; CAPACITY - 1],
         };
-        // SAFETY: `list` is a live buffer of the size passed, laid out as the
-        // header followed by room for `CAPACITY` IDs.
         let listed = unsafe {
             QueryInformationJobObject(
                 self.0.as_raw_handle(),
@@ -112,7 +97,6 @@ impl Job {
                 ptr::null_mut(),
             )
         };
-        // More processes than fit is reported as an error with a partial list.
         if listed == 0 && list.header.NumberOfProcessIdsInList == 0 {
             return Vec::new();
         }
@@ -125,11 +109,9 @@ impl Job {
     }
 
     fn process(&self, pid: u32) -> Option<JobProcess> {
-        // SAFETY: OpenProcess has no memory arguments.
         let process =
             owned(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) }).ok()?;
         let mut member = 0;
-        // SAFETY: both handles are open and `member` is a live BOOL.
         let checked = unsafe {
             IsProcessInJob(
                 process.as_raw_handle(),
@@ -151,7 +133,6 @@ impl Job {
 
 fn parent_id(process: &OwnedHandle) -> Option<u32> {
     let mut information = PROCESS_BASIC_INFORMATION::default();
-    // SAFETY: `information` is a live structure of the size passed.
     let status = unsafe {
         NtQueryInformationProcess(
             process.as_raw_handle(),
@@ -169,18 +150,15 @@ fn parent_id(process: &OwnedHandle) -> Option<u32> {
 fn creation_time(process: &OwnedHandle) -> Option<u64> {
     let mut times = [FILETIME::default(); 4];
     let [created, exited, kernel, user] = &mut times;
-    // SAFETY: each pointer is a live FILETIME.
     let read = unsafe { GetProcessTimes(process.as_raw_handle(), created, exited, kernel, user) };
     (read != 0)
         .then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
 }
 
-/// The program's path. Most fit in 260 units; long paths get one retry.
 fn image_path(process: &OwnedHandle) -> Option<PathBuf> {
     for capacity in [260, 32 * 1024] {
         let mut buffer = vec![0_u16; capacity];
         let mut length = u32::try_from(capacity).ok()?;
-        // SAFETY: `buffer` holds `length` UTF-16 units.
         let read = unsafe {
             QueryFullProcessImageNameW(
                 process.as_raw_handle(),
@@ -197,10 +175,8 @@ fn image_path(process: &OwnedHandle) -> Option<PathBuf> {
     None
 }
 
-/// The command line, read in a buffer of the size the system reports.
 fn command_line(process: &OwnedHandle) -> Option<String> {
     let mut needed = 0_u32;
-    // SAFETY: a zero-length query writes only the size it needs.
     unsafe {
         NtQueryInformationProcess(
             process.as_raw_handle(),
@@ -210,15 +186,12 @@ fn command_line(process: &OwnedHandle) -> Option<String> {
             &raw mut needed,
         )
     };
-    // A system that doesn't report the size gets a generous guess.
     let needed = match usize::try_from(needed).ok()? {
         0 => 8 * 1024,
         needed => needed.clamp(size_of::<UNICODE_STRING>(), 64 * 1024),
     };
     let mut buffer = vec![0_u64; needed.div_ceil(8)];
     let size = u32::try_from(buffer.len() * 8).ok()?;
-    // SAFETY: `buffer` is a live, 8-byte aligned buffer of `size` bytes. On
-    // success it starts with a UNICODE_STRING pointing into itself.
     let status = unsafe {
         NtQueryInformationProcess(
             process.as_raw_handle(),
@@ -231,7 +204,6 @@ fn command_line(process: &OwnedHandle) -> Option<String> {
     if status < 0 {
         return None;
     }
-    // SAFETY: the call succeeded, so the buffer starts with a UNICODE_STRING.
     let text = unsafe { ptr::read(buffer.as_ptr().cast::<UNICODE_STRING>()) };
     if text.Buffer.is_null() {
         return None;
@@ -239,11 +211,9 @@ fn command_line(process: &OwnedHandle) -> Option<String> {
     let length = usize::from(text.Length) / 2;
     let start = text.Buffer.cast_const();
     let end = buffer.as_ptr_range().end.cast::<u16>();
-    // The text must lie inside the buffer the call filled.
     if start < buffer.as_ptr().cast::<u16>() || start.wrapping_add(length) > end {
         return None;
     }
-    // SAFETY: the range was checked to lie inside `buffer`.
     let wide = unsafe { std::slice::from_raw_parts(start, length) };
     Some(String::from_utf16_lossy(wide))
 }
@@ -252,7 +222,6 @@ fn owned(handle: HANDLE) -> io::Result<OwnedHandle> {
     if handle.is_null() || handle == INVALID_HANDLE_VALUE {
         Err(io::Error::last_os_error())
     } else {
-        // SAFETY: the handle was just returned to this caller, which owns it.
         Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
     }
 }
@@ -265,9 +234,7 @@ fn check(result: i32) -> io::Result<()> {
     }
 }
 
-/// The Win32 error for an NT status.
 pub(crate) fn status_error(status: i32) -> io::Error {
-    // SAFETY: RtlNtStatusToDosError has no memory arguments.
     let code = unsafe { RtlNtStatusToDosError(status) };
     io::Error::from_raw_os_error(code.cast_signed())
 }

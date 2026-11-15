@@ -10,7 +10,6 @@ use crate::model::AppModel;
 use crate::views::project_editor::Field;
 use crate::views::tab_menu::Action as TabAction;
 
-/// The command that does to the active tab what a tab menu row does to its own.
 fn tab_shortcut(action: TabAction) -> Option<ShortcutId> {
     use muxy_app_core::{TabCloseScope, TabSide};
     match action {
@@ -121,8 +120,6 @@ impl Command {
     }
 }
 
-/// Whether an app shortcut takes `chord` before a terminal's default key
-/// for it can run.
 pub(crate) fn application_handles(chord: &KeyChord, cx: &App) -> bool {
     let Ok(key) = gpui::Keystroke::parse(chord.as_str()) else {
         return true;

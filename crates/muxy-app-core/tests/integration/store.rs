@@ -201,7 +201,6 @@ fn overlapping_save_preserves_the_active_writer_and_previous_state() -> TestResu
     assert!(
         matches!(error, AppError::Io { source, .. } if source.kind() == std::io::ErrorKind::WouldBlock)
     );
-    // Windows locks are mandatory, so the file is read once the lock is gone.
     drop(active_writer);
     assert_eq!(fs::read(fixture.temporary())?, b"active write");
     assert_eq!(fs::read(fixture.path())?, old_bytes);
@@ -267,7 +266,6 @@ fn older_files_keep_everything_and_move_server_state_to_the_local_entry() -> Tes
         #[cfg(windows)]
         let directory = json!(home.to_str().ok_or("home directory")?);
         expected["projects"][0]["directory"] = directory;
-        // Windows saves directories as text.
         #[cfg(windows)]
         for project in expected["projects"].as_array_mut().ok_or("projects")? {
             if let Some(bytes) = project["directory"].as_array() {

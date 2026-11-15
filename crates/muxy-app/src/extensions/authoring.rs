@@ -1,6 +1,3 @@
-//! What an agent needs to work on an extension: the command that starts it,
-//! whether it can reach `muxy`, and the copy a marketplace extension clones to.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -13,7 +10,6 @@ use crate::ai::{InitialPrompt, Provider};
 
 pub(crate) const STORE_REPOSITORY: &str = "muxy-app/extensions";
 
-/// The developer tools that cloning and publishing run, replaceable in tests.
 pub(crate) trait Tools {
     fn installed(&self, program: &str) -> bool;
     fn run(
@@ -22,7 +18,6 @@ pub(crate) trait Tools {
         arguments: &[&str],
         directory: Option<&Path>,
     ) -> Result<String, String>;
-    /// Gives GitHub a moment before the next attempt.
     fn wait(&self) {}
 }
 
@@ -47,30 +42,15 @@ impl Tools for LocalTools {
     }
 }
 
-/// What the user wants an agent to do.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum AgentTask {
     Create,
-    Edit {
-        name: String,
-        folder: PathBuf,
-    },
-    Clone {
-        name: String,
-        /// The installed copy, for when the source can't be downloaded.
-        installed: PathBuf,
-    },
-    Publish {
-        name: String,
-        folder: PathBuf,
-    },
-    /// Change the app's settings, working in its profile folder.
-    Settings {
-        profile: PathBuf,
-    },
+    Edit { name: String, folder: PathBuf },
+    Clone { name: String, installed: PathBuf },
+    Publish { name: String, folder: PathBuf },
+    Settings { profile: PathBuf },
 }
 
-/// Where the agent starts, and what it is told first.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct AgentStart {
     pub(crate) directory: PathBuf,
@@ -79,9 +59,6 @@ pub(crate) struct AgentStart {
 }
 
 impl AgentTask {
-    /// A folder inside the workspace starts at its root, where the agent finds
-    /// the skill by itself. One elsewhere starts where the work is, and the
-    /// prompt names the skill so that nothing has to be added to that folder.
     pub(crate) fn start(&self, root: &Path) -> AgentStart {
         let skill = workspace::skill_file(root);
         let skill = skill.display();
@@ -146,8 +123,6 @@ impl AgentTask {
         }
     }
 
-    /// Readies the folder the agent starts in: its skill, and for a clone the
-    /// copy it works on.
     pub(crate) fn prepare(&self, root: &Path) -> Result<(), String> {
         if let Self::Settings { profile } = self {
             return muxy_app_core::settings::agent::prepare(profile)
@@ -165,12 +140,6 @@ pub(crate) fn clone_name(name: &str) -> String {
     format!("{name}-custom")
 }
 
-/// A word the shell reads literally, in every shell Muxy starts. Backslashes go
-/// outside the quotes too, because fish reads one inside them as an escape.
-/// Curly single quotes go inside double quotes, because `PowerShell` reads them
-/// as quotes and every shell reads them as text there. Control characters
-/// can't be quoted, since the line editor acts on them first: see
-/// [`typed_safely`].
 #[cfg(not(windows))]
 pub(crate) fn shell_quote(text: &str) -> String {
     let plain = !text.is_empty()
@@ -197,10 +166,6 @@ pub(crate) fn shell_quote(text: &str) -> String {
     quoted
 }
 
-/// Whether `shell` reads the lines [`launch_line`] types: sh and the shells
-/// built on its grammar, and fish. Others, such as `PowerShell` or nu, read the
-/// same quotes differently, so a folder's name could end a word early and run
-/// the rest of it; the line isn't typed into them at all.
 #[cfg(not(windows))]
 pub(crate) fn reads_launch_line(shell: &Path) -> bool {
     let name = shell
@@ -214,9 +179,6 @@ pub(crate) fn reads_launch_line(shell: &Path) -> bool {
     )
 }
 
-/// A line is typed into the shell, so a control character in it, such as from a
-/// folder's name, would act on the line instead of being part of it. A
-/// replacement character means a path wasn't text, so it would name another file.
 pub(crate) fn typed_safely(line: &str) -> Result<(), String> {
     if line.contains(|character: char| character.is_control() || character == '\u{fffd}') {
         return Err(tr!(
@@ -227,8 +189,6 @@ pub(crate) fn typed_safely(line: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// A word the shell Windows sessions start reads literally: in its single
-/// quotes, which it also reads from the curly ones.
 #[cfg(windows)]
 pub(crate) fn shell_quote(text: &str) -> String {
     let plain = text.starts_with(|character: char| character.is_ascii_alphanumeric())
@@ -252,9 +212,6 @@ pub(crate) fn shell_quote(text: &str) -> String {
     quoted
 }
 
-/// The line typed into a new terminal to start `provider`. `muxy_directory`
-/// comes first on its `PATH` when the shell would otherwise find no `muxy`, or
-/// the one of another Muxy build.
 #[cfg(not(windows))]
 pub(crate) fn launch_line(
     provider: Provider,
@@ -297,8 +254,6 @@ pub(crate) fn launch_line(
     )
 }
 
-/// The line typed into a new Windows terminal to start `provider`. The
-/// variables it sets stay set in that terminal after the agent exits.
 #[cfg(windows)]
 pub(crate) fn launch_line(
     provider: Provider,
@@ -344,20 +299,13 @@ pub(crate) fn launch_line(
     )
 }
 
-/// Whether an agent will be able to run `muxy` once the terminal opens.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum CliPlan {
-    /// It can, with this folder first on `PATH` if that is needed.
     Ready(Option<PathBuf>),
-    /// Nothing is installed, so the user is asked first.
     AskToInstall,
-    /// This copy of the app can't install it, for this reason.
     Unavailable(String),
 }
 
-/// `tool` is this build's `muxy`, `installed` any `muxy` on this computer,
-/// `in_shell` the one the user's shell runs, and `unbundled` the one beside a
-/// development build, which is never installed.
 pub(crate) fn plan_cli(
     tool: Result<PathBuf, String>,
     installed: Option<&Path>,
@@ -388,18 +336,13 @@ fn canonical(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_owned())
 }
 
-/// How a marketplace extension became the user's own copy.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum ClonedFrom {
-    /// The copy from an earlier clone, with the user's changes.
     EarlierClone,
     Source,
-    /// Only the installed build output could be copied.
     InstalledBuild,
 }
 
-/// Gives the user their own copy of a marketplace extension in the workspace.
-/// Cloning again returns to the same copy rather than replacing their work.
 pub(crate) fn clone_extension(
     tools: &dyn Tools,
     root: &Path,
@@ -473,8 +416,6 @@ fn clone_source(
     Ok(())
 }
 
-/// Copies a folder's files, leaving out `.git` and links, which could reach
-/// outside it.
 pub(crate) fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
@@ -493,8 +434,6 @@ pub(crate) fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Changes the package's name, keeping the file's layout where possible so the
-/// copy still diffs cleanly against the original.
 fn rename_package(file: &Path, name: &str) -> Result<(), String> {
     let text = fs::read_to_string(file).map_err(|error| error.to_string())?;
     let mut value: Value = serde_json::from_str(&text).map_err(|error| error.to_string())?;
@@ -510,8 +449,6 @@ fn rename_package(file: &Path, name: &str) -> Result<(), String> {
     fs::write(file, renamed).map_err(|error| error.to_string())
 }
 
-/// The text with the top-level name replaced. Other objects can have a `name`
-/// too, so each is tried until only the package's own name has changed.
 fn renamed_in_place(text: &str, value: &Value, name: &str) -> Option<String> {
     let current = serde_json::to_string(value.get("name")?).ok()?;
     let replacement = serde_json::to_string(name).ok()?;
@@ -549,7 +486,6 @@ mod tests {
         }
     }
 
-    /// A Git that "clones" by writing the store's layout where it was told to.
     struct FakeGit {
         calls: RefCell<Vec<String>>,
     }
@@ -663,9 +599,6 @@ mod tests {
         assert_eq!(shell_quote(r"a\"), r"'a'\\''");
     }
 
-    /// `PowerShell` reads a curly single quote as a quote, so inside single
-    /// quotes it would end the word, and a folder named with one could run
-    /// the rest of its name.
     #[cfg(not(windows))]
     #[test]
     fn curly_single_quotes_go_inside_double_quotes() {
@@ -673,8 +606,6 @@ mod tests {
         assert_eq!(shell_quote("\u{2018}"), "''\"\u{2018}\"''");
     }
 
-    /// A quoted word has to come back from a real shell as the same text, with
-    /// nothing in it run.
     #[cfg(not(windows))]
     #[test]
     fn quoted_text_reaches_real_shells_unchanged_and_runs_nothing() -> io::Result<()> {
@@ -766,8 +697,6 @@ mod tests {
         );
     }
 
-    /// A quoted word has to come back from the shell Windows sessions start as
-    /// the same text, with nothing in it run.
     #[cfg(windows)]
     #[test]
     fn quoted_text_reaches_powershell_unchanged_and_runs_nothing() -> io::Result<()> {

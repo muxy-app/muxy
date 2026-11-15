@@ -305,15 +305,12 @@ fn large_server_pastes_are_bounded_complete_and_preserve_text(cx: &mut TestAppCo
     assert_eq!(contents, text.replace("\r\n", "\n").as_bytes());
 }
 
-/// A dropped path that needs quoting, absolute on this computer.
 const DROPPED: &str = if cfg!(windows) {
     r"C:\Temp\a b"
 } else {
     "/tmp/a b"
 };
 
-/// A shell whose quoting isn't known gets no paths, so a file's name can't
-/// become a command there; a known one gets its own quoting.
 #[gpui::test]
 fn dropped_paths_are_quoted_for_the_shell_in_the_foreground(cx: &mut TestAppContext) {
     let (pane, cx) = cx.add_window_view(pane);

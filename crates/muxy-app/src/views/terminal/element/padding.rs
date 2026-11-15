@@ -182,9 +182,6 @@ fn has_powerline(run: &Run) -> bool {
     })
 }
 
-/// The background a full-screen program paints its screen in: the one most of
-/// its rows start and end in, when that isn't the terminal's own. Edges, not
-/// area, because panels and messages can cover most of an app's middle.
 pub(super) fn screen_background<'a>(
     rows: impl IntoIterator<Item = &'a [Run]>,
     size: Size,

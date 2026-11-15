@@ -1,6 +1,3 @@
-//! A tab in a window of its own: its splits under a titlebar with the
-//! system's window controls, the tab's title, and a way back.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement, MouseButton,
@@ -138,8 +135,6 @@ impl AppModel {
         content.into_any_element()
     }
 
-    /// Readies a tab window to draw: its title and traffic lights, its pages,
-    /// the drop zones it records, and the keyboard when asked.
     fn prepare_tab_window(
         &mut self,
         id: TabWindowId,
@@ -240,8 +235,6 @@ fn titlebar(
     bar.into_any_element()
 }
 
-/// The system's window buttons at the top right, over the pane header
-/// there, where the system draws none.
 fn window_controls(
     id: TabWindowId,
     model: &AppModel,
@@ -275,7 +268,6 @@ fn window_controls(
     }
 }
 
-/// The tab's color, title and project.
 pub(crate) fn title(tab: &Tab, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let project = model

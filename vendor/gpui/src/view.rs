@@ -78,7 +78,6 @@ impl<V: Render> Element for Entity<V> {
     }
 }
 
-/// A dynamically-typed handle to a view, which can be downcast to a [Entity] for a specific type.
 #[derive(Clone, Debug)]
 pub struct AnyView {
     entity: AnyEntity,
@@ -97,15 +96,11 @@ impl<V: Render> From<Entity<V>> for AnyView {
 }
 
 impl AnyView {
-    /// Indicate that this view should be cached when using it as an element.
-    /// When using this method, the view's previous layout and paint will be recycled from the previous frame if [Context::notify] has not been called since it was rendered.
-    /// The one exception is when [Window::refresh] is called, in which case caching is ignored.
     pub fn cached(mut self, style: StyleRefinement) -> Self {
         self.cached_style = Some(style.into());
         self
     }
 
-    /// Convert this to a weak handle.
     pub fn downgrade(&self) -> AnyWeakView {
         AnyWeakView {
             entity: self.entity.downgrade(),
@@ -113,8 +108,6 @@ impl AnyView {
         }
     }
 
-    /// Convert this to a [Entity] of a specific type.
-    /// If this handle does not contain a view of the specified type, returns itself in an `Err` variant.
     pub fn downcast<T: 'static>(self) -> Result<Entity<T>, Self> {
         match self.entity.downcast() {
             Ok(entity) => Ok(entity),
@@ -126,12 +119,10 @@ impl AnyView {
         }
     }
 
-    /// Gets the [TypeId] of the underlying view.
     pub fn entity_type(&self) -> TypeId {
         self.entity.entity_type
     }
 
-    /// Gets the entity id of this handle.
     pub fn entity_id(&self) -> EntityId {
         self.entity.entity_id()
     }
@@ -165,7 +156,6 @@ impl Element for AnyView {
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
         window.with_rendered_view(self.entity_id(), |window| {
-            // Disable caching when inspecting so that mouse_hit_test has all hitboxes.
             let caching_disabled = window.view_caching_disabled(cx);
             match self.cached_style.as_ref() {
                 Some(style) if !caching_disabled => {
@@ -309,14 +299,12 @@ impl IntoElement for AnyView {
     }
 }
 
-/// A weak, dynamically-typed view handle that does not prevent the view from being released.
 pub struct AnyWeakView {
     entity: AnyWeakEntity,
     render: fn(&AnyView, &mut Window, &mut App) -> AnyElement,
 }
 
 impl AnyWeakView {
-    /// Convert to a strongly-typed handle if the referenced view has not yet been released.
     pub fn upgrade(&self) -> Option<AnyView> {
         let entity = self.entity.upgrade()?;
         Some(AnyView {
@@ -363,7 +351,6 @@ mod any_view {
     }
 }
 
-/// A view that renders nothing
 pub struct EmptyView;
 
 impl Render for EmptyView {

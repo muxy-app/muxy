@@ -19,36 +19,25 @@ impl Drop for FileLock {
     }
 }
 
-/// Takes the lock at `path`, or fails with `WouldBlock` while another holder
-/// has it.
 pub fn try_lock(path: &Path) -> io::Result<FileLock> {
     try_lock_file(open(path)?)
 }
 
-/// Takes the lock on an open `file`, or fails with `WouldBlock` while another
-/// holder has it.
 pub fn try_lock_file(file: File) -> io::Result<FileLock> {
     file.try_lock().map_err(io::Error::from)?;
     Ok(FileLock(file))
 }
 
-/// Takes the lock at `path`, waiting up to `timeout` for another holder to
-/// release it.
 pub fn acquire(path: &Path, timeout: Duration) -> io::Result<FileLock> {
     let file = open(path)?;
     acquire_file(&file, timeout)?;
     Ok(FileLock(file))
 }
 
-/// Locks an open file, such as a folder handle, waiting up to `timeout`. The
-/// lock lasts until the file closes. Waiters in this process are served in
-/// the order they arrived.
 pub fn acquire_file(file: &File, timeout: Duration) -> io::Result<()> {
     wait_for(file, timeout, File::try_lock)
 }
 
-/// Shares the lock on an open `file` with other shared holders, waiting up to
-/// `timeout` while an exclusive holder has it. A read-only handle is enough.
 pub fn acquire_shared(file: File, timeout: Duration) -> io::Result<FileLock> {
     wait_for(&file, timeout, File::try_lock_shared)?;
     Ok(FileLock(file))
@@ -78,9 +67,6 @@ fn wait_for(
     }
 }
 
-/// This process's waiters, one line per file. Only the waiter at the front
-/// of a line tries the lock, so a thread that just released it can't take it
-/// straight back ahead of the others.
 struct Lines {
     next_ticket: u64,
     waiting: BTreeMap<FileId, VecDeque<u64>>,
@@ -112,8 +98,6 @@ impl Lines {
     }
 }
 
-/// The front place in a file's line, held until the file lock is taken or
-/// the wait gives up.
 struct Turn {
     file: FileId,
     ticket: u64,
@@ -147,7 +131,6 @@ impl Drop for Turn {
     }
 }
 
-/// Words a busy lock's error for the caller, keeping its `WouldBlock` kind.
 pub fn busy(message: impl Into<String>) -> impl FnOnce(io::Error) -> io::Error {
     move |error| {
         if error.kind() == io::ErrorKind::WouldBlock {

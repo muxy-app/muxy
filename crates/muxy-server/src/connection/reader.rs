@@ -216,8 +216,6 @@ impl Requests {
                     .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
                 Ok(None)
             }
-            // A folder that is slow to read, such as one on a network mount
-            // that went away, must not hold up the connection's other requests.
             RequestBody::ListEntries(directory) => {
                 let output = Arc::clone(connection);
                 self.files_readers
@@ -758,8 +756,6 @@ fn attach(
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| ServerError::new(ErrorCode::BadRequest, "attachment IDs exhausted"))?,
     );
-    // The session replies straight to the connection, and the client may use the
-    // channel as soon as it reads that reply.
     last_channel.store(channel.0, Ordering::Release);
     let sink = AttachmentSink::outbox(OutboxSink::new(connection, channel, session));
     connection.attach(

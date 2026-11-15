@@ -1,8 +1,3 @@
-//! The part of Settings' Servers page that the app draws, under this
-//! computer's server settings: its access for phones and other computers,
-//! then every remote server by group, to select and act on one or many at
-//! once.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, ClickEvent, Context, Entity, FontWeight, InteractiveElement,
@@ -23,10 +18,7 @@ use super::remote_servers::{dot, status_color, status_label};
 use super::server_menu::{Action, Servers, connect_choice, live};
 use crate::model::{AppModel, RemoteServer, ServerStatus};
 
-/// What the Servers page keeps between frames. Its selection is the model's
-/// `remote_selection`.
 pub(crate) struct ServersPage {
-    /// Drawn at Settings' content size, like the rest of Settings.
     pub(crate) metrics: Metrics,
     search: Option<(Entity<TextInput>, Subscription)>,
     port: Option<(Entity<TextInput>, Subscription)>,
@@ -56,8 +48,6 @@ impl ServersPage {
     }
 }
 
-/// `servers` by group, keeping those where each word of `query` is in the
-/// name, destination, or group, ignoring case.
 fn shown<'a>(
     servers: &'a [RemoteServer],
     query: &str,
@@ -94,7 +84,6 @@ fn shown<'a>(
 }
 
 impl AppModel {
-    /// The page's search and port fields, made once.
     pub(crate) fn ensure_servers_search(&mut self, cx: &mut Context<Self>) {
         if self.servers_page.port.is_none() {
             let style = InputStyle::field(&self.theme, &self.servers_page.metrics);
@@ -149,9 +138,6 @@ impl AppModel {
         }
     }
 
-    /// Shows the port the server reports, as the port field's text, unless
-    /// the field holds an edit not saved yet. Once the server reports the
-    /// field's port, as after saving it, the field is no longer edited.
     pub(crate) fn show_client_port(&mut self, cx: &mut Context<Self>) {
         let Some(port) = self
             .client_access()
@@ -178,7 +164,6 @@ impl AppModel {
             .unwrap_or_default()
     }
 
-    /// The servers the page shows now, in order.
     fn shown_server_ids(&self, cx: &gpui::App) -> Vec<ServerId> {
         let servers = self.remote_servers();
         shown(&servers, &self.servers_query(cx))
@@ -188,8 +173,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Ticks a server or clears its box; ⇧-click ticks every shown server
-    /// from the last one ticked.
     fn tick_server(&mut self, id: ServerId, range: bool, cx: &mut Context<Self>) {
         let shown = self.shown_server_ids(cx);
         let position = |server| shown.iter().position(|listed| *listed == server);
@@ -210,7 +193,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Ticks every shown server, or clears them all once all are ticked.
     fn tick_all_servers(&mut self, cx: &mut Context<Self>) {
         let shown = self.shown_server_ids(cx);
         if !shown.is_empty() && shown.iter().all(|id| self.remote_selection.contains(id)) {
@@ -227,8 +209,6 @@ impl AppModel {
     }
 }
 
-/// Clients, then Other Servers, as Settings' Servers page shows them below
-/// this computer's server settings.
 pub(crate) fn render(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let servers = model.remote_servers();
     let shown = shown(&servers, &model.servers_query(cx));
@@ -305,8 +285,6 @@ fn icon_button(
         .into_any_element()
 }
 
-/// A short status label, in accent while connected, as Extensions marks one
-/// that is enabled.
 fn badge(server: &RemoteServer, model: &AppModel) -> gpui::Div {
     let m = model.servers_page.metrics;
     let theme = &model.theme;
@@ -341,8 +319,6 @@ pub(super) fn card(model: &AppModel) -> gpui::Div {
         .border_color(model.theme.border)
 }
 
-/// Other Servers' heading, like Settings' section headings, with Pair with
-/// Link and Add Server.
 fn other_servers_heading(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let m = model.servers_page.metrics;
     let theme = &model.theme;
@@ -391,8 +367,6 @@ fn other_servers_heading(model: &AppModel, cx: &Context<AppModel>) -> AnyElement
         .into_any_element()
 }
 
-/// This computer's access, then the servers it connects to: the search,
-/// Select all with what the ticked servers can do, and the groups.
 fn sections(
     selected: &[&RemoteServer],
     shown: &[(Option<&str>, Vec<&RemoteServer>)],
@@ -421,8 +395,6 @@ fn sections(
         .into_any_element()
 }
 
-/// Select all, then what the ticked servers can do once any is ticked. Its
-/// box lines up with the rows' boxes.
 fn select_bar(
     selected: &[&RemoteServer],
     shown: usize,
@@ -529,7 +501,6 @@ fn select_bar(
         .into_any_element()
 }
 
-/// No servers yet, or none matching the search, as Extensions says so.
 fn empty_state(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let m = model.servers_page.metrics;
     let theme = &model.theme;
@@ -577,17 +548,13 @@ fn empty_state(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
-/// One group as the page lists it.
 struct Section<'a> {
     group: Option<&'a str>,
-    /// The servers the search shows.
     members: &'a [&'a RemoteServer],
-    /// Every server in the group, which its buttons act on.
     whole: &'a [&'a RemoteServer],
     selection: &'a [ServerId],
 }
 
-/// A group's title and actions over a card of its servers.
 fn group_section(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let selected = |server: &RemoteServer| section.selection.contains(&server.entry.id);
     let rows = section
@@ -604,7 +571,6 @@ fn group_section(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>
         .into_any_element()
 }
 
-/// A group's title, its count, Connect, and its menu.
 fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let m = model.servers_page.metrics;
     let theme = &model.theme;
@@ -703,8 +669,6 @@ fn heading(section: &Section<'_>, model: &AppModel, cx: &Context<AppModel>) -> A
         .into_any_element()
 }
 
-/// One server in its group's card: its box, its name and state, where it is,
-/// why it failed, and its actions on hover.
 fn row(
     server: &RemoteServer,
     first: bool,
@@ -774,7 +738,6 @@ fn row(
         .into_any_element()
 }
 
-/// A server's name and state, where it is, and why it failed.
 fn row_text(server: &RemoteServer, model: &AppModel) -> AnyElement {
     let m = model.servers_page.metrics;
     let theme = &model.theme;
@@ -830,7 +793,6 @@ fn row_text(server: &RemoteServer, model: &AppModel) -> AnyElement {
         .into_any_element()
 }
 
-/// New Tab, Edit, and more, shown on a hovered row.
 fn row_actions(
     id: ServerId,
     name: &str,

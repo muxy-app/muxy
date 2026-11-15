@@ -6,7 +6,6 @@ use muxy_protocol::{
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-/// `directory` as it travels, refused when Windows can't send it as UTF-8.
 pub(crate) fn checked_server_path(directory: impl AsRef<Path>) -> Result<ServerPath, AppError> {
     let directory = directory.as_ref();
     ServerPath::from_path(directory).map_err(|_| {
@@ -31,7 +30,6 @@ impl Project {
             parent_id: self.parent_id,
         }
     }
-    /// `server`'s project as `descriptor` describes it, with no tabs yet.
     pub(crate) fn from_descriptor(
         server: ServerId,
         descriptor: &ProjectDescriptor,
@@ -114,8 +112,6 @@ impl AppState {
             .get(&server)
             .map_or(&[], |state| &state.project_intents)
     }
-    /// Whether `project` still waits for its server to create it, even if it
-    /// was removed in the meantime.
     pub fn project_creation_pending(&self, project: ProjectId) -> bool {
         self.servers
             .values()
@@ -130,12 +126,10 @@ impl AppState {
             .map_or(0, |state| state.catalog_revision)
     }
 
-    /// The server that answered for `server` last time, once a catalog was applied.
     pub fn server_identity(&self, server: ServerId) -> Option<ServerIdentity> {
         self.servers.get(&server).and_then(|state| state.identity)
     }
 
-    /// How many more project edits `server` can hold before it confirms some.
     pub fn project_intent_capacity(&self, server: ServerId) -> usize {
         1024_usize.saturating_sub(self.project_intents(server).len())
     }
@@ -223,8 +217,6 @@ impl AppState {
             .clone()
     }
 
-    /// Saves what a pane's terminal should start with, before it can start, so
-    /// the choice survives quitting first.
     pub fn plan_creation(&mut self, pane: PaneId, directory: Option<&Path>, proxy: Option<bool>) {
         if let Some(directory) = directory {
             self.starting_directories
@@ -239,13 +231,10 @@ impl AppState {
         self.starting_proxies.get(&pane).copied()
     }
 
-    /// The pane's terminal has started, so its proxy choice is spent.
     pub fn forget_starting_proxy(&mut self, pane: PaneId) {
         self.starting_proxies.remove(&pane);
     }
 
-    /// Replaces `server`'s projects with its catalog, overlaid with its
-    /// pending edits. Other servers' projects are untouched.
     pub fn apply_catalog(&mut self, server: ServerId, page: &CatalogPage) -> Result<(), AppError> {
         if page.next.is_some() {
             return Err(AppError::InvalidState("incomplete project catalog".into()));
@@ -396,8 +385,6 @@ impl AppState {
     }
 }
 
-/// Saved directories are bytes on Unix and text on Windows, and either
-/// reads back.
 pub(crate) mod directory {
     use muxy_protocol::ServerPath;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};

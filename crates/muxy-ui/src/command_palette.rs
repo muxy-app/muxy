@@ -115,7 +115,6 @@ impl<A> Command<A> {
         self
     }
 
-    /// A short label outlined at the row's right edge.
     #[must_use]
     pub fn badge(mut self, label: impl Into<SharedString>) -> Self {
         self.badge = Some(label.into());

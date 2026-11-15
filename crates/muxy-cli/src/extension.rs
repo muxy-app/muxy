@@ -1,7 +1,3 @@
-//! `muxy extension`: manages the extensions of the desktop app on this
-//! computer. Each command is one request to the app over its socket, except
-//! `dev`, which keeps building and reloading one.
-
 pub(crate) mod dev;
 
 use std::error::Error;
@@ -17,15 +13,11 @@ use crate::args::Command;
 use crate::browser::call_app;
 use crate::manage::help;
 
-/// How much longer than a quick reply reading and restarting an extension,
-/// which may have to ask its open pages first, can take.
 const CHANGE_TIME: Duration = Duration::from_secs(30);
-/// How long the user has to approve a publish, and Git and GitHub to do it.
 const PUBLISH_TIME: Duration = Duration::from_secs(15 * 60);
 const DEFAULT_LOG_LINES: u64 = 100;
 const MAX_LOG_LINES: u64 = 10_000;
 
-/// An extension command as the request it sends to the desktop app.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct Invocation {
     verb: &'static str,
@@ -181,7 +173,6 @@ fn load(folder: &str) -> io::Result<Invocation> {
     })
 }
 
-/// A bare word names a loaded extension, and anything with a path in it a folder.
 fn validate(target: &str, json: bool) -> io::Result<Invocation> {
     let args = if target.contains('/') || target == "." || target == ".." {
         Map::from_iter([("path".to_owned(), json!(folder_argument(target)?))])
@@ -201,8 +192,6 @@ fn publish(name: &str, json: bool) -> io::Result<Invocation> {
     })
 }
 
-/// The `muxy browser` page actions an extension page takes too, and the
-/// verb each sends.
 const PAGE_VERBS: [(&str, &str); 24] = [
     ("browser.read", "extension.page.read"),
     ("browser.screenshot", "extension.page.screenshot"),
@@ -230,8 +219,6 @@ const PAGE_VERBS: [(&str, &str); 24] = [
     ("browser.storage.clear", "extension.page.storage.clear"),
 ];
 
-/// `muxy extension page <action> <page-id> …`: a `muxy browser` page action
-/// aimed at an extension page.
 fn page(words: &[&str]) -> io::Result<crate::browser::Invocation> {
     let as_page = |error: io::Error| {
         invalid(
@@ -253,7 +240,6 @@ fn page(words: &[&str]) -> io::Result<crate::browser::Invocation> {
     Ok(invocation)
 }
 
-/// `panel:<id>`, `tab:<type>` or `modal:<entry>`.
 fn open(name: &str, surface: &str, data: Option<&str>) -> io::Result<Invocation> {
     let (kind, id) = surface
         .split_once(':')
@@ -331,9 +317,6 @@ fn list_row(extension: &Value) -> String {
     )
 }
 
-/// What `run` prints. Piped output is the raw text for scripts; a terminal
-/// gets it escaped, since logs and problems hold extension-controlled text
-/// that could otherwise drive the terminal, such as setting its clipboard.
 fn display_text(verb: &str, reply: &Value, display: crate::output::Display) -> String {
     if !display.terminal {
         return text(verb, reply);
@@ -459,7 +442,6 @@ fn text(verb: &str, reply: &Value) -> String {
     output
 }
 
-/// `pageId kind id instance loaded visible title`, tab-separated.
 fn page_row(page: &Value) -> String {
     let flag = |key: &str, yes: &str, no: &str| {
         if page.get(key).and_then(Value::as_bool) == Some(true) {
@@ -496,7 +478,6 @@ fn waiting_prompts(reply: &Value) -> Option<String> {
         .then(|| format!("waiting for the user to answer {count} permission prompt(s) in Muxy"))
 }
 
-/// What stops a package that is otherwise ready from being published.
 fn github_gap(reply: &Value) -> Option<&'static str> {
     match string(reply, "github") {
         "missing" => {

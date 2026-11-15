@@ -1,6 +1,3 @@
-//! Workspace events with main's names and payloads. Every payload value is a
-//! string, as on main; optional keys are omitted rather than sent empty.
-
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
@@ -11,18 +8,14 @@ use serde_json::{Map, Value, json};
 
 use super::AppModel;
 
-/// How long a terminal title must hold before events report it, as on main.
 const TITLE_DEBOUNCE: Duration = Duration::from_millis(500);
 
-/// The tab context keys whose change sends `tab.updated`.
 const TAB_UPDATES: [&str; 6] = ["title", "projectPath", "cwd", "data", "isPinned", "color"];
 
 #[derive(Default)]
 pub(super) struct Tracker {
     initialized: bool,
-    /// A sync waits for the next frame, so a burst of changes syncs once.
     scheduled: bool,
-    /// The names of the events sent, for tests.
     #[cfg(test)]
     pub(super) sent: std::cell::RefCell<Vec<String>>,
     root: Option<ProjectId>,
@@ -32,9 +25,7 @@ pub(super) struct Tracker {
     panes: BTreeMap<String, Value>,
     selected: BTreeMap<String, String>,
     focused: Option<(ProjectId, TabId, PaneId)>,
-    /// Terminal titles as events report them.
     titles: HashMap<PaneId, String>,
-    /// Newer terminal titles waiting out `TITLE_DEBOUNCE`.
     pending_titles: HashMap<PaneId, (String, Task<()>)>,
     branches: BTreeMap<ProjectId, String>,
     agents: BTreeMap<String, Value>,
@@ -47,7 +38,6 @@ pub(super) struct Tracker {
 }
 
 impl Tracker {
-    /// Watches end with their server's extension connection.
     pub(super) fn forget_watches(&mut self, ended: impl Fn(ProjectId) -> bool) {
         self.watched.retain(|project| !ended(*project));
         self.watch_pending = false;
@@ -55,7 +45,6 @@ impl Tracker {
     }
 }
 
-/// A payload whose values are all strings, like main's `[String: String]`.
 pub(super) fn strings<'a>(pairs: impl IntoIterator<Item = (&'a str, String)>) -> Value {
     Value::Object(
         pairs
@@ -65,14 +54,12 @@ pub(super) fn strings<'a>(pairs: impl IntoIterator<Item = (&'a str, String)>) ->
     )
 }
 
-/// A value as a payload string: text as is, anything else as JSON.
 fn text(value: &Value) -> String {
     value
         .as_str()
         .map_or_else(|| value.to_string(), str::to_owned)
 }
 
-/// An object with every value made a payload string.
 fn text_values(value: &Value) -> Value {
     Value::Object(
         value
@@ -84,8 +71,6 @@ fn text_values(value: &Value) -> Value {
     )
 }
 
-/// The `(extension, key)` of every stored setting value that differs, for
-/// `settings.changed`.
 pub(super) fn changed_settings(
     before: &BTreeMap<String, Map<String, Value>>,
     after: &BTreeMap<String, Map<String, Value>>,
@@ -133,7 +118,6 @@ fn agent_rank(state: AgentState) -> (u8, &'static str) {
     }
 }
 
-/// The top-level project that owns a project or worktree.
 pub(in crate::model) fn root_of(project: &Project) -> ProjectId {
     project.parent_id.unwrap_or(project.id)
 }
@@ -192,8 +176,6 @@ impl AppModel {
         Value::Object(payload)
     }
 
-    /// A tab's title as events report it: a terminal's own title only once it
-    /// has settled.
     fn event_title(&self, tab: &Tab, cx: &gpui::App) -> String {
         tab.displayed_pane(self.state.shown_pane(tab))
             .filter(|pane| {
@@ -203,9 +185,6 @@ impl AppModel {
             .map_or_else(|| self.webview_title(tab, cx).to_owned(), Clone::clone)
     }
 
-    /// Terminal titles reach events once they have held for
-    /// `TITLE_DEBOUNCE`, so a title that keeps changing doesn't flood
-    /// `tab.updated`. New panes and the first sync take their titles at once.
     fn debounce_titles(&mut self, cx: &mut Context<Self>) {
         let live: HashMap<PaneId, String> = self
             .state
@@ -252,8 +231,6 @@ impl AppModel {
         }
     }
 
-    /// Delivers a workspace event to every enabled extension allowed to
-    /// subscribe to it; `owner` restricts delivery to one extension.
     pub(in crate::model) fn emit_extension_event(
         &self,
         owner: Option<&str>,
@@ -290,8 +267,6 @@ impl AppModel {
         }
     }
 
-    /// `extension.*` events stay inside one extension: pages talk to the
-    /// background script, and the background script talks to its pages.
     pub(super) fn emit_local_event(
         &self,
         owner: &str,
@@ -325,8 +300,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Syncs events and reopens a restored panel before the next frame, once
-    /// however many changes come before it.
     pub(in crate::model) fn schedule_extension_events(
         &mut self,
         window: &mut Window,
@@ -338,8 +311,6 @@ impl AppModel {
         cx.on_next_frame(window, Self::flush_extension_events);
     }
 
-    /// Sends the events for what changed since the last sync, and creates the
-    /// page of a panel its project's return reopened.
     pub(in crate::model) fn flush_extension_events(
         &mut self,
         window: &mut Window,
@@ -428,8 +399,6 @@ impl AppModel {
             .zip(self.active_pane())
             .map(|(tab, pane)| (project, tab, pane));
         let previous = std::mem::replace(&mut self.extensions.events.focused, focused);
-        // Main fires it when focus moves between split areas, so switching
-        // tabs or projects alone doesn't count.
         if let (Some((project, tab, pane)), Some((was_project, was_tab, was_pane))) =
             (focused, previous)
             && (project, tab) == (was_project, was_tab)
@@ -487,7 +456,6 @@ impl AppModel {
                         project.icon,
                         project.color.as_str(),
                         project.logo.as_ref().map(|logo| logo.len()),
-                        // A folder's name need not be text, which a path as JSON must be.
                         project.directory.as_os_str().as_encoded_bytes(),
                     ])
                 })
@@ -531,7 +499,6 @@ impl AppModel {
         self.extensions.events.branches = branches;
     }
 
-    /// One entry per worktree: its most active agent, as `agents.list` reports.
     pub(super) fn agent_statuses(&self) -> BTreeMap<String, Value> {
         let mut best: BTreeMap<String, (u8, Value)> = BTreeMap::new();
         let agents = self.servers.iter().flat_map(|(server, runtime)| {
@@ -583,8 +550,6 @@ impl AppModel {
         self.extensions.events.agents = agents;
     }
 
-    /// `ui.changed`, `theme.changed`, and one `preferences.changed` per
-    /// preference that changed.
     fn sync_app_events(&mut self, emit: &mut impl FnMut(&Self, &str, Value)) {
         let ui = self.ui_state();
         if self.extensions.events.ui != ui {
@@ -739,8 +704,6 @@ impl AppModel {
         }
     }
 
-    /// New AI-hook notifications reach extensions as `notification.posted`,
-    /// with the agent provider as their source.
     pub(in crate::model) fn activity_notifications_posted(
         &self,
         server: muxy_app_core::ServerId,
@@ -773,7 +736,6 @@ impl AppModel {
         }
     }
 
-    /// Repository state lives under `.git`, which main reports as file changes.
     pub(in crate::model) fn extension_git_changed(&self, project: ProjectId, cx: &gpui::App) {
         if let Some(project) = self
             .state

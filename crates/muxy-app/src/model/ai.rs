@@ -12,7 +12,6 @@ use crate::repository_actions::{self, Action, Outcome, Step};
 use crate::views::git::AiConfirmation;
 use crate::views::overlays::Overlay;
 
-/// Installed providers and the AI work in flight for each project.
 pub(crate) struct Runtime {
     pub(crate) installed: Vec<Provider>,
     pub(crate) confirmation: Option<PendingConfirmation>,
@@ -321,7 +320,6 @@ impl AppModel {
         self.ai.confirmation = Some(PendingConfirmation { project, dialog });
     }
 
-    /// Keeps a confirmed commit's provider and options for the next commit.
     fn remember_commit_choices(&mut self, confirmation: &AiConfirmation, cx: &mut Context<Self>) {
         if confirmation.action != Action::Commit {
             return;
@@ -344,7 +342,6 @@ impl AppModel {
         }
     }
 
-    /// Runs `operation` with the client of `project`'s server.
     fn with_client<T: Send + 'static>(
         &mut self,
         project: ProjectId,

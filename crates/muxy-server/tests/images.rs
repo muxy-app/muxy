@@ -1,4 +1,3 @@
-//! The fixtures are POSIX shell scripts.
 #![cfg(unix)]
 
 use muxy_protocol::{HistoryCursor, ImageFrame, PlaybackState, ProjectId, Size};
@@ -11,7 +10,6 @@ use std::time::{Duration, Instant};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-/// A red pixel that becomes blue: a Kitty animation of two frames, playing.
 const ANIMATION: &str = concat!(
     "\x1b_Ga=T,i=5,f=32,s=1,v=1,q=2;/wAA/w==\x1b\\",
     "\x1b_Ga=f,i=5,f=32,s=1,v=1,z=100,q=2;AAD//w==\x1b\\",
@@ -81,7 +79,6 @@ fn a_session_lists_an_animation_and_hands_out_its_frames() -> Result {
         .collect();
     assert_eq!(pixels, [[255, 0, 0, 255], [0, 0, 255, 255]]);
 
-    // The server plays nothing itself, so the image is the same a while later.
     thread::sleep(Duration::from_millis(200));
     assert_eq!(graphics(&handle)?.images[0], image);
     assert!(frames(&handle, image.id + 1, keys)?.is_empty());

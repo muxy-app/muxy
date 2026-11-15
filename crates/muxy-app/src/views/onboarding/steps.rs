@@ -1,5 +1,3 @@
-//! Each step's words and controls.
-
 use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder;
@@ -39,7 +37,6 @@ pub(super) fn body(
     }
 }
 
-/// The step's heading and its one or two sentences.
 fn intro(title: SharedString, text: SharedString, model: &AppModel) -> Div {
     let m = model.metrics;
     div()
@@ -68,7 +65,6 @@ fn column(model: &AppModel) -> Div {
     div().flex().flex_col().gap(model.metrics.spacing8())
 }
 
-/// One thing worth knowing: an icon, a few words, and a sentence.
 fn point(icon: Icon, title: SharedString, text: SharedString, model: &AppModel) -> Div {
     let m = model.metrics;
     let theme = &model.theme;
@@ -119,7 +115,6 @@ fn points(items: impl IntoIterator<Item = Div>, model: &AppModel) -> Div {
         .children(items)
 }
 
-/// What a click just did, as a line beside the button that did it.
 fn confirmation(text: SharedString, model: &AppModel) -> Div {
     let m = model.metrics;
     div()
@@ -452,7 +447,6 @@ fn offer_card(index: usize, model: &AppModel, cx: &mut Context<AppModel>) -> Any
         .into_any_element()
 }
 
-/// A card's checkbox, or how far its extension has come.
 fn offer_control(
     offer: &Offer,
     title: &SharedString,
@@ -663,7 +657,6 @@ fn mobile(art_shown: bool, model: &AppModel, cx: &mut Context<AppModel>) -> Div 
         )
 }
 
-/// What pairing needs next: its button, or a way to withdraw the code on show.
 fn pairing_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
     let m = model.metrics;
     let theme = &model.theme;
@@ -755,7 +748,6 @@ fn numbered(number: &'static str, title: SharedString, model: &AppModel) -> Div 
         )
 }
 
-/// A store's QR code and name, which also opens the store when clicked.
 fn store_code(
     id: &'static str,
     name: SharedString,

@@ -125,8 +125,6 @@ use views::workspace::{
     ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleZoomPane, Zoom, bind_keys,
 };
 
-/// Starts a console program without a console window: the app has no
-/// console of its own for it to share.
 #[cfg(windows)]
 pub(crate) const NO_WINDOW: u32 = windows::Win32::System::Threading::CREATE_NO_WINDOW.0;
 
@@ -232,7 +230,6 @@ fn run() -> ExitCode {
             window_background: window_background(),
             #[cfg(target_os = "linux")]
             window_decorations: Some(gpui::WindowDecorations::Client),
-            // Empty titlebar space explicitly starts native movement, not tab presses.
             is_movable: !cfg!(target_os = "macos"),
             titlebar: Some(TitlebarOptions {
                 title: Some(app_name().into()),
@@ -286,7 +283,6 @@ fn restored_bounds(boot: &boot::Boot, cx: &App) -> Bounds<gpui::Pixels> {
     }
     let [width, height] = boot.settings.window.default_size;
     let mut default = size(px(width), px(height));
-    // Windows places a window taller than its screen partly above the top edge.
     if cfg!(windows)
         && let Some(display) = cx.primary_display()
     {
@@ -297,8 +293,6 @@ fn restored_bounds(boot: &boot::Boot, cx: &App) -> Bounds<gpui::Pixels> {
     Bounds::centered(None, default, cx)
 }
 
-/// Windows draws a transparent window through composition, which the app has
-/// no use for.
 fn window_background() -> WindowBackgroundAppearance {
     if cfg!(windows) {
         WindowBackgroundAppearance::Opaque
@@ -460,7 +454,6 @@ fn menus() -> Vec<Menu> {
             items: view_items,
         },
         Menu {
-            // GPUI hands macOS the window list only for a menu named "Window".
             name: "Window".into(),
             items: window_items,
         },

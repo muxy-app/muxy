@@ -1,6 +1,5 @@
 name: Notify Discord
 
-# Announces a published release again, for example after editing its notes.
 on:
   workflow_dispatch:
     inputs:

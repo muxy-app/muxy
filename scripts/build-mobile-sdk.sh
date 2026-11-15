@@ -1,6 +1,4 @@
 #!/bin/bash
-# Builds the muxy-mobile SDK for the phone apps: an iOS XCFramework with Swift
-# bindings and, when cargo-ndk is installed, Android libraries with Kotlin bindings.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,7 +13,6 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 
 cd "$ROOT"
-# Replace only what this script writes; OUT may be a directory the user owns.
 rm -rf "$OUT/swift" "$OUT/ios" "$OUT/MuxyMobile.xcframework" "$OUT/android"
 mkdir -p "$OUT"
 
@@ -26,7 +23,6 @@ bindings() {
         --language "$language" --out-dir "$destination"
 }
 
-# Bindings are generated from a host build; they are identical for every target.
 cargo build --locked -p muxy-mobile --lib
 
 rustup target add --toolchain "$TOOLCHAIN" "${IOS_TARGETS[@]}"

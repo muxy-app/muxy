@@ -16,21 +16,11 @@ pub(crate) struct MacDisplay(pub(crate) CGDirectDisplayID);
 unsafe impl Send for MacDisplay {}
 
 impl MacDisplay {
-    /// Get the screen with the given [`DisplayId`].
     pub fn find_by_id(id: DisplayId) -> Option<Self> {
         Self::all().find(|screen| screen.id() == id)
     }
 
-    /// Get the primary screen - the one with the menu bar, and whose bottom left
-    /// corner is at the origin of the AppKit coordinate system.
     pub fn primary() -> Self {
-        // Instead of iterating through all active systems displays via `all()` we use the first
-        // NSScreen and gets its CGDirectDisplayID, because we can't be sure that `CGGetActiveDisplayList`
-        // will always return a list of active displays (machine might be sleeping).
-        //
-        // The following is what Chromium does too:
-        //
-        // https://chromium.googlesource.com/chromium/src/+/66.0.3359.158/ui/display/mac/screen_mac.mm#56
         unsafe {
             let screens = NSScreen::screens(nil);
             let screen = cocoa::foundation::NSArray::objectAtIndex(screens, 0);
@@ -42,10 +32,8 @@ impl MacDisplay {
         }
     }
 
-    /// Obtains an iterator over all currently active system displays.
     pub fn all() -> impl Iterator<Item = Self> {
         unsafe {
-            // We're assuming there aren't more than 32 displays connected to the system.
             let mut displays = Vec::with_capacity(32);
             let mut display_count = 0;
             let result = CGGetActiveDisplayList(
@@ -104,8 +92,6 @@ impl PlatformDisplay for MacDisplay {
 
     fn bounds(&self) -> Bounds<Pixels> {
         unsafe {
-            // CGDisplayBounds is in "global display" coordinates, where 0 is
-            // the top left of the primary display.
             let bounds = CGDisplayBounds(self.0);
 
             Bounds {

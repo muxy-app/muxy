@@ -1,5 +1,3 @@
-//! The single GPUI shortcut registration interface used by app and UI modules.
-
 use gpui::{Action, App, KeyBinding, SharedString};
 use muxy_core::shortcuts::{ShortcutId, ShortcutSettings};
 
@@ -34,7 +32,6 @@ impl<'a> Registry<'a> {
         }
     }
 
-    /// Register a dynamic command after app settings have resolved conflicts.
     pub fn register_dynamic(&mut self, key: &str, action: impl Action, context: Option<&str>) {
         self.bindings.push(KeyBinding::new(key, action, context));
     }
@@ -44,14 +41,10 @@ impl<'a> Registry<'a> {
     }
 }
 
-/// `name` as a tooltip shows a control that has a shortcut: with `key` after
-/// it in parentheses.
 pub fn with_key(name: &str, key: &str) -> SharedString {
     format!("{name} ({key})").into()
 }
 
-/// The key bound to `action`, as menus and tooltips show it. An action with
-/// several keys shows the first, which is the one Settings lists.
 pub fn key_for(action: &dyn Action, cx: &App) -> Option<SharedString> {
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
@@ -64,7 +57,6 @@ pub fn key_for(action: &dyn Action, cx: &App) -> Option<SharedString> {
     Some(keys.join(" ").into())
 }
 
-/// `name` for a tooltip, followed by the key bound to `action` when it has one.
 pub fn tooltip_text(name: impl Into<SharedString>, action: &dyn Action, cx: &App) -> SharedString {
     let name = name.into();
     match key_for(action, cx) {

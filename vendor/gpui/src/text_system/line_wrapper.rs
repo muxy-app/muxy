@@ -2,7 +2,6 @@ use crate::{FontId, FontRun, Pixels, PlatformTextSystem, SharedString, TextRun, 
 use collections::HashMap;
 use std::{iter, sync::Arc};
 
-/// The GPUI line wrapper, used to wrap lines of text to a given width.
 pub struct LineWrapper {
     platform_text_system: Arc<dyn PlatformTextSystem>,
     pub(crate) font_id: FontId,
@@ -12,7 +11,6 @@ pub struct LineWrapper {
 }
 
 impl LineWrapper {
-    /// The maximum indent that can be applied to a line.
     pub const MAX_INDENT: u32 = 256;
 
     pub(crate) fn new(
@@ -29,7 +27,6 @@ impl LineWrapper {
         }
     }
 
-    /// Wrap a line of text to the given width with this wrapper's font and font size.
     pub fn wrap_line<'a>(
         &'a mut self,
         fragments: &'a [LineFragment],
@@ -64,7 +61,6 @@ impl LineWrapper {
                                 last_candidate_width = width;
                             }
                         } else {
-                            // CJK may not be space separated, e.g.: `Hello world你好世界`
                             if c != ' ' && first_non_whitespace_ix.is_some() {
                                 last_candidate_ix = ix;
                                 last_candidate_width = width;
@@ -128,7 +124,6 @@ impl LineWrapper {
         })
     }
 
-    /// Truncate a line of text to the given width with this wrapper's font and font size.
     pub fn truncate_line(
         &mut self,
         line: SharedString,
@@ -163,29 +158,13 @@ impl LineWrapper {
         line
     }
 
-    /// Any character in this list should be treated as a word character,
-    /// meaning it can be part of a word that should not be wrapped.
     pub(crate) fn is_word_char(c: char) -> bool {
-        // ASCII alphanumeric characters, for English, numbers: `Hello123`, etc.
         c.is_ascii_alphanumeric() ||
-        // Latin script in Unicode for French, German, Spanish, etc.
-        // Latin-1 Supplement
-        // https://en.wikipedia.org/wiki/Latin-1_Supplement
         matches!(c, '\u{00C0}'..='\u{00FF}') ||
-        // Latin Extended-A
-        // https://en.wikipedia.org/wiki/Latin_Extended-A
         matches!(c, '\u{0100}'..='\u{017F}') ||
-        // Latin Extended-B
-        // https://en.wikipedia.org/wiki/Latin_Extended-B
         matches!(c, '\u{0180}'..='\u{024F}') ||
-        // Cyrillic for Russian, Ukrainian, etc.
-        // https://en.wikipedia.org/wiki/Cyrillic_script_in_Unicode
         matches!(c, '\u{0400}'..='\u{04FF}') ||
-        // Some other known special characters that should be treated as word characters,
-        // e.g. `a-b`, `var_name`, `I'm`, '@mention`, `#hashtag`, `100%`, `3.1415`,
-        // `2^3`, `a~b`, `a=1`, `Self::new`, etc.
         matches!(c, '-' | '_' | '.' | '\'' | '$' | '%' | '@' | '#' | '^' | '~' | ',' | '=' | ':') ||
-        // `⋯` character is special used in Zed, to keep this at the end of the line.
         matches!(c, '⋯')
     }
 
@@ -237,29 +216,21 @@ fn update_runs_after_truncation(result: &str, ellipsis: &str, runs: &mut Vec<Tex
     }
 }
 
-/// A fragment of a line that can be wrapped.
 pub enum LineFragment<'a> {
-    /// A text fragment consisting of characters.
     Text {
-        /// The text content of the fragment.
         text: &'a str,
     },
-    /// A non-text element with a fixed width.
     Element {
-        /// The width of the element in pixels.
         width: Pixels,
-        /// The UTF-8 encoded length of the element.
         len_utf8: usize,
     },
 }
 
 impl<'a> LineFragment<'a> {
-    /// Creates a new text fragment from the given text.
     pub fn text(text: &'a str) -> Self {
         LineFragment::Text { text }
     }
 
-    /// Creates a new non-text element with the given width and UTF-8 encoded length.
     pub fn element(width: Pixels, len_utf8: usize) -> Self {
         LineFragment::Element { width, len_utf8 }
     }
@@ -296,12 +267,9 @@ impl WrapBoundaryCandidate {
     }
 }
 
-/// A boundary between two lines of text.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Boundary {
-    /// The index of the last character in a line
     pub ix: usize,
-    /// The indent of the next line.
     pub next_indent: u32,
 }
 
@@ -407,7 +375,6 @@ mod tests {
             ]
         );
 
-        // Test wrapping multiple text fragments
         assert_eq!(
             wrapper
                 .wrap_line(
@@ -425,7 +392,6 @@ mod tests {
             ],
         );
 
-        // Test wrapping with a mix of text and element fragments
         assert_eq!(
             wrapper
                 .wrap_line(
@@ -446,7 +412,6 @@ mod tests {
             ],
         );
 
-        // Test with element at the beginning and text afterward
         assert_eq!(
             wrapper
                 .wrap_line(
@@ -465,7 +430,6 @@ mod tests {
             ],
         );
 
-        // Test with a large element that forces wrapping by itself
         assert_eq!(
             wrapper
                 .wrap_line(
@@ -546,20 +510,7 @@ mod tests {
                 assert_eq!(run.len, *result_len);
             }
         }
-        // Case 0: Normal
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 12, ... }
-        //
-        // Truncate res: abcd… (truncate_at = 4)
-        // Run res: Run0 { string: abcd…, len: 7, ... }
         perform_test(&mut wrapper, "abcdefghijkl", "abcd…", &[12], &[7], px(50.));
-        // Case 1: Drop some runs
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 4, ... }, Run1 { len: 4, ... }, Run2 { len: 4, ... }
-        //
-        // Truncate res: abcdef… (truncate_at = 6)
-        // Runs res: Run0 { string: abcd, len: 4, ... }, Run1 { string: ef…, len:
-        // 5, ... }
         perform_test(
             &mut wrapper,
             "abcdefghijkl",
@@ -568,13 +519,6 @@ mod tests {
             &[4, 5],
             px(70.),
         );
-        // Case 2: Truncate at start of some run
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 4, ... }, Run1 { len: 4, ... }, Run2 { len: 4, ... }
-        //
-        // Truncate res: abcdefgh… (truncate_at = 8)
-        // Runs res: Run0 { string: abcd, len: 4, ... }, Run1 { string: efgh, len:
-        // 4, ... }, Run2 { string: …, len: 3, ... }
         perform_test(
             &mut wrapper,
             "abcdefghijkl",
@@ -594,28 +538,8 @@ mod tests {
                 assert_eq!(run.len, *result_len);
             }
         }
-        // Case 0: Normal
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 12, ... }
-        //
-        // Truncate res: abcd… (truncate_at = 4)
-        // Run res: Run0 { string: abcd…, len: 7, ... }
         perform_test("abcd…", &[12], &[7]);
-        // Case 1: Drop some runs
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 4, ... }, Run1 { len: 4, ... }, Run2 { len: 4, ... }
-        //
-        // Truncate res: abcdef… (truncate_at = 6)
-        // Runs res: Run0 { string: abcd, len: 4, ... }, Run1 { string: ef…, len:
-        // 5, ... }
         perform_test("abcdef…", &[4, 4, 4], &[4, 5]);
-        // Case 2: Truncate at start of some run
-        // Text: abcdefghijkl
-        // Runs: Run0 { len: 4, ... }, Run1 { len: 4, ... }, Run2 { len: 4, ... }
-        //
-        // Truncate res: abcdefgh… (truncate_at = 8)
-        // Runs res: Run0 { string: abcd, len: 4, ... }, Run1 { string: efgh, len:
-        // 4, ... }, Run2 { string: …, len: 3, ... }
         perform_test("abcdefgh…", &[4, 4, 4], &[4, 4, 3]);
     }
 
@@ -649,26 +573,19 @@ mod tests {
         assert_word("Self::is_word_char");
         assert_word("more⋯");
 
-        // Space
         assert_not_word("foo bar");
 
-        // URL case
         assert_word("github.com");
         assert_not_word("zed-industries/zed");
         assert_not_word("zed-industries\\zed");
         assert_not_word("a=1&b=2");
         assert_not_word("foo?b=2");
 
-        // Latin-1 Supplement
         assert_word("ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏ");
-        // Latin Extended-A
         assert_word("ĀāĂăĄąĆćĈĉĊċČčĎď");
-        // Latin Extended-B
         assert_word("ƀƁƂƃƄƅƆƇƈƉƊƋƌƍƎƏ");
-        // Cyrillic
         assert_word("АБВГДЕЖЗИЙКЛМНОП");
 
-        // non-word characters
         assert_not_word("你好");
         assert_not_word("안녕하세요");
         assert_not_word("こんにちは");
@@ -676,11 +593,9 @@ mod tests {
         assert_not_word("()[]{}<>");
     }
 
-    // For compatibility with the test macro
     #[cfg(target_os = "macos")]
     use crate as gpui;
 
-    // These seem to vary wildly based on the text system.
     #[cfg(target_os = "macos")]
     #[crate::test]
     fn test_wrap_shaped_line(cx: &mut TestAppContext) {

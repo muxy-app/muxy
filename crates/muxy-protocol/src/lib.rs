@@ -1,10 +1,3 @@
-//! Shared protocol contracts, screen types, framing, and local, TLS, and
-//! child-process transports.
-//!
-//! Client and server runtime policy, persistence, UI, and native terminal
-//! execution stay with their owners. Encodings and digests that aren't wire
-//! types come from `muxy-core`.
-
 mod build;
 pub use build::{
     BuildInfo, CATALOG_FILE, COMPATIBILITY, MAX_UNREADABLE_ERROR, MAX_UNREADABLE_FILES, ServerInfo,

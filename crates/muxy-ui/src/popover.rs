@@ -30,11 +30,8 @@ pub fn surface(theme: &Theme, metrics: Metrics) -> gpui::Div {
         .text_size(metrics.font_body())
 }
 
-/// How far below the top of the window a modal dialog opens.
 pub const MODAL_TOP: f32 = 48.0;
 
-/// `content` as a modal dialog: centered across the window, near its top,
-/// above a dimmed backdrop.
 pub fn modal(theme: &Theme, metrics: Metrics, content: impl IntoElement) -> AnyElement {
     div()
         .absolute()
@@ -48,9 +45,6 @@ pub fn modal(theme: &Theme, metrics: Metrics, content: impl IntoElement) -> AnyE
         .into_any_element()
 }
 
-/// The card of a modal dialog: `width` wide, or as wide as the window allows,
-/// and scrolling when taller than the window. Clicks inside stay inside.
-/// Accessibility clients read it as a dialog with `title`.
 pub fn modal_card(
     theme: &Theme,
     metrics: Metrics,
@@ -83,7 +77,6 @@ pub fn row(
         .when(enabled, |row| row.hover(|style| style.bg(theme.hover)))
 }
 
-/// A row lit only by `highlighted`, for menus that move the highlight with the pointer themselves.
 pub fn menu_row(
     theme: &Theme,
     metrics: Metrics,
@@ -240,7 +233,6 @@ pub fn contained_dropdown(
     .into_any_element()
 }
 
-/// Where a panel opens above `anchor`, for a control at the bottom of the window.
 pub fn above_origin(
     anchor: Bounds<Pixels>,
     panel: Size<Pixels>,
@@ -253,8 +245,6 @@ pub fn above_origin(
     )
 }
 
-/// Where a panel opens beside `anchor` on its left, top edges aligned, for a
-/// control at the right edge of the window.
 pub fn left_origin(
     anchor: Bounds<Pixels>,
     panel: Size<Pixels>,
@@ -267,8 +257,6 @@ pub fn left_origin(
     )
 }
 
-/// Where a panel opens from `anchor`: below it, or above when it would not
-/// fit below.
 pub fn dropdown_origin(
     anchor: Bounds<Pixels>,
     panel: Size<Pixels>,

@@ -10,7 +10,6 @@ state = "working"
 priority = 1100
 region = "osc_title"
 visible_working = true
-# Braille covers <= 2.1.227; half-circles are the 2.1.228 busy spinner.
 regex = ['^[\x{2800}-\x{28FF}\x{25D0}-\x{25D3}] ']
 
 [[rules]]
@@ -38,8 +37,6 @@ state = "working"
 priority = 965
 region = "bottom_non_empty_lines(12)"
 visible_working = true
-# Claude renders activity summaries at column zero; wrapped continuations are indented.
-# Keeping that shape prevents user prompt text from impersonating this signal.
 regex = ['(?m)^[\x{002A}\x{00B7}\x{2722}\x{2736}\x{273B}\x{273D}][ \t]+\S[^\n]*?(?:\n[ \t]+[^\n]*?){0,3}·(?:[ \t]+|\n[ \t]*)[1-9]\d*(?:[ \t]+|\n[ \t]*)MCP(?:[ \t]+|\n[ \t]*)tasks?(?:[ \t]+|\n[ \t]*)still(?:[ \t]+|\n[ \t]*)running[ \t]*$']
 not = [
   { contains = ["do you want to proceed?"] },
@@ -56,7 +53,6 @@ state = "working"
 priority = 965
 region = "bottom_non_empty_lines(12)"
 visible_working = true
-# Monitors alone can outlive the work they watch, so only a running shell keeps the agent busy.
 regex = ['(?m)^[\x{002A}\x{00B7}\x{2722}\x{2736}\x{273B}\x{273D}][ \t]+\S[^\n]*?(?:\n[ \t]+[^\n]*?){0,3}·(?:[ \t]+|\n[ \t]*)[1-9]\d*(?:[ \t]+|\n[ \t]*)shells?(?:,(?:[ \t]+|\n[ \t]*)[1-9]\d*(?:[ \t]+|\n[ \t]*)monitors?)?(?:[ \t]+|\n[ \t]*)still(?:[ \t]+|\n[ \t]*)running[ \t]*$']
 not = [
   { contains = ["do you want to proceed?"] },
@@ -125,10 +121,6 @@ state = "blocked"
 priority = 980
 region = "whole_recent"
 visible_blocker = true
-# MCP elicitation dialogs (elicitation/create) show Accept/Decline controls
-# with an "Esc to cancel" footer but no Enter hint, so live_blocked_form
-# cannot see them (issue #3283). Gate on the invariant header line, the
-# Accept/Decline control line, and the cancel footer.
 contains = ["esc to cancel"]
 line_regex = ['(?i)^\s*MCP server ["\x{201C}].+["\x{201D}] requests your input\s*$']
 all = [
@@ -179,12 +171,6 @@ any = [
   { contains = ["tab to amend"] },
   { contains = ["ctrl+e to explain"] },
 ]
-# Claude marks the selected option with "❯", so every option branch has to allow
-# that prefix. Numbered branches that omit it only match options the cursor has
-# moved away from, which left the resting layout below unmatched here (#2650):
-#   ❯ 1. Yes / 2. Yes, and don't ask again for: <cmd> / 3. No
-# Cover both the two-option and "don't ask again" three-option shapes so this
-# rule, not the narrower generic_permission_prompt, claims Bash approvals.
 all = [
   { any = [
     { line_regex = ['(?i)^\s*❯?\s*yes\b'] },

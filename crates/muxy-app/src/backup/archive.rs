@@ -29,7 +29,6 @@ fn allowed(name: &str, roots: &[&str]) -> bool {
         })
 }
 
-/// What a 1.x backup may contain.
 const LEGACY_ROOTS: &[&str] = &[
     "settings.json",
     "projects.json",
@@ -42,7 +41,6 @@ const LEGACY_ROOTS: &[&str] = &[
     "logos",
 ];
 
-/// A backup error in the app language.
 fn failure(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
     message.into()
 }
@@ -89,7 +87,6 @@ pub(super) fn collect(directory: &Path, roots: &[&str]) -> Result<Files> {
             }
             continue;
         }
-        // Archives name files with `/`, whatever this computer separates them with.
         let name = path
             .strip_prefix(directory)?
             .components()
@@ -239,7 +236,6 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
     Ok((files, legacy, restore))
 }
 
-/// `a/b/c`, then the folders that hold it: `a/b` and `a`.
 fn itself_and_folders(name: &str) -> impl Iterator<Item = &str> {
     std::iter::successors(Some(name), |name| {
         name.rsplit_once('/').map(|(folder, _)| folder)

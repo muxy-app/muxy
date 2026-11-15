@@ -1,5 +1,3 @@
-//! The sidebar: projects, the agents at work, and the server's state.
-
 use muxy_app_core::activity::ActivityIndicator;
 use muxy_protocol::{AgentActivity, CatalogPage, ProjectId};
 use ratatui::{
@@ -15,7 +13,6 @@ use crate::projects;
 use crate::state::State;
 use crate::worker::Shared;
 
-/// Rows above the project list: its title and a blank line.
 const HEADER_ROWS: u16 = 2;
 
 pub(super) fn draw(frame: &mut Frame<'_>, shared: &Shared, state: &State, ui: &mut Ui, area: Rect) {
@@ -149,7 +146,6 @@ fn project_list(
     scrollbar(frame, list, ui.sidebar_scroll, total);
 }
 
-/// Each project's lines: its name, then its folder unless it is a worktree.
 fn project_rows<'a>(
     shared: &Shared,
     state: &State,
@@ -213,7 +209,6 @@ fn project_rows<'a>(
         .collect()
 }
 
-/// Scrolls the list just enough to show `project`.
 fn reveal(ui: &mut Ui, rows: &[Row<'_>], project: ProjectId, height: usize) {
     let mut top = 0;
     for row in rows {
@@ -247,7 +242,6 @@ fn scrollbar(frame: &mut Frame<'_>, list: Rect, offset: usize, total: usize) {
     }
 }
 
-/// Agents on the server, those needing attention first.
 fn agents(shared: &Shared) -> Vec<(AgentActivity, ActivityIndicator)> {
     let mut agents: Vec<_> = shared
         .activity

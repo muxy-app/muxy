@@ -3,7 +3,6 @@ use muxy_app_core::Direction;
 use muxy_app_core::settings::ProxySettings;
 use muxy_protocol::Feature;
 
-/// A folder at the root of this computer's file system.
 const TMP: &str = if cfg!(windows) { r"C:\tmp" } else { "/tmp" };
 
 fn proxy(global: bool) -> ProxySettings {
@@ -42,7 +41,6 @@ fn attach(model: &mut AppModel, pane: PaneId, session: u64, cx: &mut Context<App
     );
 }
 
-/// The environment each new terminal was asked to start with.
 fn new_terminals(
     requests: &std::sync::mpsc::Receiver<(u64, Work)>,
 ) -> Vec<(PaneId, BTreeMap<String, String>)> {
@@ -221,7 +219,6 @@ fn a_pinned_tab_with_one_terminal_can_restart_with_the_proxy(cx: &mut TestAppCon
     });
 }
 
-/// The folder and environment each new terminal was asked to start with.
 fn new_terminal(
     requests: &std::sync::mpsc::Receiver<(u64, Work)>,
     expected: PaneId,

@@ -14,17 +14,12 @@ pub(crate) struct Candidate {
     pub(crate) row: isize,
     pub(crate) columns: Range<u16>,
     pub(crate) text: String,
-    /// Wider stretches to try when `text` names no file, nearest first: few
-    /// programs quote a path that has spaces in it, and a long one runs onto
-    /// the next row.
     pub(crate) wider: Vec<(Vec<Span>, String)>,
 }
 
-/// The columns of one row that a link covers.
 pub(crate) type Span = (isize, Range<u16>);
 
 impl Candidate {
-    /// The first stretch `resolve` knows, and the cells it covers.
     pub(crate) fn resolve(
         &self,
         resolve: impl Fn(&str) -> Option<Target>,
@@ -43,7 +38,6 @@ impl Candidate {
 pub(crate) struct Hover {
     pub(crate) candidate: Option<Candidate>,
     pub(crate) target: Option<Target>,
-    /// The cells the target covers.
     pub(crate) spans: Vec<Span>,
     task: Option<Task<()>>,
 }
@@ -140,18 +134,10 @@ pub(crate) fn detect(runs: &[Run], point: Point, links: &[LinkSpan]) -> Option<C
     None
 }
 
-/// How many rows above and below the pointed one a path may run onto, how
-/// many words past the pointed one, and how many stretches are tried at all.
 const WIDER_ROWS: isize = 3;
 const WIDER_WORDS: usize = 10;
 const WIDER_LIMIT: usize = 128;
 
-/// The stretches around `point` that could be a path with spaces in it, or
-/// one that runs over several rows. Rows are joined as they were broken: in
-/// the middle of a word when the row above is full to its last column, at a
-/// space otherwise. A program that wraps its own text indents what it broke
-/// in a word, so each stretch is also tried with the rows joined directly. An
-/// empty row ends the text a path can be in.
 pub(crate) fn widen<'a>(
     row: impl Fn(isize) -> Option<&'a [Run]>,
     width: u16,
@@ -246,8 +232,6 @@ pub(crate) fn widen<'a>(
     merged
 }
 
-/// The stretches of `text` around the word at `byte`: each takes in more
-/// words before it, then after it.
 fn wider(text: &str, byte: usize) -> Vec<Range<usize>> {
     let mut words: Vec<Range<usize>> = Vec::new();
     let mut open = None;
@@ -373,8 +357,6 @@ impl TerminalPane {
         }));
     }
 
-    /// Another computer's server looked up a link; it counts if the pointer
-    /// is still on it.
     pub(crate) fn link_resolved(
         &mut self,
         candidate: &Candidate,

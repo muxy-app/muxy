@@ -1,6 +1,3 @@
-//! Notifications through the desktop's `org.freedesktop.Notifications`
-//! service. Its signals report clicks and dismissals.
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, mpsc};
 use std::thread;
@@ -17,16 +14,12 @@ pub const CAPABILITY: Capability = Capability::Supported;
 
 const SERVICE: &str = "org.freedesktop.Notifications";
 const PATH: &str = "/org/freedesktop/Notifications";
-/// The action a click on the notification itself invokes.
 const OPEN: &str = "default";
 
-/// The notifications this app has on screen: its identifiers, and the
-/// numbers the service knows them by.
 #[derive(Debug, Default)]
 struct Shown(HashMap<String, u32>);
 
 impl Shown {
-    /// The number a second delivery of `id` replaces, or zero for a new one.
     fn replaces(&self, id: &str) -> u32 {
         self.0.get(id).copied().unwrap_or(0)
     }
@@ -35,13 +28,10 @@ impl Shown {
         self.0.insert(id, number);
     }
 
-    /// Forgets `ids` and returns the numbers to close.
     fn take(&mut self, ids: &[String]) -> Vec<u32> {
         ids.iter().filter_map(|id| self.0.remove(id)).collect()
     }
 
-    /// The identifier behind a number the service reports, if it is ours and
-    /// still on screen.
     fn identifier(&self, number: u32) -> Option<String> {
         self.0
             .iter()
@@ -93,8 +83,6 @@ fn availability(connection: &Connection) -> Capability {
 }
 
 impl Service {
-    /// Needs the session bus. A missing notification service is reported as
-    /// unavailable instead, since one can start later.
     pub(super) fn start() -> Result<(Self, Receiver<Event>), Capability> {
         let unreachable = |error: &dyn std::fmt::Display| {
             Capability::Unavailable(
@@ -190,7 +178,6 @@ impl Worker {
         }
     }
 
-    /// Whether the desktop reads a notification's text as markup.
     fn reads_markup(&self) -> bool {
         self.proxy
             .call::<_, _, Vec<String>>("GetCapabilities", &())
@@ -205,13 +192,11 @@ impl Worker {
         } else {
             body.to_owned()
         };
-        // A notification with nothing to open offers no action.
         let actions = if opens {
             vec![OPEN, open.as_ref()]
         } else {
             Vec::new()
         };
-        // Held until the number is recorded, so a click on it is not ignored.
         let mut shown = lock(&self.shown);
         let sent = self.proxy.call::<_, _, u32>(
             "Notify",
@@ -237,7 +222,6 @@ impl Worker {
         }
     }
 
-    /// Tells the app when what the desktop allows has changed.
     fn report(&self, capability: Capability) {
         let mut current = lock(&self.availability);
         if *current != capability {
@@ -270,7 +254,6 @@ fn follow(signals: SignalIterator<'static>, shown: &Mutex<Shown>, events: &Sende
     }
 }
 
-/// `text` as markup that shows the same characters.
 fn escaped(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")

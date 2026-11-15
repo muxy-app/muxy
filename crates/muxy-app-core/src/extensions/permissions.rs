@@ -39,7 +39,6 @@ const BROWSER_READS: [&str; 16] = [
     "browser.snapshot",
 ];
 
-/// The manifest permission a bridge verb needs, following main's verb table.
 pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
     Some(match verb {
         "files.list" | "files.read" | "files.stat" => "files:read",
@@ -111,7 +110,6 @@ fn waits_on_a_function(args: &Value) -> bool {
         .any(|function| function.as_str().is_some_and(|text| !text.is_empty()))
 }
 
-/// Events that also need a read permission before an extension may subscribe.
 pub fn event_permission(event: &str) -> Option<&'static str> {
     match event {
         "agent.status" => Some("agents:read"),
@@ -123,7 +121,6 @@ pub fn event_permission(event: &str) -> Option<&'static str> {
     }
 }
 
-/// Actions that ask the user at runtime even when the manifest grants them.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Gate {
     Exec,
@@ -174,7 +171,6 @@ impl Gate {
         }
     }
 
-    /// Plural description used by "Block all … from this extension".
     pub fn kind(self) -> &'static str {
         match self {
             Self::Exec => "shell commands",
@@ -208,8 +204,6 @@ impl Gate {
     }
 }
 
-/// One consent question: the gated action, the rule a "remember" choice saves,
-/// and what the prompt shows.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Request {
     pub gate: Gate,
@@ -230,8 +224,6 @@ impl Request {
         }
     }
 
-    /// Consent for a bridge call, when the verb is gated. `location` is the
-    /// repository or project directory the call acts on.
     pub fn for_call(owner: &str, verb: &str, args: &Value, location: &str) -> Option<Self> {
         let text = |field: &str| args[field].as_str().unwrap_or("").to_owned();
         match verb {
@@ -366,7 +358,6 @@ impl Request {
         )
     }
 
-    /// Running one of the user's custom commands opens a terminal that runs it.
     pub fn custom_command(name: &str, command: &str) -> Self {
         Self::new(
             Gate::TabsRunCommand,
@@ -388,12 +379,10 @@ impl Request {
         )
     }
 
-    /// What a remembered choice will apply to, for the prompt's footer.
     pub fn scope(&self) -> String {
         scope(&self.pattern)
     }
 
-    /// The rule a remembered choice saves.
     pub fn rule(&self, choice: Choice) -> Option<Rule> {
         let (pattern, consent) = match choice {
             Choice::AllowAndRemember => (self.pattern.as_str(), Consent::Allow),
@@ -417,7 +406,6 @@ fn scope(pattern: &str) -> String {
     }
 }
 
-/// A remembered consent rule of one extension.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rule {
     pub gate: Gate,
@@ -426,12 +414,10 @@ pub struct Rule {
 }
 
 impl Rule {
-    /// How the audit log names the rule.
     pub fn id(&self) -> String {
         format!("{}:{}", self.gate.name(), self.pattern)
     }
 
-    /// What the rule applies to.
     pub fn scope(&self) -> String {
         scope(&self.pattern)
     }
@@ -445,7 +431,6 @@ pub enum Consent {
     Ask,
 }
 
-/// What the user picked in a consent prompt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Choice {
     AllowAndRemember,
@@ -453,7 +438,6 @@ pub enum Choice {
     Cancel,
     DenyAndRemember,
     Block,
-    /// Allows every gated action of the extension from now on.
     Trust,
 }
 
@@ -462,16 +446,13 @@ impl Choice {
         matches!(self, Self::AllowAndRemember | Self::Allow | Self::Trust)
     }
 
-    /// Whether the choice is saved for later requests.
     pub fn remembers(self) -> bool {
         !matches!(self, Self::Allow | Self::Cancel)
     }
 }
 
-/// How the audit log names the trust that allowed a request.
 pub const TRUSTED: &str = "trusted";
 
-/// Remembered consent rules, keyed `owner:gate:pattern`.
 #[derive(Clone, Debug)]
 pub struct Grants {
     path: PathBuf,
@@ -486,7 +467,6 @@ fn trust_key(owner: &str) -> String {
     format!("{owner}:{TRUSTED}")
 }
 
-/// Rewrites keys saved before gated verbs were grouped (`files:files.write`).
 fn migrate(key: String) -> String {
     match key.split_once(':') {
         Some((owner, verb)) if !verb.contains(':') => {
@@ -519,8 +499,6 @@ impl Grants {
         })
     }
 
-    /// The rule that decides `request`. A specific rule wins over the
-    /// gate-wide one, as on main.
     pub fn rule(&self, owner: &str, request: &Request) -> Option<Rule> {
         [request.pattern.as_str(), ANY]
             .into_iter()
@@ -542,8 +520,6 @@ impl Grants {
             .map_or(Consent::Ask, |rule| rule.consent)
     }
 
-    /// Whether the extension may do every gated action without asking. Trust
-    /// outranks its saved rules, which apply again once trust is removed.
     pub fn trusted(&self, owner: &str) -> bool {
         self.rules.get(&trust_key(owner)) == Some(&Consent::Allow)
     }
@@ -558,7 +534,6 @@ impl Grants {
         self.save(rules)
     }
 
-    /// An extension's remembered rules.
     pub fn rules(&self, owner: &str) -> Vec<Rule> {
         let prefix = format!("{owner}:");
         self.rules
@@ -580,8 +555,6 @@ impl Grants {
         self.save(rules)
     }
 
-    /// Saves the rule a remembered choice makes. Blocking replaces every
-    /// other rule of that gate.
     pub fn remember(
         &mut self,
         owner: &str,

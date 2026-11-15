@@ -1,6 +1,3 @@
-//! The rail: a column of extension icons on the right edge of the workspace,
-//! opened from a toggle at the end of the top bar.
-
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, div, px,
@@ -11,8 +8,6 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 
-/// The top bar's rail toggle, shown while the rail is on and has items. It
-/// mirrors the sidebar toggle on the left.
 pub(super) fn toggle(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyElement> {
     if model.rail_items().is_empty() {
         return None;
@@ -50,7 +45,6 @@ pub(super) fn toggle(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
     )
 }
 
-/// `content` with the open rail on its right.
 pub(super) fn content(
     content: AnyElement,
     model: &AppModel,
@@ -85,7 +79,6 @@ pub(super) fn content(
         .into_any_element()
 }
 
-/// The width the open rail takes from the workspace.
 pub(crate) fn width(model: &AppModel) -> f32 {
     if !model.rail_shown() {
         return 0.0;

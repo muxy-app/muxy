@@ -1,5 +1,3 @@
-//! Linux and Android wait with poll(2) on the child's exit and its pipes.
-
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::process::Child;
@@ -11,16 +9,10 @@ use rustix::process::{Pid, WaitId, WaitIdOptions};
 
 use super::{Ready, Watch};
 
-/// Learns when a child exits, without reaping it.
-///
-/// It is a pidfd, or where there is none (Android, or a sandbox that refuses
-/// it), a pipe that a thread closes once the child exits. Either becomes
-/// readable then.
 #[derive(Debug)]
 pub struct ExitWatch(OwnedFd);
 
 impl ExitWatch {
-    /// `child` must not have been reaped yet.
     pub fn new(child: &Child) -> io::Result<Self> {
         let pid = Pid::from_child(child);
         #[cfg(target_os = "linux")]
@@ -47,8 +39,6 @@ impl ExitWatch {
         Ok(Self(exited.into()))
     }
 
-    /// Waits up to `timeout`, or for ever with `None`. Returns whether the
-    /// child has exited.
     pub fn wait(&mut self, timeout: Option<Duration>) -> io::Result<bool> {
         let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
         loop {
@@ -93,7 +83,6 @@ impl Events {
         match poll(&mut descriptors, timeout) {
             Ok(()) => {
                 for (descriptor, slot) in descriptors.iter().zip(slots) {
-                    // Hang-ups and errors count: the next read or write reports them.
                     hit[slot] = !descriptor.revents().is_empty();
                 }
             }

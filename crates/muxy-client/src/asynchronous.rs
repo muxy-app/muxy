@@ -31,7 +31,6 @@ impl Client {
         })
     }
 
-    /// Detaches without blocking, such as from the thread reading events.
     pub fn detach_async(&self, channel: ChannelId) -> Request<()> {
         self.request_async(
             RequestBody::Detach(channel),

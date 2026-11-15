@@ -1,6 +1,3 @@
-//! Layouts written before rendering kept cursor shapes, graphics and underline
-//! styles. Frozen.
-
 use muxy_protocol::Color;
 use serde::Deserialize;
 
@@ -8,7 +5,6 @@ use super::layout::{StoredExitReason, StoredSize};
 
 #[derive(Deserialize)]
 pub(super) struct Record {
-    /// Checked before the rest is read.
     _version: u32,
     pub(super) screen: Screen,
     pub(super) history: Vec<Vec<Run>>,

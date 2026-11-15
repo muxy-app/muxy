@@ -1,24 +1,17 @@
-//! Path comparison and the home folder, following each platform's rules.
-
 use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Windows file systems ignore case; Unix ones do not.
 const IGNORE_CASE: bool = cfg!(windows);
 
-/// Whether both paths have the same components, ignoring case on Windows.
 pub fn path_eq(first: &Path, second: &Path) -> bool {
     components_eq(first, second, IGNORE_CASE)
 }
 
-/// Whether `path` is `base` or inside it, ignoring case on Windows.
 pub fn path_starts_with(path: &Path, base: &Path) -> bool {
     starts_with(path, base, IGNORE_CASE)
 }
 
-/// `path` with a leading `home` written as `~`, ignoring case on Windows.
-/// A path outside `home` is returned unchanged.
 pub fn shorten_home(path: &Path, home: &Path) -> PathBuf {
     shorten_home_with(path, home, IGNORE_CASE)
 }
@@ -55,7 +48,6 @@ fn component_eq(first: &OsStr, second: &OsStr, ignore_case: bool) -> bool {
     }
 }
 
-/// NTFS upcases one character to one character, so `ß` never equals `SS`.
 fn upcase(character: char) -> char {
     let mut upper = character.to_uppercase();
     match (upper.next(), upper.next()) {
@@ -64,15 +56,12 @@ fn upcase(character: char) -> char {
     }
 }
 
-/// The user's home folder: `HOME` on Unix, the profile folder on Windows.
 pub fn home_dir() -> io::Result<PathBuf> {
     std::env::home_dir()
         .filter(|home| !home.as_os_str().is_empty())
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home directory unavailable"))
 }
 
-/// Replaces a leading `~` component with the home folder. On Windows `~\`
-/// works as well as `~/`. `~user` is left alone.
 pub fn expand_tilde(path: &Path) -> io::Result<PathBuf> {
     expand_tilde_with(path, home_dir)
 }

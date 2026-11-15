@@ -1,8 +1,3 @@
-//! Extension log lines: a short in-memory tail per extension for Settings, and
-//! main's `<resource root>/logs/output.log`, trimmed like main once it passes 5 MB.
-//! The tail starts with the file's newest lines, so earlier sessions show too.
-//! The same writer appends the profile's audit log.
-
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -14,10 +9,8 @@ use muxy_ui::tr;
 const TAIL: usize = 200;
 const MAX_FILE: u64 = 5 * 1024 * 1024;
 const TRIMMED_FILE: u64 = 1_250_000;
-/// How much of the file's end is read for its newest lines.
 const TAIL_WINDOW: u64 = 256 * 1024;
 
-/// File work, done in order on one thread so a read sees every earlier write.
 enum Job {
     Append(PathBuf, String),
     Tail(PathBuf, async_channel::Sender<Vec<String>>),
@@ -27,7 +20,6 @@ enum Job {
 
 pub(crate) struct Logs {
     lines: HashMap<String, VecDeque<String>>,
-    /// Extensions whose earlier lines were already read from their file.
     read: HashSet<String>,
     writer: Option<SyncSender<Job>>,
 }
@@ -62,7 +54,6 @@ impl Logs {
         }
     }
 
-    /// The most recent lines for one extension, oldest first.
     pub(crate) fn tail(&self, owner: &str) -> impl Iterator<Item = &str> {
         self.lines
             .get(owner)
@@ -71,7 +62,6 @@ impl Logs {
             .map(String::as_str)
     }
 
-    /// Records a line; `root` is the extension's resource root when it is loaded.
     pub(super) fn append(&mut self, owner: &str, root: Option<&Path>, line: String) {
         let tail = self.lines.entry(owner.into()).or_default();
         if tail.len() == TAIL {
@@ -101,8 +91,6 @@ impl Logs {
         Ok(done)
     }
 
-    /// Reads an extension's earlier lines from its file, once per session.
-    /// Ask before the extension logs anything, so no line is read twice.
     pub(super) fn read_earlier(
         &mut self,
         owner: &str,
@@ -117,7 +105,6 @@ impl Logs {
         Some(lines)
     }
 
-    /// Puts lines from earlier sessions before this session's.
     pub(super) fn prepend(&mut self, owner: &str, earlier: Vec<String>) {
         let tail = self.lines.entry(owner.into()).or_default();
         for line in earlier.into_iter().rev() {
@@ -148,7 +135,6 @@ fn append(path: &Path, line: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The file's newest whole lines, oldest first.
 fn tail(path: &Path) -> std::io::Result<Vec<String>> {
     let mut file = std::fs::File::open(path)?;
     let start = file.metadata()?.len().saturating_sub(TAIL_WINDOW);
@@ -165,7 +151,6 @@ fn tail(path: &Path) -> std::io::Result<Vec<String>> {
     Ok(lines[lines.len().saturating_sub(TAIL)..].to_vec())
 }
 
-/// Keeps roughly the newest 1.25 MB, starting at a line boundary.
 fn trim(path: &Path) -> std::io::Result<()> {
     let mut file = std::fs::File::open(path)?;
     let length = file.metadata()?.len();

@@ -1,9 +1,6 @@
 use super::*;
 use muxy_ui::scrollbar::REVEAL_DURATION;
 
-/// A three-row pane, sixty pixels tall, above twenty-seven rows of history.
-/// Its thumb is twenty-four pixels long and travels thirty-six. The pane is
-/// never drawn, so its size stays as set here.
 fn pane(cx: &mut TestAppContext) -> (gpui::Entity<TerminalPane>, &mut gpui::VisualTestContext) {
     let pane = cx.new(|cx| {
         let mut pane = TerminalPane::new(

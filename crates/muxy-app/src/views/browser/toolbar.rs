@@ -1,5 +1,3 @@
-//! The browser's toolbar, address suggestions, and find bar.
-
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
@@ -169,7 +167,6 @@ fn external_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyElem
     .into_any_element()
 }
 
-/// The profile the page browses with, which a click lets you change.
 fn profile_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyElement {
     let (theme, metrics) = (&view.theme, view.metrics);
     let content = div()
@@ -203,7 +200,6 @@ fn profile_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyEleme
     .into_any_element()
 }
 
-/// The address field, with the page's icon and history suggestions.
 fn address(
     view: &BrowserView,
     editing: bool,
@@ -308,7 +304,6 @@ fn toolbar_button(
                 action(view, event.position, cx);
             }),
         )
-        // The pointer never presses it for a client, so nothing acts on mouse down.
         .on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
             let position = window.mouse_position();
             let _ = owner.update(cx, |view, cx| press(view, position, cx));
@@ -336,8 +331,6 @@ impl Render for BrowserTooltip {
     }
 }
 
-/// History matching the address field, shown under it. The page's native
-/// view is told to stay out of the way.
 fn suggestions(view: &BrowserView, cx: &mut Context<BrowserView>) -> Option<AnyElement> {
     if !view.suggestions.open || view.suggestions.entries.is_empty() {
         return None;

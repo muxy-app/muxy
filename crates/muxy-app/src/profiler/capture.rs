@@ -60,7 +60,6 @@ impl Capture {
             .unwrap_or_default()
             .as_millis();
         let directory = parent.join(format!("muxy-profile-{}-{unix_ms}", std::process::id()));
-        // A new folder, never one that is already there.
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut fs::DirBuilder::new(), 0o700)
             .create(&directory)?;

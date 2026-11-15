@@ -7,9 +7,6 @@ use bindgen::callbacks::{EnumVariantValue, IntKind, ItemInfo, ItemKind, ParseCal
 use heck::ToShoutySnakeCase;
 
 fn main() {
-    // The headers this crate's build script installed for this very build,
-    // so they always match the pin and the enabled features. GHOSTTY_SOURCE_DIR
-    // or an explicit GHOSTTY_INCLUDE_DIR override them.
     let include_dir = if let Ok(dir) = env::var("GHOSTTY_INCLUDE_DIR") {
         PathBuf::from(dir)
     } else if let Ok(src) = env::var("GHOSTTY_SOURCE_DIR") {
@@ -42,10 +39,6 @@ fn main() {
         .allowlist_function("[Gg]hostty.*")
         .allowlist_type("[Gg]hostty.*")
         .allowlist_var("GHOSTTY_.*")
-        // Only used to force enums to `int` size. It is defined as `INT_MAX`,
-        // and whether bindgen can evaluate that depends on which `limits.h`
-        // clang resolves, which differs between environments. Exclude it so
-        // the output is the same everywhere.
         .blocklist_item("GHOSTTY_ENUM_MAX_VALUE")
         .generate_cstr(true)
         .derive_default(true)
@@ -120,13 +113,6 @@ struct Callbacks;
 impl ParseCallbacks for Callbacks {
     fn item_name(&self, item_info: ItemInfo) -> Option<String> {
         let prefix = match item_info.kind {
-            // Do not rename functions since bindgen unconditionally prefixes
-            // the `link_name` with `\u{1}`, which was supposed to stop LLVM
-            // from mangling the name again but apparently this is necessary
-            // on macOS and other Apple platforms?
-            //
-            // Honestly, what the hell. See:
-            // https://github.com/rust-lang/rust-bindgen/issues/1221
             ItemKind::Function => return None,
             ItemKind::Var => "GHOSTTY_",
             _ => "Ghostty",
@@ -142,7 +128,6 @@ impl ParseCallbacks for Callbacks {
     ) -> Option<String> {
         let enum_name = enum_name?;
 
-        // Remove redundant C prefixes
         let prefix = PREFIXES
             .iter()
             .find(|(v, _)| *v == enum_name)
@@ -160,7 +145,6 @@ impl ParseCallbacks for Callbacks {
         Some(
             comment
                 .lines()
-                // Ignore doxygen directives.
                 .filter(|s| !s.trim().starts_with("@"))
                 .collect::<Vec<_>>()
                 .join("\n"),
@@ -168,7 +152,6 @@ impl ParseCallbacks for Callbacks {
     }
 
     fn int_macro(&self, name: &str, _value: i64) -> Option<IntKind> {
-        // Fixup some int macro types to reduce manual casting
         if name.starts_with("GHOSTTY_DA_") || name.starts_with("GHOSTTY_MODS_") {
             Some(IntKind::U16)
         } else if name.starts_with("GHOSTTY_KITTY_KEY_") || name.starts_with("GHOSTTY_COLOR_NAMED_")

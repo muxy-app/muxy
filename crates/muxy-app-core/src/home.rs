@@ -33,8 +33,6 @@ impl AppState {
         })
     }
 
-    /// The local Home goes first, in the OS home directory. A remote server's
-    /// Home comes from its catalog and goes first among its projects.
     pub(crate) fn ensure_home(&mut self) -> Result<(), AppError> {
         let directory = home_directory()?;
         let index = self
@@ -94,8 +92,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Moves the Home at `index` in front of its server's other projects, and
-    /// the local Home in front of all. A Home already there stays put.
     pub(crate) fn place_home(&mut self, index: usize) {
         let server = self.projects[index].server_id;
         let first = if server.is_local() {

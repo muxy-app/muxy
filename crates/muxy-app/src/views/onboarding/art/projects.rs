@@ -1,6 +1,3 @@
-//! A sidebar fills with projects, one opens to show its worktrees, each with its
-//! own tabs and panes, and one gets a new color.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{Div, FontWeight, Hsla, IntoElement, ParentElement, SharedString, Styled, div};
 use muxy_ui::components::IconGlyph;
@@ -64,7 +61,6 @@ pub(super) fn scene(frame: &Frame) -> Div {
         ))
 }
 
-/// Between two colors.
 fn blend(from: u32, to: u32, x: f32) -> Hsla {
     let channels = |hex: u32| {
         [
@@ -350,7 +346,6 @@ fn tab(frame: &Frame, name: &str, selected: bool) -> Div {
         ))
 }
 
-/// The small menu that recolors a project.
 fn customize(frame: &Frame, shown: f32, recolored: f32) -> Div {
     let swatches = [CYAN, INDIGO, VIOLET, ORCHID, PINK, GREEN];
     let selected = if recolored > 0.5 { 4 } else { 1 };

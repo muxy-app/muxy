@@ -2,7 +2,6 @@ use super::worktrees::pruning_fixture;
 use super::*;
 use muxy_app_core::settings::{AppLayout, Appearance};
 
-/// Projects `with_tab`, `current`, and `idle`, where only `with_tab` has a tab.
 fn three_projects() -> (AppState, [ProjectId; 3], TabId) {
     let mut state = AppState::bootstrap().expect("state");
     let ids = [(); 3].map(|()| {
@@ -342,7 +341,6 @@ fn collapsed_project_tiles_fill_their_squares(cx: &mut TestAppContext) {
     let sidebar = cx.debug_bounds("workspace-sidebar").expect("sidebar");
     assert_eq!(sidebar.size.width, metrics.sidebar_collapsed_width());
     let square = metrics.scaled(34.0);
-    // Windows builds offer no remote servers, so their section isn't drawn.
     let remote = (!cfg!(windows)).then_some("remote-servers-section");
     for selector in ["project-row-0", "sidebar-extensions", "settings-button"]
         .into_iter()

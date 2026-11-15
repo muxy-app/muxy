@@ -1,7 +1,3 @@
-//! The app language. English text is the key, as in main's
-//! `Localizable.strings`; the active language may translate it. Language
-//! packs are loaded by `muxy_app_core::localization`.
-
 pub mod format;
 
 use std::borrow::Cow;
@@ -11,11 +7,6 @@ use std::sync::Arc;
 pub use format::Arg;
 use format::Token;
 
-/// Translates an English literal through the active language.
-///
-/// `tr!("Settings")` and `tr!("%lld changes", count)` both return a
-/// `Cow<'static, str>`. Placeholders follow main's catalogs: `%@` for text,
-/// `%lld` for integers, `%1$@` to reorder, and `%%` for a percent sign.
 #[macro_export]
 macro_rules! tr {
     ($key:literal $(,)?) => {
@@ -29,8 +20,6 @@ macro_rules! tr {
     };
 }
 
-/// Marks an English literal kept for later `translate` calls, such as a label
-/// in a static table, so it is extracted into the English catalog.
 #[macro_export]
 macro_rules! tr_key {
     ($key:literal $(,)?) => {
@@ -48,8 +37,6 @@ pub enum PluralCategory {
     Other,
 }
 
-/// One `Localizable.stringsdict` entry: a format whose `%#@name@`
-/// references pick a form by the plural category of their argument.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Plural {
     pub format: String,
@@ -58,8 +45,6 @@ pub struct Plural {
 
 type Rules = dyn Fn(u64) -> PluralCategory + Send + Sync;
 
-/// A loaded translation: string and plural catalogs plus the language's
-/// plural rules.
 pub struct Language {
     strings: HashMap<String, String>,
     plurals: HashMap<String, Plural>,
@@ -90,13 +75,10 @@ impl Language {
         }
     }
 
-    /// The translation of `key`, or `key` when this language lacks it.
     pub fn translate<'a>(&'a self, key: &'a str) -> &'a str {
         self.strings.get(key).map_or(key, String::as_str)
     }
 
-    /// Formats the translation of `key`. A plural entry wins over a plain
-    /// string, as in Foundation.
     pub fn format(&self, key: &str, args: &[Arg<'_>]) -> String {
         let mut out = String::new();
         let rendered = match self.plurals.get(key) {
@@ -149,7 +131,6 @@ impl Language {
         Some(())
     }
 
-    /// Foundation uses a `zero` form for 0 in every language that defines it.
     fn category(
         &self,
         arg: Option<&Arg<'_>>,
@@ -193,7 +174,6 @@ mod active {
     }
 }
 
-/// Tests run in parallel threads, so each sees only the language it sets.
 #[cfg(any(test, feature = "test-support"))]
 mod active {
     use std::cell::RefCell;
@@ -212,7 +192,6 @@ mod active {
     }
 }
 
-/// Makes `language` the app language; `None` is English.
 pub fn set_language(language: Option<Arc<Language>>) {
     active::set(language);
 }
@@ -221,9 +200,6 @@ pub fn language() -> Option<Arc<Language>> {
     active::get()
 }
 
-/// The active translation of `key`. A key that is a format without
-/// arguments, such as `"100%%"`, reads `%%` as a percent sign; any other
-/// text, such as a user's `"50% done"`, is never read as a format.
 pub fn translate(key: &str) -> Cow<'_, str> {
     if key.contains('%') && takes_no_arguments(key) {
         return Cow::Owned(format(key, &[]));
@@ -245,7 +221,6 @@ fn takes_no_arguments(key: &str) -> bool {
     })
 }
 
-/// Formats the active translation of `key` with `args`.
 pub fn format(key: &str, args: &[Arg<'_>]) -> String {
     if let Some(language) = active::get() {
         return language.format(key, args);
@@ -255,8 +230,6 @@ pub fn format(key: &str, args: &[Arg<'_>]) -> String {
     out
 }
 
-/// Lowercased text to search for `key`: its English source and, when
-/// different, its translation, so both find it.
 pub fn searchable(key: &str) -> String {
     let translated = translate(key);
     if translated == key {

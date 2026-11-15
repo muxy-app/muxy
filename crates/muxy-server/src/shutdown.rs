@@ -1,13 +1,9 @@
-//! Requests from the system to stop the server.
-
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod windows;
 
 use std::io;
 
-/// Requests that arrive before [`Requests::listen`] wait for it rather than
-/// ending the process.
 pub(crate) struct Requests {
     #[cfg(unix)]
     signals: signal_hook::iterator::Signals,
@@ -15,7 +11,6 @@ pub(crate) struct Requests {
     console: windows::Console,
 }
 
-/// Calls the server's stop once per request until closed.
 pub(crate) struct Listening {
     #[cfg(unix)]
     handle: signal_hook::iterator::Handle,
@@ -28,8 +23,6 @@ pub(crate) struct Listening {
 }
 
 impl Requests {
-    /// `SIGTERM` and `SIGINT` on Unix. On Windows, Ctrl+C, Ctrl+Break and
-    /// closing the console, then signing out or shutting down once listening.
     pub(crate) fn new() -> io::Result<Self> {
         #[cfg(unix)]
         {
@@ -72,8 +65,6 @@ impl Requests {
 }
 
 impl Listening {
-    /// Stops listening once the server has stopped, which also lets a
-    /// waiting sign-out or console close proceed.
     pub(crate) fn close(self) -> io::Result<()> {
         #[cfg(unix)]
         {

@@ -1,5 +1,3 @@
-//! `JavaScriptCore` contexts confined to dedicated script threads.
-
 #![cfg_attr(
     target_os = "macos",
     allow(
@@ -29,18 +27,12 @@ use super::api::{
 };
 use super::{Call, Event};
 
-/// How soon to run timers again after the timer function itself failed.
 const RETRY: Duration = Duration::from_millis(16);
-/// The longest a timer can be scheduled ahead, in milliseconds.
 const MAX_DELAY_MS: f64 = 86_400_000.0;
-/// How often, in seconds of running, the engine asks whether a script that
-/// hasn't returned has been stopped.
 const WATCHDOG_PERIOD: f64 = 0.1;
 
 pub const CAPABILITY: Capability = Capability::Supported;
 
-/// Whether the engine is there to run scripts. Loading it can take a moment,
-/// so ask off the main thread.
 pub fn probe() -> Capability {
     match api::load() {
         Ok(()) => Capability::Supported,
@@ -112,13 +104,11 @@ impl Drop for Script {
     }
 }
 
-/// Whether `body` parses as the body of an async function. Nothing runs.
 pub fn is_async_function_body(body: &str) -> bool {
     if api::load().is_err() {
         return false;
     }
     let program = JsString::new(&format!("(async () => {{\n{body}\n}});"));
-    // SAFETY: The context is created, used, and released on this thread, and checking syntax runs no script.
     unsafe {
         let context = JSGlobalContextCreate(ptr::null_mut());
         let parses = JSCheckScriptSyntax(context, program.0, ptr::null_mut(), 1, ptr::null_mut());
@@ -139,12 +129,10 @@ struct JsString(JSStringRef);
 impl JsString {
     fn new(text: &str) -> Self {
         let text: Vec<u16> = text.encode_utf16().collect();
-        // SAFETY: JavaScriptCore copies this valid UTF-16 slice.
         Self(unsafe { JSStringCreateWithCharacters(text.as_ptr(), text.len()) })
     }
 
     fn text(&self) -> String {
-        // SAFETY: The string is retained for the lifetime of this wrapper.
         unsafe {
             let length = JSStringGetLength(self.0);
             if length == 0 {
@@ -160,7 +148,6 @@ impl JsString {
 
 impl Drop for JsString {
     fn drop(&mut self) {
-        // SAFETY: This wrapper owns exactly one retained JavaScriptCore string.
         unsafe {
             JSStringRelease(self.0);
         }
@@ -170,12 +157,7 @@ impl Drop for JsString {
 struct Context(JSGlobalContextRef);
 
 impl Context {
-    /// A context whose running script ends once `stop` is set, even if it never
-    /// returns, where the engine has a watchdog. Without one, only a script that
-    /// returns or calls Muxy notices.
     fn new(stop: &Arc<AtomicBool>) -> Self {
-        // SAFETY: Context and all its values remain on this thread. A null class uses the default global object.
-        // The flag outlives the context: the script thread holds it until after the context is released.
         unsafe {
             let context = Self(JSGlobalContextCreate(ptr::null_mut()));
             api::set_execution_time_limit(
@@ -205,7 +187,6 @@ impl Context {
     fn value(&self, source: &str) -> Result<JSValueRef, String> {
         let source = JsString::new(source);
         let mut exception = ptr::null();
-        // SAFETY: Context and strings are live on the owning thread; exceptions are inspected before the next evaluation.
         unsafe {
             let value = JSEvaluateScript(
                 self.0,
@@ -223,13 +204,10 @@ impl Context {
         }
     }
 
-    /// Runs due timers. `__muxyTick` answers how many milliseconds remain
-    /// until the next one; anything else means wait for input.
     fn tick(&self) -> Option<Duration> {
         let Ok(value) = self.value("globalThis.__muxyTick?.()") else {
             return Some(RETRY);
         };
-        // SAFETY: The value was just produced by this context on its own thread.
         let milliseconds = unsafe {
             if value.is_null() || !JSValueIsNumber(self.0, value) {
                 return None;
@@ -243,22 +221,16 @@ impl Context {
 
 impl Drop for Context {
     fn drop(&mut self) {
-        // SAFETY: No values escape this thread, and it has stopped evaluating scripts.
         unsafe {
             JSGlobalContextRelease(self.0);
         }
     }
 }
 
-/// Whether the script the engine is running has been stopped. If not, asks
-/// again after another period: the engine asks once per limit it is given.
 unsafe extern "C" fn should_terminate(context: JSContextRef, stop: *mut std::ffi::c_void) -> bool {
-    // SAFETY: `stop` is the flag given in `Context::new`, which outlives the context.
     if unsafe { &*stop.cast::<AtomicBool>() }.load(Ordering::Acquire) {
         return true;
     }
-    // SAFETY: The engine passes the live context that is running, and the flag
-    // still outlives it.
     unsafe {
         api::set_execution_time_limit(context, WATCHDOG_PERIOD, Some(should_terminate), stop);
     }
@@ -266,7 +238,6 @@ unsafe extern "C" fn should_terminate(context: JSContextRef, stop: *mut std::ffi
 }
 
 unsafe fn value_text(context: JSContextRef, value: JSValueRef) -> String {
-    // SAFETY: The callback/evaluator supplies a live context and value.
     let string = unsafe { JSValueToStringCopy(context, value, ptr::null_mut()) };
     if string.is_null() {
         String::new()
@@ -284,7 +255,6 @@ unsafe extern "C-unwind" fn dispatch(
     _: *mut JSValueRef,
 ) -> JSValueRef {
     let response = if count == 1 {
-        // SAFETY: JavaScriptCore provides `count` valid arguments for this callback.
         let request = unsafe { value_text(context, *arguments) };
         HOST.with(|host| {
             let host = host.borrow();
@@ -317,7 +287,6 @@ unsafe extern "C-unwind" fn dispatch(
             .as_deref()
             .unwrap_or(r#"{"ok":false,"error":"script is no longer active"}"#),
     );
-    // SAFETY: JavaScriptCore copies the live string into the callback's context.
     unsafe { JSValueMakeString(context, response.0) }
 }
 
@@ -325,9 +294,6 @@ unsafe extern "C-unwind" fn dispatch(
 mod tests {
     use super::*;
 
-    /// Runs `source` in a fresh context on its own thread, setting the stop
-    /// flag after `stop_after`, and answers whether it ended in an error, or
-    /// `None` if it was still running seconds later.
     fn run(source: &'static str, stop_after: Option<Duration>) -> Option<bool> {
         let stop = Arc::new(AtomicBool::new(false));
         let (done, finished) = mpsc::channel();

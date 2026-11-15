@@ -1,27 +1,12 @@
-//! What a page may do, whichever engine shows it.
-
-/// The scheme an extension's pages and their assets are served from.
 pub(super) const SCHEME: &str = "muxy-ext";
-/// The name pages post their requests to.
 pub(super) const HANDLER: &str = "muxy";
 
-/// The policy every extension asset is served with. A page may load only its
-/// own files, `data:` and `blob:` URLs, so an image, style, font, frame, or
-/// `fetch` can't reach the network without asking: web requests go through
-/// `muxy.http`, which asks the user per host. Inline and evaluated script stay
-/// allowed, since bundlers emit both. A worker is served with the policy too.
 pub(super) const CONTENT_SECURITY_POLICY: &str = "default-src 'self' muxy-ext: data: blob:; \
      script-src 'self' muxy-ext: data: blob: 'unsafe-inline' 'unsafe-eval'; \
      style-src 'self' muxy-ext: data: blob: 'unsafe-inline'";
 
-/// How long after a native click on a page its own report of that click may
-/// move Muxy's focus to it.
 const CLICK_EVIDENCE: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Whether the native click in `last` is recent enough to move focus, using it
-/// up. A page reports a click from script, which it could do at any time; only
-/// a native click, which the page can't make, lets that report through, and
-/// only once.
 pub(super) fn take_click(last: &std::cell::Cell<Option<std::time::Instant>>) -> bool {
     last.take()
         .is_some_and(|clicked| clicked.elapsed() <= CLICK_EVIDENCE)
@@ -38,29 +23,22 @@ pub(super) const QUEUE_FULL: &str = "webview request queue full";
 pub(super) const DOCUMENT_RETIRED: &str = "document retired";
 pub(super) const INVALID_RESPONSE: &str = "invalid host response";
 
-/// Whether a URL with this scheme and host is one of `owner`'s own pages.
 pub(super) fn owns(scheme: &str, host: &str, owner: &str) -> bool {
     scheme == SCHEME && host == owner
 }
 
-/// Whether a frame may go to a URL with this scheme and host: the
-/// extension's own pages, and blank documents.
 pub(super) fn may_navigate(scheme: &str, host: &str, owner: &str) -> bool {
     owns(scheme, host, owner) || scheme == "about"
 }
 
-/// Whether a request of `bytes` of JSON may join `pending` unanswered ones.
 pub(super) fn admits_message(bytes: usize, pending: usize) -> bool {
     bytes <= MAX_MESSAGE_BYTES && pending < MAX_PENDING_REPLIES
 }
 
-/// Whether another asset may load beside `pending` unfinished ones.
 pub(super) fn admits_asset(pending: usize) -> bool {
     pending < MAX_PENDING_ASSETS
 }
 
-/// The scheme and host of `url`, read literally. A user, password or port
-/// stays part of the host, so such a URL matches no owner.
 #[cfg(any(target_os = "linux", test))]
 pub(super) fn origin(url: &str) -> Option<(&str, &str)> {
     let (scheme, rest) = url.split_once(':')?;
@@ -71,8 +49,6 @@ pub(super) fn origin(url: &str) -> Option<(&str, &str)> {
     Some((scheme, host))
 }
 
-/// The path of `url` without its query or fragment, percent-decoded.
-/// `None` when the decoded bytes are not UTF-8.
 #[cfg(any(target_os = "linux", test))]
 pub(super) fn path(url: &str) -> Option<String> {
     let rest = url.split_once("://")?.1;

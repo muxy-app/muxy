@@ -1,6 +1,3 @@
-//! Keys: Ctrl-B commands, scroll and resize modes, and dialogs. Everything
-//! else goes to the focused terminal.
-
 use muxy_app_core::Direction;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -148,8 +145,6 @@ fn prefix(key: KeyEvent, worker: &Worker, ui: &mut Ui) -> Result {
     worker.send(action)
 }
 
-/// Rows in a page of the focused pane: its height less one, so a line of
-/// context stays in view.
 fn page_rows(worker: &Worker) -> isize {
     let shared = lock(&worker.shared);
     focused_pane(&shared)
@@ -282,7 +277,6 @@ fn overlay(key: KeyEvent, worker: &Worker, ui: &mut Ui) -> Result {
     Ok(())
 }
 
-/// Closes a confirmation or the rename dialog, doing what it asked if `yes`.
 pub(super) fn answer(worker: &Worker, ui: &mut Ui, yes: bool) -> Result {
     let overlay = std::mem::take(&mut ui.overlay);
     if !yes {
@@ -299,7 +293,6 @@ pub(super) fn answer(worker: &Worker, ui: &mut Ui, yes: bool) -> Result {
     }
 }
 
-/// Keeps a picker's selection on one of its rows.
 pub(super) fn clamp_selection(worker: &Worker, ui: &mut Ui) {
     let count = {
         let shared = lock(&worker.shared);
@@ -317,7 +310,6 @@ pub(super) fn clamp_selection(worker: &Worker, ui: &mut Ui) {
     }
 }
 
-/// Opens what is selected in the project finder or the existing terminals.
 pub(super) fn choose(worker: &Worker, ui: &mut Ui) -> Result {
     let action = {
         let shared = lock(&worker.shared);

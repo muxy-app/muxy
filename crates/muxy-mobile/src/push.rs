@@ -1,45 +1,42 @@
-//! Push notifications: the phone's token goes to each paired server, which
-//! answers with the key its notifications are encrypted with.
-
 use muxy_protocol::PushToken;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum PushPlatform {
-    /// Apple Push Notification service, on iOS.
+    #[doc = " Apple Push Notification service, on iOS."]
     Apns,
-    /// Firebase Cloud Messaging, on Android.
+    #[doc = " Firebase Cloud Messaging, on Android."]
     Fcm,
 }
 
-/// Which APNs servers an iOS build's token belongs to.
+#[doc = " Which APNs servers an iOS build's token belongs to."]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum PushEnvironment {
-    /// Debug builds.
+    #[doc = " Debug builds."]
     Sandbox,
-    /// `TestFlight` and App Store builds.
+    #[doc = " `TestFlight` and App Store builds."]
     Production,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum PushStatus {
-    /// The relay accepted the token.
+    #[doc = " The relay accepted the token."]
     Active,
-    /// The server couldn't reach the relay yet and keeps trying; the key already works.
+    #[doc = " The server couldn't reach the relay yet and keeps trying; the key already works."]
     Pending,
-    /// Apple or Google rejected the token. Get a fresh one, and check the APNs environment.
+    #[doc = " Apple or Google rejected the token. Get a fresh one, and check the APNs environment."]
     Refused,
-    /// Push notifications are off on this server. There is no key.
+    #[doc = " Push notifications are off on this server. There is no key."]
     Disabled,
-    /// A status from a newer server.
+    #[doc = " A status from a newer server."]
     Other,
 }
 
-/// The server's answer to `registerPush`.
+#[doc = " The server's answer to `registerPush`."]
 #[derive(Clone, Eq, PartialEq, uniffi::Record)]
 pub struct PushRegistration {
     pub status: PushStatus,
-    /// 32 bytes. Store it with the server's credential, replacing the one
-    /// kept before; notifications from this server decrypt with it.
+    #[doc = " 32 bytes. Store it with the server's credential, replacing the one"]
+    #[doc = " kept before; notifications from this server decrypt with it."]
     pub key: Option<Vec<u8>>,
 }
 

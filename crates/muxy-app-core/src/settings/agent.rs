@@ -1,6 +1,3 @@
-//! The `muxy-settings` skill, which an agent started in the profile folder
-//! reads to change the app's settings with `muxy config`.
-
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -22,7 +19,6 @@ const FILES: &[(&str, &str)] = &[
     ),
 ];
 
-/// The skill's instructions, which a prompt points the agent at.
 pub fn skill_file(profile: &Path) -> PathBuf {
     profile
         .join(AGENT_SKILLS[1])
@@ -30,8 +26,6 @@ pub fn skill_file(profile: &Path) -> PathBuf {
         .join("SKILL.md")
 }
 
-/// Writes the skill for each agent into the profile folder, leaving
-/// everything else there alone.
 pub fn prepare(profile: &Path) -> io::Result<()> {
     for skills in AGENT_SKILLS {
         let folder = profile.join(skills).join(SKILL_NAME);

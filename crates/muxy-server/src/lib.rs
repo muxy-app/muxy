@@ -1,8 +1,3 @@
-//! Server-owned projects, sessions, capability execution, settings, and client runtime.
-//!
-//! Project metadata and explicit session membership are shared; client-owned
-//! workspaces, tabs, panes, and presentation never enter this crate.
-
 mod archive;
 pub mod connection;
 mod error;

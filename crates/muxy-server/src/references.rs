@@ -1,5 +1,3 @@
-//! The sessions each app keeps open, shared by every connection it has.
-
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -10,7 +8,6 @@ use muxy_protocol::{OperationId, SessionId};
 pub(crate) struct References {
     revision: u64,
     sessions: HashSet<SessionId>,
-    /// Sessions the app stopped referencing and hasn't attached since.
     released: HashSet<SessionId>,
 }
 
@@ -66,13 +63,10 @@ impl SharedReferences {
     }
 }
 
-/// Each owner's references. Connections that name no owner keep their own.
 #[derive(Debug, Default)]
 pub(crate) struct Owners(HashMap<OperationId, SharedReferences>);
 
 impl Owners {
-    /// The owner's references, and whether they were just started from
-    /// `first` because no live connection had the owner.
     pub(crate) fn get_or_insert(
         &mut self,
         owner: OperationId,
@@ -84,7 +78,6 @@ impl Owners {
         }
     }
 
-    /// Forgets owners none of whose connections are still open.
     pub(crate) fn retain(&mut self, mut connected: impl FnMut(OperationId) -> bool) {
         self.0.retain(|owner, _| connected(*owner));
     }

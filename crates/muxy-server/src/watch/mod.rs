@@ -1,6 +1,3 @@
-//! Folder watches that report changes once they settle, shared by every
-//! connection that watches the same project.
-
 mod shared;
 
 pub(crate) use shared::{Shared, Subscribers, Subscription};
@@ -17,18 +14,14 @@ use notify::{RecursiveMode, Watcher};
 
 use crate::ServerError;
 
-/// The longest a notice waits while changes keep arriving.
 pub(crate) const MAX_DELAY: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Timing {
-    /// How long changes must stop before a notice goes out.
     pub(crate) quiet: Duration,
     pub(crate) max_delay: Duration,
 }
 
-/// Gathers events into a `T` and hands it to `flush` once events stop for the
-/// quiet period, or once the maximum delay passes while they keep arriving.
 pub(crate) struct DebouncedWatch {
     _watcher: notify::RecommendedWatcher,
     stop: Arc<AtomicBool>,
@@ -37,8 +30,6 @@ pub(crate) struct DebouncedWatch {
 }
 
 impl DebouncedWatch {
-    /// `record` adds an event to the pending changes and returns whether any
-    /// are worth reporting.
     pub(crate) fn new<T: Default + Send + 'static>(
         name: &str,
         timing: Timing,
@@ -101,7 +92,6 @@ impl Drop for DebouncedWatch {
     }
 }
 
-/// Waits out one burst of wakes. Returns false once the watch stops.
 fn settle(wakes: &Receiver<()>, timing: Timing, stopped: &AtomicBool) -> bool {
     let started = Instant::now();
     loop {

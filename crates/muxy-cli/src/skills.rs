@@ -1,17 +1,11 @@
-//! The muxy-cli skill, which teaches AI coding agents to use this command,
-//! and installing it where agents look for skills.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 const SKILL: &str = include_str!("../skills/muxy-cli/SKILL.md");
 
-/// Agent folders in the home folder; each keeps its skills in `skills`.
 const AGENTS: [&str; 3] = [".claude", ".codex", ".agents"];
 
-/// Writes the skill into every agent folder in `home` and into each of
-/// `directories`, replacing an older copy, and returns the files written.
 pub(crate) fn install(home: Option<&Path>, directories: &[PathBuf]) -> io::Result<Vec<PathBuf>> {
     let mut roots: Vec<PathBuf> = home
         .into_iter()
@@ -76,8 +70,6 @@ mod tests {
         Ok(())
     }
 
-    /// Splits a shell command line into words, keeping quoted text together
-    /// and standing in a session ID for each `$VARIABLE`.
     fn words(line: &str) -> Vec<std::ffi::OsString> {
         let mut words = Vec::new();
         let mut word = String::new();

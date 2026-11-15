@@ -279,7 +279,6 @@ fn chrome(model: &AppModel, cx: &mut Context<AppModel>) -> PanelChrome {
     }
 }
 
-/// The detached agent sessions panel's card, for the floating layer.
 pub(crate) fn floating(
     model: &AppModel,
     window: &Window,

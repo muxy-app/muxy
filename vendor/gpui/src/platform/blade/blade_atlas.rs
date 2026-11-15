@@ -25,10 +25,7 @@ struct BladeAtlasState {
     tiles_by_key: FxHashMap<AtlasKey, AtlasTile>,
     initializations: Vec<AtlasTextureId>,
     uploads: Vec<PendingUpload>,
-    /// Textures that lost their last tile since the last frame was submitted.
-    /// A frame still on the GPU may sample them.
     retired: Vec<BladeAtlasTexture>,
-    /// Retired textures, each with the frame after which nothing samples it.
     expiring: Vec<(gpu::SyncPoint, BladeAtlasTexture)>,
 }
 
@@ -47,9 +44,6 @@ impl BladeAtlasState {
         self.upload_belt.destroy(&self.gpu);
     }
 
-    /// Keeps a texture alive until the GPU finishes the frames that may still
-    /// sample it. Destroying it earlier is undefined behavior in Vulkan, and on
-    /// Intel GPUs it faults the frame in flight and loses the device.
     fn retire(&mut self, texture: BladeAtlasTexture) {
         let id = texture.id;
         self.initializations.retain(|pending| *pending != id);
@@ -89,7 +83,7 @@ impl BladeAtlas {
             upload_belt: BufferBelt::new(BufferBeltDescriptor {
                 memory: gpu::Memory::Upload,
                 min_chunk_size: 0x10000,
-                alignment: 64, // Vulkan `optimalBufferCopyOffsetAlignment` on Intel XE
+                alignment: 64,
             }),
             storage: BladeAtlasStorage::default(),
             tiles_by_key: Default::default(),
@@ -440,7 +434,6 @@ mod tests {
         })
     }
 
-    /// A headless GPU, or `None` on a machine without one.
     fn gpu() -> Option<Arc<gpu::Context>> {
         unsafe {
             gpu::Context::init(gpu::ContextDesc {
@@ -465,7 +458,6 @@ mod tests {
             .unwrap()
     }
 
-    /// Submits a frame the way the renderer does.
     fn frame(
         gpu: &gpu::Context,
         atlas: &BladeAtlas,

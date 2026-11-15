@@ -1,6 +1,3 @@
-//! Workspace verbs (`tabs`, `panes`, `projects`, `worktrees`, `workspaces`,
-//! `agents`) with main's reply shapes and error messages.
-
 use std::path::{Component, Path, PathBuf};
 
 use gpui::Context;
@@ -12,7 +9,6 @@ use serde_json::{Value, json};
 
 use super::{AppModel, Call};
 
-/// Expands `~` and resolves `.`/`..` lexically, like `standardizedFileURL`.
 pub(super) fn standardized(path: &str) -> PathBuf {
     let expanded =
         muxy_core::paths::expand_tilde(Path::new(path)).unwrap_or_else(|_| PathBuf::from(path));
@@ -29,7 +25,6 @@ pub(super) fn standardized(path: &str) -> PathBuf {
     normalized
 }
 
-/// A palette color by name, like `blue`, or a hex color.
 pub(super) fn parse_color(color: &str) -> Result<muxy_app_core::Color, String> {
     muxy_app_core::PROJECT_COLORS
         .iter()
@@ -71,7 +66,6 @@ fn screen_text(grid: &muxy_client::RunGrid, lines: usize) -> String {
 }
 
 impl AppModel {
-    /// Resolves main's project selector: an ID, a case-insensitive name, or a path.
     pub(super) fn find_project(&self, identifier: &str) -> Option<&Project> {
         let path = standardized(identifier);
         let matches = |project: &&Project| {
@@ -88,7 +82,6 @@ impl AppModel {
             .or_else(|| projects.iter().find(matches))
     }
 
-    /// `projects.list`: top-level projects, Home included.
     pub(super) fn project_list(&self) -> Vec<Value> {
         let root = super::events::root_of(self.state.current_project());
         self.state
@@ -114,7 +107,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Resolves main's workspace selector: an ID or a case-insensitive name.
     pub(super) fn find_workspace(&self, identifier: &str) -> Option<&Workspace> {
         let id = identifier.parse::<WorkspaceId>().ok();
         self.state.workspaces().iter().find(|workspace| {
@@ -138,7 +130,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Membership belongs to top-level projects; a worktree resolves to its parent.
     fn member_project(&self, identifier: &str, action: &str) -> Result<ProjectId, String> {
         let project = self
             .find_project(identifier)
@@ -235,7 +226,6 @@ impl AppModel {
         }
     }
 
-    /// `projects.attach`/`detach` and `workspaces.*`.
     pub(super) fn workspaces_call(
         &mut self,
         call: &Call,
@@ -327,8 +317,6 @@ impl AppModel {
         }
     }
 
-    /// Like main, a project created for `workspace` joins only that workspace
-    /// and the sidebar follows it; `active` is the filter from before opening.
     pub(super) fn file_created_project(
         &mut self,
         project: ProjectId,
@@ -374,8 +362,6 @@ impl AppModel {
         }
     }
 
-    /// `projects.add` and `projects.create`: reuse a project already opened at
-    /// the path, otherwise add and activate a new one.
     pub(super) fn add_extension_project(
         &mut self,
         path: &str,
@@ -517,7 +503,6 @@ impl AppModel {
         }
     }
 
-    /// Validation main performs before asking for consent to open a tab.
     pub(super) fn extension_split_tab(
         &mut self,
         args: &Value,
@@ -683,7 +668,6 @@ impl AppModel {
         Ok((pane, tab))
     }
 
-    /// Consent for pane verbs comes after main's pane ID check.
     pub(super) fn check_pane_request(args: &Value) -> Result<(), String> {
         args["paneID"]
             .as_str()

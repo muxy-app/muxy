@@ -353,17 +353,10 @@ impl NativeWebview {
         self.host.set_shortcuts(modal, shortcuts);
     }
 
-    /// Whether Muxy shows this page focused. Keys reach the page only while it
-    /// is, or after a click into it until Muxy catches up. A page that takes
-    /// the native focus itself, as when its script focuses an element, doesn't
-    /// get them.
     pub(super) fn set_focused(&self, focused: bool) {
         self.host.set_focused(focused);
     }
 
-    /// Sends clicks on the resize grips drawn over the page, in window
-    /// coordinates, to Muxy and shows each grip's cursor there. The page's
-    /// pixels don't change. Call after [`Self::occlude`].
     pub(super) fn take_click(&self) -> bool {
         self.host.take_click()
     }
@@ -523,13 +516,7 @@ impl NativeWebview {
     pub(super) fn choose(&self, _option: Option<usize>) {}
 }
 
-/// Turns `WebRTC` off for extension pages. Their content security policy
-/// covers requests, not peer connections, which could reach any host
-/// through ICE without `http.fetch`'s per-host consent. The switch is
-/// private, so it is only used where `WebKit` has it.
 fn disable_peer_connections(configuration: &WKWebViewConfiguration) {
-    // SAFETY: `preferences` returns the configuration's live preferences,
-    // and the setter, called only when they respond to it, takes one BOOL.
     unsafe {
         let preferences: Retained<AnyObject> = msg_send![configuration, preferences];
         let setter = sel!(_setPeerConnectionEnabled:);
@@ -577,8 +564,6 @@ impl Drop for NativeWebview {
     }
 }
 
-/// The color the engine draws past the page's edges: clear for a page that lets
-/// what is behind it show through, and otherwise the opaque theme color.
 fn background_color(background: Rgba) -> Retained<NSColor> {
     NSColor::colorWithSRGBRed_green_blue_alpha(
         f64::from(background.r),

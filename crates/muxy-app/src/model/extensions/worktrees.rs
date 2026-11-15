@@ -18,8 +18,6 @@ pub(super) fn handles(verb: &str) -> bool {
     )
 }
 
-/// Runs a worktree call on the project's server. `local` says its folders
-/// are on this computer.
 pub(super) async fn call(client: &Client, call: &Call, local: bool) -> Result<Value, String> {
     let catalog = client
         .catalog_async()
@@ -126,8 +124,6 @@ fn new_worktree(action: WorktreeAction) -> WorktreeIntent {
     }
 }
 
-/// Removes the worktree project unless it has uncommitted changes and
-/// `force` is off.
 async fn remove(client: &Client, worktree: ProjectId, force: bool) -> Result<(), String> {
     let expected = client
         .git_inspect_removal_async(worktree)
@@ -186,7 +182,6 @@ impl AppModel {
         self.state
             .select_project(target)
             .map_err(|error| error.to_string())?;
-        // A modal can temporarily switch worktrees while completing an action.
         self.changed(cx);
         if self.webviews.modal.is_none() {
             self.focus_owner.request_active_pane();

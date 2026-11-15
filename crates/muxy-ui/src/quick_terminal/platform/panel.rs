@@ -50,7 +50,6 @@ impl PanelAdapter {
         self.0.set_pinned(pinned);
     }
 
-    /// A pinned panel outlives the focus it was opened from, so hiding it must not return there.
     pub fn forget_previous_focus(&mut self) {
         self.0.forget_previous_focus();
     }

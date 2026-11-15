@@ -1,5 +1,3 @@
-//! Headless AI providers. Callers own their prompts and any resulting actions.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,14 +26,10 @@ pub(crate) struct Provider {
     initial_prompt: InitialPrompt,
 }
 
-/// How an interactive session of a provider takes its first prompt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum InitialPrompt {
-    /// As the last argument.
     Argument,
-    /// After this flag.
     Flag(&'static str),
-    /// It has no documented way, so the user types it.
     Typed,
 }
 
@@ -187,7 +181,6 @@ pub(crate) fn provider(id: &str) -> Option<Provider> {
     PROVIDERS.iter().copied().find(|provider| provider.id == id)
 }
 
-/// Stops a provider run from another thread.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Cancellation(Arc<AtomicBool>);
 
@@ -229,8 +222,6 @@ impl Provider {
         directories
     }
 
-    /// Windows apps start with the user's whole `PATH`, so only Unix asks a
-    /// login shell for it.
     #[cfg(all(windows, not(test)))]
     pub(crate) fn discover() -> Vec<Self> {
         Self::installed()
@@ -284,12 +275,10 @@ impl Provider {
         executable_in(self.executable, search)
     }
 
-    /// What starts an interactive session, after the executable.
     pub(crate) fn interactive(self) -> (&'static [&'static str], InitialPrompt) {
         (self.interactive, self.initial_prompt)
     }
 
-    /// Runs the provider inside the project, where it reads the project's own instructions.
     pub(crate) fn generate(
         self,
         prompt: &str,
@@ -343,10 +332,6 @@ impl Provider {
     }
 }
 
-/// Why Windows can't hand `prompt` to the provider at `executable` on its
-/// command line: a line break in an argument to a `.cmd` or `.bat` launcher,
-/// as npm installs, or a line longer than Windows takes: `cmd.exe` runs those
-/// launchers and takes 8191 characters, other programs 32767.
 #[cfg(windows)]
 fn command_line_problem(executable: &Path, prompt: &str, name: &str) -> Option<String> {
     let batch = executable.extension().is_some_and(|extension| {
@@ -370,19 +355,14 @@ fn executable_in(name: &str, search: &[PathBuf]) -> Option<PathBuf> {
     muxy_core::executable::find_program(search, name)
 }
 
-/// A program installed on this computer, including in the usual folders that
-/// an app opened from the Finder doesn't have on its `PATH`.
 pub(crate) fn find_program(name: &str) -> Option<PathBuf> {
     executable_in(name, &Provider::search_path())
 }
 
-/// A program as the user's own login shell finds it.
 pub(crate) fn find_in_login_shell(name: &str) -> Option<PathBuf> {
     executable_in(name, LOGIN_PATH.get()?)
 }
 
-/// Runs a developer tool without a terminal, so it fails instead of waiting
-/// for an answer nobody can type, and returns what it printed.
 pub(crate) fn run_tool(
     program: &str,
     arguments: &[&str],
@@ -407,7 +387,6 @@ pub(crate) fn run_tool(
     Ok(String::from_utf8_lossy(&stdout).trim().to_owned())
 }
 
-/// Kills every provider that is still running, such as when the app quits.
 #[cfg(not(test))]
 pub(crate) fn terminate_all() {
     for group in RUNNING_GROUPS
@@ -444,7 +423,6 @@ impl Failure {
     }
 }
 
-/// A running provider's process group, listed so quitting the app can kill it.
 struct Registered(Group);
 
 impl Registered {
@@ -466,7 +444,6 @@ impl Drop for Registered {
     }
 }
 
-/// Runs a provider and kills any helpers it leaves behind.
 fn capture(
     mut command: Command,
     timeout: Duration,

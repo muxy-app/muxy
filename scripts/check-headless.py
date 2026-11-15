@@ -65,7 +65,6 @@ def main():
         raise ValueError("Install Zig 0.17.0 before running headless verification")
     os.environ["MUXY_ZIG"] = zig
     os.environ["PATH"] = str(ROOT / "scripts/zig") + os.pathsep + os.environ["PATH"]
-    # Cargo cannot detect that a cached native Zig library targets another CPU.
     run("cargo", "clean", "-p", "libghostty-vt-sys")
     package_args = [arg for name in selected for arg in ("-p", name)]
     run("cargo", "clippy", "--locked", *package_args, "--all-targets", "--all-features", "--", "-D", "warnings")

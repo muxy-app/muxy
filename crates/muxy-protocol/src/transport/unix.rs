@@ -1,6 +1,3 @@
-//! Local sockets: Unix-domain sockets on Unix, and `AF_UNIX` sockets on
-//! Windows 10 1803 and later.
-
 #[cfg(unix)]
 #[cfg_attr(
     not(any(target_os = "linux", target_os = "android")),
@@ -20,24 +17,18 @@ use std::path::Path;
 use crate::transport::accepting::Accepting;
 use crate::transport::{BindError, ByteStream, Listener, StreamCancellation};
 
-/// A connected local socket.
 #[cfg(unix)]
 pub type LocalStream = std::os::unix::net::UnixStream;
-/// A connected local socket.
 #[cfg(windows)]
 pub type LocalStream = uds_windows::UnixStream;
 
-/// A listening local socket.
 #[cfg(unix)]
 pub type LocalListener = std::os::unix::net::UnixListener;
-/// A listening local socket.
 #[cfg(windows)]
 pub type LocalListener = uds_windows::UnixListener;
 
-/// A listening local socket that poll(2), or `WSAPoll`, can wait on.
 #[cfg(unix)]
 type Listening = LocalListener;
-/// A listening local socket that poll(2), or `WSAPoll`, can wait on.
 #[cfg(windows)]
 type Listening = windows::Pollable;
 
@@ -53,8 +44,6 @@ impl UnixSocketListener {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        // A folder made here is private. One that exists is left as it is,
-        // since `accept` turns away other users wherever the socket lives.
         if !parent.try_exists()? {
             muxy_core::files::private_dir(parent)?;
         }
@@ -85,8 +74,6 @@ impl UnixSocketListener {
 }
 
 impl Listener for UnixSocketListener {
-    /// Closes, unread, any connection from another user (other than root),
-    /// wherever the socket file lives and whoever can reach it.
     fn accept(&self) -> io::Result<Box<dyn ByteStream>> {
         let stream = loop {
             let stream = self.socket.accept(Listening::accept)?.0;
@@ -107,17 +94,12 @@ pub fn connect(path: impl AsRef<Path>) -> io::Result<Box<dyn ByteStream>> {
     Ok(Box::new(connect_local(path)?))
 }
 
-/// Like [`connect`], but keeps the socket's type, so a caller can ask who is
-/// at the other end before it carries any data.
 pub fn connect_local(path: impl AsRef<Path>) -> io::Result<LocalStream> {
     let stream = LocalStream::connect(socket_address(path.as_ref()))?;
     stream.set_nonblocking(false)?;
     Ok(stream)
 }
 
-/// Whether a listener serves the process at the other end of `stream`: on
-/// Unix one of this user or root, which can act as anyone anyway. Windows
-/// leaves it to the socket's folder, whose DACL decides who can connect.
 fn trusted_peer(stream: &LocalStream) -> bool {
     #[cfg(unix)]
     {
@@ -130,22 +112,16 @@ fn trusted_peer(stream: &LocalStream) -> bool {
     }
 }
 
-/// Whether the process at the other end of `stream` runs as this user, so a
-/// client can refuse a socket that another user put in its place.
 #[cfg(unix)]
 pub fn peer_is_same_user(stream: &LocalStream) -> io::Result<bool> {
     Ok(credentials::peer_uid(stream)? == credentials::own_uid())
 }
 
-/// Held while a socket in `parent` is bound, replaced or removed, so those
-/// steps exclude each other across processes.
 #[derive(Debug)]
 pub struct SocketDirectoryLock {
     _file: File,
 }
 
-/// Locks the folder that holds a socket. Windows cannot lock a directory, so
-/// there it locks `<parent>\server.lock`.
 pub fn lock_socket_directory(parent: &Path) -> io::Result<SocketDirectoryLock> {
     #[cfg(unix)]
     let file = File::open(parent)?;
@@ -160,20 +136,11 @@ pub fn lock_socket_directory(parent: &Path) -> io::Result<SocketDirectoryLock> {
     Ok(SocketDirectoryLock { _file: file })
 }
 
-/// The process ID of whoever holds the other end of `stream`.
 #[cfg(windows)]
 pub fn peer_pid(stream: &LocalStream) -> io::Result<u32> {
     windows::peer_pid(stream)
 }
 
-/// Two connected sockets, for adapters that pump another transport into one
-/// end while the other end serves as an ordinary byte stream. On Apple
-/// platforms both get `SO_NOSIGPIPE`, which std doesn't set on socket pairs,
-/// since an iOS host app does not ignore SIGPIPE the way Rust executables do.
-///
-/// Windows has no `socketpair`, so there the pair meets through a listener
-/// with a random name in the user's temporary folder, which is removed
-/// again before this returns.
 pub fn socket_pair() -> io::Result<(LocalStream, LocalStream)> {
     #[cfg(unix)]
     {
@@ -186,14 +153,11 @@ pub fn socket_pair() -> io::Result<(LocalStream, LocalStream)> {
     }
     #[cfg(windows)]
     {
-        // Short, since Windows socket paths must fit in 108 bytes.
         let name = format!("muxy-{:016x}.sock", uuid::Uuid::new_v4().as_u64_pair().0);
         pair_at(&std::env::temp_dir().join(name), || Ok(()))
     }
 }
 
-/// Accepts only a connection from this process, so a stranger that connects
-/// first is turned away. `after_bind` lets tests be that stranger.
 #[cfg(windows)]
 fn pair_at(
     path: &Path,
@@ -236,8 +200,6 @@ fn pair_at(
     }
 }
 
-/// The path as a socket address. Windows takes plain paths there, so a
-/// verbatim `\\?\C:\…` becomes `C:\…` and `\\?\UNC\…` becomes `\\…`.
 fn socket_address(path: &Path) -> Cow<'_, Path> {
     #[cfg(windows)]
     if let Some(text) = path.to_str() {
@@ -253,7 +215,6 @@ fn socket_address(path: &Path) -> Cow<'_, Path> {
     Cow::Borrowed(path)
 }
 
-/// Whether `path` itself, not a link's target, is a socket.
 fn is_socket(path: &Path) -> io::Result<bool> {
     #[cfg(unix)]
     {
@@ -266,20 +227,15 @@ fn is_socket(path: &Path) -> io::Result<bool> {
     }
 }
 
-/// Shuts both directions down and wakes whatever is blocked on them.
 pub(crate) fn shut_down(stream: &LocalStream) {
     let _ = stream.shutdown(Shutdown::Write);
     let _ = stream.shutdown(Shutdown::Read);
     interrupt(stream);
 }
 
-/// Wakes reads and writes blocked on `socket` once it is shut down. Unix
-/// wakes them on shutdown alone; Windows needs their I/O cancelled.
 #[cfg(unix)]
 pub(crate) fn interrupt<T>(_socket: &T) {}
 
-/// Wakes reads and writes blocked on `socket` once it is shut down. Unix
-/// wakes them on shutdown alone; Windows needs their I/O cancelled.
 #[cfg(windows)]
 pub(crate) fn interrupt(socket: &impl std::os::windows::io::AsRawSocket) {
     windows::interrupt(socket);
@@ -316,8 +272,6 @@ impl StreamCancellation for SocketCancellation {
     }
 }
 
-/// Reads as Unix does once the socket is shut down: the end of the stream,
-/// where Winsock reports the shutdown or the cancelled read as an error.
 #[cfg(windows)]
 #[derive(Debug)]
 struct SocketReader {
@@ -368,7 +322,6 @@ mod unix_tests {
 
     #[test]
     fn a_missing_socket_folder_is_made_private_and_peers_are_this_user() -> io::Result<()> {
-        // Short, because socket paths are limited to about 100 bytes.
         let root = Path::new("/tmp").join(format!(
             "muxy-peer-{:x}",
             uuid::Uuid::new_v4().as_u64_pair().0
@@ -398,8 +351,6 @@ mod tests {
 
     const STRANGER: &str = "MUXY_TEST_STRANGER";
 
-    /// Another process for the tests below: when one of them runs it, it
-    /// connects to `$MUXY_TEST_STRANGER` and holds on until its stdin closes.
     #[test]
     fn stranger() -> io::Result<()> {
         let Some(path) = std::env::var_os(STRANGER) else {

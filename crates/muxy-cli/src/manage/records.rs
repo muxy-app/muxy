@@ -22,8 +22,6 @@ pub(super) fn activity(snapshot: &ActivitySnapshot) -> Value {
     json!({"revision":snapshot.revision, "agents":agents, "events":events})
 }
 
-/// One row per session with an agent or an event: the agent's state and the
-/// session's latest unread event.
 pub(super) fn activity_rows(snapshot: &ActivitySnapshot) -> Vec<Value> {
     let mut rows: Vec<Value> = snapshot
         .agents

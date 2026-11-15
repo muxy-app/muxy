@@ -257,8 +257,6 @@ fn settings_takes_the_keyboard_back_when_the_focused_control_goes_away(cx: &mut 
     assert!(settings_holds_focus(&model, cx));
 }
 
-/// Presses the empty top bar. Says whether the window move reached the
-/// workspace: an action no window handler takes falls through to the app.
 fn press_top_bar_reaches_window_move(cx: &mut VisualTestContext) -> bool {
     let unhandled = Rc::new(std::cell::Cell::new(false));
     let flag = unhandled.clone();

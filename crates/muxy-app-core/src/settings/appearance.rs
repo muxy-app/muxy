@@ -73,24 +73,18 @@ pub enum AgentsPanelIcon {
     Project,
 }
 
-/// How much room each row of the agents panel takes.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentsPanelDensity {
-    /// Two lines per agent: its title, then its agent and status.
     #[default]
     Normal,
-    /// One short line per agent, with its icon as its only mark.
     Compact,
 }
 
-/// How Settings → Extensions lays out a list of extensions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtensionsLayout {
-    /// Cards with a screenshot above the name.
     Grid,
-    /// One row per extension.
     List,
 }
 
@@ -127,13 +121,10 @@ pub struct Appearance {
     pub sidebar_expanded_width: Option<f32>,
     pub sidebar_collapsed_style: SidebarCollapsedStyle,
     pub status_bar_visible: bool,
-    /// Extensions' rail items sit on the rail; off puts them in the top bar.
     pub rail_enabled: bool,
     pub rail_expanded: bool,
-    /// Each pane shows a header with its icon, title and actions.
     pub pane_headers: bool,
     pub tips_visible: bool,
-    /// The welcome tour was finished or skipped.
     pub onboarding_completed: bool,
     pub auto_expand_worktrees: bool,
     pub worktree_show_unread: bool,
@@ -142,21 +133,15 @@ pub struct Appearance {
     pub project_recent: Vec<crate::ProjectId>,
     pub hidden_worktrees: std::collections::BTreeSet<crate::ProjectId>,
     pub tab_focused_expanded: std::collections::BTreeMap<crate::ProjectId, bool>,
-    /// Servers whose sidebar group was expanded or collapsed by hand; the
-    /// others follow `server_expanded`'s default.
     pub sidebar_servers_expanded: std::collections::BTreeMap<crate::ServerId, bool>,
-    /// The sidebar lists other computers' servers under this computer's.
     pub sidebar_remote_servers: bool,
     pub remember_projects_without_tabs: bool,
-    /// Kept only while `remember_projects_without_tabs` is on.
     pub projects_without_tabs_shown: bool,
     #[serde(rename = "tab_focused_focus")]
     pub sidebar_focus: bool,
     #[serde(rename = "tab_focused_project_order")]
     pub sidebar_project_order: ProjectOrder,
-    /// The extension whose sidebar replaces the built-in one; empty for built-in.
     pub extension_sidebar: String,
-    /// The app language as `<extension>:<localization>`; empty for English.
     pub language: String,
     pub agents_panel_visible: bool,
     pub agents_panel_detached: bool,
@@ -178,9 +163,7 @@ pub struct Appearance {
     pub agent_sessions_width: Option<f32>,
     pub agent_sessions_height: Option<f32>,
     pub agent_sessions_providers: Vec<muxy_protocol::AgentProvider>,
-    /// How Settings lists installed extensions.
     pub extensions_installed_layout: ExtensionsLayout,
-    /// How Settings lists marketplace extensions.
     pub extensions_browse_layout: ExtensionsLayout,
 }
 
@@ -247,16 +230,11 @@ impl Default for Appearance {
 }
 
 impl Appearance {
-    /// Whether agents panel rows can wear their project's color: beside
-    /// agent icons only, since a project icon already wears it, and not in
-    /// compact rows, whose icon is their only mark.
     pub fn agents_panel_colors_apply(&self) -> bool {
         self.agents_panel_icon == AgentsPanelIcon::Agent
             && self.agents_panel_density == AgentsPanelDensity::Normal
     }
 
-    /// Whether the sidebar lists `server`'s projects under its heading: this
-    /// computer's until collapsed, another computer's once expanded.
     pub fn server_expanded(&self, server: crate::ServerId) -> bool {
         self.sidebar_servers_expanded
             .get(&server)
@@ -366,7 +344,6 @@ pub(crate) fn save_section(path: &Path, section: &str, values: &impl Serialize) 
     })
 }
 
-/// Sets or removes each key of `section.table`, keeping everything else.
 pub(crate) fn save_entries(
     path: &Path,
     section: &str,
@@ -418,8 +395,6 @@ pub(super) fn replace_sections<'a>(
     })
 }
 
-/// Reads the document, lets `change` edit it and writes it back, all while
-/// holding the file's lock, so concurrent saves of other sections are kept.
 pub(super) fn edit_document<T>(
     path: &Path,
     change: impl FnOnce(&mut toml::Table) -> Result<T>,
@@ -431,7 +406,6 @@ pub(super) fn edit_document<T>(
     Ok(changed)
 }
 
-/// Locks `<file>.lock` beside `path` for one read-change-write of the file.
 pub(super) fn lock(path: &Path) -> Result<FileLock> {
     const TIMEOUT: Duration = Duration::from_secs(2);
     let parent = path

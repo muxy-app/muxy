@@ -1,6 +1,3 @@
-//! `muxy.http.fetch`: main's request validation, its private-network guard,
-//! and the request itself. Blocking; callers run it on the network pool.
-
 use std::io::Read;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
@@ -103,8 +100,6 @@ fn private(address: IpAddr) -> bool {
     }
 }
 
-/// Loopback, link-local, and private hosts are refused before any prompt.
-/// Names are resolved first; a name that does not resolve is refused too.
 pub(crate) fn blocked(host: &str) -> bool {
     let host = host
         .trim_start_matches('[')
@@ -138,8 +133,6 @@ fn public_addresses(host: &str) -> Result<Vec<SocketAddr>, String> {
     Ok(addresses)
 }
 
-/// Resolves names when connecting and refuses private addresses there too, so
-/// a host cannot pass the check before consent and then resolve elsewhere.
 struct PublicOnly;
 
 impl reqwest::dns::Resolve for PublicOnly {
@@ -151,8 +144,6 @@ impl reqwest::dns::Resolve for PublicOnly {
     }
 }
 
-/// Consent covers one host, so a redirect follows only to that host, and
-/// never to a private address. Any other one comes back as the response.
 fn follows(host: &str, next: &reqwest::Url) -> bool {
     next.host_str().is_some_and(|next| {
         next.trim_end_matches('.')

@@ -2,11 +2,6 @@ use ratatui::backend::{Backend, ClearType, WindowSize};
 use ratatui::buffer::Cell;
 use ratatui::layout::{Position, Size};
 
-/// A backend that leaves out writes that wouldn't change the screen.
-///
-/// Ratatui shows and moves the cursor, and resets colors, after every draw,
-/// even when no cell changed. The terminal UI draws many times a second, so
-/// without this it writes to the terminal all the time while idle.
 #[derive(Debug)]
 pub(crate) struct Quiet<B> {
     inner: B,
@@ -23,7 +18,6 @@ impl<B> Quiet<B> {
         }
     }
 
-    /// Forgets what the terminal shows, so the next cursor change is written.
     fn forget(&mut self) {
         self.shown = None;
         self.position = None;

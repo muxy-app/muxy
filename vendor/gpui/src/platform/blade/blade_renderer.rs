@@ -1,4 +1,3 @@
-// Doing `if let` gives you nice scoping with passes/encoders
 #![allow(irrefutable_let_patterns)]
 
 use super::{BladeAtlas, BladeContext};
@@ -24,8 +23,6 @@ struct GlobalParams {
     pad: u32,
 }
 
-//Note: we can't use `Bounds` directly here because
-// it doesn't implement Pod + Zeroable
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct PodBounds {
@@ -155,7 +152,6 @@ impl BladePipelines {
         shader.check_struct_size::<MonochromeSprite>();
         shader.check_struct_size::<PolychromeSprite>();
 
-        // See https://apoorvaj.io/alpha-compositing-opengl-blending-and-premultiplied-alpha/
         let blend_mode = match surface_info.alpha {
             gpu::AlphaMode::Ignored => gpu::BlendState::ALPHA_BLENDING,
             gpu::AlphaMode::PreMultiplied => gpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
@@ -207,13 +203,6 @@ impl BladePipelines {
                 },
                 depth_stencil: None,
                 fragment: Some(shader.at("fs_path_rasterization")),
-                // The original implementation was using ADDITIVE blende mode,
-                // I don't know why
-                // color_targets: &[gpu::ColorTargetState {
-                //     format: PATH_TEXTURE_FORMAT,
-                //     blend: Some(gpu::BlendState::ADDITIVE),
-                //     write_mask: gpu::ColorWrites::default(),
-                // }],
                 color_targets: &[gpu::ColorTargetState {
                     format: surface_info.format,
                     blend: Some(gpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
@@ -321,10 +310,6 @@ pub struct BladeSurfaceConfig {
     pub transparent: bool,
 }
 
-//Note: we could see some of these fields moved into `BladeContext`
-// so that they are shared between windows. E.g. `pipelines`.
-// But that is complicated by the fact that pipelines depend on
-// the format and alpha mode.
 pub struct BladeRenderer {
     gpu: Arc<gpu::Context>,
     surface: gpu::Surface,
@@ -376,7 +361,7 @@ impl BladeRenderer {
         let instance_belt = BufferBelt::new(BufferBeltDescriptor {
             memory: gpu::Memory::Shared,
             min_chunk_size: 0x1000,
-            alignment: 0x40, // Vulkan `minStorageBufferOffsetAlignment` on Intel Xe
+            alignment: 0x40,
         });
         let atlas = Arc::new(BladeAtlas::new(&context.gpu));
         let atlas_sampler = context.gpu.create_sampler(gpu::SamplerDesc {
@@ -431,9 +416,6 @@ impl BladeRenderer {
         })
     }
 
-    /// Waits up to `MAX_FRAME_TIME_MS` for a frame. A wait that fails long
-    /// before that time has passed failed for good, as when the device is
-    /// lost, and waiting again would spin forever.
     fn wait_for_frame(&self, sync_point: &gpu::SyncPoint) -> bool {
         let started = Instant::now();
         if self.gpu.wait_for(sync_point, MAX_FRAME_TIME_MS) {
@@ -474,9 +456,6 @@ impl BladeRenderer {
         self.update_drawable_size_impl(size, false);
     }
 
-    /// Like `update_drawable_size` but skips the check that the size has changed. This is useful in
-    /// cases like restoring a window from minimization where the size is the same but the
-    /// renderer's swap chain needs to be recreated.
     #[cfg_attr(
         any(target_os = "macos", target_os = "linux", target_os = "freebsd"),
         allow(dead_code)
@@ -742,13 +721,6 @@ impl BladeRenderer {
                         },
                     );
                     let mut encoder = pass.with(&self.pipelines.paths);
-                    // When copying paths from the intermediate texture to the drawable,
-                    // each pixel must only be copied once, in case of transparent paths.
-                    //
-                    // If all paths have the same draw order, then their bounds are all
-                    // disjoint, so we can copy each path's bounds individually. If this
-                    // batch combines different draw orders, we perform a single copy
-                    // for a minimal spanning rect.
                     let sprites = if paths.last().unwrap().order == first_path.order {
                         paths
                             .iter()
@@ -1007,19 +979,10 @@ fn create_msaa_texture_if_needed(
     Some((texture_msaa, texture_view_msaa))
 }
 
-/// A set of parameters that can be set using a corresponding environment variable.
 struct RenderingParameters {
-    // Env var: ZED_PATH_SAMPLE_COUNT
-    // workaround for https://github.com/zed-industries/zed/issues/26143
     path_sample_count: u32,
 
-    // Env var: ZED_FONTS_GAMMA
-    // Allowed range [1.0, 2.2], other values are clipped
-    // Default: 1.8
     gamma_ratios: [f32; 4],
-    // Env var: ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST
-    // Allowed range: [0.0, ..), other values are clipped
-    // Default: 1.0
     grayscale_enhanced_contrast: f32,
 }
 
@@ -1055,23 +1018,21 @@ impl RenderingParameters {
         }
     }
 
-    // Gamma ratios for brightening/darkening edges for better contrast
-    // https://github.com/microsoft/terminal/blob/1283c0f5b99a2961673249fa77c6b986efb5086c/src/renderer/atlas/dwrite.cpp#L50
     fn get_gamma_ratios(gamma: f32) -> [f32; 4] {
         const GAMMA_INCORRECT_TARGET_RATIOS: [[f32; 4]; 13] = [
-            [0.0000 / 4.0, 0.0000 / 4.0, 0.0000 / 4.0, 0.0000 / 4.0], // gamma = 1.0
-            [0.0166 / 4.0, -0.0807 / 4.0, 0.2227 / 4.0, -0.0751 / 4.0], // gamma = 1.1
-            [0.0350 / 4.0, -0.1760 / 4.0, 0.4325 / 4.0, -0.1370 / 4.0], // gamma = 1.2
-            [0.0543 / 4.0, -0.2821 / 4.0, 0.6302 / 4.0, -0.1876 / 4.0], // gamma = 1.3
-            [0.0739 / 4.0, -0.3963 / 4.0, 0.8167 / 4.0, -0.2287 / 4.0], // gamma = 1.4
-            [0.0933 / 4.0, -0.5161 / 4.0, 0.9926 / 4.0, -0.2616 / 4.0], // gamma = 1.5
-            [0.1121 / 4.0, -0.6395 / 4.0, 1.1588 / 4.0, -0.2877 / 4.0], // gamma = 1.6
-            [0.1300 / 4.0, -0.7649 / 4.0, 1.3159 / 4.0, -0.3080 / 4.0], // gamma = 1.7
-            [0.1469 / 4.0, -0.8911 / 4.0, 1.4644 / 4.0, -0.3234 / 4.0], // gamma = 1.8
-            [0.1627 / 4.0, -1.0170 / 4.0, 1.6051 / 4.0, -0.3347 / 4.0], // gamma = 1.9
-            [0.1773 / 4.0, -1.1420 / 4.0, 1.7385 / 4.0, -0.3426 / 4.0], // gamma = 2.0
-            [0.1908 / 4.0, -1.2652 / 4.0, 1.8650 / 4.0, -0.3476 / 4.0], // gamma = 2.1
-            [0.2031 / 4.0, -1.3864 / 4.0, 1.9851 / 4.0, -0.3501 / 4.0], // gamma = 2.2
+            [0.0000 / 4.0, 0.0000 / 4.0, 0.0000 / 4.0, 0.0000 / 4.0],
+            [0.0166 / 4.0, -0.0807 / 4.0, 0.2227 / 4.0, -0.0751 / 4.0],
+            [0.0350 / 4.0, -0.1760 / 4.0, 0.4325 / 4.0, -0.1370 / 4.0],
+            [0.0543 / 4.0, -0.2821 / 4.0, 0.6302 / 4.0, -0.1876 / 4.0],
+            [0.0739 / 4.0, -0.3963 / 4.0, 0.8167 / 4.0, -0.2287 / 4.0],
+            [0.0933 / 4.0, -0.5161 / 4.0, 0.9926 / 4.0, -0.2616 / 4.0],
+            [0.1121 / 4.0, -0.6395 / 4.0, 1.1588 / 4.0, -0.2877 / 4.0],
+            [0.1300 / 4.0, -0.7649 / 4.0, 1.3159 / 4.0, -0.3080 / 4.0],
+            [0.1469 / 4.0, -0.8911 / 4.0, 1.4644 / 4.0, -0.3234 / 4.0],
+            [0.1627 / 4.0, -1.0170 / 4.0, 1.6051 / 4.0, -0.3347 / 4.0],
+            [0.1773 / 4.0, -1.1420 / 4.0, 1.7385 / 4.0, -0.3426 / 4.0],
+            [0.1908 / 4.0, -1.2652 / 4.0, 1.8650 / 4.0, -0.3476 / 4.0],
+            [0.2031 / 4.0, -1.3864 / 4.0, 1.9851 / 4.0, -0.3501 / 4.0],
         ];
 
         const NORM13: f32 = ((0x10000 as f64) / (255.0 * 255.0) * 4.0) as f32;

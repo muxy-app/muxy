@@ -24,7 +24,6 @@ pub(super) struct Dialog {
 }
 
 impl Dialog {
-    /// The card's background and one scaled point.
     #[cfg(test)]
     pub(super) fn look(&self) -> (gpui::Hsla, gpui::Pixels) {
         (self.request.theme.bg, self.request.metrics.scaled(1.0))
@@ -154,7 +153,6 @@ impl Render for Dialog {
     )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.dismissed && !self.focus.contains_focused(window, cx) {
-            // After this frame, since what had focus already reported it in this one.
             let focus = self.focus_handle(cx);
             window.defer(cx, move |window, _| window.focus(&focus));
         }

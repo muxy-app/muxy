@@ -51,7 +51,6 @@ pub(super) struct Service {
     permission: Arc<Permission>,
 }
 
-/// Whether the user lets this app notify, as macOS last said.
 #[derive(Debug)]
 struct Permission {
     denied: Mutex<bool>,
@@ -73,7 +72,6 @@ impl Permission {
         Self::capability(*self.denied.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
-    /// Tells the app when the answer has changed.
     fn report(&self, denied: bool) {
         let mut current = self.denied.lock().unwrap_or_else(PoisonError::into_inner);
         if *current != denied {
@@ -112,7 +110,6 @@ impl PendingDeliveries {
 
 impl Service {
     pub(super) fn clear(&self, ids: &[String]) {
-        // Serialize cancellation with submission from the authorization callback.
         self.pending.cancel(ids, || {
             let ids: Vec<_> = ids.iter().map(|id| NSString::from_str(id)).collect();
             let ids = NSArray::from_retained_slice(&ids);
@@ -127,11 +124,9 @@ impl Service {
         self.permission.current()
     }
 
-    /// Asks macOS whether the user still lets this app notify.
     pub(super) fn refresh(&self) {
         let permission = Arc::clone(&self.permission);
         let completion = RcBlock::new(move |settings: NonNull<UNNotificationSettings>| {
-            // SAFETY: macOS passes valid settings for the duration of the call.
             let status = unsafe { settings.as_ref() }.authorizationStatus();
             permission.report(status == UNAuthorizationStatus::Denied);
         });
@@ -139,7 +134,6 @@ impl Service {
             .getNotificationSettingsWithCompletionHandler(&completion);
     }
 
-    /// Unbundled binaries cannot use the macOS notification service.
     pub(super) fn start() -> Result<(Self, Receiver<Event>), Capability> {
         if NSBundle::mainBundle().bundleIdentifier().is_none() {
             return Err(Capability::Unavailable(
@@ -153,7 +147,6 @@ impl Service {
             events: sender.clone(),
         });
         let delegate = Delegate::alloc().set_ivars(sender);
-        // SAFETY: initialization of our NSObject subclass, with its ivars installed.
         let delegate: Retained<Delegate> = unsafe { msg_send![super(delegate), init] };
         let center = UNUserNotificationCenter::currentNotificationCenter();
         center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
@@ -167,7 +160,6 @@ impl Service {
         Ok((service, receiver))
     }
 
-    /// The system brings the app forward for a click on any notification.
     pub(super) fn inform(&self, id: &str, title: &str, body: &str) {
         self.deliver(id, title, body);
     }

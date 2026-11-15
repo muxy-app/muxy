@@ -1,6 +1,3 @@
-/* Muxy's English strings, the source for language packs. Translate the
-   right-hand side of each line and keep its placeholders. */
-
 "%@\n\nChanges were staged before generating AI metadata." = "%@\n\nChanges were staged before generating AI metadata.";
 "%@\n\nVerify this fingerprint with your server administrator before trusting it." = "%@\n\nVerify this fingerprint with your server administrator before trusting it.";
 "%@  Focus navbar" = "%@  Focus navbar";

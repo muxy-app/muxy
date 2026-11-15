@@ -112,31 +112,27 @@ impl WindowsKeyboardLayout {
     }
 
     pub(crate) fn uses_altgr(&self) -> bool {
-        // Check if this is a known AltGr layout by examining the layout ID
-        // The layout ID is a hex string like "00000409" (US) or "00000407" (German)
-        // Extract the language ID (last 4 bytes)
         let id_bytes = self.id.as_bytes();
         if id_bytes.len() >= 4 {
             let lang_id = &id_bytes[id_bytes.len() - 4..];
-            // List of keyboard layouts that use AltGr (non-exhaustive)
             matches!(
                 lang_id,
-                b"0407" | // German
-                b"040C" | // French
-                b"040A" | // Spanish
-                b"0415" | // Polish
-                b"0413" | // Dutch
-                b"0816" | // Portuguese
-                b"041D" | // Swedish
-                b"0414" | // Norwegian
-                b"040B" | // Finnish
-                b"041F" | // Turkish
-                b"0419" | // Russian
-                b"0405" | // Czech
-                b"040E" | // Hungarian
-                b"0424" | // Slovenian
-                b"041B" | // Slovak
-                b"0418" // Romanian
+                b"0407" |
+                b"040C" |
+                b"040A" |
+                b"0415" |
+                b"0413" |
+                b"0816" |
+                b"041D" |
+                b"0414" |
+                b"040B" |
+                b"041F" |
+                b"0419" |
+                b"0405" |
+                b"040E" |
+                b"0424" |
+                b"041B" |
+                b"0418"
             )
         } else {
             false
@@ -199,7 +195,6 @@ fn get_key_from_vkey(vkey: VIRTUAL_KEY) -> Option<String> {
         return None;
     }
 
-    // The high word contains dead key flag, the low word contains the character
     let key = char::from_u32(key_data & 0xFFFF)?;
 
     Some(key.to_ascii_lowercase().to_string())
@@ -274,7 +269,6 @@ pub(crate) fn generate_key_char(
 
 fn get_vkey_from_key_with_us_layout(key: &str) -> Option<(u16, bool)> {
     match key {
-        // ` => VK_OEM_3
         "`" => Some((VK_OEM_3.0, false)),
         "~" => Some((VK_OEM_3.0, true)),
         "1" => Some((VK_1.0, false)),
@@ -356,7 +350,6 @@ mod tests {
     fn test_keyboard_mapper() {
         let mapper = WindowsKeyboardMapper::new();
 
-        // Normal case
         let keystroke = Keystroke {
             modifiers: Modifiers::control(),
             key: "a".to_string(),
@@ -367,7 +360,6 @@ mod tests {
         assert_eq!(mapped.key(), "a");
         assert_eq!(*mapped.modifiers(), Modifiers::control());
 
-        // Shifted case, ctrl-$
         let keystroke = Keystroke {
             modifiers: Modifiers::control(),
             key: "$".to_string(),
@@ -378,7 +370,6 @@ mod tests {
         assert_eq!(mapped.key(), "4");
         assert_eq!(*mapped.modifiers(), Modifiers::control_shift());
 
-        // Shifted case, but shift is true
         let keystroke = Keystroke {
             modifiers: Modifiers::control_shift(),
             key: "$".to_string(),
@@ -389,7 +380,6 @@ mod tests {
         assert_eq!(mapped.key(), "4");
         assert_eq!(*mapped.modifiers(), Modifiers::control_shift());
 
-        // Windows style
         let keystroke = Keystroke {
             modifiers: Modifiers::control_shift(),
             key: "4".to_string(),

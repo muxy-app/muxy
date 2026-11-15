@@ -9,9 +9,6 @@ use objc2_core_graphics::{
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
-/// Draws the image straight into a packed RGBA buffer. Freed large buffers
-/// stay resident on macOS, so every extra window-sized copy is a cost the
-/// process keeps.
 pub(crate) fn render_rgba(image: &NSImage, width: u32, height: u32) -> Option<Vec<u8>> {
     let bytes_per_row = usize::try_from(width).ok()?.checked_mul(4)?;
     let length = bytes_per_row.checked_mul(usize::try_from(height).ok()?)?;

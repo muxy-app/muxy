@@ -1,33 +1,19 @@
-//! Error handling.
 use std::mem::MaybeUninit;
 
 use crate::ffi;
 
-/// Convenient alias for fallible return values from libghostty-vt.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Possible errors libghostty-vt may return.
-///
-/// Upstream keeps adding result codes, so this is non-exhaustive.
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub enum Error {
-    /// Out of memory.
     OutOfMemory,
-    /// Invalid value was specified or returned.
     InvalidValue,
-    /// Ran out of space when writing to a buffer.
     OutOfSpace {
-        /// Required minimum size of the buffer.
         required: usize,
     },
-    /// Operation failed while reading from or writing to external I/O.
     IoError,
-    /// Operation failed because encoded input exceeded a configured limit.
     LimitExceeded,
-    /// Operation was rejected by a safety check (e.g. pasted text that could
-    /// inject commands). Nothing was done. Confirm with the user and retry
-    /// with the operation's allow flag set.
     Rejected,
 }
 
@@ -65,7 +51,6 @@ pub(crate) fn from_optional_result_uninit<T>(
     v: MaybeUninit<T>,
 ) -> Result<Option<T>> {
     match code {
-        // SAFETY: Value should be initialized after successful call.
         ffi::Result::SUCCESS => Ok(Some(unsafe { v.assume_init() })),
         ffi::Result::OUT_OF_MEMORY => Err(Error::OutOfMemory),
         ffi::Result::OUT_OF_SPACE => Err(Error::OutOfSpace { required: 0 }),
@@ -79,7 +64,6 @@ pub(crate) fn from_optional_result_uninit<T>(
 
 pub(crate) fn from_optional_result<T>(code: ffi::Result::Type, v: T) -> Result<Option<T>> {
     match code {
-        // SAFETY: Value should be initialized after successful call.
         ffi::Result::SUCCESS => Ok(Some(v)),
         ffi::Result::OUT_OF_MEMORY => Err(Error::OutOfMemory),
         ffi::Result::OUT_OF_SPACE => Err(Error::OutOfSpace { required: 0 }),

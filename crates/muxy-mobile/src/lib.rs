@@ -1,10 +1,3 @@
-//! Rust core for the Muxy mobile apps, exposed to Swift and Kotlin through `UniFFI`.
-//!
-//! An app pairs once from a scanned link, keeps the returned credential in secure
-//! storage, and connects with it afterwards. It can also connect through an SSH
-//! channel it opens itself. Calls block, so apps make them off the main thread;
-//! connection events arrive on an SDK thread.
-
 #![allow(unsafe_code, reason = "UniFFI generates the C ABI exports")]
 #![allow(
     clippy::needless_pass_by_value,
@@ -51,7 +44,7 @@ pub use terminal::Terminal;
 
 uniffi::setup_scaffolding!();
 
-/// Checks a scanned code before pairing, and shows where it points.
+#[doc = " Checks a scanned code before pairing, and shows where it points."]
 #[uniffi::export]
 pub fn parse_pairing_link(link: String) -> Result<PairingLink, MobileError> {
     let invite = invite(&link)?;
@@ -61,7 +54,7 @@ pub fn parse_pairing_link(link: String) -> Result<PairingLink, MobileError> {
     })
 }
 
-/// Pairs this device with the server that showed the link.
+#[doc = " Pairs this device with the server that showed the link."]
 #[uniffi::export]
 pub fn pair(link: String, device_name: String) -> Result<ServerCredential, MobileError> {
     let invite = invite(&link)?;
@@ -82,7 +75,6 @@ fn invite(link: &str) -> Result<PairingInvite, MobileError> {
     PairingInvite::parse_link(link.trim()).map_err(|_| MobileError::InvalidLink)
 }
 
-/// Fits the name the phone reports to what the server shows for devices.
 fn device_label(name: &str) -> String {
     let mut label = String::new();
     for character in name

@@ -1,6 +1,3 @@
-//! `muxy browser`: drives the built-in browser tabs of the desktop app on
-//! this computer. Each command is one request to the app over its socket.
-
 pub(crate) mod args;
 
 use std::error::Error;
@@ -15,9 +12,7 @@ use serde_json::{Map, Value};
 use args::Output;
 pub(crate) use args::{Invocation, parse};
 
-/// How long the app has to answer, unless `MUXY_CLI_TIMEOUT` says otherwise.
 const REPLY_TIME: Duration = Duration::from_secs(10);
-/// How long a desktop app that `open` started has to begin listening.
 const APP_START_TIME: Duration = Duration::from_secs(20);
 const INVALID_REPLY: &str = "invalid reply from Muxy";
 
@@ -50,13 +45,10 @@ pub(crate) fn call_app(
     Ok(reply)
 }
 
-/// Starts the desktop app as `muxy <folder>` does, but never over SSH,
-/// where it would open away from the user.
 fn start_app() -> bool {
     !crate::terminal::over_ssh() && crate::open::desktop_app(None)
 }
 
-/// Sends `request` once the app that was just started listens.
 fn call_once_listening(
     socket: &Path,
     request: &Request,
@@ -150,9 +142,6 @@ fn print(output: Output, out: Option<&Path>, reply: Value) -> Result<(), Box<dyn
     Ok(())
 }
 
-/// A page read: its title and address each on one line, then its text. The
-/// page chooses all three, so control characters show as escapes instead of
-/// reaching the terminal, where they could set its clipboard.
 fn page(reply: &Value) -> String {
     format!(
         "{}\n{}\n{}\n",
@@ -162,8 +151,6 @@ fn page(reply: &Value) -> String {
     )
 }
 
-/// A list field kept on its line: tabs and line breaks become spaces, and
-/// other control characters show as escapes.
 fn cell(value: &Value) -> String {
     match value {
         Value::String(text) => crate::output::terminal_text(&text.replace(['\t', '\n', '\r'], " ")),

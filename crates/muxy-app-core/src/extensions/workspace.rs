@@ -1,14 +1,8 @@
-//! The folder where agents build extensions: the `muxy-extensions` skill for
-//! each agent, and one folder per extension under `extensions/`, the layout of
-//! the published extensions repository.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-/// Startup and starting an agent can both prepare a workspace, and cleaning up
-/// would delete the other's half-written files.
 static PREPARING: Mutex<()> = Mutex::new(());
 
 pub const SKILL_NAME: &str = "muxy-extensions";
@@ -101,18 +95,14 @@ const FILES: &[(&str, &str)] = &[
     ),
 ];
 
-/// Where one extension of the workspace lives.
 pub fn extension_folder(root: &Path, name: &str) -> PathBuf {
     root.join("extensions").join(name)
 }
 
-/// The skill's instructions, which a prompt can point an agent at from any folder.
 pub fn skill_file(root: &Path) -> PathBuf {
     root.join(AGENT_SKILLS[1]).join(SKILL_NAME).join("SKILL.md")
 }
 
-/// Creates the workspace if needed and brings its skill up to date with this
-/// build. Only Muxy's own skill and pointer files are touched.
 pub fn prepare(root: &Path) -> io::Result<()> {
     let _preparing = PREPARING.lock().unwrap_or_else(PoisonError::into_inner);
     fs::create_dir_all(root.join("extensions"))?;
@@ -131,15 +121,10 @@ pub fn prepare(root: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Updates a workspace the user already has after an app update. One that was
-/// never created stays uncreated until the first extension needs it.
 pub fn refresh(root: &Path) -> io::Result<()> {
     if root.is_dir() { prepare(root) } else { Ok(()) }
 }
 
-/// A folder on the way to a skill file that is a link would put Muxy's files, and
-/// its cleanup, somewhere else. Above the workspace links are fine: `~/.config` is
-/// often one.
 pub(crate) fn refuse_links_on_the_way(folder: &Path, relative: &str) -> io::Result<()> {
     let mut path = folder.to_owned();
     for part in Path::new(relative)
@@ -169,7 +154,6 @@ pub(crate) fn write_if_changed(path: &Path, contents: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// Removes what an earlier version of the skill left behind.
 fn remove_others(root: &Path, folder: &Path) -> io::Result<()> {
     for entry in fs::read_dir(folder)? {
         let path = entry?.path();

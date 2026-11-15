@@ -40,7 +40,6 @@ fn write_package(root: &Path, name: &str, version: &str) {
     .unwrap();
 }
 
-/// Runs a `muxy extension` command as the app socket would.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "Every caller builds the arguments with json!"
@@ -59,7 +58,6 @@ fn call(
     })
     .detach();
     cx.executor().allow_parking();
-    // Validation runs real file checks, which a busy CI runner can take a while over.
     let deadline = Instant::now() + Duration::from_secs(60);
     while Instant::now() < deadline {
         cx.run_until_parked();

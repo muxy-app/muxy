@@ -1,24 +1,9 @@
-//! Checks on SVG icons that extensions supply, before an SVG engine reads them.
-//!
-//! A `<use>` element copies the element it points at, and engines draw a
-//! mask, clip path or pattern again for each element that refers to it, so a
-//! few kilobytes of references to references can expand into millions of
-//! nodes. SVG engines do that expansion while parsing, on the thread that
-//! draws, so an icon is refused before it gets there if its expanded tree
-//! would be larger than any real icon.
-
 use std::collections::HashMap;
 
-/// The most elements an icon may hold once every reference is expanded. Real
-/// icons hold tens to a few hundred.
 const MAX_EXPANDED_NODES: u32 = 10_000;
 
-/// The side, in pixels, that extension page icons are drawn at before they are
-/// scaled down to a tab. It is large enough for a sharp icon on any display.
 pub const PAGE_ICON_SIDE: u32 = 64;
 
-/// Whether an SVG is small enough to give to an SVG engine. An SVG that can't be
-/// read as XML is refused too, since no engine would draw it.
 pub fn within_budget(bytes: &[u8]) -> bool {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return false;
@@ -33,8 +18,6 @@ pub fn within_budget(bytes: &[u8]) -> bool {
     let mut ids: HashMap<&str, roxmltree::NodeId> = HashMap::new();
     for node in document.descendants() {
         if let Some(id) = node.attribute("id")
-            // Engines take the first element with an id, so a second one
-            // could hide what a reference really expands to.
             && ids.insert(id, node.id()).is_some()
         {
             return false;
@@ -48,11 +31,6 @@ pub fn within_budget(bytes: &[u8]) -> bool {
         .is_some_and(|size| size <= MAX_EXPANDED_NODES)
 }
 
-/// Whether an icon may hold `node`. A pattern is drawn again, at its own
-/// size, for every shape that inherits it as a fill, and a filter can work on
-/// a region far larger than the icon, so neither has a cost the tree bounds;
-/// icons are drawn in one color and use neither. A stylesheet's references
-/// can't be told apart by element, so one with any is refused too.
 fn allowed(node: roxmltree::Node<'_, '_>) -> bool {
     match node.tag_name().name() {
         "pattern" | "filter" => false,
@@ -64,10 +42,6 @@ fn allowed(node: roxmltree::Node<'_, '_>) -> bool {
     }
 }
 
-/// How many elements `node` expands to, or `None` when it is over budget, is a
-/// marker, or refers back to itself. A marker is drawn again at every vertex of
-/// the paths that use it, so its cost can't be bounded by the tree alone, and
-/// icons have no use for one.
 fn expanded<'a>(
     node: roxmltree::Node<'a, 'a>,
     document: &'a roxmltree::Document<'a>,
@@ -76,7 +50,6 @@ fn expanded<'a>(
 ) -> Option<u32> {
     match sizes.get(&node.id()) {
         Some(Some(size)) => return Some(*size),
-        // Still being measured, so this is a cycle, or measured and refused.
         Some(None) => return None,
         None => {}
     }
@@ -85,8 +58,6 @@ fn expanded<'a>(
     }
     sizes.insert(node.id(), None);
     let mut size: u32 = 1;
-    // Each reference expands its target again: `<use>` copies it, and a mask,
-    // clip path or pattern is drawn again for every element that uses it.
     for id in references(node) {
         if let Some(target) = ids.get(id) {
             let target = document.get_node(*target)?;
@@ -110,9 +81,6 @@ fn expanded<'a>(
     })
 }
 
-/// The local ids an element refers to: its `href` or `xlink:href`, and every
-/// `url(#id)` in its attributes, such as `mask`, `clip-path`, `fill` and
-/// `style`.
 fn references<'a>(node: roxmltree::Node<'a, 'a>) -> Vec<&'a str> {
     let mut ids = Vec::new();
     for attribute in node.attributes() {
@@ -133,10 +101,6 @@ fn references<'a>(node: roxmltree::Node<'a, 'a>) -> Vec<&'a str> {
     ids
 }
 
-/// An extension's SVG wrapped in a document exactly `side` pixels square, which
-/// fits the SVG inside it. Engines size their bitmap from the outer document, so
-/// an SVG that claims to be enormous is still drawn into a small bitmap. The SVG
-/// is drawn as an image, which also keeps it from reading any other file.
 pub fn fitted_document(bytes: &[u8], side: u32) -> Vec<u8> {
     use std::fmt::Write as _;
     let mut document = format!(
@@ -149,8 +113,6 @@ pub fn fitted_document(bytes: &[u8], side: u32) -> Vec<u8> {
     document.into_bytes()
 }
 
-/// An extension page's SVG icon as an image drawn at [`PAGE_ICON_SIDE`], or
-/// `None` when it is over budget.
 pub fn page_icon(bytes: &[u8]) -> Option<gpui::Image> {
     within_budget(bytes).then(|| {
         gpui::Image::from_bytes(
@@ -170,7 +132,6 @@ mod tests {
         <path d="M0 0h16v16H0z"/>
     </svg>"##;
 
-    /// Ten levels, each using the level below ten times: 10^10 elements.
     fn laughs() -> String {
         use std::fmt::Write as _;
         let mut svg = String::from(
@@ -192,8 +153,6 @@ mod tests {
         assert!(within_budget(ICON.as_bytes()));
     }
 
-    /// Eight levels of masks, each holding ten shapes masked by the level
-    /// below: about 80 elements that engines draw 10^8 times.
     #[test]
     fn exponential_mask_clip_and_pattern_references_are_refused() {
         use std::fmt::Write as _;
@@ -223,7 +182,6 @@ mod tests {
             assert!(svg.len() < 6 * 1024, "{element}: {}", svg.len());
             assert!(!within_budget(svg.as_bytes()), "{element}");
         }
-        // One gradient shared by a handful of shapes is an ordinary icon.
         let shared = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
             <defs><linearGradient id="g"><stop offset="0"/><stop offset="1"/></linearGradient>
             <clipPath id="c"><rect width="16" height="16"/></clipPath></defs>
@@ -235,10 +193,8 @@ mod tests {
 
     #[test]
     fn duplicate_ids_patterns_filters_and_stylesheet_references_are_refused() {
-        // A second definition of an id must not hide the first, which engines use.
         let duplicate = laughs().replace("</svg>", r#"<g id="l10"/><g id="l9"/></svg>"#);
         assert!(!within_budget(duplicate.as_bytes()));
-        // Refused for the repeated id alone, in an otherwise ordinary icon.
         let repeated = r#"<svg xmlns="http://www.w3.org/2000/svg"><g id="a"/><g id="a"/></svg>"#;
         assert!(!within_budget(repeated.as_bytes()));
         for refused in [
@@ -248,7 +204,6 @@ mod tests {
         ] {
             assert!(!within_budget(refused.as_bytes()), "{refused}");
         }
-        // A stylesheet without references is an ordinary icon.
         let styled = r#"<svg xmlns="http://www.w3.org/2000/svg"><style>.a { fill: currentColor }</style><rect class="a" width="16" height="16"/></svg>"#;
         assert!(within_budget(styled.as_bytes()));
     }

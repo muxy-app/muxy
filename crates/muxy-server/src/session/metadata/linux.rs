@@ -11,7 +11,6 @@ pub(super) fn foreground_member(group: u32) -> Option<(i32, String)> {
     if let Some(leader) = member(group) {
         return Some(leader);
     }
-    // Pipelines can outlive their group leader. Exit/permission races are normal.
     let mut pids: Vec<u32> = fs::read_dir("/proc")
         .ok()?
         .filter_map(Result::ok)
@@ -27,7 +26,6 @@ pub(super) fn process_directory(pid: i32) -> Option<ServerPath> {
 }
 
 fn parse_stat(stat: &[u8]) -> Option<(u32, String)> {
-    // comm may contain spaces, parentheses, newlines and non-UTF-8 bytes.
     let opening = stat.iter().position(|byte| *byte == b'(')? + 1;
     let end = stat.iter().rposition(|byte| *byte == b')')?;
     let name = String::from_utf8_lossy(stat.get(opening..end)?).into_owned();
@@ -38,7 +36,7 @@ fn parse_stat(stat: &[u8]) -> Option<(u32, String)> {
     if matches!(fields.next()?, b"Z" | b"X" | b"x") {
         return None;
     }
-    fields.next()?; // parent PID
+    fields.next()?;
     let group = std::str::from_utf8(fields.next()?).ok()?.parse().ok()?;
     Some((group, name))
 }

@@ -13,8 +13,6 @@ use crate::*;
 
 use super::WindowsDisplay;
 
-/// Windows settings pulled from SystemParametersInfo
-/// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow
 #[derive(Default, Debug, Clone, Copy)]
 pub(crate) struct WindowsSystemSettings {
     pub(crate) mouse_wheel_settings: MouseWheelSettings,
@@ -23,9 +21,7 @@ pub(crate) struct WindowsSystemSettings {
 
 #[derive(Default, Debug, Clone, Copy)]
 pub(crate) struct MouseWheelSettings {
-    /// SEE: SPI_GETWHEELSCROLLCHARS
     pub(crate) wheel_scroll_chars: u32,
-    /// SEE: SPI_GETWHEELSCROLLLINES
     pub(crate) wheel_scroll_lines: u32,
 }
 
@@ -43,9 +39,7 @@ impl WindowsSystemSettings {
 
     pub(crate) fn update(&mut self, display: WindowsDisplay, wparam: usize) {
         match wparam {
-            // SPI_SETWORKAREA
             47 => self.update_taskbar_position(display),
-            // SPI_GETWHEELSCROLLLINES, SPI_GETWHEELSCROLLCHARS
             104 | 108 => self.update_mouse_wheel_settings(),
             _ => {}
         }
@@ -111,7 +105,6 @@ pub(crate) enum AutoHideTaskbarPosition {
 impl AutoHideTaskbarPosition {
     fn new(display: WindowsDisplay) -> anyhow::Result<Option<Self>> {
         if !check_auto_hide_taskbar_enable() {
-            // If auto hide taskbar is not enable, we do nothing in this case.
             return Ok(None);
         }
         let mut info = APPBARDATA {
@@ -134,7 +127,6 @@ impl AutoHideTaskbarPosition {
         );
         let display_bounds = display.physical_bounds();
         if display_bounds.intersect(&taskbar_bounds) != taskbar_bounds {
-            // This case indicates that taskbar is not on the current monitor.
             return Ok(None);
         }
         if taskbar_bounds.bottom() == display_bounds.bottom()
@@ -186,7 +178,6 @@ impl AutoHideTaskbarPosition {
     }
 }
 
-/// Check if auto hide taskbar is enable or not.
 fn check_auto_hide_taskbar_enable() -> bool {
     let mut info = APPBARDATA {
         cbSize: std::mem::size_of::<APPBARDATA>() as u32,

@@ -104,8 +104,6 @@ fn row_text(row: &Row, cursor: Cursor) -> String {
         let width = usize::from(run.width);
         let all_narrow = run.text.chars().count() == width;
         for ch in run.text.chars() {
-            // Printed raw, a control character in cell text could drive this
-            // terminal, such as setting its clipboard.
             let ch = if ch.is_control() {
                 char::REPLACEMENT_CHARACTER
             } else {

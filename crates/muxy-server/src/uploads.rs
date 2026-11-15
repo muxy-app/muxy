@@ -1,7 +1,3 @@
-//! Files apps send for a session, such as an image dropped on its terminal
-//! from another computer. They live in a private folder in the system's
-//! temporary folder, which the system clears, under `<session>/`.
-
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -10,7 +6,6 @@ use muxy_protocol::{ErrorCode, ServerPath, UploadChunk};
 
 use crate::ServerError;
 
-/// The longest name kept, leaving room for a `-N` that tells copies apart.
 const NAME_BYTES: usize = 240;
 
 #[derive(Debug)]
@@ -19,8 +14,6 @@ pub(crate) struct Uploads {
 }
 
 impl Uploads {
-    /// This user's folder in the system's temporary folder, which Windows
-    /// already keeps per user.
     pub(crate) fn system() -> Self {
         #[cfg(unix)]
         let name = format!("muxy-uploads-{}", rustix::process::geteuid().as_raw());
@@ -33,8 +26,6 @@ impl Uploads {
         Self { directory }
     }
 
-    /// Appends a chunk to its file. After the last one, the file takes its
-    /// name, never replacing another, and its absolute path is returned.
     pub(crate) fn receive(&self, chunk: &UploadChunk) -> Result<Option<ServerPath>, ServerError> {
         chunk
             .validate()
@@ -62,9 +53,6 @@ impl Uploads {
     }
 }
 
-/// Makes `path` a folder only this user can open, or checks that it is one.
-/// Other users can create names first in a shared temporary folder, so a
-/// link, a file, or someone else's folder is refused.
 fn private_folder(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -88,8 +76,6 @@ fn private_folder(path: &Path) -> io::Result<()> {
     }
     #[cfg(windows)]
     {
-        // The temporary folder is this user's own, and new folders inherit
-        // its permissions; only a link or a file in the way is refused.
         match fs::create_dir_all(path) {
             Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
             _ => {}
@@ -109,7 +95,6 @@ fn not_own(path: &Path) -> io::Error {
     )
 }
 
-/// Starts the file at offset 0, otherwise continues it where it ended.
 fn open(partial: &Path, offset: u64) -> Result<File, ServerError> {
     let file = if offset == 0 {
         muxy_core::files::private_file()
@@ -133,7 +118,6 @@ fn append(file: &mut File, chunk: &UploadChunk) -> Result<(), ServerError> {
     file.write_all(&chunk.bytes).map_err(failed)
 }
 
-/// Gives the finished file `name`, or `name-2`, `name-3`, … when taken.
 fn keep(partial: &Path, folder: &Path, name: &str) -> Result<PathBuf, ServerError> {
     for copy in 1..=10_000 {
         let path = folder.join(numbered(name, copy));
@@ -149,8 +133,6 @@ fn keep(partial: &Path, folder: &Path, name: &str) -> Result<PathBuf, ServerErro
     ))
 }
 
-/// Moves the partial file to `path`, unless something already has that name.
-/// Some file systems can't refuse to replace a file; a hard link can.
 fn take_name(partial: &Path, path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -165,9 +147,6 @@ fn take_name(partial: &Path, path: &Path) -> io::Result<()> {
     fs::remove_file(partial)
 }
 
-/// The last component of `name`, without control characters, short enough
-/// to number. A name that would mean a folder is `upload`. On Windows it is
-/// also a name Windows can hold.
 pub(crate) fn file_name(name: &str) -> String {
     let last = name
         .rsplit(['/', std::path::MAIN_SEPARATOR])
@@ -209,7 +188,6 @@ fn numbered(name: &str, copy: usize) -> String {
     format!("{stem}-{copy}{extension}")
 }
 
-/// `shot.png` is `("shot", ".png")`; `.env` and `notes` have no extension.
 fn split(name: &str) -> (&str, &str) {
     match name.rfind('.') {
         Some(dot) if dot > 0 => name.split_at(dot),
@@ -379,7 +357,6 @@ mod tests {
         let (root, uploads) = uploads();
         fs::create_dir_all(&root).unwrap();
         let linked = std::os::windows::fs::symlink_dir(std::env::temp_dir(), root.join("uploads"));
-        // Creating links needs Developer Mode or a privilege (error 1314).
         if !linked
             .as_ref()
             .is_err_and(|error| error.raw_os_error() == Some(1314))

@@ -924,7 +924,6 @@ fn git_samples() -> Vec<Message> {
     ]
 }
 
-/// Samples for reviewing and applying AI-drafted commits and pull requests.
 fn git_review_samples() -> Vec<Message> {
     let destination = crate::GitPushDestination {
         remote: "origin".into(),

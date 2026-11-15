@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 #[cfg(not(target_os = "macos"))]
 use muxy_client::local::Detached;
 
-/// More than a launch takes to reach the running app and hear back from it.
 #[cfg(not(target_os = "macos"))]
 const HANDOFF_PATIENCE: Duration = Duration::from_secs(5);
 #[cfg(not(target_os = "macos"))]
@@ -14,8 +13,6 @@ const START_PATIENCE: Duration = Duration::from_secs(10);
 #[cfg(not(target_os = "macos"))]
 const START_POLL: Duration = Duration::from_millis(50);
 
-/// Opens `word`, a folder, in the desktop app. Without it, or over SSH, the
-/// folder opens in the terminal UI instead.
 pub(crate) fn run(word: &Path) -> Result<(), Box<dyn Error>> {
     let folder = muxy_core::files::canonicalize(word)
         .ok()
@@ -32,8 +29,6 @@ pub(crate) fn run(word: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Opens the desktop app, with `folder` as a project if given, returning
-/// false if it can't.
 #[cfg(target_os = "macos")]
 pub(crate) fn desktop_app(folder: Option<&Path>) -> bool {
     use std::process::{Command, Stdio};
@@ -56,8 +51,6 @@ pub(crate) fn desktop_app(folder: Option<&Path>) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// On Linux and Windows the app is installed beside this tool. On Linux it
-/// needs a desktop session to open in.
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn desktop_app(folder: Option<&Path>) -> bool {
     let Ok(executable) = muxy_core::executable::current_path() else {
@@ -77,11 +70,6 @@ fn desktop_session(variable: impl Fn(&str) -> Option<std::ffi::OsString>) -> boo
         .any(|name| variable(name).is_some_and(|value| !value.is_empty()))
 }
 
-/// Starts the app with `folder`, away from this terminal, and reports whether
-/// it opened. An app that is already running takes the folder from the new one,
-/// which then leaves with the answer. A new one that stays is opened once its
-/// socket answers. Running out of time counts as opened, since an app too old
-/// to have that socket never answers.
 #[cfg(not(target_os = "macos"))]
 fn launch(app: &Path, folder: Option<&Path>) -> bool {
     let socket = muxy_core::dirs::muxy_dir()
@@ -102,8 +90,6 @@ fn launch(app: &Path, folder: Option<&Path>) -> bool {
     }
 }
 
-/// Connecting without sending a request is harmless: the app replies with an
-/// error and closes.
 #[cfg(not(target_os = "macos"))]
 fn app_answers(socket: &Path) -> bool {
     muxy_protocol::transport::LocalStream::connect(socket).is_ok()

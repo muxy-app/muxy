@@ -1,6 +1,3 @@
-//! The panes of the current tab: terminal content, frames, scrollback, and
-//! selection.
-
 use muxy_client::RunGrid;
 use muxy_protocol::{Color as TerminalColor, Run, Style as TerminalStyle, Underline};
 use ratatui::{
@@ -158,8 +155,6 @@ fn empty(frame: &mut Frame<'_>, ui: &mut Ui, body: Rect) {
     ui.hits.push((button, Target::NewTab));
 }
 
-/// Shows how far back a pane is scrolled: a badge in its corner and a
-/// scrollbar on its right edge.
 fn scroll_position(frame: &mut Frame<'_>, area: &PaneArea, view: &View, focused: bool) {
     let height = usize::from(area.inner.height);
     let offset = view.scroll.offset();
@@ -244,7 +239,6 @@ fn content(buffer: &mut Buffer, inner: Rect, view: &View, selected: Option<(Poin
     }
 }
 
-/// Draws one terminal row at `y`, clipped to `area`'s columns.
 pub(crate) fn row(buffer: &mut Buffer, area: Rect, y: u16, runs: &[Run]) {
     for x in area.x..area.right() {
         if let Some(cell) = buffer.cell_mut((x, y)) {
@@ -304,7 +298,6 @@ fn color(source: TerminalColor) -> Color {
     }
 }
 
-/// The content row and column under a screen cell of `view`'s pane.
 pub(crate) fn point(view: &View, inner: Rect, column: u16, row: u16) -> Point {
     let grid: &RunGrid = view.scroll.grid(&view.terminal.grid);
     let y = row

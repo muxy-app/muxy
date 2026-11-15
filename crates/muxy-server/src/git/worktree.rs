@@ -393,7 +393,6 @@ impl Registry {
                                 "Worktree changed while stopping sessions; inspect removal again",
                             ));
                         }
-                        // Refuse a busy worktree before its teardown hooks run.
                         #[cfg(windows)]
                         super::processes::check_unused(
                             target,
@@ -520,8 +519,6 @@ impl Registry {
         Ok(())
     }
 
-    /// Ends this server's sessions whose shell reported a folder inside the
-    /// worktree. Windows can't read another process's working directory.
     #[cfg(windows)]
     fn end_sessions_inside(&self, target: &Path) -> Result<()> {
         let target = muxy_core::files::canonicalize(target).map_err(error)?;
@@ -537,10 +534,6 @@ impl Registry {
         Ok(())
     }
 
-    /// Sets the folder aside, which fails while a file in it is open, records
-    /// where, deletes it, and has Git forget the worktree. Until the files
-    /// are gone the folder goes back on failure, as when a running program's
-    /// file can't be deleted.
     #[cfg(windows)]
     fn delete_worktree_folder(
         &self,
@@ -549,7 +542,6 @@ impl Registry {
         target: &Path,
     ) -> Result<()> {
         let aside = super::processes::aside_path(target, receipt.intent.operation)?;
-        // Recorded first, so recovery finds the folder after any crash.
         receipt.set_aside = Some(server_path(&aside)?);
         self.catalog.save_git(receipt.clone())?;
         if let Err(cause) = super::processes::set_aside(target, &aside) {
@@ -579,8 +571,6 @@ impl Registry {
     }
 }
 
-/// Has Git delete the worktree and its registration. With the folder already
-/// gone, Git only forgets it.
 fn remove_registered(repository: &Path, target: &Path) -> Result<()> {
     let args = [
         OsString::from("worktree"),
@@ -592,14 +582,12 @@ fn remove_registered(repository: &Path, target: &Path) -> Result<()> {
     run(repository, &args).map(drop)
 }
 
-/// Deletes what a removal interrupted after setting the folder aside left.
 #[cfg(windows)]
 fn finish_deleting_set_aside(receipt: &GitReceipt) -> Result<()> {
     let Some(aside) = &receipt.set_aside else {
         return Ok(());
     };
     let aside = path(aside)?;
-    // Setting a folder aside keeps its identity; anything else there now isn't the worktree.
     if aside.exists() && !same_identity(&aside, receipt.device, receipt.inode) {
         return Err(error(std::io::Error::other(
             "the folder set aside for removal was replaced; it was kept",
@@ -611,12 +599,10 @@ fn finish_deleting_set_aside(receipt: &GitReceipt) -> Result<()> {
     }
 }
 
-/// Whether `path` is still the folder a receipt recorded.
 fn same_identity(path: &Path, device: u64, inode: u64) -> bool {
     FileId::of_link(path).is_ok_and(|id| id.device() == device && id.index() == inode)
 }
 
-/// Creates the empty folder a new worktree fills, refusing one that already exists.
 fn reserve_folder(directory: &ServerPath) -> Result<()> {
     let directory = path(directory)?;
     if let Some(parent) = directory.parent() {

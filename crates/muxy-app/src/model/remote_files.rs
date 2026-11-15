@@ -1,7 +1,3 @@
-//! Files on another computer, reached through its server's second
-//! connection: what is dropped or pasted on its terminals is sent there, and
-//! files their links name can be copied here.
-
 use std::cmp::Reverse;
 use std::io;
 #[cfg(unix)]
@@ -19,29 +15,21 @@ use muxy_ui::tr;
 use super::AppModel;
 use crate::views::menu::{Command, Item};
 
-/// What a terminal on another computer gets in place of this computer's
-/// files or clipboard, which programs there can't reach.
 #[derive(Clone, Debug)]
 pub(crate) enum Upload {
     Files(Vec<PathBuf>),
-    /// Image bytes, and the extension of their format.
     Image(Vec<u8>, &'static str),
 }
 
-/// One server's files, through its second connection.
 #[derive(Clone)]
 pub(crate) struct RemoteFiles {
     client: Client,
-    /// The computer's name, for messages.
     name: String,
-    /// Its Home and project folders, longest first: file requests reach
-    /// files inside them.
     roots: Vec<(ProjectId, PathBuf)>,
     home: PathBuf,
 }
 
 impl RemoteFiles {
-    /// Sends files or an image for `session`, and returns their paths there.
     pub(crate) fn upload(
         &self,
         session: SessionId,
@@ -102,10 +90,6 @@ impl RemoteFiles {
         }
     }
 
-    /// A file a terminal shows, if it is there: `text` is resolved against
-    /// the terminal's folder, with `~` meaning that computer's Home. Files
-    /// outside its projects and Home can't be checked, so an absolute path
-    /// there is taken as it is, for copying its path.
     pub(crate) fn resolve(&self, text: &str, directory: &Path) -> Option<Target> {
         let absolute = text.starts_with('/') || text.starts_with("file://");
         Target::file(text, directory, Some(&self.home), |path| {
@@ -117,12 +101,10 @@ impl RemoteFiles {
         })
     }
 
-    /// Whether file requests reach `path`: it is in a project or Home.
     pub(crate) fn reaches(&self, path: &Path) -> bool {
         self.locate(path).is_some()
     }
 
-    /// The project or Home holding `path`, and `path` inside it.
     fn locate(&self, path: &Path) -> Option<(ProjectId, PathBuf)> {
         self.roots.iter().find_map(|(project, root)| {
             let relative = path.strip_prefix(root).ok()?;
@@ -155,9 +137,6 @@ impl RemoteFiles {
         info.path.as_path().to_str().map(str::to_owned)
     }
 
-    /// Whether a project's folder is there, as this computer checks its own:
-    /// a worktree also needs its `.git` file. `None` when the server
-    /// couldn't say.
     pub(crate) fn folder_available(&self, project: ProjectId, worktree: bool) -> Option<bool> {
         let stat = |path: &[u8]| self.client.file_info(project, ServerPath(path.to_vec()));
         let missing = |error: &ClientError| matches!(error, ClientError::Server(error) if error.code == ErrorCode::BadPath);
@@ -177,7 +156,6 @@ impl RemoteFiles {
         }
     }
 
-    /// The file's bytes, up to the files limit.
     pub(crate) fn read(&self, path: &Path) -> Result<Vec<u8>, String> {
         let Some((project, relative)) = self.locate(path) else {
             return Err(tr!(
@@ -216,9 +194,6 @@ fn display_name(path: &Path) -> String {
     )
 }
 
-/// Copied files, or an image copied without text, which a terminal on
-/// another computer gets sent instead of their names or a paste key it can't
-/// act on. Text pastes as text, as it does here.
 pub(crate) fn clipboard_upload(item: &gpui::ClipboardItem, cx: &gpui::App) -> Option<Upload> {
     #[cfg(not(test))]
     let copied = muxy_ui::pasteboard::read_content(cx).ok();
@@ -229,8 +204,6 @@ pub(crate) fn clipboard_upload(item: &gpui::ClipboardItem, cx: &gpui::App) -> Op
     upload_for(copied, item)
 }
 
-/// What one clipboard sends, from its two readings: `copied` knows files
-/// from the text a file manager offers beside them, `item` is what pastes.
 fn upload_for(
     copied: Option<muxy_ui::pasteboard::Content>,
     item: &gpui::ClipboardItem,
@@ -254,7 +227,6 @@ fn upload_for(
     })
 }
 
-/// The extension of an image's format, from its first bytes.
 pub(crate) fn image_extension(bytes: &[u8]) -> &'static str {
     match bytes {
         [0xff, 0xd8, 0xff, ..] => "jpg",
@@ -286,8 +258,6 @@ enum UploadError {
     Unreadable(io::Error),
 }
 
-/// A regular file's bytes, never more than `limit`: a device or pipe in a
-/// file's place, such as `/dev/zero`, could otherwise be read without end.
 fn read_upload(path: &Path, limit: u64) -> Result<Vec<u8>, UploadError> {
     use std::io::Read;
     if std::fs::metadata(path)
@@ -320,7 +290,6 @@ fn read_upload(path: &Path, limit: u64) -> Result<Vec<u8>, UploadError> {
     Ok(bytes)
 }
 
-/// Opens a file to read, without waiting for a writer when it is a pipe.
 fn open_without_waiting(path: &Path) -> io::Result<std::fs::File> {
     #[cfg(unix)]
     {
@@ -338,10 +307,6 @@ fn open_without_waiting(path: &Path) -> io::Result<std::fs::File> {
     }
 }
 
-/// Saves a read-only copy of another computer's file in this computer's
-/// temporary folder, named as a copy, and returns its path. Each copy gets a
-/// new private folder that only this user can enter, made where nothing was,
-/// so no one else can put a link in the copy's place.
 pub(crate) fn save_copy(bytes: &[u8], original: &Path, server: &str) -> io::Result<PathBuf> {
     let name = display_name(original).replace(['/', '\\', '\0'], "-");
     let (stem, extension) = match name.rfind('.') {
@@ -372,14 +337,10 @@ pub(crate) fn save_copy(bytes: &[u8], original: &Path, server: &str) -> io::Resu
     Ok(copy)
 }
 
-/// Opens a file with an app on this computer.
 pub(crate) type Open = Arc<dyn Fn(&Path) -> io::Result<()> + Send + Sync>;
 
-/// A remote file link's menu, and how copies open.
 pub(crate) struct RemoteLinks {
-    /// The file whose menu is open, and the terminal that showed it.
     menu: Option<(PaneId, ServerId, PathBuf)>,
-    /// Opens a saved copy with this computer's default app.
     pub(crate) open: Open,
 }
 
@@ -392,13 +353,9 @@ impl Default for RemoteLinks {
     }
 }
 
-/// How many wider stretches of a row another computer's server is asked
-/// about: each one is a request to it.
 const REMOTE_LINK_TRIES: usize = 32;
 
 impl AppModel {
-    /// Another computer's files, once its second connection is open. Asks
-    /// for that connection when it isn't.
     pub(crate) fn remote_files(
         &mut self,
         server: ServerId,
@@ -432,9 +389,6 @@ impl AppModel {
         })
     }
 
-    /// Asks another computer's server whether its projects' folders are
-    /// there, as this computer's are checked on disk. A project whose folder
-    /// is gone shows as failed.
     pub(crate) fn check_remote_projects(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if server.is_local() || !self.ready(server) || self.extensions.client(server).is_none() {
             return;
@@ -508,8 +462,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Sends what was dropped or pasted on a terminal of another computer,
-    /// then pastes where it landed there, if the terminal is still the same.
     pub(super) fn upload_to_pane(&mut self, pane: PaneId, upload: Upload, cx: &mut Context<Self>) {
         let (Some(attachment), Some((_, session))) =
             (self.attachment(pane, cx), self.state.pane_session(pane))
@@ -546,8 +498,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Looks up a file a terminal of another computer shows, through its
-    /// server, and tells the terminal whether it is a link.
     pub(super) fn resolve_remote_link(
         &mut self,
         pane: PaneId,
@@ -575,7 +525,6 @@ impl AppModel {
         .detach();
     }
 
-    /// A remote file link offers a copy here, or its path.
     pub(super) fn remote_link_menu(
         &mut self,
         pane: PaneId,
@@ -618,8 +567,6 @@ impl AppModel {
         }
     }
 
-    /// Reads the file through its server, saves a read-only copy here, and
-    /// opens it with the default app.
     pub(crate) fn open_remote_copy(&mut self, cx: &mut Context<Self>) {
         let Some((_, server, path)) = self.remote_links.menu.take() else {
             return;
@@ -668,7 +615,6 @@ mod tests {
         ));
         #[cfg(unix)]
         {
-            // A device reads without end, so it is never read at all.
             assert!(matches!(
                 read_upload(Path::new("/dev/zero"), 5),
                 Err(UploadError::Unreadable(_))

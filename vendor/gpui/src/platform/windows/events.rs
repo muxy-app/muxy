@@ -57,9 +57,6 @@ impl WindowsWindowInner {
             WM_MOUSEMOVE => self.handle_mouse_move_msg(handle, lparam, wparam),
             WM_MOUSELEAVE | WM_NCMOUSELEAVE => self.handle_mouse_leave_msg(),
             WM_NCMOUSEMOVE => self.handle_nc_mouse_move_msg(handle, lparam),
-            // Treat double click as a second single click, since we track the double clicks ourselves.
-            // If you don't interact with any elements, this will fall through to the windows default
-            // behavior of toggling whether the window is maximized.
             WM_NCLBUTTONDBLCLK | WM_NCLBUTTONDOWN => {
                 self.handle_nc_mouse_down_msg(handle, MouseButton::Left, wparam, lparam)
             }
@@ -134,12 +131,8 @@ impl WindowsWindowInner {
             || center_y < monitor_bounds.top().0
             || center_y > monitor_bounds.bottom().0
         {
-            // center of the window may have moved to another monitor
             let monitor = unsafe { MonitorFromWindow(handle, MONITOR_DEFAULTTONULL) };
-            // minimize the window can trigger this event too, in this case,
-            // monitor is invalid, we do nothing.
             if !monitor.is_invalid() && lock.display.handle != monitor {
-                // we will get the same monitor if we only have one
                 lock.display = WindowsDisplay::new_with_handle(monitor);
             }
         }
@@ -170,8 +163,6 @@ impl WindowsWindowInner {
     fn handle_size_msg(&self, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
         let mut lock = self.state.borrow_mut();
 
-        // Don't resize the renderer when the window is minimized, but record that it was minimized so
-        // that on restore the swap chain can be recreated via `update_drawable_size_even_if_unchanged`.
         if wparam.0 == SIZE_MINIMIZED as usize {
             lock.restore_from_minimized = lock.callbacks.request_frame.take();
             return Some(0);
@@ -347,8 +338,6 @@ impl WindowsWindowInner {
             lock.system_key_handled = true;
             Some(0)
         } else {
-            // we need to call `DefWindowProcW`, or we will lose the system-wide `Alt+F4`, `Alt+{other keys}`
-            // shortcuts.
             None
         }
     }
@@ -363,12 +352,9 @@ impl WindowsWindowInner {
         func(input);
         self.state.borrow_mut().callbacks.input = Some(func);
 
-        // Always return 0 to indicate that the message was handled, so we could properly handle `ModifiersChanged` event.
         Some(0)
     }
 
-    // It's a known bug that you can't trigger `ctrl-shift-0`. See:
-    // https://superuser.com/questions/1455762/ctrl-shift-number-key-combination-has-stopped-working-for-a-few-numbers
     fn handle_keydown_msg(&self, handle: HWND, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
         let mut lock = self.state.borrow_mut();
         let Some(input) = handle_key_event(handle, wparam, lparam, &mut lock, |keystroke| {
@@ -618,7 +604,6 @@ impl WindowsWindowInner {
             let caret_range = input_handler.selected_text_range(false)?;
             let caret_position = input_handler.bounds_for_range(caret_range.range)?;
             Some(POINT {
-                // logical to physical
                 x: (caret_position.origin.x.0 * scale_factor) as i32,
                 y: (caret_position.origin.y.0 * scale_factor) as i32
                     + ((caret_position.size.height.0 * scale_factor) as i32 / 2),
@@ -664,8 +649,6 @@ impl WindowsWindowInner {
     fn handle_ime_composition_inner(&self, ctx: HIMC, lparam: LPARAM) -> Option<isize> {
         let lparam = lparam.0 as u32;
         if lparam == 0 {
-            // Japanese IME may send this message with lparam = 0, which indicates that
-            // there is no composition string.
             self.with_input_handler(|input_handler| {
                 input_handler.replace_text_in_range(None, "");
             })?;
@@ -690,12 +673,10 @@ impl WindowsWindowInner {
                 return Some(0);
             }
 
-            // currently, we don't care other stuff
             None
         }
     }
 
-    /// SEE: https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-nccalcsize
     fn handle_calc_client_size(
         &self,
         handle: HWND,
@@ -708,7 +689,6 @@ impl WindowsWindowInner {
 
         let is_maximized = self.state.borrow().is_maximized();
         let insets = get_client_area_insets(handle, is_maximized, self.windows_version);
-        // wparam is TRUE so lparam points to an NCCALCSIZE_PARAMS structure
         let mut params = lparam.0 as *mut NCCALCSIZE_PARAMS;
         let mut requested_client_rect = unsafe { &mut ((*params).rgrc) };
 
@@ -717,16 +697,10 @@ impl WindowsWindowInner {
         requested_client_rect[0].right -= insets.right;
         requested_client_rect[0].bottom -= insets.bottom;
 
-        // Fix auto hide taskbar not showing. This solution is based on the approach
-        // used by Chrome. However, it may result in one row of pixels being obscured
-        // in our client area. But as Chrome says, "there seems to be no better solution."
         if is_maximized
             && let Some(ref taskbar_position) =
                 self.system_settings.borrow().auto_hide_taskbar_position
         {
-            // For the auto-hide taskbar, adjust in by 1 pixel on taskbar edge,
-            // so the window isn't treated as a "fullscreen app", which would cause
-            // the taskbar to disappear.
             match taskbar_position {
                 AutoHideTaskbarPosition::Left => {
                     requested_client_rect[0].left += AUTO_HIDE_TASKBAR_THICKNESS_PX
@@ -789,9 +763,6 @@ impl WindowsWindowInner {
         let rect = unsafe { &*(lparam.0 as *const RECT) };
         let width = rect.right - rect.left;
         let height = rect.bottom - rect.top;
-        // this will emit `WM_SIZE` and `WM_MOVE` right here
-        // even before this function returns
-        // the new size is handled in `WM_SIZE`
         unsafe {
             SetWindowPos(
                 handle,
@@ -806,8 +777,6 @@ impl WindowsWindowInner {
             .log_err();
         }
 
-        // When maximized, SetWindowPos doesn't send WM_SIZE, so we need to manually
-        // update the size and call the resize callback
         if is_maximized {
             let device_size = size(DevicePixels(width), DevicePixels(height));
             self.handle_size_change(device_size, new_scale_factor, true);
@@ -816,34 +785,15 @@ impl WindowsWindowInner {
         Some(0)
     }
 
-    /// The following conditions will trigger this event:
-    /// 1. The monitor on which the window is located goes offline or changes resolution.
-    /// 2. Another monitor goes offline, is plugged in, or changes resolution.
-    ///
-    /// In either case, the window will only receive information from the monitor on which
-    /// it is located.
-    ///
-    /// For example, in the case of condition 2, where the monitor on which the window is
-    /// located has actually changed nothing, it will still receive this event.
     fn handle_display_change_msg(&self, handle: HWND) -> Option<isize> {
-        // NOTE:
-        // Even the `lParam` holds the resolution of the screen, we just ignore it.
-        // Because WM_DPICHANGED, WM_MOVE, WM_SIZE will come first, window reposition and resize
-        // are handled there.
-        // So we only care about if monitor is disconnected.
         let previous_monitor = self.state.borrow().display;
         if WindowsDisplay::is_connected(previous_monitor.handle) {
-            // we are fine, other display changed
             return None;
         }
-        // display disconnected
-        // in this case, the OS will move our window to another monitor, and minimize it.
-        // we deminimize the window and query the monitor after moving
         unsafe {
             let _ = ShowWindow(handle, SW_SHOWNORMAL);
         };
         let new_monitor = unsafe { MonitorFromWindow(handle, MONITOR_DEFAULTTONULL) };
-        // all monitors disconnected
         if new_monitor.is_invalid() {
             log::error!("No monitor detected!");
             return None;
@@ -882,11 +832,9 @@ impl WindowsWindowInner {
         }
 
         if !self.hide_title_bar {
-            // If the OS draws the title bar, we don't need to handle hit test messages.
             return None;
         }
 
-        // default handler for resize areas
         let hit = unsafe { DefWindowProcW(handle, msg, wparam, lparam) };
         if matches!(
             hit.0 as u32,
@@ -983,7 +931,6 @@ impl WindowsWindowInner {
             drop(lock);
         };
 
-        // Since these are handled in handle_nc_mouse_up_msg we must prevent the default window proc
         if button == MouseButton::Left {
             match wparam.0 as u32 {
                 HTMINBUTTON => self.state.borrow_mut().nc_button_pressed = Some(HTMINBUTTON),
@@ -1114,14 +1061,11 @@ impl WindowsWindowInner {
             let display = lock.display;
             lock.click_state.system_update(wparam.0);
             lock.border_offset.update(handle).log_err();
-            // system settings may emit a window message which wants to take the refcell lock, so drop it
             drop(lock);
             self.system_settings.borrow_mut().update(display, wparam.0);
         } else {
             self.handle_system_theme_changed(handle, lparam)?;
         };
-        // Force to trigger WM_NCCALCSIZE event to ensure that we handle auto hide
-        // taskbar correctly.
         notify_frame_changed(handle);
 
         Some(0)
@@ -1139,8 +1083,6 @@ impl WindowsWindowInner {
     }
 
     fn handle_system_theme_changed(&self, handle: HWND, lparam: LPARAM) -> Option<isize> {
-        // lParam is a pointer to a string that indicates the area containing the system parameter
-        // that was changed.
         let parameter = PCWSTR::from_raw(lparam.0 as _);
         if unsafe { !parameter.is_null() && !parameter.is_empty() }
             && let Some(parameter_string) = unsafe { parameter.to_string() }.log_err()
@@ -1208,19 +1150,15 @@ impl WindowsWindowInner {
     fn parse_char_message(&self, wparam: WPARAM) -> Option<String> {
         let code_point = wparam.loword();
         let mut lock = self.state.borrow_mut();
-        // https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G2630
         match code_point {
             0xD800..=0xDBFF => {
-                // High surrogate, wait for low surrogate
                 lock.pending_surrogate = Some(code_point);
                 None
             }
             0xDC00..=0xDFFF => {
                 if let Some(high_surrogate) = lock.pending_surrogate.take() {
-                    // Low surrogate, combine with pending high surrogate
                     String::from_utf16(&[high_surrogate, code_point]).ok()
                 } else {
-                    // Invalid low surrogate without a preceding high surrogate
                     log::warn!(
                         "Received low surrogate without a preceding high surrogate: {code_point:x}"
                     );
@@ -1288,8 +1226,6 @@ fn translate_message(handle: HWND, wparam: WPARAM, lparam: LPARAM) {
         message: WM_KEYDOWN,
         wParam: wparam,
         lParam: lparam,
-        // It seems like leaving the following two parameters empty doesn't break key events, they still work as expected.
-        // But if any bugs pop up after this PR, this is probably the place to look first.
         time: 0,
         pt: POINT::default(),
     };
@@ -1473,7 +1409,6 @@ pub(crate) fn current_modifiers() -> Modifiers {
     let rmenu_pressed = is_virtual_key_pressed(VK_RMENU);
     let lcontrol_pressed = is_virtual_key_pressed(VK_LCONTROL);
 
-    // Only treat right Alt + left Ctrl as AltGr on keyboards that actually use it
     let altgr = keyboard_uses_altgr() && rmenu_pressed && lcontrol_pressed;
 
     Modifiers {
@@ -1496,21 +1431,6 @@ fn get_client_area_insets(
     is_maximized: bool,
     windows_version: WindowsVersion,
 ) -> RECT {
-    // For maximized windows, Windows outdents the window rect from the screen's client rect
-    // by `frame_thickness` on each edge, meaning `insets` must contain `frame_thickness`
-    // on all sides (including the top) to avoid the client area extending onto adjacent
-    // monitors.
-    //
-    // For non-maximized windows, things become complicated:
-    //
-    // - On Windows 10
-    // The top inset must be zero, since if there is any nonclient area, Windows will draw
-    // a full native titlebar outside the client area. (This doesn't occur in the maximized
-    // case.)
-    //
-    // - On Windows 11
-    // The top inset is calculated using an empirical formula that I derived through various
-    // tests. Without this, the top 1-2 rows of pixels in our window would be obscured.
     let dpi = unsafe { GetDpiForWindow(handle) };
     let frame_thickness = get_frame_thickness(dpi);
     let top_insets = if is_maximized {
@@ -1529,10 +1449,6 @@ fn get_client_area_insets(
     }
 }
 
-// there is some additional non-visible space when talking about window
-// borders on Windows:
-// - SM_CXSIZEFRAME: The resize handle.
-// - SM_CXPADDEDBORDER: Additional border space that isn't part of the resize handle.
 fn get_frame_thickness(dpi: u32) -> i32 {
     let resize_frame_thickness = unsafe { GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) };
     let padding_thickness = unsafe { GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) };

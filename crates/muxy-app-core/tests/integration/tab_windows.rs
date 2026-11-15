@@ -16,7 +16,6 @@ const BOUNDS: WindowBounds = WindowBounds {
     height: 500.0,
 };
 
-/// Fails unless the state survives being saved and read back.
 fn reload(state: &AppState) -> TestResult<AppState> {
     Ok(serde_json::from_slice(&serde_json::to_vec(state)?)?)
 }
@@ -42,7 +41,6 @@ fn listed(state: &AppState, project: ProjectId) -> Vec<TabId> {
         .unwrap_or_default()
 }
 
-/// Home and one more local project, each with tabs.
 fn two_projects() -> TestResult<(AppState, ProjectId, ProjectId)> {
     let mut state = AppState::bootstrap()?;
     let home = state.home().id;

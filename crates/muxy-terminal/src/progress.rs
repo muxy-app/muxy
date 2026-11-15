@@ -7,15 +7,11 @@ use muxy_protocol::{ProgressState, TerminalProgress};
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 
-/// The progress a terminal shows: the program's own status record (OSC 7501)
-/// while it has one, otherwise its latest progress report (OSC 9;4).
 #[derive(Debug, Default)]
 pub(crate) struct Progress {
     reported: Option<TerminalProgress>,
     deadline: Option<Instant>,
     program: Option<ProgramStatus>,
-    /// The program that reported `program` has ended; it only shows until
-    /// a later program reports progress.
     program_ended: bool,
     program_reports: u64,
     current: Option<TerminalProgress>,
@@ -28,7 +24,6 @@ impl Progress {
         let previous = self.reported.and_then(|progress| progress.percent);
         let progress = match state {
             EngineState::Remove => None,
-            // Ghostty reports a set without a percent only when the percent is malformed.
             EngineState::Set => match percent {
                 Some(percent) => Some((ProgressState::Running, Some(percent))),
                 None => return,
@@ -63,8 +58,6 @@ impl Progress {
         self.program_reports = self.program_reports.wrapping_add(1);
     }
 
-    /// The program that reported its status has exited or the shell is back
-    /// at its prompt.
     pub(crate) fn end_program(&mut self) {
         let Some(program) = &self.program else {
             return;

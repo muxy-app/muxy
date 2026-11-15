@@ -6,7 +6,6 @@ fn path(text: &str) -> ServerPath {
     ServerPath(text.as_bytes().to_vec())
 }
 
-/// A reply of another kind than `reply`.
 fn other_than(reply: &GitReply) -> GitReply {
     if *reply == GitReply::Done {
         GitReply::Log(Vec::new())
@@ -15,8 +14,6 @@ fn other_than(reply: &GitReply) -> GitReply {
     }
 }
 
-/// Runs a typed method and its async twin against `$reply`, then checks
-/// that both refuse a reply of another kind.
 macro_rules! case {
     ($fake:expr, $project:expr, $name:ident, $name_async:ident($($arg:expr),*),
         $action:expr, $reply:expr, $expected:expr) => {{

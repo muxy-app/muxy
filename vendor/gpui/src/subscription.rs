@@ -41,10 +41,6 @@ where
         })))
     }
 
-    /// Inserts a new [`Subscription`] for the given `emitter_key`. By default, subscriptions
-    /// are inert, meaning that they won't be listed when calling `[SubscriberSet::remove]` or `[SubscriberSet::retain]`.
-    /// This method returns a tuple of a [`Subscription`] and an `impl FnOnce`, and you can use the latter
-    /// to activate the [`Subscription`].
     pub fn insert(
         &self,
         emitter_key: EmitterKey,
@@ -70,7 +66,6 @@ where
             unsubscribe: Some(Box::new(move || {
                 let mut lock = this.borrow_mut();
                 let Some(subscribers) = lock.subscribers.get_mut(&emitter_key) else {
-                    // remove was called with this emitter_key
                     return;
                 };
 
@@ -82,9 +77,6 @@ where
                     return;
                 }
 
-                // We didn't manage to remove the subscription, which means it was dropped
-                // while invoking the callback. Mark it as dropped so that we can remove it
-                // later.
                 lock.dropped_subscribers
                     .insert((emitter_key, subscriber_id));
             })),
@@ -111,8 +103,6 @@ where
             })
     }
 
-    /// Call the given callback for each subscriber to the given emitter.
-    /// If the callback returns false, the subscriber is removed.
     pub fn retain<F>(&self, emitter: &EmitterKey, mut f: F)
     where
         F: FnMut(&mut Callback) -> bool,
@@ -136,12 +126,10 @@ where
         });
         let mut lock = self.0.borrow_mut();
 
-        // Add any new subscribers that were added while invoking the callback.
         if let Some(Some(new_subscribers)) = lock.subscribers.remove(emitter) {
             subscribers.extend(new_subscribers);
         }
 
-        // Remove any dropped subscriptions that were dropped while invoking the callback.
         for (dropped_emitter, dropped_subscription_id) in mem::take(&mut lock.dropped_subscribers) {
             debug_assert_eq!(*emitter, dropped_emitter);
             subscribers.remove(&dropped_subscription_id);
@@ -153,31 +141,22 @@ where
     }
 }
 
-/// A handle to a subscription created by GPUI. When dropped, the subscription
-/// is cancelled and the callback will no longer be invoked.
 #[must_use]
 pub struct Subscription {
     unsubscribe: Option<Box<dyn FnOnce() + 'static>>,
 }
 
 impl Subscription {
-    /// Creates a new subscription with a callback that gets invoked when
-    /// this subscription is dropped.
     pub fn new(unsubscribe: impl 'static + FnOnce()) -> Self {
         Self {
             unsubscribe: Some(Box::new(unsubscribe)),
         }
     }
 
-    /// Detaches the subscription from this handle. The callback will
-    /// continue to be invoked until the entities it has been
-    /// subscribed to are dropped
     pub fn detach(mut self) {
         self.unsubscribe.take();
     }
 
-    /// Joins two subscriptions into a single subscription. Detach will
-    /// detach both interior subscriptions.
     pub fn join(mut subscription_a: Self, mut subscription_b: Self) -> Self {
         let a_unsubscribe = subscription_a.unsubscribe.take();
         let b_unsubscribe = subscription_b.unsubscribe.take();

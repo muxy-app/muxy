@@ -11,8 +11,6 @@ use crate::{
     ProjectStatus, RemovedProject, ServerId, Tab, TabId, WindowBounds, WindowState, Workspace,
 };
 
-/// The layout this build writes. Versions 1 and 2 kept one server's catalog
-/// and pending work at the top level; version 3 keeps them per server.
 pub(crate) const VERSION: u32 = 3;
 
 const REMOVED_PROJECTS: usize = 10;
@@ -22,8 +20,6 @@ const REMOVED_PROJECTS: usize = 10;
 pub struct AppState {
     pub(crate) servers: BTreeMap<ServerId, ServerState>,
     pub(crate) starting_directories: BTreeMap<PaneId, muxy_protocol::ServerPath>,
-    /// Whether a pane's terminal, once it starts, uses the proxy, where someone
-    /// chose. Other new terminals follow the whole-app setting.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) starting_proxies: BTreeMap<PaneId, bool>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -39,8 +35,6 @@ pub struct AppState {
     pub(crate) window: WindowState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) set_aside: Option<SetAsideView>,
-    /// Terminals the app asked a server to give another project, until it
-    /// answers, so a request lost to a disconnect or crash is sent again.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) session_moves: Vec<crate::SessionMove>,
 }
@@ -68,7 +62,6 @@ struct StoredState {
     set_aside: Option<SetAsideView>,
     #[serde(default)]
     session_moves: Vec<crate::SessionMove>,
-    /// Versions 1 and 2 kept the local server's state here, at the top level.
     #[serde(default)]
     catalog_server: Option<muxy_protocol::ServerIdentity>,
     #[serde(default)]
@@ -211,8 +204,6 @@ impl AppState {
         }
     }
 
-    /// Removes the Quick Terminal after its session ended. Its saved output
-    /// stays on the server.
     pub fn close_ended_quick_terminal(&mut self) {
         self.take_quick_terminal();
     }
@@ -255,8 +246,6 @@ impl AppState {
         }
     }
 
-    /// Another computer's server says whether the project's folder is there.
-    /// This computer's projects are checked on disk instead.
     pub fn set_remote_project_status(
         &mut self,
         project: ProjectId,
@@ -272,7 +261,6 @@ impl AppState {
         Ok(())
     }
 
-    /// An offline server's projects are available: nothing says otherwise.
     pub fn forget_remote_statuses(&mut self, server: ServerId) {
         for project in &mut self.projects {
             if project.server_id == server && !server.is_local() {
@@ -288,8 +276,6 @@ impl AppState {
         Ok(())
     }
 
-    /// A remote server checks the folder itself when it creates the project,
-    /// so its path may be absolute on Unix or on Windows.
     pub fn add_project(
         &mut self,
         server: ServerId,
@@ -489,9 +475,6 @@ impl AppState {
         self.open_terminal_tab_near(project, focused)
     }
 
-    /// Opens a terminal tab at the end of `project` while the window stays on
-    /// its current project, selected tabs and focused pane. The tab is selected
-    /// only when `project` had no selected tab.
     pub fn open_background_terminal_tab(&mut self, project: ProjectId) -> Result<PaneId, AppError> {
         let selected = self.window.selected_tab.get(&project).copied();
         let (id, pane) = self.push_terminal_tab(project, selected)?;
@@ -500,7 +483,6 @@ impl AppState {
         Ok(pane)
     }
 
-    /// Opens a terminal tab at the end of `project`, in `near`'s group.
     fn open_terminal_tab_near(
         &mut self,
         project: ProjectId,
@@ -618,8 +600,6 @@ impl AppState {
         self.drop_tab(project, tab)
     }
 
-    /// Removes `tab` without cancelling its terminals' creation, so its panes
-    /// can live on elsewhere.
     pub(crate) fn drop_tab(&mut self, project: ProjectId, tab: TabId) -> Result<(), AppError> {
         self.unlist_tab(project, tab)?;
         let tabs = &mut self.project_mut(project)?.tabs;
@@ -646,16 +626,11 @@ impl AppState {
         self.remove_pane(pane)
     }
 
-    /// Closes a pane whose session its server no longer lists, even in a
-    /// project whose folder is gone. The session's saved output stays on the
-    /// server, so nothing is discarded.
     pub fn close_ended_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
         self.starting_directories.remove(&pane);
         self.remove_pane(pane)
     }
 
-    /// Closes the panes of a session that has ended. Its saved output stays on
-    /// the server, so nothing is discarded.
     pub fn close_session_panes(
         &mut self,
         server: ServerId,
@@ -685,8 +660,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Closes `server`'s terminal panes, and the Quick Terminal for this
-    /// computer's server.
     pub fn clear_terminal_panes(&mut self, server: ServerId) -> Result<(), AppError> {
         if server.is_local() {
             self.close_quick_terminal();
@@ -711,8 +684,6 @@ impl AppState {
         self.extract_pane(pane)
     }
 
-    /// Takes `pane` out of its tab, closing the tab once empty, without
-    /// cancelling its terminal's creation.
     pub(crate) fn extract_pane(&mut self, pane: PaneId) -> Result<(), AppError> {
         let (project, tab) = self
             .projects
@@ -784,8 +755,6 @@ impl AppState {
         Ok(id)
     }
 
-    /// Puts a new terminal where `pane` is, with its title, and returns it.
-    /// The old terminal's session is the caller's to end.
     pub fn restart_terminal(&mut self, pane: PaneId) -> Result<PaneId, AppError> {
         self.cancel_pending_creation(pane);
         let tab = self.pane_tab_mut(pane)?;
@@ -823,11 +792,6 @@ impl AppState {
         Ok(id)
     }
 
-    /// Puts a new terminal where `pane` is, after its session ended without
-    /// the shell exiting, as when the server stopped. The new one keeps the
-    /// old one's proxy choice and a startup command that never ran, and
-    /// starts in the folder the old one was last in while `usable` accepts
-    /// it, or else in its project's folder.
     pub fn renew_ended_terminal(
         &mut self,
         pane: PaneId,
@@ -853,8 +817,6 @@ impl AppState {
         Ok(id)
     }
 
-    /// Whether `pane`'s terminal starts somewhere other than its project's
-    /// folder.
     pub fn starts_outside_project(&self, pane: PaneId) -> bool {
         self.starting_directories
             .get(&pane)
@@ -862,8 +824,6 @@ impl AppState {
             .is_some_and(|(directory, project)| directory.as_path() != project.directory)
     }
 
-    /// Notes the folder `pane`'s terminal is in, so a terminal that replaces
-    /// it starts there. Returns whether that changed.
     pub fn remember_directory(
         &mut self,
         pane: PaneId,
@@ -964,8 +924,6 @@ impl AppState {
         self.tab_mut(tab)?.layout.set_ratio(path, ratio)
     }
 
-    /// Moves the divider nearest `pane` toward `direction`. Returns whether
-    /// one moved; a zoomed tab shows no dividers, so none does.
     pub fn resize_pane(
         &mut self,
         pane: PaneId,
@@ -976,7 +934,6 @@ impl AppState {
         Ok(tab.zoomed.is_none() && tab.layout.resize(pane, direction, step))
     }
 
-    /// Whether `resize_pane` would move a divider for `pane`.
     pub fn can_resize_pane(&self, pane: PaneId, direction: Direction, step: f32) -> bool {
         self.projects
             .iter()
@@ -1071,8 +1028,6 @@ impl AppState {
         self.window.activate(pane);
     }
 
-    /// The pane `tab` shows as its own: the active pane, or the one last
-    /// focused in it.
     pub fn shown_pane(&self, tab: &Tab) -> Option<PaneId> {
         if let Some(pane) = tab
             .window

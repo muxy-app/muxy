@@ -41,8 +41,6 @@ pub(crate) fn run(invocation: Invocation, host: Option<SshTarget>) -> Result {
         Target::Local { .. } => Paths::Local,
         Target::Ssh { .. } => Paths::Remote,
     };
-    // Commands draw no images, so they never read their pixels. An older
-    // server refuses and keeps sending them.
     let result = match client
         .identify(muxy_protocol::ClientKind::Cli)
         .map(|_| client.defer_images())
@@ -56,9 +54,6 @@ pub(crate) fn run(invocation: Invocation, host: Option<SshTarget>) -> Result {
     result.map_err(|error| target.explain(error))
 }
 
-/// How directory arguments name folders. This computer's may be relative or
-/// start with `~`. Another computer's must be absolute, and its server checks
-/// that they exist.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Paths {
     Local,

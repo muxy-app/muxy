@@ -1,6 +1,3 @@
-//! Browser panes on platforms without a web engine backend yet. No page can
-//! be made, so a browser never exists.
-
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
@@ -180,7 +177,6 @@ pub fn installed_browsers() -> Vec<(String, PathBuf)> {
     Vec::new()
 }
 
-/// No engine holds the profile open.
 pub fn close_profile(_profile: &Profile, done: impl FnOnce(Result<()>) + Send + 'static) {
     done(Ok(()));
 }

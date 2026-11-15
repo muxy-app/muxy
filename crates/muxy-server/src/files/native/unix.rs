@@ -54,7 +54,6 @@ pub(in crate::files) fn read_link(parent: &File, name: &OsStr) -> io::Result<Pat
     Ok(PathBuf::from(OsString::from_vec(value.into_bytes())))
 }
 
-/// Opens a file for reading. Opening never blocks, even on a FIFO.
 pub(in crate::files) fn open_file(parent: &File, name: &OsStr) -> io::Result<File> {
     Ok(fs::openat(
         parent,
@@ -65,10 +64,6 @@ pub(in crate::files) fn open_file(parent: &File, name: &OsStr) -> io::Result<Fil
     .into())
 }
 
-/// Creates a new file to write. One that will replace another starts open
-/// only to the user, until [`copy_mode`] gives it the replaced file's
-/// permissions, so nobody who can't read the old file can open the new one
-/// while its content is written.
 pub(in crate::files) fn create_file(
     parent: &File,
     name: &OsStr,
@@ -84,8 +79,6 @@ pub(in crate::files) fn create_file(
     .into())
 }
 
-/// Gives `file` the permissions of `replaced`, the file named `_name` in
-/// `_parent` that it replaces.
 pub(in crate::files) fn copy_mode(
     file: &File,
     _parent: &File,
@@ -100,12 +93,10 @@ pub(in crate::files) fn copy_mode(
     Ok(fs::fchmod(file, Mode::from_raw_mode(mode))?)
 }
 
-/// Replaces `to` with `from`, both in `parent`.
 pub(in crate::files) fn replace(parent: &File, from: &OsStr, to: &OsStr) -> io::Result<()> {
     Ok(fs::renameat(parent, from, parent, to)?)
 }
 
-/// Renames without replacing anything; a taken name is `AlreadyExists`.
 pub(in crate::files) fn rename(
     parent: &File,
     from: &OsStr,
@@ -129,7 +120,6 @@ pub(in crate::files) fn create_directory(parent: &File, name: &OsStr) -> io::Res
     Ok(fs::mkdirat(parent, name, Mode::from_raw_mode(0o777))?)
 }
 
-/// The names in `directory`, without `.` and `..`.
 pub(in crate::files) fn names(directory: &File) -> io::Result<Vec<OsString>> {
     let mut names = Vec::new();
     for entry in fs::Dir::read_from(directory)? {

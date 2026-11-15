@@ -1,6 +1,3 @@
-//! One extension's page: a fixed header with its name, main actions, and
-//! links to each section, then its screenshots, facts, and settings.
-
 use std::borrow::Cow;
 
 use gpui::prelude::FluentBuilder;
@@ -23,7 +20,6 @@ use crate::extensions::{
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::tr;
 
-/// The parts of an extension's page the header links to.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Section {
     Overview,
@@ -58,12 +54,9 @@ impl Section {
     }
 }
 
-/// The page is laid out in two columns once it is at least this wide.
 const TWO_COLUMNS: f32 = 640.0;
 const INFO_WIDTH: f32 = 220.0;
 
-/// What the page shows for `details`: the installed copy's own description
-/// when there is one, with the marketplace's counts when they're known.
 fn shown<'a>(
     details: &'a ExtensionDetails,
     local: Option<&(Extension, bool, bool)>,
@@ -94,9 +87,6 @@ impl ExtensionsView {
         )
     }
 
-    /// The section the page is scrolled to: the one a header link just
-    /// jumped to, or else the last one whose top has reached the top of the
-    /// page, or the last of all at the very end.
     pub(super) fn current_section(&self) -> Option<Section> {
         if let Some(section) = self
             .jumped
@@ -119,7 +109,6 @@ impl ExtensionsView {
             .map(|(section, _)| *section)
     }
 
-    /// The fixed header of an extension's page.
     pub(super) fn detail_bar(
         &self,
         details: &ExtensionDetails,
@@ -284,7 +273,6 @@ impl ExtensionsView {
             .child(action)
     }
 
-    /// Links that scroll the page to each of its sections.
     fn section_links(&self, cx: &Context<Self>) -> gpui::Stateful<gpui::Div> {
         let current = self.current_section();
         let mut links = div()
@@ -335,8 +323,6 @@ impl ExtensionsView {
         links
     }
 
-    /// The scrolled parts of an extension's page, each with the section it
-    /// starts, if any.
     pub(super) fn detail_children(
         &self,
         details: &ExtensionDetails,
@@ -465,8 +451,6 @@ impl ExtensionsView {
         )
     }
 
-    /// Screenshots beside the extension's facts, or above them when the page
-    /// is narrow.
     fn overview(
         &self,
         details: &ExtensionDetails,
@@ -516,15 +500,11 @@ impl ExtensionsView {
             )
     }
 
-    /// The selected screenshot large, arrows to step through them, and a
-    /// strip of all of them.
     #[allow(clippy::too_many_lines, reason = "One gallery's declarative layout")]
     fn gallery(&self, art: &Art, width: Pixels, cx: &Context<Self>) -> gpui::Div {
         let count = art.screenshots.len();
         let index = self.screenshot.min(count.saturating_sub(1));
         let radius = self.metrics.radius_lg();
-        // Drawn over any picture, so never see-through: `surface` is only a
-        // tint, so it is laid over the page background first.
         let solid = gpui::Hsla {
             a: 1.0,
             ..self.theme.raised()
@@ -670,7 +650,6 @@ impl ExtensionsView {
             .children(strip)
     }
 
-    /// Version, installs, author, categories, and links.
     fn info(&self, details: &ExtensionDetails, cx: &Context<Self>) -> gpui::Stateful<gpui::Div> {
         let about = &details.about;
         let version = details

@@ -27,9 +27,6 @@ impl TerminalSettings {
         }
     }
 
-    /// Changes the settings as the file holds them now and saves them, all
-    /// while holding the file's lock. A missing file starts from `ghostty.conf`
-    /// or the defaults; a broken one is never overwritten.
     pub fn edit_native(path: &Path, edit: impl FnOnce(&mut Self) -> Result<()>) -> Result<Self> {
         let _lock = crate::settings::appearance::lock(path)
             .map_err(|error| Error::new("terminal.toml", error))?;

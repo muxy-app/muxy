@@ -1,6 +1,3 @@
-//! The profile's `extension-audit.log`: one JSON line per gated decision, with
-//! main's fields, trimmed to its newest 256 KB once it passes 1 MB.
-
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -12,8 +9,6 @@ pub const AUDIT_LOG: &str = "extension-audit.log";
 const MAX_SIZE: u64 = 1024 * 1024;
 const TRIMMED_SIZE: u64 = 256 * 1024;
 
-/// One gated decision: a saved rule applied, a prompt answer, a timeout, or a
-/// cancel.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditEntry {
@@ -52,7 +47,6 @@ impl AuditLog {
     }
 }
 
-/// Keeps the newest 256 KB, starting at a line boundary.
 fn trim(path: &Path) -> std::io::Result<()> {
     let mut file = std::fs::File::open(path)?;
     let length = file.metadata()?.len();
@@ -66,13 +60,11 @@ fn trim(path: &Path) -> std::io::Result<()> {
     muxy_core::fs::write_atomic(path, &kept[start..], 0o600).map_err(Into::into)
 }
 
-/// `time` as an ISO 8601 UTC timestamp to the second, like main's log.
 pub fn timestamp(time: SystemTime) -> String {
     let seconds = time
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs());
     let (days, rest) = (seconds / 86_400, seconds % 86_400);
-    // Howard Hinnant's days-to-civil conversion, in whole 400-year eras.
     let days = days + 719_468;
     let era = days / 146_097;
     let day_of_era = days % 146_097;

@@ -22,14 +22,12 @@ mod tests;
 
 const FINDER: &str = "com.apple.finder";
 
-/// The label key of the file manager, among the openers in Settings.
 pub(crate) const FILE_MANAGER: &str = if cfg!(target_os = "macos") {
     "Finder"
 } else {
     muxy_ui::l10n::tr_key!("File manager")
 };
 
-/// The menu item that shows a path in the file manager.
 pub(crate) fn reveal_label() -> gpui::SharedString {
     if cfg!(target_os = "macos") {
         tr!("Reveal in Finder")
@@ -40,7 +38,6 @@ pub(crate) fn reveal_label() -> gpui::SharedString {
     }
 }
 
-/// The action that picks a folder in the system's own dialog.
 pub(crate) fn browse_label() -> gpui::SharedString {
     if cfg!(target_os = "macos") {
         tr!("Finder…")
@@ -144,15 +141,11 @@ fn open_with(
 struct Launch {
     program: PathBuf,
     args: Vec<OsString>,
-    /// A file to select in its folder, where a file manager offers that. The
-    /// program runs when none does.
     #[cfg(not(target_os = "macos"))]
     select: Option<PathBuf>,
 }
 
 impl Launch {
-    /// Hands `args` to the system's handler for them. On Windows that is
-    /// the shell itself, so there is no program.
     fn system(args: impl IntoIterator<Item = OsString>) -> Self {
         Self::program(
             if cfg!(target_os = "macos") {
@@ -211,7 +204,6 @@ fn launch(launch: &Launch) -> io::Result<()> {
     .map_err(|error| missing(&launch.program, error))
 }
 
-/// Names the program when it is what could not be found.
 fn missing(program: &Path, error: io::Error) -> io::Error {
     if error.kind() != io::ErrorKind::NotFound {
         return error;
@@ -226,7 +218,6 @@ fn missing(program: &Path, error: io::Error) -> io::Error {
     )
 }
 
-/// Opens `url` with the system's handler for it, or with the app at `app`.
 #[cfg(target_os = "macos")]
 pub(crate) fn open_url(url: &str, app: Option<&Path>) -> io::Result<()> {
     let mut args = Vec::new();
@@ -237,11 +228,9 @@ pub(crate) fn open_url(url: &str, app: Option<&Path>) -> io::Result<()> {
     launch(&Launch::system(args))
 }
 
-/// Opens `url` with the system's handler for it, or with the browser at `app`.
 #[cfg(windows)]
 pub(crate) fn open_url(url: &str, app: Option<&Path>) -> io::Result<()> {
     match app {
-        // A browser keeps running, so it isn't waited for.
         Some(app) => Command::new(app)
             .arg(url)
             .spawn()
@@ -268,7 +257,6 @@ pub(crate) struct WebBrowser {
     pub path: PathBuf,
 }
 
-/// The browsers installed on this computer, by name.
 pub(crate) fn web_browsers() -> &'static [WebBrowser] {
     static BROWSERS: OnceLock<Vec<WebBrowser>> = OnceLock::new();
     BROWSERS.get_or_init(|| {
@@ -279,19 +267,15 @@ pub(crate) fn web_browsers() -> &'static [WebBrowser] {
     })
 }
 
-/// Opens a file with this computer's default app for its type.
 pub(crate) fn open_with_default_app(path: &Path) -> io::Result<()> {
     launch(&Launch::system([path.as_os_str().to_owned()]))
 }
 
-/// Opens a text file in this computer's text editor.
 #[cfg(not(windows))]
 pub(crate) fn open_in_text_editor(path: &Path) -> io::Result<()> {
     launch(&Launch::text_editor(path))
 }
 
-/// Opens a text file in the text editor every Windows has. `.toml` files
-/// usually have no app of their own there.
 #[cfg(windows)]
 pub(crate) fn open_in_text_editor(path: &Path) -> io::Result<()> {
     Command::new("notepad.exe")
@@ -301,9 +285,6 @@ pub(crate) fn open_in_text_editor(path: &Path) -> io::Result<()> {
         .map_err(|error| missing(Path::new("notepad.exe"), error))
 }
 
-/// Shows a path in the file manager: a file selected in its folder, or a
-/// folder opened. A path that doesn't exist yet shows its nearest existing
-/// folder.
 pub(crate) fn reveal(path: &Path) -> io::Result<()> {
     let existing = path.ancestors().find(|path| path.exists()).unwrap_or(path);
     launch(&finder(existing))
@@ -330,7 +311,6 @@ struct Editor {
     rank: usize,
 }
 
-/// An app that opens project folders: the file manager or an editor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProjectApp {
     pub id: String,
@@ -350,7 +330,6 @@ impl ProjectApp {
     }
 }
 
-/// The file manager, then the installed editors from most to least preferred.
 #[cfg(not(test))]
 pub(crate) fn project_apps() -> Vec<ProjectApp> {
     project_apps_from(editors())
@@ -375,8 +354,6 @@ fn project_apps_from(editors: &[Editor]) -> Vec<ProjectApp> {
         .collect()
 }
 
-/// The app the project button opens: the chosen one while it is installed,
-/// otherwise the most preferred editor, otherwise the file manager.
 pub(crate) fn default_project_app<'a, T: AsRef<ProjectApp>>(
     apps: &'a [T],
     chosen: Option<&str>,
@@ -387,7 +364,6 @@ pub(crate) fn default_project_app<'a, T: AsRef<ProjectApp>>(
         .or_else(|| apps.first())
 }
 
-/// Opens the project folder `directory` with the app whose id is `app`.
 pub(crate) fn open_project(directory: &Path, app: &str) -> io::Result<()> {
     open_project_with(directory, app, editors(), launch)
 }

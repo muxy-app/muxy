@@ -41,23 +41,18 @@ impl PartialEq for ClipboardWrite {
 
 impl Eq for ClipboardWrite {}
 
-/// Fewest entries kept before dropped notifications are swept out.
 const SWEEP_FLOOR: usize = 16;
 
 #[derive(Default)]
 pub(super) struct ClipboardWrites {
     pending: HashMap<ChannelId, Weak<Pending>>,
-    /// Channels this client attached. Only they may write its clipboard.
     attached: HashSet<ChannelId>,
-    /// Sweep dropped notifications once `pending` reaches this size, so each
-    /// write costs constant time on average however many channels wrote.
     sweep_at: usize,
     sequence: u64,
     consumed: Arc<AtomicU64>,
 }
 
 impl ClipboardWrites {
-    /// Lets `channel`, which this client asked to attach, write the clipboard.
     pub(super) fn attached(&mut self, channel: ChannelId) {
         self.attached.insert(channel);
     }
@@ -199,8 +194,6 @@ mod tests {
         for channel in 0..4096 {
             pending.attached(ChannelId(channel));
             held.extend(pending.push(ChannelId(channel), "held".into()));
-            // Sweeps wait for the map to double, so each costs as much as
-            // the writes since the last one.
             assert!(pending.sweep_at >= pending.pending.len());
             assert!(pending.sweep_at <= (2 * pending.pending.len()).max(SWEEP_FLOOR));
         }

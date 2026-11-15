@@ -66,7 +66,6 @@ struct ServiceState {
     indexes: HashMap<String, (Instant, Arc<Index>)>,
     cache_order: Vec<String>,
     home_directory: String,
-    /// Directories that are listed but never entered while indexing.
     skipped_paths: Vec<String>,
 }
 
@@ -96,7 +95,6 @@ impl SearchService {
         }
     }
 
-    /// Relative entries are taken from each search root. Cached indexes are dropped when the set changes.
     pub(crate) fn set_skipped_paths(&self, paths: &[String]) {
         let mut guard = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if guard.skipped_paths != paths {
@@ -106,7 +104,6 @@ impl SearchService {
         }
     }
 
-    // Refresh only when opening the picker; typing always searches the same bounded index.
     pub(crate) fn prepare(&self, root_path: &str, cancelled: &AtomicBool) {
         let mut guard = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(root) = standardized_absolute_path(root_path, &guard.home_directory) else {
@@ -213,7 +210,6 @@ enum RootState {
 }
 
 fn root_state(path: &str) -> RootState {
-    // Searching every drive at once would find nothing in time.
     if cfg!(windows) && path == "/" {
         return RootState::Invalid;
     }
@@ -651,7 +647,6 @@ mod tests {
         std::os::windows::fs::symlink_dir(&root, root.join("Projects/cycle"))?;
         let cancelled = AtomicBool::new(true);
         let search = SearchService::new();
-        // guards: relative skip paths resolve under the search root and `..` is ignored
         search.set_skipped_paths(&["Mirror".to_owned(), "../Projects".to_owned()]);
         let root_path = root.to_string_lossy();
         search.prepare(&root_path, &cancelled);

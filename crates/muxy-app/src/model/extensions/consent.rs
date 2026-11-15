@@ -1,6 +1,3 @@
-//! Runtime consent prompts and extension dialogs. Both are native sheets on the
-//! main window, so they share one queue and at most one is on screen.
-
 use std::time::{Duration, SystemTime};
 
 use gpui::{Context, SharedString, Window};
@@ -18,8 +15,6 @@ const PROMPT_TIMEOUT: Duration = Duration::from_secs(60);
 const PROMPTS_PER_EXTENSION: usize = 5;
 const MAX_TEXT: usize = 2000;
 const MAX_WAITING: usize = 64;
-/// Buttons a dialog gets when the extension names none. They are shown in the
-/// app language but reported to the extension in English.
 const DEFAULT_BUTTONS: [&str; 2] = [tr_key!("OK"), tr_key!("Cancel")];
 
 pub(super) enum Waiting {
@@ -51,7 +46,6 @@ impl Waiting {
     }
 }
 
-/// The sheet currently on screen; dropping it dismisses the native window.
 pub(super) struct Sheet {
     id: u64,
     pub(super) owner: String,
@@ -87,7 +81,6 @@ fn denial(verb: &str, request: &Request) -> String {
     }
 }
 
-/// What the audit log records for a prompt answer, as main names it.
 fn decision(choice: Choice) -> &'static str {
     match choice {
         Choice::AllowAndRemember | Choice::Allow | Choice::Trust => "allow",
@@ -107,7 +100,6 @@ fn choice(response: ConsentResponse) -> Choice {
     }
 }
 
-/// How the audit log names the rule a prompt answer applied.
 fn answered_rule(request: &Request, choice: Choice) -> Option<String> {
     if choice == Choice::Trust {
         return Some(TRUSTED.into());
@@ -119,8 +111,6 @@ fn clamp(text: &str) -> String {
     text.chars().take(MAX_TEXT).collect()
 }
 
-/// The prompt's opening sentence, whole per gate so a translation can place
-/// the extension's name anywhere.
 fn purpose(gate: Gate, owner: &str) -> SharedString {
     match gate {
         Gate::Exec => tr!("%@ wants to run a shell command.", owner),
@@ -165,7 +155,6 @@ impl AppModel {
         );
     }
 
-    /// How many of `owner`'s calls wait for the user to answer a prompt.
     pub(super) fn waiting_prompts(&self, owner: &str) -> usize {
         self.extensions
             .waiting
@@ -182,7 +171,6 @@ impl AppModel {
             )
     }
 
-    /// The second question before an extension is always allowed.
     pub(crate) fn trust_question(owner: &str) -> (SharedString, SharedString) {
         (
             tr!("Always allow %@?", owner),
@@ -193,13 +181,10 @@ impl AppModel {
         )
     }
 
-    /// The trust question's buttons, Cancel first so it is the default.
     pub(crate) fn trust_buttons() -> [SharedString; 2] {
         [tr!("Cancel"), tr!("Always Allow")]
     }
 
-    /// What the saved rules decide for a gated call, and the deciding rule.
-    /// Without readable rules every gated call is denied.
     fn consent(&self, owner: &str, request: &Request) -> (Consent, Option<String>) {
         match &self.extensions.grants {
             Ok(grants) if grants.trusted(owner) => (Consent::Allow, Some(TRUSTED.into())),
@@ -210,9 +195,6 @@ impl AppModel {
         }
     }
 
-    /// Appends a gated decision to the profile's audit log, as main does.
-    /// `reason` tags a denial nobody answered: a timeout, a cancel, or too many
-    /// waiting prompts.
     fn audit(
         &self,
         call: &Call,
@@ -241,7 +223,6 @@ impl AppModel {
         self.extensions.logs.audit(&self.extensions.audit, entry);
     }
 
-    /// Rejects a queued prompt or dialog whose extension stopped.
     pub(super) fn fail_waiting(&self, waiting: Waiting, error: &str, cx: &mut gpui::App) {
         if let Waiting::Consent { call, request, .. } = &waiting {
             self.audit(call, request, "deny", None, Some("cancelled"));
@@ -249,7 +230,6 @@ impl AppModel {
         waiting.fail(error, cx);
     }
 
-    /// Runs a gated call now, rejects it, or queues a prompt, per the saved rules.
     pub(super) fn gate(
         &mut self,
         mut call: Call,
@@ -415,8 +395,6 @@ impl AppModel {
         self.await_consent(id, call, request, receiver, false, cx);
     }
 
-    /// Asks again before trusting an extension with every gated action.
-    /// Declining returns to the request's own prompt.
     fn confirm_trust(
         &mut self,
         id: u64,
@@ -465,11 +443,6 @@ impl AppModel {
         }
     }
 
-    /// Applies the user's choice once it arrives. A remembered choice is saved,
-    /// and the call runs, only while the call is live and its prompt is still
-    /// on screen, so an answer racing the timeout does neither.
-    /// `confirming_trust` is set when the answer comes from the second question
-    /// before trusting the extension.
     fn await_consent(
         &mut self,
         id: u64,
@@ -512,9 +485,6 @@ impl AppModel {
             };
             let _ = handle.update(cx, |_, window, cx| {
                 let _ = model.update(cx, |model, cx| {
-                    // A timeout or a stopped extension closes the sheet first,
-                    // which also reports a cancel; only the user's own answer
-                    // arrives while the sheet is still up.
                     let answered = model
                         .extensions
                         .sheet
@@ -573,7 +543,6 @@ impl AppModel {
         .detach();
     }
 
-    /// `muxy.dialog.*`: at most one per extension, queued behind other sheets.
     pub(super) fn extension_dialog(
         &mut self,
         call: Call,
@@ -697,7 +666,6 @@ fn expand_home(path: &str) -> std::path::PathBuf {
     muxy_core::paths::expand_tilde(std::path::Path::new(path)).unwrap_or_else(|_| path.into())
 }
 
-/// Builds the native dialog, applying main's validation and 2000-character caps.
 fn dialog_options(verb: &str, args: &Value) -> Result<muxy_ui::dialog::DialogOptions, String> {
     let text = |field: &str| args[field].as_str().map(clamp);
     let title = text("title").unwrap_or_default();
@@ -779,7 +747,6 @@ fn extension_buttons(args: &Value) -> Vec<String> {
         .collect()
 }
 
-/// A default button's English label, as the dialog shows it.
 fn shown(label: String) -> String {
     DEFAULT_BUTTONS
         .into_iter()
@@ -787,7 +754,6 @@ fn shown(label: String) -> String {
         .map_or(label, |key| translate(key).into())
 }
 
-/// A default button's shown label, as the extension expects it.
 fn reported(label: String) -> String {
     DEFAULT_BUTTONS
         .into_iter()

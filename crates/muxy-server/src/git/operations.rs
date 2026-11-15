@@ -76,8 +76,6 @@ impl Operations {
         Ok(())
     }
 
-    /// Refuses while any of `projects` has a worktree operation running,
-    /// which may end the sessions it owns.
     pub(crate) fn check_projects(&self, projects: &[ProjectId]) -> Result<()> {
         let active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
         if projects.iter().any(|id| active.projects.contains(id)) {

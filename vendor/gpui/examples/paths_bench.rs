@@ -16,9 +16,7 @@ impl PaintingViewer {
     fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
         let mut lines = vec![];
 
-        // draw a lightening bolt ⚡
         for _ in 0..2000 {
-            // draw a ⭐
             let mut builder = PathBuilder::fill();
             builder.move_to(point(px(350.), px(100.)));
             builder.line_to(point(px(370.), px(160.)));

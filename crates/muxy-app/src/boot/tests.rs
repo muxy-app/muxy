@@ -354,7 +354,6 @@ fn a_resize_the_server_refuses_for_another_reason_still_shows_an_error() -> Test
     Ok(())
 }
 
-/// A connected client whose server answers every request with `error`.
 fn answering_every_request_with(error: ErrorReply) -> Result<Client, Box<dyn Error + Send + Sync>> {
     let (client, server) = muxy_protocol::transport::socket_pair()?;
     let mut decoder = Decoder::new(server.try_clone()?);

@@ -1,15 +1,9 @@
-//! Copies text to the clipboard: the system's, when this UI runs on the
-//! computer in front of the user, otherwise the terminal's (OSC 52), which
-//! reaches that computer through SSH.
-
 use std::io::{self, Write};
 use std::process::{Command, Stdio};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Copied {
-    /// The system clipboard has the text.
     System,
-    /// The terminal was asked to copy it, which it may decline.
     Terminal,
 }
 
@@ -23,8 +17,6 @@ pub(crate) fn copy(text: &str) -> io::Result<Copied> {
     Ok(Copied::Terminal)
 }
 
-/// Hands `text` to the platform's clipboard tool, if it has one. Windows
-/// gets OSC 52, which Windows Terminal supports.
 fn system(text: &str) -> bool {
     let tools: &[(&str, &[&str])] = if cfg!(windows) {
         &[]

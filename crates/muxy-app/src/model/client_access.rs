@@ -11,7 +11,6 @@ use super::{AppModel, Quitting};
 use crate::boot::Work;
 use crate::views::clients::Pairing;
 
-/// Client access as the Servers page shows it; the server owns the real state.
 #[derive(Default)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -19,26 +18,15 @@ use crate::views::clients::Pairing;
 )]
 pub(crate) struct ClientAccess {
     pub(crate) state: Option<RemoteAccessState>,
-    /// The current pairing code, until it is used, cancelled, or expires.
     pub(crate) pairing: Option<Pairing>,
-    /// Settings is on the Servers page, whether or not its tab is displayed.
     page_open: bool,
-    /// The Servers page was on screen when last checked.
     page_shown: bool,
-    /// The code's link was copied, so it stays valid away from the Servers
-    /// page until it is used or expires.
     copied: bool,
     pub(crate) busy: bool,
-    /// The running request creates a pairing code.
     starting: bool,
-    /// The server reported a change while a request was running.
     stale: bool,
-    /// The user cancelled pairing while a request was running.
     cancel: bool,
-    /// The pairing link goes to the clipboard once there is a fresh code.
     copy_link: bool,
-    /// The welcome tour turned access on and nothing paired, so it goes back
-    /// off once no request is running.
     pub(super) restore_off: bool,
     pub(crate) error: Option<String>,
     expiry: Option<Task<()>>,
@@ -53,8 +41,6 @@ impl ClientAccess {
         self.page_open = false;
     }
 
-    /// What survives losing the server: the Servers page staying on screen,
-    /// and the promise to turn access back off, which is kept once it returns.
     pub(super) fn after_disconnect(&self) -> Self {
         Self {
             page_open: self.page_open,
@@ -73,7 +59,6 @@ impl AppModel {
         self.quitting == Quitting::Idle && self.ready(ServerId::local())
     }
 
-    /// The Servers page is on screen, which focus elsewhere doesn't change.
     fn servers_page_open(&self) -> bool {
         self.client_access.page_open
             && self.state.settings_tab().is_some()
@@ -83,7 +68,6 @@ impl AppModel {
                 .any(|pane| self.state.is_settings_pane(pane))
     }
 
-    /// Settings moved to the Servers page or away from it.
     pub(crate) fn set_servers_page_open(&mut self, open: bool, cx: &mut Context<Self>) {
         if self.client_access.page_open != open {
             self.client_access.page_open = open;
@@ -91,14 +75,10 @@ impl AppModel {
         }
     }
 
-    /// Client access is on screen, on the Servers page or in the welcome tour.
     fn client_access_shown(&self) -> bool {
         self.servers_page_open() || self.onboarding_pairing_shown()
     }
 
-    /// Reads client access when the Servers page comes on screen or this
-    /// computer's server connects with it open, and withdraws a pairing code
-    /// that was never copied once it leaves the screen.
     pub(crate) fn sync_servers_page(&mut self, opened: bool, cx: &mut Context<Self>) {
         let page = self.servers_page_open();
         let returned = page && !self.client_access.page_shown;
@@ -122,14 +102,12 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Paired clients connected, disconnected, or changed; refresh only while client access is on screen.
     pub(super) fn remote_access_changed(&mut self, cx: &mut Context<Self>) {
         if self.client_access_shown() {
             self.read_remote_access(cx);
         }
     }
 
-    /// Turns client access on or off. A refusal shows on the page.
     pub(crate) fn set_client_access(&mut self, enabled: bool, cx: &mut Context<Self>) {
         let result = self.write_remote_access(
             |settings| RemoteAccessSettings {
@@ -141,7 +119,6 @@ impl AppModel {
         self.finish_access_change(result, cx);
     }
 
-    /// Whether this computer's server can send push notifications to paired phones.
     pub(crate) fn push_notifications_available(&self) -> bool {
         self.client_access_available()
             && self.server_supports(
@@ -150,8 +127,6 @@ impl AppModel {
             )
     }
 
-    /// Turns push notifications to paired phones on or off. Pausing phones
-    /// that get them asks first, since they stop hearing about agents.
     pub(crate) fn set_push_notifications(
         &mut self,
         on: bool,
@@ -181,7 +156,6 @@ impl AppModel {
         );
     }
 
-    /// Sends the switch; a refusal shows on the page.
     pub(crate) fn switch_push_notifications(&mut self, on: bool, cx: &mut Context<Self>) {
         let result = if !self.push_notifications_available() {
             Err(tr!("Connect to the server before changing client access").to_string())
@@ -206,7 +180,6 @@ impl AppModel {
         self.finish_access_change(result, cx);
     }
 
-    /// Forgets one phone's notification key after asking; it stays paired.
     pub(crate) fn confirm_reset_push(
         &mut self,
         device: DeviceId,
@@ -250,7 +223,6 @@ impl AppModel {
         );
     }
 
-    /// Moves client access to the typed port.
     pub(crate) fn set_client_port(&mut self, port: &str, cx: &mut Context<Self>) {
         let result = port
             .trim()
@@ -307,8 +279,6 @@ impl AppModel {
         }
     }
 
-    /// Copies this computer's pairing link where the user is, making a code
-    /// when there is none.
     pub(crate) fn copy_pairing_link(&mut self, cx: &mut Context<Self>) {
         self.dismiss_overlay(cx);
         if !self.client_access_available() {
@@ -326,8 +296,6 @@ impl AppModel {
         self.continue_link_copy(cx);
     }
 
-    /// Copies the code's link once there is one, asks for a code once access
-    /// is listening, or says why there can't be one.
     fn continue_link_copy(&mut self, cx: &mut Context<Self>) {
         if !self.client_access.copy_link || self.client_access.busy {
             return;
@@ -368,8 +336,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// A code that was only shown must not stay valid on the server once it
-    /// leaves the screen.
     pub(super) fn withdraw_pairing(&mut self, cx: &mut Context<Self>) {
         let shown = self.client_access.pairing.is_some() && !self.client_access.copied;
         let starting = self.client_access.starting && !self.client_access.copy_link;
@@ -427,7 +393,6 @@ impl AppModel {
         self.client_access.busy = false;
         match result {
             Ok(state) => {
-                // The code was used, cancelled elsewhere, or expired.
                 if state.pairing_expires_at.is_none() {
                     self.client_access.pairing = None;
                     self.client_access.copied = false;
@@ -505,10 +470,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Turns access back off once the server can take it, as the welcome tour
-    /// asked. The promise is kept until the server reports access off. Without
-    /// the server it waits for it to return, and after a refusal, for the next
-    /// good answer.
     pub(super) fn settle_restored_access(&mut self, cx: &mut Context<Self>) {
         if !self.client_access.restore_off
             || self.client_access.busy

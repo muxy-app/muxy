@@ -16,7 +16,6 @@ const TIMING: Timing = Timing {
     max_delay: MAX_DELAY,
 };
 
-/// The projects one connection watches.
 #[derive(Default)]
 pub(crate) struct Subscriptions {
     watches: HashMap<ProjectId, Subscription>,

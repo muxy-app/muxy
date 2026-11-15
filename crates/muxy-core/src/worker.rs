@@ -1,8 +1,3 @@
-//! Bounded blocking work, kept separate from input and connection readers.
-//!
-//! Threads start when work arrives and stop after idling, so a pool that is
-//! never used costs no threads. A one-thread pool runs its jobs in order.
-
 use std::collections::VecDeque;
 use std::io;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -18,7 +13,6 @@ pub struct WorkerPool {
     handle: Arc<Handle>,
 }
 
-/// Closes the pool when the last clone is dropped; queued jobs still run.
 struct Handle {
     shared: Arc<Shared>,
 }
@@ -149,11 +143,9 @@ fn work(shared: &Arc<Shared>) {
             break;
         }
     }
-    // Under the same lock as the decision to stop, so new work starts a new thread.
     state.live -= 1;
 }
 
-/// Takes a thread whose job panicked out of the count and replaces it.
 struct Unwind<'a>(&'a Arc<Shared>);
 
 impl Drop for Unwind<'_> {
@@ -167,7 +159,6 @@ impl Drop for Unwind<'_> {
             return;
         }
         if start(self.0, &mut state).is_err() && state.live == 0 {
-            // Nothing can run the queued jobs; dropping them releases whatever their callers wait on.
             let stranded = std::mem::take(&mut state.queue);
             drop(state);
             drop(stranded);

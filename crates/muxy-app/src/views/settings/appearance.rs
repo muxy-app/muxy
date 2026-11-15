@@ -330,9 +330,6 @@ pub(super) fn rows(
     rows
 }
 
-/// Which sidebar shows. The row is there before any extension provides one,
-/// and says where to get one; a chosen one that is no longer enabled stays
-/// chosen, and the row says the built-in sidebar shows meanwhile.
 fn active_sidebar(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
     let selected = &pane.snapshot.settings.appearance.extension_sidebar;
     let unavailable =
@@ -363,7 +360,6 @@ fn active_sidebar(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEle
     )
 }
 
-/// The label of a sidebar selection: built in, a provider, or an unavailable one.
 pub(super) fn sidebar_label(snapshot: &Snapshot, selected: &str) -> String {
     if selected.is_empty() {
         return tr!("Built-in").to_string();
@@ -384,8 +380,6 @@ pub(super) fn sidebar_label(snapshot: &Snapshot, selected: &str) -> String {
         )
 }
 
-/// The app language. While the chosen language's extension is unavailable,
-/// the row says English shows meanwhile.
 fn app_language(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
     let selected = &pane.snapshot.settings.appearance.language;
     let unavailable =
@@ -406,8 +400,6 @@ fn app_language(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEleme
     )
 }
 
-/// The label of a language selection: English, a provider, or an
-/// unavailable one.
 pub(super) fn language_label(snapshot: &Snapshot, selected: &str) -> String {
     if selected.is_empty() {
         return tr!("English").to_string();

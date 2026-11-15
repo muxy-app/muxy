@@ -1,6 +1,3 @@
-//! Menus the system pops up. `show` answers `None` where it has none, and
-//! the caller draws its own.
-
 #[derive(Clone, Debug)]
 pub struct Item {
     pub label: String,

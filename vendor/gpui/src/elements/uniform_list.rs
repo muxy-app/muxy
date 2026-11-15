@@ -1,9 +1,3 @@
-//! A scrollable list of elements with uniform height, optimized for large lists.
-//! Rather than use the full taffy layout system, uniform_list simply measures
-//! the first element and then lays out all remaining elements in a line based on that
-//! measurement. This is much faster than the full layout system, but only works for
-//! elements with uniform height.
-
 use crate::{
     AnyElement, App, AvailableSpace, Bounds, ContentMask, Element, ElementId, Entity,
     GlobalElementId, Hitbox, InspectorElementId, InteractiveElement, Interactivity, IntoElement,
@@ -15,9 +9,6 @@ use std::{cell::RefCell, cmp, ops::Range, rc::Rc};
 
 use super::ListHorizontalSizingBehavior;
 
-/// uniform_list provides lazy rendering for a set of items that are of uniform height.
-/// When rendered into a container with overflow-y: hidden and a fixed (or max) height,
-/// uniform_list will only render the visible subset of items.
 #[track_caller]
 pub fn uniform_list<R>(
     id: impl Into<ElementId>,
@@ -54,7 +45,6 @@ where
     }
 }
 
-/// A list element for efficiently laying out and displaying a list of uniform-height elements.
 pub struct UniformList {
     item_count: usize,
     item_to_measure_index: usize,
@@ -68,67 +58,44 @@ pub struct UniformList {
     horizontal_sizing_behavior: ListHorizontalSizingBehavior,
 }
 
-/// Frame state used by the [UniformList].
 pub struct UniformListFrameState {
     items: SmallVec<[AnyElement; 32]>,
     decorations: SmallVec<[AnyElement; 2]>,
 }
 
-/// A handle for controlling the scroll position of a uniform list.
-/// This should be stored in your view and passed to the uniform_list on each frame.
 #[derive(Clone, Debug, Default)]
 pub struct UniformListScrollHandle(pub Rc<RefCell<UniformListScrollState>>);
 
-/// Where to place the element scrolled to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScrollStrategy {
-    /// Place the element at the top of the list's viewport.
     Top,
-    /// Attempt to place the element in the middle of the list's viewport.
-    /// May not be possible if there's not enough list items above the item scrolled to:
-    /// in this case, the element will be placed at the closest possible position.
     Center,
-    /// Attempt to place the element at the bottom of the list's viewport.
-    /// May not be possible if there's not enough list items above the item scrolled to:
-    /// in this case, the element will be placed at the closest possible position.
     Bottom,
 }
 
 #[derive(Clone, Copy, Debug)]
-#[allow(missing_docs)]
 pub struct DeferredScrollToItem {
-    /// The item index to scroll to
     pub item_index: usize,
-    /// The scroll strategy to use
     pub strategy: ScrollStrategy,
-    /// The offset in number of items
     pub offset: usize,
     pub scroll_strict: bool,
 }
 
 #[derive(Clone, Debug, Default)]
-#[allow(missing_docs)]
 pub struct UniformListScrollState {
     pub base_handle: ScrollHandle,
     pub deferred_scroll_to_item: Option<DeferredScrollToItem>,
-    /// Size of the item, captured during last layout.
     pub last_item_size: Option<ItemSize>,
-    /// Whether the list was vertically flipped during last layout.
     pub y_flipped: bool,
 }
 
 #[derive(Copy, Clone, Debug, Default)]
-/// The size of the item and its contents.
 pub struct ItemSize {
-    /// The size of the item.
     pub item: Size<Pixels>,
-    /// The size of the item's contents, which may be larger than the item itself,
-    /// if the item was bounded by a parent element.
     pub contents: Size<Pixels>,
 }
 
 impl UniformListScrollHandle {
-    /// Create a new scroll handle to bind to a uniform list.
     pub fn new() -> Self {
         Self(Rc::new(RefCell::new(UniformListScrollState {
             base_handle: ScrollHandle::new(),
@@ -138,11 +105,6 @@ impl UniformListScrollHandle {
         })))
     }
 
-    /// Scroll the list so that the given item index is visible.
-    ///
-    /// This uses non-strict scrolling: if the item is already fully visible, no scrolling occurs.
-    /// If the item is out of view, it scrolls the minimum amount to bring it into view according
-    /// to the strategy.
     pub fn scroll_to_item(&self, ix: usize, strategy: ScrollStrategy) {
         self.0.borrow_mut().deferred_scroll_to_item = Some(DeferredScrollToItem {
             item_index: ix,
@@ -152,10 +114,6 @@ impl UniformListScrollHandle {
         });
     }
 
-    /// Scroll the list so that the given item index is at scroll strategy position.
-    ///
-    /// This uses strict scrolling: the item will always be scrolled to match the strategy position,
-    /// even if it's already visible. Use this when you need precise positioning.
     pub fn scroll_to_item_strict(&self, ix: usize, strategy: ScrollStrategy) {
         self.0.borrow_mut().deferred_scroll_to_item = Some(DeferredScrollToItem {
             item_index: ix,
@@ -165,16 +123,6 @@ impl UniformListScrollHandle {
         });
     }
 
-    /// Scroll the list to the given item index with an offset in number of items.
-    ///
-    /// This uses non-strict scrolling: if the item is already visible within the offset region,
-    /// no scrolling occurs.
-    ///
-    /// The offset parameter shrinks the effective viewport by the specified number of items
-    /// from the corresponding edge, then applies the scroll strategy within that reduced viewport:
-    /// - `ScrollStrategy::Top`: Shrinks from top, positions item at the new top
-    /// - `ScrollStrategy::Center`: Shrinks from top, centers item in the reduced viewport
-    /// - `ScrollStrategy::Bottom`: Shrinks from bottom, positions item at the new bottom
     pub fn scroll_to_item_with_offset(&self, ix: usize, strategy: ScrollStrategy, offset: usize) {
         self.0.borrow_mut().deferred_scroll_to_item = Some(DeferredScrollToItem {
             item_index: ix,
@@ -184,16 +132,6 @@ impl UniformListScrollHandle {
         });
     }
 
-    /// Scroll the list so that the given item index is at the exact scroll strategy position with an offset.
-    ///
-    /// This uses strict scrolling: the item will always be scrolled to match the strategy position,
-    /// even if it's already visible.
-    ///
-    /// The offset parameter shrinks the effective viewport by the specified number of items
-    /// from the corresponding edge, then applies the scroll strategy within that reduced viewport:
-    /// - `ScrollStrategy::Top`: Shrinks from top, positions item at the new top
-    /// - `ScrollStrategy::Center`: Shrinks from top, centers item in the reduced viewport
-    /// - `ScrollStrategy::Bottom`: Shrinks from bottom, positions item at the new bottom
     pub fn scroll_to_item_strict_with_offset(
         &self,
         ix: usize,
@@ -208,12 +146,10 @@ impl UniformListScrollHandle {
         });
     }
 
-    /// Check if the list is flipped vertically.
     pub fn y_flipped(&self) -> bool {
         self.0.borrow().y_flipped
     }
 
-    /// Get the index of the topmost visible child.
     #[cfg(any(test, feature = "test-support"))]
     pub fn logical_scroll_top_index(&self) -> usize {
         let this = self.0.borrow();
@@ -223,7 +159,6 @@ impl UniformListScrollHandle {
             .unwrap_or_else(|| this.base_handle.logical_scroll_top().0)
     }
 
-    /// Checks if the list can be scrolled vertically.
     pub fn is_scrollable(&self) -> bool {
         if let Some(size) = self.0.borrow().last_item_size {
             size.contents.height > size.item.height
@@ -567,11 +502,7 @@ impl IntoElement for UniformList {
     }
 }
 
-/// A decoration for a [`UniformList`]. This can be used for various things,
-/// such as rendering indent guides, or other visual effects.
 pub trait UniformListDecoration {
-    /// Compute the decoration element, given the visible range of list items,
-    /// the bounds of the list, and the height of each item.
     fn compute(
         &self,
         visible_range: Range<usize>,
@@ -610,21 +541,16 @@ impl<T: UniformListDecoration + 'static> UniformListDecoration for Entity<T> {
 }
 
 impl UniformList {
-    /// Selects a specific list item for measurement.
     pub fn with_width_from_item(mut self, item_index: Option<usize>) -> Self {
         self.item_to_measure_index = item_index.unwrap_or(0);
         self
     }
 
-    /// Sets the sizing behavior, similar to the `List` element.
     pub fn with_sizing_behavior(mut self, behavior: ListSizingBehavior) -> Self {
         self.sizing_behavior = behavior;
         self
     }
 
-    /// Sets the horizontal sizing behavior, controlling the way list items laid out horizontally.
-    /// With [`ListHorizontalSizingBehavior::Unconstrained`] behavior, every item and the list itself will
-    /// have the size of the widest item and lay out pushing the `end_slot` to the right end.
     pub fn with_horizontal_sizing_behavior(
         mut self,
         behavior: ListHorizontalSizingBehavior,
@@ -641,7 +567,6 @@ impl UniformList {
         self
     }
 
-    /// Adds a decoration element to the list.
     pub fn with_decoration(mut self, decoration: impl UniformListDecoration + 'static) -> Self {
         self.decorations.push(Box::new(decoration));
         self
@@ -671,14 +596,12 @@ impl UniformList {
         item_to_measure.layout_as_root(available_space, window, cx)
     }
 
-    /// Track and render scroll state of this list with reference to the given scroll handle.
     pub fn track_scroll(mut self, handle: UniformListScrollHandle) -> Self {
         self.interactivity.tracked_scroll_handle = Some(handle.0.borrow().base_handle.clone());
         self.scroll_handle = Some(handle);
         self
     }
 
-    /// Sets whether the list is flipped vertically, such that item 0 appears at the bottom.
     pub fn y_flipped(mut self, y_flipped: bool) -> Self {
         if let Some(ref scroll_handle) = self.scroll_handle {
             let mut scroll_state = scroll_handle.0.borrow_mut();
@@ -691,7 +614,6 @@ impl UniformList {
                     base_handle.set_offset(point(offset.x, new_y_offset));
                     scroll_state.y_flipped = y_flipped;
                 }
-                // Handle case where list is initially flipped.
                 None if y_flipped => {
                     base_handle.set_offset(point(offset.x, Pixels::MIN));
                     scroll_state.y_flipped = y_flipped;

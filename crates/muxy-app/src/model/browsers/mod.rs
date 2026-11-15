@@ -1,6 +1,3 @@
-//! Browser panes: their live views, the profiles they browse with, and
-//! everything that opens, closes, or drives them.
-
 pub(crate) mod automation;
 mod profiles;
 
@@ -18,7 +15,6 @@ use muxy_ui::tr;
 use super::AppModel;
 use crate::views::browser::{BrowserView, BrowserViewEvent, Menu, Setup};
 
-/// What the browser shortcuts do to the focused browser pane.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BrowserAction {
     FocusAddress,
@@ -45,36 +41,23 @@ pub(crate) struct Browsers {
     profiles: Option<ProfileManager>,
     retiring: HashSet<String>,
     favicons: HashMap<String, Option<Arc<gpui::RenderImage>>>,
-    /// Icons being fetched, with the panes waiting for each, so one page
-    /// loading many times fetches its icon once.
     favicons_loading: HashMap<String, Vec<PaneId>>,
-    /// Panes opened from the UI, whose address field takes focus.
     focus_address: HashSet<PaneId>,
-    /// Panes a page opened, which may close themselves.
     opened_by_page: HashSet<PaneId>,
-    /// Saves addresses once pages stop changing them.
     save: Option<Task<()>>,
-    /// Panes whose view could not be created, with why.
     failures: HashMap<PaneId, String>,
     shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
-    /// Profiles as last listed, by ID and name, for Settings.
     profile_list: Vec<(String, String)>,
-    /// Other browsers that can be imported from, found when Settings opens.
     pub(crate) import_sources: Vec<muxy_ui::browser::polybrowser::ExternalProfile>,
     pub(crate) socket: Option<crate::app_socket::AppSocket>,
 }
 
-/// Where and how to open a browser tab.
 #[derive(Clone, Debug)]
 pub(crate) struct OpenBrowser {
     pub url: Option<String>,
-    /// A profile ID or name; none means the default profile, which the tab
-    /// keeps even if another becomes the default later.
     pub profile: Option<String>,
     pub project: ProjectId,
-    /// Splits the project's shown pane instead of opening a tab.
     pub split: bool,
-    /// Shows the new browser. Without it, the user's view stays where it is.
     pub select: bool,
     pub focus_address: bool,
 }
@@ -84,7 +67,6 @@ impl AppModel {
         self.settings.browser.enabled && self.supports(Feature::BrowserPanes)
     }
 
-    /// Every browser pane, with its project and tab.
     pub(crate) fn browser_panes(&self) -> Vec<(ProjectId, &Tab, PaneId, &BrowserPane)> {
         self.state
             .panes()
@@ -107,7 +89,6 @@ impl AppModel {
             .cloned()
     }
 
-    /// Why a browser pane shows no page, if it can't.
     pub(crate) fn browser_unavailable(&self, pane: PaneId) -> Option<String> {
         if !self.browser_enabled() {
             return Some(tr!("Built-in browser is disabled").into());
@@ -115,8 +96,6 @@ impl AppModel {
         self.browsers.failures.get(&pane).cloned()
     }
 
-    /// Creates the views of shown browser panes, drops those of closed ones,
-    /// and shows each as its pane is.
     pub(super) fn sync_browsers(
         &mut self,
         blocked: bool,
@@ -188,8 +167,6 @@ impl AppModel {
         }
     }
 
-    /// The pane's view, created hidden if it has none yet, as automation
-    /// needs for tabs never shown.
     pub(crate) fn ensure_browser_view(
         &mut self,
         pane: PaneId,
@@ -233,7 +210,6 @@ impl AppModel {
         Ok(view)
     }
 
-    /// Hears `view`'s events with `window` as the window it shows in.
     pub(super) fn resubscribe_browser(
         &mut self,
         pane: PaneId,
@@ -331,8 +307,6 @@ impl AppModel {
         }
     }
 
-    /// Answers `muxy browser` and `muxy session show` on the profile's app
-    /// socket.
     pub(crate) fn start_app_socket(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let path = muxy_app_core::browser::api::socket_path(
             self.path
@@ -425,8 +399,6 @@ impl AppModel {
         }
     }
 
-    /// Opens a browser tab on the home page in the current project, with the
-    /// address field ready.
     pub(crate) fn new_browser_tab(&mut self, cx: &mut Context<Self>) {
         if !self.require(Feature::BrowserPanes, cx)
             || !self.browser_enabled()
@@ -447,7 +419,6 @@ impl AppModel {
         }
     }
 
-    /// Opens `url` in a new browser tab of the current project.
     pub(crate) fn open_url_in_browser(&mut self, url: String, cx: &mut Context<Self>) {
         let request = OpenBrowser {
             url: Some(url),
@@ -508,7 +479,6 @@ impl AppModel {
         Ok(pane)
     }
 
-    /// The pane a project shows in its selected tab.
     fn shown_pane_of(&self, project: ProjectId) -> Option<PaneId> {
         if project == self.state.current_project().id {
             return self.active_pane();
@@ -525,7 +495,6 @@ impl AppModel {
             .or_else(|| tab.layout.leaves().first().copied())
     }
 
-    /// Hands `url` to the system, or to the browser app at `app`.
     pub(crate) fn open_externally(
         &mut self,
         url: String,
@@ -648,8 +617,6 @@ impl AppModel {
         self.open_menu(items, position, window, cx);
     }
 
-    /// Opens the page of `pane` in another browser: the default one, or the
-    /// installed browser at `index`.
     pub(crate) fn open_browser_page_in(
         &mut self,
         pane: PaneId,
@@ -671,7 +638,6 @@ impl AppModel {
         self.open_externally(url, app, cx);
     }
 
-    /// Browses `pane` with another profile: its page loads again there.
     pub(crate) fn switch_browser_profile(
         &mut self,
         pane: PaneId,
@@ -699,8 +665,6 @@ impl AppModel {
         }
     }
 
-    /// Keystrokes a focused page hands back to the app: Muxy's own, the
-    /// browser's, and find.
     fn browser_shortcuts(&mut self) -> Rc<Vec<gpui::Keystroke>> {
         use muxy_core::shortcuts::{ALL, ShortcutSettings};
         if let Some(shortcuts) = &self.browsers.shortcuts {

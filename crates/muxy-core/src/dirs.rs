@@ -36,15 +36,11 @@ pub fn muxy_dir() -> io::Result<PathBuf> {
     Ok(directory)
 }
 
-/// The folder where agents build extensions. It sits outside the profile, so
-/// removing an extension from Muxy never deletes the work, and beside rather
-/// than in the `extensions` folder that Muxy 1.x left under `~/.config/muxy`.
 pub fn extension_workspace() -> io::Result<PathBuf> {
     resolve_extension_workspace(
         env::var_os("MUXY_DIR"),
         crate::paths::home_dir().ok().map(PathBuf::into_os_string),
         env::var_os("XDG_CONFIG_HOME"),
-        // Named as on Linux on every platform, like the `~/.config` it sits in.
         directory_name(
             env!("CARGO_PKG_VERSION"),
             cfg!(debug_assertions),
@@ -75,8 +71,6 @@ fn resolve_extension_workspace(
     Ok(PathBuf::from(home).join(".config").join(name).join(FOLDER))
 }
 
-/// Releases of each channel and local builds never share data. Stable is
-/// `Muxy 2` on macOS because 1.x keeps its data in `Muxy`.
 fn directory_name(version: &str, debug: bool, platform: Platform) -> &'static str {
     let channel = Version::parse(version)
         .filter(|_| !debug)
@@ -179,7 +173,6 @@ mod tests {
 
     const PLATFORMS: [Platform; 3] = [Platform::MacOs, Platform::Linux, Platform::Windows];
 
-    /// A path that is absolute on the host running the tests.
     fn root() -> PathBuf {
         PathBuf::from(if cfg!(windows) {
             r"C:\Users\test"

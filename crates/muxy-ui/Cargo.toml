@@ -48,7 +48,6 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
 ] }
 windows-core = "0.62"
-# Profiles, history and cookies only: no web engine yet.
 polybrowser = { git = "https://github.com/saeedvaziry/polybrowser", branch = "main", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]

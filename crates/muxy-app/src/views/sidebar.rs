@@ -221,7 +221,6 @@ fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
-/// The side of the square icon buttons at the bottom of the sidebar.
 pub(super) fn footer_button_size(model: &AppModel) -> Pixels {
     if model.appearance.sidebar_expanded {
         model.metrics.control_large()
@@ -234,7 +233,6 @@ pub(super) fn collapsed_item_size(model: &AppModel) -> Pixels {
     model.metrics.scaled(34.0)
 }
 
-/// A footer control: square until a caller gives it a label to fill the row.
 pub(super) fn footer_button(
     id: &'static str,
     label: impl Into<SharedString>,
@@ -245,7 +243,6 @@ pub(super) fn footer_button(
     footer_control(id, &label, model).tooltip(tooltip)
 }
 
-/// A footer control without a tooltip, for one whose menu is open.
 fn footer_control(id: &'static str, label: &SharedString, model: &AppModel) -> Stateful<Div> {
     let theme = &model.theme;
     div()
@@ -267,7 +264,6 @@ fn footer_control(id: &'static str, label: &SharedString, model: &AppModel) -> S
         .focus(|style| style.bg(theme.hover))
 }
 
-/// A footer icon, with a dot on its corner for something worth a look.
 pub(super) fn footer_icon(
     group: &'static str,
     icon: Icon,
@@ -366,7 +362,6 @@ fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
-/// The row after a server's last project, in the list's own layout.
 fn add_project_row(server: ServerId, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
@@ -436,9 +431,6 @@ fn add_project_row(server: ServerId, model: &AppModel, cx: &mut Context<AppModel
         .into_any_element()
 }
 
-/// What a client's press on a row runs. It goes straight to the action, since
-/// the mouse events a press otherwise becomes land on whatever is at the row's
-/// center, and on nothing once the row has scrolled away.
 pub(super) fn client_press(
     cx: &Context<AppModel>,
     action: impl Fn(&mut AppModel, &mut Window, &mut Context<AppModel>) + 'static,
@@ -447,7 +439,6 @@ pub(super) fn client_press(
     move |_, window, cx| press(&(), window, cx)
 }
 
-/// A button for what the pointer reaches by hovering or right-clicking a row.
 pub(super) fn client_button(
     id: impl Into<SharedString>,
     name: impl Into<SharedString>,
@@ -462,7 +453,6 @@ pub(super) fn client_button(
     })
 }
 
-/// What applies to a row, read after its name.
 pub(super) fn describe(
     parts: impl IntoIterator<Item = Option<SharedString>>,
 ) -> Option<SharedString> {
@@ -471,7 +461,6 @@ pub(super) fn describe(
 }
 
 impl AppModel {
-    /// Offers the two ways into extensions: building one, or managing them.
     pub(crate) fn open_extensions_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let manage = tr!("Manage Extensions");
         let manage = match self.extension_update_count() {
@@ -494,8 +483,6 @@ impl AppModel {
         }
     }
 
-    /// Whether the sidebar's bottom row is on screen. A hidden sidebar and an
-    /// extension's sidebar don't draw it.
     pub(crate) fn sidebar_footer_shown(&self) -> bool {
         self.sidebar_width() > 0.0 && !self.extension_sidebar_active()
     }
@@ -511,8 +498,6 @@ impl AppModel {
         self.open_menu(items, position, window, cx);
     }
 
-    /// Add Project's choices: a folder on `server`, then projects removed
-    /// from it that can come back.
     fn project_source_items(&self, server: ServerId) -> Vec<Item> {
         let mut items = vec![Item::action(tr!("Folder…"), Command::AddProject(server))];
         let removed = self.restorable_projects(server);
@@ -541,8 +526,6 @@ impl AppModel {
             .collect()
     }
 
-    /// The name shown for a project: another computer's Home goes by its
-    /// server's name.
     pub(crate) fn project_title(&self, project: &Project) -> String {
         match self.server_name(project.server_id) {
             Some(name) if project.home => name.to_owned(),
@@ -550,7 +533,6 @@ impl AppModel {
         }
     }
 
-    /// The project's folder, with `~` for its own computer's Home.
     pub(crate) fn project_path_label(&self, project: &Project) -> String {
         if project.server_id.is_local() {
             return super::project_picker::display_path(&project.directory);
@@ -638,8 +620,6 @@ impl AppModel {
         )
     }
 
-    /// Top-level projects the workspace filter lists under the expanded
-    /// servers, in sidebar order.
     pub(crate) fn listed_parents(&self) -> Vec<&Project> {
         self.sidebar_servers()
             .into_iter()
@@ -648,8 +628,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Top-level projects the workspace filter lists on `server`, in sidebar
-    /// order.
     fn listed_parents_on(&self, server: ServerId) -> Vec<&Project> {
         let mut parents: Vec<_> = self
             .state
@@ -666,7 +644,6 @@ impl AppModel {
         parents
     }
 
-    /// Sorts top-level projects as the sidebar lists them.
     pub(crate) fn sort_parents(&self, parents: &mut [&Project]) {
         self.sort_projects(parents);
     }
@@ -708,7 +685,6 @@ impl AppModel {
         }
     }
 
-    /// The projects the sidebar shows, with their worktrees, in its order.
     pub(crate) fn sidebar_projects(&self) -> Vec<&Project> {
         self.sidebar_groups()
             .into_iter()
@@ -716,9 +692,6 @@ impl AppModel {
             .collect()
     }
 
-    /// The sidebar's servers, each with the projects it shows under its
-    /// heading: none while collapsed. Focus Current Project shows only that
-    /// project, under no heading.
     pub(crate) fn sidebar_groups(&self) -> Vec<ServerGroup<'_>> {
         let active = self.state.current_project();
         if self.appearance.sidebar_focus {
@@ -764,16 +737,12 @@ impl AppModel {
     }
 }
 
-/// One server in the sidebar and the projects it shows.
 pub(crate) struct ServerGroup<'a> {
     pub(crate) server: ServerId,
-    /// Whether the server's heading shows above its projects.
     pub(crate) heading: bool,
     pub(crate) projects: Vec<&'a Project>,
 }
 
-/// The Add Project row of `server`'s group. This computer's keeps the
-/// plain name.
 fn add_project_id(server: ServerId) -> SharedString {
     if server.is_local() {
         "add-project".into()
@@ -782,19 +751,12 @@ fn add_project_id(server: ServerId) -> SharedString {
     }
 }
 
-/// Which sidebar a server heading lines up with.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum HeadingRows {
-    /// Project rows, whose tiles start the heading's name.
     Projects,
-    /// The tab layouts' project headers: the name starts where theirs do,
-    /// and the menu button sits where their disclosure does.
     Tabs,
 }
 
-/// A server's heading in the sidebar: its name, which expands or collapses
-/// its projects when clicked, and a button for the server's menu, which a
-/// right click opens too. The sidebar collapsed to icons shows none.
 pub(super) fn server_heading(
     server: ServerId,
     rows: HeadingRows,
@@ -857,9 +819,6 @@ pub(super) fn server_heading(
         .into_any_element()
 }
 
-/// The ellipsis at the end of a server's heading, which opens its menu. It
-/// takes keyboard focus of its own, apart from the heading's, and opens the
-/// menu under itself when activated from the keyboard.
 fn server_menu_button(
     server: ServerId,
     name: &SharedString,
@@ -913,7 +872,6 @@ fn server_menu_button(
         .into_any_element()
 }
 
-/// What a server's heading says about how it is doing.
 fn server_status_label(server: ServerId, model: &AppModel) -> SharedString {
     if let Some(remote) = model
         .remote_servers()
@@ -925,7 +883,6 @@ fn server_status_label(server: ServerId, model: &AppModel) -> SharedString {
     muxy_ui::l10n::translate(model.status_of(server).label())
 }
 
-/// What an expanded server with nothing to list yet is doing.
 fn server_note(server: ServerId, model: &AppModel) -> Option<AnyElement> {
     if server.is_local()
         || !model.appearance.sidebar_expanded
@@ -1246,8 +1203,6 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
-/// Each server's heading, its projects, and its Add Project row, with the
-/// project a row can be dragged onto, if any.
 fn grouped_rows(
     model: &AppModel,
     cx: &mut Context<AppModel>,
@@ -1260,8 +1215,6 @@ fn grouped_rows(
     let mut index = 0;
     for (position, group) in model.sidebar_groups().into_iter().enumerate() {
         let expanded = !group.heading || model.server_expanded(group.server);
-        // Collapsed to icons, the sidebar shows no headings: a rule per
-        // server only reads as clutter between the tiles.
         if group.heading && wide {
             rows.push(
                 div()
@@ -1341,7 +1294,6 @@ fn project_row(
         },
     );
     let activity = tab_activity::project_status(id, model);
-    // A collapsed tile dims under its spinner rather than wearing it as a badge.
     let dimmed = !wide
         && !hinted
         && matches!(
@@ -1524,7 +1476,6 @@ fn press_project(
     }
 }
 
-/// Opens the menu a project's right click opens.
 pub(super) fn project_actions(
     project: &Project,
     title: &str,
@@ -1543,12 +1494,10 @@ pub(super) fn project_actions(
     )
 }
 
-/// A worktree sits under its project.
 pub(super) fn project_level(project: &Project) -> usize {
     if project.parent_id.is_some() { 2 } else { 1 }
 }
 
-/// What a client reads after a project's name, beyond its selected state.
 pub(super) fn project_description(
     missing: bool,
     remote: Option<SharedString>,
