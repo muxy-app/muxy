@@ -34,6 +34,9 @@ impl Shortcut {
             "select_all" => Some(crate::tr_key!(
                 "Selects everything in the focused terminal."
             )),
+            "insert_path" => Some(crate::tr_key!(
+                "Browses the focused terminal's folder and types the path you pick at the cursor."
+            )),
             "toggle_project_focus" => Some(crate::tr_key!(
                 "Shows only the current project in the sidebar, or every project again."
             )),
@@ -282,6 +285,7 @@ pub enum ShortcutId {
     ScrollToTop,
     ResetFontSize,
     BrowserOpenExternally,
+    InsertPath,
 }
 
 impl ShortcutId {
@@ -1789,6 +1793,12 @@ pub const ALL: &[Shortcut] = &[
         keys: &[],
         contexts: &[Some("Browser")],
         key_contexts: &[],
+    },
+    Shortcut {
+        id: "insert_path",
+        keys: platform_keys!(&["cmd-ctrl-i"], &["ctrl-alt-i"]),
+        contexts: &[Some("WorkspaceTabs"), Some("QuickTerminal")],
+        key_contexts: &[&[Some("WorkspaceTabs"), Some("QuickTerminal")]],
     },
 ];
 

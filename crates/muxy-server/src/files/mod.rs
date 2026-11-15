@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
 
-use muxy_protocol::{ErrorCode, FilesAction, FilesReply, FilesRequest, ServerPath};
+use muxy_protocol::{ErrorCode, FilesAction, FilesReply, FilesRequest, PathEntry, ServerPath};
 
 use crate::{Registry, ServerError};
 
@@ -65,6 +65,27 @@ impl Files {
 /// this computer, for choosing a new project's folder. Links to folders
 /// count. A folder with more than the protocol allows lists only its first.
 pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
+    let mut names: Vec<_> = contents(directory)?
+        .into_iter()
+        .filter(|entry| entry.is_directory)
+        .map(|entry| entry.name)
+        .collect();
+    within_limits(&mut names, |name| name);
+    Ok(names)
+}
+
+/// The files and folders directly inside `directory`, an absolute path
+/// anywhere on this computer, for typing one's path into a terminal. Links
+/// to folders count as folders. A folder with more than the protocol allows
+/// lists only its first.
+pub(crate) fn entries(directory: &ServerPath) -> Result<Vec<PathEntry>> {
+    let mut entries = contents(directory)?;
+    within_limits(&mut entries, |entry| &entry.name);
+    Ok(entries)
+}
+
+/// Everything in `directory` whose name can travel, in no order.
+fn contents(directory: &ServerPath) -> Result<Vec<PathEntry>> {
     muxy_protocol::validate_absolute_path(directory)
         .map_err(|code| ServerError::new(code, "Use an absolute folder path"))?;
     let directory = path(directory)?;
@@ -73,24 +94,29 @@ pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
         std::io::ErrorKind::NotADirectory => error("not a folder"),
         _ => error(cause),
     })?;
-    let mut names = Vec::new();
+    let mut contents = Vec::new();
     for entry in entries {
         let entry = entry.map_err(error)?;
-        let folder = entry
+        let is_directory = entry
             .file_type()
             .is_ok_and(|kind| kind.is_dir() || (kind.is_symlink() && entry.path().is_dir()));
-        if folder && let Ok(name) = wire_path(Path::new(&entry.file_name())) {
-            names.push(name);
+        if let Ok(name) = wire_path(Path::new(&entry.file_name())) {
+            contents.push(PathEntry { name, is_directory });
         }
     }
-    names.sort_by_cached_key(|name| String::from_utf8_lossy(&name.0).to_lowercase());
-    names.truncate(muxy_protocol::MAX_FILE_ENTRIES);
+    Ok(contents)
+}
+
+/// Sorts `items` by name ignoring case and keeps the first the protocol
+/// allows in one listing.
+fn within_limits<T>(items: &mut Vec<T>, name: impl Fn(&T) -> &ServerPath) {
+    items.sort_by_cached_key(|item| String::from_utf8_lossy(&name(item).0).to_lowercase());
+    items.truncate(muxy_protocol::MAX_FILE_ENTRIES);
     let mut bytes = 0;
-    names.retain(|name| {
-        bytes += name.0.len();
+    items.retain(|item| {
+        bytes += name(item).0.len();
         bytes <= muxy_protocol::MAX_FILE_PATH_BYTES
     });
-    Ok(names)
 }
 
 pub(crate) fn is_read(action: &FilesAction) -> bool {

@@ -365,6 +365,7 @@
 "Browser Profile" = "Browser Profile";
 "Browser Profile: %@" = "Browser Profile: %@";
 "Browser tabs are not available on this platform yet." = "Browser tabs are not available on this platform yet.";
+"Browses the focused terminal's folder and types the path you pick at the cursor." = "Browses the focused terminal's folder and types the path you pick at the cursor.";
 "Browse…" = "Browse…";
 "Browsing" = "Browsing";
 "Bubble Left" = "Bubble Left";
@@ -1027,6 +1028,9 @@
 "Indigo" = "Indigo";
 "Inline file path" = "Inline file path";
 "Input" = "Input";
+"Insert Path" = "Insert Path";
+"Insert Path lists the paths you chose most recently first, shared by every terminal on a server." = "Insert Path lists the paths you chose most recently first, shared by every terminal on a server.";
+"Insert Path…" = "Insert Path…";
 "Install" = "Install";
 "Install %@" = "Install %@";
 "Install %@ and open it from there before installing its command line tool." = "Install %@ and open it from there before installing its command line tool.";
@@ -1308,6 +1312,7 @@
 "No matches" = "No matches";
 "No matching commands" = "No matching commands";
 "No matching extensions" = "No matching extensions";
+"No matching files or folders" = "No matching files or folders";
 "No matching folders" = "No matching folders";
 "No matching servers" = "No matching servers";
 "No matching sessions" = "No matching sessions";
@@ -1360,6 +1365,7 @@
 "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN." = "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN.";
 "Once a day, tells muxy.app the app version, operating system, and processor type, so we can count active installs per version. Nothing identifies you or this computer. Starting Muxy with DO_NOT_TRACK=1 also turns it off." = "Once a day, tells muxy.app the app version, operating system, and processor type, so we can count active installs per version. Nothing identifies you or this computer. Starting Muxy with DO_NOT_TRACK=1 also turns it off.";
 "One terminal, any client" = "One terminal, any client";
+"Only hidden files. Type . to list them." = "Only hidden files. Type . to list them.";
 "Only within this computer" = "Only within this computer";
 "Open" = "Open";
 "Open %@ with…" = "Open %@ with…";
@@ -1848,6 +1854,7 @@
 "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed." = "Show project icons or hide the sidebar in Project Focused. Tab Focused and Agents Focused always hide it when collapsed.";
 "Show project names alongside their icons in the workspace sidebar." = "Show project names alongside their icons in the workspace sidebar.";
 "Show rail" = "Show rail";
+"Show recently used paths" = "Show recently used paths";
 "Show status bar" = "Show status bar";
 "Show the agents panel, or its button when the sidebar is collapsed." = "Show the agents panel, or its button when the sidebar is collapsed.";
 "Show tips" = "Show tips";
@@ -2067,6 +2074,7 @@
 "This link is for %@, which is already listed. Pair it again from its own Edit… form." = "This link is for %@, which is already listed. Pair it again from its own Edit… form.";
 "This opens a public pull request against %@ from your GitHub account, %@. Maintainers review it, and once merged it is listed for everyone." = "This opens a public pull request against %@ from your GitHub account, %@. Maintainers review it, and once merged it is listed for everyone.";
 "This page can't be opened" = "This page can't be opened";
+"This path can't be typed safely into the program running here." = "This path can't be typed safely into the program running here.";
 "This path is a file. Choose a folder for the project." = "This path is a file. Choose a folder for the project.";
 "This permanently deletes the profile's cookies, history, and browsing data. Its tabs use the default profile." = "This permanently deletes the profile's cookies, history, and browsing data. Its tabs use the default profile.";
 "This project’s folder could not be found. Remove the project from the sidebar to clear its tabs." = "This project’s folder could not be found. Remove the project from the sidebar to clear its tabs.";
@@ -2076,6 +2084,7 @@
 "This server can’t move terminals between projects. Update it, then try again." = "This server can’t move terminals between projects. Update it, then try again.";
 "This session is no longer available. Refresh the session list." = "This session is no longer available. Refresh the session list.";
 "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones." = "This signs out and removes all cookies, cache, history, and logins for this profile, including imported ones.";
+"This terminal's folder isn't known yet." = "This terminal's folder isn't known yet.";
 "This terminal's shell can't be sent file paths safely." = "This terminal's shell can't be sent file paths safely.";
 "This turns on Allow clients. A paired phone gets full terminal access; revoke it anytime in Settings → Servers." = "This turns on Allow clients. A paired phone gets full terminal access; revoke it anytime in Settings → Servers.";
 "This update requires a server restart" = "This update requires a server restart";
@@ -2140,6 +2149,7 @@
 "Untitled session" = "Untitled session";
 "Untracked" = "Untracked";
 "Update" = "Update";
+"Update Muxy on %@ to browse its files." = "Update Muxy on %@ to browse its files.";
 "Update Muxy on %@: %@" = "Update Muxy on %@: %@";
 "Update Muxy to see this status" = "Update Muxy to see this status";
 "Update When Sessions End" = "Update When Sessions End";
@@ -2339,6 +2349,7 @@
 "hide others" = "hide others";
 "host, address, or ~/.ssh/config alias" = "host, address, or ~/.ssh/config alias";
 "increase font size" = "increase font size";
+"insert path" = "insert path";
 "install command line tool" = "install command line tool";
 "invalid archive checksum" = "invalid archive checksum";
 "invalid archive path" = "invalid archive path";

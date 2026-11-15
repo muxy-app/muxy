@@ -53,6 +53,7 @@ pub(crate) enum Change {
     /// `[openers] project_target`: the app the Open in IDE control opens.
     ProjectTarget(String),
     Directory(muxy_app_core::settings::NewPaneDirectory),
+    InsertPathRecents(bool),
     Field(&'static str, String),
     Binding(String, Option<muxy_app_core::settings::KeyChord>),
     Command(muxy_app_core::settings::CustomCommand),
@@ -763,6 +764,10 @@ impl AppModel {
                 settings.panes.new_pane_directory = value;
                 settings.save_panes(&path)?;
             }
+            Change::InsertPathRecents(value) => {
+                settings.panes.insert_path_recents = value;
+                settings.save_panes(&path)?;
+            }
             Change::Command(command) => {
                 command.validate()?;
                 if let Some(existing) = settings
@@ -845,9 +850,9 @@ impl AppModel {
                     *terminal = muxy_app_core::settings::TerminalSettings::default();
                     Ok(())
                 })?;
-                let directory = muxy_app_core::settings::NewPaneDirectory::default();
-                if settings.panes.new_pane_directory != directory {
-                    settings.panes.new_pane_directory = directory;
+                let panes = muxy_app_core::settings::PaneSettings::default();
+                if settings.panes != panes {
+                    settings.panes = panes;
                     settings.save_panes(&path)?;
                 }
             }
@@ -1453,6 +1458,7 @@ fn change_id(change: &Change) -> &str {
         Change::AlwaysAskFiles(_) => "always-ask-files",
         Change::ProjectTarget(_) => "project-target",
         Change::Directory(_) => "directory",
+        Change::InsertPathRecents(_) => "insert-path-recents",
         Change::Terminal("padding-left" | "padding-right", _) => "window-padding-x",
         Change::Terminal("padding-top" | "padding-bottom", _) => "window-padding-y",
         Change::Terminal("dismiss-import-notes", _) => "terminal-import-notes",

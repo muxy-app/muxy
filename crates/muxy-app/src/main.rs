@@ -89,6 +89,7 @@ mod views {
         pub(crate) mod find;
         pub(crate) mod ime;
         pub(crate) mod input;
+        pub(crate) mod insert_path;
         pub(crate) mod links;
         pub(crate) mod pane;
         pub(crate) mod scroll;

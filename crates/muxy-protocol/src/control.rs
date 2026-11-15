@@ -269,6 +269,11 @@ pub enum RequestBody {
     /// Saved screens still carry pixels. Older servers reply `Unsupported`.
     #[n(54)]
     StreamImages,
+    /// The files and folders directly inside an absolute path on the server's
+    /// computer, for typing one's path into a terminal there. Older servers
+    /// reply `Unsupported`.
+    #[n(55)]
+    ListEntries(#[n(0)] ServerPath),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -400,6 +405,9 @@ pub enum ReplyBody {
     ImageFrames(#[n(0)] Vec<crate::ImageFrame>),
     #[n(47)]
     ImagesStreamed,
+    /// What a folder holds, sorted by name ignoring case.
+    #[n(48)]
+    Entries(#[n(0)] Vec<crate::PathEntry>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

@@ -157,6 +157,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("ListFolders", ChannelKind::Control),
             Message::Request {
+                body: RequestBody::ListEntries(_),
+                ..
+            } => ("ListEntries", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::Upload(_),
                 ..
             } => ("Upload", ChannelKind::Control),
@@ -567,6 +571,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("Folders", ChannelKind::Control),
             Message::Reply {
+                body: ReplyBody::Entries(_),
+                ..
+            } => ("Entries", ChannelKind::Control),
+            Message::Reply {
                 body: ReplyBody::Uploaded(_),
                 ..
             } => ("Uploaded", ChannelKind::Control),
@@ -730,6 +738,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "StartPairingWithHosts",
             "ListFolders",
             "Folders",
+            "ListEntries",
+            "Entries",
             "Upload",
             "Uploaded",
             "CancelPairing",

@@ -218,7 +218,9 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         }
         RequestBody::Git(request) => request.validate(),
         RequestBody::Files(request) => request.validate(),
-        RequestBody::ListFolders(path) => validate_absolute_path(path),
+        RequestBody::ListFolders(path) | RequestBody::ListEntries(path) => {
+            validate_absolute_path(path)
+        }
         RequestBody::Upload(chunk) => chunk.validate(),
         RequestBody::Exec(request) => request.validate(),
         RequestBody::SyncSessionReferences { sessions, .. } => {
@@ -342,6 +344,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         }
         ReplyBody::Files(reply) => reply.validate(),
         ReplyBody::Folders(names) => crate::validate_folder_names(names),
+        ReplyBody::Entries(entries) => crate::validate_path_entries(entries),
         ReplyBody::Uploaded(path) => crate::validate_uploaded(path.as_ref()),
         ReplyBody::Exec(reply) => reply.validate(),
         ReplyBody::Catalog(page) => page.validate(),

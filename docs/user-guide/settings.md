@@ -76,6 +76,9 @@ Use **Settings → Terminal** for:
 - Whether both, neither, left, or right Option keys act as Alt.
 - Whether new tabs and panes start in the focused pane's working directory
   (**Keep working directory**, off by default) or in the project folder.
+- Whether [Insert Path](../features/terminal.md#insert-a-path) lists the paths
+  you chose most recently first (**Show recently used paths**, on by default).
+  Turning it off also stops remembering them.
 - Key bindings the terminal handles while focused: record a key, then pick an
   action such as sending text. They win over app shortcuts. You can also turn
   off the built-in terminal bindings.

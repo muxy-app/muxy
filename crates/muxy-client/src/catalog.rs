@@ -104,6 +104,19 @@ impl Client {
         }
     }
 
+    /// The files and folders directly inside `directory`, an absolute path on
+    /// the server's computer, sorted by name ignoring case. Servers from
+    /// before this request answer `Unsupported`.
+    pub fn list_entries(
+        &self,
+        directory: muxy_protocol::ServerPath,
+    ) -> Result<Vec<muxy_protocol::PathEntry>, ClientError> {
+        match self.request(RequestBody::ListEntries(directory))? {
+            ReplyBody::Entries(entries) => Ok(entries),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
     /// Sends `bytes` as a file named `name` for `session` to keep on the
     /// server's computer, in chunks, and returns its absolute path there.
     /// Servers from before uploads answer `Unsupported`.
@@ -359,5 +372,41 @@ mod tests {
             "{listing:?}"
         );
         assert_eq!(fake.answered().len(), 1);
+    }
+
+    #[test]
+    fn listing_entries_sends_the_folder_and_reports_an_older_server() {
+        let fake = Fake::start();
+        let folder = ServerPath(b"/home/dev".to_vec());
+        let entries = vec![
+            muxy_protocol::PathEntry {
+                name: ServerPath(b"code".to_vec()),
+                is_directory: true,
+            },
+            muxy_protocol::PathEntry {
+                name: ServerPath(b"notes.txt".to_vec()),
+                is_directory: false,
+            },
+        ];
+        let (request, listed) = fake.answer(ReplyBody::Entries(entries.clone()), |client| {
+            client.list_entries(folder.clone())
+        });
+        assert_eq!(request, RequestBody::ListEntries(folder.clone()));
+        assert_eq!(listed.expect("entries"), entries);
+
+        let (_, listed) = fake.answer(ReplyBody::Folders(Vec::new()), |client| {
+            client.list_entries(folder.clone())
+        });
+        assert!(matches!(listed, Err(ClientError::UnexpectedReply(_))));
+
+        let unsupported = ReplyBody::Error(ErrorReply {
+            code: ErrorCode::Unsupported,
+            message: "update".into(),
+        });
+        let (_, listed) = fake.answer(unsupported, |client| client.list_entries(folder));
+        assert!(matches!(
+            listed,
+            Err(ClientError::Server(error)) if error.code == ErrorCode::Unsupported
+        ));
     }
 }

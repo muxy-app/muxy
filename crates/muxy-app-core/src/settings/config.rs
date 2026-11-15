@@ -96,10 +96,22 @@ fn commit_choices<'de, D: serde::Deserializer<'de>>(
     })
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PaneSettings {
     pub new_pane_directory: NewPaneDirectory,
+    /// Whether Insert Path remembers the paths it typed and lists them
+    /// first.
+    pub insert_path_recents: bool,
+}
+
+impl Default for PaneSettings {
+    fn default() -> Self {
+        Self {
+            new_pane_directory: NewPaneDirectory::default(),
+            insert_path_recents: true,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

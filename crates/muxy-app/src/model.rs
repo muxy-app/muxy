@@ -19,6 +19,7 @@ pub(crate) mod extensions;
 pub(crate) mod floating;
 pub(crate) mod focus;
 pub(crate) mod git;
+mod insert_path;
 mod language;
 mod links;
 pub(crate) mod onboarding;
@@ -293,6 +294,7 @@ impl AppModel {
             pane.view.update(cx, |pane, cx| {
                 pane.palette = self.palette;
                 pane.update_find_appearance(&self.theme, self.metrics, cx);
+                pane.update_insert_path_appearance(&self.theme, self.metrics, cx);
                 cx.notify();
             });
         }
@@ -2174,6 +2176,8 @@ impl AppModel {
                 model.send_channel(id, Work::Ack(*channel, *seq), cx);
             }
             PaneEvent::Search(request) => model.search(id, request.clone(), cx),
+            PaneEvent::BrowsePaths => model.browse_paths(id, cx),
+            PaneEvent::PathChosen(path) => model.remember_chosen_path(id, path, cx),
             PaneEvent::Viewport(size) => model.viewport(id, *size, cx),
             PaneEvent::Input(channel, bytes) => {
                 crate::diagnostics::event(
@@ -3360,6 +3364,7 @@ pub(crate) mod tests {
     mod floating_tabs;
     mod focus;
     mod git;
+    mod insert_path;
     mod layout_drag;
     mod links;
     // Remote servers are reached over SSH, which Windows builds don't offer.

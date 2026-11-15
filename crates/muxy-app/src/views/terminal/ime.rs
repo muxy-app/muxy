@@ -189,7 +189,8 @@ impl TerminalPane {
             .width
     }
 
-    fn composition_bounds(&self) -> Option<Bounds<Pixels>> {
+    /// The cursor's cell, in the window.
+    pub(super) fn composition_bounds(&self) -> Option<Bounds<Pixels>> {
         let (bounds, cell) = self.geometry?;
         let grid = self.grid.as_ref()?;
         Some(Bounds::new(

@@ -373,6 +373,8 @@ pub struct PickerRow {
     pub detail: Option<SharedString>,
     pub leading: Option<PickerLeading>,
     pub trailing: Option<SharedString>,
+    /// An icon at the row's right edge, such as a mark on a recent row.
+    pub trailing_icon: Option<Icon>,
     /// A short label outlined at the row's right edge.
     pub badge: Option<SharedString>,
     pub actions: Vec<PickerAction>,
@@ -391,6 +393,7 @@ impl PickerRow {
             detail: None,
             leading: None,
             trailing: None,
+            trailing_icon: None,
             badge: None,
             actions: Vec::new(),
             swatches: Vec::new(),
@@ -1331,6 +1334,21 @@ impl Picker {
                             .text_size(self.metrics.font_footnote())
                             .text_color(self.theme.fg_muted)
                             .child(trailing),
+                    );
+                }
+                if let Some(icon) = row.trailing_icon {
+                    content = content.child(
+                        div()
+                            .debug_selector({
+                                let id = row.id.clone();
+                                move || format!("picker-trailing-icon-{id}")
+                            })
+                            .flex_none()
+                            .child(IconGlyph::new(
+                                icon,
+                                self.metrics.icon_sm(),
+                                self.theme.fg_muted,
+                            )),
                     );
                 }
                 if let Some(badge) = row.badge {

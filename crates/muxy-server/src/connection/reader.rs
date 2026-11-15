@@ -216,6 +216,24 @@ impl Requests {
                     .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
                 Ok(None)
             }
+            // A folder that is slow to read, such as one on a network mount
+            // that went away, must not hold up the connection's other requests.
+            RequestBody::ListEntries(directory) => {
+                let output = Arc::clone(connection);
+                self.files_readers
+                    .try_spawn(move || {
+                        if output.is_closed() {
+                            return;
+                        }
+                        let body = match crate::files::entries(&directory) {
+                            Ok(entries) => ReplyBody::Entries(entries),
+                            Err(error) => ReplyBody::Error(error.to_reply()),
+                        };
+                        output.push_control(Message::Reply { id, body });
+                    })
+                    .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
+                Ok(None)
+            }
             RequestBody::Git(request) => {
                 let watch = Arc::clone(&self.git_watch);
                 let registry = Arc::clone(&self.registry);
@@ -459,7 +477,8 @@ fn ordered_request(
         | RequestBody::Exec(_)
         | RequestBody::CancelExec(_)
         | RequestBody::Git(_)
-        | RequestBody::Files(_) => {
+        | RequestBody::Files(_)
+        | RequestBody::ListEntries(_) => {
             return Err(ServerError::new(
                 ErrorCode::BadRequest,
                 "request was routed to the wrong worker",

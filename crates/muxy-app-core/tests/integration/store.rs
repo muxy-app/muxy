@@ -300,3 +300,27 @@ fn older_files_keep_everything_and_move_server_state_to_the_local_entry() -> Tes
     }
     Ok(())
 }
+
+#[test]
+fn recent_paths_are_kept_per_server_most_recent_first_and_survive_a_restart() -> TestResult {
+    let fixture = Fixture::new()?;
+    let mut state = AppState::bootstrap()?;
+    let local = ServerId::local();
+    assert!(state.recent_paths(local).is_empty());
+    assert!(state.remember_path(local, "/tmp/a"));
+    assert!(state.remember_path(local, "/tmp/b"));
+    assert!(!state.remember_path(local, "/tmp/b"), "already the latest");
+    assert!(state.remember_path(local, "/tmp/a"));
+    assert_eq!(state.recent_paths(local), ["/tmp/a", "/tmp/b"]);
+
+    for index in 0..150 {
+        state.remember_path(local, &format!("/tmp/{index}"));
+    }
+    assert_eq!(state.recent_paths(local).len(), 100);
+    assert_eq!(state.recent_paths(local)[0], "/tmp/149");
+    assert!(!state.recent_paths(local).contains(&"/tmp/a".to_owned()));
+
+    store::save(fixture.path(), &state)?;
+    assert_eq!(store::load(fixture.path())?.recent_paths(local).len(), 100);
+    Ok(())
+}

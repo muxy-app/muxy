@@ -71,6 +71,7 @@ pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(
         | RequestBody::ClaimActivity(_)
         | RequestBody::Files(_)
         | RequestBody::ListFolders(_)
+        | RequestBody::ListEntries(_)
         | RequestBody::Upload(_)
         | RequestBody::WriteInput { .. } => Ok(()),
     }

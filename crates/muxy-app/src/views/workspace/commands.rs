@@ -16,11 +16,11 @@ use super::{
     DetachTerminal, DockFloatingTerminal, EndAllSessionsAndQuit, EqualizeSplits, ExistingTerminals,
     Find, FindNext, FindPrevious, FloatPane, FocusNextPane, FocusPaneDown, FocusPaneLeft,
     FocusPaneRight, FocusPaneUp, FocusPreviousPane, HideApp, HideOthers, IncreaseFontSize,
-    InstallCommandLineTool, ManageExtensions, Minimize, MovePaneToNewTab, MovePaneToNewWindow,
-    MoveTabLeft, MoveTabRight, MoveTabToMainWindow, MoveTabToNewWindow, NavigateBack,
-    NavigateForward, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewTabToTheLeft,
-    NewTabToTheRight, NewWorkspace, NewWorktree, NextProject, NextPrompt, NextTab, OpenAbout,
-    OpenConfiguration, OpenKeyboardShortcuts, OpenProjectInDefaultApp, OpenSettings,
+    InsertPath, InstallCommandLineTool, ManageExtensions, Minimize, MovePaneToNewTab,
+    MovePaneToNewWindow, MoveTabLeft, MoveTabRight, MoveTabToMainWindow, MoveTabToNewWindow,
+    NavigateBack, NavigateForward, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject,
+    NewTabToTheLeft, NewTabToTheRight, NewWorkspace, NewWorktree, NextProject, NextPrompt, NextTab,
+    OpenAbout, OpenConfiguration, OpenKeyboardShortcuts, OpenProjectInDefaultApp, OpenSettings,
     PreviousProject, PreviousPrompt, PreviousTab, Quit, ReloadConfiguration, RemoveProject,
     RenameProject, RenameTab, ResetFontSize, ResetTabTitle, ResizePaneDown, ResizePaneLeft,
     ResizePaneRight, ResizePaneUp, RevealProject, ScrollToBottom, ScrollToTop, SelectAllInTerminal,
@@ -370,6 +370,10 @@ static COMMANDS: &[CommandDef] = &[
     )
     .available(has_terminal)
     .run(|model, _, cx| model.step_find(true, cx)),
+    row::<InsertPath>(ShortcutId::InsertPath, Label::Key(tr_key!("Insert Path…")))
+        .keywords("Insert Path File Folder Directory Browse Type Cursor")
+        .available(has_terminal)
+        .run(AppModel::insert_path),
     row::<PreviousPrompt>(
         ShortcutId::PreviousPrompt,
         Label::Key(tr_key!("Previous Prompt")),
