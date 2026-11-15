@@ -187,7 +187,7 @@ impl Settings {
         table: &str,
         entries: Vec<(&str, Option<toml::Value>)>,
     ) -> Result<AiSettings> {
-        crate::settings::appearance::save_entries(path, "ai", table, entries)
+        crate::settings::document::save_entries(path, "ai", table, entries)
             .and_then(|saved| saved.try_into().map_err(Into::into))
             .map_err(|error| Error::new("ai", error))
     }
@@ -221,7 +221,7 @@ impl Settings {
             .entry(owner.into())
             .or_default()
             .insert(panel.into(), layout);
-        crate::settings::appearance::save_section(path, "panel_layouts", &layouts)
+        crate::settings::document::save_section(path, "panel_layouts", &layouts)
             .map_err(|error| Error::new("panel_layouts", error))?;
         self.panel_layouts = layouts;
         Ok(())
@@ -246,7 +246,7 @@ impl Settings {
         pins.entry(owner.into())
             .or_default()
             .insert(panel.into(), pinned);
-        crate::settings::appearance::save_section(path, "panel_pins", &pins)
+        crate::settings::document::save_section(path, "panel_pins", &pins)
             .map_err(|error| Error::new("panel_pins", error))?;
         self.panel_pins = pins;
         Ok(())
@@ -257,7 +257,7 @@ impl Settings {
             "confirm_running_process".into(),
             toml::Value::Boolean(enabled),
         )]);
-        crate::settings::appearance::save_section(path, "window", &values)
+        crate::settings::document::save_section(path, "window", &values)
             .map_err(|error| Error::new("window.confirm_running_process", error))?;
         self.window.confirm_running_process = enabled;
         Ok(())
@@ -268,7 +268,7 @@ impl Settings {
             "search_root".into(),
             toml::Value::String(root.to_string_lossy().into_owned()),
         )]);
-        crate::settings::appearance::save_section(path, "projects", &values)
+        crate::settings::document::save_section(path, "projects", &values)
             .map_err(|error| Error::new("projects.search_root", error))?;
         self.projects.search_root = Some(root);
         Ok(())
@@ -314,39 +314,39 @@ impl Settings {
 
     pub fn save_window(&self, path: &Path) -> Result<()> {
         self.validate()?;
-        crate::settings::appearance::save_section(path, "window", &self.window)
+        crate::settings::document::save_section(path, "window", &self.window)
             .map_err(|error| Error::new("window", error))
     }
 
     pub fn save_privacy(&self, path: &Path) -> Result<()> {
-        crate::settings::appearance::save_section(path, "privacy", &self.privacy)
+        crate::settings::document::save_section(path, "privacy", &self.privacy)
             .map_err(|error| Error::new("privacy", error))
     }
 
     pub fn save_clipboard(&self, path: &Path) -> Result<()> {
-        crate::settings::appearance::save_section(path, "clipboard", &self.clipboard)
+        crate::settings::document::save_section(path, "clipboard", &self.clipboard)
             .map_err(|error| Error::new("clipboard", error))
     }
 
     pub fn save_openers(&self, path: &Path) -> Result<()> {
-        crate::settings::appearance::save_section(path, "openers", &self.openers)
+        crate::settings::document::save_section(path, "openers", &self.openers)
             .map_err(|error| Error::new("openers", error))
     }
 
     pub fn save_composer(&self, path: &Path) -> Result<()> {
         self.composer.validate()?;
-        crate::settings::appearance::save_section(path, "composer", &self.composer)
+        crate::settings::document::save_section(path, "composer", &self.composer)
             .map_err(|error| Error::new("composer", error))
     }
 
     pub fn save_browser(&self, path: &Path) -> Result<()> {
         self.browser.validate()?;
-        crate::settings::appearance::save_section(path, "browser", &self.browser)
+        crate::settings::document::save_section(path, "browser", &self.browser)
             .map_err(|error| Error::new("browser", error))
     }
 
     pub fn save_panes(&self, path: &Path) -> Result<()> {
-        crate::settings::appearance::save_section(path, "panes", &self.panes)
+        crate::settings::document::save_section(path, "panes", &self.panes)
             .map_err(|error| Error::new("panes", error))
     }
 }

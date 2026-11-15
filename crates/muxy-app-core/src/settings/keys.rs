@@ -112,7 +112,7 @@ impl Profile {
         terminal: &TerminalSettings,
         change: impl FnOnce(&mut toml::Table) -> std::result::Result<T, String>,
     ) -> Result<T> {
-        super::appearance::edit_document(&self.settings_path(), |document| {
+        super::document::edit_document(&self.settings_path(), |document| {
             let changed = change(document)?;
             let settings: Settings = toml::Value::Table(document.clone()).try_into()?;
             settings.validate()?;

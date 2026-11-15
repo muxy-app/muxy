@@ -28,14 +28,14 @@ impl TerminalSettings {
     }
 
     pub fn edit_native(path: &Path, edit: impl FnOnce(&mut Self) -> Result<()>) -> Result<Self> {
-        let _lock = crate::settings::appearance::lock(path)
+        let _lock = crate::settings::document::lock(path)
             .map_err(|error| Error::new("terminal.toml", error))?;
         let mut settings = match Self::read_native(path)? {
             Some(settings) => settings,
             None => Self::migrated(path)?,
         };
         edit(&mut settings)?;
-        crate::settings::appearance::atomic_write(path, &settings.native_source()?)
+        crate::settings::document::atomic_write(path, &settings.native_source()?)
             .map_err(|error| Error::new("terminal.toml", error))?;
         Ok(settings)
     }

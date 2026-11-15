@@ -81,7 +81,7 @@ impl QuickTerminalSettings {
 
     pub fn save(&self, path: &Path) -> Result<()> {
         self.validate()?;
-        crate::settings::appearance::save_section(path, "quick_terminal", self)
+        crate::settings::document::save_section(path, "quick_terminal", self)
             .map_err(|error| Error::new("quick_terminal", error))
     }
 }

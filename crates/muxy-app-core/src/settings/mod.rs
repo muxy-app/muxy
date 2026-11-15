@@ -5,6 +5,7 @@ mod chord;
 mod commands;
 mod composer;
 mod config;
+mod document;
 mod error;
 mod ghostty;
 mod keymap;

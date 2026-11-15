@@ -191,7 +191,7 @@ impl Keymap {
     }
 
     pub fn save(&self, path: &std::path::Path) -> Result<()> {
-        crate::settings::appearance::replace_section(path, "keymap", &self.1)
+        crate::settings::document::replace_section(path, "keymap", &self.1)
             .map_err(|error| Error::new("keymap", error))
     }
 
@@ -201,11 +201,11 @@ impl Keymap {
 
     pub fn reset_swapped_close_shortcuts(path: &std::path::Path) -> Result<bool> {
         let error = |error| Error::new("keymap", error);
-        let document = crate::settings::appearance::read_document(path).map_err(error)?;
+        let document = crate::settings::document::read_document(path).map_err(error)?;
         if close_shortcuts_reset(&document).is_none() {
             return Ok(false);
         }
-        crate::settings::appearance::edit_document(path, |document| {
+        crate::settings::document::edit_document(path, |document| {
             let Some(keymap) = close_shortcuts_reset(document) else {
                 return Ok(false);
             };
