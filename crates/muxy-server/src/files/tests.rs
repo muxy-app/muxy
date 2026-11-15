@@ -260,6 +260,64 @@ fn mkdir_rename_and_move_do_not_overwrite_collisions() {
 }
 
 #[test]
+fn mkdir_and_move_skip_mixed_collisions_and_use_the_first_available_name() {
+    let workspace = Workspace::new();
+    for directory in ["source", "folders", "archive"] {
+        std::fs::create_dir(workspace.path.join(directory)).unwrap();
+    }
+    for (name, second, third, fourth) in [
+        ("folder", "folder 2", "folder 3", "folder 4"),
+        (".env", ".env 2", ".env 3", ".env 4"),
+        (
+            "résumé.tar.gz",
+            "résumé.tar 2.gz",
+            "résumé.tar 3.gz",
+            "résumé.tar 4.gz",
+        ),
+    ] {
+        for directory in ["folders", "archive"] {
+            let directory = workspace.path.join(directory);
+            std::fs::write(directory.join(name), "original").unwrap();
+            std::fs::create_dir(directory.join(second)).unwrap();
+            std::fs::write(directory.join(second).join("kept"), "nested").unwrap();
+            std::fs::write(directory.join(fourth), "later collision").unwrap();
+        }
+        assert_eq!(
+            workspace
+                .files(FilesAction::Mkdir(p(&format!("folders/{name}"))))
+                .unwrap(),
+            FilesReply::Path(p(&format!("folders/{third}")))
+        );
+        assert!(workspace.path.join("folders").join(third).is_dir());
+        std::fs::write(workspace.path.join("source").join(name), "moved").unwrap();
+        assert_eq!(
+            workspace
+                .files(FilesAction::Move {
+                    paths: vec![p(&format!("source/{name}"))],
+                    into: p("archive"),
+                })
+                .unwrap(),
+            FilesReply::Paths(vec![p(&format!("archive/{third}"))])
+        );
+        assert!(!workspace.path.join("source").join(name).exists());
+        assert_eq!(
+            std::fs::read_to_string(workspace.path.join("archive").join(third)).unwrap(),
+            "moved"
+        );
+        for directory in ["folders", "archive"] {
+            let directory = workspace.path.join(directory);
+            for (path, content) in [
+                (directory.join(name), "original"),
+                (directory.join(second).join("kept"), "nested"),
+                (directory.join(fourth), "later collision"),
+            ] {
+                assert_eq!(std::fs::read_to_string(path).unwrap(), content);
+            }
+        }
+    }
+}
+
+#[test]
 fn root_aliases_and_traversal_cannot_be_mutated() {
     let workspace = Workspace::new();
     std::fs::create_dir(workspace.path.join("nested")).unwrap();
