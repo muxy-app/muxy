@@ -525,13 +525,13 @@ impl Grants {
     }
 
     pub fn set_trusted(&mut self, owner: &str, trusted: bool) -> Result<(), String> {
-        let mut rules = self.rules.clone();
-        if trusted {
-            rules.insert(trust_key(owner), Consent::Allow);
-        } else {
-            rules.remove(&trust_key(owner));
-        }
-        self.save(rules)
+        self.update(|rules| {
+            if trusted {
+                rules.insert(trust_key(owner), Consent::Allow);
+            } else {
+                rules.remove(&trust_key(owner));
+            }
+        })
     }
 
     pub fn rules(&self, owner: &str) -> Vec<Rule> {
@@ -550,9 +550,9 @@ impl Grants {
     }
 
     pub fn remove(&mut self, owner: &str, rule: &Rule) -> Result<(), String> {
-        let mut rules = self.rules.clone();
-        rules.remove(&key(owner, rule.gate, &rule.pattern));
-        self.save(rules)
+        self.update(|rules| {
+            rules.remove(&key(owner, rule.gate, &rule.pattern));
+        })
     }
 
     pub fn remember(
@@ -567,22 +567,24 @@ impl Grants {
         let Some(rule) = request.rule(choice) else {
             return Ok(());
         };
-        let mut rules = self.rules.clone();
-        if rule.consent == Consent::Blocked {
-            let prefix = key(owner, rule.gate, "");
-            rules.retain(|key, _| !key.starts_with(&prefix));
-        }
-        rules.insert(key(owner, rule.gate, &rule.pattern), rule.consent);
-        self.save(rules)
+        self.update(|rules| {
+            if rule.consent == Consent::Blocked {
+                let prefix = key(owner, rule.gate, "");
+                rules.retain(|key, _| !key.starts_with(&prefix));
+            }
+            rules.insert(key(owner, rule.gate, &rule.pattern), rule.consent);
+        })
     }
 
     pub fn clear(&mut self, owner: &str) -> Result<(), String> {
-        let mut rules = self.rules.clone();
-        rules.retain(|key, _| !key.starts_with(&format!("{owner}:")));
-        self.save(rules)
+        self.update(|rules| {
+            rules.retain(|key, _| !key.starts_with(&format!("{owner}:")));
+        })
     }
 
-    fn save(&mut self, rules: BTreeMap<String, Consent>) -> Result<(), String> {
+    fn update(&mut self, edit: impl FnOnce(&mut BTreeMap<String, Consent>)) -> Result<(), String> {
+        let mut rules = self.rules.clone();
+        edit(&mut rules);
         super::storage::write(&self.path, &serde_json::json!(rules))?;
         self.rules = rules;
         Ok(())

@@ -451,6 +451,102 @@ fn write_package(root: &Path, muxy: &serde_json::Value, files: &[(&str, &str)]) 
 }
 
 #[test]
+fn failed_grant_changes_keep_the_previous_permissions() {
+    let root = tempfile::tempdir().unwrap();
+    let profile = root.path().join("profile");
+    let saved = root.path().join("saved");
+    fs::create_dir(&profile).unwrap();
+    let request = Request::file("write", "a.txt");
+    let mut grants = Grants::load(&profile).unwrap();
+    for owner in ["files", "files-extra", "trusted"] {
+        grants
+            .remember(owner, &request, Choice::DenyAndRemember)
+            .unwrap();
+    }
+    grants.set_trusted("trusted", true).unwrap();
+    let original = fs::read(profile.join("extension-grants.json")).unwrap();
+    fs::rename(&profile, &saved).unwrap();
+    fs::write(&profile, b"not a directory").unwrap();
+
+    let mutations = [
+        (
+            "allow",
+            (|grants, request| grants.remember("files", request, Choice::AllowAndRemember))
+                as fn(&mut Grants, &Request) -> Result<(), String>,
+        ),
+        ("deny", |grants, request| {
+            grants.remember("new", request, Choice::DenyAndRemember)
+        }),
+        ("block", |grants, request| {
+            grants.remember("files", request, Choice::Block)
+        }),
+        ("trust choice", |grants, request| {
+            grants.remember("files", request, Choice::Trust)
+        }),
+        ("trust", |grants, _| grants.set_trusted("files", true)),
+        ("revoke trust", |grants, _| {
+            grants.set_trusted("trusted", false)
+        }),
+        ("remove", |grants, request| {
+            grants.remove("files", &request.rule(Choice::DenyAndRemember).unwrap())
+        }),
+        ("clear", |grants, _| grants.clear("files")),
+        ("clear trusted", |grants, _| grants.clear("trusted")),
+    ];
+    for (name, mutate) in mutations {
+        let mut changed = grants.clone();
+        assert!(mutate(&mut changed, &request).is_err(), "{name}");
+        for owner in ["files", "files-extra", "trusted", "new"] {
+            assert_eq!(changed.rules(owner), grants.rules(owner), "{name}: {owner}");
+            assert_eq!(
+                changed.trusted(owner),
+                grants.trusted(owner),
+                "{name}: {owner}"
+            );
+            assert_eq!(
+                changed.decision(owner, &request),
+                grants.decision(owner, &request),
+                "{name}: {owner}"
+            );
+        }
+    }
+    for choice in [Choice::Allow, Choice::Cancel] {
+        grants.remember("files", &request, choice).unwrap();
+        assert_eq!(grants.decision("files", &request), Consent::Deny);
+    }
+    assert_eq!(
+        fs::read(saved.join("extension-grants.json")).unwrap(),
+        original
+    );
+    assert_eq!(fs::read(&profile).unwrap(), b"not a directory");
+}
+
+#[test]
+fn removing_a_grant_persists_without_changing_other_scopes() {
+    let root = tempfile::tempdir().unwrap();
+    let mut grants = Grants::load(root.path()).unwrap();
+    let write = Request::file("write", "a.txt");
+    let remove = Request::file("delete", "a.txt");
+    for (owner, request) in [
+        ("files", &write),
+        ("files", &remove),
+        ("files-extra", &write),
+    ] {
+        grants
+            .remember(owner, request, Choice::AllowAndRemember)
+            .unwrap();
+    }
+    grants
+        .remove("files", &write.rule(Choice::AllowAndRemember).unwrap())
+        .unwrap();
+    for saved in [grants, Grants::load(root.path()).unwrap()] {
+        assert_eq!(saved.decision("files", &write), Consent::Ask);
+        assert_eq!(saved.decision("files", &remove), Consent::Allow);
+        assert_eq!(saved.decision("files-extra", &write), Consent::Allow);
+    }
+}
+
+#[test]
 fn trust_allows_every_gate_over_saved_rules_until_removed() {
     let root = tempfile::tempdir().unwrap();
     let mut grants = Grants::load(root.path()).unwrap();
