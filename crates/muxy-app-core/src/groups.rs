@@ -117,6 +117,58 @@ impl TabGroups {
         }
     }
 
+    fn reconcile(&mut self, order: &[TabId], focused: Option<TabId>) -> Result<(), AppError> {
+        let leaves: HashSet<_> = self.layout.leaves().into_iter().collect();
+        let mut seen = HashSet::new();
+        let mut orphans = Vec::new();
+        for group in &mut self.groups {
+            group
+                .tabs
+                .retain(|tab| order.contains(tab) && seen.insert(*tab));
+            if !leaves.contains(&group.id) {
+                orphans.append(&mut group.tabs);
+            }
+        }
+        let known: HashSet<_> = self.groups.iter().map(|group| group.id).collect();
+        for leaf in leaves.iter().filter(|leaf| !known.contains(leaf)) {
+            self.layout.remove(*leaf);
+        }
+        orphans.extend(order.iter().filter(|tab| !seen.contains(*tab)));
+        let target = focused
+            .and_then(|tab| self.group_of(tab).map(|group| group.id))
+            .filter(|id| leaves.contains(id))
+            .or_else(|| self.layout.leaves().first().copied());
+        if let Some(group) = target.and_then(|id| self.group_mut(id)) {
+            group.tabs.append(&mut orphans);
+        }
+        let empty: Vec<_> = self
+            .groups
+            .iter()
+            .filter(|group| group.tabs.is_empty() || !leaves.contains(&group.id))
+            .map(|group| group.id)
+            .collect();
+        for id in empty {
+            self.groups.retain(|group| group.id != id);
+            self.layout.remove(id);
+        }
+        for group in &mut self.groups {
+            group
+                .tabs
+                .sort_by_key(|tab| order.iter().position(|id| id == tab));
+            if !group.tabs.contains(&group.selected)
+                && let Some(first) = group.tabs.first()
+            {
+                group.selected = *first;
+            }
+            if let Some(focused) = focused
+                && group.tabs.contains(&focused)
+            {
+                group.selected = focused;
+            }
+        }
+        self.validate(order, focused)
+    }
+
     pub(crate) fn validate(&self, order: &[TabId], focused: Option<TabId>) -> Result<(), AppError> {
         let invalid = |reason: &str| Err(AppError::InvalidState(format!("tab groups: {reason}")));
         self.layout.validate()?;
@@ -193,55 +245,7 @@ impl Project {
         let Some(groups) = &mut self.groups else {
             return;
         };
-        let leaves: HashSet<_> = groups.layout.leaves().into_iter().collect();
-        let mut seen = HashSet::new();
-        let mut orphans = Vec::new();
-        for group in &mut groups.groups {
-            group
-                .tabs
-                .retain(|tab| order.contains(tab) && seen.insert(*tab));
-            if !leaves.contains(&group.id) {
-                orphans.append(&mut group.tabs);
-            }
-        }
-        let known: HashSet<_> = groups.groups.iter().map(|group| group.id).collect();
-        for leaf in leaves.iter().filter(|leaf| !known.contains(leaf)) {
-            groups.layout.remove(*leaf);
-        }
-        orphans.extend(order.iter().filter(|tab| !seen.contains(*tab)));
-        let target = focused
-            .and_then(|tab| groups.group_of(tab).map(|group| group.id))
-            .filter(|id| leaves.contains(id))
-            .or_else(|| groups.layout.leaves().first().copied());
-        if let Some(group) = target.and_then(|id| groups.group_mut(id)) {
-            group.tabs.append(&mut orphans);
-        }
-        let empty: Vec<_> = groups
-            .groups
-            .iter()
-            .filter(|group| group.tabs.is_empty() || !leaves.contains(&group.id))
-            .map(|group| group.id)
-            .collect();
-        for id in empty {
-            groups.groups.retain(|group| group.id != id);
-            groups.layout.remove(id);
-        }
-        for group in &mut groups.groups {
-            group
-                .tabs
-                .sort_by_key(|tab| order.iter().position(|id| id == tab));
-            if !group.tabs.contains(&group.selected)
-                && let Some(first) = group.tabs.first()
-            {
-                group.selected = *first;
-            }
-            if let Some(focused) = focused
-                && group.tabs.contains(&focused)
-            {
-                group.selected = focused;
-            }
-        }
-        if groups.validate(&order, focused).is_err() {
+        if groups.reconcile(&order, focused).is_err() {
             self.groups = None;
         }
     }
