@@ -1,0 +1,14 @@
+[settings]
+idiomatic_version_file_enable_tools = ["rust"]
+
+[tools]
+zig = "0.17.0"
+cmake = "3.31.12"
+
+[tasks."build:linux"]
+description = "Build the Linux desktop app, CLI, and server"
+run = "bash scripts/build-desktop-linux.sh"
+
+[tasks."check:linux"]
+description = "Run the Linux workspace lint and test checks"
+run = 'python3 scripts/check-desktop-linux.py --target "$(uname -m)-unknown-linux-gnu"'
