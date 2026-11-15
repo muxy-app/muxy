@@ -102,6 +102,7 @@ impl TryFrom<StoredState> for AppState {
                     close_operations: stored.close_operations,
                     given_names: BTreeMap::new(),
                     dismissed: BTreeSet::new(),
+                    recent_paths: Vec::new(),
                 },
             )])
         } else {

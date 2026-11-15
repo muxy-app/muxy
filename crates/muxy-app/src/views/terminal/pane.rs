@@ -52,6 +52,10 @@ pub(crate) enum PaneEvent {
     /// A frame is applied, its images ready to draw.
     Ack(ChannelId, u64),
     Search(find::SearchRequest),
+    /// Insert Path opened and needs what it browses the server's folders with.
+    BrowsePaths,
+    /// Insert Path typed this path, absolute on the terminal's computer.
+    PathChosen(String),
 }
 
 gpui::actions!(terminal, [CloseFind]);
@@ -149,6 +153,7 @@ pub(crate) struct TerminalPane {
     pub(crate) scroll: Scroll,
     pub(crate) find: Option<find::Find>,
     pub(crate) find_refresh: Option<Task<()>>,
+    pub(crate) insert_path: Option<super::insert_path::InsertPath>,
     pub(crate) selection: Option<Selection>,
     selection_rows: Vec<Option<SelectedRow>>,
     selecting: Option<(Selection, usize)>,
@@ -297,6 +302,7 @@ impl TerminalPane {
             link_hover: super::links::Hover::default(),
             scroll: Scroll::default(),
             find: None,
+            insert_path: None,
             find_refresh: None,
             selection: None,
             selection_rows: Vec::new(),
@@ -353,6 +359,25 @@ impl TerminalPane {
     pub(crate) fn directory(&self) -> Option<PathBuf> {
         let path = self.directory.as_path().to_path_buf();
         path.is_absolute().then_some(path)
+    }
+
+    /// The context terminal shortcuts are bound in, which the find bar
+    /// changes while it is open.
+    fn key_context(&self) -> &'static str {
+        if self.find.is_some() {
+            "TerminalFindOpen"
+        } else {
+            "TerminalPane"
+        }
+    }
+
+    /// The terminal's folder as its server spells it, which may be a path
+    /// of another kind of computer than this one.
+    pub(super) fn server_directory(&self) -> Option<String> {
+        self.directory
+            .is_absolute()
+            .then(|| String::from_utf8(self.directory.0.clone()).ok())
+            .flatten()
     }
 
     pub(crate) fn channel(&self) -> Option<ChannelId> {
@@ -1732,6 +1757,25 @@ impl TerminalPane {
         }
     }
 
+    /// Types `path` at the cursor as one word, quoted for the program in the
+    /// foreground where it needs quotes. Returns whether it was typed: a
+    /// path that can't be quoted safely there isn't.
+    pub(super) fn type_path(&mut self, path: &ServerPath, cx: &mut Context<Self>) -> bool {
+        let modes = match &self.grid {
+            Some(grid) if !self.server_input => grid.modes,
+            _ => muxy_protocol::Modes::default(),
+        };
+        let Some(bytes) = muxy_client::input::typed_path(path, self.path_quoting(), modes) else {
+            return false;
+        };
+        if self.server_input {
+            self.send_clipboard(&bytes, cx);
+        } else {
+            self.send_paste(&bytes, cx);
+        }
+        true
+    }
+
     fn prepare_input(&mut self, cx: &mut Context<Self>) -> Option<ChannelId> {
         if self.state != PaneState::Live {
             return None;
@@ -2061,11 +2105,7 @@ impl Render for TerminalPane {
                 }
                 pane
             })
-            .key_context(if self.find.is_some() {
-                "TerminalFindOpen"
-            } else {
-                "TerminalPane"
-            })
+            .key_context(self.key_context())
             .on_action(cx.listener(|pane, _: &CloseFind, window, cx| {
                 pane.close_find(window, cx);
                 cx.stop_propagation();
@@ -2111,6 +2151,7 @@ impl Render for TerminalPane {
             .on_key_down(cx.listener(Self::terminal_key_down))
             .on_key_up(cx.listener(Self::terminal_key_up))
             .children(find::bar(self, cx))
+            .children(super::insert_path::popover(self, cx))
             .child(
                 div()
                     .flex_1()

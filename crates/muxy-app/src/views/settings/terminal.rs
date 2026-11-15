@@ -8,7 +8,7 @@ use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
 };
 use muxy_app_core::settings::{
-    CellHeight, NewPaneDirectory, PaddingColor, TerminalColor, TerminalSettings,
+    CellHeight, NewPaneDirectory, PaddingColor, PaneSettings, TerminalColor, TerminalSettings,
 };
 use muxy_ui::controls;
 use muxy_ui::l10n::tr_key;
@@ -22,6 +22,7 @@ pub(super) const SECTIONS: &[&str] = &[
     tr_key!("Selection"),
     tr_key!("Scrolling"),
     tr_key!("Input"),
+    tr_key!("Insert Path"),
     tr_key!("Key bindings"),
     tr_key!("Migration"),
     tr_key!("Reset"),
@@ -474,6 +475,9 @@ pub(super) fn rows(
                 }),
                 cx,
             )
+        } else if id == "insert-path-recents" {
+            let recents = pane.snapshot.settings.panes.insert_path_recents;
+            pane.toggle(id, recents, Change::InsertPathRecents(!recents), cx)
         } else if let Some(value) = toggle {
             pane.toggle(id, value, Change::Terminal(id, (!value).to_string()), cx)
         } else {
@@ -631,8 +635,7 @@ pub(super) fn rows(
                         .named(&super::control_name(id))
                         .enabled(
                             *terminal != TerminalSettings::default()
-                                || pane.snapshot.settings.panes.new_pane_directory
-                                    != NewPaneDirectory::default(),
+                                || pane.snapshot.settings.panes != PaneSettings::default(),
                         ),
                     cx.listener(|pane, _, _, cx| {
                         pane.recording = None;

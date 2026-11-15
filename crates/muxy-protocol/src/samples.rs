@@ -1079,6 +1079,23 @@ fn files_samples() -> Vec<Message> {
             body: ReplyBody::Folders(vec![ServerPath(b"code".to_vec())]),
         },
         Message::Request {
+            id: RequestId(11),
+            body: RequestBody::ListEntries(ServerPath(b"/home/dev".to_vec())),
+        },
+        Message::Reply {
+            id: RequestId(11),
+            body: ReplyBody::Entries(vec![
+                crate::PathEntry {
+                    name: ServerPath(b"code".to_vec()),
+                    is_directory: true,
+                },
+                crate::PathEntry {
+                    name: ServerPath(b"notes.txt".to_vec()),
+                    is_directory: false,
+                },
+            ]),
+        },
+        Message::Request {
             id: RequestId(10),
             body: RequestBody::Upload(crate::UploadChunk {
                 session: SessionId::from(NonZeroU64::MIN),

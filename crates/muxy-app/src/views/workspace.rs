@@ -80,6 +80,7 @@ actions!(
         Find,
         FindNext,
         FindPrevious,
+        InsertPath,
         PreviousPrompt,
         NextPrompt,
         SelectCommandOutput,

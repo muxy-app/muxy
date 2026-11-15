@@ -404,6 +404,7 @@ impl AppModel {
                 pane.background_opacity = alpha;
                 pane.palette = palette;
                 pane.update_find_appearance(&model.theme, model.metrics, cx);
+                pane.update_insert_path_appearance(&model.theme, model.metrics, cx);
                 cx.notify();
             });
         }

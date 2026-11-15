@@ -310,6 +310,7 @@ fn defaults_for_new_commands_yield_to_keys_already_bound() -> Result {
         ShortcutId::ApplyLayout,
         ShortcutId::OpenProjectInDefaultApp,
         ShortcutId::ToggleAgentSessions,
+        ShortcutId::InsertPath,
     ] {
         let key = command.definition().keys[0];
         let chord: KeyChord = key.parse()?;

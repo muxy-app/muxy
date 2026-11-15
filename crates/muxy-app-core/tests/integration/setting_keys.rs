@@ -128,6 +128,24 @@ fn optional_and_empty_settings_can_be_set_and_cleared() {
 fn tables_read_whole_and_print_as_toml() {
     let (_directory, profile) = profile().expect("profile");
     let panes = profile.get("panes").expect("table");
-    assert_eq!(display(&panes), r#"new_pane_directory = "project""#);
+    assert_eq!(
+        display(&panes),
+        "insert_path_recents = true\nnew_pane_directory = \"project\""
+    );
     assert!(profile.get("panes.missing").is_err());
+}
+
+#[test]
+fn insert_path_recents_default_on_and_turn_off_by_key() {
+    let (directory, profile) = profile().expect("profile");
+    assert!(Settings::default().panes.insert_path_recents);
+    profile
+        .set("panes.insert_path_recents", "false")
+        .expect("set");
+    let saved = Settings::load(&directory.path().join("settings.toml")).expect("load");
+    assert!(!saved.panes.insert_path_recents);
+    assert_eq!(saved.panes.new_pane_directory, NewPaneDirectory::Project);
+    profile.unset("panes.insert_path_recents").expect("unset");
+    let saved = Settings::load(&directory.path().join("settings.toml")).expect("load");
+    assert!(saved.panes.insert_path_recents);
 }

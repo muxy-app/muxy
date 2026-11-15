@@ -878,6 +878,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Input"),
     },
     Setting {
+        id: "insert-path-recents",
+        label: tr_key!("Show recently used paths"),
+        description: tr_key!(
+            "Insert Path lists the paths you chose most recently first, shared by every terminal on a server."
+        ),
+        category: Category::Terminal,
+        section: tr_key!("Insert Path"),
+    },
+    Setting {
         id: "terminal-keybindings",
         label: tr_key!("Key bindings"),
         description: tr_key!(

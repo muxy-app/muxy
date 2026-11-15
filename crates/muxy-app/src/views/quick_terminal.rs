@@ -267,6 +267,17 @@ impl Render for QuickTerminalView {
                     }
                 }),
             )
+            .on_action(cx.listener(
+                |view, _: &crate::views::workspace::InsertPath, window, cx| {
+                    let theme = view.model.theme.clone();
+                    let metrics = view.model.metrics;
+                    if let Some(terminal) = &view.terminal {
+                        terminal.update(cx, |pane, cx| {
+                            pane.open_insert_path(&theme, metrics, window, cx);
+                        });
+                    }
+                },
+            ))
             .on_action(
                 cx.listener(|view, _: &crate::views::workspace::FindNext, _, cx| {
                     if let Some(terminal) = &view.terminal {

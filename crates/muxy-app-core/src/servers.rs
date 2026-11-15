@@ -33,7 +33,14 @@ pub(crate) struct ServerState {
     /// aren't opened here again as another client's terminals.
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub(crate) dismissed: BTreeSet<SessionId>,
+    /// Paths Insert Path typed into the server's terminals, most recent
+    /// first.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) recent_paths: Vec<String>,
 }
+
+/// How many paths Insert Path remembers for a server.
+const RECENT_PATHS: usize = 100;
 
 impl AppState {
     pub fn project_server(&self, project: ProjectId) -> Option<ServerId> {
@@ -82,6 +89,28 @@ impl AppState {
             .dismissed
             .retain(|session| live.contains(session) && !shown.contains(session));
         state.dismissed.len() != before
+    }
+
+    /// The paths Insert Path typed into `server`'s terminals, most recent
+    /// first.
+    pub fn recent_paths(&self, server: ServerId) -> &[String] {
+        self.servers
+            .get(&server)
+            .map_or(&[], |state| state.recent_paths.as_slice())
+    }
+
+    /// Makes `path` the most recent of the paths Insert Path typed into
+    /// `server`'s terminals, forgetting the oldest past the limit. Returns
+    /// whether the list changed.
+    pub fn remember_path(&mut self, server: ServerId, path: &str) -> bool {
+        let recent = &mut self.servers.entry(server).or_default().recent_paths;
+        if recent.first().is_some_and(|first| first == path) {
+            return false;
+        }
+        recent.retain(|other| other != path);
+        recent.insert(0, path.to_owned());
+        recent.truncate(RECENT_PATHS);
+        true
     }
 
     /// A remote server has a Home once its catalog has been applied.

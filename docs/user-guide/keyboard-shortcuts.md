@@ -60,6 +60,7 @@ you can give any of them one.
 | --- | --- |
 | Copy / paste | `Cmd+C` / `Cmd+V` |
 | Find / next / previous | `Cmd+F` / `Cmd+G` / `Cmd+Shift+G` |
+| Insert path | `Cmd+Ctrl+I` |
 | Previous / next prompt | `Cmd+Up` / `Cmd+Down` |
 | Font size bigger / smaller / reset | `Cmd+=` / `Cmd+-` / `Cmd+0` |
 | Clear screen | `Cmd+K` |

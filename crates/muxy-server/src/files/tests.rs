@@ -534,3 +534,69 @@ fn windows_delete_moves_to_the_recycle_bin_and_refuses_volumes_without_one() {
     assert!(trash::move_to_trash(&root, &source).is_err());
     assert!(workspace.path.join("kept.txt").exists());
 }
+
+fn absolute(path: &Path) -> ServerPath {
+    ServerPath::from_path(path).unwrap()
+}
+
+#[test]
+fn entries_list_files_and_folders_anywhere_sorted_ignoring_case() {
+    let workspace = Workspace::new();
+    std::fs::create_dir(workspace.path.join("docs")).unwrap();
+    std::fs::create_dir(workspace.path.join(".git")).unwrap();
+    std::fs::write(workspace.path.join("Cargo.toml"), "").unwrap();
+    std::fs::write(workspace.path.join("build.rs"), "").unwrap();
+    let listed: Vec<_> = entries(&absolute(&workspace.path))
+        .unwrap()
+        .into_iter()
+        .map(|entry| (String::from_utf8(entry.name.0).unwrap(), entry.is_directory))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (".git".to_owned(), true),
+            ("build.rs".to_owned(), false),
+            ("Cargo.toml".to_owned(), false),
+            ("docs".to_owned(), true),
+        ]
+    );
+    assert_eq!(
+        folders(&absolute(&workspace.path)).unwrap(),
+        [p(".git"), p("docs")]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn entries_count_links_to_folders_as_folders() {
+    let workspace = Workspace::new();
+    std::fs::create_dir(workspace.path.join("real")).unwrap();
+    std::fs::write(workspace.path.join("file"), "").unwrap();
+    symlink(
+        workspace.path.join("real"),
+        workspace.path.join("folder-link"),
+    )
+    .unwrap();
+    symlink(
+        workspace.path.join("file"),
+        workspace.path.join("file-link"),
+    )
+    .unwrap();
+    symlink(workspace.path.join("gone"), workspace.path.join("broken")).unwrap();
+    let folders: Vec<_> = entries(&absolute(&workspace.path))
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.is_directory)
+        .map(|entry| entry.name)
+        .collect();
+    assert_eq!(folders, [p("folder-link"), p("real")]);
+}
+
+#[test]
+fn entries_refuse_relative_missing_and_file_paths() {
+    let workspace = Workspace::new();
+    std::fs::write(workspace.path.join("file"), "").unwrap();
+    assert!(entries(&p("relative")).is_err());
+    assert!(entries(&absolute(&workspace.path.join("missing"))).is_err());
+    assert!(entries(&absolute(&workspace.path.join("file"))).is_err());
+}

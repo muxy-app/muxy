@@ -107,6 +107,37 @@ plain text and case-insensitive; **Aa** makes it case-sensitive.
 - Pasting an image into a local terminal sends `Ctrl+V`, so AI tools can read
   it from the clipboard.
 
+## Insert a path
+
+**Insert Path…** (`Cmd+Ctrl+I`, or the command palette) opens a list of the
+files and folders in the terminal's folder, right at the cursor, and types the
+path of the one you pick.
+
+- Type to filter by name, ignoring case. Names that start with a dot show once
+  the filter starts with one.
+- `Up` and `Down` move through the list. `Return` types the selected row's
+  path and closes the list. Nothing is run: Return is never sent for you.
+- `Tab` opens the selected folder. So does typing its name and a `/`, and you
+  can type `../`, `~/`, or a path from `/` to go anywhere. `Backspace` in an
+  empty filter goes to the folder above.
+- A path inside the terminal's folder is typed relative to it, such as
+  `crates/muxy-app/Cargo.toml`. Any other is typed in full. Folders end with a
+  `/`.
+- Plain paths are typed as they are. A path with spaces or other special
+  characters is quoted for the shell or program in the foreground, as dropped
+  files are. Where it can't be quoted safely, such as inside `ssh` or `tmux`,
+  it isn't typed and the list says so.
+- Paths you chose recently, and the folders that hold them, are listed first
+  with a clock. Muxy remembers them for each server, for all its terminals.
+  Turn that off with **Settings → Terminal → Insert Path → Show recently used
+  paths**.
+- `Esc`, the shortcut again, or a click elsewhere closes the list.
+
+The list follows the terminal's folder, which needs
+[shell integration](server.md#shell-integration) to keep up with `cd`. On a
+[remote server](remote-servers.md) it lists that computer's files; a server
+running an older Muxy asks to be updated first.
+
 ## Links and files
 
 - `Cmd`-click a URL or file path to open it. Paths with `:line:column` jump to

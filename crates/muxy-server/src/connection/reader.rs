@@ -452,6 +452,9 @@ fn ordered_request(
         RequestBody::ListFolders(directory) => {
             ReplyBody::Folders(crate::files::folders(&directory)?)
         }
+        RequestBody::ListEntries(directory) => {
+            ReplyBody::Entries(crate::files::entries(&directory)?)
+        }
         RequestBody::Upload(chunk) => ReplyBody::Uploaded(registry.upload(&chunk)?),
         RequestBody::Ping
         | RequestBody::RegisterPush(_)

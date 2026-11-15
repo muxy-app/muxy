@@ -27,7 +27,7 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    pub const ACTIONS: [ShortcutId; 81] = [
+    pub const ACTIONS: [ShortcutId; 82] = [
         ShortcutId::OpenSettings,
         ShortcutId::NewHomeTab,
         ShortcutId::NewTabInProject,
@@ -87,6 +87,7 @@ impl Keymap {
         ShortcutId::Find,
         ShortcutId::FindNext,
         ShortcutId::FindPrevious,
+        ShortcutId::InsertPath,
         ShortcutId::ScrollToBottom,
         ShortcutId::PreviousPrompt,
         ShortcutId::NextPrompt,
@@ -386,7 +387,7 @@ const RETIRED: [&str; 9] = [
 ];
 
 /// Built-in defaults that give way to a key a user binding already has.
-const YIELDING: [ShortcutId; 74] = [
+const YIELDING: [ShortcutId; 75] = [
     ShortcutId::OpenSettings,
     ShortcutId::NewHomeTab,
     ShortcutId::NewTabInProject,
@@ -461,6 +462,7 @@ const YIELDING: [ShortcutId; 74] = [
     ShortcutId::ApplyLayout,
     ShortcutId::OpenProjectInDefaultApp,
     ShortcutId::ToggleAgentSessions,
+    ShortcutId::InsertPath,
 ];
 
 fn overlaps(left: &Shortcut, right: &Shortcut) -> bool {
