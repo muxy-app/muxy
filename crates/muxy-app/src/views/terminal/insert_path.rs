@@ -352,15 +352,19 @@ impl TerminalPane {
     /// popover. A path that can't be typed safely stays untyped, and the
     /// popover says so.
     fn choose_path(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(open) = &self.insert_path else {
+        let base = self.server_directory();
+        let Some(open) = &mut self.insert_path else {
             return;
         };
-        let (Listing::Listed(entries), Some(browser)) = (&open.listing, &open.browser) else {
+        let (Listing::Listed(entries), Some(browser)) = (&open.listing, &mut open.browser) else {
             return;
         };
         let Some(entry) = entries.iter().find(|entry| entry.name == name) else {
             return;
         };
+        // The terminal's program may have changed folder while the popover
+        // was open, and a relative path is read from where it is now.
+        browser.rebase(base);
         let chosen = browser.chosen(&entry.name, entry.is_directory);
         let picker = open.picker.clone();
         if self.state != PaneState::Live || self.channel().is_none() {

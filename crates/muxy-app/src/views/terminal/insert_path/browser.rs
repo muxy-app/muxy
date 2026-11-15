@@ -65,6 +65,12 @@ impl Browser {
         })
     }
 
+    /// Takes `base` as the terminal's folder from now on, which may have
+    /// changed since browsing started.
+    pub(super) fn rebase(&mut self, base: Option<String>) {
+        self.base = base.map(|path| trimmed(&path, self.windows).to_owned());
+    }
+
     pub(super) fn directory(&self) -> &str {
         &self.directory
     }

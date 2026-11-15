@@ -296,3 +296,24 @@ fn windows_roots_are_followed_from_a_separator_a_drive_or_a_share() {
     assert_eq!(browser.follow(r"\", &[]).as_deref(), Some(""));
     assert_eq!(browser.directory(), r"\\host\share");
 }
+
+#[test]
+fn a_terminal_that_changed_folder_gets_paths_from_its_new_folder() {
+    let mut browser = browser(&[]);
+    assert_eq!(browser.chosen("notes.md", false).typed, "notes.md");
+    browser.rebase(Some("/var/log/".to_owned()));
+    assert_eq!(
+        browser.chosen("notes.md", false).typed,
+        "/Users/dev/Projects/muxy/notes.md"
+    );
+    browser.rebase(Some("/Users/dev".to_owned()));
+    assert_eq!(
+        browser.chosen("notes.md", false).typed,
+        "Projects/muxy/notes.md"
+    );
+    browser.rebase(None);
+    assert_eq!(
+        browser.chosen("docs", true).typed,
+        "/Users/dev/Projects/muxy/docs/"
+    );
+}

@@ -99,7 +99,8 @@ pub fn quoted_paths(paths: &[PathBuf], quoting: PathQuoting, modes: Modes) -> Op
 /// would read as escaping the closing quote. Returns `None` for an empty
 /// path, one that holds a NUL byte or is longer than `MAX_PATH`, and one that
 /// needs quotes where it can't be quoted safely, as with a `quoting` of
-/// `None`.
+/// `None`, or with an unknown program and a relative path that holds a
+/// `cmd.exe` operator.
 pub fn typed_path(
     path: &ServerPath,
     quoting: Option<PathQuoting>,
@@ -117,14 +118,25 @@ pub fn typed_path(
         word.splice(0..0, if windows_shell { *b".\\" } else { *b"./" });
     }
     if !bare(&word, quoting) {
-        if (windows_shell || windows_path(&word))
-            && word.ends_with(b"\\")
-            && !word.ends_with(b":\\")
-            && word.len() > 1
+        let quoting = quoting?;
+        // A program that isn't known may be `cmd.exe`, which reads these as
+        // operators even inside the quotes other shells use. A path from `/`
+        // is on a computer that doesn't run it.
+        if quoting == PathQuoting::Unknown
+            && !word.starts_with(b"/")
+            && word.iter().any(|byte| b"%!\"^&|<>".contains(byte))
         {
+            return None;
+        }
+        // Only words quoted the Windows way: in a POSIX shell a backslash is
+        // part of the name, whatever the name looks like.
+        let windows_quotes = windows_shell
+            || (matches!(quoting, PathQuoting::Program | PathQuoting::Unknown)
+                && windows_path(&word));
+        if windows_quotes && word.ends_with(b"\\") && !word.ends_with(b":\\") && word.len() > 1 {
             word.pop();
         }
-        word = quote_path(&word, quoting?)?;
+        word = quote_path(&word, quoting)?;
     }
     Some(bracket(word, modes))
 }
@@ -440,6 +452,32 @@ mod tests {
             typed("-x", Some(PathQuoting::Cmd)).as_deref(),
             Some(".\\-x"),
             "cmd reads a slash as a switch"
+        );
+        for quoting in [PathQuoting::Bash, PathQuoting::Posix] {
+            assert_eq!(
+                typed("C:\\notes\\", Some(quoting)).as_deref(),
+                Some("'C:\\notes\\'"),
+                "a POSIX file may be named like a Windows folder"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_program_gets_no_relative_path_cmd_would_run() {
+        let unknown = Some(PathQuoting::Unknown);
+        for name in ["a&whoami&rem x", "a|b", "50% off", "a>b", "wow!", "a^b c"] {
+            assert_eq!(typed(name, unknown), None, "{name}");
+        }
+        assert_eq!(typed("a b", unknown).as_deref(), Some("'a b'"));
+        assert_eq!(
+            typed("/tmp/a&b", unknown).as_deref(),
+            Some("'/tmp/a&b'"),
+            "a path from / is not on a computer that runs cmd"
+        );
+        assert_eq!(
+            typed("a&b", Some(PathQuoting::Bash)).as_deref(),
+            Some("'a&b'"),
+            "a known shell quotes them"
         );
     }
 
