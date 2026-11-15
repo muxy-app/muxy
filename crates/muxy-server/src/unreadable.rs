@@ -1,6 +1,3 @@
-//! The one policy for a saved file the server can't read: keep it beside the
-//! original under a new name, start with defaults, and tell local apps.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -8,8 +5,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use muxy_protocol::{MAX_UNREADABLE_ERROR, UNREADABLE_SUFFIX, UnreadableFile};
 
-/// Renames `path` to `<name>.unreadable-<milliseconds>` so the next start
-/// doesn't read it again and nothing overwrites it.
 pub(crate) fn set_aside(path: &Path, error: &io::Error) -> io::Result<UnreadableFile> {
     let kept_as = kept_path(path);
     fs::rename(path, &kept_as).map_err(|rename| {
@@ -32,7 +27,6 @@ pub(crate) fn set_aside(path: &Path, error: &io::Error) -> io::Result<Unreadable
     })
 }
 
-/// A name no earlier kept copy uses, so none is overwritten.
 fn kept_path(path: &Path) -> PathBuf {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)

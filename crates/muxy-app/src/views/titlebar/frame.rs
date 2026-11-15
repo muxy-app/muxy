@@ -170,8 +170,6 @@ pub(crate) fn render(
         .into_any_element()
 }
 
-/// A dialog dimming the window stops at the content, which clips it. This
-/// darkens the padding around the content to match.
 fn dimmed_rim(alpha: f32, tiling: Tiling) -> Div {
     let padding = px(CONTENT_PADDING);
     let radius = px(CORNER_RADIUS - BORDER);

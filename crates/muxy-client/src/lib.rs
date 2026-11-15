@@ -1,10 +1,3 @@
-//! Shared client connection, handshake, routing, and synchronization.
-//!
-//! This crate translates shared protocol traffic without owning project,
-//! tab, pane, UI, or desktop update policy. Local startup launches an explicit executable.
-//! Servers on other computers are reached through a bridge, `muxy stdio`,
-//! which ssh runs there.
-
 mod typed;
 
 mod async_request;

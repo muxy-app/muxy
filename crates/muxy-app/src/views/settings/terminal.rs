@@ -142,7 +142,6 @@ fn swatch(pane: &SettingsView, color: Option<TerminalColor>) -> AnyElement {
         .into_any_element()
 }
 
-/// A button whose `name` says which row it acts on, when `label` alone doesn't.
 pub(super) fn change_button(
     pane: &SettingsView,
     id: &str,

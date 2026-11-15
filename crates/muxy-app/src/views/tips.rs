@@ -9,7 +9,6 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 
-/// The tip toast in the window's bottom-right corner, above the status bar.
 pub(super) fn toast(
     model: &AppModel,
     window: &Window,

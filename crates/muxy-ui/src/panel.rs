@@ -346,8 +346,6 @@ enum PanelActionContent {
 pub enum PanelControl {
     Move(PanelPosition),
     Mode(PanelMode),
-    /// Pops a docked panel out to float freely, or docks a detached one;
-    /// `true` while it is detached.
     Detach(bool),
     Close,
 }
@@ -469,7 +467,6 @@ impl PanelAction {
         self
     }
 
-    /// Shows the key that does the same in the tooltip, after the label.
     pub fn shortcut(mut self, key: Option<SharedString>) -> Self {
         self.shortcut = key;
         self
@@ -534,14 +531,11 @@ impl PanelChrome {
         self
     }
 
-    /// Keeps the header's tooltips visible above native pages, such as the
-    /// panel's own page under the header.
     pub fn cover_tooltips(mut self, cover: impl Fn(gpui::Bounds<gpui::Pixels>) + 'static) -> Self {
         self.tooltip_cover = Some(Rc::new(cover));
         self
     }
 
-    /// Adds the control that pops the panel out to float, or docks it.
     pub fn with_detach_action(mut self, action: PanelAction) -> Self {
         self.detach_action = Some(action);
         self
@@ -747,7 +741,6 @@ impl PanelFrame {
         self.sizing.layout()
     }
 
-    /// Adds `child` inside the resize grip, such as a layer that fills it.
     #[must_use]
     pub fn grip(mut self, child: impl IntoElement) -> Self {
         self.grip = Some(child.into_any_element());

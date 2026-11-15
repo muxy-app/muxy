@@ -27,7 +27,6 @@ pub(crate) fn try_to_recover_from_device_lost<T>(
 ) {
     let result = (0..5).find_map(|i| {
         if i > 0 {
-            // Add a small delay before retrying
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         f().log_err()
@@ -129,8 +128,6 @@ fn get_adapter(dxgi_factory: &IDXGIFactory6, debug_layer_available: bool) -> Res
                 .to_string();
             log::info!("Using GPU: {}", gpu_name);
         }
-        // Check to see whether the adapter supports Direct3D 11, but don't
-        // create the actual device yet.
         if get_device(&adapter, None, None, debug_layer_available)
             .log_err()
             .is_some()
@@ -161,7 +158,6 @@ fn get_device(
             D3D_DRIVER_TYPE_UNKNOWN,
             HMODULE::default(),
             device_flags,
-            // 4x MSAA is required for Direct3D Feature Level 10.1 or better
             Some(&[
                 D3D_FEATURE_LEVEL_11_1,
                 D3D_FEATURE_LEVEL_11_0,

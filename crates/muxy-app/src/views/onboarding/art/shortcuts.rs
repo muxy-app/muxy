@@ -1,7 +1,3 @@
-//! Keys press in turn, and a little window does what they say: splits right,
-//! splits down, opens the palette, and hides the sidebar. The keys shown are
-//! the user's own.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{Div, FontWeight, ParentElement, SharedString, Styled, div};
 use muxy_core::shortcuts::ShortcutId;
@@ -24,7 +20,6 @@ const WINDOW_HEIGHT: f32 = 300.0;
 const SIDEBAR: f32 = 96.0;
 const BAR: f32 = 26.0;
 
-/// Some keys and the stretch of a scene they show for.
 pub(super) struct Beat {
     pub(super) start: f32,
     pub(super) end: f32,
@@ -121,7 +116,6 @@ fn sidebar(frame: &Frame, hidden: f32, done: f32) -> Div {
         )
 }
 
-/// The panes, sized by how far each split has come.
 fn panes(frame: &Frame, right: f32, down: f32, hidden: f32, done: f32) -> Div {
     let left = SIDEBAR * (1.0 - hidden * done);
     let area = WINDOW_WIDTH - left;
@@ -230,7 +224,6 @@ fn palette_card(frame: &Frame, shown: f32) -> Div {
     }))
 }
 
-/// One beat's keys, pressing as its moment comes, with what they do beneath.
 pub(super) fn keys(frame: &Frame, beat: &Beat, label: SharedString, local: f32, top: f32) -> Div {
     let shown = span(local, beat.start, beat.end, 0.25);
     let pressed = span(local, beat.press - 0.02, beat.press + 0.46, 0.08);

@@ -1,6 +1,5 @@
 use super::*;
 
-/// A three-row pane showing live output, above ten rows of history.
 fn pane(cx: &mut TestAppContext) -> (gpui::Entity<TerminalPane>, &mut gpui::VisualTestContext) {
     let pane = cx.new(|cx| {
         let mut pane = TerminalPane::new(
@@ -25,7 +24,6 @@ fn wait(cx: &mut gpui::VisualTestContext, time: Duration) {
     cx.run_until_parked();
 }
 
-/// Replaces the screen's first row, as the program's next output does.
 fn output(pane: &mut TerminalPane, text: &str, cx: &mut Context<TerminalPane>) {
     let grid = pane.grid.as_ref().unwrap();
     let frame = ScreenFrame {
@@ -40,7 +38,6 @@ fn output(pane: &mut TerminalPane, text: &str, cx: &mut Context<TerminalPane>) {
     pane.apply(&frame, cx);
 }
 
-/// The text of the screen's first row as the pane shows it.
 fn shown(pane: &TerminalPane) -> String {
     let grid = pane.displayed_grid().unwrap();
     grid.content_row(grid.history.len()).unwrap()[0]

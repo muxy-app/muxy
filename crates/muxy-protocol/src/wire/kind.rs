@@ -20,17 +20,14 @@ pub enum MessageKind {
     ServerRestarting = 13,
     CellSize = 14,
     Changed = 15,
-    // 16 and 19 are retired; see `Changed`.
     GitChanged = 17,
     Progress = 18,
     SessionMetadata = 20,
     FilesChanged = 21,
-    // 22 is retired; see `Changed`.
     TerminalInput = 23,
 }
 
 impl MessageKind {
-    /// `None` is a kind from a newer build, which this build ignores.
     pub fn from_u8(value: u8) -> Result<Option<Self>, WireError> {
         if value & 0xc0 != 0 {
             return Err(WireError::FlagsSet(value));

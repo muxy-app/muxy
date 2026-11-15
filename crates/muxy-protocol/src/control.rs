@@ -42,14 +42,10 @@ pub enum RequestBody {
         directory: ServerPath,
         #[n(3)]
         size: Size,
-        /// More environment for the shell, such as a proxy. Requires
-        /// `Feature::SESSION_ENVIRONMENT`; older servers ignore it.
         #[n(4)]
         #[cbor(default)]
         #[serde(default)]
         environment: std::collections::BTreeMap<String, String>,
-        /// Colors for this session alone, as `SetSessionColors` gives them,
-        /// from the start. Older servers ignore it.
         #[n(5)]
         #[cbor(default)]
         #[serde(default)]
@@ -180,15 +176,10 @@ pub enum RequestBody {
     ClearScreen(#[n(0)] ChannelId),
     #[n(41)]
     StartPairingWithHosts(#[n(0)] Vec<String>),
-    /// The folders directly inside an absolute path on the server's
-    /// computer, for choosing a new project's folder there.
     #[n(42)]
     ListFolders(#[n(0)] ServerPath),
-    /// A piece of a file to keep on the server's computer for a session.
     #[n(43)]
     Upload(#[n(0)] crate::UploadChunk),
-    /// Colors for one session on this connection, replacing the
-    /// connection's colors there; `None` goes back to them.
     #[n(44)]
     SetSessionColors {
         #[n(0)]
@@ -196,28 +187,19 @@ pub enum RequestBody {
         #[n(1)]
         colors: Option<TerminalColors>,
     },
-    /// A name for one session that every client sees, such as a renamed
-    /// tab's title; `None` removes it. Servers from before this answer
-    /// `Unsupported`.
     #[n(45)]
     SetSessionName {
         #[n(0)]
         session: SessionId,
         #[n(1)]
         name: Option<String>,
-        /// Changes the name only while it is still this one, so an app
-        /// clears just the name it gave and not one another app gave since.
         #[n(2)]
         #[cbor(default)]
         #[serde(default)]
         replacing: Option<String>,
     },
-    /// Sends this connection every session's `SessionMetadata` now and as it
-    /// changes, without showing the sessions, so a phone can title tabs it
-    /// isn't attached to. Servers from before this answer `Unsupported`.
     #[n(46)]
     WatchSessionMetadata,
-    /// Gives a session to another project. Requires `Feature::SESSION_MOVE`.
     #[n(47)]
     MoveSession {
         #[n(0)]
@@ -225,33 +207,16 @@ pub enum RequestBody {
         #[n(1)]
         project: crate::ProjectId,
     },
-    /// The phone's push token, so this server can notify it through the
-    /// relay. Only paired phones may send it. Requires
-    /// `Feature::PUSH_NOTIFICATIONS`.
     #[n(48)]
     RegisterPush(#[n(0)] crate::PushToken),
-    /// Stops this server's notifications to the phone and forgets its key.
     #[n(49)]
     UnregisterPush,
-    /// Turns push notifications on or off for every phone. Off deletes every
-    /// registration at the relay but keeps each phone's token and key for a
-    /// while, so turning them on again resumes those phones.
     #[n(50)]
     SetPushNotifications(#[n(0)] bool),
-    /// Forgets one phone's push registration and key, without unpairing it.
-    /// The phone gets a new key when it next registers.
     #[n(51)]
     ResetPush(#[n(0)] crate::DeviceId),
-    /// From now on, screens sent on this connection list images without
-    /// their pixels. The app reads the ones it draws with `ImageFrames`.
-    /// Saved screens still carry pixels.
     #[n(52)]
     DeferImages,
-    /// Reads the pixels of frames of an image on the channel's screen, by
-    /// their keys. The reply holds the frames it found that fit one message,
-    /// in the order asked; the app asks again for the rest. A still image
-    /// answers with the pixels it has now, whose key may be newer than the
-    /// one asked for.
     #[n(53)]
     ImageFrames {
         #[n(0)]
@@ -261,17 +226,8 @@ pub enum RequestBody {
         #[n(2)]
         keys: Vec<u64>,
     },
-    /// From now on, a screen sent on this connection carries an image's
-    /// pixels only the first time it lists that image's frame on show; later
-    /// screens leave them out. Pixels go out when the screen does, so an app
-    /// that falls behind gets only the newest images. Frames of animations
-    /// not on show are read with `ImageFrames`, as is any frame the app lost.
-    /// Saved screens still carry pixels. Older servers reply `Unsupported`.
     #[n(54)]
     StreamImages,
-    /// The files and folders directly inside an absolute path on the server's
-    /// computer, for typing one's path into a terminal there. Older servers
-    /// reply `Unsupported`.
     #[n(55)]
     ListEntries(#[n(0)] ServerPath),
 }
@@ -381,10 +337,8 @@ pub enum ReplyBody {
     Pairing(#[n(0)] crate::PairingOffer),
     #[n(36)]
     ScreenCleared,
-    /// Folder names, sorted ignoring case.
     #[n(37)]
     Folders(#[n(0)] Vec<ServerPath>),
-    /// An upload chunk arrived; after the last one, the file's absolute path.
     #[n(38)]
     Uploaded(#[n(0)] Option<ServerPath>),
     #[n(39)]
@@ -405,7 +359,6 @@ pub enum ReplyBody {
     ImageFrames(#[n(0)] Vec<crate::ImageFrame>),
     #[n(47)]
     ImagesStreamed,
-    /// What a folder holds, sorted by name ignoring case.
     #[n(48)]
     Entries(#[n(0)] Vec<crate::PathEntry>),
 }
@@ -434,12 +387,10 @@ open_enum! {
         HistoryUnavailable = 10,
         PersistenceFailed = 11,
         Unauthorized = 12,
-        /// The other side's build doesn't support this request or can't read its reply.
         Unsupported = 13,
     }
 }
 
-/// Server-owned configuration, independent of its storage format.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ServerSettingsDoc {
     #[n(0)]

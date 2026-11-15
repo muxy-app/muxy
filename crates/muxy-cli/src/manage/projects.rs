@@ -136,7 +136,6 @@ pub(super) fn run(command: Project, client: &Client, output: &Output, paths: Pat
     }
 }
 
-/// The project for this computer's `folder`: one already there, or a new one.
 pub(crate) fn folder_project(client: &Client, folder: &Path) -> Result<ProjectId> {
     let projects = client.catalog()?.projects;
     if let Some(project) = existing(&projects, folder, Paths::Local) {
@@ -150,8 +149,6 @@ pub(crate) fn folder_project(client: &Client, folder: &Path) -> Result<ProjectId
     Ok(project.id)
 }
 
-/// Creates `directory` and its parents. Another computer's are created by
-/// running mkdir in its Home.
 fn make_directory(client: &Client, directory: &Path, paths: Paths) -> Result {
     if paths == Paths::Local {
         std::fs::create_dir_all(directory)?;
@@ -183,7 +180,6 @@ fn make_directory(client: &Client, directory: &Path, paths: Paths) -> Result {
     Ok(())
 }
 
-/// The project already in `directory`, preferring one that isn't a worktree.
 fn existing<'a>(
     projects: &'a [ProjectDescriptor],
     directory: &Path,
@@ -337,7 +333,6 @@ fn remove(client: &Client, project: &ProjectDescriptor, force: bool, hooks: bool
     Ok(())
 }
 
-/// The project a worktree belongs to: `selector`'s parent if it is a worktree.
 fn root(client: &Client, selector: &str, paths: Paths) -> Result<ProjectDescriptor> {
     let projects = client.catalog()?.projects;
     let project = select(projects.clone(), selector, paths)?;
@@ -350,7 +345,6 @@ fn root(client: &Client, selector: &str, paths: Paths) -> Result<ProjectDescript
     }
 }
 
-/// Where Settings → Worktrees puts a new worktree of `root`.
 fn default_directory(
     client: &Client,
     root: &ProjectDescriptor,
@@ -417,9 +411,6 @@ fn create(
     }
 }
 
-/// The name the server gives a new worktree. A pull request's worktree must
-/// start under the branch name the server prepares, because the server
-/// checks out that name; it is renamed once it exists.
 fn requested_name(action: &WorktreeAction, name: Option<String>) -> Option<String> {
     match action {
         WorktreeAction::CheckoutPullRequest { .. } => None,
@@ -427,8 +418,6 @@ fn requested_name(action: &WorktreeAction, name: Option<String>) -> Option<Strin
     }
 }
 
-/// The setup or teardown commands configured for `project`, printed as they
-/// are approved.
 fn approve(client: &Client, project: ProjectId, teardown: bool) -> Result<Vec<WorktreeHook>> {
     let hooks = client.git_worktree_hooks(project, teardown)?;
     let stage = if teardown { "teardown" } else { "setup" };

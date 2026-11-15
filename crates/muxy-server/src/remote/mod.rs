@@ -1,5 +1,3 @@
-//! Network access for paired devices: settings, identity, pairing, and admission.
-
 mod hosts;
 mod identity;
 mod store;
@@ -25,12 +23,10 @@ pub(crate) use store::PushRecord;
 use store::{Device, Stored};
 
 const PAIRING_SECONDS: u64 = 5 * 60;
-/// How long phones' push registrations are kept while push notifications are off.
 pub(crate) const PUSH_KEPT_SECONDS: u64 = 90 * 24 * 60 * 60;
 const MAX_UNAUTHENTICATED: usize = 16;
 const AUTHENTICATION_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Starts, restarts, or stops the network listener; installed by the executable.
 pub(crate) type ListenerControl =
     dyn Fn(Option<(u16, TlsIdentity)>) -> ListenerStatus + Send + Sync;
 
@@ -43,7 +39,6 @@ pub struct RemoteAccess {
     unauthenticated: Arc<AtomicUsize>,
     notifier: Arc<Notifier>,
     unreadable: Option<UnreadableFile>,
-    /// Set as the server stops, so nothing saves after a newer server may run.
     closed: std::sync::atomic::AtomicBool,
 }
 
@@ -68,16 +63,12 @@ struct Offer {
     owner: ClientId,
 }
 
-/// What switching push notifications changed.
 #[derive(Debug, Default)]
 pub(crate) struct PushSwitch {
-    /// Relay registrations to delete, when they were switched off.
     pub(crate) deleted: Vec<Credentials>,
-    /// Phones to register again, when they were switched on.
     pub(crate) resumed: Vec<DeviceId>,
 }
 
-/// Holds one of the few slots for connections that have not authenticated yet.
 #[derive(Debug)]
 pub struct Admission {
     count: Arc<AtomicUsize>,
@@ -95,8 +86,6 @@ impl RemoteAccess {
         Self::with_store(None, Stored::default(), None)
     }
 
-    /// Opens the saved state; contents this build can't understand are moved
-    /// aside and access starts off.
     pub fn open(path: PathBuf) -> io::Result<Self> {
         let Some(bytes) = store::read(&path)? else {
             return Ok(Self::with_store(Some(path), Stored::default(), None));
@@ -132,14 +121,11 @@ impl RemoteAccess {
         }
     }
 
-    /// Stops saving. Every save happens under the state lock, so once this
-    /// returns, none is under way and none follows.
     pub(crate) fn close(&self) {
         let _state = self.lock();
         self.closed.store(true, Ordering::Release);
     }
 
-    /// Access that is on, with `phones` paired, each with the token `[7; 32]`.
     #[cfg(test)]
     pub(crate) fn with_phones(phones: &[DeviceId]) -> Self {
         let remote = Self::memory();
@@ -167,7 +153,6 @@ impl RemoteAccess {
         self.lock().stored.settings.enabled = enabled;
     }
 
-    /// The saved state that couldn't be read when the server started.
     pub(crate) fn unreadable(&self) -> Option<&UnreadableFile> {
         self.unreadable.as_ref()
     }
@@ -233,7 +218,6 @@ impl RemoteAccess {
         }
     }
 
-    /// Applies the saved settings when the server starts.
     pub(crate) fn resume(&self) {
         let listening = {
             let state = self.lock();
@@ -291,8 +275,6 @@ impl RemoteAccess {
         status
     }
 
-    /// Offers a pairing code whose link lists the `given` addresses first,
-    /// for a server that phones reach by another name, such as behind NAT.
     pub(crate) fn start_pairing(
         &self,
         owner: ClientId,
@@ -335,7 +317,6 @@ impl RemoteAccess {
         }
     }
 
-    /// Cancels the pending offer when the connection that created it goes away.
     pub(crate) fn release_pairing(&self, owner: ClientId) {
         let mut state = self.lock();
         if state
@@ -402,7 +383,6 @@ impl RemoteAccess {
         }
     }
 
-    /// The same answer for every failure, and the same work whether or not the device exists.
     pub(crate) fn authenticate(
         &self,
         credential: &DeviceCredential,
@@ -442,7 +422,6 @@ impl RemoteAccess {
                 .any(|stored| stored.id == device)
     }
 
-    /// Forgets the device, and hands back its push registration for deleting at the relay.
     pub(crate) fn revoke(&self, device: DeviceId) -> Result<Option<PushRecord>, ServerError> {
         let mut state = self.lock();
         let mut stored = state.stored.clone();
@@ -457,7 +436,6 @@ impl RemoteAccess {
         Ok(removed.push)
     }
 
-    /// Whether paired devices may connect, which push notifications need to be useful.
     pub(crate) fn accepting(&self) -> bool {
         self.lock().stored.settings.enabled
     }
@@ -466,10 +444,6 @@ impl RemoteAccess {
         self.lock().stored.push_notifications
     }
 
-    /// Turns push notifications on or off for every phone. Off pauses them:
-    /// the relay registrations come back for deleting, and each phone's
-    /// token and key stay for `PUSH_KEPT_SECONDS`. On names the phones to
-    /// register again.
     pub(crate) fn set_push_notifications(&self, on: bool) -> Result<PushSwitch, ServerError> {
         let mut state = self.lock();
         if state.stored.push_notifications == on {
@@ -497,8 +471,6 @@ impl RemoteAccess {
         Ok(switch)
     }
 
-    /// Forgets the phones' kept registrations once push notifications have
-    /// been off for `PUSH_KEPT_SECONDS`. Whether any were forgotten.
     pub(crate) fn expire_paused_push(&self, now: u64) -> Result<bool, ServerError> {
         let mut state = self.lock();
         let expired = !state.stored.push_notifications
@@ -542,7 +514,6 @@ impl RemoteAccess {
             .and_then(|stored| stored.push.clone())
     }
 
-    /// Every device's push registration.
     pub(crate) fn push_records(&self) -> Vec<(DeviceId, PushRecord)> {
         self.lock()
             .stored
@@ -552,9 +523,6 @@ impl RemoteAccess {
             .collect()
     }
 
-    /// Replaces the device's push registration only while it is still
-    /// `expected`, so work based on an older one never overwrites a newer
-    /// one. `false` when it changed or the device is gone.
     pub(crate) fn replace_push(
         &self,
         device: DeviceId,
@@ -656,7 +624,6 @@ fn hash(token: &[u8]) -> [u8; 32] {
     bytes
 }
 
-/// Compares secrets in time independent of where they differ.
 fn same<const N: usize>(left: &[u8; N], right: &[u8; N]) -> bool {
     left.iter()
         .zip(right)

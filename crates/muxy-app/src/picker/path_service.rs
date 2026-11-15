@@ -2,10 +2,6 @@ use std::env::home_dir;
 
 pub(crate) const PARENT_ROW: &str = "..";
 
-/// A path of this computer in the picker's form, which separates folders with
-/// `/`. Windows paths start with their drive as a folder, so `C:\Users` is
-/// `/C:/Users`, and `/` holds the drives. A share, `\\host\share`, is
-/// `/UNC/host/share`. Windows builds browse only this computer.
 pub(crate) fn from_native(path: &str) -> String {
     if cfg!(windows) {
         from_windows(path)
@@ -14,7 +10,6 @@ pub(crate) fn from_native(path: &str) -> String {
     }
 }
 
-/// The path of this computer that a picker path names.
 pub(crate) fn to_native(path: &str) -> String {
     if cfg!(windows) {
         to_windows(path)
@@ -23,8 +18,6 @@ pub(crate) fn to_native(path: &str) -> String {
     }
 }
 
-/// A picker path as the picker shows it, which on Windows starts with its
-/// drive.
 pub(crate) fn shown(path: &str) -> String {
     if cfg!(windows) {
         shown_on_windows(path)
@@ -59,7 +52,6 @@ fn to_windows(path: &str) -> String {
         return format!("\\\\{}", share.replace('/', "\\"));
     }
     match path.strip_prefix('/').filter(|rest| drive(rest).is_some()) {
-        // `C:` alone is the current folder of drive C, not its root.
         Some(rest) if rest.len() == 2 => format!("{rest}\\"),
         Some(rest) => rest.replace('/', "\\"),
         None => path.replace('/', "\\"),
@@ -322,7 +314,6 @@ pub(crate) fn directory_contents(path: &str) -> Result<Vec<DirectoryItem>, std::
     Ok(items)
 }
 
-/// The drives Windows has, as the folders of `/`.
 fn drives() -> Vec<DirectoryItem> {
     ('A'..='Z')
         .filter(|letter| std::path::Path::new(&format!("{letter}:\\")).is_dir())

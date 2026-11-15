@@ -28,11 +28,9 @@ struct State {
     stopping: bool,
 }
 
-/// How a requested session's terminal starts.
 #[derive(Debug, Default)]
 pub(crate) struct Launch {
     pub(crate) colors: Option<TerminalColors>,
-    /// More environment for the shell, such as a proxy.
     pub(crate) environment: BTreeMap<String, String>,
 }
 
@@ -49,7 +47,6 @@ pub struct Registry {
     pub(crate) git: crate::git::Git,
     pub(crate) files: crate::files::Files,
     uploads: crate::uploads::Uploads,
-    /// Serializes session operations, and holds the references they consult.
     pub(crate) operations: Mutex<Owners>,
     pub(crate) notifier: Arc<Notifier>,
     settings: Mutex<ServerSettings>,
@@ -129,7 +126,6 @@ impl Registry {
         Ok(registry)
     }
 
-    /// This process, with the saved files it couldn't read at startup.
     pub fn server_info(&self) -> muxy_protocol::ServerInfo {
         muxy_protocol::ServerInfo {
             unreadable: self
@@ -257,15 +253,12 @@ impl Registry {
         Ok(())
     }
 
-    /// Keeps uploads in `directory` instead of the system's temporary folder.
     #[must_use]
     pub fn with_uploads(mut self, directory: PathBuf) -> Self {
         self.uploads = crate::uploads::Uploads::in_directory(directory);
         self
     }
 
-    /// Keeps a piece of a file sent for a live or saved session; after the
-    /// last piece, the file's absolute path.
     pub fn upload(
         &self,
         chunk: &muxy_protocol::UploadChunk,
@@ -297,12 +290,10 @@ impl Registry {
         self
     }
 
-    /// Starts listening for paired devices if mobile access was left on.
     pub fn resume_remote_access(&self) {
         self.remote.resume();
     }
 
-    /// Reserves a slot for a network connection that has not authenticated yet.
     pub fn admit_remote(&self) -> Option<crate::Admission> {
         self.remote.admit()
     }
@@ -311,12 +302,10 @@ impl Registry {
         self.remote.state(&self.connected_devices())
     }
 
-    /// Stops saving device access, before the server lets a newer one start.
     pub fn close_remote_access(&self) {
         self.remote.close();
     }
 
-    /// Paired devices with a connection open now.
     pub(crate) fn connected_devices(&self) -> HashSet<muxy_protocol::DeviceId> {
         self.live_connections()
             .iter()
@@ -361,7 +350,6 @@ impl Registry {
         self.forget_unused_owners(&mut self.session_operation());
     }
 
-    /// An owner's references last as long as one of its connections.
     fn forget_unused_owners(&self, owners: &mut Owners) {
         let connections = self.live_connections();
         owners.retain(|owner| {
@@ -371,7 +359,6 @@ impl Registry {
         });
     }
 
-    /// Closes the connections of one paired device, or of every paired device.
     fn close_devices(&self, device: Option<muxy_protocol::DeviceId>) {
         for connection in self.live_connections() {
             if connection
@@ -429,7 +416,6 @@ impl Registry {
         Ok(())
     }
 
-    /// Reserves shutdown against all concurrent session creation.
     pub fn stop_if_idle(&self) -> bool {
         let mut state = lock(&self.sessions);
         if state.stopping || !state.sessions.is_empty() || !state.starting.is_empty() {
@@ -562,7 +548,6 @@ impl Registry {
         Ok(info)
     }
 
-    /// Records a session's end, then tells every connection.
     fn session_exit(&self, id: SessionId) -> impl FnOnce(muxy_protocol::ExitReason) + use<> {
         let listing = Arc::clone(&self.sessions);
         let notifier = Arc::clone(&self.notifier);
@@ -662,8 +647,6 @@ impl Registry {
         }
     }
 
-    /// Records the sessions an app references. Connections of the same
-    /// owner share one set; a set older than the current one is ignored.
     pub(crate) fn set_references(
         &self,
         requester: &Connection,
@@ -708,13 +691,11 @@ impl Registry {
         }
     }
 
-    /// Gives a connection that watches every session's metadata its current state.
     pub(crate) fn introduce_all(&self, connection: &Connection) {
         let sessions: Vec<_> = self.list().into_iter().map(|info| info.id).collect();
         self.introduce(connection, sessions.iter());
     }
 
-    /// Gives a connection the current state of sessions it just started referencing.
     fn introduce<'a>(
         &self,
         connection: &Connection,
@@ -761,7 +742,6 @@ impl Registry {
         Ok(())
     }
 
-    /// Gives a live or saved session to another project.
     pub fn move_session(
         &self,
         session: SessionId,
@@ -875,7 +855,6 @@ impl Registry {
         }
     }
 
-    /// Blocks until `shutdown` has ended every session.
     pub fn wait_stopped(&self) {
         let mut state = lock(&self.sessions);
         while !(state.stopping && state.sessions.is_empty() && state.starting.is_empty()) {
@@ -886,7 +865,6 @@ impl Registry {
         }
     }
 
-    /// Sends each connection what it has queued, then ends it.
     pub fn close_connections(&self) {
         self.notifier.close_all();
     }
@@ -920,9 +898,6 @@ fn saved_content_error(error: &io::Error) -> ServerError {
 #[path = "registry/recovery.rs"]
 mod recovery;
 
-/// The folder a session starts in, and how it is reported. Windows reports no
-/// program's working directory, so the folder is resolved up front, as Unix
-/// reports one: with long names and links followed.
 fn session_directory(directory: &Path) -> Result<(PathBuf, ServerPath), ServerError> {
     let path = valid_directory(directory)?;
     #[cfg(windows)]
@@ -935,9 +910,6 @@ fn session_directory(directory: &Path) -> Result<(PathBuf, ServerPath), ServerEr
     Ok((directory.to_owned(), path))
 }
 
-/// Whether `resolved` is still on the drive or share `requested` names.
-/// Resolving a mapped drive gives a share, which `cmd.exe` refuses to start
-/// in, and resolving a `subst` drive gives the long path it shortens.
 #[cfg(windows)]
 fn same_root(requested: &Path, resolved: &Path) -> bool {
     use std::path::{Component, Prefix};
@@ -947,7 +919,6 @@ fn same_root(requested: &Path, resolved: &Path) -> bool {
             _ => None,
         }
     }
-    // A request may name its root as `\\?\C:\`; a session can't start in one.
     let requested = prefix(requested).map(|prefix| match prefix {
         Prefix::VerbatimDisk(drive) => Prefix::Disk(drive),
         Prefix::VerbatimUNC(server, share) => Prefix::UNC(server, share),

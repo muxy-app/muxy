@@ -1,7 +1,3 @@
-//! Extension topbar, rail, and status-bar items: their effective values,
-//! icons, and clicks. Items whose command opens a popover anchor it to
-//! themselves.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,7 +15,6 @@ use crate::views::titlebar;
 const FALLBACK: &str = "puzzlepiece.extension";
 const MAX_ICON_BYTES: u64 = 256 * 1024;
 
-/// Where an item shows, which also decides where its popover opens.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Placement {
     Topbar,
@@ -27,10 +22,8 @@ pub(crate) enum Placement {
     StatusBar,
 }
 
-/// One visible item after runtime overrides are applied.
 #[derive(Clone, Debug)]
 pub(crate) struct Item {
-    /// Names the item across the manifest list it was declared in.
     pub key: String,
     pub placement: Placement,
     pub owner: String,
@@ -42,7 +35,6 @@ pub(crate) struct Item {
     pub root: PathBuf,
 }
 
-/// An item's tooltip, with the key of the command it runs when that has one.
 fn item_tooltip(item: &Item, cx: &gpui::App) -> gpui::SharedString {
     let name = gpui::SharedString::from(item.tooltip.clone());
     match super::RunCommand::key(&item.owner, &item.command, cx) {
@@ -51,7 +43,6 @@ fn item_tooltip(item: &Item, cx: &gpui::App) -> gpui::SharedString {
     }
 }
 
-/// The cache key an icon renders under and the validated file it loads from.
 fn svg_path(extension: &Extension, icon: &Icon) -> Option<(PathBuf, PathBuf)> {
     let Icon::Svg(svg) = icon else {
         return None;
@@ -64,8 +55,6 @@ fn svg_path(extension: &Extension, icon: &Icon) -> Option<(PathBuf, PathBuf)> {
 }
 
 impl AppModel {
-    /// Topbar items, followed by each extension's rail items while the rail
-    /// is turned off.
     pub(crate) fn topbar_items(&self) -> Vec<Item> {
         let mut items = Vec::new();
         for extension in self.extensions.registry.active() {
@@ -77,7 +66,6 @@ impl AppModel {
         items
     }
 
-    /// Rail items; none while the rail is turned off.
     pub(crate) fn rail_items(&self) -> Vec<Item> {
         let mut items = Vec::new();
         if self.appearance.rail_enabled {
@@ -88,7 +76,6 @@ impl AppModel {
         items
     }
 
-    /// The rail is open and has something to show.
     pub(crate) fn rail_shown(&self) -> bool {
         self.appearance.rail_expanded && !self.rail_items().is_empty()
     }
@@ -99,7 +86,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// The item named `key` is on screen at `placement`.
     pub(crate) fn extension_item_shown(&self, key: &str, placement: Placement) -> bool {
         let items = match placement {
             Placement::Topbar => self.topbar_items(),
@@ -191,8 +177,6 @@ impl AppModel {
         items
     }
 
-    /// An SF Symbol, or a loaded template SVG tinted with `color`. An icon
-    /// that cannot be drawn shows the extension glyph in its place.
     pub(crate) fn extension_icon(
         &self,
         root: &Path,
@@ -226,7 +210,6 @@ impl AppModel {
         }
     }
 
-    /// Reads every template SVG the enabled extensions show, off the main thread.
     pub(super) fn load_extension_icons(&mut self, cx: &mut Context<Self>) {
         let mut paths: Vec<(PathBuf, PathBuf)> = Vec::new();
         for extension in self.extensions.registry.active() {
@@ -306,7 +289,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Opens the command's popover anchored to the item, or runs the command.
     pub(crate) fn click_extension_item(
         &mut self,
         item: &Item,
@@ -356,7 +338,6 @@ impl AppModel {
             .into_any_element()
     }
 
-    /// The rail's buttons, top to bottom.
     pub(crate) fn rail_buttons(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         self.rail_items()
             .into_iter()
@@ -401,7 +382,6 @@ impl AppModel {
             .into_any_element()
     }
 
-    /// Status-bar items for one side, each with the separator main draws.
     pub(crate) fn extension_status_items(
         &self,
         side: Side,

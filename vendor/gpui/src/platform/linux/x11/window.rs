@@ -373,7 +373,6 @@ where
         .with_context(failure_context)
 }
 
-/// Convert X11 connection errors to `anyhow::Error` and panic for unrecoverable errors.
 pub(crate) fn handle_connection_error(err: ConnectionError) -> anyhow::Error {
     match err {
         ConnectionError::UnknownError => anyhow!("X11 connection: Unknown error"),
@@ -437,7 +436,6 @@ impl X11WindowState {
         };
 
         let win_aux = xproto::CreateWindowAux::new()
-            // https://stackoverflow.com/questions/43218127/x11-xlib-xcb-creating-a-window-requires-border-pixel-if-specifying-colormap-wh
             .border_pixel(visual_set.black_pixel)
             .colormap(colormap)
             .event_mask(
@@ -489,7 +487,6 @@ impl X11WindowState {
             ),
         )?;
 
-        // Collect errors during setup, so that window can be destroyed on failure.
         let setup_result = maybe!({
             let pid = std::process::id();
             check_reply(
@@ -521,9 +518,6 @@ impl X11WindowState {
             let reply = get_reply(|| "X11 GetGeometry failed.", xcb.get_geometry(x_window))?;
             if reply.x == 0 && reply.y == 0 {
                 bounds.origin.x.0 += 2;
-                // Work around a bug where our rendered content appears
-                // outside the window bounds when opened at the default position
-                // (14px, 49px on X + Gnome + Ubuntu 22).
                 let x = bounds.origin.x.0;
                 let y = bounds.origin.y.0;
                 check_reply(
@@ -561,10 +555,6 @@ impl X11WindowState {
 
             if params.kind == WindowKind::Floating {
                 if let Some(parent_window) = parent_window {
-                    // WM_TRANSIENT_FOR hint indicating the main application window. For floating windows, we set
-                    // a parent window (WM_TRANSIENT_FOR) such that the window manager knows where to
-                    // place the floating window in relation to the main window.
-                    // https://specifications.freedesktop.org/wm-spec/1.4/ar01s05.html
                     check_reply(
                         || "X11 ChangeProperty32 setting WM_TRANSIENT_FOR for floating window failed.",
                         xcb.change_property32(
@@ -577,8 +567,6 @@ impl X11WindowState {
                     )?;
                 }
 
-                // _NET_WM_WINDOW_TYPE_DIALOG indicates that this is a dialog (floating) window
-                // https://specifications.freedesktop.org/wm-spec/1.4/ar01s05.html
                 check_reply(
                     || "X11 ChangeProperty32 setting window type for floating window failed.",
                     xcb.change_property32(
@@ -665,13 +653,7 @@ impl X11WindowState {
                     visual_id: visual.id,
                 };
                 let config = BladeSurfaceConfig {
-                    // Note: this has to be done after the GPU init, or otherwise
-                    // the sizes are immediately invalidated.
                     size: query_render_extent(xcb, x_window)?,
-                    // We set it to transparent by default, even if we have client-side
-                    // decorations, since those seem to work on X11 even without `true` here.
-                    // If the window appearance changes, then the renderer will get updated
-                    // too
                     transparent: false,
                 };
                 BladeRenderer::new(gpu_context, &raw_window, config)?
@@ -748,8 +730,6 @@ impl Drop for X11Window {
         .log_err();
 
         if destroy_x_window.is_some() {
-            // Mark window as destroyed so that we can filter out when X11 events
-            // for it still come in.
             state.destroyed = true;
 
             let this_ptr = self.0.clone();
@@ -768,8 +748,6 @@ impl Drop for X11Window {
 }
 
 enum WmHintPropertyState {
-    // Remove = 0,
-    // Add = 1,
     Toggle = 2,
 }
 
@@ -879,7 +857,7 @@ impl X11Window {
                 pointer.root_x as u32,
                 pointer.root_y as u32,
                 flag,
-                0, // Left mouse button
+                0,
                 0,
             ],
         );
@@ -1014,7 +992,6 @@ impl X11WindowStatePtr {
             return;
         }
         if let PlatformInput::KeyDown(event) = input {
-            // only allow shift modifier when inserting text
             if event.keystroke.modifiers.is_subset_of(&Modifiers::shift()) {
                 let mut state = self.state.borrow_mut();
                 if let Some(mut input_handler) = state.input_handler.take() {
@@ -1100,8 +1077,6 @@ impl X11WindowStatePtr {
             is_resize = bounds.size.width != state.bounds.size.width
                 || bounds.size.height != state.bounds.size.height;
 
-            // If it's a resize event (only width/height changed), we ignore `bounds.origin`
-            // because it contains wrong values.
             if is_resize {
                 state.bounds.size = bounds.size;
             } else {
@@ -1175,7 +1150,6 @@ impl PlatformWindow for X11Window {
     fn is_maximized(&self) -> bool {
         let state = self.0.state.borrow();
 
-        // A maximized window that gets minimized will still retain its maximized state.
         !state.hidden && state.maximized_vertical && state.maximized_horizontal
     }
 
@@ -1213,8 +1187,6 @@ impl PlatformWindow for X11Window {
     }
 
     fn content_size(&self) -> Size<Pixels> {
-        // We divide by the scale factor here because this value is queried to determine how much to draw,
-        // but it will be multiplied later by the scale to adjust for scaling.
         let state = self.0.state.borrow();
         state
             .content_size()
@@ -1373,9 +1345,9 @@ impl PlatformWindow for X11Window {
 
     fn set_app_id(&mut self, app_id: &str) {
         let mut data = Vec::with_capacity(app_id.len() * 2 + 1);
-        data.extend(app_id.bytes()); // instance https://unix.stackexchange.com/a/494170
+        data.extend(app_id.bytes());
         data.push(b'\0');
-        data.extend(app_id.bytes()); // class
+        data.extend(app_id.bytes());
 
         check_reply(
             || "X11 ChangeProperty8 for WM_CLASS failed.",
@@ -1549,7 +1521,6 @@ impl PlatformWindow for X11Window {
     fn window_decorations(&self) -> crate::Decorations {
         let state = self.0.state.borrow();
 
-        // Client window decorations require compositor support
         if !state.client_side_decorations_supported {
             return Decorations::Server;
         }
@@ -1562,7 +1533,6 @@ impl PlatformWindow for X11Window {
                 } else if let Some(edge_constraints) = &state.edge_constraints {
                     edge_constraints.to_tiling()
                 } else {
-                    // https://source.chromium.org/chromium/chromium/src/+/main:ui/ozone/platform/x11/x11_window.cc;l=2519;drc=1f14cc876cc5bf899d13284a12c451498219bb2d
                     Tiling {
                         top: state.maximized_vertical,
                         bottom: state.maximized_vertical,
@@ -1634,7 +1604,6 @@ impl PlatformWindow for X11Window {
             decorations = crate::WindowDecorations::Server;
         }
 
-        // https://github.com/rust-windowing/winit/blob/master/src/platform_impl/linux/x11/util/hint.rs#L53-L87
         let hints_data: [u32; 5] = match decorations {
             WindowDecorations::Server => [1 << 1, 0, 1, 0, 0],
             WindowDecorations::Client => [1 << 1, 0, 0, 0, 0],

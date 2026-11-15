@@ -1,16 +1,9 @@
-//! Making sure nothing uses a worktree before it is deleted.
-
 use super::{Result, error};
 #[cfg(unix)]
 use rustix::process::{Pid, Signal};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// Stops every process whose working directory is inside `directory`, which
-/// must still be the folder with the `device` and `inode` that removal
-/// inspected, never a link to elsewhere. It is checked again before each look
-/// at the processes, so a folder swapped in during cleanup can't point it at
-/// processes outside the worktree.
 #[cfg(unix)]
 pub(super) fn stop(directory: &Path, device: u64, inode: u64) -> Result<()> {
     let expected = |path: &Path| {
@@ -87,23 +80,16 @@ fn signal_process(pid: u32, signal: Signal) -> std::io::Result<()> {
     Ok(rustix::process::kill_process(pid, signal)?)
 }
 
-/// A process and the folder it works in.
 #[cfg(unix)]
 struct Cwd {
     pid: u32,
     path: PathBuf,
-    /// The folder's device and inode, as the kernel gave them, where the
-    /// platform can't open a process's folder directly.
     #[cfg_attr(target_os = "linux", allow(dead_code))]
     id: Option<(u64, u64)>,
 }
 
 #[cfg(unix)]
 impl Cwd {
-    /// Whether the folder this process really works in is the one with
-    /// `device` and `inode`, or inside it. The folder is opened by identity,
-    /// not by its path, and walked up through `..`, so a path swapped to
-    /// point elsewhere can't make an outside process look inside.
     fn inside(&self, device: u64, inode: u64) -> bool {
         use muxy_core::files::FileId;
         use rustix::fs::{Mode, OFlags};
@@ -211,8 +197,6 @@ fn identity(pid: u32) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Where a removal sets `directory` aside: `<name>.muxy-removing-<id>`
-/// beside it.
 #[cfg(windows)]
 pub(super) fn aside_path(directory: &Path, id: impl std::fmt::Display) -> Result<PathBuf> {
     let mut name = directory
@@ -223,9 +207,6 @@ pub(super) fn aside_path(directory: &Path, id: impl std::fmt::Display) -> Result
     Ok(directory.with_file_name(name))
 }
 
-/// Renames `directory` to `aside`. Windows can't read another process's
-/// working directory, but it refuses this rename while a file in the folder
-/// is open or a program works inside it.
 #[cfg(windows)]
 pub(super) fn set_aside(directory: &Path, aside: &Path) -> Result<()> {
     rename_retrying(directory, aside).map_err(|cause| {
@@ -237,26 +218,17 @@ pub(super) fn set_aside(directory: &Path, aside: &Path) -> Result<()> {
     })
 }
 
-/// Puts a folder [`set_aside`] back.
 #[cfg(windows)]
 pub(super) fn restore(aside: &Path, directory: &Path) -> Result<()> {
     rename_retrying(aside, directory).map_err(error)
 }
 
-/// Fails, before anything changes, while a file in `directory` is open.
 #[cfg(windows)]
 pub(super) fn check_unused(directory: &Path, aside: &Path) -> Result<()> {
     set_aside(directory, aside)?;
     restore(aside, directory)
 }
 
-/// Deletes a folder [`set_aside`], leaving its `.git` file for last, so a
-/// folder that must go back is still a worktree Git and Muxy can open.
-///
-/// `aside` must be the folder with the `device` and `index` that removal
-/// inspected, never a junction or link swapped in for it. While its contents
-/// are deleted it stays open without sharing deletion, so neither it nor a
-/// folder above it can be renamed or replaced, and its path keeps naming it.
 #[cfg(windows)]
 pub(super) fn delete_set_aside(aside: &Path, device: u64, index: u64) -> std::io::Result<()> {
     let pinned = pin(aside, device, index)?;
@@ -273,16 +245,9 @@ pub(super) fn delete_set_aside(aside: &Path, device: u64, index: u64) -> std::io
         remove_retrying(&git.path(), Entry::of(git.file_type()?))?;
     }
     drop(pinned);
-    // The contents are gone, so only an empty folder is left to remove. Not
-    // recursively: a folder or link swapped in once the pin is released is
-    // refused or removed alone, never emptied.
     remove_retrying(aside, Entry::FolderLink)
 }
 
-/// Opens the folder at `path`, refusing anything but the folder with the
-/// `device` and `index` given. The handle reads the folder's listing and
-/// doesn't share deletion, so the folder can't be renamed or deleted while it
-/// is open, and Windows refuses to rename any folder above an open one.
 #[cfg(windows)]
 fn pin(path: &Path, device: u64, index: u64) -> std::io::Result<std::fs::File> {
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
@@ -310,8 +275,6 @@ fn pin(path: &Path, device: u64, index: u64) -> std::io::Result<std::fs::File> {
     Ok(folder)
 }
 
-/// How Windows deletes an entry: a link to a folder, junctions included, is
-/// removed as a folder, without touching what it points to.
 #[cfg(windows)]
 #[derive(Clone, Copy)]
 enum Entry {
@@ -334,7 +297,6 @@ impl Entry {
     }
 }
 
-/// Retries for a moment while ended processes finish exiting.
 #[cfg(windows)]
 fn remove_retrying(path: &Path, entry: Entry) -> std::io::Result<()> {
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -353,8 +315,6 @@ fn remove_retrying(path: &Path, entry: Entry) -> std::io::Result<()> {
     }
 }
 
-/// Retries for a moment, since antivirus, indexing and sync tools open new
-/// files briefly.
 #[cfg(windows)]
 fn rename_retrying(from: &Path, to: &Path) -> std::io::Result<()> {
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -413,7 +373,6 @@ mod tests {
     #[test]
     fn an_open_file_even_one_that_allows_deletion_keeps_the_folder() {
         let folder = folder();
-        // The standard library shares read, write and delete access.
         let open = std::fs::File::create(folder.join("nested/open.txt")).unwrap();
         let aside = aside_path(&folder, 2).unwrap();
         assert_eq!(
@@ -427,8 +386,6 @@ mod tests {
         std::fs::remove_dir_all(folder.parent().unwrap()).unwrap();
     }
 
-    /// A running program doesn't hold its folder either, but its file can't
-    /// be deleted, so removal puts the folder back.
     #[test]
     fn a_running_programs_file_survives_deleting_its_folder() {
         let folder = folder();
@@ -482,8 +439,6 @@ mod tests {
         std::fs::remove_dir_all(folder.parent().unwrap()).unwrap();
     }
 
-    /// A running program holds its working directory, so removal ends the
-    /// sessions that report one inside the folder first.
     #[test]
     fn a_working_directory_keeps_the_folder_until_its_program_exits() {
         let folder = folder();
@@ -493,7 +448,6 @@ mod tests {
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
-        // Its first words mean it has started, working directory and all.
         let mut output = BufReader::new(working.stdout.take().unwrap());
         let mut line = String::new();
         while line.trim().is_empty() {
@@ -517,8 +471,6 @@ mod tests {
 mod unix_tests {
     use super::*;
 
-    /// A process counts as inside a folder by the identity of the folder it
-    /// really works in, whatever path names it.
     #[test]
     fn processes_are_matched_to_a_folder_by_its_identity() -> std::io::Result<()> {
         let root = std::env::temp_dir().join(format!("muxy-cwd-{}", std::process::id()));

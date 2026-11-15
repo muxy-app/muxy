@@ -13,7 +13,6 @@ pub(super) fn fields(checks: bool) -> String {
     }
 }
 
-/// The repository URL `gh repo view --json url` printed.
 pub(super) fn identity(bytes: &[u8]) -> Result<String> {
     let value: Value = serde_json::from_slice(bytes).map_err(error)?;
     let url = value
@@ -35,7 +34,6 @@ pub(super) fn is_open(value: &Value) -> bool {
     value.get("state").and_then(Value::as_str) == Some("OPEN")
 }
 
-/// The GitHub CLI failed because there is no such pull request.
 pub(super) fn no_pr(cause: &crate::ServerError) -> bool {
     let message = cause.message().to_ascii_lowercase();
     message.contains("no pull requests found")

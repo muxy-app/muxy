@@ -1,8 +1,3 @@
-//! Physical framing and serialization for `muxy-protocol` messages.
-//!
-//! This boundary validates bytes and codecs, not peer policy or runtime
-//! behavior.
-
 pub mod cbor;
 mod codec;
 mod error;

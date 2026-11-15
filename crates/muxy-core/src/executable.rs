@@ -54,9 +54,6 @@ pub fn command_arguments(source: &str) -> io::Result<Vec<String>> {
     Ok(arguments)
 }
 
-/// The program `name` in the first of `directories` that has it, as a shell
-/// finds it: an executable file on Unix, and on Windows `name` with one of
-/// the extensions in `PATHEXT`, such as `code.cmd`.
 pub fn find_program(directories: &[PathBuf], name: &str) -> Option<PathBuf> {
     #[cfg(unix)]
     {
@@ -77,13 +74,9 @@ pub fn find_program(directories: &[PathBuf], name: &str) -> Option<PathBuf> {
     }
 }
 
-/// The `PATHEXT` extensions `Command` can start without another program,
-/// unlike `.js` or `.vbs`.
 #[cfg(windows)]
 const STARTABLE: [&str; 4] = [".com", ".exe", ".bat", ".cmd"];
 
-/// [`find_program`] with `extensions` as `PATHEXT` holds them. Without any,
-/// the ones every Windows has.
 #[cfg(windows)]
 pub fn find_with_extensions(
     directories: &[PathBuf],
@@ -106,13 +99,11 @@ pub fn find_with_extensions(
     })
 }
 
-/// The program `name` installed next to `executable`.
 pub fn sibling(executable: &Path, name: &str) -> PathBuf {
     executable.with_file_name(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
 pub fn current_path() -> io::Result<PathBuf> {
-    // macOS current_exe can retain the launch symlink after its target changes.
     #[cfg(target_os = "macos")]
     let path = PathBuf::from(
         libproc::libproc::proc_pid::pidpath(

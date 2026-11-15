@@ -14,14 +14,11 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>
 pub(crate) enum Change {
     Composer(ComposerToggle, bool),
     QuickTerminal(muxy_app_core::settings::QuickTerminalSettings),
-    /// One Quick Terminal number, such as `quick-width`, set on the saved settings.
     QuickNumber(&'static str, u16),
     Theme(bool, String),
     Sidebar(bool),
     SidebarVibrancy(bool),
-    /// The extension whose sidebar replaces the built-in one; empty for built-in.
     ExtensionSidebar(String),
-    /// The app language as `<extension>:<localization>`; empty for English.
     Language(String),
     Worktrees(WorktreeToggle, bool),
     SidebarCollapsedStyle(muxy_app_core::settings::SidebarCollapsedStyle),
@@ -50,7 +47,6 @@ pub(crate) enum Change {
     RemoveFileRule(String),
     MoveFileRule(String, bool),
     AlwaysAskFiles(bool),
-    /// `[openers] project_target`: the app the Open in IDE control opens.
     ProjectTarget(String),
     Directory(muxy_app_core::settings::NewPaneDirectory),
     InsertPathRecents(bool),
@@ -58,7 +54,6 @@ pub(crate) enum Change {
     Binding(String, Option<muxy_app_core::settings::KeyChord>),
     Command(muxy_app_core::settings::CustomCommand),
     RemoveCommand(String),
-    /// Removes an extension command's shortcut.
     Unassign(String),
     ShellIntegration(bool),
     Browser(BrowserChange),
@@ -74,11 +69,7 @@ pub(crate) enum BrowserChange {
     RenameProfile(String, String),
     ClearProfile(String),
     DeleteProfile(String),
-    /// Imports from the listed browser at `source` into the default profile.
-    Import {
-        source: usize,
-        cookies: bool,
-    },
+    Import { source: usize, cookies: bool },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -193,7 +184,6 @@ impl AppModel {
         }
     }
 
-    /// Opens Settings at Browser, where profiles are managed.
     pub(crate) fn show_browser_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.show_settings(window, cx);
         if let Some(settings) = &self.settings_tab {
@@ -201,7 +191,6 @@ impl AppModel {
         }
     }
 
-    /// Opens Settings at Servers and reads which clients may reach this computer.
     pub(crate) fn show_servers_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.show_settings(window, cx) {
             return;
@@ -213,7 +202,6 @@ impl AppModel {
         self.sync_servers_page(true, cx);
     }
 
-    /// Opens Settings at `category`.
     pub(crate) fn show_settings_category(
         &mut self,
         category: crate::views::settings::Category,
@@ -452,7 +440,6 @@ impl AppModel {
         self.path.with_file_name(filename)
     }
 
-    /// Applies a change made outside Settings and answers whether it saved.
     pub(crate) fn try_change_preference(
         &mut self,
         change: Change,
@@ -862,7 +849,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Makes `settings`, already saved, the ones the app runs with.
     fn adopt_settings(
         &mut self,
         settings: muxy_app_core::settings::Settings,
@@ -904,9 +890,6 @@ impl AppModel {
         }
     }
 
-    /// Applies `settings.toml` and `terminal.toml` as they are on disk now,
-    /// after something other than this app changed them, such as
-    /// `muxy config`. Remote servers keep the list the app connected.
     pub(crate) fn reload_settings(
         &mut self,
         cx: &mut Context<Self>,
@@ -934,7 +917,6 @@ impl AppModel {
         reloaded
     }
 
-    /// Settings edits not saved yet, such as text still being typed.
     fn take_pending_preferences(&mut self, cx: &mut Context<Self>) -> Vec<Change> {
         self.settings_tab
             .as_ref()
@@ -1127,9 +1109,6 @@ impl AppModel {
         self.preview_terminal_preferences(next, cx);
     }
 
-    /// Shows `next` in the terminals while a slider moves, without the work a
-    /// saved change does: the theme stays resolved and Settings keeps the
-    /// value it shows itself until the slider is released.
     fn preview_terminal_preferences(
         &mut self,
         next: muxy_app_core::settings::TerminalSettings,
@@ -1324,8 +1303,6 @@ impl AppModel {
         self.sync_preferences(cx);
     }
 
-    /// A stopped server counts as disconnected. Restarting connects again,
-    /// which starts it, over SSH too.
     pub(super) fn receive_server_stopped(
         &mut self,
         server: ServerId,
@@ -1360,7 +1337,6 @@ impl AppModel {
         self.sync_preferences(cx);
     }
 
-    /// Asks before stopping or restarting `server`, which ends its sessions.
     pub(crate) fn confirm_server_control(
         &mut self,
         server: ServerId,
@@ -1486,7 +1462,6 @@ fn change_id(change: &Change) -> &str {
     }
 }
 
-/// `browser` with a change that lives in `settings.toml`.
 fn browser_settings(
     mut browser: muxy_app_core::settings::BrowserSettings,
     change: BrowserChange,

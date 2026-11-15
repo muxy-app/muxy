@@ -1,44 +1,24 @@
-//! Takes Sixel and iTerm2 images out of program output before libghostty
-//! sees it. libghostty implements neither protocol, and it never reports
-//! their sequences to the embedder, so they are found here instead.
-//!
-//! Everything else passes through unchanged and in order. A sequence is
-//! held back only while its first bytes could still start an image.
-
 const ESC: u8 = 0x1b;
 const BEL: u8 = 0x07;
 const CAN: u8 = 0x18;
 const SUB: u8 = 0x1a;
-/// Sixel parameters are a few short numbers; anything longer is not Sixel.
 const MAX_PARAMS: usize = 32;
-/// Encoded images larger than this are skipped.
 const MAX_PAYLOAD: usize = 4 * crate::MAX_GRAPHICS_BYTES;
-/// A held buffer that grew past this is freed once its image is done.
 const KEEP_CAPACITY: usize = 4096;
-/// Stands in for a sequence taken out of the output. It begins with ESC, as
-/// the sequence did, so libghostty ends any sequence the program left
-/// unfinished before it, and otherwise does nothing.
 const STRING_TERMINATOR: &[u8] = b"\x1b\\";
 
-/// A piece of program output, in the order it arrived.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Piece<'a> {
-    /// Bytes for libghostty.
     Text(&'a [u8]),
-    /// A complete Sixel image: the parameters before `q`, then its data.
     Sixel { params: &'a [u8], data: &'a [u8] },
-    /// A complete iTerm2 file: `key=value;…:base64`.
     Iterm(&'a [u8]),
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct Interceptor {
     state: State,
-    /// Bytes held back while deciding, or the payload being collected.
     held: Vec<u8>,
-    /// Where the Sixel data starts in `held`.
     params: usize,
-    /// An iTerm2 multipart file collected so far. Any other output drops it.
     multipart: Option<Vec<u8>>,
 }
 
@@ -46,14 +26,13 @@ pub(crate) struct Interceptor {
 enum State {
     #[default]
     Ground,
-    /// Saw `ESC` at the end of the last output.
     Escape,
-    /// Inside `ESC P`, reading what could be Sixel parameters.
     DcsParams,
-    /// Inside `ESC ]`, matching an iTerm2 file command.
     OscPrefix,
-    /// Collecting a payload until its terminator.
-    Body { kind: Kind, escape: bool },
+    Body {
+        kind: Kind,
+        escape: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,10 +42,7 @@ enum Kind {
     MultipartFile,
     FilePart,
     FileEnd,
-    /// A payload over the size limit, dropped up to its terminator.
-    Skip {
-        osc: bool,
-    },
+    Skip { osc: bool },
 }
 
 const COMMANDS: [(&[u8], Kind); 4] = [
@@ -77,8 +53,6 @@ const COMMANDS: [(&[u8], Kind); 4] = [
 ];
 
 impl Interceptor {
-    /// Splits `input` into pieces, holding back an unfinished image for the
-    /// next call.
     pub(crate) fn feed(&mut self, input: &[u8], mut out: impl FnMut(Piece<'_>)) {
         let mut pending = 0;
         let mut i = 0;
@@ -101,8 +75,6 @@ impl Interceptor {
         }
     }
 
-    /// Passes text through up to the next `ESC P` or `ESC ]`. Returns the
-    /// next byte to read and the start of the text not yet handed on.
     fn ground(
         &mut self,
         input: &[u8],
@@ -187,7 +159,6 @@ impl Interceptor {
         i + 1
     }
 
-    /// Collects a payload until its terminator. Returns the next byte to read.
     fn body(
         &mut self,
         input: &[u8],
@@ -218,12 +189,10 @@ impl Interceptor {
                 self.finish(kind, out);
                 i + 1
             }
-            // libghostty sees the cancel, as it would have mid-sequence.
             CAN | SUB => {
                 self.reset();
                 i
             }
-            // Sixel ignores BEL, so it is collected with the data.
             _ => {
                 let end = input[i + 1..]
                     .iter()
@@ -240,8 +209,6 @@ impl Interceptor {
         self.held.extend_from_slice(bytes);
     }
 
-    /// Hands the held bytes to libghostty after all, and returns to plain text
-    /// at `i` without consuming it.
     fn release(&mut self, out: &mut impl FnMut(Piece<'_>), i: usize) -> usize {
         let held = std::mem::take(&mut self.held);
         self.emit(out, &held);
@@ -342,7 +309,6 @@ mod tests {
         Iterm(Vec<u8>),
     }
 
-    /// Feeds `input` in pieces of `size` bytes and merges adjacent text.
     fn run(input: &[u8], size: usize) -> Vec<Owned> {
         let mut interceptor = Interceptor::default();
         let mut pieces: Vec<Owned> = Vec::new();

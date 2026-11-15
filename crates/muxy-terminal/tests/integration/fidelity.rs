@@ -13,7 +13,6 @@ fn kitty_pixels_placements_replacement_png_and_deletion_survive_fragmented_outpu
     assert_eq!(first.images[0].rgba.as_ref(), &[255, 0, 0, 255]);
     assert_eq!(first.placements[0].size, [16, 16]);
     assert_eq!(first.placements[0].source, [0, 0, 1, 1]);
-    // A restored copy numbers image generations afresh; pixels and placements must match.
     let mut archived = terminal.archive()?.graphics;
     archived.images[0].generation = first.images[0].generation;
     assert_eq!(archived, first);
@@ -72,7 +71,6 @@ fn kitty_unicode_placeholders_place_the_image_and_draw_blank_cells() -> Result {
         .iter()
         .map(|p| (p.image, p.column, p.row, p.offset, p.size, p.source, p.z))
         .collect();
-    // One placement per row of cells, below the text, together drawing the whole image.
     assert_eq!(
         placed,
         [

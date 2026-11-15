@@ -18,7 +18,6 @@ pub(crate) struct PullRequestPopover {
     project: ProjectId,
     number: u64,
     merge_method: GitMergeMethod,
-    /// A worktree's pull request can remove the worktree once merged.
     remove_worktree: bool,
 }
 
@@ -574,7 +573,6 @@ impl OverlayView for PullRequestPopover {
     }
 }
 
-/// The popover's card. It takes the keyboard, so a client lands inside it.
 fn surface(model: &AppModel, cx: &mut Context<AppModel>) -> Stateful<gpui::Div> {
     muxy_ui::popover::surface(&model.theme, model.metrics)
         .id("pull-request-popover")

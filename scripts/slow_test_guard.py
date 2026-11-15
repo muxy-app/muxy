@@ -22,7 +22,6 @@ TESTS_FINISHED = re.compile(rb"test result: ")
 
 def run(command, **kwargs):
     """Run the command like subprocess.run(command, check=True, **kwargs), within the test time limit."""
-    # A file, unlike a pipe, cannot keep the run waiting on processes the command leaves behind.
     directory = tempfile.mkdtemp()
     try:
         path = os.path.join(directory, "output")
@@ -37,7 +36,6 @@ def run(command, **kwargs):
                     kill_tree(process)
                     process.wait()
     finally:
-        # Windows can't remove the file while processes left behind still hold it open.
         shutil.rmtree(directory, ignore_errors=True)
     if slow_test:
         raise TimeoutError(f"Stopped the run because {slow_test} ran for over {LIMIT_SECONDS} seconds")

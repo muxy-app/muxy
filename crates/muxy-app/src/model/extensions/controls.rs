@@ -1,6 +1,3 @@
-//! Tab, pane, and project controls beyond main's verbs: the actions the tab,
-//! pane, and project menus offer, addressed by ID.
-
 use gpui::Context;
 use muxy_app_core::settings::ProjectOrder;
 use muxy_app_core::{
@@ -68,7 +65,6 @@ impl AppModel {
             .ok_or_else(|| format!("pane {pane} is not a terminal"))
     }
 
-    /// A move's target: a project's active worktree, or the worktree named.
     fn destination(&self, args: &Value, source: ProjectId) -> Result<ProjectId, String> {
         let identifier = args["destination"].as_str().unwrap_or("");
         let project = self
@@ -89,8 +85,6 @@ impl AppModel {
         Ok(target)
     }
 
-    /// Shows the pane's tab, or raises its window, and focuses the pane.
-    /// Answers whether it became the main window's active pane.
     fn reveal_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) -> Result<bool, String> {
         let project = self.state.pane_project(pane).map(|project| project.id);
         let tab = self.state.pane_tab(pane);
@@ -106,7 +100,6 @@ impl AppModel {
         Ok(self.active_pane() == Some(pane))
     }
 
-    /// `agents.focus`: jumps to an agent's pane, as the agents panel does.
     pub(super) fn focus_extension_agent(
         &mut self,
         call: &Call,

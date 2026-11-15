@@ -28,7 +28,6 @@ use crate::{
 
 pub(crate) const DISABLE_DIRECT_COMPOSITION: &str = "GPUI_DISABLE_DIRECT_COMPOSITION";
 const RENDER_TARGET_FORMAT: DXGI_FORMAT = DXGI_FORMAT_B8G8R8A8_UNORM;
-// This configuration is used for MSAA rendering on paths only, and it's guaranteed to be supported by DirectX 11.
 const PATH_MULTISAMPLE_COUNT: u32 = 4;
 
 pub(crate) struct FontInfo {
@@ -47,7 +46,6 @@ pub(crate) struct DirectXRenderer {
     font_info: &'static FontInfo,
 }
 
-/// Direct3D objects
 #[derive(Clone)]
 pub(crate) struct DirectXRendererDevices {
     pub(crate) adapter: IDXGIAdapter1,
@@ -58,18 +56,15 @@ pub(crate) struct DirectXRendererDevices {
 }
 
 struct DirectXResources {
-    // Direct3D rendering objects
     swap_chain: IDXGISwapChain1,
     render_target: ManuallyDrop<ID3D11Texture2D>,
     render_target_view: [Option<ID3D11RenderTargetView>; 1],
 
-    // Path intermediate textures (with MSAA)
     path_intermediate_texture: ID3D11Texture2D,
     path_intermediate_srv: [Option<ID3D11ShaderResourceView>; 1],
     path_intermediate_msaa_texture: ID3D11Texture2D,
     path_intermediate_msaa_view: [Option<ID3D11RenderTargetView>; 1],
 
-    // Cached window size and viewport
     width: u32,
     height: u32,
     viewport: [D3D11_VIEWPORT; 1],
@@ -217,8 +212,6 @@ impl DirectXRenderer {
                 log::error!(
                     "DirectXRenderer failed to recover from device lost after multiple attempts"
                 );
-                // Do something here?
-                // At this point, the device loss is considered unrecoverable.
             },
         );
     }
@@ -324,15 +317,10 @@ impl DirectXRenderer {
         self.resources.width = width;
         self.resources.height = height;
 
-        // Clear the render target before resizing
         unsafe { self.devices.device_context.OMSetRenderTargets(None, None) };
         unsafe { ManuallyDrop::drop(&mut self.resources.render_target) };
         drop(self.resources.render_target_view[0].take().unwrap());
 
-        // Resizing the swap chain requires a call to the underlying DXGI adapter, which can return the device removed error.
-        // The app might have moved to a monitor that's attached to a different graphics device.
-        // When a graphics device is removed or reset, the desktop resolution often changes, resulting in a window size change.
-        // But here we just return the error, because we are handling device lost scenarios elsewhere.
         unsafe {
             self.resources
                 .swap_chain
@@ -400,7 +388,6 @@ impl DirectXRenderer {
             return Ok(());
         }
 
-        // Clear intermediate MSAA texture
         unsafe {
             self.devices.device_context.ClearRenderTargetView(
                 self.resources.path_intermediate_msaa_view[0]
@@ -408,13 +395,11 @@ impl DirectXRenderer {
                     .unwrap(),
                 &[0.0; 4],
             );
-            // Set intermediate MSAA texture as render target
             self.devices
                 .device_context
                 .OMSetRenderTargets(Some(&self.resources.path_intermediate_msaa_view), None);
         }
 
-        // Collect all vertices and sprites for a single draw call
         let mut vertices = Vec::new();
 
         for path in paths {
@@ -440,7 +425,6 @@ impl DirectXRenderer {
             1,
         )?;
 
-        // Resolve MSAA to non-MSAA intermediate texture
         unsafe {
             self.devices.device_context.ResolveSubresource(
                 &self.resources.path_intermediate_texture,
@@ -449,7 +433,6 @@ impl DirectXRenderer {
                 0,
                 RENDER_TARGET_FORMAT,
             );
-            // Restore main render target
             self.devices
                 .device_context
                 .OMSetRenderTargets(Some(&self.resources.render_target_view), None);
@@ -463,13 +446,6 @@ impl DirectXRenderer {
             return Ok(());
         };
 
-        // When copying paths from the intermediate texture to the drawable,
-        // each pixel must only be copied once, in case of transparent paths.
-        //
-        // If all paths have the same draw order, then their bounds are all
-        // disjoint, so we can copy each path's bounds individually. If this
-        // batch combines different draw orders, we perform a single copy
-        // for a minimal spanning rect.
         let sprites = if paths.last().unwrap().order == first_path.order {
             paths
                 .iter()
@@ -491,7 +467,6 @@ impl DirectXRenderer {
             &sprites,
         )?;
 
-        // Draw the sprites with the path texture
         self.pipelines.path_sprite_pipeline.draw_with_texture(
             &self.devices.device_context,
             &self.resources.path_intermediate_srv,
@@ -591,7 +566,6 @@ impl DirectXRenderer {
         let driver_version = match desc.VendorId {
             0x10DE => nvidia::get_driver_version(),
             0x1002 => amd::get_driver_version(),
-            // For Intel and other vendors, we use the DXGI API to get the driver version.
             _ => dxgi::get_driver_version(&self.devices.adapter),
         }
         .context("Failed to get gpu driver info")
@@ -618,23 +592,21 @@ impl DirectXRenderer {
         })
     }
 
-    // Gamma ratios for brightening/darkening edges for better contrast
-    // https://github.com/microsoft/terminal/blob/1283c0f5b99a2961673249fa77c6b986efb5086c/src/renderer/atlas/dwrite.cpp#L50
     fn get_gamma_ratios(gamma: f32) -> [f32; 4] {
         const GAMMA_INCORRECT_TARGET_RATIOS: [[f32; 4]; 13] = [
-            [0.0000 / 4.0, 0.0000 / 4.0, 0.0000 / 4.0, 0.0000 / 4.0], // gamma = 1.0
-            [0.0166 / 4.0, -0.0807 / 4.0, 0.2227 / 4.0, -0.0751 / 4.0], // gamma = 1.1
-            [0.0350 / 4.0, -0.1760 / 4.0, 0.4325 / 4.0, -0.1370 / 4.0], // gamma = 1.2
-            [0.0543 / 4.0, -0.2821 / 4.0, 0.6302 / 4.0, -0.1876 / 4.0], // gamma = 1.3
-            [0.0739 / 4.0, -0.3963 / 4.0, 0.8167 / 4.0, -0.2287 / 4.0], // gamma = 1.4
-            [0.0933 / 4.0, -0.5161 / 4.0, 0.9926 / 4.0, -0.2616 / 4.0], // gamma = 1.5
-            [0.1121 / 4.0, -0.6395 / 4.0, 1.1588 / 4.0, -0.2877 / 4.0], // gamma = 1.6
-            [0.1300 / 4.0, -0.7649 / 4.0, 1.3159 / 4.0, -0.3080 / 4.0], // gamma = 1.7
-            [0.1469 / 4.0, -0.8911 / 4.0, 1.4644 / 4.0, -0.3234 / 4.0], // gamma = 1.8
-            [0.1627 / 4.0, -1.0170 / 4.0, 1.6051 / 4.0, -0.3347 / 4.0], // gamma = 1.9
-            [0.1773 / 4.0, -1.1420 / 4.0, 1.7385 / 4.0, -0.3426 / 4.0], // gamma = 2.0
-            [0.1908 / 4.0, -1.2652 / 4.0, 1.8650 / 4.0, -0.3476 / 4.0], // gamma = 2.1
-            [0.2031 / 4.0, -1.3864 / 4.0, 1.9851 / 4.0, -0.3501 / 4.0], // gamma = 2.2
+            [0.0000 / 4.0, 0.0000 / 4.0, 0.0000 / 4.0, 0.0000 / 4.0],
+            [0.0166 / 4.0, -0.0807 / 4.0, 0.2227 / 4.0, -0.0751 / 4.0],
+            [0.0350 / 4.0, -0.1760 / 4.0, 0.4325 / 4.0, -0.1370 / 4.0],
+            [0.0543 / 4.0, -0.2821 / 4.0, 0.6302 / 4.0, -0.1876 / 4.0],
+            [0.0739 / 4.0, -0.3963 / 4.0, 0.8167 / 4.0, -0.2287 / 4.0],
+            [0.0933 / 4.0, -0.5161 / 4.0, 0.9926 / 4.0, -0.2616 / 4.0],
+            [0.1121 / 4.0, -0.6395 / 4.0, 1.1588 / 4.0, -0.2877 / 4.0],
+            [0.1300 / 4.0, -0.7649 / 4.0, 1.3159 / 4.0, -0.3080 / 4.0],
+            [0.1469 / 4.0, -0.8911 / 4.0, 1.4644 / 4.0, -0.3234 / 4.0],
+            [0.1627 / 4.0, -1.0170 / 4.0, 1.6051 / 4.0, -0.3347 / 4.0],
+            [0.1773 / 4.0, -1.1420 / 4.0, 1.7385 / 4.0, -0.3426 / 4.0],
+            [0.1908 / 4.0, -1.2652 / 4.0, 1.8650 / 4.0, -0.3476 / 4.0],
+            [0.2031 / 4.0, -1.3864 / 4.0, 1.9851 / 4.0, -0.3501 / 4.0],
         ];
 
         const NORM13: f32 = ((0x10000 as f64) / (255.0 * 255.0) * 4.0) as f32;
@@ -1035,7 +1007,6 @@ fn create_swap_chain_for_composition(
         },
         BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
         BufferCount: BUFFER_COUNT as u32,
-        // Composition SwapChains only support the DXGI_SCALING_STRETCH Scaling.
         Scaling: DXGI_SCALING_STRETCH,
         SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
         AlphaMode: DXGI_ALPHA_MODE_PREMULTIPLIED,
@@ -1230,11 +1201,8 @@ fn set_rasterizer_state(device: &ID3D11Device, device_context: &ID3D11DeviceCont
     Ok(())
 }
 
-// https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_blend_desc
 #[inline]
 fn create_blend_state(device: &ID3D11Device) -> Result<ID3D11BlendState> {
-    // If the feature level is set to greater than D3D_FEATURE_LEVEL_9_3, the display
-    // device performs the blend in linear space, which is ideal.
     let mut desc = D3D11_BLEND_DESC::default();
     desc.RenderTarget[0].BlendEnable = true.into();
     desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
@@ -1253,8 +1221,6 @@ fn create_blend_state(device: &ID3D11Device) -> Result<ID3D11BlendState> {
 
 #[inline]
 fn create_blend_state_for_path_rasterization(device: &ID3D11Device) -> Result<ID3D11BlendState> {
-    // If the feature level is set to greater than D3D_FEATURE_LEVEL_9_3, the display
-    // device performs the blend in linear space, which is ideal.
     let mut desc = D3D11_BLEND_DESC::default();
     desc.RenderTarget[0].BlendEnable = true.into();
     desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
@@ -1273,8 +1239,6 @@ fn create_blend_state_for_path_rasterization(device: &ID3D11Device) -> Result<ID
 
 #[inline]
 fn create_blend_state_for_path_sprite(device: &ID3D11Device) -> Result<ID3D11BlendState> {
-    // If the feature level is set to greater than D3D_FEATURE_LEVEL_9_3, the display
-    // device performs the blend in linear space, which is ideal.
     let mut desc = D3D11_BLEND_DESC::default();
     desc.RenderTarget[0].BlendEnable = true.into();
     desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
@@ -1523,7 +1487,6 @@ pub(crate) mod shader_resources {
             let entry_point = PCSTR::from_raw(entry.as_ptr());
             let target_cstr = PCSTR::from_raw(target.as_ptr());
 
-            // really dirty trick because winapi bindings are unhappy otherwise
             let include_handler = &std::mem::transmute::<usize, ID3DInclude>(
                 D3D_COMPILE_STANDARD_FILE_INCLUDE as usize,
             );
@@ -1585,14 +1548,11 @@ mod nvidia {
 
     use crate::with_dll_library;
 
-    // https://github.com/NVIDIA/nvapi/blob/7cb76fce2f52de818b3da497af646af1ec16ce27/nvapi_lite_common.h#L180
     const NVAPI_SHORT_STRING_MAX: usize = 64;
 
-    // https://github.com/NVIDIA/nvapi/blob/7cb76fce2f52de818b3da497af646af1ec16ce27/nvapi_lite_common.h#L235
     #[allow(non_camel_case_types)]
     type NvAPI_ShortString = [c_char; NVAPI_SHORT_STRING_MAX];
 
-    // https://github.com/NVIDIA/nvapi/blob/7cb76fce2f52de818b3da497af646af1ec16ce27/nvapi_lite_common.h#L447
     #[allow(non_camel_case_types)]
     type NvAPI_SYS_GetDriverAndBranchVersion_t = unsafe extern "C" fn(
         driver_version: *mut c_uint,
@@ -1610,7 +1570,6 @@ mod nvidia {
                 .ok_or_else(|| anyhow::anyhow!("Failed to get nvapi_QueryInterface address"))?;
             let nvapi_query: extern "C" fn(u32) -> *mut () = std::mem::transmute(nvapi_query_addr);
 
-            // https://github.com/NVIDIA/nvapi/blob/7cb76fce2f52de818b3da497af646af1ec16ce27/nvapi_interface.h#L41
             let nvapi_get_driver_version_ptr = nvapi_query(0x2926aaad);
             if nvapi_get_driver_version_ptr.is_null() {
                 anyhow::bail!("Failed to get NVIDIA driver version function pointer");
@@ -1652,11 +1611,8 @@ mod amd {
 
     use crate::with_dll_library;
 
-    // https://github.com/GPUOpen-LibrariesAndSDKs/AGS_SDK/blob/5d8812d703d0335741b6f7ffc37838eeb8b967f7/ags_lib/inc/amd_ags.h#L145
     const AGS_CURRENT_VERSION: i32 = (6 << 22) | (3 << 12);
 
-    // https://github.com/GPUOpen-LibrariesAndSDKs/AGS_SDK/blob/5d8812d703d0335741b6f7ffc37838eeb8b967f7/ags_lib/inc/amd_ags.h#L204
-    // This is an opaque type, using struct to represent it properly for FFI
     #[repr(C)]
     struct AGSContext {
         _private: [u8; 0],
@@ -1670,7 +1626,6 @@ mod amd {
         pub devices: *mut c_void,
     }
 
-    // https://github.com/GPUOpen-LibrariesAndSDKs/AGS_SDK/blob/5d8812d703d0335741b6f7ffc37838eeb8b967f7/ags_lib/inc/amd_ags.h#L429
     #[allow(non_camel_case_types)]
     type agsInitialize_t = unsafe extern "C" fn(
         version: c_int,
@@ -1679,7 +1634,6 @@ mod amd {
         gpu_info: *mut AGSGPUInfo,
     ) -> c_int;
 
-    // https://github.com/GPUOpen-LibrariesAndSDKs/AGS_SDK/blob/5d8812d703d0335741b6f7ffc37838eeb8b967f7/ags_lib/inc/amd_ags.h#L436
     #[allow(non_camel_case_types)]
     type agsDeInitialize_t = unsafe extern "C" fn(context: *mut AGSContext) -> c_int;
 
@@ -1716,7 +1670,6 @@ mod amd {
                 anyhow::bail!("Failed to initialize AMD AGS, error code: {}", result);
             }
 
-            // Vulkan actually returns this as the driver version
             let software_version = if !gpu_info.radeon_software_version.is_null() {
                 std::ffi::CStr::from_ptr(gpu_info.radeon_software_version)
                     .to_string_lossy()

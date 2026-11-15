@@ -11,7 +11,6 @@ use crate::{Bounds, DisplayId, Pixels, PlatformDisplay};
 
 #[derive(Debug, Clone)]
 pub(crate) struct WaylandDisplay {
-    /// The ID of the wl_output object
     pub id: ObjectId,
     pub name: Option<String>,
     pub bounds: Bounds<Pixels>,

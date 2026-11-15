@@ -5,11 +5,8 @@ use std::path::{Path, PathBuf};
 
 use muxy_terminal::pty::SpawnRequest;
 
-/// `PowerShell` runs this after the user's profile, from the command line, so
-/// no execution policy or quoted path applies.
 const POWERSHELL: &str = include_str!("../shell/muxy.ps1");
 
-/// Server-owned startup hooks, kept beside this server's socket.
 #[derive(Clone, Debug)]
 pub struct ShellIntegration {
     directory: PathBuf,
@@ -100,8 +97,6 @@ impl ShellIntegration {
     }
 }
 
-/// Makes `path` a folder only this user can open, refusing a link or a file
-/// in its place.
 fn private_directory(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -134,7 +129,6 @@ fn private_directory(path: &Path) -> io::Result<()> {
     }
 }
 
-/// `powershell.exe` and `pwsh.exe`, by file name.
 #[cfg(windows)]
 pub(crate) fn is_powershell(program: &Path) -> bool {
     program
@@ -145,8 +139,6 @@ pub(crate) fn is_powershell(program: &Path) -> bool {
         })
 }
 
-/// The value for `-EncodedCommand`: base64 of the UTF-16 script. A failure
-/// in the script never stops the shell from starting.
 #[cfg(any(windows, test))]
 fn powershell_command(script: &str) -> String {
     let wrapped = format!("try {{ {script} }} catch {{}}");

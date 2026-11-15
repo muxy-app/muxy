@@ -1,6 +1,3 @@
-//! Computers paired with a link are listed, connect with their token, and
-//! never list twice.
-
 use muxy_app_core::settings::PairingTokens;
 use muxy_protocol::{DeviceCredential, DeviceId, Paired, PairingInvite, ServerIdentity};
 

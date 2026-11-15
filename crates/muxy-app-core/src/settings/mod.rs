@@ -1,7 +1,3 @@
-//! Client configuration and keymap schema and storage.
-//!
-//! Server-owned settings and presentation code stay with their owners.
-
 pub mod agent;
 mod appearance;
 mod browser;

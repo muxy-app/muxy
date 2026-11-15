@@ -1,6 +1,3 @@
-//! `muxy extension` commands that reach an extension's pages, commands and
-//! events.
-
 use std::path::Path;
 use std::time::Duration;
 
@@ -17,7 +14,6 @@ fn open_model(cx: &mut TestAppContext) -> (Entity<AppModel>, &mut VisualTestCont
     cx.add_window_view(|window, cx| AppModel::new(boot, window, cx))
 }
 
-/// Answers a socket command, through `page` for the page commands.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "Every caller builds the arguments with json!"

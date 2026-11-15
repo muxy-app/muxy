@@ -1,20 +1,14 @@
-//! What an extension can say about how its panel looks and floats, in its
-//! manifest and at run time.
-
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use super::manifest::{PanelControl, PanelMode, PanelPosition};
 
-/// The most panels, docked or detached, one extension keeps open at once.
 pub const MAX_PANELS: usize = 32;
-/// The most hit or drag regions a panel may set.
 pub const MAX_REGIONS: usize = 64;
 const MAX_INSTANCE: usize = 64;
 const MAX_TITLE: usize = 512;
 const MAX_EXTENT: f32 = 16384.0;
 
-/// A rectangle in points, from the page's or the window's top left corner.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
 pub struct Rect {
     pub x: f32,
@@ -23,7 +17,6 @@ pub struct Rect {
     pub height: f32,
 }
 
-/// Part of a detached panel's frame. Missing fields keep what the panel has.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize)]
 pub struct FrameSpec {
     pub x: Option<f32>,
@@ -33,7 +26,6 @@ pub struct FrameSpec {
 }
 
 impl FrameSpec {
-    /// `self` over `base`, field by field.
     #[must_use]
     pub fn over(self, base: [f32; 4]) -> [f32; 4] {
         [
@@ -51,8 +43,6 @@ pub struct SizeSpec {
     pub height: f32,
 }
 
-/// Whether Muxy draws a detached panel's card and header, or the page draws
-/// everything itself.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PanelChrome {
@@ -61,8 +51,6 @@ pub enum PanelChrome {
     None,
 }
 
-/// Whether a detached panel stays open across projects, or belongs to the
-/// project it was opened in and shows only there.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PanelScope {
@@ -71,7 +59,6 @@ pub enum PanelScope {
     Project,
 }
 
-/// A value a page sets, or clears back to its default.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Change<T> {
     Set(T),
@@ -87,7 +74,6 @@ impl<T> Change<T> {
     }
 }
 
-/// Changes to a panel. Each field left out keeps its current value.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PanelOptions {
     pub instance: Option<String>,
@@ -104,14 +90,11 @@ pub struct PanelOptions {
     pub scope: Option<PanelScope>,
     pub title: Option<Change<String>>,
     pub hidden_controls: Option<Vec<PanelControl>>,
-    /// Clearing them takes clicks everywhere again.
     pub hit_regions: Option<Change<Vec<Rect>>>,
     pub drag_regions: Option<Vec<Rect>>,
 }
 
 impl PanelOptions {
-    /// Reads options sent by a page or script. Unknown fields are ignored so
-    /// newer extensions keep working; known fields of the wrong shape fail.
     pub fn parse(value: &Value) -> Result<Self, String> {
         let fields = match value {
             Value::Null => return Ok(Self::default()),
@@ -153,13 +136,11 @@ impl PanelOptions {
         })
     }
 
-    /// Whether these options change anything a docked panel shows.
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
 }
 
-/// A panel instance name: up to 64 letters, digits, `.`, `_`, or `-`.
 pub fn valid_instance(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= MAX_INSTANCE

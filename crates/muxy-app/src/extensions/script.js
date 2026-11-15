@@ -31,8 +31,6 @@
   globalThis.setImmediate = callback => setTimeout(callback, 0);
   globalThis.clearImmediate = globalThis.clearTimeout;
   globalThis.queueMicrotask = callback => Promise.resolve().then(callback);
-  // Runs due timers and answers the milliseconds until the next one, or -1
-  // when only host input can wake the script.
   globalThis.__muxyTick = () => {
     if (!options.persistent && timers.size === 0 && !globalThis.__muxyHasCallbacks?.()) { dispatch('script.finished'); return -1; }
     const now = Date.now();

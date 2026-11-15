@@ -1,6 +1,3 @@
-//! Text selected with the mouse. Rows count up from the last content row,
-//! so history paged in above a selection never moves it.
-
 use muxy_app_core::PaneId;
 use muxy_client::RunGrid;
 use ratatui::buffer::Buffer;
@@ -9,7 +6,6 @@ use ratatui::text::Span;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Point {
-    /// Rows above the last content row.
     pub back: usize,
     pub col: u16,
 }
@@ -36,7 +32,6 @@ pub(crate) struct Selection {
 }
 
 impl Selection {
-    /// The first and last selected cells, widened to whole words or lines.
     pub(crate) fn range(&self, grid: &RunGrid) -> (Point, Point) {
         let (mut start, mut end) = if self.head.before(self.anchor) {
             (self.head, self.anchor)
@@ -95,7 +90,6 @@ pub(crate) fn content_rows(grid: &RunGrid) -> usize {
     grid.history.len() + grid.rows.len()
 }
 
-/// Each column's text as drawn; a wide character leaves the next column empty.
 fn row_cells(grid: &RunGrid, index: usize) -> Option<Vec<String>> {
     let runs = grid.content_row(index)?;
     let area = Rect::new(0, 0, grid.size.cols.max(1), 1);

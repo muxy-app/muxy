@@ -51,8 +51,6 @@ use available::{
     in_float, pane_can_leave_window, project_available, project_present, tips_shown,
 };
 
-/// The palette lists the project, workspace, and server switchers under
-/// these ids, each a list of its own.
 pub(crate) const SWITCH_PROJECT_PAGE: &str = ALL[ShortcutId::SwitchProject as usize].id;
 pub(crate) const SWITCH_WORKSPACE_PAGE: &str = ALL[ShortcutId::SwitchWorkspace as usize].id;
 pub(crate) const SERVERS_PAGE: &str = ALL[ShortcutId::ShowServers as usize].id;
@@ -156,14 +154,11 @@ impl CommandDef {
         self
     }
 
-    /// Lists the command only while `visible` holds.
     const fn visible(mut self, visible: fn(&AppModel) -> bool) -> Self {
         self.visible = Some(visible);
         self
     }
 
-    /// Runs `action` in the active terminal. The palette shows the
-    /// terminal's own key for it when the command has none.
     const fn terminal(mut self, action: fn() -> TerminalAction) -> Self {
         self.terminal = Some(action);
         self
@@ -209,9 +204,6 @@ impl CommandDef {
         }
     }
 
-    /// The key that runs the command from where the keyboard is. A key the
-    /// focused terminal binds to something else never reaches the command,
-    /// so the terminal's own key for the same action shows instead.
     fn shortcut_label(&self, model: &AppModel, cx: &App) -> Option<String> {
         let action = self.terminal.map(|action| action());
         let bindings = model
@@ -1064,8 +1056,6 @@ pub(crate) fn register_placed(
     }
 }
 
-/// Commands extensions may not run: they quit, install software, or change
-/// the app's windows.
 const RESERVED: [ShortcutId; 9] = [
     ShortcutId::Quit,
     ShortcutId::EndAllSessionsAndQuit,
@@ -1089,7 +1079,6 @@ fn extension_rows(model: &AppModel) -> impl Iterator<Item = &'static CommandDef>
     })
 }
 
-/// The built-in commands extensions can run, as `commands.list` reports them.
 pub(crate) fn extension_commands(model: &AppModel) -> Vec<serde_json::Value> {
     extension_rows(model)
         .map(|row| {
@@ -1107,8 +1096,6 @@ pub(crate) fn extension_commands(model: &AppModel) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Runs a built-in command by id, when it is available now. Answers `None`
-/// for an id that names no built-in command.
 pub(crate) fn run_extension_command(
     model: &mut AppModel,
     id: &str,
@@ -1132,7 +1119,6 @@ pub(crate) fn search_words(id: ShortcutId) -> &'static str {
     with_id(id).map_or("", CommandDef::search_words)
 }
 
-/// A menu item for `action`, under its table label.
 pub(crate) fn menu_item(action: impl Action) -> MenuItem {
     let title = COMMANDS
         .iter()

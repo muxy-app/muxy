@@ -9,7 +9,7 @@ fn test_action_macros() {
         test_only,
         [
             SomeAction,
-            /// Documented action
+            #[doc = " Documented action"]
             SomeActionWithDocs,
         ]
     );

@@ -79,7 +79,6 @@ const NSTrackingInVisibleRect: NSUInteger = 0x200;
 const NSWindowAnimationBehaviorUtilityWindow: NSInteger = 4;
 #[allow(non_upper_case_globals)]
 const NSViewLayerContentsRedrawDuringViewResize: NSInteger = 2;
-// https://developer.apple.com/documentation/appkit/nsdragoperation
 type NSDragOperation = NSUInteger;
 #[allow(non_upper_case_globals)]
 const NSDragOperationNone: NSDragOperation = 0;
@@ -97,7 +96,6 @@ pub enum UserTabbingPreference {
 
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
-    // Widely used private APIs; Apple uses them for their Terminal.app.
     fn CGSMainConnectionID() -> id;
     fn CGSSetWindowBackgroundBlurRadius(
         connection_id: id,
@@ -110,7 +108,6 @@ unsafe extern "C" {
 unsafe fn build_classes() {
     unsafe {
         WINDOW_CLASS = build_window_class("GPUIWindow", class!(NSWindow), yes);
-        // Panels float above the app's windows and never take main status from them.
         PANEL_CLASS = build_window_class("GPUIPanel", class!(NSPanel), no);
         VIEW_CLASS = {
             let mut decl = ClassDecl::new("GPUIView", class!(NSView)).unwrap();
@@ -252,7 +249,6 @@ unsafe fn build_classes() {
                     view_did_change_effective_appearance as extern "C" fn(&Object, Sel),
                 );
 
-                // Suppress beep on keystrokes with modifier keys.
                 decl.add_method(
                     sel!(doCommandBySelector:),
                     do_command_by_selector as extern "C" fn(&Object, Sel, Sel),
@@ -290,7 +286,6 @@ unsafe fn build_classes() {
 pub(crate) fn convert_mouse_position(position: NSPoint, window_height: Pixels) -> Point<Pixels> {
     point(
         px(position.x as f32),
-        // macOS screen coordinates are relative to bottom left
         window_height - px(position.y as f32),
     )
 }
@@ -429,7 +424,6 @@ struct MacWindowState {
     keystroke_for_do_command: Option<Keystroke>,
     do_command_handled: Option<bool>,
     external_files_dragged: bool,
-    // Whether the next left-mouse click is also the focusing click.
     first_mouse: bool,
     fullscreen_restore_bounds: Bounds<Pixels>,
     move_tab_to_new_window_callback: Option<Box<dyn FnMut()>>,
@@ -444,8 +438,6 @@ impl MacWindowState {
     fn move_traffic_light(&self) {
         if let Some(traffic_light_position) = self.traffic_light_position {
             if self.is_fullscreen() {
-                // Moving traffic lights while fullscreen doesn't work,
-                // see https://github.com/zed-industries/zed/issues/4712
                 return;
             }
 
@@ -469,7 +461,6 @@ impl MacWindowState {
                 let mut min_button_frame: CGRect = msg_send![min_button, frame];
                 let mut zoom_button_frame: CGRect = msg_send![zoom_button, frame];
                 let button_height = px(close_button_frame.size.height as f32);
-                // A button past the bottom of its container is drawn but cannot be clicked.
                 let titlebar_height = titlebar_height
                     .max(px(
                         f32::from(traffic_light_position.y + button_height).ceil()
@@ -553,7 +544,6 @@ impl MacWindowState {
         }
         let screen_frame = unsafe { NSScreen::frame(screen) };
 
-        // Flip the y coordinate to be top-left origin
         window_frame.origin.y =
             screen_frame.size.height - window_frame.origin.y - window_frame.size.height;
 
@@ -801,11 +791,6 @@ impl MacWindow {
             native_view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
             native_view.setWantsBestResolutionOpenGLSurface_(YES);
 
-            // From winit crate: On Mojave, views automatically become layer-backed shortly after
-            // being added to a native_window. Changing the layer-backedness of a view breaks the
-            // association between the view and its associated OpenGL context. To work around this,
-            // on we explicitly make the view layer-backed up front so that AppKit doesn't do it
-            // itself and break the association with its context.
             native_view.setWantsLayer(YES);
             let _: () = msg_send![
             native_view,
@@ -828,9 +813,6 @@ impl MacWindow {
                     }
                 }
                 WindowKind::PopUp => {
-                    // Use a tracking area to allow receiving MouseMoved events even when
-                    // the window or application aren't active, which is often the case
-                    // e.g. for notification windows.
                     let tracking_area: id = msg_send![class!(NSTrackingArea), alloc];
                     let _: () = msg_send![
                         tracking_area,
@@ -877,8 +859,6 @@ impl MacWindow {
                     if main_window_can_tab == YES && main_window_visible == YES {
                         let _: () = msg_send![main_window, addTabbedWindow: native_window ordered: NSWindowOrderingMode::NSWindowAbove];
 
-                        // Ensure the window is visible immediately after adding the tab, since the tab bar is updated with a new entry at this point.
-                        // Note: Calling orderFront here can break fullscreen mode (makes fullscreen windows exit fullscreen), so only do this if the main window is not fullscreen.
                         if !main_window_is_fullscreen {
                             let _: () = msg_send![native_window, orderFront: nil];
                         }
@@ -892,10 +872,6 @@ impl MacWindow {
                 native_window.orderFront_(nil);
             }
 
-            // Set the initial position of the window to the specified origin.
-            // Although we already specified the position using `initWithContentRect_styleMask_backing_defer_screen_`,
-            // the window position might be incorrect if the main screen (the screen that contains the window that has focus)
-            //  is different from the primary screen.
             NSWindow::setFrameTopLeftPoint_(native_window, window_rect.origin);
             window.0.lock().move_traffic_light();
 
@@ -1166,24 +1142,6 @@ impl PlatformWindow for MacWindow {
         detail: Option<&str>,
         answers: &[PromptButton],
     ) -> Option<oneshot::Receiver<usize>> {
-        // macOs applies overrides to modal window buttons after they are added.
-        // Two most important for this logic are:
-        // * Buttons with "Cancel" title will be displayed as the last buttons in the modal
-        // * Last button added to the modal via `addButtonWithTitle` stays focused
-        // * Focused buttons react on "space"/" " keypresses
-        // * Usage of `keyEquivalent`, `makeFirstResponder` or `setInitialFirstResponder` does not change the focus
-        //
-        // See also https://developer.apple.com/documentation/appkit/nsalert/1524532-addbuttonwithtitle#discussion
-        // ```
-        // By default, the first button has a key equivalent of Return,
-        // any button with a title of “Cancel” has a key equivalent of Escape,
-        // and any button with the title “Don’t Save” has a key equivalent of Command-D (but only if it’s not the first button).
-        // ```
-        //
-        // To avoid situations when the last element added is "Cancel" and it gets the focus
-        // (hence stealing both ESC and Space shortcuts), we find and add one non-Cancel button
-        // last, so it gets focus and a Space shortcut.
-        // This way, "Save this file? Yes/No/Cancel"-ish modals will get all three buttons mapped with a key.
         let latest_non_cancel_label = answers
             .iter()
             .enumerate()
@@ -1214,7 +1172,6 @@ impl PlatformWindow for MacWindow {
                 let _: () = msg_send![button, setTag: ix as NSInteger];
 
                 if answer.is_cancel() {
-                    // Bind Escape Key to Cancel Button
                     if let Some(key) = std::char::from_u32(super::events::ESCAPE_KEY as u32) {
                         let _: () =
                             msg_send![button, setKeyEquivalent: ns_string(&key.to_string())];
@@ -1266,7 +1223,6 @@ impl PlatformWindow for MacWindow {
         unsafe { self.0.lock().native_window.isKeyWindow() == YES }
     }
 
-    // is_hovered is unused on macOS. See Window::is_window_hovered.
     fn is_hovered(&self) -> bool {
         false
     }
@@ -1312,15 +1268,11 @@ impl PlatformWindow for MacWindow {
             let background_color = if opaque {
                 NSColor::colorWithSRGBRed_green_blue_alpha_(nil, 0f64, 0f64, 0f64, 1f64)
             } else {
-                // Not using `+[NSColor clearColor]` to avoid broken shadow.
                 NSColor::colorWithSRGBRed_green_blue_alpha_(nil, 0f64, 0f64, 0f64, 0.0001)
             };
             this.native_window.setBackgroundColor_(background_color);
 
             if NSAppKitVersionNumber < NSAppKitVersionNumber12_0 {
-                // Whether `-[NSVisualEffectView respondsToSelector:@selector(_updateProxyLayer)]`.
-                // On macOS Catalina/Big Sur `NSVisualEffectView` doesn’t own concrete sublayers
-                // but uses a `CAProxyLayer`. Use the legacy WindowServer API.
                 let blur_radius = if background_appearance == WindowBackgroundAppearance::Blurred {
                     80
                 } else {
@@ -1330,9 +1282,6 @@ impl PlatformWindow for MacWindow {
                 let window_number = this.native_window.windowNumber();
                 CGSSetWindowBackgroundBlurRadius(CGSMainConnectionID(), window_number, blur_radius);
             } else {
-                // On newer macOS `NSVisualEffectView` manages the effect layer directly. Using it
-                // could have a better performance (it downsamples the backdrop) and more control
-                // over the effect layer.
                 if background_appearance != WindowBackgroundAppearance::Blurred {
                     if let Some(blur_view) = this.blurred_view {
                         NSView::removeFromSuperview(blur_view);
@@ -1363,8 +1312,6 @@ impl PlatformWindow for MacWindow {
             msg_send![window, setDocumentEdited: edited as BOOL]
         }
 
-        // Changing the document edited state resets the traffic light position,
-        // so we have to move it again.
         self.0.lock().move_traffic_light();
     }
 
@@ -1570,7 +1517,6 @@ impl PlatformWindow for MacWindow {
 
                     match action_str.as_ref() {
                         "None" => {
-                            // "Do Nothing" selected, so do no action
                         }
                         "Minimize" => {
                             window.miniaturize_(nil);
@@ -1579,7 +1525,6 @@ impl PlatformWindow for MacWindow {
                             window.zoom_(nil);
                         }
                         "Fill" => {
-                            // There is no documented API for "Fill" action, so we'll just zoom the window
                             window.zoom_(nil);
                         }
                         _ => {
@@ -1621,13 +1566,9 @@ impl PlatformWindow for MacWindow {
     }
 
     fn a11y_update_window_bounds(&self) {
-        // macOS handles window bounds tracking automatically via NSAccessibility.
     }
 }
 
-/// The AccessKit adapter of one `GPUIView`. It's kept in the view's own ivar, not
-/// in `MacWindowState`, because AppKit can ask for the tree whenever it likes, and
-/// answering must never wait for the window state's lock.
 struct AccessKitState {
     adapter: accesskit_macos::Adapter,
     activation_handler: A11yActivationHandler,
@@ -1651,8 +1592,6 @@ unsafe fn drop_accesskit_state(view: &Object) {
     }
 }
 
-/// The GPUI tree followed by the view's real subviews. Native children, such as web
-/// pages, must stay reachable alongside what GPUI draws.
 extern "C" fn accessibility_children(this: &Object, _: Sel) -> id {
     unsafe {
         let subviews: id = msg_send![super(this, class!(NSView)), accessibilityChildren];
@@ -1737,7 +1676,6 @@ impl accesskit::ActionHandler for A11yActionHandler {
 
 impl rwh::HasWindowHandle for MacWindow {
     fn window_handle(&self) -> Result<rwh::WindowHandle<'_>, rwh::HandleError> {
-        // SAFETY: The AppKitWindowHandle is a wrapper around a pointer to an NSView
         unsafe {
             Ok(rwh::WindowHandle::borrow_raw(rwh::RawWindowHandle::AppKit(
                 rwh::AppKitWindowHandle::new(self.0.lock().native_view.cast()),
@@ -1748,7 +1686,6 @@ impl rwh::HasWindowHandle for MacWindow {
 
 impl rwh::HasDisplayHandle for MacWindow {
     fn display_handle(&self) -> Result<rwh::DisplayHandle<'_>, rwh::HandleError> {
-        // SAFETY: This is a no-op on macOS
         unsafe {
             Ok(rwh::DisplayHandle::borrow_raw(
                 rwh::AppKitDisplayHandle::new().into(),
@@ -1766,12 +1703,6 @@ fn get_scale_factor(native_window: id) -> f32 {
         NSScreen::backingScaleFactor(screen) as f32
     };
 
-    // We are not certain what triggers this, but it seems that sometimes
-    // this method would return 0 (https://github.com/zed-industries/zed/issues/6412)
-    // It seems most likely that this would happen if the window has no screen
-    // (if it is off-screen), though we'd expect to see viewDidChangeBackingProperties before
-    // it was rendered for real.
-    // Regardless, attempt to avoid the issue here.
     if factor == 0.0 { 2. } else { factor }
 }
 
@@ -1827,31 +1758,6 @@ extern "C" fn handle_key_up(this: &Object, _: Sel, native_event: id) {
     handle_key_event(this, native_event, false);
 }
 
-// Things to test if you're modifying this method:
-//  U.S. layout:
-//   - The IME consumes characters like 'j' and 'k', which makes paging through `less` in
-//     the terminal behave incorrectly by default. This behavior should be patched by our
-//     IME integration
-//   - `alt-t` should open the tasks menu
-//   - In vim mode, this keybinding should work:
-//     ```
-//        {
-//          "context": "Editor && vim_mode == insert",
-//          "bindings": {"j j": "vim::NormalBefore"}
-//        }
-//     ```
-//     and typing 'j k' in insert mode with this keybinding should insert the two characters
-//  Brazilian layout:
-//   - `" space` should create an unmarked quote
-//   - `" backspace` should delete the marked quote
-//   - `" "`should create an unmarked quote and a second marked quote
-//   - `" up` should insert a quote, unmark it, and move up one line
-//   - `" cmd-down` should insert a quote, unmark it, and move to the end of the file
-//   - `cmd-ctrl-space` and clicking on an emoji should type it
-//  Czech (QWERTY) layout:
-//   - in vim mode `option-4`  should go to end of line (same as $)
-//  Japanese (Romaji) layout:
-//   - type `a i left down up enter enter` should create an unmarked text "愛"
 extern "C" fn handle_key_event(this: &Object, native_event: id, key_equivalent: bool) -> BOOL {
     let window_state = unsafe { get_window_state(this) };
     let mut lock = window_state.as_ref().lock();
@@ -1876,10 +1782,6 @@ extern "C" fn handle_key_event(this: &Object, native_event: id, key_equivalent: 
 
     match event {
         PlatformInput::KeyDown(mut key_down_event) => {
-            // For certain keystrokes, macOS will first dispatch a "key equivalent" event.
-            // If that event isn't handled, it will then dispatch a "key down" event. GPUI
-            // makes no distinction between these two types of events, so we need to ignore
-            // the "key down" event if we've already just processed its "key equivalent" version.
             if key_equivalent {
                 lock.last_key_equivalent = Some(key_down_event.clone());
             } else if lock.last_key_equivalent.take().as_ref() == Some(&key_down_event) {
@@ -1893,14 +1795,6 @@ extern "C" fn handle_key_event(this: &Object, native_event: id, key_equivalent: 
                     .flatten()
                     .is_some();
 
-            // If we're composing, send the key to the input handler first;
-            // otherwise we only send to the input handler if we don't have a matching binding.
-            // The input handler may call `do_command_by_selector` if it doesn't know how to handle
-            // a key. If it does so, it will return YES so we won't send the key twice.
-            // We also do this for non-printing keys (like arrow keys and escape) as the IME menu
-            // may need them even if there is no marked text;
-            // however we skip keys with control or the input handler adds control-characters to the buffer.
-            // and keys with function, as the input handler swallows them.
             if is_composing
                 || (key_down_event.keystroke.key_char.is_none()
                     && !key_down_event.keystroke.modifiers.control
@@ -1948,8 +1842,6 @@ extern "C" fn handle_key_event(this: &Object, native_event: id, key_equivalent: 
                 }
             }
 
-            // Don't send key equivalents to the input handler,
-            // or macOS shortcuts like cmd-` will stop working.
             if key_equivalent {
                 return NO;
             }
@@ -1985,7 +1877,6 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
                     ..
                 },
             ) => {
-                // On mac, a ctrl-left click should be handled as a right click.
                 *event = MouseDownEvent {
                     button: MouseButton::Right,
                     modifiers: Modifiers {
@@ -1997,7 +1888,6 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
                 };
             }
 
-            // Handles focusing click.
             PlatformInput::MouseDown(
                 event @ MouseDownEvent {
                     button: MouseButton::Left,
@@ -2011,9 +1901,6 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
                 lock.first_mouse = false;
             }
 
-            // Because we map a ctrl-left_down to a right_down -> right_up let's ignore
-            // the ctrl-left_up to avoid having a mismatch in button down/up events if the
-            // user is still holding ctrl when releasing the left mouse button
             PlatformInput::MouseUp(
                 event @ MouseUpEvent {
                     button: MouseButton::Left,
@@ -2050,9 +1937,6 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
                     ..
                 },
             ) => {
-                // Synthetic drag is used for selecting long buffer contents while buffer is being scrolled.
-                // External file drag and drop is able to emit its own synthetic mouse events which will conflict
-                // with these ones.
                 if !lock.external_files_dragged {
                     lock.synthetic_drag_counter += 1;
                     let executor = lock.executor.clone();
@@ -2074,7 +1958,6 @@ extern "C" fn handle_view_event(this: &Object, _: Sel, native_event: id) {
                 modifiers,
                 capslock,
             }) => {
-                // Only raise modifiers changed event when they have actually changed
                 if let Some(PlatformInput::ModifiersChanged(ModifiersChangedEvent {
                     modifiers: prev_modifiers,
                     capslock: prev_capslock,
@@ -2173,15 +2056,6 @@ extern "C" fn window_did_change_key_status(this: &Object, selector: Sel, _: id) 
     let mut lock = window_state.lock();
     let is_active = unsafe { lock.native_window.isKeyWindow() == YES };
 
-    // When opening a pop-up while the application isn't active, Cocoa sends a spurious
-    // `windowDidBecomeKey` message to the previous key window even though that window
-    // isn't actually key. This causes a bug if the application is later activated while
-    // the pop-up is still open, making it impossible to activate the previous key window
-    // even if the pop-up gets closed. The only way to activate it again is to de-activate
-    // the app and re-activate it, which is a pretty bad UX.
-    // The following code detects the spurious event and invokes `resignKeyWindow`:
-    // in theory, we're not supposed to invoke this method manually but it balances out
-    // the spurious `becomeKeyWindow` event and helps us work around that bug.
     if selector == sel!(windowDidBecomeKey:) && !is_active {
         let native_window = lock.native_window;
         drop(lock);
@@ -2205,12 +2079,6 @@ extern "C" fn window_did_change_key_status(this: &Object, selector: Sel, _: id) 
         events.raise();
     }
 
-    // When a window becomes active, trigger an immediate synchronous frame request to prevent
-    // tab flicker when switching between windows in native tabs mode.
-    //
-    // This is only done on subsequent activations (not the first) to ensure the initial focus
-    // path is properly established. Without this guard, the focus state would remain unset until
-    // the first mouse click, causing keybindings to be non-functional.
     if selector == sel!(windowDidBecomeKey:) && is_active {
         let window_state = unsafe { get_window_state(this) };
         let mut lock = window_state.lock();
@@ -2513,8 +2381,6 @@ extern "C" fn attributed_substring_for_proposed_range(
     .unwrap_or(nil)
 }
 
-// We ignore which selector it asks us to do because the user may have
-// bound the shortcut to something else.
 extern "C" fn do_command_by_selector(this: &Object, _: Sel, _: Sel) {
     let state = unsafe { get_window_state(this) };
     let mut lock = state.as_ref().lock();
@@ -2622,8 +2488,6 @@ extern "C" fn perform_drag_operation(this: &Object, _: Sel, dragging_info: id) -
     .to_objc()
 }
 
-/// Reads dropped files from Finder-style file lists, file URLs, or text made only of
-/// absolute paths and file URLs, such as a file list dragged out of a web view.
 fn external_paths_from_event(dragging_info: *mut Object) -> Option<ExternalPaths> {
     let pasteboard: id = unsafe { msg_send![dragging_info, draggingPasteboard] };
     let paths = unsafe {
@@ -2680,7 +2544,6 @@ unsafe fn pasteboard_string(pasteboard: id, kind: id) -> Option<String> {
     }
 }
 
-/// Accepts the text only when every non-empty line is an existing absolute path or a file URL.
 fn text_paths(text: &str, exists: impl Fn(&Path) -> bool) -> Option<SmallVec<[PathBuf; 2]>> {
     text.lines()
         .filter(|line| !line.is_empty())
@@ -2786,8 +2649,6 @@ unsafe fn display_id_for_screen(screen: id) -> CGDirectDisplayID {
 extern "C" fn blurred_view_init_with_frame(this: &Object, _: Sel, frame: NSRect) -> id {
     unsafe {
         let view = msg_send![super(this, class!(NSVisualEffectView)), initWithFrame: frame];
-        // Use a colorless semantic material. The default value `AppearanceBased`, though not
-        // manually set, is deprecated.
         NSVisualEffectView::setMaterial_(view, NSVisualEffectMaterial::Selection);
         NSVisualEffectView::setState_(view, NSVisualEffectState::Active);
         view
@@ -2810,18 +2671,12 @@ unsafe fn remove_layer_background(layer: id) {
 
         let class_name: id = msg_send![layer, className];
         if class_name.isEqualToString("CAChameleonLayer") {
-            // Remove the desktop tinting effect.
             let _: () = msg_send![layer, setHidden: YES];
             return;
         }
 
         let filters: id = msg_send![layer, filters];
         if !filters.is_null() {
-            // Remove the increased saturation.
-            // The effect of a `CAFilter` or `CIFilter` is determined by its name, and the
-            // `description` reflects its name and some parameters. Currently `NSVisualEffectView`
-            // uses a `CAFilter` named "colorSaturate". If one day they switch to `CIFilter`, the
-            // `description` will still contain "Saturat" ("... inputSaturation = ...").
             let test_string: id = NSString::alloc(nil).init_str("Saturat").autorelease();
             let count = NSArray::count(filters);
             for i in 0..count {
@@ -2859,7 +2714,6 @@ extern "C" fn add_titlebar_accessory_view_controller(this: &Object, _: Sel, view
     unsafe {
         let _: () = msg_send![super(this, class!(NSWindow)), addTitlebarAccessoryViewController: view_controller];
 
-        // Hide the native tab bar and set its height to 0, since we render our own.
         let accessory_view: id = msg_send![view_controller, view];
         let _: () = msg_send![accessory_view, setHidden: YES];
         let mut frame: NSRect = msg_send![accessory_view, frame];

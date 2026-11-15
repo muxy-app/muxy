@@ -1,5 +1,3 @@
-//! Finding the user's shell and the programs the server runs.
-
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -8,14 +6,11 @@ const FALLBACK_SHELL: &str = "/bin/zsh";
 #[cfg(target_os = "linux")]
 const FALLBACK_SHELL: &str = "/bin/sh";
 
-/// `$SHELL` when it names an executable file, otherwise the system's default shell.
 #[cfg(unix)]
 pub(crate) fn user_shell() -> PathBuf {
     shell_or_fallback(std::env::var_os("SHELL"))
 }
 
-/// `SHELL` when it names an existing `.exe`, then `pwsh.exe` on `PATH`, then
-/// `powershell.exe` from the system.
 #[cfg(windows)]
 pub(crate) fn user_shell() -> PathBuf {
     windows_shell(
@@ -61,8 +56,6 @@ fn shell_or_fallback(inherited: Option<OsString>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(FALLBACK_SHELL))
 }
 
-/// The first executable `name` in `directories`, skipping empty entries.
-/// Stops at the first match, so later directories are only computed when needed.
 pub(crate) fn find_executable(
     name: &str,
     directories: impl IntoIterator<Item = PathBuf>,
@@ -79,7 +72,6 @@ fn is_executable(path: &Path) -> bool {
     path.is_file() && rustix::fs::access(path, rustix::fs::Access::EXEC_OK).is_ok()
 }
 
-/// Windows has no execute permission; any file counts.
 #[cfg(windows)]
 fn is_executable(path: &Path) -> bool {
     crate::spawn::exists(path)

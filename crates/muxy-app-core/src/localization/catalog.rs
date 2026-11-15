@@ -1,7 +1,3 @@
-//! Placeholder checks for translated catalogs, matching main's
-//! `ExtensionLocalizationCatalog`: a translation may read only arguments its
-//! key passes, at the same positions and with the same types.
-
 use std::collections::{BTreeMap, HashMap};
 
 use muxy_core::l10n::format::{Kind, Token, tokens};
@@ -13,10 +9,8 @@ const FORMAT_KEY: &str = "NSStringLocalizedFormatKey";
 const SPEC_TYPE_KEY: &str = "NSStringFormatSpecTypeKey";
 const VALUE_TYPE_KEY: &str = "NSStringFormatValueTypeKey";
 const MAX_PLURAL_DEPTH: usize = 8;
-/// Variant formats one plural entry may check, far above any real catalog.
 const MAX_PLURAL_CHECKS: usize = 4096;
 
-/// The arguments a format reads, by position, and its plural references.
 #[derive(Debug, Default)]
 pub(super) struct Signature {
     kinds: BTreeMap<usize, Kind>,
@@ -24,7 +18,6 @@ pub(super) struct Signature {
 }
 
 impl Signature {
-    /// `None` when the format is malformed or reads one position as two types.
     pub(super) fn new(format: &str, first: usize) -> Option<Self> {
         if first == 0 {
             return None;
@@ -57,7 +50,6 @@ impl Signature {
     }
 }
 
-/// The first key, in sorted order, whose translation is incompatible.
 pub(super) fn incompatible_key(catalog: &BTreeMap<String, Value>) -> Option<&str> {
     catalog
         .iter()
@@ -84,9 +76,6 @@ fn compatible(key: &str, value: &Value) -> bool {
     }
 }
 
-/// Checks one plural entry. Rules may reference each other, so each rule is
-/// checked once per argument position and depth, and the whole entry gets a
-/// fixed budget of variant checks: a small catalog can't multiply the work.
 struct Plurals<'a> {
     entry: &'a BTreeMap<String, Value>,
     key: &'a Signature,
@@ -137,7 +126,6 @@ impl<'a> Plurals<'a> {
     }
 }
 
-/// Splits a validated catalog into plain translations and plural entries.
 pub(super) fn split(
     catalog: BTreeMap<String, Value>,
     strings: &mut HashMap<String, String>,

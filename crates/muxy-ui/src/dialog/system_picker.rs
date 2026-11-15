@@ -1,12 +1,8 @@
-//! File and folder pickers through the system's own dialog, which GPUI opens.
-
 use std::io;
 use std::path::{Path, PathBuf};
 
 use gpui::{App, PathPromptOptions};
 
-/// An open picker. Dropping it leaves the dialog open, but its answer is
-/// never delivered.
 #[derive(Debug)]
 pub struct FolderPicker {
     _open: async_channel::Sender<()>,
@@ -21,7 +17,6 @@ pub fn choose_folder(
     choose_folder_with(cx, message, "", directory, on_complete)
 }
 
-/// A folder picker whose confirm button reads `prompt`, when it is not empty.
 pub fn choose_folder_with(
     cx: &mut App,
     _message: &str,
@@ -68,7 +63,6 @@ fn open(
     FolderPicker { _open: open }
 }
 
-/// The one path a confirmed dialog chose. Anything else is a cancel.
 fn only(paths: Vec<PathBuf>) -> Option<PathBuf> {
     let [path] = <[PathBuf; 1]>::try_from(paths).ok()?;
     Some(path)

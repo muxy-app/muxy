@@ -26,8 +26,6 @@ fn redraw(cx: &mut VisualTestContext) {
     cx.run_until_parked();
 }
 
-/// Home with a tab of two terminals, the second floated, and another
-/// project with a tab of its own.
 fn floated(
     cx: &mut TestAppContext,
 ) -> (

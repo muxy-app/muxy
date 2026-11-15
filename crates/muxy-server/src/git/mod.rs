@@ -40,8 +40,6 @@ fn path(path: &ServerPath) -> Result<PathBuf> {
 fn server_path(path: &Path) -> Result<ServerPath> {
     ServerPath::from_path(path).map_err(|code| ServerError::new(code, "Path is not valid Unicode"))
 }
-/// A path Git printed, without its trailing newline. Git for Windows prints
-/// `C:/…`, which becomes `C:\…` so it compares equal to other paths.
 fn git_path(output: &[u8]) -> Result<PathBuf> {
     let bytes = output.strip_suffix(b"\n").unwrap_or(output);
     let path = path(&ServerPath(bytes.to_vec()))?;
@@ -162,7 +160,6 @@ impl Registry {
         let read = is_read(&request.action);
         let _read = read.then(|| lock.read().unwrap_or_else(PoisonError::into_inner));
         let _write = (!read).then(|| lock.write().unwrap_or_else(PoisonError::into_inner));
-        // The project may have been deleted while waiting for another repository operation.
         self.catalog.project(request.project)?;
         let reply = self.dispatch_git(&project, directory, &request.action);
         if !read {
@@ -171,8 +168,6 @@ impl Registry {
         reply
     }
 
-    /// Reads that ask the remote. They hold the repository lock only while
-    /// reading local state, so changes never wait on the network.
     fn read_remote(
         &self,
         project: ProjectId,
@@ -321,7 +316,6 @@ impl Registry {
     }
 }
 
-/// Previews, commits, and publishes exactly what the user reviewed.
 fn review(directory: &Path, action: &GitAction) -> Result<GitReply> {
     match action {
         GitAction::ChangesPreview { line_limit } => Ok(GitReply::ChangesPreview(Box::new(
@@ -384,7 +378,6 @@ fn validate_member(repository: &Path, directory: &Path) -> Result<muxy_protocol:
         .find(|w| same_canonical(&w.directory, &target))
         .ok_or_else(|| error("Directory is not a registered Git worktree"))
 }
-/// Whether `directory` names the folder at canonical path `target`.
 fn same_canonical(directory: &ServerPath, target: &Path) -> bool {
     path(directory)
         .and_then(|directory| muxy_core::files::canonicalize(&directory).map_err(error))

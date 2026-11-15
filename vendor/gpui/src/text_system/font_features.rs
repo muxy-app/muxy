@@ -3,25 +3,18 @@ use std::sync::Arc;
 
 use schemars::{JsonSchema, json_schema};
 
-/// The OpenType features that can be configured for a given font.
 #[derive(Default, Clone, Eq, PartialEq, Hash)]
 pub struct FontFeatures(pub Arc<Vec<(String, u32)>>);
 
 impl FontFeatures {
-    /// Disables `calt`.
     pub fn disable_ligatures() -> Self {
         Self(Arc::new(vec![("calt".into(), 0)]))
     }
 
-    /// Get the tag name list of the font OpenType features
-    /// only enabled or disabled features are returned
     pub fn tag_value_list(&self) -> &[(String, u32)] {
         self.0.as_slice()
     }
 
-    /// Returns whether the `calt` feature is enabled.
-    ///
-    /// Returns `None` if the feature is not present.
     pub fn is_calt_enabled(&self) -> Option<bool> {
         self.0
             .iter()

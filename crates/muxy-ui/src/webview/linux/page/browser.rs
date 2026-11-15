@@ -176,8 +176,6 @@ impl Page {
         if !browser.accepts_load(&url) {
             return;
         }
-        // WebKit can temporarily clear the URI when replacing a pending load.
-        // That is not a navigation to the start page and must not erase the tab.
         if !url.is_empty() && *browser.address.borrow() != url {
             browser.address.replace(url.clone());
             self.events.browser(BrowserEvent::UrlChanged { url });

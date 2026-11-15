@@ -13,7 +13,6 @@ pub enum ChannelKind {
 }
 
 open_enum! {
-    /// What a [`Message::Changed`] notification tells clients to refetch.
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
     pub enum Topic {
         Catalog = 0,
@@ -23,8 +22,6 @@ open_enum! {
     }
 }
 
-/// What a queued message stands for: a newer message with the same key folds
-/// into it instead of waiting behind it.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CoalesceKey {
     Changed(Topic),
@@ -44,7 +41,6 @@ pub enum Message {
         session: SessionId,
         progress: crate::SessionProgress,
     },
-    /// Coalesced invalidation: the topic reached `revision`.
     Changed {
         topic: Topic,
         revision: u64,
@@ -56,7 +52,6 @@ pub enum Message {
         id: RequestId,
         body: RequestBody,
     },
-    /// A request whose body this build can't read, such as a method from a newer client.
     UnsupportedRequest {
         id: RequestId,
     },
@@ -75,7 +70,6 @@ pub enum Message {
         id: RequestId,
         body: ReplyBody,
     },
-    /// A reply whose body this build can't read, such as a newer server's shape.
     UnreadableReply {
         id: RequestId,
     },
@@ -100,7 +94,6 @@ pub enum Message {
 }
 
 impl Message {
-    /// `None` for a message that is delivered on its own, however many follow it.
     pub fn coalesce_key(&self) -> Option<CoalesceKey> {
         match self {
             Self::Changed { topic, .. } => Some(CoalesceKey::Changed(*topic)),
@@ -112,7 +105,6 @@ impl Message {
         }
     }
 
-    /// Folds `newer`, which has the same coalesce key, into this message.
     pub fn merge(&mut self, newer: Self) {
         match (self, newer) {
             (

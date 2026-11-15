@@ -8,8 +8,6 @@ use muxy_protocol::{
 use crate::ServerError;
 
 const SCAN_LIMIT: usize = 2000;
-// A position includes a column so even a single row can span result pages.
-// The remaining bits identify the session, history generation and query.
 const POSITION_BITS: u32 = 44;
 const POSITION_MASK: u64 = (1 << POSITION_BITS) - 1;
 

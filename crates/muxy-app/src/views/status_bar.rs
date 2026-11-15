@@ -73,7 +73,6 @@ pub(crate) fn status_bar(model: &AppModel, cx: &mut Context<AppModel>) -> impl I
         )
 }
 
-/// The divider main draws beside each extension status-bar item.
 fn item_separator(model: &AppModel) -> AnyElement {
     div()
         .w(px(1.0))
@@ -148,7 +147,6 @@ fn update_control(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyEle
     )
 }
 
-/// What a status bar item is called, with the value it's showing.
 fn folder_name(path: &str) -> SharedString {
     tr!("Folder: %@", path)
 }
@@ -169,7 +167,6 @@ fn pull_request_name(number: u64, checks: Option<SharedString>) -> SharedString 
     }
 }
 
-/// Opens the menu the folder's right click opens.
 fn path_actions(model: &AppModel, cx: &Context<AppModel>) -> Option<AnyElement> {
     let project = model.state.current_project();
     let id = project.id;
@@ -310,7 +307,6 @@ fn git_controls(model: &AppModel, cx: &mut Context<AppModel>) -> Vec<AnyElement>
         controls.push(separator(model));
         controls.push(chip);
     }
-    // Removing a worktree moves you to its primary, which shows the removal.
     let label = repository
         .and_then(crate::model::git::Repository::mutation)
         .and_then(progress_label)
@@ -485,7 +481,6 @@ fn ai_action_chip(
     )
 }
 
-/// What a long Git change is doing; quick ones show nothing.
 fn progress_label(action: &GitAction) -> Option<SharedString> {
     match action {
         GitAction::PullRequest(GitPullRequestAction::Merge { number, .. }) => {

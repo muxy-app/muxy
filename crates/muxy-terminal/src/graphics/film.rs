@@ -1,5 +1,3 @@
-//! Decodes image files, keeping every frame of an animated GIF.
-
 use std::io::Cursor;
 
 use image::codecs::gif::GifDecoder;
@@ -7,18 +5,12 @@ use image::{AnimationDecoder, ImageDecoder, ImageFormat, RgbaImage};
 
 use super::{MAX_DECODE_BYTES, PICTURE_BUDGET, Picture, decode_limits, fitted};
 
-/// Memory all the frames of one animation may use before they are shrunk.
 pub(crate) const FILM_BUDGET: usize = 32 * 1024 * 1024;
-/// Frames past this many are left out.
 const MAX_FRAMES: usize = muxy_protocol::MAX_GRAPHICS_FRAMES;
-/// Canvas bytes one file may have drawn, frame after frame, before the rest
-/// of its frames are left out. It bounds the time a decode holds a terminal.
 const DRAWN_BUDGET: u64 = 1024 * 1024 * 1024;
-/// Browsers play a frame that asks for less than this as `SLOW_GAP`.
 const SHORTEST_GAP: u32 = 20;
 const SLOW_GAP: u32 = 100;
 
-/// The frames of an image, all the same size. A still image has one.
 #[derive(Debug)]
 pub(crate) struct Film {
     pub(crate) width: u32,
@@ -29,7 +21,6 @@ pub(crate) struct Film {
 #[derive(Debug)]
 pub(crate) struct Frame {
     pub(crate) rgba: Vec<u8>,
-    /// Milliseconds the frame shows before the next one.
     pub(crate) gap: u32,
 }
 
@@ -54,7 +45,6 @@ impl Film {
     }
 }
 
-/// Decodes any format the server can read, found from the data.
 pub(crate) fn decode(bytes: &[u8]) -> Option<Film> {
     let reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -72,11 +62,6 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<Film> {
     }))
 }
 
-/// Decodes the frames of a GIF, each drawn over the ones before it. Frames
-/// are shrunk together as they arrive, so the film never passes `budget`
-/// bytes by more than a frame. A damaged file keeps the frames before the
-/// damage. `limits` also bound each frame's own size, which a file states
-/// apart from the size of the whole picture.
 fn gif(bytes: &[u8], budget: usize, limits: image::Limits) -> Option<Film> {
     let mut decoder = GifDecoder::new(Cursor::new(bytes)).ok()?;
     decoder.set_limits(limits).ok()?;
@@ -132,7 +117,6 @@ fn bytes_of(size: (u32, u32)) -> usize {
     size.0 as usize * size.1 as usize * 4
 }
 
-/// About half the pixels of `size`, keeping its shape.
 fn smaller((width, height): (u32, u32)) -> (u32, u32) {
     let shorter = |length: u32| (length.saturating_mul(181) / 256).max(1);
     (shorter(width), shorter(height))
@@ -218,7 +202,6 @@ mod tests {
 
     #[test]
     fn a_frame_larger_than_the_decoder_may_allocate_is_refused() {
-        // The file says its picture is one pixel, and its only frame 40 by 30.
         let mut file = encode(40, 30, &[40]);
         file[6..10].copy_from_slice(&[1, 0, 1, 0]);
         let mut small = decode_limits();

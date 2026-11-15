@@ -1,7 +1,5 @@
 use super::*;
 
-/// A frame from the server after the session took `size`, as when another
-/// client resized it.
 fn frame(size: Size, seq: u64) -> ScreenFrame {
     ScreenFrame {
         size,
@@ -28,7 +26,6 @@ fn moved(x: f32) -> gpui::MouseMoveEvent {
 
 #[gpui::test]
 fn working_in_a_pane_takes_back_a_size_another_client_changed(cx: &mut TestAppContext) {
-    // Not drawn, so only taking the size back changes the viewport.
     let pane = cx.new(|cx| {
         TerminalPane::new(
             Palette::new(true),
@@ -53,13 +50,10 @@ fn working_in_a_pane_takes_back_a_size_another_client_changed(cx: &mut TestAppCo
             let viewport = pane.viewport.unwrap();
             own = Some(viewport);
 
-            // The session already has the pane's size.
             pane.apply(&frame(viewport, 1), cx);
             pane.mouse_move(&moved(5.0), cx);
             pane.send_text("a", cx);
 
-            // A phone resized it: the pointer outside the pane changes
-            // nothing, and moving over the pane asks for its size once.
             pane.apply(&frame(phone, 2), cx);
             pane.mouse_move(&moved(250.0), cx);
             pane.mouse_move(&moved(5.0), cx);
@@ -84,7 +78,6 @@ fn working_in_a_pane_takes_back_a_size_another_client_changed(cx: &mut TestAppCo
                 cx,
             );
 
-            // A pane that is no longer live leaves the session alone.
             pane.apply(&frame(phone, 6), cx);
             pane.state = PaneState::Exited {
                 reason: Some(ExitReason::Ended),

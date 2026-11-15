@@ -21,15 +21,12 @@ pub(super) struct Metadata {
     pub(super) directory: ServerPath,
     pub(super) process: Option<ForegroundProcess>,
     pub(super) agent: Option<muxy_protocol::AgentProvider>,
-    /// The session's own shell is in the foreground, so no program it ran is.
     pub(super) shell_foreground: bool,
     next_agent: std::time::Instant,
     agent_group: Option<u32>,
     observed_directory: Option<ServerPath>,
 }
 
-/// The program in a session's foreground: the PTY's foreground process
-/// group on Unix, the newest program the shell started on Windows.
 #[cfg(unix)]
 struct Foreground {
     group: u32,
@@ -54,7 +51,6 @@ impl Foreground {
             .map_or_else(String::new, |(_, name)| name.clone())
     }
 
-    /// The shell itself waiting at its prompt, which is never an agent.
     fn is_idle_shell(&self) -> bool {
         self.is_shell
             && self.member.as_ref().is_some_and(|(_, name)| {
@@ -76,8 +72,6 @@ impl Foreground {
     }
 }
 
-/// The foreground process group on Unix; on Windows the newest program the
-/// shell started.
 pub(super) fn foreground_group(shell: &Shell) -> Option<u32> {
     #[cfg(unix)]
     {
@@ -173,10 +167,6 @@ impl Metadata {
     }
 }
 
-/// Windows' console names itself after the program it started, such as
-/// `C:\Program Files\PowerShell\7\pwsh.exe`, until a program sets a title.
-/// That isn't a title of the program's own, so the app names the tab as it
-/// does for a shell that sets none.
 fn is_console_default_title(title: &str) -> bool {
     cfg!(windows) && is_executable_path(title)
 }
@@ -191,8 +181,6 @@ fn is_executable_path(title: &str) -> bool {
             .is_some_and(|extension| extension.eq_ignore_ascii_case(".exe"))
 }
 
-/// The folder an OSC 7 report names. Windows takes only drive paths, as
-/// `file:///C:/…`, `file://host/C:/…` or `C:\…`.
 fn terminal_directory(value: &[u8], windows: bool) -> Option<ServerPath> {
     let path = if let Some(url) = value.strip_prefix(b"file://") {
         let path = &url[url.iter().position(|byte| *byte == b'/')? + 1..];

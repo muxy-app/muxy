@@ -1,6 +1,3 @@
-//! Insert Path: a popover at the cursor that browses the folders of the
-//! terminal's computer and types the path of the entry the user picks.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,34 +21,23 @@ mod browser;
 use browser::Browser;
 pub(crate) use browser::Entry;
 
-/// How wide the popover is.
 const WIDTH: f32 = 320.0;
-/// How long a folder may take to list before the popover says it is loading,
-/// so the rows of the folder before don't blink away for a quick answer.
 const LOADING_DELAY: Duration = Duration::from_millis(150);
 
-/// Lists the files and folders directly inside an absolute path on the
-/// terminal's computer, or says why it can't.
 pub(crate) type Lister = Arc<dyn Fn(&str) -> Result<Vec<Entry>, String> + Send + Sync>;
 
-/// What the app gives a pane to browse its server's folders with.
 pub(crate) struct Source {
-    /// `Err` says why folders can't be listed now.
     pub(crate) list: Result<Lister, String>,
-    /// The Home folder there, which `~` stands for.
     pub(crate) home: Option<String>,
-    /// Paths chosen there before, most recent first.
     pub(crate) recents: Vec<String>,
 }
 
 pub(crate) struct InsertPath {
     pub(crate) picker: Entity<Picker>,
-    /// The cursor's cell, which the popover opens from.
     anchor: PopoverAnchor,
     browser: Option<Browser>,
     list: Option<Lister>,
     listing: Listing,
-    /// Counts listings asked for, so only the latest one's answer is shown.
     generation: usize,
     load: Option<Task<()>>,
     _subscriptions: [Subscription; 2],
@@ -64,8 +50,6 @@ enum Listing {
 }
 
 impl TerminalPane {
-    /// Opens the popover at the cursor, or closes the open one. The app
-    /// answers [`PaneEvent::BrowsePaths`] with what to browse.
     pub(crate) fn open_insert_path(
         &mut self,
         theme: &Theme,
@@ -103,8 +87,6 @@ impl TerminalPane {
             _ => {}
         });
         let blur = cx.on_focus_out(&picker.focus_handle(cx), window, |pane, _, window, cx| {
-            // A window that stops being the active one reports the same,
-            // with the keyboard still in the popover, which then stays.
             let kept = pane
                 .insert_path
                 .as_ref()
@@ -127,8 +109,6 @@ impl TerminalPane {
         cx.notify();
     }
 
-    /// Closes the popover. `refocus` gives the keyboard back to the
-    /// terminal, unless something else already took it.
     pub(crate) fn close_insert_path(
         &mut self,
         refocus: bool,
@@ -157,7 +137,6 @@ impl TerminalPane {
         }
     }
 
-    /// Starts browsing with `source`, in the terminal's folder.
     pub(crate) fn browse_paths(&mut self, source: Source, cx: &mut Context<Self>) {
         let base = self.server_directory();
         let Some(open) = &mut self.insert_path else {
@@ -184,8 +163,6 @@ impl TerminalPane {
         }
     }
 
-    /// Lists the browsed folder. The rows on show stay until the answer
-    /// comes, or until it has taken long enough to say so.
     fn list_folder(&mut self, cx: &mut Context<Self>) {
         let Some(open) = &mut self.insert_path else {
             return;
@@ -235,14 +212,12 @@ impl TerminalPane {
         }));
     }
 
-    /// Whether the popover still waits for listing `generation`.
     fn lists(&self, generation: usize) -> bool {
         self.insert_path.as_ref().is_some_and(|open| {
             open.generation == generation && matches!(open.listing, Listing::Loading)
         })
     }
 
-    /// Shows the rows of the browsed folder that match the filter.
     fn show_paths(&mut self, cx: &mut Context<Self>) {
         let Some(open) = &self.insert_path else {
             return;
@@ -281,8 +256,6 @@ impl TerminalPane {
                 (items, status)
             }
         };
-        // A new filter or folder starts from its best row; the picker would
-        // otherwise keep a row chosen before, wherever it now is.
         let first = items.iter().cloned().find_map(PickerItem::row_data);
         open.picker.update(cx, |picker, cx| {
             picker.set_items(items, cx);
@@ -293,7 +266,6 @@ impl TerminalPane {
         });
     }
 
-    /// Follows the folders the filter names, then filters by what is left.
     fn filter_paths(&mut self, query: &str, cx: &mut Context<Self>) {
         let Some(open) = &mut self.insert_path else {
             return;
@@ -317,7 +289,6 @@ impl TerminalPane {
         }
     }
 
-    /// Browses the selected folder. A selected file stays as it is.
     fn enter_selected_folder(&mut self, cx: &mut Context<Self>) {
         let Some(open) = &mut self.insert_path else {
             return;
@@ -336,7 +307,6 @@ impl TerminalPane {
         self.list_folder(cx);
     }
 
-    /// Browses the folder above the browsed one.
     fn leave_folder(&mut self, cx: &mut Context<Self>) {
         let Some(open) = &mut self.insert_path else {
             return;
@@ -348,9 +318,6 @@ impl TerminalPane {
         }
     }
 
-    /// Types the path of the row `name` at the cursor and closes the
-    /// popover. A path that can't be typed safely stays untyped, and the
-    /// popover says so.
     fn choose_path(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         let base = self.server_directory();
         let Some(open) = &mut self.insert_path else {
@@ -362,14 +329,10 @@ impl TerminalPane {
         let Some(entry) = entries.iter().find(|entry| entry.name == name) else {
             return;
         };
-        // The terminal's program may have changed folder while the popover
-        // was open, and a relative path is read from where it is now.
         browser.rebase(base);
         let chosen = browser.chosen(&entry.name, entry.is_directory);
         let picker = open.picker.clone();
         if self.state != PaneState::Live || self.channel().is_none() {
-            // The terminal ended or lost its server meanwhile, so nothing
-            // can be typed into it.
             self.close_insert_path(true, window, cx);
             return;
         }
@@ -384,7 +347,6 @@ impl TerminalPane {
         cx.emit(PaneEvent::PathChosen(chosen.absolute));
     }
 
-    /// Backspace in an empty filter goes to the folder above.
     fn backspace_in_filter(&mut self, cx: &mut Context<Self>) {
         let empty = self
             .insert_path
@@ -397,7 +359,6 @@ impl TerminalPane {
     }
 }
 
-/// The popover, placed at the cursor above everything else in the window.
 pub(super) fn popover(pane: &TerminalPane, cx: &mut Context<TerminalPane>) -> Option<AnyElement> {
     let open = pane.insert_path.as_ref()?;
     open.anchor.set(pane.composition_bounds());

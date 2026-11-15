@@ -15,7 +15,6 @@ const SWITCH_WORKTREE: &str = if cfg!(target_os = "macos") {
     "ctrl-shift-alt-w"
 };
 
-/// Work the model sent, kept so worktree syncs stay pending until a test answers them.
 pub(super) struct Sent(std::sync::mpsc::Receiver<(u64, Work)>, Vec<Work>);
 
 impl Sent {
@@ -33,7 +32,6 @@ impl Sent {
     }
 }
 
-/// A path as a server on this computer sends it.
 fn bytes(path: &Path) -> Vec<u8> {
     ServerPath::from(path).0
 }
@@ -837,7 +835,6 @@ fn worktree_switcher_refreshes_catalog_without_losing_query_or_selection(cx: &mu
     let (state, root, [selected, removed, _], directory) = pruning_fixture();
     let (view, cx, _sent) = connected(state, cx);
     let picker = open_worktree_switcher(&view, cx);
-    // The folder's name, which every row shows however it shortens the path.
     let query = directory
         .path()
         .file_name()

@@ -279,7 +279,6 @@ fn terminal_and_browser_commands_need_their_pane(cx: &mut TestAppContext) {
     ];
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    // Windows has no browser panes, so their commands aren't listed at all.
     let browser_disabled = if cfg!(windows) {
         [None; 3]
     } else {
@@ -326,8 +325,6 @@ fn tooltips_show_the_key_of_the_command_they_run(cx: &mut TestAppContext) {
     });
 }
 
-/// Rests the pointer on the control `selector` names until its tooltip shows,
-/// and returns whether the tooltip reads `expected`.
 fn hovering_shows(cx: &mut VisualTestContext, selector: String, expected: &str) -> bool {
     let selector: &'static str = selector.leak();
     let expected: &'static str = format!("tooltip:{expected}").leak();

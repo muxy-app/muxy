@@ -9,8 +9,6 @@ use super::{PENDING, PreparedImport, ROOTS, Restore, archive, extensions, valida
 
 const RECOVERY_PREFIX: &str = "pre-import-";
 
-/// Whether an import was ever applied to `profile`. Each one leaves a
-/// recovery copy.
 pub(super) fn applied_before(profile: &Path) -> bool {
     fs::read_dir(profile.join("Backups")).is_ok_and(|entries| {
         entries.flatten().any(|entry| {
@@ -22,7 +20,6 @@ pub(super) fn applied_before(profile: &Path) -> bool {
     })
 }
 
-/// Replaces any pending import. When staging fails, nothing stays pending.
 pub(crate) fn stage(profile: &Path, import: &PreparedImport) -> Result<()> {
     validate_effective(profile, &import.files, import.restore)?;
     let staged = extensions::stage(profile, import.extensions.as_ref())

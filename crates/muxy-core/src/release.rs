@@ -1,11 +1,3 @@
-//! Which release a build is, read from its version.
-//!
-//! Stable releases are `X.Y.Z`. Betas are `X.Y.Z-beta.N`, where `N` is the
-//! commit count that orders them; betas published before `BETA_VERSION` were
-//! `2.0.0-beta-N` on the same count. Any other version, such as an unstamped
-//! checkout's `2.0.0-beta-0`, is a local build.
-
-/// Where a release is published and how it installs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Channel {
     Beta,
@@ -13,7 +5,6 @@ pub enum Channel {
 }
 
 impl Channel {
-    /// This build's channel. Local builds install like betas.
     pub fn current() -> Self {
         Version::current().map_or(Self::Beta, Version::channel)
     }
@@ -33,7 +24,6 @@ impl Channel {
     }
 }
 
-/// A released version, in the order releases of its channel follow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Version {
     Beta { build: u64 },
@@ -63,7 +53,6 @@ impl Version {
         }
     }
 
-    /// This build's release, or `None` for a local build.
     pub fn current() -> Option<Self> {
         Self::parse(env!("CARGO_PKG_VERSION"))
     }
@@ -75,7 +64,6 @@ impl Version {
         }
     }
 
-    /// Whether this release replaces `other`. Releases of different channels never replace each other.
     pub fn is_newer_than(self, other: Self) -> bool {
         match (self, other) {
             (Self::Beta { build }, Self::Beta { build: other }) => build > other,
@@ -85,7 +73,6 @@ impl Version {
     }
 }
 
-/// Whether `target` is a newer release than `current` on the same channel.
 pub fn is_newer(target: &str, current: &str) -> bool {
     Version::parse(target)
         .zip(Version::parse(current))

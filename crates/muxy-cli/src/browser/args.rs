@@ -11,35 +11,24 @@ use serde_json::{Map, Value};
 use crate::args::Command;
 use crate::manage::help;
 
-/// How much longer than a quick reply a screenshot may take.
 const SCREENSHOT_TIME: Duration = Duration::from_secs(20);
 
-/// A browser command as the request it sends to the desktop app.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct Invocation {
     pub(crate) verb: &'static str,
     pub(crate) args: Map<String, Value>,
     pub(crate) output: Output,
-    /// How much longer than a quick reply the app may take: what a wait
-    /// waits for, or capturing a screenshot.
     pub(crate) extra_time: Duration,
-    /// Where a screenshot is saved instead of printed.
     pub(crate) out: Option<PathBuf>,
 }
 
-/// How the app's reply is printed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Output {
-    /// A string as is, such as a new tab's ID.
     Text,
-    /// `ok`, once the app has done it.
     Ok,
     Json,
-    /// One tab-separated line per tab.
     Tabs,
-    /// Title, URL and text, each on its own line.
     Page,
-    /// The PNG as base64, ready to decode.
     Screenshot,
 }
 
@@ -66,8 +55,6 @@ impl Invocation {
     fn output(self, output: Output) -> Self {
         Self { output, ..self }
     }
-    /// Gives the app as long as the wait it was asked for, as the app
-    /// itself reads `timeoutMs`.
     fn waiting(self, default: Duration) -> Self {
         Self {
             extra_time: automation::timeout(&self.args, default),
@@ -76,7 +63,6 @@ impl Invocation {
     }
 }
 
-/// Reads the words after `muxy browser`.
 pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
     let words = arguments
         .iter()
@@ -95,7 +81,6 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
     invocation(&words).map(|invocation| Command::Browser(Box::new(invocation)))
 }
 
-/// The app verb that each action sends.
 fn verb(action: &str) -> Option<&'static str> {
     Some(match action {
         "open" => "browser.open",
@@ -424,10 +409,6 @@ const WAIT: &str = "<tab-id> [--selector SELECTOR] [--text TEXT] [--url-contains
 const SET_COOKIE: &str = "<tab-id> <name> <value> <domain> [--path PATH] [--secure] \
                           [--http-only] [--expires UNIX-SECONDS]";
 
-/// The words after the action: positional words, options with their values,
-/// and flags. Only a word that is exactly one of the action's options counts
-/// as one, so other words starting with a dash stay positional, and `--`
-/// ends options.
 #[derive(Debug)]
 struct Given<'a> {
     usage: String,
@@ -497,7 +478,6 @@ impl<'a> Given<'a> {
             .filter(|word| choices.contains(word))
             .ok_or_else(|| self.usage())
     }
-    /// Which web storage a `storage` action uses: `local` unless given.
     fn storage(&self, index: usize) -> io::Result<&'a str> {
         match self.optional(index) {
             None => Ok("local"),
@@ -543,8 +523,6 @@ mod tests {
         Ok((invocation.verb, Value::Object(invocation.args)))
     }
 
-    /// Every action, as a command line split at spaces, with the request it
-    /// sends.
     const ACTIONS: &[(&str, &str, &str)] = &[
         ("open", "browser.open", r#"{"split":false}"#),
         (

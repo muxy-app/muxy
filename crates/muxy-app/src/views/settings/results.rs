@@ -13,11 +13,9 @@ pub(super) struct Results {
     focus: HashMap<Category, FocusHandle>,
     pub(super) row_focus: HashMap<String, FocusHandle>,
     pub(super) shortcut_focus: Vec<[FocusHandle; 2]>,
-    /// Record, reset, and unassign for each extension shortcut, by keymap id.
     pub(super) extension_focus: HashMap<String, [FocusHandle; 3]>,
     pub(super) command_focus: HashMap<String, [FocusHandle; 4]>,
     pub(super) reveal_focus: Rc<Cell<bool>>,
-    /// The row to bring on screen in the next frame.
     pub(super) reveal_row: Rc<Cell<Option<&'static str>>>,
     pub(super) dirty: bool,
     pub(super) editable: bool,
@@ -25,7 +23,6 @@ pub(super) struct Results {
     overdraw: Pixels,
 }
 
-/// The order of search results, which keeps related settings together.
 const SEARCH_ORDER: [Category; 13] = [
     Category::General,
     Category::QuickTerminal,
@@ -49,7 +46,6 @@ enum Item {
     CommandsHeading,
     CustomCommand(usize),
     Shortcut(usize),
-    /// The heading above an extension's shortcuts, named by its first one.
     ExtensionHeading(usize),
     ExtensionShortcut(usize),
     Empty,
@@ -257,9 +253,6 @@ impl SettingsView {
         self.results.reset_scroll = false;
     }
 
-    /// Whether the list already holds `items`, each still meaning the same
-    /// row, so it can keep its measurements and scrolling. The list draws its
-    /// visible rows again either way.
     fn unchanged(&self, items: &[Item], overdraw: Pixels) -> bool {
         self.results.overdraw == overdraw
             && !self.results.reset_scroll

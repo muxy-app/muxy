@@ -1,6 +1,3 @@
-//! `browser.*` requests from the CLI and extensions: opening and listing
-//! tabs, and driving their pages.
-
 use std::time::{Duration, Instant};
 
 use gpui::{Context, Entity, Task, WeakEntity, Window};
@@ -20,11 +17,9 @@ use crate::views::browser::BrowserView;
 
 type Reply = Task<Result<Value, String>>;
 
-/// How long a navigation that a click just caused may take to start.
 const NAVIGATION_START: Duration = Duration::from_millis(500);
 
 impl AppModel {
-    /// Carries out `browser.<verb>`.
     pub(crate) fn browser_call(
         &mut self,
         verb: &str,
@@ -192,7 +187,6 @@ impl AppModel {
             .ok_or_else(|| format!("browser tab not found {id}"))
     }
 
-    /// The live page of the tab in `args`, loaded hidden if it was never shown.
     fn browser_page(
         &mut self,
         args: &Args,
@@ -204,8 +198,6 @@ impl AppModel {
     }
 }
 
-/// Runs `body` as an async function in the page and parses what it
-/// returned. A page that hasn't answered within `timeout` fails it.
 fn run_script(
     view: &Entity<BrowserView>,
     body: &str,
@@ -264,8 +256,6 @@ fn wait_until(
     })
 }
 
-/// Waits for the page to settle. A load that doesn't start soon counts as
-/// none, so a click that navigates can be followed by this.
 fn wait_for_navigation(
     view: WeakEntity<BrowserView>,
     timeout: Duration,
@@ -409,7 +399,6 @@ fn cookie_json(cookie: &Cookie) -> Value {
     })
 }
 
-/// An extension's positional arguments, as `browser.<verb>` takes them.
 pub(crate) fn extension_args(verb: &str, args: &Value) -> Args {
     let Some(list) = args.get("args").and_then(Value::as_array) else {
         return args.as_object().cloned().unwrap_or_default();

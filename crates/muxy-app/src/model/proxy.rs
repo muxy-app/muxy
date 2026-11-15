@@ -1,6 +1,3 @@
-//! The app's one proxy: which terminals start with it, and keeping the app's
-//! own requests and ssh on it while it applies to the whole app.
-
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -14,7 +11,6 @@ use super::{AppModel, ConnectionState};
 
 pub(crate) struct ProxyState {
     pub(crate) settings: Option<ProxySettings>,
-    /// Why `proxy.toml` couldn't be read.
     pub(crate) error: Option<String>,
     pub(crate) anchor: muxy_ui::popover::PopoverAnchor,
     path: PathBuf,
@@ -43,8 +39,6 @@ impl ProxyState {
 }
 
 impl AppModel {
-    /// Saves the proxy, or removes it with `None`, and applies it to the app's
-    /// own requests and to ssh. Running terminals keep what they started with.
     pub(crate) fn set_proxy(
         &mut self,
         settings: Option<ProxySettings>,
@@ -63,9 +57,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// ssh goes through the proxy while it applies to the whole app. A server
-    /// reached a new way reconnects if it was connected; its terminals keep
-    /// running there.
     pub(super) fn sync_ssh_proxy(&mut self, cx: &mut Context<Self>) {
         let proxy = match self
             .proxy
@@ -105,8 +96,6 @@ impl AppModel {
         }
     }
 
-    /// This computer's server is connected but too old to start terminals
-    /// with the proxy, until it is restarted.
     pub(crate) fn proxy_needs_newer_server(&self) -> bool {
         let local = ServerId::local();
         self.ready(local) && !self.server_supports(local, Feature::SESSION_ENVIRONMENT)
@@ -118,7 +107,6 @@ impl AppModel {
             .is_some_and(|runtime| runtime.features.contains(&feature))
     }
 
-    /// Whether `pane`'s terminal can start again with the proxy, or without it.
     pub(crate) fn can_restart_terminal(&self, pane: PaneId, proxy: bool) -> bool {
         let server = self.state.pane_server(pane).unwrap_or_else(ServerId::local);
         self.can_detach_terminal(pane)
@@ -129,8 +117,6 @@ impl AppModel {
                     && self.server_supports(server, Feature::SESSION_ENVIRONMENT))
     }
 
-    /// Ends `pane`'s terminal and starts a new one in its place and folder,
-    /// with the proxy or without it. Asks first if a program is running.
     pub(crate) fn restart_terminal(&mut self, pane: PaneId, proxy: bool, cx: &mut Context<Self>) {
         if !self.can_restart_terminal(pane, proxy) {
             return;
@@ -140,8 +126,6 @@ impl AppModel {
         }
     }
 
-    /// The environment a new terminal for `pane` starts with. Notes on the
-    /// pane whether that includes the proxy, before the layout is saved.
     pub(super) fn creation_environment(
         &mut self,
         pane: PaneId,
@@ -161,7 +145,6 @@ impl AppModel {
         environment
     }
 
-    /// The terminal menu's way to the proxy for `pane`.
     pub(super) fn proxy_menu_item(&self, pane: PaneId) -> crate::views::menu::Item {
         use crate::views::menu::{Command, Item};
         let proxied = self.pane_uses_proxy(pane);

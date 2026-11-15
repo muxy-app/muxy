@@ -387,7 +387,6 @@ impl AppModel {
         match self.focus_owner.take(overlay) {
             Some(Next::Element(focus)) => focus.focus(window),
             Some(Next::ActivePane) => self.focus_active(window, cx),
-            // With no pane, the workspace keeps the keyboard for its shortcuts.
             None if !overlay && self.active_pane().is_none() && window.focused(cx).is_none() => {
                 self.focus_active(window, cx);
             }
@@ -566,8 +565,6 @@ impl AppModel {
     }
 }
 
-/// The line between the sidebar and the content. It starts below the
-/// navigation buttons where they reach past the sidebar.
 fn sidebar_divider(model: &AppModel, sidebar_width: f32, window: &Window) -> gpui::Div {
     let top = if sidebar_width >= titlebar::navigation_width(model, window) {
         0.0

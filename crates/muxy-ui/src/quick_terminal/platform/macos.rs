@@ -577,7 +577,6 @@ pub fn accessibility_preferences() -> AccessibilityPreferences {
     }
 }
 
-/// A pinned panel stays on every Space; otherwise it opens on the active one.
 fn collection_behavior(pinned: bool) -> NSWindowCollectionBehavior {
     let spaces = if pinned {
         NSWindowCollectionBehavior::CanJoinAllSpaces

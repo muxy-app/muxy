@@ -1,7 +1,3 @@
-//! `muxy extension dev <folder>`: loads and turns on an unpacked extension,
-//! then builds and reloads it each time its files change, printing one
-//! `ready` or `failed` line per round with the log lines that round added.
-
 use std::error::Error;
 use std::fs;
 use std::io::{self, Write};
@@ -15,17 +11,11 @@ use serde_json::{Map, Value, json};
 use super::{CHANGE_TIME, invalid};
 use crate::browser::call_app;
 
-/// How often the folder is checked for changes.
 const POLL: Duration = Duration::from_millis(400);
-/// How long the files must stay unchanged before a round starts, so a save
-/// that touches several files builds once.
 const QUIET: Duration = Duration::from_millis(300);
-/// How long the reloaded pages get to load and log what went wrong.
 const SETTLE: Duration = Duration::from_millis(1500);
-/// How many lines of a failed build are shown.
 const BUILD_LINES: usize = 40;
 const LOG_LINES: u64 = 500;
-/// Folders that never hold the extension's source.
 const SKIPPED: [&str; 4] = ["node_modules", "logs", "target", "coverage"];
 
 #[derive(Debug, Eq, PartialEq)]
@@ -103,7 +93,6 @@ pub(crate) fn run(dev: &Dev) -> Result<(), Box<dyn Error>> {
     }
 }
 
-/// What `dev` reads from the extension's `package.json`.
 struct Package {
     name: String,
     build: Option<String>,
@@ -128,7 +117,6 @@ impl Package {
     }
 }
 
-/// The package manager whose lock file the folder has.
 fn runner(folder: &Path) -> &'static str {
     [
         ("pnpm-lock.yaml", "pnpm"),
@@ -149,7 +137,6 @@ fn named(name: &str) -> Map<String, Value> {
     Map::from_iter([("name".to_owned(), json!(name))])
 }
 
-/// Loads the folder unless it already is, and turns the extension on.
 fn prepare(folder: &Path, name: &str) -> Result<String, Box<dyn Error>> {
     let status = call("extension.status", named(name), Duration::ZERO);
     let status = if let Ok(status) = status {
@@ -180,8 +167,6 @@ fn prepare(folder: &Path, name: &str) -> Result<String, Box<dyn Error>> {
     Ok(name)
 }
 
-/// One round: build, reload, and report. Whether the extension came up
-/// without load errors.
 fn build_and_reload(
     folder: &Path,
     package: &Package,
@@ -192,7 +177,6 @@ fn build_and_reload(
     Ok(build_step(folder, package, name, round, out)? && reload_step(name, round, out)?)
 }
 
-/// Runs the build script, if there is one. Whether it passed.
 fn build_step(
     folder: &Path,
     package: &Package,
@@ -214,8 +198,6 @@ fn build_step(
     Ok(true)
 }
 
-/// Reloads the extension and reports how it came up. Whether it loaded
-/// without errors.
 fn reload_step(name: &str, round: u32, out: &mut impl Write) -> Result<bool, Box<dyn Error>> {
     let before = log_lines(name);
     if let Err(error) = call("extension.reload", named(name), CHANGE_TIME) {
@@ -251,7 +233,6 @@ fn reload_step(name: &str, round: u32, out: &mut impl Write) -> Result<bool, Box
     Ok(errors.is_empty())
 }
 
-/// The last lines of a build that failed, or `None` when it passed.
 fn build(folder: &Path, runner: &str) -> Option<Vec<String>> {
     let output = match Command::new(runner)
         .args(["run", "build"])
@@ -288,8 +269,6 @@ fn log_lines(name: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The lines at the end of `after` that `before` didn't end with. The log
-/// keeps only its last lines, so with no overlap every line counts as new.
 fn new_lines<'a>(before: &[String], after: &'a [String]) -> &'a [String] {
     let overlap = (0..=before.len().min(after.len()))
         .rev()
@@ -298,8 +277,6 @@ fn new_lines<'a>(before: &[String], after: &'a [String]) -> &'a [String] {
     &after[overlap..]
 }
 
-/// The source files' paths, sizes and modification times. `dist` is left
-/// out when `dev` builds it, so its own build doesn't start another round.
 fn fingerprint(folder: &Path, builds: bool) -> Vec<(PathBuf, u64, SystemTime)> {
     let mut files = Vec::new();
     let mut folders = vec![folder.to_owned()];

@@ -52,9 +52,6 @@ impl Drop for Modal {
 }
 
 type Occlusion = (Option<gpui::EntityId>, gpui::Bounds<gpui::Pixels>);
-/// A resize grip over web views, with its cursor. Every web view pane lets a
-/// `None` grip through, such as a split divider; otherwise only the named web
-/// view does.
 type Grip = (
     Option<gpui::EntityId>,
     gpui::Bounds<gpui::Pixels>,
@@ -77,11 +74,9 @@ pub(crate) struct Webviews {
     registered_panels: HashMap<(String, String), panels::Definition>,
     pub(in crate::model) panel_sessions: panel_sessions::PanelSessions,
     pub panel_size: panels::PanelSize,
-    /// The window's size in floating panel points, as last laid out.
     pub area: gpui::Size<f32>,
     pub popover: Option<popover::Popover>,
     pub sidebar: Option<sidebar::SidebarSurface>,
-    /// The sidebar page that failed to load, so it is not retried every frame.
     sidebar_failure: Option<(String, String)>,
     pub occlusions: Rc<std::cell::RefCell<Vec<Occlusion>>>,
     grips: Rc<std::cell::RefCell<Vec<Grip>>>,
@@ -91,7 +86,6 @@ pub(crate) struct Webviews {
     restore_focus: Option<gpui::WeakEntity<Webview>>,
 }
 
-/// Hears `view`'s requests, with `window` as the window it shows in.
 fn page_subscription(
     view: &Entity<Webview>,
     window: &mut Window,
@@ -169,8 +163,6 @@ impl AppModel {
         }
     }
 
-    /// Moves the pages `window` shows into it, then shows each page pane
-    /// that lives in `window` as its pane is.
     pub(crate) fn present_page_panes(
         &mut self,
         descriptors: &HashMap<PaneId, WebviewDescriptor>,
@@ -211,15 +203,12 @@ impl AppModel {
         self.sync_browsers(blocked, resizing, window, cx);
     }
 
-    /// The window a page pane's native view lives in.
     pub(crate) fn page_window(&self, pane: PaneId) -> gpui::WindowId {
         self.tab_windows
             .page_home(pane)
             .unwrap_or_else(|| self.window.window_id())
     }
 
-    /// Moves the native views of the page panes `window` shows into it, so
-    /// they keep their pages instead of loading them again.
     fn rehome_pages(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let here = window.window_handle().window_id();
         for pane in self.visible_panes() {
@@ -259,8 +248,6 @@ impl AppModel {
         }
     }
 
-    /// Whether something is being resized or dragged, so pages let clicks
-    /// through to it.
     fn resizing_surfaces(&self, window: &Window, cx: &gpui::App) -> bool {
         self.sidebar_resize.is_some()
             || self.agents_panel.resize.is_active()
@@ -286,7 +273,6 @@ impl AppModel {
             .is_some_and(|tab| tab.zoomed.is_none())
     }
 
-    /// Presents the extension sidebar and the open popover.
     fn sync_extension_surfaces(
         &self,
         shortcuts: &Rc<Vec<gpui::Keystroke>>,
@@ -384,8 +370,6 @@ impl AppModel {
         descriptors
     }
 
-    /// Cancels the extension calls, and forgets the modal results, whose
-    /// page, script or project is gone.
     pub(in crate::model) fn forget_expired_calls(&mut self, cx: &mut Context<Self>) {
         self.prune_extension_jobs(cx);
         self.prune_webview_results(cx);
@@ -420,7 +404,6 @@ impl AppModel {
         self.webviews.results.retain(live_documents);
     }
 
-    /// Opens the foundation demo tab in debug builds that ask for it.
     pub(super) fn start_webview_demo(&mut self, cx: &mut Context<Self>) {
         if !(cfg!(debug_assertions)
             && std::env::var("MUXY_WEBVIEW_DEMO").is_ok_and(|value| value == "1")
@@ -590,9 +573,6 @@ impl AppModel {
         let (pane, panel) = (target.pane, target.panel);
         let (is_modal, is_popover) = (target.modal, target.popover);
         let result = match request.body["verb"].as_str().unwrap_or("") {
-            // The page reports its own clicks, so the report moves focus only
-            // when the platform saw a click on the page too: keys follow focus,
-            // and a page must not take them without the user choosing it.
             "surface.focus" => {
                 if view.read(cx).native.take_click() {
                     self.focus_webview(view, pane, is_modal || is_popover, window, cx);
@@ -675,7 +655,6 @@ impl AppModel {
         Some(result)
     }
 
-    /// Where a live webview is shown, or `None` once it has been removed.
     fn webview_target(&self, view: &Entity<Webview>) -> Option<Target> {
         let target = Target {
             pane: self
@@ -836,7 +815,6 @@ impl AppModel {
         Ok(id)
     }
 
-    /// Shows a modal, replacing (and resolving with `null`) any open one.
     fn show_webview_modal(&mut self, modal: Modal, cx: &mut Context<Self>) {
         self.overlay_subscription = None;
         self.open_overlay(Overlay::Webview, cx);
@@ -845,8 +823,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Closes the modal without asking its page, resolving it with `null`, as
-    /// when another overlay takes its place.
     pub(crate) fn drop_webview_modal(&mut self, cx: &mut Context<Self>) {
         if let Some(modal) = self.webviews.modal.take() {
             self.modal_event("modal.closed", &modal, cx);
@@ -969,7 +945,6 @@ impl AppModel {
             .map_or("", |pane| self.pane_title(pane, cx))
     }
 
-    /// The title a pane shows: its page's title, or the one it was given.
     pub(crate) fn pane_title<'a>(
         &'a self,
         pane: &'a muxy_app_core::Pane,
@@ -1022,8 +997,6 @@ impl AppModel {
         }
     }
 
-    /// Marks app content drawn above native views: web views and spinners
-    /// under it are hidden.
     pub(crate) fn webview_occlusion(&self) -> gpui::AnyElement {
         self.webview_occlusion_except(None)
     }
@@ -1045,8 +1018,6 @@ impl AppModel {
         .into_any_element()
     }
 
-    /// Marks where a see-through page sits among the app's layers without
-    /// hiding the pages under it: only what is drawn after it covers it.
     pub(crate) fn webview_layer(&self, owner: gpui::EntityId) -> gpui::AnyElement {
         use gpui::{IntoElement, Styled};
         let occlusions = self.webviews.occlusions.clone();
@@ -1063,8 +1034,6 @@ impl AppModel {
         .into_any_element()
     }
 
-    /// Makes [`Self::webview_grip`]s without borrowing the model, for an
-    /// element that builds its grips itself.
     pub(crate) fn webview_grips(
         &self,
         owner: Option<gpui::EntityId>,
@@ -1086,8 +1055,6 @@ impl AppModel {
         }
     }
 
-    /// Lets the web views under this element pass clicks through to it and
-    /// show `cursor` over it.
     pub(crate) fn webview_grip(
         &self,
         owner: Option<gpui::EntityId>,
@@ -1179,7 +1146,6 @@ impl AppModel {
                     view.set_grips(&grips_for(*id, true, &grips.borrow()));
                 }
             },
-            // Painting starts after every element, overlays included, is laid out.
             move |_, (), _, _| {
                 spinners.present(&covers.borrow());
             },
@@ -1206,8 +1172,6 @@ fn surface_shortcuts(keymap: &muxy_app_core::settings::Keymap) -> Vec<gpui::Keys
 }
 
 impl AppModel {
-    /// Keystrokes webviews hand back to the app, rebuilt only after the
-    /// keymap or the extension registry changes.
     pub(super) fn webview_shortcuts(&mut self) -> Rc<Vec<gpui::Keystroke>> {
         if let Some(shortcuts) = &self.webview_shortcuts {
             return shortcuts.clone();
@@ -1273,7 +1237,6 @@ impl AppModel {
                 if bytes.len() > 256 * 1024 {
                     return Err("icon exceeds 256 KiB".into());
                 }
-                // Drawn into a small square, whatever size the SVG claims.
                 muxy_ui::icon::svg::page_icon(&bytes)
                     .map(std::sync::Arc::new)
                     .ok_or_else(|| "icon is not a readable SVG or is too complex".to_owned())
@@ -1319,7 +1282,6 @@ impl AppModel {
         self.page_glyph(pane, size, foreground, cx)
     }
 
-    /// A browser's or an extension page's own icon.
     pub(crate) fn page_glyph(
         &self,
         pane: &muxy_app_core::Pane,

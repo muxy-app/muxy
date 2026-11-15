@@ -292,7 +292,6 @@ type Wire = (
 
 type Serving = std::thread::JoinHandle<Result<(), muxy_protocol::wire::WireError>>;
 
-/// A connection to `registry` that has finished its hello.
 fn greeted(
     registry: &Arc<Registry>,
     client: &muxy_protocol::transport::LocalStream,
@@ -319,7 +318,6 @@ fn greeted(
     Ok(((encoder, decoder), connection))
 }
 
-/// Lists `project`'s sessions and returns the first name among them.
 fn listed_name(
     (encoder, decoder): &mut Wire,
     project: muxy_protocol::ProjectId,

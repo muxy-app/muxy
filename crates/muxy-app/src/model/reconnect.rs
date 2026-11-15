@@ -1,7 +1,3 @@
-//! Another computer's server connects again on its own after a drop, or
-//! after an attempt that failed in a way the network or that computer can
-//! recover from. This computer's server connects only when needed, as before.
-
 use gpui::{Context, Task};
 use muxy_app_core::ServerId;
 use muxy_client::{Backoff, RemoteReason};
@@ -10,11 +6,8 @@ use super::{AppModel, ConnectionState, Quitting};
 
 #[derive(Default)]
 pub(crate) struct Retry {
-    /// Attempts that failed in a row since the last connection.
     attempts: u32,
-    /// Waits for the next attempt.
     timer: Option<Task<()>>,
-    /// The user stopped the server there; it waits for Connect.
     pub(super) held: bool,
 }
 
@@ -23,21 +16,16 @@ impl Retry {
         self.timer.is_some()
     }
 
-    /// Connecting now, by hand or after a wait: a wait still running is
-    /// over, and a server the user stopped may connect again.
     pub(super) fn connecting(&mut self) {
         self.timer = None;
         self.held = false;
     }
 
-    /// The user hung up: nothing connects until Connect, or until one of its
-    /// projects is opened.
     pub(super) fn hold(&mut self) {
         self.timer = None;
         self.held = true;
     }
 
-    /// A connection came: the next drop starts waiting from the shortest.
     pub(super) fn connected(&mut self) {
         self.attempts = 0;
         self.timer = None;
@@ -45,9 +33,6 @@ impl Retry {
 }
 
 impl AppModel {
-    /// Connects to another computer again after a wait, unless `reason` says
-    /// the user must fix something first, such as a refused login or an
-    /// untrusted host key, or the user stopped its server.
     pub(super) fn schedule_reconnect(
         &mut self,
         server: ServerId,
@@ -76,7 +61,6 @@ impl AppModel {
         }));
     }
 
-    /// Connects now if nothing connected the server since the wait began.
     fn reconnect_now(&mut self, server: ServerId, generation: u64, cx: &mut Context<Self>) {
         let Some(runtime) = self.servers.get_mut(server) else {
             return;
@@ -90,8 +74,6 @@ impl AppModel {
         }
     }
 
-    /// Coming back to the app, such as after sleep, often means the network
-    /// is back, so servers waiting to reconnect try now.
     pub(super) fn reconnect_waiting(&mut self, cx: &mut Context<Self>) {
         for server in self.servers.ids() {
             if let Some(runtime) = self.servers.get(server)
@@ -103,7 +85,6 @@ impl AppModel {
         }
     }
 
-    /// It logs in with a password that hasn't been typed this session.
     pub(super) fn server_needs_password(&self, server: ServerId) -> bool {
         self.servers
             .get(server)

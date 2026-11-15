@@ -20,7 +20,6 @@ use crate::model::AppModel;
 #[derive(Clone, Default)]
 pub(crate) struct SplitResizeState(Rc<RefCell<Option<SplitResize>>>);
 
-/// What a divider splits: a tab's panes, or a project's tab groups.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SplitOwner {
     Tab(TabId),
@@ -122,7 +121,6 @@ pub(crate) fn render(
     )
 }
 
-/// A tab window's panes.
 pub(crate) fn tab_window_body(
     tab: &Tab,
     model: &AppModel,
@@ -136,7 +134,6 @@ pub(crate) fn tab_window_body(
         .into_any_element()
 }
 
-/// Follows the pointer while a divider is dragged.
 fn resize_tracker(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let state = model.split_resize.clone();
     let weak = cx.weak_entity();
@@ -185,7 +182,6 @@ fn resize_tracker(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     .into_any_element()
 }
 
-/// A tab's panes, recording where they are laid out for pane and tab drops.
 fn tab_content(tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let id = tab.id;
     let content = match tab.zoomed {
@@ -368,7 +364,6 @@ fn node(
     )
 }
 
-/// Lays out two children along `axis` with a draggable divider between them.
 fn split(
     owner: SplitOwner,
     path: Vec<Branch>,
@@ -412,7 +407,6 @@ fn split(
             window.refresh();
             cx.stop_propagation();
         });
-    // Centered on the 1px divider, which starts at `(extent - 1) * ratio`.
     let offset = px(-ratio) - (grip - px(1.0)) * 0.5;
     let hit = match axis {
         Axis::Horizontal => hit
@@ -493,8 +487,6 @@ fn split_bounds(
     ]
 }
 
-/// What a pane's region is called: the kind of thing it shows and, when it says
-/// more than that, its title.
 fn pane_name(content: &PaneContent, title: &str) -> SharedString {
     let kind = match content {
         PaneContent::Terminal { .. } => tr!("Terminal"),
@@ -517,11 +509,8 @@ fn pane_state(focused: bool, zoomed: bool) -> Option<SharedString> {
     ])
 }
 
-/// How much of a pane that isn't focused is covered by its background.
 const UNFOCUSED_DIM: f32 = 0.35;
 
-/// A named region around what a pane shows, so a client can tell the panes of a
-/// split apart.
 fn pane_element(
     id: muxy_app_core::PaneId,
     tab: &Tab,
@@ -686,8 +675,6 @@ fn pane_content(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
         .into_any_element()
 }
 
-/// A terminal of another computer's server that has nothing to show yet: the
-/// server isn't connected, and Connect connects it.
 fn offline_notice(
     id: muxy_app_core::PaneId,
     server: muxy_app_core::ServerId,

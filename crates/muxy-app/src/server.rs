@@ -85,7 +85,6 @@ pub(crate) fn prepare_update(
     update
         .validate()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
-    // A fresh connection protects against a server replaced since the prompt.
     let probe = Client::connect(socket)?;
     if probe.server_info() != expected || client.server_info() != expected {
         return Err(io::Error::other(

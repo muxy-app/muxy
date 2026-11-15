@@ -88,7 +88,6 @@ impl Category {
         Self::About,
     ];
 
-    /// The English name; also the key of its translation.
     fn label(self) -> &'static str {
         match self {
             Self::General => tr_key!("General"),
@@ -139,17 +138,12 @@ pub(crate) struct Snapshot {
     pub(crate) server_update: Option<String>,
     pub(crate) pending_server_fields: HashSet<String>,
     pub(crate) ai_installed: Vec<&'static str>,
-    /// The installed extensions have been read from disk.
     pub(crate) extensions_loaded: bool,
-    /// Enabled extensions that provide a sidebar, as `(extension, label)`.
     pub(crate) sidebars: Vec<(String, String)>,
     pub(crate) file_openers: Vec<muxy_app_core::opener::FileHandler>,
-    /// Languages enabled extensions provide, as `(selection, label)`.
     pub(crate) languages: Vec<(String, String)>,
     pub(crate) extension_shortcuts: Vec<crate::model::extensions::ExtensionShortcut>,
     pub(crate) browser_profiles: Vec<browser::Profile>,
-    /// Other browsers' profiles that can be imported, by name, and whether
-    /// their cookies can be.
     pub(crate) browser_sources: Vec<(String, bool)>,
 }
 
@@ -209,7 +203,6 @@ impl SettingsView {
 
 const CONTENT_SCALE: f32 = 1.15;
 
-/// Settings rows are drawn larger than the rest of the app.
 pub(crate) fn content_metrics(metrics: Metrics) -> Metrics {
     metrics.times(CONTENT_SCALE)
 }
@@ -535,7 +528,6 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Clears a page-level error; the application error is dismissed everywhere.
     fn dismiss_error(&mut self, id: &str, cx: &mut Context<Self>) {
         self.set_error(id, None, cx);
         if id == "application" {
@@ -550,7 +542,6 @@ impl SettingsView {
         }
     }
 
-    /// Shows Extensions → Browse limited to language packs.
     fn browse_languages(&mut self, cx: &mut Context<Self>) {
         self.show_extensions(cx);
         if let Some(extensions) = &self.extensions {
@@ -585,7 +576,6 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Whether the Servers page is on screen; search results replace it.
     pub(crate) fn servers_shown(&self) -> bool {
         self.category == Category::Servers && self.query.is_empty()
     }
@@ -620,7 +610,6 @@ impl SettingsView {
         }
     }
 
-    /// The file behind this category's settings.
     fn configuration_file(&self) -> &'static str {
         match self.category {
             Category::Servers => "server.toml",
@@ -643,8 +632,6 @@ impl SettingsView {
         }
     }
 
-    /// A setting row. `label` is the English key it is listed and searched
-    /// by; an explicit `description` is already translated.
     fn row(&self, id: &str, label: &str, control: AnyElement) -> AnyElement {
         self.row_with(id, label, control, self.compact)
     }
@@ -664,7 +651,6 @@ impl SettingsView {
         self.text_row(id, &translate(label), description, control, stacked)
     }
 
-    /// A row whose label is shown as given, such as a custom command's name.
     fn text_row(
         &self,
         id: &str,
@@ -678,7 +664,6 @@ impl SettingsView {
         })
     }
 
-    /// A list setting's row: `action` sits beside the label, `items` below.
     fn list_row(
         &self,
         id: &str,
@@ -699,8 +684,6 @@ impl SettingsView {
         })
     }
 
-    /// Wraps a row's body with its section heading, error, and focus reveal.
-    /// `body` gets the description to show, falling back to the catalog's.
     fn framed_row(
         &self,
         id: &str,
@@ -781,7 +764,6 @@ impl SettingsView {
         form::note(self.style(), text, error)
     }
 
-    /// A note clients can read, for a list's empty state.
     fn readable_note(&self, id: &'static str, text: &str) -> AnyElement {
         self.note(text, false)
             .id(id)
@@ -790,7 +772,6 @@ impl SettingsView {
             .into_any_element()
     }
 
-    /// A stored value shown without a control, for a setting whose feature cannot run here.
     fn stored(&self, id: &str, value: &str) -> AnyElement {
         controls::button(
             self.style(),
@@ -838,7 +819,6 @@ impl SettingsView {
     }
 }
 
-/// A note saying why `id`'s control was refused, announced when it appears.
 fn announced_error(note: gpui::Div, id: &str, error: &str) -> accessibility::LiveRegion {
     accessibility::announced(
         note.id(gpui::SharedString::from(format!("settings-error-{id}"))),
@@ -847,7 +827,6 @@ fn announced_error(note: gpui::Div, id: &str, error: &str) -> accessibility::Liv
     )
 }
 
-/// Every text field Settings shows, and whether it takes several lines.
 fn field_ids() -> impl Iterator<Item = (&'static str, bool)> {
     [
         "file-pattern",
@@ -874,7 +853,6 @@ fn palette_index(id: &str) -> Option<&str> {
     id.strip_prefix("palette-")
 }
 
-/// What accessibility clients read for the control `id`.
 fn control_name(id: &str) -> gpui::SharedString {
     catalog::control_label(id).map_or_else(Default::default, muxy_ui::l10n::translate)
 }

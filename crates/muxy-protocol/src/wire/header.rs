@@ -72,11 +72,8 @@ impl Header {
     }
 }
 
-/// Builds before V2 use the same header layout with version 1. This frame is
-/// the `VersionUnsupported` they understand, so they show their own update message.
 pub fn legacy_version_unsupported() -> [u8; HEADER_LEN] {
     Header {
-        // The version, channel, and kind that follow the length; no payload.
         length: 7,
         version: V1.0,
         channel: 0,

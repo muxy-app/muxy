@@ -119,14 +119,11 @@ struct CloseRequest {
     tab: TabId,
     tabs: Vec<TabId>,
     panes: Vec<PaneId>,
-    /// The sessions closing `panes` would end, asked about one at a time.
     ending: Vec<(PaneId, ServerId, SessionId)>,
     checking: usize,
     whole_tab: bool,
     behavior: muxy_app_core::settings::CloseBehavior,
-    /// The pane gets a new terminal in its place, with the proxy or without.
     restart: Option<bool>,
-    /// The confirmation asked for the session being checked.
     dialog: Option<dialogs::DialogId>,
 }
 
@@ -165,15 +162,12 @@ pub(crate) struct AppModel {
     terminal: muxy_app_core::settings::TerminalSettings,
     server_preferences: preferences::ServerPreferences,
     client_access: client_access::ClientAccess,
-    /// The last Test Connection in Settings, with the destination it tried.
     server_probe: Option<(String, ConnectionTest)>,
     server_probe_generation: u64,
     pub(crate) pairing: pairing::Pairing,
     server_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) remote_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) extensions_anchor: muxy_ui::popover::PopoverAnchor,
-    /// Servers selected on the Servers page, and where a ⇧-click range
-    /// starts.
     pub(crate) remote_selection: Vec<ServerId>,
     pub(crate) remote_selection_anchor: Option<ServerId>,
     pub(crate) servers_page: crate::views::servers_page::ServersPage,
@@ -234,7 +228,6 @@ pub(crate) struct AppModel {
     deferred_save: Option<Task<()>>,
     webview_shortcuts: Option<Rc<Vec<gpui::Keystroke>>>,
     pub(crate) spinners: crate::views::tab_activity::Spinners,
-    /// Panes waiting for an attachment or saved output, with the server asked.
     pending: HashMap<PaneId, ServerId>,
     detached_pending: HashSet<PaneId>,
     pending_close: Option<CloseCheckId>,
@@ -244,7 +237,6 @@ pub(crate) struct AppModel {
     window_accessibility: window_accessibility::WindowAccessibility,
     notifications: muxy_ui::notifications::Notifications,
     pub(crate) capabilities: muxy_core::capability::Capabilities,
-    /// Servers still finishing their work before the app quits.
     flushing: HashSet<ServerId>,
     quitting: Quitting,
     updates: updates::Updater,
@@ -261,7 +253,6 @@ impl AppModel {
         self.grids.get(id)
     }
 
-    /// Where a dialog opens: on `window`, in the app's theme.
     pub(crate) fn dialog_parent(&self, window: gpui::AnyWindowHandle) -> muxy_ui::dialog::Parent {
         muxy_ui::dialog::Parent::new(
             window,
@@ -399,8 +390,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Runs the terminals with `terminal`, already saved, and the themes
-    /// folder as it is now.
     pub(crate) fn adopt_terminal(
         &mut self,
         terminal: muxy_app_core::settings::TerminalSettings,
@@ -795,8 +784,6 @@ impl AppModel {
         self.state.window().active_pane
     }
 
-    /// The tab each of the current project's groups shows, or the tab of the
-    /// tab window the model works for.
     pub(crate) fn visible_tabs(&self) -> Vec<TabId> {
         let Some(active) = self.active_tab() else {
             return Vec::new();
@@ -807,7 +794,6 @@ impl AppModel {
         self.state.visible_tabs(self.state.current_project().id)
     }
 
-    /// The tabs the main window shows, whichever window the model works for.
     pub(crate) fn main_visible_tabs(&self) -> Vec<TabId> {
         let project = self.state.current_project();
         if project.status() == ProjectStatus::Missing
@@ -818,7 +804,6 @@ impl AppModel {
         self.state.visible_tabs(project.id)
     }
 
-    /// The main window's focused pane, whichever window the model works for.
     pub(crate) fn main_active_pane(&self) -> Option<PaneId> {
         if self.main_visible_tabs().is_empty() {
             return None;
@@ -826,7 +811,6 @@ impl AppModel {
         self.state.window().active_pane
     }
 
-    /// Whether `tab` shows in some window: the main window, or its own.
     pub(crate) fn tab_shown(&self, tab: TabId) -> bool {
         self.main_visible_tabs().contains(&tab)
             || self
@@ -843,8 +827,6 @@ impl AppModel {
             .collect()
     }
 
-    /// The working directory `source` reports, when new tabs and panes start
-    /// where the focused pane is.
     fn inherited_directory(&self, source: PaneId, cx: &gpui::App) -> Option<PathBuf> {
         if self.settings.panes.new_pane_directory
             != muxy_app_core::settings::NewPaneDirectory::Current
@@ -855,8 +837,6 @@ impl AppModel {
             .and_then(|pane| pane.view.read(cx).directory())
     }
 
-    /// Where a new tab in `project` starts: the focused pane's working
-    /// directory when that pane belongs to `project` and the setting asks for it.
     pub(crate) fn new_tab_directory(&self, project: ProjectId, cx: &gpui::App) -> Option<PathBuf> {
         let source = self.active_pane()?;
         if self.state.pane_project(source)?.id != project {
@@ -957,7 +937,6 @@ impl AppModel {
         }
     }
 
-    /// Moves focus to the neighboring pane, or into the neighboring group.
     pub(crate) fn focus_direction(&mut self, direction: Direction, cx: &mut Context<Self>) {
         let Some(pane) = self.active_pane() else {
             return;
@@ -1061,8 +1040,6 @@ impl AppModel {
         self.add_project_on(ServerId::local(), directory, false, cx)
     }
 
-    /// Adds `directory` on `server` as a project; another computer's must be
-    /// an absolute path there.
     pub(crate) fn add_project_on(
         &mut self,
         server: ServerId,
@@ -1149,7 +1126,6 @@ impl AppModel {
         true
     }
 
-    /// How many project edits each server has waiting.
     fn waiting_project_edits(&self) -> Vec<(ServerId, usize)> {
         self.servers
             .ids()
@@ -1158,9 +1134,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Another computer's server that the edit just made waits for connects,
-    /// so the edit doesn't wait for the user to open one of its projects.
-    /// Servers with only older edits waiting stay as they are.
     fn connect_for_project_edits(&mut self, before: &[(ServerId, usize)], cx: &mut Context<Self>) {
         let waiting: Vec<_> = self
             .servers
@@ -1179,9 +1152,6 @@ impl AppModel {
         }
     }
 
-    /// Adds the projects, tabs, and workspaces Muxy 1.x had to the running
-    /// app, and returns how many projects and workspaces that added. What is
-    /// already here stays as it is.
     pub(crate) fn import_legacy_projects(
         &mut self,
         import: &crate::backup::LegacyProjects,
@@ -1211,7 +1181,6 @@ impl AppModel {
         Ok(added)
     }
 
-    /// A preference this profile already keeps for a project wins.
     fn keep_legacy_preferences(
         &mut self,
         legacy: muxy_app_core::settings::Settings,
@@ -1283,8 +1252,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Opens a terminal tab in the current project, or, from a tab window,
-    /// in that tab's project, showing it in the main window.
     pub(crate) fn new_tab(&mut self, cx: &mut Context<Self>) {
         let surface = self.surface();
         let project = match surface {
@@ -1301,8 +1268,6 @@ impl AppModel {
         self.open_new_tab(project, directory.as_deref(), cx);
     }
 
-    /// Opens a terminal tab in `project` and shows it, switching the sidebar's
-    /// workspace when it doesn't list the project.
     pub(crate) fn new_tab_in(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let directory = self.new_tab_directory(project, cx);
         self.open_new_tab(project, directory.as_deref(), cx);
@@ -1885,9 +1850,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Applies `edit` to the state and saves it, leaving memory and disk the
-    /// same if either fails. A failed edit returns its error for the caller to
-    /// show. A failed save returns `Ok(None)`, and `save` has reported it.
     fn transact<T, E>(
         &mut self,
         edit: impl FnOnce(&mut AppState) -> Result<T, E>,
@@ -1939,7 +1901,6 @@ impl AppModel {
         }
     }
 
-    /// Saves shortly, once changes that come in bursts settle.
     fn save_soon(&mut self, cx: &mut Context<Self>) {
         self.deferred_save = Some(cx.spawn(async move |model, cx| {
             cx.background_executor()
@@ -1949,8 +1910,6 @@ impl AppModel {
         }));
     }
 
-    /// Tells each connected server which of its sessions this app shows, so
-    /// a server whose last pane closed hears an empty list.
     fn sync_references(&mut self, cx: &mut Context<Self>) {
         for server in self.servers.ids() {
             let references = self.state.session_references(server);
@@ -1971,8 +1930,6 @@ impl AppModel {
         self.sync_session_names(cx);
     }
 
-    /// Tells each connected server the names renamed tabs give its sessions,
-    /// and clears only the names this app gave, so another app's stay.
     fn sync_session_names(&mut self, cx: &mut Context<Self>) {
         for server in self.servers.ids() {
             if !self.ready(server) || !self.identified(server) {
@@ -2017,8 +1974,6 @@ impl AppModel {
         }
     }
 
-    /// Remembers a name the server took, or one it no longer needs because
-    /// the session is gone; other failures wait for the next connection.
     fn receive_session_named(
         &mut self,
         server: ServerId,
@@ -2042,8 +1997,6 @@ impl AppModel {
         }
     }
 
-    /// The project shown is always one the sidebar lists, never a removed
-    /// server's, so new tabs never open somewhere the user can't see.
     fn sync_visible(&mut self, cx: &mut Context<Self>) {
         if !self.project_listed(self.state.current_project()) {
             let home = self.state.home().id;
@@ -2216,7 +2169,6 @@ impl AppModel {
         }
     }
 
-    /// Sends a pane's channel work to the server that attached it.
     fn send_channel(&mut self, pane: PaneId, work: Work, cx: &mut Context<Self>) {
         if self.quitting == Quitting::Idle
             && !self.pane_retained(pane)
@@ -2449,7 +2401,6 @@ impl AppModel {
             .attachment(pane, cx)
             .filter(|(server, _)| self.quitting == Quitting::Idle && self.ready(*server));
         let Some((server, channel)) = attached else {
-            // The pane counts its requests, so one that isn't sent still fails.
             if let Some(pane) = self.terminal(&pane) {
                 pane.view.update(cx, |pane, cx| {
                     pane.receive_image_frames(image, &keys, None, cx);
@@ -2963,10 +2914,6 @@ impl AppModel {
         self.check_next_close(cx);
     }
 
-    /// Closes a pane whose shell exited or was ended while this app was away,
-    /// and puts a new terminal in a pane whose session ended any other way,
-    /// as when the server stopped, or whose reason couldn't be read. While
-    /// disconnected nothing is decided; the next restore asks again.
     fn receive_end_reason(
         &mut self,
         server: ServerId,
@@ -2989,9 +2936,6 @@ impl AppModel {
         }
     }
 
-    /// Puts a new terminal in `pane`'s place, in the folder it was last in
-    /// when `last_folder` allows and that folder can be used, or else in its
-    /// project's folder.
     fn renew_ended_pane(
         &mut self,
         server: ServerId,
@@ -3218,8 +3162,6 @@ impl AppModel {
         }
     }
 
-    /// The pane `server` attached on `channel`. Each server numbers its own
-    /// channels, so both have to match.
     fn attached_view(
         &self,
         server: ServerId,
@@ -3347,7 +3289,6 @@ pub(crate) mod tests {
     mod agents_panel;
     mod ai;
     mod background;
-    // Windows has no browser engine yet.
     #[cfg(not(windows))]
     mod browsers;
     mod commands;
@@ -3356,7 +3297,6 @@ pub(crate) mod tests {
     mod detach;
     mod dialogs;
     mod extension_authoring;
-    // Extensions open files in web view tabs, which Windows builds don't offer yet.
     #[cfg(not(windows))]
     mod file_openers;
     mod find;
@@ -3367,7 +3307,6 @@ pub(crate) mod tests {
     mod insert_path;
     mod layout_drag;
     mod links;
-    // Remote servers are reached over SSH, which Windows builds don't offer.
     #[cfg(unix)]
     mod manage_servers;
     mod new_tab;
@@ -3379,7 +3318,6 @@ pub(crate) mod tests {
     mod projects;
     mod proxy;
     mod quick_terminal;
-    // Remote servers are reached over SSH, which Windows builds don't offer.
     #[cfg(unix)]
     mod remote_parity;
     mod servers;
@@ -3446,7 +3384,6 @@ pub(crate) mod tests {
         model.receive_catalog(ServerId::local(), Ok(page), cx);
     }
 
-    /// An update from this computer's worker.
     pub(in crate::model) fn local(generation: u64, update: Update) -> (ServerId, u64, Update) {
         (ServerId::local(), generation, update)
     }
@@ -3478,11 +3415,9 @@ pub(crate) mod tests {
         (boot, requests)
     }
 
-    /// What stub workers of other computers' servers were asked to do.
     pub(in crate::model) type Remotes =
         Rc<std::cell::RefCell<HashMap<ServerId, std::sync::mpsc::Receiver<(u64, Work)>>>>;
 
-    /// A stub boot whose settings list `servers`. Their workers are stubs too.
     pub(in crate::model) fn remote_boot(
         state: AppState,
         servers: Vec<muxy_app_core::settings::ServerEntry>,

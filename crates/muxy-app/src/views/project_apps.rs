@@ -1,6 +1,3 @@
-//! The titlebar's Open in IDE control: a button that opens the current
-//! project in the chosen app, and a menu of the others.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
@@ -15,7 +12,6 @@ use super::titlebar::with_tooltip;
 use crate::model::AppModel;
 use crate::model::project_apps::Listed;
 
-/// The app the main button opens, while the current project can be opened.
 fn shown(model: &AppModel) -> Option<&Listed> {
     model.project_apps_directory()?;
     model.default_project_app()
@@ -25,10 +21,8 @@ fn label_width(model: &AppModel) -> Pixels {
     model.metrics.scaled(112.0)
 }
 
-/// The room the tab strip keeps before the control hides its app's name.
 const TAB_ROOM: f32 = 160.0;
 
-/// How wide the control is, with or without its app's name.
 fn width(model: &AppModel, shown: &Listed, named: bool, window: &Window) -> f32 {
     let m = model.metrics;
     let name = if named {
@@ -59,9 +53,6 @@ fn width(model: &AppModel, shown: &Listed, named: bool, window: &Window) -> f32 
     )
 }
 
-/// The control and how wide it is, given the `room` the titlebar has left
-/// for it and the tab strip. It shows only its app's icon when its name
-/// would leave the strip too narrow.
 pub(super) fn control(
     model: &AppModel,
     room: f32,
@@ -118,7 +109,6 @@ fn render(shown: &Listed, named: bool, model: &AppModel, cx: &mut Context<AppMod
         .into_any_element()
 }
 
-/// Opens the project in the app it shows.
 fn primary_button(
     shown: &Listed,
     named: bool,
@@ -178,7 +168,6 @@ fn primary_button(
     )
 }
 
-/// Drops down the other apps.
 fn menu_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElement {
     let m = model.metrics;
     let theme = &model.theme;

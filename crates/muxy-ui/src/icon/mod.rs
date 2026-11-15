@@ -200,8 +200,6 @@ impl Icon {
         SharedString::from(format!("icons/{name}.svg"))
     }
 
-    /// The bundled icon that stands in for an SF Symbol. A filled symbol is
-    /// drawn as its outline.
     pub fn from_symbol(symbol: &str) -> Option<Self> {
         Some(match symbol.strip_suffix(".fill").unwrap_or(symbol) {
             "house" => Self::House,

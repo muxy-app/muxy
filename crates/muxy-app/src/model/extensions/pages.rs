@@ -1,7 +1,3 @@
-//! What `muxy extension` does with an extension's live pages: listing them,
-//! opening its surfaces, running its commands, sending it events, and driving
-//! a page the way `muxy browser` drives a tab.
-
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
@@ -20,12 +16,9 @@ use crate::views::webview::{SurfaceKind, Webview};
 
 type Reply = Task<Result<Value, String>>;
 
-/// How long an opened page has to finish loading.
 const OPEN_WAIT: Duration = Duration::from_secs(15);
-/// How long a page has to hand over a picture of itself.
 const CAPTURE_WAIT: Duration = Duration::from_secs(15);
 
-/// Whether `verb` is one of the page commands, which need the window.
 pub(crate) fn is_page_verb(verb: &str) -> bool {
     matches!(
         verb,
@@ -60,7 +53,6 @@ fn page_entry(view: &Entity<Webview>, cx: &gpui::App) -> Value {
 }
 
 impl AppModel {
-    /// A `muxy extension` page command from the app socket.
     pub(crate) fn extension_page_cli_call(
         &mut self,
         verb: &str,
@@ -186,8 +178,6 @@ impl AppModel {
             .ok_or_else(|| format!("no extension page {id}; run muxy extension pages <name>"))
     }
 
-    /// Opens one of an extension's surfaces and answers with its page once
-    /// that has loaded.
     fn open_extension_surface(
         &mut self,
         args: &Args,
@@ -286,7 +276,6 @@ impl AppModel {
     }
 }
 
-/// What `muxy extension page <action>` does to one page.
 fn page_action(
     action: &str,
     args: &Args,
@@ -312,7 +301,6 @@ fn page_action(
     }
 }
 
-/// Answers with what `receiver` gets, or `late` once `timeout` passes.
 fn within<T: 'static>(
     receiver: async_channel::Receiver<Result<T, String>>,
     timeout: Duration,

@@ -8,13 +8,9 @@ use crate::model::AppModel;
 #[derive(Clone, Copy)]
 pub(crate) enum Target {
     Project(ProjectId),
-    /// Another computer's server, to browse its folders or open its Home.
     Server(ServerId),
 }
 
-/// Every server's projects, which New Tab in Project offers by name before
-/// its folders, each marked with its server, and each other computer's
-/// server to browse, before its projects.
 pub(super) fn registry(model: &AppModel) -> Registry<Target> {
     let mut commands = Registry::default();
     for server in model.known_servers() {

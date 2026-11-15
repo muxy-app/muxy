@@ -303,8 +303,6 @@ impl SettingsTab {
         });
     }
 
-    /// Chooses between the built-in sidebar and enabled extension sidebars. A
-    /// chosen sidebar that is no longer available stays listed, disabled.
     fn open_sidebar_picker(
         &mut self,
         request: PickerRequest,
@@ -443,8 +441,6 @@ impl SettingsTab {
         });
     }
 
-    /// Chooses English or a language an enabled extension provides. A chosen
-    /// language that is no longer available stays listed, disabled.
     fn open_app_language_picker(
         &mut self,
         request: PickerRequest,

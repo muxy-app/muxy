@@ -1,7 +1,3 @@
-//! One desktop app per profile. A second launch hands the folders it was
-//! asked to open to the first and exits, which is also how `muxy <folder>`
-//! reaches an app that is already running.
-
 #[cfg(any(target_os = "linux", windows))]
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
@@ -14,31 +10,23 @@ use muxy_protocol::ServerPath;
 use muxy_protocol::transport::{LocalListener, LocalStream};
 use muxy_ui::tr;
 
-/// More than any command line holds; a longer message is not a handoff.
 const LIMIT: u64 = 256 * 1024;
 const ANSWER: Duration = Duration::from_secs(2);
 const DONE: u8 = 1;
 
-/// The folders an app opens, as file URLs. Any list brings its window forward;
-/// an empty one does only that.
 pub(crate) type Folders = async_channel::Sender<Vec<String>>;
 
-/// Holds the profile for as long as this app runs.
 #[derive(Debug)]
 pub(crate) struct Instance {
     _lock: muxy_core::file_lock::FileLock,
 }
 
-/// Takes the profile for this app and opens `arguments` in it. `None` when
-/// another app has the profile and opened them instead.
 #[cfg(any(target_os = "linux", windows))]
 pub(crate) fn claim(
     arguments: impl Iterator<Item = OsString>,
     folders: &Folders,
 ) -> io::Result<Option<Instance>> {
     let profile = muxy_core::dirs::muxy_dir()?;
-    // Windows starts the app with this to hand it a click on a toast, which
-    // the app takes once its notifications start.
     #[cfg(windows)]
     let arguments =
         arguments.filter(|argument| argument != muxy_ui::notifications::ACTIVATION_ARGUMENT);
@@ -58,7 +46,6 @@ fn claim_in(
     let socket = profile.join("instance.sock");
     match muxy_core::file_lock::try_lock(&profile.join("app.lock")) {
         Ok(lock) => {
-            // Only a crashed app leaves its socket behind while the lock is free.
             match std::fs::remove_file(&socket) {
                 Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
                 _ => {}
@@ -83,8 +70,6 @@ fn claim_in(
     }
 }
 
-/// Sends the folders to the app that has the profile. It may still be
-/// starting, so its socket is tried until `patience` runs out.
 fn hand_over(socket: &Path, asked: &[PathBuf], patience: Duration) -> io::Result<()> {
     let deadline = Instant::now() + patience;
     let mut stream = loop {
@@ -130,7 +115,6 @@ fn unanswered(error: &dyn std::fmt::Display) -> io::Error {
 fn listen(listener: &LocalListener, folders: &Folders) {
     for stream in listener.incoming() {
         match stream {
-            // A launch that stalls must not keep later ones waiting for long.
             Ok(stream) => drop(receive(stream, folders)),
             Err(_) => std::thread::sleep(Duration::from_millis(100)),
         }
@@ -158,14 +142,10 @@ fn receive(mut stream: LocalStream, folders: &Folders) -> io::Result<()> {
     if !opened.is_empty() {
         folders.try_send(opened).map_err(closing)?;
     }
-    // The desktop does not bring this app forward for a launch that another
-    // one answered, so the launch asks for the window itself.
     folders.try_send(Vec::new()).map_err(closing)?;
     stream.write_all(&[DONE])
 }
 
-/// Paths as the file URLs the app opens. A URL keeps every byte of a path,
-/// and only an absolute path has one.
 fn urls(paths: &[PathBuf]) -> Vec<String> {
     paths
         .iter()

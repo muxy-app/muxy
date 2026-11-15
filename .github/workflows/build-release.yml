@@ -1,7 +1,5 @@
 name: Build release
 
-# Builds, signs, notarizes and verifies one release for every platform. Used
-# by the beta and stable release workflows.
 on:
   workflow_call:
     inputs:
@@ -50,7 +48,6 @@ jobs:
             arch: arm64
             target: aarch64-apple-darwin
             runner: macos-15
-          # Cross-compiled and verified through Rosetta: Intel runners are far slower.
           - platform: macos
             directory: x86_64
             arch: x86_64
@@ -146,8 +143,6 @@ jobs:
         run: bash scripts/notarize-release.sh "$PACKAGE_DIR/muxy-$VERSION-macos-$ARCH.zip"
       - name: Verify packaged pair, desktop bytes and standalone installation
         if: runner.os == 'macOS'
-        # The universal system Python runs as the packaged architecture, so the
-        # x86_64 pair is installed and exercised under Rosetta.
         run: >-
           arch "-$ARCH" /usr/bin/python3 scripts/verify-release-package.py
           "$PACKAGE_DIR/muxy-$VERSION-macos-$ARCH.zip"
@@ -301,7 +296,6 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
-      # ring builds its ARM64 assembly with clang.
       - if: matrix.arch == 'arm64'
         run: |
           if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {

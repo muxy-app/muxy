@@ -1,6 +1,3 @@
-//! What the content area shows instead of a page: the start page and the
-//! page that couldn't be opened.
-
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Role,
     StatefulInteractiveElement, Styled, div, px,

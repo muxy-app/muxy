@@ -75,9 +75,7 @@ pub(crate) struct ProjectPicker {
     search: SearchService,
     targets: Registry<Target>,
     shortcuts: [Option<String>; 2],
-    /// Another computer's folders, instead of this one's.
     remote: Option<RemoteFolders>,
-    /// Why the folder couldn't be listed, when the server said.
     listing_error: Option<String>,
     picker: Entity<Picker>,
     generation: usize,
@@ -219,8 +217,6 @@ impl ProjectPicker {
         project_picker
     }
 
-    /// Names this computer in the field, so its folders aren't taken for
-    /// another computer's.
     pub(crate) fn name_computer(&self, computer: &str, cx: &mut Context<Self>) {
         let text = placeholder(self.purpose, None, Some(computer));
         self.picker
@@ -320,7 +316,6 @@ impl ProjectPicker {
         }
     }
 
-    /// Lists a folder here, or through another computer's server.
     fn list_directory(&self, directory: String, generation: usize, cx: &mut Context<Self>) {
         let remote = self.remote.clone();
         cx.spawn(async move |picker, cx| {
@@ -484,8 +479,6 @@ impl ProjectPicker {
         );
     }
 
-    /// Saved projects matching the query: while searching folders, or by name
-    /// on another computer, where typing is otherwise a path.
     fn target_items(&self) -> Vec<PickerItem> {
         let query = self.session.search_query();
         let named = self.session.input_mode() == InputMode::FolderSearch
@@ -657,8 +650,6 @@ impl ProjectPicker {
         });
     }
 
-    /// Why `path` on another computer can't be added, when the listing of
-    /// its parent already shows it isn't there. Otherwise the server checks.
     fn missing_remote_folder(&self, path: &str) -> Option<String> {
         self.remote.as_ref()?;
         let parent = path_service::parent_path(path);
@@ -701,7 +692,6 @@ impl Drop for ProjectPicker {
 }
 
 impl AppModel {
-    /// Add Project's folders on the current project's server.
     pub(crate) fn open_project_picker(
         &mut self,
         window: &mut gpui::Window,
@@ -711,7 +701,6 @@ impl AppModel {
         self.toggle_project_picker(server, Purpose::AddProject, window, cx);
     }
 
-    /// Add Project's folders on `server`.
     pub(crate) fn open_project_picker_on(
         &mut self,
         server: ServerId,
@@ -721,9 +710,6 @@ impl AppModel {
         self.toggle_project_picker(server, Purpose::AddProject, window, cx);
     }
 
-    /// New Tab in Project: every server's projects, then folders on the
-    /// current project's server, or on this computer while that server isn't
-    /// connected, so the projects never wait for it.
     pub(crate) fn open_new_tab_picker(
         &mut self,
         window: &mut gpui::Window,
@@ -846,8 +832,6 @@ impl AppModel {
         self.show_project_picker(server, picker, cx);
     }
 
-    /// The folders of the projects the sidebar lists on `server`, besides
-    /// another computer's Home, which is where its picker starts.
     fn project_paths(&self, server: ServerId) -> Vec<String> {
         self.state
             .projects()
@@ -1071,7 +1055,6 @@ impl AppModel {
         );
     }
 
-    /// Adds a folder on another computer; its server checks that it exists.
     fn open_remote_project_path(&mut self, server: ServerId, path: &str, cx: &mut Context<Self>) {
         let path = path_service::standardize(path);
         let existing = self.project_at(server, &path);
@@ -1251,7 +1234,6 @@ impl AppModel {
     }
 
     fn project_at(&self, server: ServerId, path: &str) -> Option<muxy_app_core::ProjectId> {
-        // Windows folder names ignore case.
         let key = |path: &str| {
             let path = path_service::standardize(&path_service::from_native(path));
             if cfg!(windows) && server == ServerId::local() {
@@ -1381,8 +1363,6 @@ async fn folder_prompt(
     std::future::ready(Ok(CHOSEN_FOLDER.take())).await
 }
 
-/// What the field asks for: a path on another computer, or a search here,
-/// naming this computer while other computers' pickers name theirs.
 fn placeholder(purpose: Purpose, remote: Option<&str>, computer: Option<&str>) -> String {
     match (remote, computer, purpose) {
         (Some(remote), ..) => tr!("Enter a path on %@…", remote),

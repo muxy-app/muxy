@@ -14,11 +14,9 @@ use crate::ClientError;
 )]
 pub(crate) enum Reply {
     Body(ReplyBody),
-    /// The snapshot went to the event stream as `ClientEvent::Attached`.
     Attached(ChannelId),
 }
 
-/// Who asked for an attach, so its reply can go to the event stream.
 #[derive(Clone, Copy)]
 pub(crate) struct Attaching {
     pub(crate) tag: u64,
@@ -29,7 +27,6 @@ pub(crate) struct Attaching {
 struct State {
     next: u32,
     waiting: HashMap<RequestId, Sender<Reply>>,
-    /// Kept after the caller stops waiting, so a late reply still reaches the event stream.
     attaching: HashMap<RequestId, Attaching>,
     asynchronous: HashMap<RequestId, (Arc<Response>, Instant)>,
     closed: bool,
@@ -85,7 +82,6 @@ impl Pending {
         Ok((id, receiver))
     }
 
-    /// Who asked for this attach; the reply is then theirs to announce.
     pub(crate) fn take_attaching(&self, id: RequestId) -> Option<Attaching> {
         self.lock().attaching.remove(&id)
     }
@@ -112,9 +108,6 @@ impl Pending {
         }
     }
 
-    /// Stops waiting for an attach whose reply hasn't arrived, which still
-    /// reaches the event stream later. Returns false once the reply is being
-    /// announced, so the caller waits the moment it takes instead.
     pub(crate) fn give_up_attach(&self, id: RequestId) -> bool {
         let mut state = self.lock();
         let waiting = state.attaching.contains_key(&id);
@@ -124,14 +117,12 @@ impl Pending {
         waiting
     }
 
-    /// Stops waiting for a reply.
     pub(crate) fn forget(&self, id: RequestId) {
         let mut state = self.lock();
         state.waiting.remove(&id);
         state.asynchronous.remove(&id);
     }
 
-    /// Forgets a request the server never received.
     pub(crate) fn abandon(&self, id: RequestId) {
         let mut state = self.lock();
         state.waiting.remove(&id);

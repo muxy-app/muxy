@@ -8,19 +8,11 @@ use crate::{AppState, PaneContent, PaneId, ProjectStatus, ServerId, SessionMove}
 pub struct RestorePlan {
     pub attach: Vec<(PaneId, SessionId)>,
     pub create: Vec<PaneId>,
-    /// Panes whose session the server no longer runs. Each closes if its
-    /// shell exited or was ended, and otherwise starts a new terminal in its
-    /// place, as after the server stopped or the computer restarted.
     pub restart: Vec<(PaneId, SessionId)>,
-    /// Panes showing a session the server lists under another project.
     pub close: Vec<(PaneId, SessionId)>,
-    /// Sessions the app moved to the project its pane shows them in while
-    /// the server still lists them under another, as when the request never
-    /// reached it. Their panes attach, and the server is asked again.
     pub moves: Vec<(SessionMove, muxy_protocol::ProjectId)>,
 }
 
-/// Plans `server`'s panes against the sessions that server listed.
 pub fn plan(state: &AppState, server: ServerId, sessions: &[SessionInfo]) -> RestorePlan {
     let live: HashMap<_, _> = sessions
         .iter()

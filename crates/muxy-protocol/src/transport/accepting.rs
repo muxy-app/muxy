@@ -8,8 +8,6 @@ use rustix::fd::AsFd;
 use crate::transport::LocalStream;
 use crate::transport::unix::socket_pair;
 
-/// A nonblocking listening socket whose `accept` sleeps in poll(2), or
-/// `WSAPoll` on Windows, until a peer connects or `close` wakes it.
 #[derive(Debug)]
 pub(crate) struct Accepting<S> {
     socket: Mutex<Option<S>>,
@@ -46,7 +44,6 @@ impl<S: AsFd> Accepting<S> {
         }
     }
 
-    /// Returns whether `close` was called.
     fn wait(&self, socket: &S) -> io::Result<bool> {
         let mut descriptors = [
             PollFd::new(socket, PollFlags::IN),
@@ -58,7 +55,6 @@ impl<S: AsFd> Accepting<S> {
         }
     }
 
-    /// Wakes a pending `accept` first, so the socket's lock is free to take.
     pub(crate) fn close(&self) {
         let _ = self.waker.shutdown(Shutdown::Write);
         self.socket

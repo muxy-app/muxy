@@ -90,7 +90,6 @@ impl Mutation {
         }
     }
 
-    /// The English key of the busy label shown in place of `idle`.
     fn label(self, idle: &str) -> &'static str {
         match self {
             Self::Install => tr_key!("Installing…"),
@@ -126,7 +125,6 @@ pub(crate) struct ExtensionsView {
     page: u32,
     has_next: bool,
     query: String,
-    /// The marketplace category Browse is limited to, if any.
     category: Option<&'static str>,
     sort: Sort,
     revision: u64,
@@ -134,31 +132,19 @@ pub(crate) struct ExtensionsView {
     mutation: Option<Mutation>,
     completed: Option<Mutation>,
     error: Option<String>,
-    /// The last marketplace job's result, until the next action clears it.
     install_status: Option<String>,
-    /// The extension of the last publish, and its pull request.
     published: Option<(String, String)>,
-    /// Whether this view started the running job, and so opens what it installs.
     started_install: bool,
     selected: Option<ExtensionDetails>,
-    /// Which screenshot the open extension's gallery shows.
     screenshot: usize,
     pictures: pictures::Pictures,
     list_scroll: ScrollHandle,
     detail_scroll: ScrollHandle,
-    /// Where each section of the open extension's page sits among the
-    /// scrolled children, for the header's links.
     sections: Vec<(detail::Section, usize)>,
-    /// The section a header link last scrolled to, shown as current until
-    /// the page is scrolled by hand.
     jumped: Option<detail::Section>,
-    /// The error the page last showed, so a new one scrolls into view.
     shown_error: Option<String>,
-    /// The scrolled area's width when it was last laid out, which sets how
-    /// many grid columns fit and whether the gallery has a column beside it.
     width: Rc<Cell<Pixels>>,
     folder: Option<muxy_ui::dialog::FolderPicker>,
-    /// Text fields for string and number extension settings, by extension and key.
     setting_inputs: std::collections::HashMap<(String, String), Entity<TextInput>>,
     subscriptions: Vec<Subscription>,
 }
@@ -345,7 +331,6 @@ impl ExtensionsView {
                 view.loading = None;
                 match result {
                     Ok(mut details) => {
-                        // Only listings say whether an extension is official.
                         details.about.official |= view
                             .items
                             .iter()
@@ -460,7 +445,6 @@ impl ExtensionsView {
     fn show_finished_install(&mut self, finished: FinishedInstall, cx: &mut Context<Self>) {
         let started = std::mem::take(&mut self.started_install);
         let succeeded = finished.error.is_none();
-        // An update replaces files in the same folder, which may hold new pictures.
         self.pictures.forget_files(cx);
         self.error = finished.error;
         let opened = match &finished.job {
@@ -498,8 +482,6 @@ impl ExtensionsView {
         true
     }
 
-    /// Shows `details` on its own page. The same extension, refreshed, keeps
-    /// its place; another starts at the top with its first screenshot.
     fn open_details(&mut self, details: ExtensionDetails, cx: &mut Context<Self>) {
         let same = self
             .selected
@@ -607,8 +589,6 @@ impl ExtensionsView {
         );
     }
 
-    /// Asks twice, through the button and then a warning, before allowing
-    /// every gated action of the extension without a prompt.
     fn trust(&mut self, owner: &str, window: &mut Window, cx: &mut Context<Self>) {
         let owner = owner.to_owned();
         let parent = muxy_ui::dialog::Parent::new(window.window_handle(), self.style());
@@ -646,7 +626,6 @@ impl ExtensionsView {
         );
     }
 
-    /// Runs a model change, showing progress on its button until it finishes.
     fn run(
         &mut self,
         mutation: Mutation,
@@ -675,7 +654,6 @@ impl ExtensionsView {
         .detach();
     }
 
-    /// Shows a file in Finder.
     fn reveal(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
         match crate::opener::submit(move || crate::opener::reveal(&path)) {
             Ok(result) => cx
@@ -712,7 +690,6 @@ impl ExtensionsView {
                 Err(error) => Err(error.to_string()),
             };
             let _ = view.update(cx, |view, cx| {
-                // A redraw during the reload may have read the old files again.
                 view.pictures.forget_files(cx);
                 view.mutation = None;
                 view.completed = result.is_ok().then_some(Mutation::Reload);
@@ -795,7 +772,6 @@ impl ExtensionsView {
         }
     }
 
-    /// A button whose `label` is an English key, translated when shown.
     fn button(
         &self,
         id: impl Into<SharedString>,
@@ -806,8 +782,6 @@ impl ExtensionsView {
         self.styled_button(id, label, false, action, cx)
     }
 
-    /// A [`Self::button`], filled with the accent when it is the page's main
-    /// action.
     fn styled_button(
         &self,
         id: impl Into<SharedString>,
@@ -886,8 +860,6 @@ impl Render for ExtensionsView {
         }
 
         if self.error != self.shown_error {
-            // Errors sit at the top of the page, which may be scrolled away
-            // from them, say at the actions that failed.
             if self.error.is_some() {
                 let top = point(px(0.0), px(0.0));
                 self.list_scroll.set_offset(top);
@@ -1022,7 +994,6 @@ impl ExtensionsView {
         }
     }
 
-    /// Opens Browse limited to language packs, with an empty search.
     pub(crate) fn browse_languages(&mut self, cx: &mut Context<Self>) {
         if self.mutating(cx) {
             return;
@@ -1050,7 +1021,6 @@ impl ExtensionsView {
         cx.notify();
     }
 
-    /// The page title with the Installed and Browse tabs and their actions.
     fn header(&self, installed: &[(Extension, bool, bool)], cx: &Context<Self>) -> gpui::Div {
         div().flex().flex_col().gap(self.metrics.spacing6()).child(
             div()
@@ -1224,7 +1194,6 @@ impl ExtensionsView {
         self.section_with_actions(title, div(), content)
     }
 
-    /// A titled card with buttons beside its title.
     fn section_with_actions(
         &self,
         title: &str,
@@ -1257,8 +1226,6 @@ impl ExtensionsView {
             .child(content)
     }
 
-    /// Remembered consent answers, each removable, as on main, and whether
-    /// the extension is always allowed.
     fn rules_section(&self, owner: &str, model: &AppModel, cx: &Context<Self>) -> gpui::Div {
         let rules = model.extension_rules(owner);
         let trusted = model.extension_trusted(owner);
@@ -1314,7 +1281,6 @@ impl ExtensionsView {
         self.section_with_actions(&tr!("Permission rules"), actions, content)
     }
 
-    /// Says the extension skips every permission prompt, with a way to stop.
     fn trusted_row(&self, owner: &str, cx: &Context<Self>) -> gpui::Div {
         let owner = owner.to_owned();
         div()
@@ -1434,8 +1400,6 @@ impl ExtensionsView {
             )
     }
 
-    /// Edits an unpacked extension, or clones one from the marketplace to edit
-    /// the copy.
     fn agent_action(
         &self,
         extension: &Extension,
@@ -1481,7 +1445,6 @@ impl ExtensionsView {
     }
 }
 
-/// Why no permission tags are shown. Unknown permissions never read as none.
 fn permissions_note(permissions: Option<&BTreeSet<String>>) -> Option<SharedString> {
     match permissions {
         None => Some(tr!(

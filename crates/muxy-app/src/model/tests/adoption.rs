@@ -22,8 +22,6 @@ fn asked_for_sessions(
         .any(|work| matches!(work, Work::ProjectSessions { project: asked } if *asked == project))
 }
 
-/// A session of `project` as Existing Terminals lists it, shown by a phone
-/// when `shown`, and by this app when `attached`.
 fn listed(project: ProjectId, id: u64, shown: bool, attached: bool) -> ProjectSession {
     ProjectSession {
         info: info(project, id),
@@ -68,8 +66,6 @@ fn sessions_in(model: &AppModel, project: ProjectId) -> Vec<SessionId> {
         .collect()
 }
 
-/// The window, its view, what this computer's and the other servers' workers
-/// were asked, and the remote Home.
 type TwoServers<'a> = (
     Entity<AppModel>,
     &'a mut VisualTestContext,
@@ -78,8 +74,6 @@ type TwoServers<'a> = (
     ProjectId,
 );
 
-/// A window with this computer's server and `remote`'s, which has `api`,
-/// and the sidebar expanded to show their headings.
 fn two_servers(remote: ServerId, api: ProjectId, cx: &mut TestAppContext) -> TwoServers<'_> {
     two_servers_in(true, remote, api, cx)
 }
@@ -581,7 +575,6 @@ fn the_agents_panel_shows_every_servers_agents(cx: &mut TestAppContext) {
     });
 }
 
-/// Reconnects `server` to whichever server answers with `catalog`.
 fn reconnect(
     model: &mut AppModel,
     server: ServerId,

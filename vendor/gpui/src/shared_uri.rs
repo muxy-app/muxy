@@ -2,7 +2,6 @@ use derive_more::{Deref, DerefMut};
 
 use crate::SharedString;
 
-/// A [`SharedString`] containing a URI.
 #[derive(Deref, DerefMut, Default, PartialEq, Eq, Hash, Clone)]
 pub struct SharedUri(SharedString);
 

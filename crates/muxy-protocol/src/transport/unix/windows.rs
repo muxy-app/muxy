@@ -1,5 +1,3 @@
-//! The Win32 calls behind local sockets on Windows.
-
 use std::fs::OpenOptions;
 use std::io;
 use std::mem;
@@ -21,8 +19,6 @@ use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_AF_UNIX;
 
 use super::{LocalListener, LocalStream};
 
-/// A listener that `WSAPoll` can wait on, which `uds_windows`' own can't
-/// be since it lacks `AsSocket`.
 #[derive(Debug)]
 pub(super) struct Pollable(LocalListener);
 
@@ -40,19 +36,14 @@ impl Pollable {
 
 impl AsSocket for Pollable {
     fn as_socket(&self) -> BorrowedSocket<'_> {
-        // SAFETY: the listener owns the socket and keeps it open while `self`
-        // is borrowed.
         unsafe { BorrowedSocket::borrow_raw(self.0.as_raw_socket()) }
     }
 }
 
-/// The process ID of whoever holds the other end of a connected socket.
 pub(super) fn peer_pid(socket: &impl AsRawSocket) -> io::Result<u32> {
     let socket = SOCKET::try_from(socket.as_raw_socket()).map_err(io::Error::other)?;
     let mut pid = 0_u32;
     let mut returned = 0_u32;
-    // SAFETY: the output buffer is a live `u32` of the size passed, and the
-    // call is synchronous because it has no overlapped structure.
     let result = unsafe {
         WSAIoctl(
             socket,
@@ -67,23 +58,17 @@ pub(super) fn peer_pid(socket: &impl AsRawSocket) -> io::Result<u32> {
         )
     };
     if result == SOCKET_ERROR {
-        // SAFETY: reads this thread's last Winsock error.
         return Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }));
     }
     Ok(pid)
 }
 
-/// Whether `path` itself, not a link's target, is an `AF_UNIX` socket. Windows
-/// stores one as a reparse point, which std reports as a regular file.
 pub(super) fn is_socket(path: &Path) -> io::Result<bool> {
     let file = OpenOptions::new()
         .access_mode(FILE_READ_ATTRIBUTES)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)?;
-    // SAFETY: `FILE_ATTRIBUTE_TAG_INFO` is plain data, valid when zeroed.
     let mut info: FILE_ATTRIBUTE_TAG_INFO = unsafe { mem::zeroed() };
-    // SAFETY: the handle is open, and the buffer is a live structure of the
-    // size passed for this information class.
     let ok = unsafe {
         GetFileInformationByHandleEx(
             file.as_raw_handle(),
@@ -99,14 +84,10 @@ pub(super) fn is_socket(path: &Path) -> io::Result<bool> {
         && info.ReparseTag == IO_REPARSE_TAG_AF_UNIX)
 }
 
-/// Wakes every read and write blocked on the socket, from any thread or
-/// clone. Winsock's `shutdown` does not wake them on its own.
 pub(super) fn interrupt(socket: &impl AsRawSocket) {
     let Ok(handle) = usize::try_from(socket.as_raw_socket()) else {
         return;
     };
-    // SAFETY: cancelling I/O on a socket handle that is still open only
-    // completes its pending operations early.
     unsafe {
         CancelIoEx(handle as _, ptr::null());
     }

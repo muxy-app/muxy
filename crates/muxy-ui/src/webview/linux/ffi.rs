@@ -1,7 +1,3 @@
-//! The parts of GTK 3 and `WebKitGTK` 4.1 the page backend calls, bound once
-//! an extension is there to need them, so the app starts on a desktop
-//! without them.
-
 #![allow(
     non_camel_case_types,
     clippy::struct_field_names,
@@ -23,11 +19,8 @@ pub(super) type GQuark = u32;
 
 pub(super) const FALSE: gboolean = 0;
 pub(super) const TRUE: gboolean = 1;
-/// `G_PRIORITY_DEFAULT`.
 pub(super) const PRIORITY_DEFAULT: c_int = 0;
-/// `G_TYPE_STRING`.
 pub(super) const TYPE_STRING: GType = 16 << 2;
-/// `G_IO_ERROR_NOT_FOUND`.
 pub(super) const IO_ERROR_NOT_FOUND: c_int = 1;
 
 pub(super) const EVENT_MOTION_NOTIFY: c_int = 3;
@@ -40,7 +33,6 @@ pub(super) const EVENT_FOCUS_CHANGE: c_int = 12;
 pub(super) const EVENT_SELECTION_CLEAR: c_int = 17;
 pub(super) const EVENT_SCROLL: c_int = 31;
 pub(super) const SCROLL_SMOOTH: c_int = 4;
-/// `GDK_SELECTION_PRIMARY`: what is selected, as opposed to what was copied.
 pub(super) const SELECTION_PRIMARY: usize = 1;
 
 pub(super) const SHIFT_MASK: c_uint = 1 << 0;
@@ -62,18 +54,13 @@ pub(super) const POLICY_NAVIGATION_ACTION: c_int = 0;
 pub(super) const POLICY_RESPONSE: c_int = 2;
 pub(super) const INJECT_ALL_FRAMES: c_int = 0;
 pub(super) const INJECT_TOP_FRAME: c_int = 1;
-/// `WEBKIT_USER_STYLE_LEVEL_USER`: above anything a page declares.
 pub(super) const STYLE_LEVEL_USER: c_int = 0;
-/// `WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM`.
 pub(super) const DIALOG_BEFORE_UNLOAD: c_int = 3;
 pub(super) const INJECT_AT_DOCUMENT_START: c_int = 0;
 pub(super) const HIT_LINK: c_uint = 1 << 2;
 pub(super) const HIT_EDITABLE: c_uint = 1 << 5;
-/// `WEBKIT_NETWORK_ERROR_CANCELLED`.
 pub(super) const NETWORK_ERROR_CANCELLED: c_int = 302;
-/// `WEBKIT_POLICY_ERROR_FRAME_LOAD_INTERRUPTED_BY_POLICY_CHANGE`.
 pub(super) const POLICY_ERROR_INTERRUPTED: c_int = 102;
-/// `SOUP_MESSAGE_HEADERS_RESPONSE`.
 pub(super) const SOUP_HEADERS_RESPONSE: c_int = 1;
 
 #[repr(C)]
@@ -119,8 +106,6 @@ pub(super) struct GdkKeymapKey {
     pub(super) level: c_int,
 }
 
-/// The fields every `GdkEvent` starts with. Each event below repeats them,
-/// because C lays the fields after them out without this struct's padding.
 #[repr(C)]
 pub(super) struct GdkEventAny {
     pub(super) kind: c_int,
@@ -226,7 +211,6 @@ pub(super) struct GdkEventSelection {
     pub(super) selection: gpointer,
 }
 
-// The offsets GDK 3 documents for these events on 64-bit Linux.
 const _: () = {
     use std::mem::{offset_of, size_of};
     assert!(offset_of!(GdkEventKey, time) == 20);
@@ -246,13 +230,11 @@ const _: () = {
 
 pub(super) type SourceFunc = unsafe extern "C" fn(gpointer) -> gboolean;
 pub(super) type DestroyNotify = unsafe extern "C" fn(gpointer);
-/// A signal handler, cast from its real signature as `G_CALLBACK` does.
 pub(super) type Callback = unsafe extern "C" fn();
 pub(super) type SchemeCallback = unsafe extern "C" fn(gpointer, gpointer);
 pub(super) type EventFunc = unsafe extern "C" fn(gpointer, gpointer);
 pub(super) type AsyncReadyCallback = unsafe extern "C" fn(gpointer, gpointer, gpointer);
 
-/// Declares the functions bound from each library, and a caller for each.
 macro_rules! libraries {
     ($($library:literal { $(fn $name:ident($($argument:ident: $kind:ty),*) $(-> $result:ty)?;)* })*) => {
         pub(super) struct Api {
@@ -263,9 +245,6 @@ macro_rules! libraries {
         impl Api {
             fn bind() -> Result<Self, libloading::Error> {
                 let mut libraries = Vec::new();
-                // SAFETY: Loading runs the libraries' initializers, which only
-                // set up their own state. Each symbol is the C function of that
-                // name, with the signature its headers give it.
                 unsafe {
                     $(
                         let library = Library::new($library)?;
@@ -280,13 +259,8 @@ macro_rules! libraries {
             }
 
             $($(
-                /// # Safety
-                ///
-                /// The arguments are what the C function of this name
-                /// requires, and it is called on the thread that runs GTK.
                 #[allow(clippy::too_many_arguments)]
                 pub(super) unsafe fn $name(&self, $($argument: $kind),*) $(-> $result)? {
-                    // SAFETY: Upheld by the caller.
                     unsafe { (self.$name)($($argument),*) }
                 }
             )*)*
@@ -534,7 +508,6 @@ libraries! {
 
 static API: OnceLock<Result<Api, String>> = OnceLock::new();
 
-/// Binds the libraries on first use. A desktop without them gets the reason.
 pub(super) fn load() -> Result<&'static Api, String> {
     API.get_or_init(|| {
         Api::bind().map_err(|error| {
@@ -549,7 +522,6 @@ pub(super) fn load() -> Result<&'static Api, String> {
     .map_err(Clone::clone)
 }
 
-/// The libraries, once [`load`] has bound them.
 pub(super) fn loaded() -> Option<&'static Api> {
     API.get().and_then(|api| api.as_ref().ok())
 }

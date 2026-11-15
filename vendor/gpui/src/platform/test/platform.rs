@@ -21,7 +21,6 @@ use windows::Win32::{
     System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
 };
 
-/// TestPlatform implements the Platform trait for use in tests.
 pub(crate) struct TestPlatform {
     background_executor: BackgroundExecutor,
     foreground_executor: ForegroundExecutor,
@@ -42,10 +41,8 @@ pub(crate) struct TestPlatform {
 }
 
 #[derive(Clone)]
-/// A fake screen capture source, used for testing.
 pub struct TestScreenCaptureSource {}
 
-/// A fake screen capture stream, used for testing.
 pub struct TestScreenCaptureStream {}
 
 impl ScreenCaptureSource for TestScreenCaptureSource {
@@ -251,11 +248,9 @@ impl Platform for TestPlatform {
     fn quit(&self) {}
 
     fn restart(&self, _: Option<PathBuf>) {
-        //
     }
 
     fn activate(&self, _ignoring_other_apps: bool) {
-        //
     }
 
     fn hide(&self) {
@@ -434,7 +429,6 @@ impl Platform for TestPlatform {
 }
 
 impl TestScreenCaptureSource {
-    /// Create a fake screen capture source, for testing.
     pub fn new() -> Self {
         Self {}
     }

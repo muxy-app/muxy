@@ -62,8 +62,6 @@ impl ServerSettings {
     }
 }
 
-/// Whether `shell` is a file a terminal can start: executable on Unix, and on
-/// Windows a program file, since a terminal can't start a `.cmd` script.
 fn runnable(shell: &Path) -> Result<bool, crate::ServerError> {
     let missing = |error: std::io::Error| {
         crate::ServerError::new(ErrorCode::BadPath, format!("{}: {error}", shell.display()))

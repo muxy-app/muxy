@@ -1,5 +1,3 @@
-//! What accessibility clients read beyond what's on screen.
-
 use std::{cell::Cell, rc::Rc};
 
 use gpui::accesskit::{Live, Node, Role};
@@ -10,9 +8,6 @@ use gpui::{
     px,
 };
 
-/// What a click runs, and what a client's press runs directly. Otherwise the press
-/// becomes mouse events at the control's center, which land on whatever is drawn
-/// there once the control has scrolled away.
 pub trait OnPress: Sized {
     #[must_use]
     fn on_press(self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self;
@@ -29,9 +24,6 @@ impl OnPress for Stateful<Div> {
     }
 }
 
-/// A button only accessibility clients find, for an action the pointer reaches
-/// by hovering or right-clicking. It never draws, and it's one point wide
-/// because clients refuse to press a control with no bounds.
 pub fn hidden_button(
     id: impl Into<SharedString>,
     name: impl Into<SharedString>,
@@ -61,8 +53,6 @@ pub fn hidden_button(
         )
 }
 
-/// Gives a control text as its current value. AT-SPI only reads a value through
-/// text runs, which GPUI doesn't publish, so Linux clients get it as the description.
 pub fn value(element: Stateful<Div>, value: impl Into<SharedString>) -> Stateful<Div> {
     let value = value.into();
     if cfg!(target_os = "linux") && !value.is_empty() {
@@ -72,13 +62,10 @@ pub fn value(element: Stateful<Div>, value: impl Into<SharedString>) -> Stateful
     }
 }
 
-/// Text accessibility clients can read where it stands, such as an empty state.
 pub fn label(id: impl Into<ElementId>, text: impl Into<SharedString>) -> AnyElement {
     gpui::Text::new(id.into(), text.into()).into_any_element()
 }
 
-/// The element's text, announced when it appears and when it changes. Errors
-/// interrupt what's being read; anything else waits its turn.
 pub fn announced(
     element: Stateful<Div>,
     text: impl Into<SharedString>,

@@ -38,29 +38,24 @@ fn queue<T: Send + 'static>(
     }
 }
 
-/// Short local file work for extensions.
 pub(crate) fn run<T: Send + 'static>(
     operation: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> impl Future<Output = Result<T, String>> {
     queue(&WORKERS, "extension-io", 4, 64, operation)
 }
 
-/// Network requests, kept apart so slow hosts cannot delay local work.
 pub(crate) fn network<T: Send + 'static>(
     operation: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> impl Future<Output = Result<T, String>> {
     queue(&NETWORK, "extension-http", 8, 64, operation)
 }
 
-/// Host name checks before consent, so slow requests cannot delay prompts.
 pub(crate) fn lookup<T: Send + 'static>(
     operation: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> impl Future<Output = Result<T, String>> {
     queue(&LOOKUPS, "extension-dns", 2, 64, operation)
 }
 
-/// Listing icons and screenshots, kept apart so a page of them cannot delay
-/// installs or marketplace searches.
 pub(crate) fn pictures<T: Send + 'static>(
     operation: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> impl Future<Output = Result<T, String>> {

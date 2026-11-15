@@ -102,7 +102,6 @@ unsafe fn build_classes() {
                 sel!(handleGPUIMenuItem:),
                 handle_menu_item as extern "C" fn(&mut Object, Sel, id),
             );
-            // Add menu item handlers so that OS save panels have the correct key commands
             decl.add_method(
                 sel!(cut:),
                 handle_menu_item as extern "C" fn(&mut Object, Sel, id),
@@ -316,9 +315,6 @@ impl MacPlatform {
                     action,
                     os_action,
                 } => {
-                    // Note that this is intentionally using earlier bindings, whereas typically
-                    // later ones take display precedence. See the discussion on
-                    // https://github.com/zed-industries/zed/issues/23621
                     let keystrokes = keymap
                         .bindings_for_action(action.as_ref())
                         .find_or_first(|binding| {
@@ -344,8 +340,6 @@ impl MacPlatform {
                         Some(crate::OsAction::Copy) => selector("copy:"),
                         Some(crate::OsAction::Paste) => selector("paste:"),
                         Some(crate::OsAction::SelectAll) => selector("selectAll:"),
-                        // "undo:" and "redo:" are always disabled in our case, as
-                        // we don't have a NSTextView/NSTextField to enable them on.
                         Some(crate::OsAction::Undo) => selector("handleGPUIMenuItem:"),
                         Some(crate::OsAction::Redo) => selector("handleGPUIMenuItem:"),
                         None => selector("handleGPUIMenuItem:"),
@@ -501,12 +495,6 @@ impl Platform for MacPlatform {
     }
 
     fn quit(&self) {
-        // Quitting the app causes us to close windows, which invokes `Window::on_close` callbacks
-        // synchronously before this method terminates. If we call `Platform::quit` while holding a
-        // borrow of the app state (which most of the time we will do), we will end up
-        // double-borrowing the app state in the `on_close` callbacks for our open windows. To solve
-        // this, we make quitting the application asynchronous so that we aren't holding borrows to
-        // the app state on the stack when we actually terminate the app.
 
         use super::dispatcher::{dispatch_get_main_queue, dispatch_sys::dispatch_async_f};
 
@@ -529,13 +517,9 @@ impl Platform for MacPlatform {
         let app_path = self
             .app_path()
             .ok()
-            // When the app is not bundled, `app_path` returns the
-            // directory containing the executable. Disregard this
-            // and get the path to the executable itself.
             .and_then(|path| (path.extension()?.to_str()? == "app").then_some(path))
             .unwrap_or_else(|| std::env::current_exe().unwrap());
 
-        // Wait until this process has exited and then re-open this path.
         let script = r#"
             while kill -0 $0 2> /dev/null; do
                 sleep 0.1
@@ -616,8 +600,6 @@ impl Platform for MacPlatform {
         MacWindow::active_window()
     }
 
-    // Returns the windows ordered front-to-back, meaning that the active
-    // window is the first one in the returned vec.
     fn window_stack(&self) -> Option<Vec<AnyWindowHandle>> {
         Some(MacWindow::ordered_windows())
     }
@@ -655,8 +637,6 @@ impl Platform for MacPlatform {
     }
 
     fn register_url_scheme(&self, scheme: &str) -> Task<anyhow::Result<()>> {
-        // API only available post Monterey
-        // https://developer.apple.com/documentation/appkit/nsworkspace/3753004-setdefaultapplicationaturl
         let (done_tx, done_rx) = oneshot::channel();
         if Self::os_version() < SemanticVersion::new(12, 0, 0) {
             return Task::ready(Err(anyhow!(
@@ -793,13 +773,6 @@ impl Platform for MacPlatform {
                                         .split(|&b| b == b'.')
                                         .collect::<Vec<_>>();
 
-                                    // https://github.com/zed-industries/zed/issues/16969
-                                    // Workaround a bug in macOS Sequoia that adds an extra file-extension
-                                    // sometimes. e.g. `a.sql` becomes `a.sql.s` or `a.txtx` becomes `a.txtx.txt`
-                                    //
-                                    // This is conditional on OS version because I'd like to get rid of it, so that
-                                    // you can manually create a file called `a.sql.s`. That said it seems better
-                                    // to break that use-case than breaking `a.sql`.
                                     if chunks.len() == 3
                                         && chunks[1].starts_with(chunks[2])
                                         && Self::os_version() >= SemanticVersion::new(15, 0, 0)
@@ -961,8 +934,6 @@ impl Platform for MacPlatform {
         }
     }
 
-    /// Match cursor style to one of the styles available
-    /// in macOS's [NSCursor](https://developer.apple.com/documentation/appkit/nscursor).
     fn set_cursor_style(&self, style: CursorStyle) {
         unsafe {
             if style == CursorStyle::None {
@@ -986,8 +957,6 @@ impl Platform for MacPlatform {
                 CursorStyle::ResizeUp => msg_send![class!(NSCursor), resizeUpCursor],
                 CursorStyle::ResizeDown => msg_send![class!(NSCursor), resizeDownCursor],
 
-                // Undocumented, private class methods:
-                // https://stackoverflow.com/questions/27242353/cocoa-predefined-resize-mouse-cursor
                 CursorStyle::ResizeUpLeftDownRight => {
                     msg_send![class!(NSCursor), _windowResizeNorthWestSouthEastCursor]
                 }
@@ -1028,7 +997,6 @@ impl Platform for MacPlatform {
         use crate::ClipboardEntry;
 
         unsafe {
-            // We only want to use NSAttributedString if there are multiple entries to write.
             if item.entries.len() <= 1 {
                 match item.entries.first() {
                     Some(entry) => match entry {
@@ -1041,7 +1009,6 @@ impl Platform for MacPlatform {
                         ClipboardEntry::ExternalPaths(_) => {}
                     },
                     None => {
-                        // Writing an empty list of entries just clears the clipboard.
                         let state = self.0.lock();
                         state.pasteboard.clearContents();
                     }
@@ -1050,7 +1017,6 @@ impl Platform for MacPlatform {
                 let mut any_images = false;
                 let attributed_string = {
                     let mut buf = NSMutableAttributedString::alloc(nil)
-                        // TODO can we skip this? Or at least part of it?
                         .init_attributed_string(NSString::alloc(nil).init_str(""));
 
                     for entry in item.entries {
@@ -1069,7 +1035,6 @@ impl Platform for MacPlatform {
                 let state = self.0.lock();
                 state.pasteboard.clearContents();
 
-                // Only set rich text clipboard types if we actually have 1+ images to include.
                 if any_images {
                     let rtfd_data = attributed_string.RTFDFromRange_documentAttributes_(
                         NSRange::new(0, msg_send![attributed_string, length]),
@@ -1104,7 +1069,6 @@ impl Platform for MacPlatform {
         let state = self.0.lock();
         let pasteboard = state.pasteboard;
 
-        // First, see if it's a string.
         unsafe {
             let types: id = pasteboard.types();
             let string_type: id = ns_string("public.utf8-plain-text");
@@ -1114,8 +1078,6 @@ impl Platform for MacPlatform {
                 if data == nil {
                     return None;
                 } else if data.bytes().is_null() {
-                    // https://developer.apple.com/documentation/foundation/nsdata/1410616-bytes?language=objc
-                    // "If the length of the NSData object is 0, this property returns nil."
                     return Some(self.read_string_from_clipboard(&state, &[]));
                 } else {
                     let bytes =
@@ -1125,7 +1087,6 @@ impl Platform for MacPlatform {
                 }
             }
 
-            // If it wasn't a string, try the various supported image types.
             for format in ImageFormat::iter() {
                 if let Some(item) = try_clipboard_image(pasteboard, format) {
                     return Some(item);
@@ -1133,7 +1094,6 @@ impl Platform for MacPlatform {
             }
         }
 
-        // If it wasn't a string or a supported image type, give up.
         None
     }
 
@@ -1149,8 +1109,6 @@ impl Platform for MacPlatform {
                 let username = CFString::from(username.as_str());
                 let password = CFData::from_buffer(&password);
 
-                // First, check if there are already credentials for the given server. If so, then
-                // update the username and password.
                 let mut verb = "updating";
                 let mut query_attrs = CFMutableDictionary::with_capacity(2);
                 query_attrs.set(kSecClass as *const _, kSecClassInternetPassword as *const _);
@@ -1167,7 +1125,6 @@ impl Platform for MacPlatform {
                     attrs.as_concrete_TypeRef(),
                 );
 
-                // If there were no existing credentials for the given server, then create them.
                 if status == errSecItemNotFound {
                     verb = "creating";
                     status = SecItemAdd(attrs.as_concrete_TypeRef(), ptr::null_mut());
@@ -1187,7 +1144,6 @@ impl Platform for MacPlatform {
             unsafe {
                 use security::*;
 
-                // Find any credentials for the given server URL.
                 let mut attrs = CFMutableDictionary::with_capacity(5);
                 attrs.set(kSecClass as *const _, kSecClassInternetPassword as *const _);
                 attrs.set(kSecAttrServer as *const _, url.as_CFTypeRef());
@@ -1372,10 +1328,6 @@ extern "C" fn will_finish_launching(_this: &mut Object, _: Sel, _: id) {
     unsafe {
         let user_defaults: id = msg_send![class!(NSUserDefaults), standardUserDefaults];
 
-        // The autofill heuristic controller causes slowdown and high CPU usage.
-        // We don't know exactly why. This disables the full heuristic controller.
-        //
-        // Adapted from: https://github.com/ghostty-org/ghostty/pull/8625
         let name = ns_string("NSAutoFillHeuristicControllerEnabled");
         let existing_value: id = msg_send![user_defaults, objectForKey: name];
         if existing_value == nil {
@@ -1612,43 +1564,35 @@ impl From<ImageFormat> for UTType {
     }
 }
 
-// See https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/
 struct UTType(id);
 
 impl UTType {
     pub fn png() -> Self {
-        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/png
-        Self(unsafe { NSPasteboardTypePNG }) // This is a rare case where there's a built-in NSPasteboardType
+        Self(unsafe { NSPasteboardTypePNG })
     }
 
     pub fn jpeg() -> Self {
-        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/jpeg
         Self(unsafe { ns_string("public.jpeg") })
     }
 
     pub fn gif() -> Self {
-        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/gif
         Self(unsafe { ns_string("com.compuserve.gif") })
     }
 
     pub fn webp() -> Self {
-        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/webp
         Self(unsafe { ns_string("org.webmproject.webp") })
     }
 
     pub fn bmp() -> Self {
-        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/bmp
         Self(unsafe { ns_string("com.microsoft.bmp") })
     }
 
     pub fn svg() -> Self {
-        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/svg
         Self(unsafe { ns_string("public.svg-image") })
     }
 
     pub fn tiff() -> Self {
-        // https://developer.apple.com/documentation/uniformtypeidentifiers/uttype-swift.struct/tiff
-        Self(unsafe { NSPasteboardTypeTIFF }) // This is a rare case where there's a built-in NSPasteboardType
+        Self(unsafe { NSPasteboardTypeTIFF })
     }
 
     fn inner(&self) -> *const Object {

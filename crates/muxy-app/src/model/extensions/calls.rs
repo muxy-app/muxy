@@ -187,8 +187,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// `muxy.browser`: the same requests `muxy browser` makes, answered when
-    /// the page is done.
     fn extension_browser_call(&mut self, call: Call, window: &mut Window, cx: &mut Context<Self>) {
         let args = crate::model::browsers::automation::extension_args(&call.verb, &call.args);
         let reply = self.browser_call(&call.verb, &args, window, cx);
@@ -205,7 +203,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Log lines from `console.*`: one per script call, or a batch from a page.
     fn console(&mut self, call: &Call) {
         let single = [call.args.clone()];
         let lines = call.args["lines"]
@@ -350,7 +347,6 @@ impl AppModel {
             .spawn(async move { client.exec_async(request).await.map_err(exec_error) }))
     }
 
-    /// `gh.user`: the signed-in GitHub CLI account, cached for five minutes.
     fn gh_user(&mut self, call: Call, cx: &mut Context<Self>) {
         if let Some((fetched, user)) = &self.extensions.gh_user
             && fetched.elapsed() < GH_USER_TTL
@@ -424,7 +420,6 @@ impl AppModel {
         .detach();
     }
 
-    /// `projects.create`: optionally creates the folder on the server first.
     fn create_extension_project(&mut self, call: Call, cx: &mut Context<Self>) {
         let mut workspace = None;
         if let Some(identifier) = call.args["workspace"]
@@ -807,7 +802,6 @@ pub(super) fn exec_request(call: &Call, job: u64) -> Result<ExecRequest, String>
     Ok(request)
 }
 
-/// Server errors as `exec` reports them; launch failures read like main's.
 pub(super) fn exec_error(error: muxy_client::ClientError) -> String {
     match error {
         muxy_client::ClientError::Server(reply) if reply.code == ErrorCode::SpawnFailed => {

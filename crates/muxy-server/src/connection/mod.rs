@@ -26,7 +26,6 @@ pub(crate) use peer::Connection;
 pub(crate) use sink::OutboxSink;
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
-/// Hello and the authentication request are small; nothing larger is read before trust.
 const UNAUTHENTICATED_PAYLOAD: usize = 4 * 1024;
 
 pub fn serve(stream: Box<dyn ByteStream>, registry: Arc<Registry>) -> Result<(), WireError> {
@@ -42,8 +41,6 @@ pub fn serve(stream: Box<dyn ByteStream>, registry: Arc<Registry>) -> Result<(),
     run(decoder, encoder, &cancellation, registry, &connection)
 }
 
-/// Serves a network peer, which must authenticate as a paired device before
-/// the connection gets any resources. One deadline covers TLS, Hello, and auth.
 pub fn serve_remote(
     stream: Box<dyn ByteStream>,
     registry: Arc<Registry>,
@@ -67,8 +64,6 @@ pub fn serve_remote(
         admitted.kind,
     ));
     registry.notifier.register(&connection);
-    // Registering before this check means a concurrent revoke either sees this
-    // connection and closes it, or this check sees the revoke.
     if !registry.remote.authorized(admitted.device) {
         connection.close();
         encoder.send(CONTROL, &auth::unauthorized(admitted.request))?;
@@ -92,7 +87,6 @@ pub fn serve_remote(
     result
 }
 
-/// Cancels the stream unless the returned sender is dropped before the timeout.
 fn watchdog(
     cancellation: Arc<dyn StreamCancellation>,
     timeout: Duration,

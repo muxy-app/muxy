@@ -390,8 +390,6 @@ fn bundles_are_checked_like_main() {
 #[test]
 fn plural_rules_that_share_references_are_checked_once() {
     use std::fmt::Write as _;
-    // Each rule has six variants that each name the next rule four times, so
-    // checking every path would take 24^7 variant checks.
     let mut entry = String::from("<key>NSStringLocalizedFormatKey</key><string>%#@r0@</string>");
     for rule in 0..8 {
         let variant = if rule == 7 {

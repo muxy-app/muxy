@@ -38,7 +38,6 @@ fn sockets_work_under_a_non_ascii_folder_and_a_canonical_path() -> TestResult {
     let path = TempFolder::new()?;
     let folder = path.path.join("dév-日本");
     fs::create_dir(&folder)?;
-    // On Windows this is a verbatim `\\?\C:\…` path.
     let socket = fs::canonicalize(&folder)?.join("socket");
     let listener = UnixSocketListener::bind(&socket)?;
     let (_, mut writer) = connect(&socket)?.split()?;

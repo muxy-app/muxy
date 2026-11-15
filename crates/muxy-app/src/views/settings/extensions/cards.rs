@@ -1,6 +1,3 @@
-//! The Installed and Browse lists, as cards in a grid or as rows, and the
-//! controls that search, filter, sort, and lay them out.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Context, FontWeight, InteractiveElement, ParentElement, Pixels, SharedString,
@@ -25,7 +22,6 @@ use crate::model::AppModel;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
-/// Browse's category filters: the marketplace category and its English label.
 pub(super) const CATEGORIES: [(Option<&str>, &str); 6] = [
     (None, tr_key!("All")),
     (Some("productivity"), tr_key!("Productivity")),
@@ -35,36 +31,26 @@ pub(super) const CATEGORIES: [(Option<&str>, &str); 6] = [
     (Some("localization"), tr_key!("Languages")),
 ];
 
-/// The narrowest a grid card gets before the grid drops a column.
 const CARD_WIDTH: f32 = 220.0;
 const MAX_COLUMNS: u16 = 4;
 
-/// What opening an entry shows.
 #[derive(Clone)]
 enum Open {
-    /// An installed extension, shown at once from what is on disk.
     Installed(Box<ExtensionDetails>),
-    /// A marketplace listing, fetched first.
     Marketplace(String),
 }
 
-/// One extension in a list, whichever tab it is on.
 pub(super) struct Entry {
     pub(super) name: String,
     version: Option<String>,
     description: String,
     about: About,
     art: Art,
-    /// Short labels beside the name; the accented ones call for attention.
     pub(super) badges: Vec<(SharedString, bool)>,
     open: Open,
-    /// The installed copy and whether it is an unpacked folder, for rows
-    /// that offer the agent.
     installed: Option<(Extension, bool)>,
 }
 
-/// How many grid columns fit `width`. Before the first layout there is no
-/// width yet, so two are assumed.
 pub(super) fn columns(width: Pixels, card: Pixels, gap: Pixels) -> u16 {
     if width <= px(0.0) {
         return 2;
@@ -79,7 +65,6 @@ pub(super) fn columns(width: Pixels, card: Pixels, gap: Pixels) -> u16 {
     fit
 }
 
-/// A download count as people say it: 457, 2.5K, 12K, 1.2M.
 pub(super) fn compact(count: u64) -> String {
     #[allow(clippy::cast_precision_loss, reason = "One decimal place is shown")]
     let scaled = |unit: u64, suffix: &str| {
@@ -97,7 +82,6 @@ pub(super) fn compact(count: u64) -> String {
     }
 }
 
-/// A count with thousands separated: 5,564.
 pub(super) fn grouped(count: u64) -> String {
     let digits = count.to_string();
     let mut grouped = String::new();
@@ -111,7 +95,6 @@ pub(super) fn grouped(count: u64) -> String {
 }
 
 impl ExtensionsView {
-    /// The layout the current tab is shown in.
     pub(super) fn layout(&self, cx: &gpui::App) -> ExtensionsLayout {
         self.model
             .upgrade()
@@ -125,9 +108,6 @@ impl ExtensionsView {
             })
     }
 
-    /// Shows the current tab in `layout`, remembered for next time. Saving
-    /// refreshes the Settings tab, which updates this page, so it waits
-    /// until this update ends.
     pub(super) fn set_layout(&mut self, layout: ExtensionsLayout, cx: &mut Context<Self>) {
         let tab = self.tab;
         let changed = self.model.update(cx, |model, _| {
@@ -163,8 +143,6 @@ impl ExtensionsView {
         }
     }
 
-    /// The search field, with Browse's order and both tabs' layout beside it,
-    /// and Browse's categories below.
     pub(super) fn toolbar(&self, cx: &Context<Self>) -> gpui::Div {
         let browsing = self.tab == Tab::Marketplace;
         div()
@@ -218,7 +196,6 @@ impl ExtensionsView {
         )
     }
 
-    /// Grid and list, as two icon buttons joined like a segmented control.
     fn layout_toggle(&self, cx: &Context<Self>) -> gpui::Stateful<gpui::Div> {
         let current = self.layout(cx);
         let option = |layout: ExtensionsLayout,
@@ -550,7 +527,6 @@ impl ExtensionsView {
         }
     }
 
-    /// The clickable shell every entry shares, which opens it.
     fn entry_shell(&self, entry: &Entry, cx: &Context<Self>) -> gpui::Stateful<gpui::Div> {
         let id = match &entry.open {
             Open::Installed(_) => format!("extension-row-{}", entry.name),
@@ -590,7 +566,6 @@ impl ExtensionsView {
             }))
     }
 
-    /// Author and downloads, as one muted line.
     pub(super) fn byline(about: &About) -> Option<String> {
         let parts: Vec<String> = about
             .author

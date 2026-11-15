@@ -1,12 +1,10 @@
-//! Keys an on-screen keyboard or accessory bar can send, encoded as a terminal expects.
-
 use std::path::PathBuf;
 
 use muxy_protocol::Modes;
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum Key {
-    /// Typed text; with Control, only its first character counts.
+    #[doc = " Typed text; with Control, only its first character counts."]
     Character {
         text: String,
     },
@@ -25,7 +23,7 @@ pub enum Key {
     End,
     PageUp,
     PageDown,
-    /// F1 to F12.
+    #[doc = " F1 to F12."]
     Function {
         number: u8,
     },
@@ -121,8 +119,6 @@ fn control_byte(character: char) -> Option<u8> {
     }
 }
 
-/// Pasted text sends line breaks as Return and drops escape characters, so it
-/// can never end a bracketed paste early and run as typed input.
 pub(crate) fn paste(text: &str, bracketed: bool) -> Vec<u8> {
     let text = text
         .replace("\r\n", "\n")
@@ -135,9 +131,6 @@ pub(crate) fn paste(text: &str, bracketed: bool) -> Vec<u8> {
     }
 }
 
-/// Absolute paths quoted as `quoting` says and separated by spaces, as one
-/// paste. `None` when there are none, or one isn't absolute, holds a NUL
-/// byte, is too long, or can't be quoted safely that way.
 pub(crate) fn paths(
     paths: &[String],
     quoting: muxy_client::input::PathQuoting,
@@ -223,8 +216,6 @@ mod tests {
                     .to_vec()
             )
         );
-        // Before the shell is known, only names every shell reads the same
-        // way are pasted.
         assert_eq!(
             paths(&uploads[1..], PathQuoting::Unknown, modes(false)),
             None

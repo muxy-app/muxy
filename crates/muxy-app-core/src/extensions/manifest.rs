@@ -8,7 +8,6 @@ use super::panels::{FrameSpec, PanelChrome, PanelScope, SizeSpec};
 
 const MAX_ICON_BYTES: u64 = 256 * 1024;
 
-/// Every permission an extension can declare. Unknown names fail the load, as on main.
 pub const PERMISSIONS: [&str; 37] = [
     "panes:read",
     "panes:write",
@@ -49,7 +48,6 @@ pub const PERMISSIONS: [&str; 37] = [
     "system:open",
 ];
 
-/// An SF Symbol name or a template SVG bundled with the extension.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Icon {
     Symbol(String),
@@ -57,7 +55,6 @@ pub enum Icon {
 }
 
 impl Icon {
-    /// The lenient runtime form accepted by `topbar.set`, `rail.set`, `statusbar.set`, and `tabs.setIcon`.
     pub fn parse(value: &Value) -> Option<Self> {
         match value {
             Value::String(symbol) if !symbol.is_empty() => Some(Self::Symbol(symbol.clone())),
@@ -135,7 +132,6 @@ pub enum PanelMode {
     #[default]
     Floating,
     Pinned,
-    /// Floats freely over the window, beside other panels.
     Detached,
 }
 
@@ -174,13 +170,11 @@ pub struct Panel {
     pub hide_topbar: bool,
     #[serde(default)]
     pub default_data: Value,
-    /// Where a detached panel first opens, and its size.
     pub frame: Option<FrameSpec>,
     pub min_size: Option<SizeSpec>,
     pub max_size: Option<SizeSpec>,
     #[serde(default)]
     pub chrome: PanelChrome,
-    /// Unset, a panel with `chrome: "none"` is transparent and others aren't.
     pub transparent: Option<bool>,
     #[serde(default)]
     pub click_through: bool,
@@ -197,13 +191,10 @@ impl Panel {
         self.hide_topbar || self.hidden_controls.contains(&control)
     }
 
-    /// Whether the user's float/dock choice applies instead of the declared mode.
     pub fn allows_mode_selection(&self) -> bool {
         !self.hides(PanelControl::Pin)
     }
 
-    /// Whether the user's choice to pop the panel out, or dock it, applies
-    /// instead of the declared mode.
     pub fn allows_detach_selection(&self) -> bool {
         !self.hides(PanelControl::Detach)
     }
@@ -273,17 +264,14 @@ pub struct Sidebar {
     pub default_data: Value,
 }
 
-/// What running a palette command does.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Action {
-    /// Fires `command.<id>` to the extension.
     #[default]
     Event,
     OpenTab {
         tab_type: String,
         data: Value,
     },
-    /// `openPanel` is 2.x's non-toggling spelling of `togglePanel`.
     TogglePanel {
         panel: String,
         toggle: bool,
@@ -359,7 +347,6 @@ impl<'de> Deserialize<'de> for Action {
 }
 
 impl Action {
-    /// The manifest permission the action needs before it runs.
     pub fn permission(&self) -> Option<&'static str> {
         match self {
             Self::Event => None,
@@ -387,8 +374,6 @@ fn visible() -> bool {
     true
 }
 
-/// A topbar item, rail item, or panel header button that runs one of the
-/// extension's commands.
 #[derive(Clone, Debug, Deserialize)]
 pub struct BarItem {
     pub id: String,
@@ -498,21 +483,15 @@ pub struct Manifest {
     pub status_bar_items: Vec<StatusBarItem>,
     pub settings: Vec<Setting>,
     pub remote_methods: Vec<RemoteMethod>,
-    /// The marketplace listing, read only to show the extension in Settings.
     #[serde(deserialize_with = "listing")]
     pub marketplace: Listing,
 }
 
-/// What the marketplace shows about an extension: its pictures, maker, and
-/// links. The app never acts on it, so a malformed field is left empty
-/// instead of stopping the extension from loading.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Listing {
     pub author: Option<String>,
     pub categories: Vec<String>,
-    /// The listing icon, relative to the resource root.
     pub icon: Option<String>,
-    /// Listing screenshots, relative to the resource root.
     pub screenshots: Vec<String>,
     pub homepage: Option<String>,
     pub repository: Option<String>,
@@ -574,7 +553,6 @@ impl Manifest {
 pub struct Extension {
     pub name: String,
     pub version: String,
-    /// The resource root: the package's `dist/` build output when present.
     pub directory: PathBuf,
     pub manifest: Manifest,
 }
@@ -597,7 +575,6 @@ fn language_tag(value: &str) -> bool {
     })
 }
 
-/// Extension-local event names: `extension.` plus up to 190 safe characters.
 pub fn local_event(name: &str) -> bool {
     name.len() > "extension.".len()
         && name.len() <= 200
@@ -625,9 +602,6 @@ fn unique<'a>(kind: &str, ids: impl IntoIterator<Item = &'a str>) -> Result<(), 
     distinct(kind, ids)
 }
 
-/// main decodes optional manifest fields with `decodeIfPresent`, so `null`
-/// means "not set". Free-form JSON (`defaultData`, `data`, `defaultValue`)
-/// is kept as written.
 fn without_nulls(value: &mut Value) {
     match value {
         Value::Object(fields) => {
@@ -644,7 +618,6 @@ fn without_nulls(value: &mut Value) {
 }
 
 impl Extension {
-    /// Loads a package folder, preferring its `dist/` build output like main does.
     pub fn load(package: &Path) -> Result<Self, String> {
         let load = || -> Result<Self, String> {
             let dist = package.join("dist");
@@ -709,7 +682,6 @@ impl Extension {
         Ok(path)
     }
 
-    /// Resolves a file inside the resource root, rejecting traversal and symlink escapes.
     pub fn resource(&self, relative: &str) -> Result<PathBuf, String> {
         let path = self.located(relative)?;
         if path.is_file() {
@@ -723,7 +695,6 @@ impl Extension {
         self.manifest.permissions.contains(permission)
     }
 
-    /// Whether the manifest lets the extension subscribe to an event.
     pub fn allows_event(&self, event: &str) -> bool {
         if event.starts_with("extension.") {
             return local_event(event);
@@ -955,7 +926,6 @@ impl Extension {
                 .ok()
                 .filter(|path| path.is_dir() && localization.bundle.ends_with(".bundle"))
                 .ok_or_else(|| format!("localization '{id}' bundle was not found"))?;
-            // Declarations may share a bundle and language; check each pair once.
             let catalogs = bundle.canonicalize().map_or_else(
                 |_| bundle.clone(),
                 |root| {

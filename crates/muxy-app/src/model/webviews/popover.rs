@@ -1,6 +1,3 @@
-//! Extension popovers: one open at a time app-wide, anchored to the topbar,
-//! rail, or status-bar item that opened it.
-
 use gpui::{Context, Window};
 use muxy_ui::popover::PopoverAnchor;
 use muxy_ui::webview::assets::Source;
@@ -36,7 +33,6 @@ impl AppModel {
         );
     }
 
-    /// Clicking an item opens its popover, or closes it when already open there.
     pub(crate) fn toggle_extension_popover(
         &mut self,
         owner: &str,
@@ -107,7 +103,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Closes without asking the page, like main's outside clicks and toggles.
     pub(crate) fn close_extension_popover(&mut self, cx: &mut Context<Self>) {
         let Some(popover) = self.webviews.popover.take() else {
             return;
@@ -120,7 +115,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// `muxy.popover.close()`: the page's `onBeforeClose` may keep it open.
     pub(crate) fn request_close_popover(&mut self, owner: &str, cx: &mut Context<Self>) {
         let Some(popover) = self
             .webviews
@@ -182,7 +176,6 @@ impl AppModel {
         Ok(Value::Null)
     }
 
-    /// A popover closes when the item it is anchored to is hidden or moves.
     pub(crate) fn close_hidden_popover(&mut self, cx: &mut Context<Self>) {
         if self.webviews.popover.as_ref().is_some_and(|popover| {
             !self.extension_item_shown(&popover.anchor_key, popover.placement)

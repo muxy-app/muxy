@@ -1,8 +1,3 @@
-//! Toast notifications through `WinRT`. Windows shows a toast only for an app
-//! registered under an `AppUserModelID`, so the first start registers one for
-//! the user. Windows hands a click to the COM class the registration names:
-//! the running app provides it, and otherwise Windows starts the app with
-//! `-Embedding` to provide it.
 #![allow(
     clippy::inline_always,
     clippy::ref_as_ptr,
@@ -37,15 +32,12 @@ use crate::tr;
 
 pub const CAPABILITY: Capability = Capability::Supported;
 
-/// Every toast of this app is in one group, so a tag names one toast.
 const GROUP: &str = "muxy";
 
 fn app_id() -> &'static str {
     muxy_core::release::Channel::current().bundle_identifier()
 }
 
-/// The COM class Windows hands clicks on this app's toasts to. Each release
-/// channel has its own, as it has its own `AppUserModelID`.
 fn activator() -> GUID {
     match muxy_core::release::Channel::current() {
         muxy_core::release::Channel::Beta => {
@@ -57,19 +49,12 @@ fn activator() -> GUID {
     }
 }
 
-/// Names this process as the app Windows groups its windows and toasts by.
-/// Call it before the first window opens.
 pub fn identify_process() {
-    // SAFETY: the argument is a valid, NUL-terminated wide string for the call.
     let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(app_id())) };
 }
 
-/// The argument Windows starts the app with to hand it a click on a toast.
 pub const ACTIVATION_ARGUMENT: &str = "-Embedding";
 
-/// The registry keys, value names and values that let Windows show toasts
-/// for `id`, and hand their clicks to `activator` in `executable`. An empty
-/// name is the key's default value.
 fn registration(
     id: &str,
     name: &str,
@@ -101,8 +86,6 @@ fn register() -> Result<(), String> {
         let key = HSTRING::from(key);
         let data: Vec<u16> = value.encode_utf16().chain([0]).collect();
         let bytes = u32::try_from(data.len() * 2).map_err(|error| error.to_string())?;
-        // SAFETY: the key, name and data are valid wide strings that outlive
-        // the call, and `bytes` is the size of `data`, its NUL included.
         let result = unsafe {
             RegSetKeyValueW(
                 HKEY_CURRENT_USER,
@@ -120,9 +103,6 @@ fn register() -> Result<(), String> {
     Ok(())
 }
 
-/// The tag Windows knows the toast for `id` by, the same in every run, so a
-/// later delivery replaces the toast and a clear removes it. Windows limits a
-/// tag's length, so it is a hash (FNV-1a).
 fn tag(id: &str) -> String {
     let hash = id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
@@ -178,12 +158,8 @@ impl Service {
         thread::Builder::new()
             .name("notifications".into())
             .spawn(move || {
-                // SAFETY: called once, first, on a thread of its own.
                 let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
                 let factory: IClassFactory = Factory(events.clone()).into();
-                // SAFETY: `activator` outlives the call, and the class stays
-                // registered while this thread serves, which is as long as
-                // the app runs.
                 if let Err(error) = unsafe {
                     CoRegisterClassObject(
                         &activator(),
@@ -295,7 +271,6 @@ impl Worker {
         self.notifier.Show(&toast)
     }
 
-    /// Whether the user lets this app notify, as Windows says now.
     fn setting(&self) -> Capability {
         match self.notifier.Setting() {
             Ok(NotificationSetting::Enabled) | Err(_) => Capability::Supported,
@@ -305,7 +280,6 @@ impl Worker {
         }
     }
 
-    /// Tells the app when what Windows allows has changed.
     fn report(&self, capability: Capability) {
         let mut current = lock(&self.availability);
         if *current != capability {
@@ -315,8 +289,6 @@ impl Worker {
     }
 }
 
-/// A toast's content: its title, then its text. A click on it hands `opens`
-/// to the activator.
 fn toast(opens: Option<&str>, title: &str, body: &str) -> String {
     let launch = opens.map_or_else(String::new, |id| format!(r#" launch="{}""#, escaped(id)));
     format!(
@@ -326,7 +298,6 @@ fn toast(opens: Option<&str>, title: &str, body: &str) -> String {
     )
 }
 
-/// Makes the activator for Windows when a toast is clicked.
 #[implement(IClassFactory)]
 struct Factory(Sender<Event>);
 
@@ -341,7 +312,6 @@ impl IClassFactory_Impl for Factory_Impl {
             return Err(CLASS_E_NOAGGREGATION.into());
         }
         let activator: IUnknown = Activator(self.0.clone()).into();
-        // SAFETY: COM passes a valid interface ID and a place for the object.
         unsafe { activator.query(interface, object) }.ok()
     }
 
@@ -350,7 +320,6 @@ impl IClassFactory_Impl for Factory_Impl {
     }
 }
 
-/// Tells the app which of its toasts the user clicked.
 #[implement(INotificationActivationCallback)]
 struct Activator(Sender<Event>);
 
@@ -362,7 +331,6 @@ impl INotificationActivationCallback_Impl for Activator_Impl {
         _data: *const NOTIFICATION_USER_INPUT_DATA,
         _count: u32,
     ) -> windows::core::Result<()> {
-        // SAFETY: Windows passes the toast's arguments as a valid string.
         let id = unsafe { arguments.to_string() }.unwrap_or_default();
         if !id.is_empty() {
             let _ = self.0.try_send(Event::Opened(id));
@@ -371,8 +339,6 @@ impl INotificationActivationCallback_Impl for Activator_Impl {
     }
 }
 
-/// `text` as XML that shows the same characters, less the control
-/// characters XML can't hold.
 fn escaped(text: &str) -> String {
     text.chars()
         .filter(|character| !character.is_control() || matches!(character, '\t' | '\n' | '\r'))
@@ -418,7 +384,6 @@ mod tests {
         );
     }
 
-    /// Run by hand on a desktop, and click the toast within a minute.
     #[test]
     #[ignore = "shows a toast and waits for a click on it"]
     #[allow(clippy::expect_used, clippy::panic, reason = "Manual desktop check")]

@@ -5,16 +5,12 @@ use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Runs the GitHub CLI for a repository.
 #[derive(Debug, Default)]
 pub(super) struct Cli {
-    /// Runs this GitHub CLI instead of the installed one.
     pub(super) executable: Option<PathBuf>,
 }
 
 impl Cli {
-    /// Runs only a `gh` found at an absolute path. A bare `gh` would let a
-    /// relative `PATH` entry pick a program inside the repository it runs in.
     fn command(&self, repository: &Path, args: &[&str]) -> Result<Command> {
         let executable = self
             .executable
@@ -41,8 +37,6 @@ impl Cli {
             .map_err(|cause| error(format!("GitHub CLI: {}", cause.message())))
     }
 
-    /// Runs `args`, keeping at most `limit` bytes of output. Returns whether
-    /// it was cut short.
     pub(super) fn run_bounded(
         &self,
         repository: &Path,

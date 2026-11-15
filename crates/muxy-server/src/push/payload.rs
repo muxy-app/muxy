@@ -1,6 +1,3 @@
-//! The end-to-end encrypted notification payload, version 1, and the
-//! identifiers derived from its key that travel in the clear.
-
 use muxy_core::base64;
 use muxy_protocol::{ActivityKind, PUSH_KEY_BYTES};
 use ring::aead::{AES_256_GCM, Aad, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
@@ -15,13 +12,11 @@ const KEY_ID_LABEL: &[u8] = b"muxy-push-key-id";
 const KEY_ID_BYTES: usize = 8;
 const HEADER_BYTES: usize = 1 + KEY_ID_BYTES;
 const TAG_BYTES: usize = 16;
-/// 3000 base64url characters carry 2250 bytes.
 pub(crate) const MAX_PLAINTEXT: usize = 2250 - HEADER_BYTES - NONCE_LEN - TAG_BYTES;
 const MAX_TITLE: usize = 120;
 const MAX_BODY: usize = 240;
 const DERIVED_ID: usize = 16;
 
-/// What the phone shows and opens, before encryption.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Notification {
     pub(crate) server_id: String,
@@ -73,14 +68,12 @@ pub(crate) fn kind_name(kind: ActivityKind) -> Option<&'static str> {
     }
 }
 
-/// The first `limit` characters.
 fn truncated(text: &str, limit: usize) -> &str {
     text.char_indices()
         .nth(limit)
         .map_or(text, |(end, _)| &text[..end])
 }
 
-/// Names the key among the ones a phone holds, one per paired server.
 pub(crate) fn key_id(key: &PushKey) -> [u8; KEY_ID_BYTES] {
     let hash = digest(&SHA256, &[KEY_ID_LABEL, key].concat());
     let mut id = [0; KEY_ID_BYTES];
@@ -88,7 +81,6 @@ pub(crate) fn key_id(key: &PushKey) -> [u8; KEY_ID_BYTES] {
     id
 }
 
-/// `version ‖ key_id`.
 pub(crate) fn header(key: &PushKey) -> [u8; HEADER_BYTES] {
     let mut header = [0; HEADER_BYTES];
     header[0] = VERSION;
@@ -96,7 +88,6 @@ pub(crate) fn header(key: &PushKey) -> [u8; HEADER_BYTES] {
     header
 }
 
-/// `header ‖ nonce ‖ ciphertext ‖ tag`, authenticated with `header ‖ server_id`.
 pub(crate) fn seal(
     key: &PushKey,
     server_id: &str,
@@ -116,7 +107,6 @@ pub(crate) fn seal(
     Some([header.as_slice(), &nonce, &sealed].concat())
 }
 
-/// The relay's `payload` field, under a fresh random nonce.
 pub(crate) fn encrypt(key: &PushKey, notification: &Notification) -> Option<String> {
     let mut nonce = [0; NONCE_LEN];
     getrandom::fill(&mut nonce).ok()?;
@@ -132,12 +122,10 @@ pub(crate) fn encrypt_with_nonce(
     seal(key, &notification.server_id, nonce, &plaintext).map(|bytes| base64::encode_url(&bytes))
 }
 
-/// Replaces an older notification for the same session on the phone.
 pub(crate) fn collapse_id(key: &PushKey, session_id: u64) -> String {
     derived(key, format!("collapse:{session_id}").as_bytes())
 }
 
-/// Groups a project's notifications on the phone.
 pub(crate) fn thread_id(key: &PushKey, project_id: &str) -> String {
     derived(
         key,
@@ -154,7 +142,6 @@ fn derived(key: &PushKey, message: &[u8]) -> String {
     text
 }
 
-/// What a phone does with a payload: opens it with its key and the server's id.
 #[cfg(test)]
 pub(crate) fn open(key: &PushKey, server_id: &str, payload: &[u8]) -> Option<Vec<u8>> {
     let (header, rest) = payload.split_at(HEADER_BYTES);
@@ -230,7 +217,6 @@ mod tests {
         );
     }
 
-    /// The vectors in the mobile SDK's README; the apps check their decryption against them.
     const SEALED: &str = concat!(
         "01627df844ff14f4ed202122232425262728292a2ba918d05256a9362c691930",
         "b8a46aab90b46bd6beb1e2538d5b935e7370ec6f6d41edd666b64402bf22995b",

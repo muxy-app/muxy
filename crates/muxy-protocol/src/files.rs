@@ -53,7 +53,6 @@ pub enum FilesAction {
     Watch,
     #[n(9)]
     Unwatch,
-    /// Reads any file, such as an image, as it is on disk.
     #[n(10)]
     ReadBytes(#[n(0)] ServerPath),
     #[n(11)]
@@ -162,22 +161,18 @@ impl FileChanges {
     }
 }
 
-/// `Folders` names: each one path component, within the listing limits.
 pub fn validate_folder_names(names: &[ServerPath]) -> Result<(), ErrorCode> {
     validate_names(names.iter())
 }
 
-/// A file or folder directly inside the folder an `Entries` reply lists.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct PathEntry {
     #[n(0)]
     pub name: ServerPath,
-    /// A folder, or a link to one.
     #[n(1)]
     pub is_directory: bool,
 }
 
-/// `Entries` names: each one path component, within the listing limits.
 pub fn validate_path_entries(entries: &[PathEntry]) -> Result<(), ErrorCode> {
     validate_names(entries.iter().map(|entry| &entry.name))
 }

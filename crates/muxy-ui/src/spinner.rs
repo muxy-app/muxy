@@ -1,6 +1,3 @@
-//! Indeterminate progress drawn by Core Animation. The turning arc is a layer
-//! animation, so it costs the app no frames.
-
 use std::cell::Cell;
 use std::ptr;
 

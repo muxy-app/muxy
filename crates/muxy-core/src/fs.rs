@@ -1,5 +1,3 @@
-//! Durable whole-file replacement.
-
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -7,13 +5,9 @@ use std::path::Path;
 
 use crate::files;
 
-/// An atomic write that failed, and whether `path` already holds the new
-/// content.
 #[derive(Debug)]
 pub struct WriteError {
     pub error: io::Error,
-    /// The new file replaced the old one, but syncing its folder failed, so
-    /// the replacement may not survive a crash.
     pub renamed: bool,
 }
 
@@ -44,14 +38,10 @@ impl std::error::Error for WriteError {
     }
 }
 
-/// Replaces `path` with `bytes`, created with `mode`, so readers and crashes
-/// see either the old file or the new one. Windows has no modes, so there the
-/// file inherits its folder's permissions.
 pub fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> Result<(), WriteError> {
     write_atomic_with(path, mode, |file| file.write_all(bytes))
 }
 
-/// Like [`write_atomic`], with `write` filling the new file.
 pub fn write_atomic_with(
     path: &Path,
     mode: u32,
@@ -89,7 +79,6 @@ fn replace(
     })
 }
 
-/// Makes a rename or removal in `path`'s folder durable.
 pub fn sync_parent(path: &Path) -> io::Result<()> {
     let directory = parent(path)?;
     if !fs::metadata(directory)?.is_dir() {

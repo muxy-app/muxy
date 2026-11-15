@@ -246,7 +246,6 @@ fn manifest_paths_are_checked_once_each() {
     native_archive(&path, &["themes".into()], &["themes/a/b".into()]);
     assert_eq!(archive::read(&path).unwrap().0.len(), 1);
 
-    // A name listed again is the same name, as it always was.
     let repeated = vec!["settings.toml".to_owned(); 3];
     native_archive(&path, &repeated, &["settings.toml".into()]);
     assert_eq!(archive::read(&path).unwrap().0.len(), 1);
@@ -256,8 +255,6 @@ fn manifest_paths_are_checked_once_each() {
 fn manifests_listing_too_many_paths_are_refused() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("backup.muxy");
-    // One name, listed past the limit: without the limit, the names would
-    // collapse to one and the archive would be valid.
     let listed = vec!["themes/0".to_owned(); 9000];
     native_archive(&path, &listed, &["themes/0".into()]);
     assert!(archive::read(&path).is_err());
@@ -586,7 +583,6 @@ fn legacy_package(folder: &Path, name: &str) {
     .unwrap();
 }
 
-/// Muxy 1 ran only on macOS, so only Unix has its data to migrate.
 #[cfg(unix)]
 #[test]
 fn installed_one_x_is_imported_once_into_a_new_profile_and_later_imports_merge() {

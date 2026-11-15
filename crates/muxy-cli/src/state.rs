@@ -43,7 +43,6 @@ pub(crate) struct Tab {
     pub focus: PaneId,
     pub zoom: bool,
     pub panes: BTreeMap<PaneId, Pane>,
-    /// A name given in place of the terminal's title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 }
@@ -250,7 +249,6 @@ impl State {
         Ok(())
     }
 
-    /// Closes every pane of the current project's tab that holds `pane`.
     pub(crate) fn close_tab(&mut self, pane: PaneId) -> Result {
         let index = self.tab_index(pane)?;
         let project = self
@@ -265,7 +263,6 @@ impl State {
         Ok(())
     }
 
-    /// Moves the tab holding `pane` one place earlier or later.
     pub(crate) fn move_tab(&mut self, pane: PaneId, forward: bool) -> Result {
         let index = self.tab_index(pane)?;
         let project = self
@@ -290,7 +287,6 @@ impl State {
         Ok(())
     }
 
-    /// Names the tab holding `pane`; no name shows its terminal's title.
     pub(crate) fn rename_tab(&mut self, pane: PaneId, title: Option<String>) -> Result {
         let index = self.tab_index(pane)?;
         let title = title
@@ -333,8 +329,6 @@ impl State {
             .collect()
     }
 
-    /// Removes the panes that show `sessions`, which have ended. Their saved
-    /// output stays on the server, so nothing is discarded.
     pub(crate) fn close_sessions(&mut self, sessions: &BTreeSet<SessionId>) {
         for project in self.projects.values_mut() {
             for index in (0..project.tabs.len()).rev() {
@@ -401,9 +395,6 @@ impl State {
             .map_err(|error| error.to_string())
     }
 
-    /// Sets the split that divides `first` from `second`, as a mouse drag
-    /// does. Naming panes instead of a path keeps it right if another
-    /// instance changed the layout meanwhile.
     pub(crate) fn set_ratio(&mut self, first: PaneId, second: PaneId, ratio: f32) -> Result {
         let tab = self.tab_mut().ok_or("No pane to resize")?;
         let path = split_between(&tab.layout, first, second, &mut Vec::new())
@@ -479,7 +470,6 @@ impl State {
 }
 
 impl Tab {
-    /// Removes `id` and hands its focus to the pane beside it.
     fn remove_pane(&mut self, id: PaneId) -> Option<Pane> {
         let pane = self.panes.remove(&id)?;
         let neighbor = self.layout.nearest(id);
@@ -575,8 +565,6 @@ impl Store {
             Ok(())
         }
     }
-    /// Loads the layout kept in `directory`, creating the folder, private to
-    /// this user, if it is missing.
     pub(crate) fn load(directory: &Path, catalog: &CatalogPage) -> Result<Self> {
         muxy_core::files::private_dir(directory)
             .map_err(|error| format!("Cannot create {}: {error}", directory.display()))?;
@@ -634,8 +622,6 @@ impl Store {
         next.validate()?;
         if next != self.state || !self.path.exists() {
             if let Err(error) = persist(&self.path, &next) {
-                // A directory sync can fail after rename. Restore the old document
-                // before allowing any further mutation or server-side effect.
                 if persist(&self.path, &self.state).is_err() {
                     self.blocked = true;
                 }

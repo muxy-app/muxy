@@ -94,8 +94,6 @@ impl ScreenCaptureSource for MacScreenCaptureSource {
             let configuration: id = msg_send![configuration, init];
             let _: id = msg_send![configuration, setScalesToFit: true];
             let _: id = msg_send![configuration, setPixelFormat: 0x42475241];
-            // let _: id = msg_send![configuration, setShowsCursor: false];
-            // let _: id = msg_send![configuration, setCaptureResolution: 3];
             let delegate: id = msg_send![delegate, init];
             let output: id = msg_send![output, init];
 
@@ -187,7 +185,6 @@ impl Drop for MacScreenCaptureStream {
 #[derive(Clone)]
 struct ScreenMeta {
     label: SharedString,
-    // Is this the screen with menu bar?
     is_main: bool,
 }
 

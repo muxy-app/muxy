@@ -36,8 +36,6 @@ pub fn validate_input(input: &[u8]) -> Result<(), ErrorCode> {
 
 pub const MAX_PATH: usize = 4096;
 
-/// Paths read from a peer. Lenient, so older peers keep working: only an
-/// empty path is rejected.
 pub fn validate_path(path: &ServerPath) -> Result<(), ErrorCode> {
     if path.0.is_empty() {
         Err(ErrorCode::BadPath)
@@ -46,8 +44,6 @@ pub fn validate_path(path: &ServerPath) -> Result<(), ErrorCode> {
     }
 }
 
-/// A place on the server: absolute on a Unix or a Windows server, without
-/// NUL, at most `MAX_PATH` bytes.
 pub fn validate_absolute_path(path: &ServerPath) -> Result<(), ErrorCode> {
     if path.is_absolute() && bounded(path) {
         Ok(())
@@ -56,8 +52,6 @@ pub fn validate_absolute_path(path: &ServerPath) -> Result<(), ErrorCode> {
     }
 }
 
-/// A place inside a folder the request names: relative, without NUL, at most
-/// `MAX_PATH` bytes. Empty names the folder itself.
 pub fn validate_relative_path(path: &ServerPath) -> Result<(), ErrorCode> {
     if !path.0.starts_with(b"/") && bounded(path) {
         Ok(())
@@ -70,8 +64,6 @@ fn bounded(path: &ServerPath) -> bool {
     path.0.len() <= MAX_PATH && !path.0.contains(&0)
 }
 
-/// Variables a program starts with: at most 128, with names a process can
-/// hold, in 64 KiB together.
 pub fn validate_environment(
     environment: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), ErrorCode> {
@@ -487,7 +479,6 @@ fn validate_history(
     }
 }
 
-/// Images a history page places on its own rows; each placement must cover at least one of them.
 fn validate_page_graphics(graphics: &crate::Graphics, rows: usize) -> Result<(), ErrorCode> {
     graphics.validate()?;
     let rows = i64::try_from(rows).map_err(|_| ErrorCode::BadRequest)?;

@@ -7,7 +7,6 @@ use serde_json::{Map, Value};
 use super::{ImportReport, Result, ServerSettings, settings_source};
 use crate::settings::{CustomCommand, KeyChord, Keymap, Settings};
 
-/// Legacy custom-command records read; Muxy keeps at most 256 commands.
 const MAX_LEGACY_COMMANDS: usize = 1024;
 
 const MAPPINGS: &[(&str, &[&str])] = &[
@@ -208,8 +207,6 @@ fn chord(value: &Value) -> Result<KeyChord> {
         .parse()?)
 }
 
-/// 1.x defaults that 2.x swapped: 1.x closed a tab with ⌘W and a pane with
-/// ⇧⌘W. A binding still on one of them takes the 2.x default instead.
 const SWAPPED_DEFAULTS: [(&str, u64); 2] = [
     ("closeTab", keys::COMMAND),
     ("closePane", keys::COMMAND | keys::SHIFT),
@@ -303,9 +300,6 @@ fn import_commands(
     Ok(())
 }
 
-/// Adds one legacy command, or leaves `settings` unchanged. The record is
-/// checked before anything is copied, and only the command list and keymap are
-/// copied, so a large setting elsewhere doesn't make each record expensive.
 fn import_command(value: &Value, prefix: bool, settings: &mut Settings) -> Result<()> {
     let command = CustomCommand {
         id: value["id"]
@@ -377,9 +371,6 @@ pub fn merge_legacy_files(
     Ok(serde_json::to_vec(&values)?)
 }
 
-/// 1.x terminals ran `command` from `ghostty.conf`; 2.x runs the server's
-/// default shell. A shell already chosen for this server wins. Returns the
-/// new `server.toml` when the shell changes.
 pub fn import_shell(
     ghostty: &str,
     server: Option<&str>,
@@ -421,7 +412,6 @@ fn is_executable(path: &Path) -> bool {
             .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
-/// A terminal starts only a program file, not a script such as `.cmd` or `.ps1`.
 #[cfg(windows)]
 fn is_executable(path: &Path) -> bool {
     path.is_absolute()

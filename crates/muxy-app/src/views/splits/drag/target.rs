@@ -4,7 +4,6 @@ use muxy_app_core::{Direction, Layout, PaneId};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum DropTarget {
     Swap(PaneId),
-    /// Beside `pane`, or beside the enclosing row or column `level` picks.
     Dock {
         pane: PaneId,
         edge: Direction,
@@ -28,10 +27,8 @@ const EDGES: [Direction; 4] = [
     Direction::Down,
 ];
 
-/// Share of a pane, from each edge, that docks instead of swapping.
 const EDGE_ZONE: f32 = 0.3;
 
-/// Widest band each enclosing row or column gets, nearest the shared edge.
 const BAND: Pixels = px(16.0);
 
 fn distances(position: Point<Pixels>, bounds: Bounds<Pixels>) -> [Pixels; 4] {
@@ -70,8 +67,6 @@ pub(crate) fn target_at(
         bounds.size.height * EDGE_ZONE,
         bounds.size.height * EDGE_ZONE,
     ];
-    // Where edge zones overlap, the outermost row or column wins, so outer
-    // edges and the gaps between columns stay reliable where dividers cross.
     let target = (0..4)
         .filter(|&index| distance[index] < zones[index])
         .filter_map(|index| {
@@ -92,9 +87,6 @@ pub(crate) fn target_at(
     Some(target.map_or(DropTarget::Swap(pane), |(target, ..)| target))
 }
 
-/// The drop level `distance` into an edge zone picks: bands for enclosing
-/// rows and columns sit nearest the edge, outermost first, and the pane itself
-/// takes the rest of the zone.
 fn level_at(levels: usize, distance: Pixels, zone: Pixels) -> usize {
     let band = BAND.min(zone / f32::from(u8::try_from(levels).unwrap_or(u8::MAX)));
     let mut level = levels.saturating_sub(1);
@@ -106,7 +98,6 @@ fn level_at(levels: usize, distance: Pixels, zone: Pixels) -> usize {
     level
 }
 
-/// The pane under `position`; divider gaps belong to the nearer side.
 fn pane_at(
     mut node: &Layout,
     mut bounds: Bounds<Pixels>,

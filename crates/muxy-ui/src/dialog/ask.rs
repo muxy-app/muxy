@@ -1,5 +1,3 @@
-//! Asking the user a question and waiting for the answer.
-
 use std::io;
 
 use gpui::{AnyWindowHandle, AsyncApp};
@@ -8,7 +6,6 @@ use super::{DialogOptions, PromptChoices, PromptResponse};
 use crate::controls::Style;
 use crate::theme::{Metrics, Theme};
 
-/// The window [`ask`] shows a question on, and the look the question takes.
 #[derive(Clone)]
 pub struct Parent {
     pub window: AnyWindowHandle,
@@ -41,19 +38,14 @@ impl Parent {
     }
 }
 
-/// A question for [`ask`], answered by confirming or declining.
 #[derive(Clone, Copy, Debug)]
 pub enum Question<'a> {
-    /// A warning answered with `confirm` or Cancel, with an optional checkbox
-    /// that starts unchecked.
     Confirm {
         title: &'a str,
         message: &'a str,
         confirm: &'a str,
         checkbox: Option<&'a str>,
     },
-    /// A choice between `confirm` and `decline`, with a checkbox that starts
-    /// unchecked.
     Choose {
         title: &'a str,
         message: &'a str,
@@ -61,7 +53,6 @@ pub enum Question<'a> {
         decline: &'a str,
         checkbox: &'a str,
     },
-    /// A confirmation that also takes typed instructions and `choices`.
     Prompt {
         title: &'a str,
         message: &'a str,
@@ -71,14 +62,11 @@ pub enum Question<'a> {
 }
 
 impl PromptResponse {
-    /// Whether the first checkbox was ticked.
     pub fn ticked(&self) -> bool {
         self.checked.first() == Some(&true)
     }
 }
 
-/// Shows `question` on `parent` and waits for the answer: `None` when it was
-/// declined or dismissed.
 pub async fn ask(
     parent: &Parent,
     question: Question<'_>,
@@ -173,8 +161,6 @@ pub async fn ask(
     Ok(receiver.recv().await.ok().flatten())
 }
 
-/// Shows `message` on `parent` with `buttons` and waits for the index of the
-/// button chosen: `None` when it was dismissed.
 pub async fn choose(
     parent: &Parent,
     title: &str,
@@ -218,15 +204,11 @@ struct Simulated;
 #[cfg(any(test, feature = "test-support"))]
 impl gpui::Global for Simulated {}
 
-/// Sends every later [`ask`] and [`choose`] through `Window::prompt`, so a
-/// test answers it with `simulate_prompt_answer`: a button's label, or
-/// [`ticked_label`] to confirm with the checkbox ticked.
 #[cfg(any(test, feature = "test-support"))]
 pub fn simulate(cx: &mut gpui::App) {
     cx.set_global(Simulated);
 }
 
-/// The simulated answer that confirms with the checkbox ticked.
 #[cfg(any(test, feature = "test-support"))]
 pub fn ticked_label(confirm: &str, checkbox: &str) -> String {
     format!("{confirm} + {checkbox}")

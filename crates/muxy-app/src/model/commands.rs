@@ -74,8 +74,6 @@ impl AppModel {
         }
     }
 
-    /// Opens a terminal tab running `command`. Answers `None` when the tab
-    /// could not be saved, which the save already reported.
     pub(crate) fn launch_custom_command(
         &mut self,
         command: &muxy_app_core::settings::CustomCommand,

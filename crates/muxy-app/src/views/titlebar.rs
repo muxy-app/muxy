@@ -170,7 +170,6 @@ pub(crate) fn begin_window_move(
     start_window_move(window);
 }
 
-/// The test platform has no window to move.
 #[cfg(not(target_os = "macos"))]
 fn start_window_move(window: &Window) {
     #[cfg(not(test))]
@@ -179,10 +178,6 @@ fn start_window_move(window: &Window) {
     let _ = window;
 }
 
-/// Empty titlebar space, which moves the window. On Windows, Windows itself
-/// moves it, maximizes it on a double click, and offers its menu. It does
-/// so only for a press no element handled, so the space occludes the
-/// focusable views behind it, which would otherwise take the press.
 #[cfg(windows)]
 pub(crate) fn background(id: &'static str) -> Stateful<Div> {
     div()
@@ -199,8 +194,6 @@ pub(crate) fn background(id: &'static str) -> Stateful<Div> {
     })
 }
 
-/// Empty space that behaves like the titlebar's, with `begin_move` called for
-/// a single press.
 pub(crate) fn background_with(
     id: &'static str,
     begin_move: impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static,
@@ -371,8 +364,6 @@ fn sidebar_toggle(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
         )
 }
 
-/// Where the macOS traffic lights sit: centered in the title bar, on the
-/// nearest device pixel.
 pub(crate) fn traffic_light_position(metrics: Metrics, scale_factor: f32) -> Point<Pixels> {
     const INSET: f32 = 9.0;
     let growth = metrics.title_bar_height() - Metrics::new(1.0).title_bar_height();

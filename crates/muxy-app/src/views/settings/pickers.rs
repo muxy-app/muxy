@@ -49,7 +49,6 @@ pub(crate) enum PickerKind {
 }
 
 impl PickerKind {
-    /// What a theme picker changes, and for which appearance.
     pub(super) fn theme(self) -> Option<(crate::views::theme_picker::ThemeTarget, bool)> {
         use crate::views::theme_picker::ThemeTarget;
         match self {

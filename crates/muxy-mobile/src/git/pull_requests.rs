@@ -1,23 +1,21 @@
-//! Pull requests on GitHub, which the computer reaches with its `gh` command.
-
 use super::GitRepository;
 use super::records::{GitMergeMethod, GitPullRequest, GitPullRequestFilter, GitRawDiff, collect};
 use crate::MobileError;
 
 #[uniffi::export]
 impl GitRepository {
-    /// The current branch's open pull request, including drafts, if any.
+    #[doc = " The current branch's open pull request, including drafts, if any."]
     pub fn pull_request(&self) -> Result<Option<GitPullRequest>, MobileError> {
         Ok(self.client.git_pull_request(self.project)?.map(Into::into))
     }
 
-    /// Only the current branch's open pull request number, which is quicker to find.
+    #[doc = " Only the current branch's open pull request number, which is quicker to find."]
     pub fn pull_request_number(&self) -> Result<Option<u64>, MobileError> {
         Ok(self.client.git_pull_request_number(self.project)?)
     }
 
-    /// Up to `limit` pull requests, at most 200. `checks` also reads their CI
-    /// results, which takes longer.
+    #[doc = " Up to `limit` pull requests, at most 200. `checks` also reads their CI"]
+    #[doc = " results, which takes longer."]
     pub fn pull_requests(
         &self,
         filter: GitPullRequestFilter,
@@ -43,8 +41,8 @@ impl GitRepository {
             .into())
     }
 
-    /// Opens a pull request for the current branch, against the repository's
-    /// default branch when `base_branch` is `None`.
+    #[doc = " Opens a pull request for the current branch, against the repository's"]
+    #[doc = " default branch when `base_branch` is `None`."]
     pub fn create_pull_request(
         &self,
         title: String,
@@ -58,7 +56,7 @@ impl GitRepository {
             .into())
     }
 
-    /// Refuses the merge when the pull request's head moved past `expected_head`.
+    #[doc = " Refuses the merge when the pull request's head moved past `expected_head`."]
     pub fn merge_pull_request(
         &self,
         number: u64,
@@ -79,15 +77,15 @@ impl GitRepository {
         Ok(self.client.git_close_pull_request(self.project, number)?)
     }
 
-    /// Switches this project to the pull request's branch.
+    #[doc = " Switches this project to the pull request's branch."]
     pub fn checkout_pull_request(&self, number: u64) -> Result<(), MobileError> {
         Ok(self
             .client
             .git_checkout_pull_request(self.project, number)?)
     }
 
-    /// Merges the base branch into the checked-out pull request branch and
-    /// pushes it, if the pull request's head is still `expected_head`.
+    #[doc = " Merges the base branch into the checked-out pull request branch and"]
+    #[doc = " pushes it, if the pull request's head is still `expected_head`."]
     pub fn update_pull_request_branch(
         &self,
         number: u64,

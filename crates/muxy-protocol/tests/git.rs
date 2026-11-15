@@ -139,7 +139,6 @@ fn file_paths_stay_inside_the_repository_and_worktree_folders_are_absolute() {
 #[test]
 fn diffs_from_builds_before_the_binary_flag_read_as_text() -> Result<(), Box<dyn std::error::Error>>
 {
-    // [rows, additions, deletions, truncated], as written before the flag existed.
     let mut older = Vec::new();
     minicbor::Encoder::new(&mut older)
         .array(4)?

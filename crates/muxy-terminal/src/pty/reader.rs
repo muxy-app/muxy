@@ -5,8 +5,6 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 
 const READ_BUFFER_SIZE: usize = 64 * 1024;
-/// Output read but not yet consumed. Past this the reader stops reading, so the
-/// kernel buffer fills and the program blocks, as it would in any terminal.
 const MAX_UNCONSUMED_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug)]
@@ -15,7 +13,6 @@ pub enum PtyEvent {
     Closed,
 }
 
-/// Bytes read from the PTY. Dropping them lets the reader read more.
 #[derive(Debug)]
 pub struct PtyOutput {
     bytes: Vec<u8>,
@@ -134,7 +131,6 @@ mod tests {
             unconsumed += output.len();
             held.push(output);
         }
-        // Give a reader that ignored the budget time to send more.
         thread::sleep(Duration::from_millis(200));
         for event in receiver.try_iter() {
             if let PtyEvent::Output(output) = event {

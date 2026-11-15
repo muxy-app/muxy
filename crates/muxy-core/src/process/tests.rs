@@ -24,7 +24,6 @@ fn printed_pid(output: &Output) -> Pid {
     Pid::from_raw(text.trim().parse().unwrap()).unwrap()
 }
 
-/// An orphan stays a zombie until the system reaps it, so give that a moment.
 fn gone(pid: Pid) -> bool {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {

@@ -1,4 +1,3 @@
-//! Presentation derived from server activity; no independent history or read state.
 use muxy_protocol::{ActivityKind, ActivitySnapshot, AgentState, SessionId};
 
 pub fn effective_progress(

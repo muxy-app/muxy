@@ -156,20 +156,14 @@ impl Render for Shadow {
                     .w_full()
                     .children(vec![
                         example("None", Shadow::base()),
-                        // 2Xsmall shadow
                         example("2X Small", Shadow::base().shadow_2xs()),
-                        // Xsmall shadow
                         example("Extra Small", Shadow::base().shadow_xs()),
-                        // Small shadow
                         example("Small", Shadow::base().shadow_sm()),
-                        // Medium shadow
                         example("Medium", Shadow::base().shadow_md()),
-                        // Large shadow
                         example("Large", Shadow::base().shadow_lg()),
                         example("Extra Large", Shadow::base().shadow_xl()),
                         example("2X Large", Shadow::base().shadow_2xl()),
                     ]),
-                // Horizontal list of increasing blur radii
                 div()
                     .border_b_1()
                     .border_color(hsla(0.0, 0.0, 0.0, 1.0))
@@ -221,7 +215,6 @@ impl Render for Shadow {
                             }]),
                         ),
                     ]),
-                // Horizontal list of increasing spread radii
                 div()
                     .border_b_1()
                     .border_color(hsla(0.0, 0.0, 0.0, 1.0))
@@ -273,7 +266,6 @@ impl Render for Shadow {
                             }]),
                         ),
                     ]),
-                // Square spread examples
                 div()
                     .border_b_1()
                     .border_color(hsla(0.0, 0.0, 0.0, 1.0))
@@ -307,7 +299,6 @@ impl Render for Shadow {
                             }]),
                         ),
                     ]),
-                // Rounded large spread examples
                 div()
                     .border_b_1()
                     .border_color(hsla(0.0, 0.0, 0.0, 1.0))
@@ -341,7 +332,6 @@ impl Render for Shadow {
                             }]),
                         ),
                     ]),
-                // Directional shadows
                 div()
                     .border_b_1()
                     .border_color(hsla(0.0, 0.0, 0.0, 1.0))
@@ -384,7 +374,6 @@ impl Render for Shadow {
                             }]),
                         ),
                     ]),
-                // Square directional shadows
                 div()
                     .border_b_1()
                     .border_color(hsla(0.0, 0.0, 0.0, 1.0))
@@ -427,7 +416,6 @@ impl Render for Shadow {
                             }]),
                         ),
                     ]),
-                // Rounded large directional shadows
                 div()
                     .border_b_1()
                     .border_color(hsla(0.0, 0.0, 0.0, 1.0))
@@ -470,7 +458,6 @@ impl Render for Shadow {
                             }]),
                         ),
                     ]),
-                // Multiple shadows for different shapes
                 div()
                     .border_b_1()
                     .border_color(hsla(0.0, 0.0, 0.0, 1.0))
@@ -480,25 +467,25 @@ impl Render for Shadow {
                             "Circle Multiple",
                             Shadow::base().shadow(vec![
                                 BoxShadow {
-                                    color: hsla(0.0 / 360., 1.0, 0.5, 0.3), // Red
+                                    color: hsla(0.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(0.), px(-12.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
                                 },
                                 BoxShadow {
-                                    color: hsla(60.0 / 360., 1.0, 0.5, 0.3), // Yellow
+                                    color: hsla(60.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(12.), px(0.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
                                 },
                                 BoxShadow {
-                                    color: hsla(120.0 / 360., 1.0, 0.5, 0.3), // Green
+                                    color: hsla(120.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(0.), px(12.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
                                 },
                                 BoxShadow {
-                                    color: hsla(240.0 / 360., 1.0, 0.5, 0.3), // Blue
+                                    color: hsla(240.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(-12.), px(0.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
@@ -509,25 +496,25 @@ impl Render for Shadow {
                             "Square Multiple",
                             Shadow::square().shadow(vec![
                                 BoxShadow {
-                                    color: hsla(0.0 / 360., 1.0, 0.5, 0.3), // Red
+                                    color: hsla(0.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(0.), px(-12.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
                                 },
                                 BoxShadow {
-                                    color: hsla(60.0 / 360., 1.0, 0.5, 0.3), // Yellow
+                                    color: hsla(60.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(12.), px(0.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
                                 },
                                 BoxShadow {
-                                    color: hsla(120.0 / 360., 1.0, 0.5, 0.3), // Green
+                                    color: hsla(120.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(0.), px(12.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
                                 },
                                 BoxShadow {
-                                    color: hsla(240.0 / 360., 1.0, 0.5, 0.3), // Blue
+                                    color: hsla(240.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(-12.), px(0.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
@@ -538,25 +525,25 @@ impl Render for Shadow {
                             "Rounded Large Multiple",
                             Shadow::rounded_large().shadow(vec![
                                 BoxShadow {
-                                    color: hsla(0.0 / 360., 1.0, 0.5, 0.3), // Red
+                                    color: hsla(0.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(0.), px(-12.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
                                 },
                                 BoxShadow {
-                                    color: hsla(60.0 / 360., 1.0, 0.5, 0.3), // Yellow
+                                    color: hsla(60.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(12.), px(0.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
                                 },
                                 BoxShadow {
-                                    color: hsla(120.0 / 360., 1.0, 0.5, 0.3), // Green
+                                    color: hsla(120.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(0.), px(12.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),
                                 },
                                 BoxShadow {
-                                    color: hsla(240.0 / 360., 1.0, 0.5, 0.3), // Blue
+                                    color: hsla(240.0 / 360., 1.0, 0.5, 0.3),
                                     offset: point(px(-12.), px(0.)),
                                     blur_radius: px(8.),
                                     spread_radius: px(2.),

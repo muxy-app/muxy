@@ -28,12 +28,10 @@ impl ServerStatus {
 }
 
 impl AppModel {
-    /// The server of the project on screen, which the status bar shows.
     pub(crate) fn status_server(&self) -> ServerId {
         self.state.current_project().server_id
     }
 
-    /// A server's name: settings name another computer's.
     pub(crate) fn server_label(&self, server: ServerId) -> String {
         match self.server_name(server) {
             Some(name) if !server.is_local() => name.to_owned(),
@@ -54,8 +52,6 @@ impl AppModel {
         self.server_actions_enabled(server) && self.ready(server)
     }
 
-    /// A paired computer's server can be stopped from here but not started
-    /// again, so it can't be restarted.
     pub(crate) fn restartable(&self, server: ServerId) -> bool {
         self.settings
             .server(server)

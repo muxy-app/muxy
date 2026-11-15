@@ -7,19 +7,13 @@ use muxy_protocol::{CONTROL, ChannelId, Graphics, Message, MetadataEvent, Screen
 use super::merge::merge;
 use super::state::ImageDelivery;
 
-/// What a connection has yet to write. Control messages go first, folded by
-/// their coalesce key; then each channel's metadata; then each channel's
-/// merged frame, once the client acknowledged the one before it.
 #[derive(Debug, Default)]
 pub(super) struct Outbox {
     control: VecDeque<Message>,
     metadata: HashMap<ChannelId, Vec<MetadataEvent>>,
     frames: HashMap<ChannelId, ScreenFrame>,
-    /// Whether each open channel may send its next frame.
     credit: HashMap<ChannelId, bool>,
     sent: HashMap<ChannelId, u64>,
-    /// The image frames, by image and key, whose pixels each channel was
-    /// sent and still lists.
     pixels: HashMap<ChannelId, BTreeSet<(u32, u64)>>,
 }
 
@@ -59,14 +53,11 @@ impl Outbox {
         true
     }
 
-    /// Replaces whatever frame was waiting, as a resize's frame redraws
-    /// everything. The app forgets its images on a resize, so they go out again.
     pub(super) fn replace_frame(&mut self, channel: ChannelId, frame: ScreenFrame) {
         self.frames.insert(channel, frame);
         self.pixels.remove(&channel);
     }
 
-    /// A newer event of the same kind replaces the waiting one.
     pub(super) fn push_metadata(&mut self, channel: ChannelId, event: MetadataEvent) -> bool {
         if !self.credit.contains_key(&channel) {
             return false;
@@ -83,7 +74,6 @@ impl Outbox {
         true
     }
 
-    /// Whether the acknowledgement gave the channel its credit back.
     pub(super) fn ack(&mut self, channel: ChannelId, seq: u64) -> bool {
         if self.sent.get(&channel) == Some(&seq)
             && let Some(credit) = self.credit.get_mut(&channel)
@@ -124,9 +114,6 @@ impl Outbox {
         Some((channel, Message::Frame(frame)))
     }
 
-    /// Leaves out the pixels `channel` was already sent for the frame each
-    /// image shows, and remembers those it is sent now. Decided as the
-    /// screen goes out, so frames that merge while waiting keep their pixels.
     pub(super) fn send_once(&mut self, channel: ChannelId, graphics: &mut Graphics) {
         let sent = self.pixels.entry(channel).or_default();
         let mut listed = BTreeSet::new();
@@ -153,7 +140,6 @@ impl Outbox {
         self.sent.remove(&channel);
     }
 
-    /// Drops every channel's output; control messages still go out.
     pub(super) fn close_channels(&mut self) {
         self.frames.clear();
         self.pixels.clear();
@@ -397,7 +383,6 @@ mod tests {
         }
     }
 
-    /// The images of the next frame on `channel`, each with whether it carries pixels.
     fn sent_images(outbox: &mut Outbox, channel: ChannelId) -> Vec<(u32, bool)> {
         let Some((sent, Message::Frame(frame))) = outbox.next_channel(ImageDelivery::Stream) else {
             panic!("no frame");

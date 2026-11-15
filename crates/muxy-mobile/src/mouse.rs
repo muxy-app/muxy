@@ -1,5 +1,3 @@
-//! Taps and scrolling for programs that read the mouse, such as editors and pagers.
-
 use muxy_protocol::{MouseAction, MouseEvent};
 
 use crate::keys::Modifiers;
@@ -17,7 +15,6 @@ pub enum ScrollDirection {
     Down,
 }
 
-/// A press and then a release at one cell.
 pub(crate) fn click(
     button: MouseButton,
     row: u16,
@@ -49,7 +46,6 @@ pub(crate) fn click(
     ]
 }
 
-/// One mouse-wheel step at a cell.
 pub(crate) fn scroll(direction: ScrollDirection, row: u16, column: u16) -> MouseEvent {
     MouseEvent {
         action: MouseAction::Scroll,

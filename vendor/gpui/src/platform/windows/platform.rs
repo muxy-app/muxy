@@ -31,7 +31,6 @@ use crate::*;
 pub(crate) struct WindowsPlatform {
     inner: Rc<WindowsPlatformInner>,
     raw_window_handles: Arc<RwLock<SmallVec<[SafeHwnd; 4]>>>,
-    // The below members will never change throughout the entire lifecycle of the app.
     icon: HICON,
     background_executor: BackgroundExecutor,
     foreground_executor: ForegroundExecutor,
@@ -45,7 +44,6 @@ pub(crate) struct WindowsPlatform {
 struct WindowsPlatformInner {
     state: RefCell<WindowsPlatformState>,
     raw_window_handles: std::sync::Weak<RwLock<SmallVec<[SafeHwnd; 4]>>>,
-    // The below members will never change throughout the entire lifecycle of the app.
     validation_number: usize,
     main_receiver: flume::Receiver<Runnable>,
 }
@@ -54,7 +52,6 @@ pub(crate) struct WindowsPlatformState {
     callbacks: PlatformCallbacks,
     menus: Vec<OwnedMenu>,
     jump_list: JumpList,
-    // NOTE: standard cursor handles don't need to close.
     pub(crate) current_cursor: Option<HCURSOR>,
     directx_devices: ManuallyDrop<DirectXDevices>,
 }
@@ -369,12 +366,10 @@ impl Platform for WindowsPlatform {
 
     fn hide(&self) {}
 
-    // todo(windows)
     fn hide_other_apps(&self) {
         unimplemented!()
     }
 
-    // todo(windows)
     fn unhide_other_apps(&self) {
         unimplemented!()
     }
@@ -473,7 +468,6 @@ impl Platform for WindowsPlatform {
     }
 
     fn can_select_mixed_files_and_dirs(&self) -> bool {
-        // The FOS_PICKFOLDERS flag toggles between "only files" and "only folders".
         false
     }
 
@@ -545,7 +539,6 @@ impl Platform for WindowsPlatform {
         Ok(std::env::current_exe()?)
     }
 
-    // todo(windows)
     fn path_for_auxiliary_executable(&self, _name: &str) -> Result<PathBuf> {
         anyhow::bail!("not yet implemented");
     }
@@ -889,9 +882,6 @@ fn open_target_in_explorer(target: &Path) -> Result<()> {
     let highlight = [file_item as *const _];
     unsafe { SHOpenFolderAndSelectItems(dir_item as _, Some(&highlight), 0) }.or_else(|err| {
         if err.code().0 == ERROR_FILE_NOT_FOUND.0 as i32 {
-            // On some systems, the above call mysteriously fails with "file not
-            // found" even though the file is there.  In these cases, ShellExecute()
-            // seems to work as a fallback (although it won't select the file).
             open_target(dir).context("Opening target parent folder")
         } else {
             Err(anyhow::anyhow!("Can not open target path: {}", err))
@@ -923,7 +913,6 @@ fn file_open_dialog(
         }
 
         if folder_dialog.Show(window).is_err() {
-            // User cancelled
             return Ok(None);
         }
     }
@@ -983,7 +972,6 @@ fn file_save_dialog(
             pszSpec: windows::core::w!("*.*"),
         }])?;
         if dialog.Show(window).is_err() {
-            // User cancelled
             return Ok(None);
         }
     }
@@ -1037,8 +1025,6 @@ fn handle_gpu_device_lost(
     all_windows: &std::sync::Weak<RwLock<SmallVec<[SafeHwnd; 4]>>>,
     text_system: &std::sync::Weak<DirectWriteTextSystem>,
 ) {
-    // Here we wait a bit to ensure the system has time to recover from the device lost state.
-    // If we don't wait, the final drawing result will be blank.
     std::thread::sleep(std::time::Duration::from_millis(350));
 
     try_to_recover_from_device_lost(
@@ -1049,9 +1035,6 @@ fn handle_gpu_device_lost(
         |new_devices| *directx_devices = new_devices,
         || {
             log::error!("Failed to recover DirectX devices after multiple attempts.");
-            // Do something here?
-            // At this point, the device loss is considered unrecoverable.
-            // std::process::exit(1);
         },
     );
     log::info!("DirectX devices successfully recreated.");

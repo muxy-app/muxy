@@ -26,7 +26,6 @@ use crate::util::atomic_incr_if_not_zero;
 use collections::HashMap;
 
 slotmap::new_key_type! {
-    /// A unique identifier for a entity across the application.
     pub struct EntityId;
 }
 
@@ -37,12 +36,10 @@ impl From<u64> for EntityId {
 }
 
 impl EntityId {
-    /// Converts this entity id to a [NonZeroU64]
     pub fn as_non_zero_u64(self) -> NonZeroU64 {
         NonZeroU64::new(self.0.as_ffi()).unwrap()
     }
 
-    /// Converts this entity id to a [u64]
     pub fn as_u64(self) -> u64 {
         self.0.as_ffi()
     }
@@ -84,13 +81,11 @@ impl EntityMap {
         }
     }
 
-    /// Reserve a slot for an entity, which you can subsequently use with `insert`.
     pub fn reserve<T: 'static>(&self) -> Slot<T> {
         let id = self.ref_counts.write().counts.insert(1.into());
         Slot(Entity::new(id, Arc::downgrade(&self.ref_counts)))
     }
 
-    /// Insert an entity into a slot obtained by calling `reserve`.
     pub fn insert<T>(&mut self, slot: Slot<T>, entity: T) -> Entity<T>
     where
         T: 'static,
@@ -103,7 +98,6 @@ impl EntityMap {
         handle
     }
 
-    /// Move an entity to the stack.
     #[track_caller]
     pub fn lease<T>(&mut self, pointer: &Entity<T>) -> Lease<T> {
         self.assert_valid_context(pointer);
@@ -122,7 +116,6 @@ impl EntityMap {
         }
     }
 
-    /// Returns an entity after moving it to the stack.
     pub fn end_lease<T>(&mut self, mut lease: Lease<T>) {
         self.entities.insert(lease.id, lease.entity.take().unwrap());
     }
@@ -170,8 +163,6 @@ impl EntityMap {
                     "dropped an entity that was referenced"
                 );
                 accessed_entities.remove(&entity_id);
-                // If the EntityId was allocated with `Context::reserve`,
-                // the entity may not have been inserted.
                 Some((entity_id, self.entities.remove(entity_id)?))
             })
             .collect()
@@ -217,7 +208,6 @@ impl<T> Drop for Lease<T> {
 #[derive(Deref, DerefMut)]
 pub(crate) struct Slot<T>(Entity<T>);
 
-/// A dynamically typed reference to a entity, which can be downcast into a `Entity<T>`.
 pub struct AnyEntity {
     pub(crate) entity_id: EntityId,
     pub(crate) entity_type: TypeId,
@@ -243,17 +233,14 @@ impl AnyEntity {
         }
     }
 
-    /// Returns the id associated with this entity.
     pub fn entity_id(&self) -> EntityId {
         self.entity_id
     }
 
-    /// Returns the [TypeId] associated with this entity.
     pub fn entity_type(&self) -> TypeId {
         self.entity_type
     }
 
-    /// Converts this entity handle into a weak variant, which does not prevent it from being released.
     pub fn downgrade(&self) -> AnyWeakEntity {
         AnyWeakEntity {
             entity_id: self.entity_id,
@@ -262,8 +249,6 @@ impl AnyEntity {
         }
     }
 
-    /// Converts this entity handle into a strongly-typed entity handle of the given type.
-    /// If this entity handle is not of the specified type, returns itself as an error variant.
     pub fn downcast<T: 'static>(self) -> Result<Entity<T>, AnyEntity> {
         if TypeId::of::<T>() == self.entity_type {
             Ok(Entity {
@@ -315,7 +300,6 @@ impl Drop for AnyEntity {
             let prev_count = count.fetch_sub(1, SeqCst);
             assert_ne!(prev_count, 0, "Detected over-release of a entity.");
             if prev_count == 1 {
-                // We were the last reference to this entity, so we can remove it.
                 let mut entity_map = RwLockUpgradableReadGuard::upgrade(entity_map);
                 entity_map.dropped_entity_ids.push(self.entity_id);
             }
@@ -371,8 +355,6 @@ impl std::fmt::Debug for AnyEntity {
     }
 }
 
-/// A strong, well-typed reference to a struct which is managed
-/// by GPUI
 #[derive(Deref, DerefMut)]
 pub struct Entity<T> {
     #[deref]
@@ -394,12 +376,10 @@ impl<T: 'static> Entity<T> {
         }
     }
 
-    /// Get the entity ID associated with this entity
     pub fn entity_id(&self) -> EntityId {
         self.any_entity.entity_id
     }
 
-    /// Downgrade this entity pointer to a non-retaining weak pointer
     pub fn downgrade(&self) -> WeakEntity<T> {
         WeakEntity {
             any_entity: self.any_entity.downgrade(),
@@ -407,17 +387,14 @@ impl<T: 'static> Entity<T> {
         }
     }
 
-    /// Convert this into a dynamically typed entity.
     pub fn into_any(self) -> AnyEntity {
         self.any_entity
     }
 
-    /// Grab a reference to this entity from the context.
     pub fn read<'a>(&self, cx: &'a App) -> &'a T {
         cx.entities.read(self)
     }
 
-    /// Read the entity referenced by this handle with the given function.
     pub fn read_with<R, C: AppContext>(
         &self,
         cx: &C,
@@ -426,7 +403,6 @@ impl<T: 'static> Entity<T> {
         cx.read_entity(self, f)
     }
 
-    /// Updates the entity referenced by this handle with the given function.
     pub fn update<R, C: AppContext>(
         &self,
         cx: &mut C,
@@ -435,12 +411,10 @@ impl<T: 'static> Entity<T> {
         cx.update_entity(self, update)
     }
 
-    /// Updates the entity referenced by this handle with the given function.
     pub fn as_mut<'a, C: AppContext>(&self, cx: &'a mut C) -> C::Result<GpuiBorrow<'a, T>> {
         cx.as_mut(self)
     }
 
-    /// Updates the entity referenced by this handle with the given function.
     pub fn write<C: AppContext>(&self, cx: &mut C, value: T) -> C::Result<()> {
         self.update(cx, |entity, cx| {
             *entity = value;
@@ -448,9 +422,6 @@ impl<T: 'static> Entity<T> {
         })
     }
 
-    /// Updates the entity referenced by this handle with the given function if
-    /// the referenced entity still exists, within a visual context that has a window.
-    /// Returns an error if the entity has been released.
     pub fn update_in<R, C: VisualContext>(
         &self,
         cx: &mut C,
@@ -510,7 +481,6 @@ impl<T: 'static> PartialOrd for Entity<T> {
     }
 }
 
-/// A type erased, weak reference to a entity.
 #[derive(Clone)]
 pub struct AnyWeakEntity {
     pub(crate) entity_id: EntityId,
@@ -519,12 +489,10 @@ pub struct AnyWeakEntity {
 }
 
 impl AnyWeakEntity {
-    /// Get the entity ID associated with this weak reference.
     pub fn entity_id(&self) -> EntityId {
         self.entity_id
     }
 
-    /// Check if this weak handle can be upgraded, or if the entity has already been dropped
     pub fn is_upgradable(&self) -> bool {
         let ref_count = self
             .entity_ref_counts
@@ -534,14 +502,12 @@ impl AnyWeakEntity {
         ref_count > 0
     }
 
-    /// Upgrade this weak entity reference to a strong reference.
     pub fn upgrade(&self) -> Option<AnyEntity> {
         let ref_counts = &self.entity_ref_counts.upgrade()?;
         let ref_counts = ref_counts.read();
         let ref_count = ref_counts.counts.get(self.entity_id)?;
 
         if atomic_incr_if_not_zero(ref_count) == 0 {
-            // entity_id is in dropped_entity_ids
             return None;
         }
         drop(ref_counts);
@@ -561,7 +527,6 @@ impl AnyWeakEntity {
         })
     }
 
-    /// Assert that entity referenced by this weak handle has been released.
     #[cfg(any(test, feature = "leak-detection"))]
     pub fn assert_released(&self) {
         self.entity_ref_counts
@@ -583,24 +548,11 @@ impl AnyWeakEntity {
         }
     }
 
-    /// Creates a weak entity that can never be upgraded.
     pub fn new_invalid() -> Self {
-        /// To hold the invariant that all ids are unique, and considering that slotmap
-        /// increases their IDs from `0`, we can decrease ours from `u64::MAX` so these
-        /// two will never conflict (u64 is way too large).
         static UNIQUE_NON_CONFLICTING_ID_GENERATOR: AtomicU64 = AtomicU64::new(u64::MAX);
         let entity_id = UNIQUE_NON_CONFLICTING_ID_GENERATOR.fetch_sub(1, SeqCst);
 
         Self {
-            // Safety:
-            //   Docs say this is safe but can be unspecified if slotmap changes the representation
-            //   after `1.0.7`, that said, providing a valid entity_id here is not necessary as long
-            //   as we guarantee that `entity_id` is never used if `entity_ref_counts` equals
-            //   to `Weak::new()` (that is, it's unable to upgrade), that is the invariant that
-            //   actually needs to be hold true.
-            //
-            //   And there is no sane reason to read an entity slot if `entity_ref_counts` can't be
-            //   read in the first place, so we're good!
             entity_id: entity_id.into(),
             entity_type: TypeId::of::<()>(),
             entity_ref_counts: Weak::new(),
@@ -649,7 +601,6 @@ impl PartialOrd for AnyWeakEntity {
     }
 }
 
-/// A weak reference to a entity of the given type.
 #[derive(Deref, DerefMut)]
 pub struct WeakEntity<T> {
     #[deref]
@@ -677,7 +628,6 @@ impl<T> Clone for WeakEntity<T> {
 }
 
 impl<T: 'static> WeakEntity<T> {
-    /// Upgrade this weak entity reference into a strong entity reference
     pub fn upgrade(&self) -> Option<Entity<T>> {
         Some(Entity {
             any_entity: self.any_entity.upgrade()?,
@@ -685,9 +635,6 @@ impl<T: 'static> WeakEntity<T> {
         })
     }
 
-    /// Updates the entity referenced by this handle with the given function if
-    /// the referenced entity still exists. Returns an error if the entity has
-    /// been released.
     pub fn update<C, R>(
         &self,
         cx: &mut C,
@@ -704,9 +651,6 @@ impl<T: 'static> WeakEntity<T> {
         )
     }
 
-    /// Updates the entity referenced by this handle with the given function if
-    /// the referenced entity still exists, within a visual context that has a window.
-    /// Returns an error if the entity has been released.
     pub fn update_in<C, R>(
         &self,
         cx: &mut C,
@@ -724,9 +668,6 @@ impl<T: 'static> WeakEntity<T> {
         }))
     }
 
-    /// Reads the entity referenced by this handle with the given function if
-    /// the referenced entity still exists. Returns an error if the entity has
-    /// been released.
     pub fn read_with<C, R>(&self, cx: &C, read: impl FnOnce(&T, &App) -> R) -> Result<R>
     where
         C: AppContext,
@@ -739,7 +680,6 @@ impl<T: 'static> WeakEntity<T> {
         )
     }
 
-    /// Create a new weak entity that can never be upgraded.
     pub fn new_invalid() -> Self {
         Self {
             any_entity: AnyWeakEntity::new_invalid(),
@@ -787,7 +727,7 @@ static LEAK_BACKTRACE: std::sync::LazyLock<bool> =
 #[cfg(any(test, feature = "leak-detection"))]
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
 pub(crate) struct HandleId {
-    id: u64, // id of the handle itself, not the pointed at object
+    id: u64,
 }
 
 #[cfg(any(test, feature = "leak-detection"))]
@@ -841,7 +781,6 @@ mod test {
 
     #[test]
     fn test_entity_map_slot_assignment_before_cleanup() {
-        // Tests that slots are not re-used before take_dropped.
         let mut entity_map = EntityMap::new();
 
         let slot = entity_map.reserve::<TestEntity>();
@@ -864,7 +803,6 @@ mod test {
 
     #[test]
     fn test_entity_map_weak_upgrade_before_cleanup() {
-        // Tests that weak handles are not upgraded before take_dropped
         let mut entity_map = EntityMap::new();
 
         let slot = entity_map.reserve::<TestEntity>();

@@ -1,6 +1,3 @@
-//! The status bar's Proxy control and its popover, where the app's one proxy
-//! is set up and applied to the whole app.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, FontWeight, InteractiveElement,
@@ -131,8 +128,6 @@ impl OverlayView for ProxyForm {
         render(self, model, window, cx)
     }
 
-    /// Above the status bar's Proxy control, or a dialog while the status
-    /// bar is hidden.
     fn placement(&self, model: &AppModel) -> Placement {
         if model.appearance.status_bar_visible {
             Placement::Above(model.proxy.anchor.clone())
@@ -277,7 +272,6 @@ fn fields(form: &ProxyForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
         .children(notes(form, model))
 }
 
-/// What the whole-app choice covers, and anything that stops the proxy.
 fn notes(form: &ProxyForm, model: &AppModel) -> Vec<AnyElement> {
     let m = model.metrics;
     let theme = &model.theme;
@@ -331,7 +325,6 @@ fn notes(form: &ProxyForm, model: &AppModel) -> Vec<AnyElement> {
     notes
 }
 
-/// Remove Proxy and Save.
 fn actions(model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
     let m = model.metrics;
     let theme = &model.theme;

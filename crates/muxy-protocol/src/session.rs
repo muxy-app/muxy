@@ -59,7 +59,6 @@ pub enum ExitReason {
     Signaled(i32),
     Ended,
     ServerStopped,
-    /// A reason from a newer build, kept by its number.
     Unrecognized(u32),
 }
 
@@ -98,7 +97,6 @@ impl<'b, C> Decode<'b, C> for ExitReason {
 pub struct AttachSnapshot {
     #[n(0)]
     pub graphics: crate::Graphics,
-    /// Prompt starts in history-then-screen row coordinates.
     #[n(1)]
     pub prompts: Vec<u16>,
     #[n(2)]
@@ -125,8 +123,6 @@ pub struct AttachSnapshot {
     pub history_total: u64,
     #[n(12)]
     pub links: Option<Vec<LinkRow>>,
-    /// The images placed on `history`, with each placement's row counted
-    /// from its first row. Older servers send none.
     #[n(13)]
     #[cbor(default)]
     #[serde(default)]
@@ -139,7 +135,6 @@ pub struct HistoryCursor(#[n(0)] pub u64);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct HistoryPage {
-    /// Prompt starts in page-history-then-optional-screen row coordinates.
     #[n(0)]
     pub prompts: Vec<u16>,
     #[n(1)]
@@ -153,8 +148,6 @@ pub struct HistoryPage {
     pub screen: Option<SavedScreen>,
     #[n(5)]
     pub links: Option<Vec<LinkRow>>,
-    /// The images placed on `rows`, with each placement's row counted from
-    /// the first of `rows`. Older servers send none.
     #[n(6)]
     #[cbor(default)]
     #[serde(default)]
@@ -315,8 +308,6 @@ pub enum MouseAction {
     Scroll,
 }
 
-// Open because an optional field would otherwise read a newer value as absent,
-// which fails validation instead of being ignored.
 open_enum! {
     #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
     pub enum MouseButton {

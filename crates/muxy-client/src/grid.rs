@@ -61,9 +61,6 @@ impl RunGrid {
         self.history_fresh = false;
         if frame.reset {
             self.clear_history();
-            // A frame sent before a resize took effect may be taller than the
-            // requested size. Rows below the frame's own height are dropped,
-            // so its row numbers can't make the screen any taller.
             let rows = self.size.rows.max(frame.size.rows);
             self.rows = blank_rows(rows);
         }
@@ -72,10 +69,6 @@ impl RunGrid {
         self.modes = frame.modes;
     }
 
-    /// Takes the new size until the server's next frame, which always
-    /// replaces the whole screen. The screen keeps its rows meanwhile, ending
-    /// at the cursor's like the server's terminal and cut to its width, so it
-    /// never goes blank.
     pub fn resize(&mut self, size: Size) {
         self.graphics = muxy_protocol::Graphics::default();
         self.links.rows.clear();
@@ -171,9 +164,6 @@ impl RunGrid {
         self.history_cursor = page.next;
     }
 
-    /// Adds the images a history page places, whose first row is `above`
-    /// rows over the screen, with rows counted from the top of the screen as
-    /// the screen's own are. A placement already listed is kept once.
     fn place_history(&mut self, graphics: Option<muxy_protocol::Graphics>, above: usize) {
         let Some(graphics) = graphics else {
             return;

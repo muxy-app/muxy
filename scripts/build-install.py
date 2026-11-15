@@ -98,7 +98,6 @@ def package_app(directory, binaries, version, identity):
         shutil.copy2(binaries / name, executables / name)
     from release import build_number, bundle_info
     if version == "2.0.0-beta-0":
-        # Keep unstamped local builds identifiable without stamping the source checkout.
         info = bundle_info("2.0.0-beta.1", "1")
         info.update(CFBundleVersion="0", MuxyVersion=version,
                     CFBundleGetInfoString="Muxy Beta " + version)
@@ -155,7 +154,6 @@ def install(artifact, bin_dir, app_dir=None):
                 prefix=".muxy-links-", dir=bin_dir)))
             staged = stage / destination.name
             if app_dir:
-                # Preserve the signature, resources and stapled notarization ticket.
                 run("ditto", artifact, staged)
                 run("xcrun", "stapler", "validate", staged)
                 run("codesign", "--verify", "--deep", "--strict", staged)

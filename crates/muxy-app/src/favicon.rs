@@ -1,5 +1,3 @@
-//! Site icons for browser tabs.
-
 use std::io::{Cursor, Read};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -8,15 +6,9 @@ use muxy_core::worker::WorkerPool;
 
 const MAX_BYTES: u64 = 1024 * 1024;
 const SIZE: u32 = 64;
-/// The largest icon decoded, on each side. A page picks its icon, and a small
-/// file can claim a huge image, so anything bigger is never decoded.
 const MAX_SIDE: u32 = 1024;
-/// What decoding one icon may allocate, its pixels included.
 const MAX_DECODED_BYTES: u64 = 16 * 1024 * 1024;
 
-/// Fetches and decodes the icon at `url` on a small pool of its own, so pages
-/// can't make many large decodes run at once. `None` when the pool is busy:
-/// the tab then shows no icon.
 pub(crate) fn submit(url: String) -> Option<async_channel::Receiver<Option<gpui::RenderImage>>> {
     static WORKERS: OnceLock<Option<WorkerPool>> = OnceLock::new();
     let pool = WORKERS
@@ -32,7 +24,6 @@ pub(crate) fn submit(url: String) -> Option<async_channel::Receiver<Option<gpui:
     Some(receive)
 }
 
-/// The icon at `url`, ready to draw, or none if it can't be read.
 fn fetch(url: &str) -> Option<gpui::RenderImage> {
     let client = crate::proxy::configure(
         reqwest::blocking::Client::builder().timeout(Duration::from_secs(5)),
@@ -78,7 +69,6 @@ mod tests {
     fn icons_decode_only_up_to_a_small_size() {
         assert!(decode(&png(32, 32)).is_some());
         assert!(decode(&png(MAX_SIDE, 16)).is_some());
-        // A few kilobytes of PNG that would decode to hundreds of megabytes.
         let huge = png(MAX_SIDE + 1, 1);
         assert!(decode(&huge).is_none());
         let tall = png(1, 20_000);

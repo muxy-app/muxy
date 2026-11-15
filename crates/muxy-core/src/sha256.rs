@@ -1,5 +1,3 @@
-//! SHA-256 digests, computed in the process.
-
 use std::io::{self, Write};
 
 use ring::digest::{Context, SHA256};
@@ -10,12 +8,10 @@ pub fn digest(bytes: &[u8]) -> [u8; 32] {
     finish(context)
 }
 
-/// Whether `digest` is the one `expected` spells in hex, in either case.
 pub fn matches(digest: &[u8; 32], expected: &str) -> bool {
     crate::hex::decode::<32>(expected).is_some_and(|expected| expected == *digest)
 }
 
-/// Passes everything written on to `inner` and hashes it on the way.
 pub struct Writer<W> {
     inner: W,
     context: Context,
@@ -38,7 +34,6 @@ impl<W: Write> Writer<W> {
         }
     }
 
-    /// The writer, flushed, and the digest of everything it accepted.
     pub fn finish(mut self) -> io::Result<(W, [u8; 32])> {
         self.inner.flush()?;
         Ok((self.inner, finish(self.context)))

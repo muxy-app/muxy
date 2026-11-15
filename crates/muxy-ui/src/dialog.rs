@@ -35,7 +35,6 @@ pub struct Confirmation {
     alert: Retained<NSAlert>,
     parent: Retained<NSWindow>,
     completed: Rc<Cell<bool>>,
-    /// The response reported when the sheet is dismissed by dropping it.
     dismissal: NSModalResponse,
 }
 
@@ -60,8 +59,6 @@ fn consent_choice(response: NSModalResponse, block: bool) -> ConsentResponse {
     }
 }
 
-/// Asks whether an extension may perform a gated action. Dropping the returned
-/// handle dismisses the sheet as a cancel.
 pub fn consent(
     window: &mut gpui::Window,
     _cx: &mut gpui::App,
@@ -152,8 +149,6 @@ pub fn confirm(
     )
 }
 
-/// Asks for confirmation with a checkbox that starts unchecked. Reports
-/// whether the checkbox was checked, or `None` when declined or dismissed.
 #[allow(
     clippy::too_many_arguments,
     reason = "Native confirmation fields and GPUI context"
@@ -179,8 +174,6 @@ pub fn confirm_with_checkbox(
     )
 }
 
-/// An alert whose first button answers Return and second answers Escape, with
-/// an optional checkbox reported alongside the response.
 fn two_button_alert(
     window: &gpui::Window,
     style: NSAlertStyle,
@@ -283,7 +276,6 @@ impl Drop for FolderPicker {
     )]
     fn drop(&mut self) {
         if !self.completed.replace(true) {
-            // SAFETY: No sender is passed; the retained panel is confined to the main thread.
             unsafe {
                 self.panel.cancel(None);
             }
@@ -300,7 +292,6 @@ pub fn choose_folder(
     choose_folder_with(cx, message, "", directory, on_complete)
 }
 
-/// A folder picker whose confirm button reads `prompt`, when it is not empty.
 pub fn choose_folder_with(
     _cx: &mut gpui::App,
     message: &str,
@@ -311,7 +302,6 @@ pub fn choose_folder_with(
     open_panel(message, prompt, directory, false, on_complete)
 }
 
-/// A file picker that also shows hidden files, such as keys in `~/.ssh`.
 pub fn choose_file(
     _cx: &mut gpui::App,
     message: &str,

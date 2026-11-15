@@ -5,7 +5,6 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-/// When rendering SVGs, we render them at twice the size to get a higher-quality result.
 pub const SMOOTH_SVG_SCALE_FACTOR: f32 = 2.;
 
 #[derive(Clone, PartialEq, Hash, Eq)]
@@ -60,14 +59,12 @@ impl SvgRenderer {
     ) -> Result<Option<(Size<DevicePixels>, Vec<u8>)>> {
         anyhow::ensure!(!params.size.is_zero(), "can't render at a zero size");
 
-        // Load the tree.
         let Some(bytes) = self.asset_source.load(&params.path)? else {
             return Ok(None);
         };
 
         let pixmap = self.render_pixmap(&bytes, SvgSize::Size(params.size))?;
 
-        // Convert the pixmap's pixels into an alpha mask.
         let size = Size::new(
             DevicePixels(pixmap.width() as i32),
             DevicePixels(pixmap.height() as i32),
@@ -88,7 +85,6 @@ impl SvgRenderer {
             SvgSize::ScaleFactor(scale) => scale,
         };
 
-        // Render the SVG to a pixmap with the specified width and height.
         let mut pixmap = resvg::tiny_skia::Pixmap::new(
             (svg_size.width() * scale) as u32,
             (svg_size.height() * scale) as u32,

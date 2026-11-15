@@ -1,6 +1,3 @@
-//! Agents work, wait, and finish in a panel. A notification calls when one needs
-//! you, and every supported agent drifts past below.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Div, FontWeight, Hsla, IntoElement, ParentElement, SharedString, Styled, div,
@@ -226,7 +223,6 @@ fn state_label(frame: &Frame, state: State, attention: f32) -> AnyElement {
         .into_any_element()
 }
 
-/// Claude's mark keeps its color; the others take the text color.
 fn provider(frame: &Frame, name: &str, side: f32) -> AnyElement {
     let path = SharedString::from(format!("icons/provider-{name}.svg"));
     if name == "claude" {
@@ -271,7 +267,6 @@ fn notification(frame: &Frame, local: f32) -> Div {
         .child(IconGlyph::new(Icon::Bell, frame.px(14.0), solid(AMBER)))
 }
 
-/// Every supported agent in a row, with a highlight passing along it.
 fn providers(frame: &Frame) -> Div {
     const PITCH: f32 = 36.0;
     const SIDE: f32 = 22.0;

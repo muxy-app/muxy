@@ -158,7 +158,6 @@ fn browser_tabs_and_remote_servers_without_a_backend_report_why(cx: &mut TestApp
     });
 }
 
-/// What Windows builds lack, and why: everything outside the desktop MVP.
 #[cfg(windows)]
 #[test]
 fn windows_reports_why_each_missing_feature_is_unavailable() {

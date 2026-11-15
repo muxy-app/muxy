@@ -373,9 +373,7 @@ pub struct PickerRow {
     pub detail: Option<SharedString>,
     pub leading: Option<PickerLeading>,
     pub trailing: Option<SharedString>,
-    /// An icon at the row's right edge, such as a mark on a recent row.
     pub trailing_icon: Option<Icon>,
-    /// A short label outlined at the row's right edge.
     pub badge: Option<SharedString>,
     pub actions: Vec<PickerAction>,
     pub swatches: Vec<Hsla>,
@@ -833,7 +831,6 @@ impl Picker {
             .update(cx, |input, _| input.set_placeholder(placeholder.into()));
     }
 
-    /// Gives the keyboard back to the search field, after a footer action took it.
     pub fn focus_query(&mut self, cx: &mut Context<Self>) {
         self.focused = false;
         cx.notify();
@@ -1370,8 +1367,6 @@ impl Picker {
                             .child(badge),
                     );
                 }
-                // The visible action buttons only draw on hover, and hidden elements
-                // can't be pressed, so clients get their own buttons.
                 let mut hidden_actions = Vec::new();
                 if !row.actions.is_empty() {
                     let mut actions = div()
@@ -1833,7 +1828,6 @@ impl Render for Picker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.focused {
             self.focused = true;
-            // After this frame, since what had focus already reported it in this one.
             let input = self.input.focus_handle(cx);
             window.defer(cx, move |window, _| window.focus(&input));
         }

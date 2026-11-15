@@ -60,8 +60,6 @@ fn dimension(value: f64) -> Option<u32> {
     }
 }
 
-/// Rasterizes an SVG into an alpha mask that fits a `point_size` square, so
-/// template icons tint like SF Symbols.
 #[allow(
     clippy::cast_possible_truncation,
     reason = "Validated AppKit dimensions are converted to GPUI f32 coordinates."

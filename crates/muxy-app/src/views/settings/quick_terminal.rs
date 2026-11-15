@@ -19,7 +19,6 @@ fn theme_label(settings: &QuickTerminalSettings, dark: bool) -> gpui::SharedStri
         .map_or_else(|| tr!("Same as App"), |name| name.to_owned().into())
 }
 
-/// The saved preferences without controls, while the Quick Terminal cannot run here.
 fn stored_rows(view: &SettingsView, reason: &str) -> Vec<AnyElement> {
     let settings = &view.snapshot.settings.quick_terminal;
     let mut rows = Vec::new();

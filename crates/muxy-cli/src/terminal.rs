@@ -24,7 +24,6 @@ pub(crate) fn require_interactive() -> io::Result<()> {
     }
 }
 
-/// Whether this runs in a login over SSH, away from the computer's screen.
 pub(crate) fn over_ssh() -> bool {
     ["SSH_CONNECTION", "SSH_TTY"]
         .iter()
@@ -135,8 +134,6 @@ impl Host {
     pub(crate) fn enter() -> io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let mut signals = Signals::default();
-        // On Windows a closed console arrives through crossterm's events, and
-        // there is no suspending.
         #[cfg(unix)]
         let stopping = [SIGHUP, SIGINT, SIGTERM];
         #[cfg(windows)]

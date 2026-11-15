@@ -1,5 +1,3 @@
-//! `muxy mobile`: let phones connect, pair them, and revoke them.
-
 use std::collections::HashSet;
 use std::error::Error;
 use std::io::{self, Write};
@@ -56,7 +54,6 @@ pub(crate) fn run(command: Mobile, client: &Client) -> Result {
     }
 }
 
-/// What switching push notifications did, in a sentence or two.
 fn switched(state: &RemoteAccessState, now: u64) -> String {
     let phones = state
         .devices
@@ -202,8 +199,6 @@ fn revoke(client: &Client, prefix: &str) -> Result {
     }
 }
 
-/// Shows a pairing code until a new device pairs, the code expires, or Ctrl-C
-/// closes the connection, which cancels the code.
 fn pair(client: &Client, addresses: Vec<String>) -> Result {
     let events = client.events().ok_or("event stream already taken")?;
     let known: HashSet<_> = client
@@ -251,7 +246,6 @@ fn pair(client: &Client, addresses: Vec<String>) -> Result {
     }
 }
 
-/// Two module rows per line, dark on light regardless of the terminal theme.
 fn print_code(output: &mut impl Write, code: &QrCode) -> io::Result<()> {
     let span = code.size() + 2 * QUIET_ZONE;
     let dark = |x: usize, y: usize| {

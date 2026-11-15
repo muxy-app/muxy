@@ -202,7 +202,6 @@ fn a_published_version_must_be_bumped() {
     assert_eq!(same.problems.len(), 1);
 }
 
-/// Stands in for `gh` and `git`, recording what ran.
 #[derive(Default)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -619,7 +618,6 @@ fn a_branch_the_user_pushed_by_hand_is_never_overwritten() {
 
 #[test]
 fn a_failed_branch_lookup_pushes_only_if_the_branch_is_still_absent() {
-    // A fork GitHub only just created may not answer the lookup yet.
     let tools = FakeTools {
         lookup_fails: true,
         ..FakeTools::default()

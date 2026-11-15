@@ -155,7 +155,6 @@ impl State {
     }
 }
 
-/// Whether `directory` is an absolute path to a folder on this computer.
 fn is_folder(directory: &muxy_protocol::ServerPath) -> bool {
     let directory = directory.as_path();
     directory.is_absolute() && directory.is_dir()

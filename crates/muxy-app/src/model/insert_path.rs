@@ -1,6 +1,3 @@
-//! Insert Path's side of the app: which server a terminal browses, and the
-//! paths it remembers typing there.
-
 use gpui::Context;
 use muxy_app_core::{PaneId, ServerId};
 use muxy_protocol::{ErrorCode, ServerPath};
@@ -10,7 +7,6 @@ use super::AppModel;
 use crate::views::terminal::insert_path::{Entry, Lister, Source};
 
 impl AppModel {
-    /// Opens Insert Path at the focused terminal's cursor, or closes it.
     pub(crate) fn insert_path(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         if self.overlay.is_some() {
             return;
@@ -22,7 +18,6 @@ impl AppModel {
         }
     }
 
-    /// Gives the pane that opened Insert Path its server's folders to browse.
     pub(super) fn browse_paths(&mut self, id: PaneId, cx: &mut Context<Self>) {
         let Some(view) = self.terminal(&id).map(|pane| pane.view.clone()) else {
             return;
@@ -37,8 +32,6 @@ impl AppModel {
         view.update(cx, |pane, cx| pane.browse_paths(source, cx));
     }
 
-    /// Folders are listed over the server's second connection, so a slow
-    /// folder never holds up terminals.
     fn path_source(&mut self, server: ServerId, cx: &mut Context<Self>) -> Source {
         let name = self.server_label(server);
         let list = if !self.ready(server) {
@@ -64,7 +57,6 @@ impl AppModel {
         }
     }
 
-    /// Remembers a path Insert Path typed into pane `id`, for its server.
     pub(super) fn remember_chosen_path(&mut self, id: PaneId, path: &str, cx: &mut Context<Self>) {
         if !self.settings.panes.insert_path_recents {
             return;
@@ -81,8 +73,6 @@ impl AppModel {
     }
 }
 
-/// Lists folders through `client`. Names that aren't Unicode are left out,
-/// since they couldn't be typed back as they are.
 fn lister(client: muxy_client::Client, name: String) -> Lister {
     std::sync::Arc::new(
         move |directory| match client.list_entries(ServerPath::from(directory)) {

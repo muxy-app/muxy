@@ -74,8 +74,6 @@ pub(crate) enum Project {
     Delete(String),
 }
 
-/// Session commands. A missing session or project means the terminal this
-/// command runs in.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Session {
     Inspect(Option<SessionId>),
@@ -92,14 +90,12 @@ pub(crate) enum Session {
         project: Option<String>,
         directory: Option<PathBuf>,
         size: Size,
-        /// Typed into the new terminal, followed by Return.
         command: Option<String>,
     },
     End(Option<SessionId>),
     Discard(Option<SessionId>),
     Show {
         session: Option<SessionId>,
-        /// Adds the tab without switching the window to it.
         background: bool,
     },
     Send {
@@ -136,7 +132,6 @@ pub(crate) enum Session {
     },
 }
 
-/// What `session wait` waits for.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Until {
     Text { text: String, ignore_case: bool },
@@ -264,7 +259,6 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Invocation> {
     })
 }
 
-/// The options that take a value, and the flags, of `group verb`.
 fn options(group: &str, verb: &str) -> (&'static [&'static str], &'static [&'static str]) {
     match (group, verb) {
         ("project", "add") => (&["--name"], &["--create", "--reuse"]),
@@ -372,7 +366,6 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
         "end" | "discard" | "show" | "read-screen" | "history" | "wait" | "inspect" => 0,
         _ => return Err(invalid(help::SESSION)),
     };
-    // The session ID comes first and may be left out inside a Muxy terminal.
     let given = o
         .words
         .len()
@@ -445,7 +438,6 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
     }
 }
 
-/// `session create [project] [options] [-- COMMAND...]`.
 fn create_session(o: &Options<'_>) -> io::Result<Session> {
     let (project, command) = o.words.split_at(o.literal.unwrap_or(o.words.len()));
     if project.len() > 1 {
@@ -600,7 +592,6 @@ struct Options<'a> {
     words: Vec<&'a OsStr>,
     values: BTreeMap<&'a str, &'a OsStr>,
     flags: BTreeSet<&'a str>,
-    /// How many words came before `--`, if it was given.
     literal: Option<usize>,
 }
 impl<'a> Options<'a> {

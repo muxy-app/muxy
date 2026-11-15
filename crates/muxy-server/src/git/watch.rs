@@ -14,8 +14,6 @@ const TIMING: Timing = Timing {
     quiet: Duration::from_millis(800),
     max_delay: MAX_DELAY,
 };
-/// Changed paths checked against the ignore rules at once. A bigger batch
-/// counts as a change without checking.
 const MAX_CHECKED_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Clone)]
@@ -26,9 +24,7 @@ struct Roots {
 }
 
 enum Change<'a> {
-    /// Git's own state, or anything else that always counts.
     Certain,
-    /// A working-tree path, relative to its root. It counts unless Git ignores it.
     Worktree(&'a Path),
 }
 
@@ -73,7 +69,6 @@ impl Roots {
     }
 }
 
-/// Paths `git check-ignore` can't judge.
 fn is_root_or_nested_metadata(relative: &Path) -> bool {
     relative.as_os_str().is_empty()
         || relative
@@ -92,11 +87,9 @@ fn metadata_relevant(relative: &Path, worktree: bool, common: bool) -> bool {
             && (first == "config"
                 || first == "packed-refs"
                 || first == "refs"
-                // A linked worktree added or removed, not work inside one.
                 || (first == "worktrees" && components.nth(1).is_none())))
 }
 
-/// What changed during one debounce window.
 #[derive(Default)]
 struct Changes {
     certain: bool,
@@ -105,7 +98,6 @@ struct Changes {
 }
 
 impl Changes {
-    /// Returns whether anything may need reporting.
     fn record(&mut self, roots: &Roots, event: notify::Result<notify::Event>) -> bool {
         match event {
             Ok(event) if matches!(event.kind, EventKind::Access(_)) => (),
@@ -139,8 +131,6 @@ impl Changes {
         }
     }
 
-    /// Whether Git would report something new: changes to ignored files,
-    /// such as build output, don't count. Asks Git once for the whole batch.
     fn matter(self, worktree: &Path) -> bool {
         if self.certain {
             return true;
@@ -170,8 +160,6 @@ impl Changes {
 }
 
 impl Registry {
-    /// Subscribes `connection` to the project's repository changes. `None` when
-    /// the project isn't a repository.
     pub(crate) fn watch_git(
         &self,
         project: ProjectId,

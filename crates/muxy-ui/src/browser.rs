@@ -30,7 +30,6 @@ pub enum Event {
     ContextMenu(gpui::Point<gpui::Pixels>),
     Escape,
     Shortcut(gpui::Keystroke),
-    /// The user clicked into the page.
     Clicked,
     Snapshot {
         id: u64,
@@ -38,11 +37,9 @@ pub enum Event {
     },
 }
 
-/// What a new page starts with.
 #[derive(Debug)]
 pub struct Options<'a> {
     pub profile: &'a Profile,
     pub url: Option<&'a str>,
-    /// Whether the engine may load an address; others are cancelled.
     pub allows: fn(&str) -> bool,
 }

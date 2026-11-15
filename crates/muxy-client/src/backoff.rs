@@ -1,13 +1,8 @@
 use std::time::Duration;
 
-/// How long to wait before connecting to another computer again. Backing off
-/// spares its sshd and keeps tools like fail2ban from blocking this computer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Backoff {
-    /// Someone is waiting at a prompt: 0.5, 1, 2 and 5 s, then 10 s, which
-    /// repeats.
     Interactive,
-    /// Nobody is waiting: 2 s, doubling up to a minute, which then repeats.
     Background,
 }
 
@@ -20,7 +15,6 @@ const INTERACTIVE: [Duration; 5] = [
 ];
 
 impl Backoff {
-    /// The wait before retry number `retry`, counting from 0.
     pub fn delay(self, retry: u32) -> Duration {
         match self {
             Self::Interactive => {

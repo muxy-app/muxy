@@ -1,4 +1,3 @@
-# Runs after the user's profile, so it wraps the prompt and PSReadLine they chose.
 if ($env:MUXY_SHELL_INTEGRATION -ne '1' -or $Global:__MuxyInstalled) { return }
 $Global:__MuxyInstalled = $true
 $Global:__MuxyRunning = $false
@@ -8,7 +7,6 @@ function Global:__MuxyMark([string] $Text) {
     "$([char]27)]$Text$([char]7)"
 }
 
-# OSC 7 for drive paths only, percent-encoded as UTF-8.
 function Global:__MuxyDirectory {
     if ($PWD.Provider.Name -ne 'FileSystem') { return '' }
     $path = $PWD.ProviderPath -replace '\\', '/'
@@ -40,15 +38,12 @@ function Global:prompt {
     $Global:__MuxyRunning = $false
     $marks += __MuxyDirectory
     $marks += __MuxyMark '133;A'
-    # Let the user's prompt see the command's failure in $?.
     if (-not $succeeded) { Write-Error 'failed' -ErrorAction Ignore }
     $text = (& $Global:__MuxyPrompt) -join ''
     $global:LASTEXITCODE = $code
     "$marks$text$(__MuxyMark '133;B')"
 }
 
-# PSReadLine returns the line just before it runs, which marks the command's start.
-# Only the session is searched: looking through every installed module can take minutes.
 if (Test-Path Function:\PSConsoleHostReadLine) {
     $Global:__MuxyReadLine = $function:PSConsoleHostReadLine
     function Global:PSConsoleHostReadLine {

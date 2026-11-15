@@ -11,50 +11,34 @@ use std::{
 
 use super::LineWrapper;
 
-/// A laid out and styled line of text
 #[derive(Default, Debug)]
 pub struct LineLayout {
-    /// The font size for this line
     pub font_size: Pixels,
-    /// The width of the line
     pub width: Pixels,
-    /// The ascent of the line
     pub ascent: Pixels,
-    /// The descent of the line
     pub descent: Pixels,
-    /// The shaped runs that make up this line
     pub runs: Vec<ShapedRun>,
-    /// The length of the line in utf-8 bytes
     pub len: usize,
 }
 
-/// A run of text that has been shaped .
 #[derive(Debug, Clone)]
 pub struct ShapedRun {
-    /// The font id for this run
     pub font_id: FontId,
-    /// The glyphs that make up this run
     pub glyphs: Vec<ShapedGlyph>,
 }
 
-/// A single glyph, ready to paint.
 #[derive(Clone, Debug)]
 pub struct ShapedGlyph {
-    /// The ID for this glyph, as determined by the text system.
     pub id: GlyphId,
 
-    /// The position of this glyph in its containing line.
     pub position: Point<Pixels>,
 
-    /// The index of this glyph in the original text.
     pub index: usize,
 
-    /// Whether this glyph is an emoji
     pub is_emoji: bool,
 }
 
 impl LineLayout {
-    /// The index for the character at the given x coordinate
     pub fn index_for_x(&self, x: Pixels) -> Option<usize> {
         if x >= self.width {
             None
@@ -70,8 +54,6 @@ impl LineLayout {
         }
     }
 
-    /// closest_index_for_x returns the character boundary closest to the given x coordinate
-    /// (e.g. to handle aligning up/down arrow keys)
     pub fn closest_index_for_x(&self, x: Pixels) -> usize {
         let mut prev_index = 0;
         let mut prev_x = px(0.);
@@ -101,7 +83,6 @@ impl LineLayout {
         self.len
     }
 
-    /// The x position of the character at the given index
     pub fn x_for_index(&self, index: usize) -> Pixels {
         for run in &self.runs {
             for glyph in &run.glyphs {
@@ -113,7 +94,6 @@ impl LineLayout {
         self.width
     }
 
-    /// The corresponding Font at the given index
     pub fn font_id_for_index(&self, index: usize) -> Option<FontId> {
         for run in &self.runs {
             for glyph in &run.glyphs {
@@ -162,8 +142,6 @@ impl LineLayout {
                 continue;
             }
 
-            // Here is very similar to `LineWrapper::wrap_line` to determine text wrapping,
-            // but there are some differences, so we have to duplicate the code here.
             if LineWrapper::is_word_char(ch) {
                 if prev_ch == ' ' && ch != ' ' && first_non_whitespace_ix.is_some() {
                     last_candidate_ix = Some(boundary);
@@ -184,7 +162,6 @@ impl LineLayout {
             let width = next_x - last_boundary_x;
 
             if width > wrap_width && boundary > last_boundary {
-                // When used line_clamp, we should limit the number of lines.
                 if let Some(max_lines) = max_lines
                     && boundaries.len() >= max_lines - 1
                 {
@@ -207,44 +184,33 @@ impl LineLayout {
     }
 }
 
-/// A line of text that has been wrapped to fit a given width
 #[derive(Default, Debug)]
 pub struct WrappedLineLayout {
-    /// The line layout, pre-wrapping.
     pub unwrapped_layout: Arc<LineLayout>,
 
-    /// The boundaries at which the line was wrapped
     pub wrap_boundaries: SmallVec<[WrapBoundary; 1]>,
 
-    /// The width of the line, if it was wrapped
     pub wrap_width: Option<Pixels>,
 }
 
-/// A boundary at which a line was wrapped
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WrapBoundary {
-    /// The index in the run just before the line was wrapped
     pub run_ix: usize,
-    /// The index of the glyph just before the line was wrapped
     pub glyph_ix: usize,
 }
 
 impl WrappedLineLayout {
-    /// The length of the underlying text, in utf8 bytes.
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.unwrapped_layout.len
     }
 
-    /// The width of this line, in pixels, whether or not it was wrapped.
     pub fn width(&self) -> Pixels {
         self.wrap_width
             .unwrap_or(Pixels::MAX)
             .min(self.unwrapped_layout.width)
     }
 
-    /// The size of the whole wrapped text, for the given line_height.
-    /// can span multiple lines if there are multiple wrap boundaries.
     pub fn size(&self, line_height: Pixels) -> Size<Pixels> {
         Size {
             width: self.width(),
@@ -252,34 +218,26 @@ impl WrappedLineLayout {
         }
     }
 
-    /// The ascent of a line in this layout
     pub fn ascent(&self) -> Pixels {
         self.unwrapped_layout.ascent
     }
 
-    /// The descent of a line in this layout
     pub fn descent(&self) -> Pixels {
         self.unwrapped_layout.descent
     }
 
-    /// The wrap boundaries in this layout
     pub fn wrap_boundaries(&self) -> &[WrapBoundary] {
         &self.wrap_boundaries
     }
 
-    /// The font size of this layout
     pub fn font_size(&self) -> Pixels {
         self.unwrapped_layout.font_size
     }
 
-    /// The runs in this layout, sans wrapping
     pub fn runs(&self) -> &[ShapedRun] {
         &self.unwrapped_layout.runs
     }
 
-    /// The index corresponding to a given position in this layout for the given line height.
-    ///
-    /// See also [`Self::closest_index_for_position`].
     pub fn index_for_position(
         &self,
         position: Point<Pixels>,
@@ -288,11 +246,6 @@ impl WrappedLineLayout {
         self._index_for_position(position, line_height, false)
     }
 
-    /// The closest index to a given position in this layout for the given line height.
-    ///
-    /// Closest means the character boundary closest to the given position.
-    ///
-    /// See also [`LineLayout::closest_index_for_x`].
     pub fn closest_index_for_position(
         &self,
         position: Point<Pixels>,
@@ -358,7 +311,6 @@ impl WrappedLineLayout {
         }
     }
 
-    /// Returns the pixel position for the given byte index.
     pub fn position_for_index(&self, index: usize, line_height: Pixels) -> Option<Point<Pixels>> {
         let mut line_start_ix = 0;
         let mut line_end_indices = self
@@ -592,7 +544,6 @@ impl LineLayoutCache {
     }
 }
 
-/// A run of text with a single font.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct FontRun {
     pub(crate) len: usize,

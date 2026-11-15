@@ -4,8 +4,6 @@ use muxy_core::shortcuts::{ALL, WORKSPACE_CLIPBOARD_CONTEXT};
 
 use super::{COMMANDS, Label, Palette};
 
-/// Shortcuts the workspace binds outside the table: one action with an
-/// index, or an action a text field shares.
 fn bound_outside_the_table(id: &str) -> bool {
     id.starts_with("select_tab")
         || id.starts_with("select_project")

@@ -1,17 +1,11 @@
-//! The names Windows file systems refuse, or read as something else.
-
-/// Characters Windows refuses in a name. `:` would name an alternate data
-/// stream, and `\` and `/` separate components.
 const RESERVED_CHARACTERS: &[char] = &['<', '>', ':', '"', '|', '?', '*', '\\', '/'];
 
-/// Device names Windows opens instead of a file, with any extension.
 const DEVICES: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$", "COM0", "COM1", "COM2", "COM3",
     "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT0", "LPT1", "LPT2",
     "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
 ];
 
-/// Why Windows can't hold `name` as one path component, if it can't.
 pub(crate) fn windows_refusal(name: &str) -> Option<&'static str> {
     if name.is_empty() || name == "." || name == ".." {
         return Some("Invalid file name");
@@ -31,7 +25,6 @@ pub(crate) fn windows_refusal(name: &str) -> Option<&'static str> {
     None
 }
 
-/// `name` changed as little as possible so Windows can hold it.
 pub(crate) fn windows_safe(name: &str) -> String {
     let replaced: String = name
         .chars()

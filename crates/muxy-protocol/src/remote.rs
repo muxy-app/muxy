@@ -1,5 +1,3 @@
-//! Network access for paired devices: settings, pairing, and credentials.
-
 use std::fmt::{self, Write};
 
 use minicbor::{Decode, Encode};
@@ -53,7 +51,6 @@ pub enum ListenerStatus {
     Disabled,
     Listening,
     Failed(String),
-    /// A status from a newer build, kept by its number.
     Unrecognized(u32),
 }
 
@@ -87,13 +84,10 @@ impl<'b, C> Decode<'b, C> for ListenerStatus {
 }
 
 open_enum! {
-    /// What a paired device is, which decides what it may ask the server for.
-    /// Unrecognized kinds get a phone's rights.
     #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
     pub enum DeviceKind {
         #[default]
         Phone = 0,
-        /// Another computer's desktop app, with the rights of one on this computer.
         Computer = 1,
     }
 }
@@ -104,10 +98,8 @@ pub struct PairedDevice {
     pub id: DeviceId,
     #[n(1)]
     pub name: String,
-    /// Unix seconds.
     #[n(2)]
     pub paired_at: u64,
-    /// Unix seconds of the latest successful authentication.
     #[n(3)]
     pub last_seen: Option<u64>,
     #[n(4)]
@@ -116,8 +108,6 @@ pub struct PairedDevice {
     #[cbor(default)]
     #[serde(default)]
     pub kind: DeviceKind,
-    /// Whether the phone gets push notifications, when it registered for them.
-    /// `Disabled` while they are off for every phone and its registration is kept.
     #[n(6)]
     #[cbor(default)]
     #[serde(default)]
@@ -132,19 +122,14 @@ pub struct RemoteAccessState {
     pub settings: RemoteAccessSettings,
     #[n(2)]
     pub status: ListenerStatus,
-    /// Unix seconds at which the pending pairing offer expires.
     #[n(3)]
     pub pairing_expires_at: Option<u64>,
     #[n(4)]
     pub devices: Vec<PairedDevice>,
-    /// The server-wide switch for push notifications. Older servers, without
-    /// `Feature::PUSH_NOTIFICATIONS`, send none.
     #[n(5)]
     #[cbor(default)]
     #[serde(default)]
     pub push_notifications: bool,
-    /// Unix seconds. While push notifications are off, when the phones'
-    /// kept registrations are forgotten.
     #[n(6)]
     #[cbor(default)]
     #[serde(default)]
@@ -166,14 +151,12 @@ impl RemoteAccessState {
     }
 }
 
-/// Everything a phone needs to reach and pin a server, carried by the pairing link.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct PairingInvite {
     #[n(0)]
     pub hosts: Vec<String>,
     #[n(1)]
     pub port: u16,
-    /// SHA-256 of the server's TLS certificate.
     #[n(2)]
     #[cbor(with = "crate::wire::cbor::bytes")]
     pub fingerprint: [u8; 32],
@@ -268,7 +251,6 @@ impl PairingInvite {
 pub struct PairingOffer {
     #[n(0)]
     pub invite: PairingInvite,
-    /// Unix seconds.
     #[n(1)]
     pub expires_at: u64,
 }
@@ -280,8 +262,6 @@ pub struct PairRequest {
     pub secret: [u8; 16],
     #[n(1)]
     pub name: String,
-    /// A computer requires `Feature::PAIRED_COMPUTERS`; older servers ignore
-    /// it and pair a phone.
     #[n(2)]
     #[cbor(default)]
     #[serde(default)]
@@ -354,7 +334,6 @@ pub fn validate_device_name(name: &str) -> Result<(), ErrorCode> {
     }
 }
 
-/// Addresses a pairing link can carry: DNS names and IPv4 addresses, without ports.
 pub fn validate_pairing_hosts(hosts: &[String]) -> Result<(), ErrorCode> {
     if hosts.len() <= MAX_PAIRING_HOSTS && hosts.iter().all(|host| is_host(host)) {
         Ok(())

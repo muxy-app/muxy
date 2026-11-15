@@ -95,7 +95,6 @@ use crate::{
     },
 };
 
-/// Used to convert evdev scancode to xkb scancode
 const MIN_KEYCODE: u32 = 8;
 
 const UNKNOWN_KEYBOARD_LAYOUT_NAME: SharedString = SharedString::new_static("unknown");
@@ -279,7 +278,7 @@ pub(crate) struct WaylandClientState {
     serial_tracker: SerialTracker,
     globals: Globals,
     gpu_context: BladeContext,
-    wl_seat: wl_seat::WlSeat, // TODO: Multi seat support
+    wl_seat: wl_seat::WlSeat,
     wl_pointer: Option<wl_pointer::WlPointer>,
     wl_keyboard: Option<wl_keyboard::WlKeyboard>,
     cursor_shape_device: Option<wp_cursor_shape_device_v1::WpCursorShapeDeviceV1>,
@@ -290,9 +289,7 @@ pub(crate) struct WaylandClientState {
     last_ime_cursor_rectangle: Option<ImeCursorRectangle>,
     ime_pre_edit: Option<Preedit>,
     composing: bool,
-    // Surface to Window mapping
     windows: HashMap<ObjectId, WaylandWindowStatePtr>,
-    // Output to scale mapping
     outputs: HashMap<ObjectId, Output>,
     in_progress_outputs: HashMap<ObjectId, InProgressOutput>,
     keyboard_layout: LinuxKeyboardLayout,
@@ -346,16 +343,11 @@ pub(crate) struct KeyRepeat {
 }
 
 pub(crate) enum PendingActivation {
-    /// URI to open in the web browser.
     Uri(String),
-    /// Path to open in the file explorer.
     Path(PathBuf),
-    /// A window from ourselves to raise.
     Window(ObjectId),
 }
 
-/// This struct is required to conform to Rust's orphan rules, so we can dispatch on the state but hand the
-/// window to GPUI.
 #[derive(Clone)]
 pub struct WaylandClientStatePtr(Weak<RefCell<WaylandClientState>>);
 
@@ -502,7 +494,6 @@ impl Drop for WaylandClient {
 const WL_DATA_DEVICE_MANAGER_VERSION: u32 = 3;
 
 fn wl_seat_version(version: u32) -> u32 {
-    // We rely on the wl_pointer.frame event
     const WL_SEAT_MIN_VERSION: u32 = 5;
     const WL_SEAT_MAX_VERSION: u32 = 9;
 
@@ -762,10 +753,6 @@ impl LinuxClient for WaylandClient {
         &self,
     ) -> futures::channel::oneshot::Receiver<anyhow::Result<Vec<Rc<dyn crate::ScreenCaptureSource>>>>
     {
-        // TODO: Get screen capture working on wayland. Be sure to try window resizing as that may
-        // be tricky.
-        //
-        // start_scap_default_target_source()
         let (sources_tx, sources_rx) = futures::channel::oneshot::channel();
         sources_tx
             .send(Err(anyhow::anyhow!(
@@ -816,7 +803,6 @@ impl LinuxClient for WaylandClient {
             } else if let Some(cursor_shape_device) = &state.cursor_shape_device {
                 cursor_shape_device.set_shape(serial, style.to_shape());
             } else if let Some(focused_window) = &state.mouse_focused_window {
-                // cursor-shape-v1 isn't supported, set the cursor using a surface.
                 let wl_pointer = state
                     .wl_pointer
                     .clone()
@@ -1013,7 +999,6 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandClientStat
                 _ => {}
             },
             wl_registry::Event::GlobalRemove { name: _ } => {
-                // TODO: handle global removal
             }
             _ => {}
         }
@@ -1168,7 +1153,6 @@ impl Dispatch<xdg_toplevel::XdgToplevel, ObjectId> for WaylandClientStatePtr {
         let should_close = window.handle_toplevel_event(event);
 
         if should_close {
-            // The close logic will be handled in drop_window()
             window.close();
         }
     }
@@ -1329,7 +1313,6 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 let keyboard_focused_window = get_window(&mut state, &surface.id());
                 state.keyboard_focused_window = None;
                 state.enter_token.take();
-                // Prevent keyboard events from repeating after opening e.g. a file chooser and closing it quickly
                 state.repeat.current_id += 1;
 
                 if let Some(window) = keyboard_focused_window {
@@ -1529,8 +1512,6 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for WaylandClientStatePtr {
 
                 if let Some(commit_text) = text {
                     drop(state);
-                    // IBus Intercepts keys like `a`, `b`, but those keys are needed for vim mode.
-                    // We should only send ASCII characters to Zed, otherwise a user could remap a letter like `か` or `相`.
                     if commit_text.len() == 1 {
                         window.handle_input(PlatformInput::KeyDown(KeyDownEvent {
                             keystroke: Keystroke {
@@ -1590,7 +1571,6 @@ impl Dispatch<zwp_text_input_v3::ZwpTextInputV3, ()> for WaylandClientStatePtr {
 }
 
 fn linux_button_to_gpui(button: u32) -> Option<MouseButton> {
-    // These values are coming from <linux/input-event-codes.h>.
     const BTN_LEFT: u32 = 0x110;
     const BTN_RIGHT: u32 = 0x111;
     const BTN_MIDDLE: u32 = 0x112;
@@ -1719,7 +1699,6 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                         if let Some(window) = state.keyboard_focused_window.clone() {
                             if state.composing && state.text_input.is_some() {
                                 drop(state);
-                                // text_input_v3 don't have something like a reset function
                                 this.disable_ime();
                                 this.enable_ime();
                                 window.handle_ime(ImeInput::UnmarkText);
@@ -1786,7 +1765,6 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                 }
             }
 
-            // Axis Events
             wl_pointer::Event::AxisSource {
                 axis_source: WEnum::Value(axis_source),
             } => {
@@ -1971,11 +1949,9 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
         let mut state = client.borrow_mut();
 
         match event {
-            // Clipboard
             wl_data_device::Event::DataOffer { id: data_offer } => {
                 state.data_offers.push(DataOffer::new(data_offer));
                 if state.data_offers.len() > 2 {
-                    // At most we store a clipboard offer and a drag and drop offer.
                     state.data_offers.remove(0).inner.destroy();
                 }
             }
@@ -1992,7 +1968,6 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                 }
             }
 
-            // Drag and drop
             wl_data_device::Event::Enter {
                 serial,
                 surface,
@@ -2042,7 +2017,6 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                                 .collect();
                             let position = Point::new(x.into(), y.into());
 
-                            // Prevent dropping text from other programs.
                             if paths.is_empty() {
                                 data_offer.destroy();
                                 return;
@@ -2129,14 +2103,12 @@ impl Dispatch<wl_data_offer::WlDataOffer, ()> for WaylandClientStatePtr {
         let mut state = client.borrow_mut();
 
         if let wl_data_offer::Event::Offer { mime_type } = event {
-            // Drag and drop
             if mime_type == FILE_LIST_MIME_TYPE {
                 let serial = state.serial_tracker.get(SerialKind::DataDevice);
                 let mime_type = mime_type.clone();
                 data_offer.accept(serial, Some(mime_type));
             }
 
-            // Clipboard
             if let Some(offer) = state
                 .data_offers
                 .iter_mut()

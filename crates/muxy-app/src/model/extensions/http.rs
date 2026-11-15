@@ -1,6 +1,3 @@
-//! `http.fetch` follows main's order: validate, refuse private hosts, ask for
-//! consent per host, then run the request off the main thread.
-
 use gpui::Context;
 use muxy_app_core::extensions::Request;
 

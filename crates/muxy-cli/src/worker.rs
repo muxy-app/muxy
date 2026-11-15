@@ -20,7 +20,6 @@ use crate::input::Input;
 use crate::state::{Discard, Result, State, Store};
 use crate::target::{Target, hosting_session};
 
-/// How long the worker waits for a request before checking whether to quit.
 const POLL: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Debug)]
@@ -33,7 +32,6 @@ pub(crate) enum Action {
     Focus(Direction),
     CyclePane(bool),
     Resize(Direction),
-    /// Moves the border between the split holding `first` and `second`.
     Ratio {
         first: PaneId,
         second: PaneId,
@@ -42,9 +40,7 @@ pub(crate) enum Action {
     Zoom,
     CheckClose,
     Close(PaneId),
-    /// Closes the current tab, asking first if a program is running in it.
     CheckCloseTab,
-    /// Closes the tab holding this pane.
     CloseTab(PaneId),
     MoveTab {
         pane: PaneId,
@@ -65,7 +61,6 @@ pub(crate) struct Worker {
     pub shared: Arc<Mutex<Shared>>,
     pub input: Arc<InputWriter>,
     pub history: Fetcher,
-    /// Where panes are drawn; their terminals are sized to fit it.
     pub viewport: Arc<Mutex<Rect>>,
     sender: SyncSender<Action>,
     stop: Arc<AtomicBool>,
@@ -76,8 +71,6 @@ pub(crate) struct Worker {
 }
 
 impl Worker {
-    /// Starts serving `target`, beginning with `first` if it is already
-    /// connected, and showing the project `open` once connected.
     pub(crate) fn start(
         target: Target,
         first: Option<Client>,
@@ -175,8 +168,6 @@ impl Worker {
         Ok(())
     }
 
-    /// Sends a mouse event to the terminal on `channel`, after any typing
-    /// still waiting behind a layout change.
     pub(crate) fn mouse(&self, channel: ChannelId, event: MouseEvent) -> Result {
         if self.ordered.load(Ordering::Acquire) > 0 {
             return self.send(Action::Mouse(channel, event));
@@ -214,10 +205,8 @@ struct Core {
     stop: Arc<AtomicBool>,
     connection: Arc<Mutex<Option<Client>>>,
     store: Option<Store>,
-    /// The project to show once the layout is loaded.
     opening: Option<ProjectId>,
     references: Option<(u64, Vec<SessionId>)>,
-    /// Activity events already marked as seen.
     acknowledged: BTreeSet<u64>,
     input: Arc<InputWriter>,
     ordered: Arc<AtomicUsize>,
@@ -274,15 +263,12 @@ impl Core {
         }
     }
 
-    /// Ends the TUI with `error`.
     fn fail(&self, error: String) {
         let mut shared = lock(&self.shared);
         shared.message.clone_from(&error);
         shared.exit = Some(Err(error));
     }
 
-    /// Connects on another thread, so Detach and quitting never wait for a
-    /// slow host. Returns `None` if the TUI stops first.
     fn connect(
         &self,
         requests: &Receiver<Action>,
@@ -309,7 +295,6 @@ impl Core {
         }
     }
 
-    /// Waits before connecting again. Returns false if the TUI stops first.
     fn pause(&self, requests: &Receiver<Action>, delay: Duration) -> bool {
         let deadline = Instant::now() + delay;
         loop {
@@ -323,8 +308,6 @@ impl Core {
         }
     }
 
-    /// Answers a request that arrives within `timeout` while disconnected.
-    /// Returns false once the TUI should stop: on Detach, or when it closes.
     fn idle(&self, requests: &Receiver<Action>, timeout: Duration) -> bool {
         match requests.recv_timeout(timeout) {
             Ok(Action::Detach) | Err(RecvTimeoutError::Disconnected) => return false,
@@ -348,7 +331,6 @@ impl Core {
         client
             .identify(muxy_protocol::ClientKind::Tui)
             .map_err(|error| error.to_string())?;
-        // The terminal UI draws no images, so it never reads their pixels.
         match client.defer_images() {
             Ok(()) | Err(ClientError::Server(_)) => {}
             Err(error) => return Err(error.to_string()),
@@ -435,9 +417,6 @@ impl Core {
         Ok(self.stop.load(Ordering::Acquire))
     }
 
-    /// Loads the layout once the server is known. A remote's layout belongs
-    /// to the server that first answered there, so a different one answering
-    /// after a reconnect needs a fresh start.
     fn load_layout(&mut self, catalog: &CatalogPage) -> Result {
         match (&self.store, &self.target) {
             (None, _) => {}
@@ -494,12 +473,9 @@ impl Core {
         Ok(())
     }
 
-    /// Reads agent activity again after the server reports a change, and
-    /// marks alerts seen once their terminal is on screen and focused.
     fn refresh_activity(&mut self, client: &Client) {
         let dirty = std::mem::take(&mut lock(&self.shared).activity_dirty);
         if dirty {
-            // Older servers don't report activity; they just show none.
             let activity = client.activity().unwrap_or_default();
             self.acknowledged
                 .retain(|id| activity.events.iter().any(|event| event.id == *id));
@@ -567,8 +543,6 @@ impl Core {
         self.action(Action::CloseTab(focus), client, catalog)
     }
 
-    /// Whether closing `panes` would end a terminal running a program other
-    /// than its shell. A terminal another pane still shows keeps running.
     fn ends_running_program(&mut self, client: &Client, panes: &[PaneId]) -> Result<bool> {
         let shown: Vec<_> = self
             .store_mut()?
@@ -897,8 +871,6 @@ impl Core {
     }
 }
 
-/// Changes the layout for `action`. `selected` is where a tab action goes,
-/// as chosen from the layout on screen.
 fn apply(
     state: &mut State,
     action: Action,

@@ -206,7 +206,6 @@ mod probe {
         }
     }
 
-    /// What reaches GPUI while the page has the keyboard.
     #[derive(Default)]
     struct Heard {
         modifiers: RefCell<Vec<gpui::Modifiers>>,

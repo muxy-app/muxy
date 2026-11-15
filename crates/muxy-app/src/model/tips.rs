@@ -11,12 +11,9 @@ use super::banners::TOAST_TRANSITION;
 
 pub(crate) const FIRST_TIP_DELAY: Duration = Duration::from_secs(10 * 60);
 pub(crate) const TIP_INTERVAL: Duration = Duration::from_secs(2 * 60 * 60);
-/// How soon to offer a tip again after a dialog, menu or other window held it back.
 pub(crate) const TIP_RETRY: Duration = Duration::from_secs(60);
 pub(crate) const TIP_DURATION: Duration = Duration::from_secs(30);
 
-/// Built-in tips, in the order the toast shows them.
-/// Each one must describe current behavior and call customizable shortcuts defaults.
 pub(crate) const TIPS: &[&str] = &[
     tr_key!(
         "Quitting Muxy never ends your terminals. To keep them when closing tabs or panes too, set Settings → General → Closing terminals → When closing tabs or panes to Detach."
@@ -73,12 +70,10 @@ pub(crate) struct TipToast {
     leaving: bool,
 }
 
-/// The tip toast. Tips follow [`TIPS`] from a random place chosen once per launch.
 pub(crate) struct Tips {
     index: usize,
     pub(crate) toast: Option<TipToast>,
     schedule: Option<Task<()>>,
-    /// Hides the toast. Replacing it cancels a pending hide.
     hide: Option<Task<()>>,
 }
 
@@ -118,8 +113,6 @@ impl AppModel {
         }));
     }
 
-    /// Shows the next tip unless something needs the user's attention, and
-    /// returns how long to wait before offering another.
     fn offer_tip(&mut self, window: &Window, cx: &mut Context<Self>) -> Duration {
         if !self.appearance.tips_visible {
             return TIP_INTERVAL;
@@ -153,7 +146,6 @@ impl AppModel {
         }));
     }
 
-    /// The pointer on the toast holds it; leaving gives it its full time again.
     pub(crate) fn hover_tip(&mut self, hovered: bool, cx: &mut Context<Self>) {
         if self.tips.toast.as_ref().is_none_or(|toast| toast.leaving) {
             return;

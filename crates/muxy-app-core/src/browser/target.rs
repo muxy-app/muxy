@@ -7,11 +7,6 @@ use muxy_protocol::ServerPath;
 use crate::project_selector::{Mismatch, pick, same_name};
 use crate::{AppState, Project, ProjectId};
 
-/// The project a browser command acts in: the current one, or the one named
-/// by `--project` and `--worktree`. A worktree is looked for in the named or
-/// current project first, then in every project. Without `--project`, a
-/// worktree name that only differs in case counts only when no worktree
-/// anywhere has the exact name.
 pub fn resolve_target(
     state: &AppState,
     project: Option<&str>,
@@ -96,7 +91,6 @@ fn loosely_names_worktree(project: &Project, text: &str) -> bool {
             .is_some_and(|folder| same_name(folder, text))
 }
 
-/// `text` may be absolute on any server, Unix or Windows.
 fn same_directory(directory: &Path, text: &Path) -> bool {
     ServerPath::from_path(text).is_ok_and(|path| path.is_absolute())
         && (path_eq(directory, text)

@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 
-/// Whether `value` is a semantic version, as the store requires.
 pub(crate) fn is_valid(value: &str) -> bool {
     Version::parse(value).is_some()
 }

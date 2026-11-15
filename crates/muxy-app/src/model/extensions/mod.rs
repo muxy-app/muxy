@@ -51,16 +51,11 @@ pub(crate) struct Runtime {
     local_revision: u64,
     pub epoch: u64,
     epochs: HashMap<String, u64>,
-    /// Each server's extension connection, kept apart from the app's own.
     clients: HashMap<ServerId, muxy_client::Client>,
-    /// Which install each server's connection is, so events from one that was
-    /// replaced are ignored.
     connection_installs: HashMap<ServerId, u64>,
     next_install: u64,
     pub(crate) installs: installs::Installs,
     checks: checks::Checks,
-    /// Connections being opened, by server and connection generation, so
-    /// only one opens at a time.
     opening: HashSet<(ServerId, u64)>,
     scripts: HashMap<u64, scripts::Running>,
     backgrounds: HashMap<String, background::Background>,
@@ -72,16 +67,13 @@ pub(crate) struct Runtime {
     waiting: VecDeque<consent::Waiting>,
     sheet: Option<consent::Sheet>,
     pub logs: logs::Logs,
-    /// The profile's record of every gated decision.
     audit: AuditLog,
     native_modal: Option<scripts::Picker>,
-    /// Stored overrides for each extension's declared settings.
     pub settings: BTreeMap<String, Map<String, Value>>,
     pub(crate) items: surfaces::Items,
     shortcuts: Vec<surfaces::Shortcut>,
     events: events::Tracker,
     gh_user: Option<(std::time::Instant, Value)>,
-    /// Whether the script and page backends were asked if they can run.
     runtimes_probed: bool,
 }
 
@@ -134,8 +126,6 @@ impl Runtime {
         self.connection_installs.get(&server).copied()
     }
 
-    /// The server's extension connection, which other app work that must not
-    /// queue behind terminals, such as listing folders, may share.
     pub(crate) fn client(&self, server: ServerId) -> Option<muxy_client::Client> {
         self.clients.get(&server).cloned()
     }
@@ -198,13 +188,10 @@ struct Call {
     verb: String,
     args: Value,
     reply: Reply,
-    /// Set once runtime consent has been granted for this call.
     approved: bool,
 }
 
 impl AppModel {
-    /// Opens `server`'s extension connection, through its worker, unless one
-    /// is already opening for this connection.
     pub(crate) fn extension_client(&mut self, server: ServerId, cx: &mut Context<Self>) {
         let (sender, receiver) = async_channel::bounded(1);
         let generation = self.generation(server);
@@ -313,7 +300,6 @@ impl AppModel {
         self.sync_project_icons(cx);
     }
 
-    /// Closes `server`'s extension connection. Its file watches end with it.
     pub(super) fn disconnect_extensions(&mut self, server: ServerId) {
         self.extensions.connection_installs.remove(&server);
         if let Some(client) = self.extensions.clients.remove(&server) {
@@ -325,7 +311,6 @@ impl AppModel {
             .forget_watches(|project| state.project_server(project) == Some(server));
     }
 
-    /// The server an extension call acts on: its project's.
     fn call_server(&self, call: &Call) -> ServerId {
         self.state
             .project_server(call.project)
@@ -339,9 +324,6 @@ impl AppModel {
             .cloned()
     }
 
-    /// Asks the script and page backends whether what they load at run time
-    /// is there, once an extension is enabled to need it. The answer can only
-    /// take a feature away, and says why.
     fn probe_extension_runtimes(&mut self, cx: &mut Context<Self>) {
         if self.extensions.runtimes_probed || self.extensions.registry.active().next().is_none() {
             return;
@@ -414,8 +396,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Starts each newly loaded extension's log tail with its file's earlier
-    /// lines, before the extension logs anything this session.
     fn read_earlier_logs(&mut self, cx: &mut Context<Self>) {
         let extensions: Vec<_> = self
             .extensions
@@ -440,7 +420,6 @@ impl AppModel {
         }
     }
 
-    /// An extension's remembered consent rules.
     pub(crate) fn extension_rules(&self, owner: &str) -> Vec<Rule> {
         self.extensions
             .grants
@@ -448,7 +427,6 @@ impl AppModel {
             .map_or_else(|_| Vec::new(), |grants| grants.rules(owner))
     }
 
-    /// Whether every gated action of the extension is allowed without asking.
     pub(crate) fn extension_trusted(&self, owner: &str) -> bool {
         self.extensions
             .grants
@@ -497,12 +475,10 @@ impl AppModel {
         )
     }
 
-    /// The profile's record of every gated decision.
     pub(crate) fn extension_audit_log(&self) -> std::path::PathBuf {
         self.path.with_file_name(AUDIT_LOG)
     }
 
-    /// Whether the installed extensions have been read from disk yet.
     pub(crate) fn extensions_loaded(&self) -> bool {
         self.extensions.local_revision > 0
     }
@@ -557,8 +533,6 @@ impl AppModel {
     ) -> gpui::Task<Result<(), String>> {
         self.change_extensions(
             move |state| {
-                // Consent belongs to the folder that earned it, not the name,
-                // so it is cleared before another folder can take the name.
                 let target = state.registry.unpacked_target(&path)?;
                 if target.new_source {
                     state
@@ -568,8 +542,6 @@ impl AppModel {
                         .clear(&target.name)?;
                 }
                 let loaded = state.registry.load_unpacked(&path)?;
-                // The folder is read again to load it, so if what it holds
-                // changed since, clear the consent of what was registered.
                 if loaded.new_source && (!target.new_source || loaded.name != target.name) {
                     state
                         .grants
@@ -694,7 +666,6 @@ impl AppModel {
         self.change_extensions(move |state| state.registry.set_enabled(&owner, enabled), cx)
     }
 
-    /// Stores (or with `None`, clears) the user's value for a declared setting.
     pub(crate) fn set_extension_setting(
         &mut self,
         owner: &str,
@@ -754,8 +725,6 @@ impl AppModel {
         )
     }
 
-    /// Reloading stops everything extensions started, including background
-    /// scripts and their runtime shortcuts and item changes.
     pub(super) fn stop_extensions(&mut self, cx: &mut Context<Self>) {
         self.stop_extension_tasks(cx);
         self.stop_backgrounds(None);
@@ -765,8 +734,6 @@ impl AppModel {
         self.remove_extension_surfaces(cx);
     }
 
-    /// Cancels in-flight work, as when the server connection ends. Background
-    /// scripts keep running, as open pages do.
     pub(super) fn stop_extension_tasks(&mut self, cx: &mut Context<Self>) {
         self.extensions.epoch = self.extensions.epoch.wrapping_add(1);
         for owner in self.extensions.registry.extensions.keys() {
@@ -819,7 +786,6 @@ impl AppModel {
         }
     }
 
-    /// Appends to an extension's log; an empty owner is the runtime's own log.
     pub(super) fn extension_log(&mut self, owner: &str, line: String) {
         let root = self
             .extensions
@@ -852,7 +818,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Every live extension webview: tabs, panels, the modal, the popover, and the sidebar.
     pub(super) fn extension_views(&self) -> Vec<&Entity<Webview>> {
         self.webviews
             .panes
@@ -922,8 +887,6 @@ impl AppModel {
             .map_or_else(|| self.state.current_project().id, |project| project.id)
     }
 
-    /// The project a call acts on: the `project` selector (a project's active
-    /// worktree, like main) or the caller's default.
     fn extension_project(&self, args: &Value, default: ProjectId) -> Result<ProjectId, String> {
         let Some(identifier) = args["project"].as_str().filter(|id| !id.is_empty()) else {
             return Ok(default);
@@ -950,8 +913,6 @@ impl AppModel {
             }
     }
 
-    /// Checks main does before prompting, so users are never asked about calls
-    /// that would fail anyway.
     fn consent_request(&self, call: &Call) -> Result<Option<Request>, String> {
         match call.verb.as_str() {
             "exec" | "exec.start" => {
@@ -1023,8 +984,6 @@ impl AppModel {
         ))
     }
 
-    /// Pins a custom command's text to the call, so consent covers the text
-    /// the user sees and a later edit can't run under that consent.
     fn bind_custom_command(&self, mut call: Call) -> Call {
         if call.verb != "commands.run" {
             return call;

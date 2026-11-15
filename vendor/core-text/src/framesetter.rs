@@ -50,11 +50,6 @@ impl CTFramesetter {
         }
     }
 
-    /// Suggest an appropriate frame size for displaying a text range.
-    ///
-    /// Returns a tuple containing an appropriate size (that should be smaller
-    /// than the provided constraints) as well as the range of text that fits in
-    /// this frame.
     pub fn suggest_frame_size_with_constraints(
         &self,
         string_range: CFRange,

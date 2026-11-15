@@ -68,7 +68,6 @@ impl TaffyLayoutEngine {
                 .into()
         } else {
             self.taffy
-                // This is safe because LayoutId is repr(transparent) to taffy::tree::NodeId.
                 .new_with_children(taffy_style, LayoutId::to_taffy_slice(children))
                 .expect(EXPECT_MESSAGE)
                 .into()
@@ -101,23 +100,19 @@ impl TaffyLayoutEngine {
             .into()
     }
 
-    // Used to understand performance
     #[allow(dead_code)]
     fn count_all_children(&self, parent: LayoutId) -> anyhow::Result<u32> {
         let mut count = 0;
 
         for child in self.taffy.children(parent.0)? {
-            // Count this child.
             count += 1;
 
-            // Count all of this child's children.
             count += self.count_all_children(LayoutId(child))?
         }
 
         Ok(count)
     }
 
-    // Used to understand performance
     #[allow(dead_code)]
     fn max_depth(&self, depth: u32, parent: LayoutId) -> anyhow::Result<u32> {
         println!(
@@ -134,7 +129,6 @@ impl TaffyLayoutEngine {
         Ok(depth + 1 + max_child_depth)
     }
 
-    // Used to understand performance
     #[allow(dead_code)]
     fn get_edges(&self, parent: LayoutId) -> anyhow::Result<Vec<(LayoutId, LayoutId)>> {
         let mut edges = Vec::new();
@@ -156,16 +150,7 @@ impl TaffyLayoutEngine {
         window: &mut Window,
         cx: &mut App,
     ) {
-        // Leaving this here until we have a better instrumentation approach.
-        // println!("Laying out {} children", self.count_all_children(id)?);
-        // println!("Max layout depth: {}", self.max_depth(0, id)?);
 
-        // Output the edges (branches) of the tree in Mermaid format for visualization.
-        // println!("Edges:");
-        // for (a, b) in self.get_edges(id)? {
-        //     println!("N{} --> N{}", u64::from(a), u64::from(b));
-        // }
-        //
 
         if !self.computed_layouts.insert(id) {
             let mut stack = SmallVec::<[LayoutId; 64]>::new();
@@ -258,14 +243,12 @@ impl TaffyLayoutEngine {
     }
 }
 
-/// A unique identifier for a layout node, generated when requesting a layout from Taffy
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(transparent)]
 pub struct LayoutId(NodeId);
 
 impl LayoutId {
     fn to_taffy_slice(node_ids: &[Self]) -> &[taffy::NodeId] {
-        // SAFETY: LayoutId is repr(transparent) to taffy::tree::NodeId.
         unsafe { std::mem::transmute::<&[LayoutId], &[taffy::NodeId]>(node_ids) }
     }
 }
@@ -308,7 +291,6 @@ impl ToTaffy<taffy::style::Style> for Style {
         fn to_grid_repeat<T: taffy::style::CheapCloneStr>(
             unit: &Option<u16>,
         ) -> Vec<taffy::GridTemplateComponent<T>> {
-            // grid-template-columns: repeat(<number>, minmax(0, 1fr));
             unit.map(|count| vec![repeat(count, vec![minmax(length(0.0), fr(1.0))])])
                 .unwrap_or_default()
         }
@@ -538,32 +520,15 @@ where
     }
 }
 
-/// The space available for an element to be laid out in
 #[derive(Copy, Clone, Default, Debug, Eq, PartialEq)]
 pub enum AvailableSpace {
-    /// The amount of space available is the specified number of pixels
     Definite(Pixels),
-    /// The amount of space available is indefinite and the node should be laid out under a min-content constraint
     #[default]
     MinContent,
-    /// The amount of space available is indefinite and the node should be laid out under a max-content constraint
     MaxContent,
 }
 
 impl AvailableSpace {
-    /// Returns a `Size` with both width and height set to `AvailableSpace::MinContent`.
-    ///
-    /// This function is useful when you want to create a `Size` with the minimum content constraints
-    /// for both dimensions.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use gpui::AvailableSpace;
-    /// let min_content_size = AvailableSpace::min_size();
-    /// assert_eq!(min_content_size.width, AvailableSpace::MinContent);
-    /// assert_eq!(min_content_size.height, AvailableSpace::MinContent);
-    /// ```
     pub const fn min_size() -> Size<Self> {
         Size {
             width: Self::MinContent,

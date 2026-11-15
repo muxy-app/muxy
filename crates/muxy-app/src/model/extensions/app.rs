@@ -1,7 +1,3 @@
-//! App-level verbs: the window's panels and layout (`ui`), built-in and
-//! custom commands, the composer, project layouts, preferences, the
-//! extension's own settings, the clipboard, and app details.
-
 use gpui::{ClipboardItem, Context, Window};
 use muxy_app_core::extensions::SettingKind;
 use muxy_app_core::project_layouts::{Config, DIRECTORY, discover};
@@ -55,7 +51,6 @@ fn flag(value: &Value, key: &str) -> Result<bool, String> {
         .ok_or_else(|| format!("{key} must be true or false"))
 }
 
-/// Whether `value` suits a setting declared with `kind`.
 fn fits(kind: SettingKind, value: &Value) -> bool {
     match kind {
         SettingKind::String => value.is_string(),
@@ -65,7 +60,6 @@ fn fits(kind: SettingKind, value: &Value) -> bool {
 }
 
 impl AppModel {
-    /// What `ui.state` reports, and `ui.changed` watches.
     pub(super) fn ui_state(&self) -> Value {
         json!({
             "sidebar": self.appearance.sidebar_expanded,
@@ -78,7 +72,6 @@ impl AppModel {
         })
     }
 
-    /// The theme in use, as `app.info` and `theme.changed` report it.
     pub(super) fn theme_state(&self) -> Value {
         let name = self
             .themes
@@ -89,7 +82,6 @@ impl AppModel {
         })
     }
 
-    /// The preferences `preferences.get` reports and `preferences.set` takes.
     pub(super) fn preference_values(&self) -> Value {
         json!({
             "theme.light": self.appearance.light_theme,
@@ -333,7 +325,6 @@ impl AppModel {
         })
     }
 
-    /// `settings.*`: the extension's own declared settings.
     pub(super) fn settings_call(&mut self, call: Call, cx: &mut Context<Self>) {
         let Some(declared) = self
             .extensions
@@ -432,8 +423,6 @@ impl AppModel {
         }
     }
 
-    /// `layouts.list` and `layouts.apply`: the project's `.muxy/layouts`,
-    /// read on its server. Applying asks the user, as the layout picker does.
     pub(super) fn layouts_call(&mut self, call: Call, cx: &mut Context<Self>) {
         let Some(client) = self.call_client(&call) else {
             call.reply.send(Err("server is disconnected".into()), cx);

@@ -1,7 +1,3 @@
-//! A child process's stdin and stdout as a byte stream, and a relay that
-//! carries a byte stream over any reader and writer, such as a process's own
-//! stdin and stdout.
-
 use std::io::{self, Read, Write};
 use std::process::{Child, ChildStderr, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -15,25 +11,12 @@ use crate::transport::{ByteStream, LocalStream, StreamCancellation};
 
 const BUFFER: usize = 64 * 1024;
 
-/// A child process's stdin and stdout as one byte stream, such as `ssh`
-/// running `muxy stdio` on another computer.
-///
-/// Both are joined to one end of a socket pair rather than to two pipes.
-/// Cancelling can then wake blocked reads and writes at once, even while a
-/// grandchild still holds the child's end. Windows cannot hand a socket to a
-/// child as stdin and stdout, so there two threads copy between the child's
-/// pipes and that end.
 #[derive(Debug)]
 pub struct ChildStream {
-    /// Taken by `split`; while it is here, dropping the stream kills the child.
     socket: Option<LocalStream>,
     process: ChildProcess,
 }
 
-/// The process behind a [`ChildStream`], kept to learn how it exited.
-///
-/// The child is killed and reaped once the stream is cancelled, or once
-/// nothing refers to it any more.
 #[derive(Clone, Debug)]
 pub struct ChildProcess {
     process: Arc<Process>,
@@ -45,11 +28,6 @@ struct Process {
 }
 
 impl ChildStream {
-    /// Starts `command` with its stdin and stdout joined to the stream. Its
-    /// stderr stays as the command set it; take a piped one with
-    /// [`ChildStream::take_stderr`]. The command is dropped once started:
-    /// it holds a copy of the child's end, and the stream only sees the child
-    /// finish once every copy of that end is closed.
     pub fn spawn(mut command: Command) -> io::Result<Self> {
         let (socket, child_end) = socket_pair()?;
         #[cfg(unix)]
@@ -76,9 +54,6 @@ impl ChildStream {
         Ok(stream)
     }
 
-    /// Copies between the child's pipes and `child_end` until each side
-    /// ends. The end then sees the child finish once every copy of its
-    /// stdout is closed, as on Unix.
     #[cfg(windows)]
     fn copy_pipes(&self, child_end: LocalStream) -> io::Result<()> {
         let (stdin, stdout) = {
@@ -105,8 +80,6 @@ impl ChildStream {
         Ok(())
     }
 
-    /// The child's stderr, if the command piped it. Keep reading it, or the
-    /// child blocks once the pipe is full.
     pub fn take_stderr(&mut self) -> Option<ChildStderr> {
         self.process.lock().stderr.take()
     }
@@ -123,7 +96,6 @@ impl ChildStream {
 }
 
 impl ByteStream for ChildStream {
-    /// Shuts the stream down, then kills and reaps the child.
     fn cancellation(&self) -> io::Result<Box<dyn StreamCancellation>> {
         Ok(Box::new(ChildCancellation {
             socket: self.socket()?.try_clone()?,
@@ -158,9 +130,6 @@ impl Drop for ChildStream {
 }
 
 impl ChildProcess {
-    /// Waits up to `timeout` for the child to exit on its own; `None` if it
-    /// is still running. The child stays unlocked while waiting, so it can
-    /// still be killed.
     pub fn wait_timeout(&self, timeout: Duration) -> io::Result<Option<ExitStatus>> {
         let mut exit = {
             let mut child = self.lock();
@@ -191,8 +160,6 @@ impl Drop for Process {
     }
 }
 
-/// Safe to repeat: std never signals a child it has already reaped, whose
-/// process ID may belong to another process by now.
 fn kill(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
@@ -210,7 +177,6 @@ impl StreamCancellation for ChildCancellation {
     }
 }
 
-/// One half of a split [`ChildStream`]; the child lives at least as long.
 struct Half<T> {
     inner: T,
     _process: ChildProcess,
@@ -232,13 +198,6 @@ impl<T: Write> Write for Half<T> {
     }
 }
 
-/// Copies `input` into `stream` and `stream` into `output` until the stream
-/// ends, writing and flushing every chunk as it arrives.
-///
-/// When `input` ends, the stream's write side closes and its remaining output
-/// is still forwarded. Output that stops accepting bytes ends the relay
-/// normally too. `input` is read on its own thread, which ends with `input`
-/// or at its next chunk once the stream has closed.
 pub fn relay(
     stream: Box<dyn ByteStream>,
     input: impl Read + Send + 'static,
@@ -254,7 +213,6 @@ pub fn relay(
     result
 }
 
-/// Dropping the writer at the end closes the stream's write side.
 fn forward_input(mut input: impl Read, mut writer: Box<dyn Write + Send>) {
     let mut buffer = vec![0; BUFFER];
     loop {

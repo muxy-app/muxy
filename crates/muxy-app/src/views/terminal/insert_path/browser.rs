@@ -1,53 +1,34 @@
-//! Which folder Insert Path browses, what it lists there, and the path a
-//! chosen entry is typed as. Paths are those of the terminal's computer,
-//! which may be of another kind than this one.
-
-/// The most rows the list shows; a filter brings the others within reach.
 const ROW_LIMIT: usize = 500;
 
-/// A file or folder directly inside the folder being browsed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Entry {
     pub(crate) name: String,
     pub(crate) is_directory: bool,
 }
 
-/// An entry the list shows.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Row {
     pub(super) name: String,
     pub(super) is_directory: bool,
-    /// It, or something inside it, was chosen recently.
     pub(super) recent: bool,
 }
 
-/// A chosen entry's path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Chosen {
-    /// Where the entry is on the terminal's computer.
     pub(super) absolute: String,
-    /// What is typed at the cursor: relative inside the terminal's folder,
-    /// and ending in a separator for a folder.
     pub(super) typed: String,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct Browser {
-    /// The terminal's folder, which typed paths are relative to.
     base: Option<String>,
-    /// The Home folder, which `~` stands for.
     home: Option<String>,
-    /// The folder being browsed.
     directory: String,
-    /// Paths chosen before, most recent first.
     recents: Vec<String>,
-    /// Whether paths are Windows paths, which also take `\` between names.
     windows: bool,
 }
 
 impl Browser {
-    /// Starts in `base`, the terminal's folder, or in `home` when the
-    /// terminal's folder isn't known. `None` when neither is.
     pub(super) fn new(
         base: Option<String>,
         home: Option<String>,
@@ -65,8 +46,6 @@ impl Browser {
         })
     }
 
-    /// Takes `base` as the terminal's folder from now on, which may have
-    /// changed since browsing started.
     pub(super) fn rebase(&mut self, base: Option<String>) {
         self.base = base.map(|path| trimmed(&path, self.windows).to_owned());
     }
@@ -75,8 +54,6 @@ impl Browser {
         &self.directory
     }
 
-    /// The browsed folder as the filter field names it: with `~` for Home,
-    /// and ending in a separator.
     pub(super) fn label(&self) -> String {
         let separator = self.separator();
         let mut label = match &self.home {
@@ -93,7 +70,6 @@ impl Browser {
         label
     }
 
-    /// Browses the folder above. Returns whether there is one.
     pub(super) fn leave(&mut self) -> bool {
         match parent(&self.directory, self.windows) {
             Some(parent) => {
@@ -104,15 +80,10 @@ impl Browser {
         }
     }
 
-    /// Browses the folder `name` inside the browsed one.
     pub(super) fn enter(&mut self, name: &str) {
         self.directory = join(&self.directory, name, self.windows);
     }
 
-    /// Follows the folders `query` names, such as `docs/`, `../`, `~/` or
-    /// `/usr/`, and returns what is left of it to filter by. `None` when it
-    /// names no folder, so all of it is a filter. `entries` are the browsed
-    /// folder's, whose spelling a name typed in another case takes.
     pub(super) fn follow(&mut self, query: &str, entries: &[Entry]) -> Option<String> {
         let separators = self.separators();
         let mut directory = self.directory.clone();
@@ -158,7 +129,6 @@ impl Browser {
         Some(rest.to_owned())
     }
 
-    /// The root `query` starts from, when it names one.
     fn start(&self, query: &str) -> Start {
         if !self.windows {
             return if query.starts_with('/') {
@@ -187,9 +157,6 @@ impl Browser {
         Start::Here
     }
 
-    /// The entries the list shows for `filter`: those whose name holds it,
-    /// ignoring case, with recent ones first, then names that start with it.
-    /// Names that start with a dot only show for a filter that does too.
     pub(super) fn rows(&self, entries: &[Entry], filter: &str) -> Vec<Row> {
         let needle = filter.to_lowercase();
         let hidden = filter.starts_with('.');
@@ -222,13 +189,10 @@ impl Browser {
         rows.into_iter().map(|(_, row)| row).collect()
     }
 
-    /// Whether the browsed folder has entries that only a filter starting
-    /// with a dot shows.
     pub(super) fn hides(entries: &[Entry]) -> bool {
         entries.iter().any(|entry| entry.name.starts_with('.'))
     }
 
-    /// The path of the entry `name` in the browsed folder.
     pub(super) fn chosen(&self, name: &str, is_directory: bool) -> Chosen {
         let absolute = join(&self.directory, name, self.windows);
         let mut typed = self
@@ -243,8 +207,6 @@ impl Browser {
         Chosen { absolute, typed }
     }
 
-    /// How recently `path`, or something inside it, was chosen: 0 for the
-    /// latest choice.
     fn recency(&self, path: &str) -> Option<usize> {
         self.recents
             .iter()
@@ -260,13 +222,9 @@ impl Browser {
     }
 }
 
-/// Where a typed path starts.
 enum Start {
-    /// In the browsed folder.
     Here,
-    /// At a root, named by this many of the path's bytes.
     Root(String, usize),
-    /// At a share whose name isn't typed out yet.
     Unfinished,
 }
 
@@ -274,7 +232,6 @@ fn separators(windows: bool) -> &'static [char] {
     if windows { &['\\', '/'] } else { &['/'] }
 }
 
-/// A drive path such as `C:\a` or `C:/a`, or a UNC path such as `\\host\a`.
 fn is_windows(path: &str) -> bool {
     match path.as_bytes() {
         [drive, b':', b'\\' | b'/', ..] => drive.is_ascii_alphabetic(),
@@ -283,7 +240,6 @@ fn is_windows(path: &str) -> bool {
     }
 }
 
-/// The start of `path` that names a drive's root, such as `C:\` or `C:/`.
 fn drive_root(path: &str) -> Option<&str> {
     match path.as_bytes() {
         [drive, b':', b'\\' | b'/', ..] if drive.is_ascii_alphabetic() => path.get(..3),
@@ -291,8 +247,6 @@ fn drive_root(path: &str) -> Option<&str> {
     }
 }
 
-/// How many bytes of `path` name its root, which has no folder above it:
-/// `/`, a drive such as `C:\`, or a share such as `\\host\share`.
 fn root_length(path: &str, windows: bool) -> usize {
     if !windows {
         return usize::from(path.starts_with('/'));
@@ -306,7 +260,6 @@ fn root_length(path: &str, windows: bool) -> usize {
     drive_root(path).map_or(0, str::len)
 }
 
-/// `path` without separators at its end, which a root keeps.
 fn trimmed(path: &str, windows: bool) -> &str {
     let root = root_length(path, windows);
     let end = path.trim_end_matches(separators(windows)).len();
@@ -323,7 +276,6 @@ fn join(directory: &str, name: &str, windows: bool) -> String {
     }
 }
 
-/// The folder `path` is in; `None` for a root.
 fn parent(path: &str, windows: bool) -> Option<String> {
     let root = root_length(path, windows);
     if path.len() <= root {
@@ -335,7 +287,6 @@ fn parent(path: &str, windows: bool) -> Option<String> {
     Some(trimmed(&path[..cut.max(root)], windows).to_owned())
 }
 
-/// What `path` is called from `directory`, when it is inside it.
 fn inside<'a>(directory: &str, path: &'a str, windows: bool) -> Option<&'a str> {
     let rest = path.strip_prefix(directory)?;
     let rest = if directory.ends_with(separators(windows)) {
@@ -346,8 +297,6 @@ fn inside<'a>(directory: &str, path: &'a str, windows: bool) -> Option<&'a str> 
     (!rest.is_empty()).then_some(rest)
 }
 
-/// How the folder among `entries` that `name` means is spelled: `name`
-/// itself, or the folder that differs from it only in case.
 fn spelling<'a>(entries: &'a [Entry], name: &str) -> Option<&'a str> {
     let folders = || entries.iter().filter(|entry| entry.is_directory);
     let lower = name.to_lowercase();

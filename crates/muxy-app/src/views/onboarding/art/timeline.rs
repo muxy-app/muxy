@@ -1,7 +1,3 @@
-//! The arithmetic of the tour's motion. Every scene is a pure function of the
-//! time, so these are all it needs to move.
-
-/// How far `t` has come through the stretch from `start`, from 0 to 1.
 pub(super) fn progress(t: f32, start: f32, duration: f32) -> f32 {
     if duration <= 0.0 {
         return if t >= start { 1.0 } else { 0.0 };
@@ -9,12 +5,10 @@ pub(super) fn progress(t: f32, start: f32, duration: f32) -> f32 {
     ((t - start) / duration).clamp(0.0, 1.0)
 }
 
-/// Fast, then settling.
 pub(super) fn ease_out(x: f32) -> f32 {
     1.0 - (1.0 - x).powi(3)
 }
 
-/// Slow at both ends.
 pub(super) fn ease_in_out(x: f32) -> f32 {
     if x < 0.5 {
         4.0 * x * x * x
@@ -23,22 +17,18 @@ pub(super) fn ease_in_out(x: f32) -> f32 {
     }
 }
 
-/// Eased arrival from 0 to 1 over the stretch from `start`.
 pub(super) fn rise(t: f32, start: f32, duration: f32) -> f32 {
     ease_out(progress(t, start, duration))
 }
 
-/// Eased from 0 to 1 and back: in at `start`, out by `end`, taking `fade` each way.
 pub(super) fn span(t: f32, start: f32, end: f32, fade: f32) -> f32 {
     ease_in_out(progress(t, start, fade)) * (1.0 - ease_in_out(progress(t, end - fade, fade)))
 }
 
-/// A smooth swing between 0 and 1 every `period`, starting at 0.
 pub(super) fn wave(t: f32, period: f32) -> f32 {
     0.5 - 0.5 * (t / period * std::f32::consts::TAU).cos()
 }
 
-/// Where `t` falls in a loop of `period`.
 pub(super) fn cycle(t: f32, period: f32) -> f32 {
     t.rem_euclid(period)
 }
@@ -47,7 +37,6 @@ pub(super) fn lerp(from: f32, to: f32, x: f32) -> f32 {
     from + (to - from) * x
 }
 
-/// `text` as typed so far, `rate` characters a second from `start`.
 pub(super) fn typed(text: &str, t: f32, start: f32, rate: f32) -> &str {
     let elapsed = ((t - start) * rate).max(0.0);
     #[allow(

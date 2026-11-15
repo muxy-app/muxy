@@ -28,7 +28,6 @@ pub(crate) struct Request {
 
 pub(crate) enum SurfaceEvent {
     Request(Request),
-    /// The page started showing another document.
     Navigated,
     Escape,
     Shortcut(gpui::Keystroke),
@@ -65,10 +64,7 @@ pub(crate) struct Page {
     pub instance: String,
     pub data: Value,
     pub kind: SurfaceKind,
-    /// The name of a panel opened as one of several copies.
     pub panel_instance: Option<String>,
-    /// Whether nothing is drawn behind the page, so what is under it shows
-    /// where the page is transparent.
     pub transparent: bool,
 }
 
@@ -84,9 +80,6 @@ impl Presentation {
         self.visible && !self.blocked && !failed
     }
 
-    /// A page the app draws is its snapshots. One the system shows lets what
-    /// is behind it show through where it leaves its background unset, so its
-    /// snapshot is drawn only while it is hidden.
     fn show_snapshot(&self, failed: bool) -> bool {
         NativeWebview::DRAWN_BY_APP || !self.native_visible(failed)
     }
@@ -114,8 +107,6 @@ pub(crate) struct Webview {
     theme: Value,
     background: gpui::Rgba,
     transparent: bool,
-    /// Whether the page takes the pointer only over its hit regions, so a
-    /// click elsewhere on it must not take the keyboard.
     pass_through: bool,
     panel_instance: Option<String>,
     presentation: Presentation,
@@ -126,11 +117,9 @@ pub(crate) struct Webview {
     metrics: Metrics,
     cursor: gpui::CursorStyle,
     pointer: Rc<input::PointerState>,
-    /// The `<select>` a page the app draws has open.
     menu: Option<OptionMenu>,
     closes: CloseRequests,
     close_results: HashMap<u64, async_channel::Sender<bool>>,
-    /// Whether the page's document has finished loading.
     loaded: bool,
     automation: automation::Automation,
     _events: Task<()>,
@@ -317,8 +306,6 @@ impl Webview {
                 generation,
                 image,
             } => {
-                // Asked even when the snapshot will not be shown: a backend
-                // that paces its snapshots sends the next one after this.
                 let current = self.native.accept_snapshot(id, generation);
                 if current && self.automation.wants_capture() {
                     self.automation.deliver(&image);
@@ -337,8 +324,6 @@ impl Webview {
         cx.notify();
     }
 
-    /// Runs `body` as an async function in the page. Its JSON result
-    /// arrives on the receiver; the token forgets it.
     pub(crate) fn run_page_script(
         &mut self,
         body: &str,
@@ -352,7 +337,6 @@ impl Webview {
         self.automation.forget(token);
     }
 
-    /// A picture of the page as it is now, and the number that forgets it.
     pub(crate) fn capture(
         &mut self,
     ) -> (
@@ -419,7 +403,6 @@ impl Webview {
         self.update_content(self.data.clone(), theme, metrics, cx);
     }
 
-    /// The page's current `muxy.data`.
     pub(crate) fn data(&self) -> &Value {
         &self.data
     }
@@ -548,7 +531,6 @@ impl Webview {
         receiver
     }
 
-    /// Passes a key to a page the app draws.
     fn key(&mut self, keystroke: &gpui::Keystroke, pressed: bool, cx: &mut Context<Self>) {
         self.native.key(keystroke, pressed, || {
             cx.read_from_clipboard().and_then(|item| item.text())
@@ -556,7 +538,6 @@ impl Webview {
         cx.stop_propagation();
     }
 
-    /// Answers the page's open `<select>`, with `None` to close it unchanged.
     fn choose(&mut self, option: Option<usize>, cx: &mut Context<Self>) {
         if self.menu.take().is_some() {
             self.native.choose(option);
@@ -641,8 +622,6 @@ fn render_snapshot(snapshot: muxy_ui::webview::Snapshot) -> Option<gpui::RenderI
     Some(gpui::RenderImage::new([image::Frame::new(pixels)]))
 }
 
-/// Turns premultiplied pixels, alpha last, into the straight alpha images
-/// are drawn with, in place.
 pub(crate) fn unpremultiply(pixels: &mut [u8]) {
     for pixel in pixels.chunks_exact_mut(4) {
         let alpha = u32::from(pixel[3]);
@@ -659,8 +638,6 @@ pub(crate) fn unpremultiply(pixels: &mut [u8]) {
 impl Drop for Webview {
     fn drop(&mut self) {
         self.fail_closes();
-        // Something else may still hold the native page for a moment; it
-        // must not stay on screen where it was last placed.
         self.native.set_visible(false);
     }
 }

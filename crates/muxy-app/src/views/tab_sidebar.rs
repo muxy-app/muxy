@@ -113,9 +113,6 @@ impl AppModel {
         })
     }
 
-    /// The sidebar's servers with the projects it shows under each, leaving
-    /// out projects without tabs unless they are shown, and how many each
-    /// has without tabs.
     pub(crate) fn tab_sidebar_groups(&self) -> Vec<(super::sidebar::ServerGroup<'_>, usize)> {
         let listed = |project: &&Project| {
             self.appearance.sidebar_focus || self.sidebar_tabs(project).next().is_some()
@@ -284,8 +281,6 @@ fn add_project_button(
         .into_any_element()
 }
 
-/// The projects of `server`'s group that have no tabs, shown or hidden
-/// together with every other group's.
 fn projects_without_tabs_toggle(
     server: muxy_app_core::ServerId,
     count: usize,
@@ -479,7 +474,6 @@ fn project_title(project: &Project, model: &AppModel, cx: &mut Context<AppModel>
         .into_any_element()
 }
 
-/// What a status glyph's tooltip says, for clients that can't hover it.
 pub(super) fn activity_description(status: tab_activity::Status) -> Option<SharedString> {
     use muxy_protocol::ProgressState;
     use tab_activity::Status;
@@ -500,7 +494,6 @@ pub(super) fn activity_description(status: tab_activity::Status) -> Option<Share
     })
 }
 
-/// What a client reads after a tab's title, beyond its selected state.
 pub(super) fn tab_description(
     pinned: bool,
     status: tab_activity::Status,
@@ -513,12 +506,10 @@ pub(super) fn tab_description(
     ])
 }
 
-/// The height of a tab row, shared with the agents panel's rows.
 pub(super) fn row_height(model: &AppModel) -> gpui::Pixels {
     model.metrics.control_small() + model.metrics.spacing2() * 2.0
 }
 
-/// The muted name above a project's rows, shared with the agents panel.
 pub(super) fn group_label(text: impl Into<SharedString>, model: &AppModel) -> gpui::Div {
     div()
         .flex_1()

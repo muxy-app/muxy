@@ -1,12 +1,3 @@
-//! A list element that can be used to render a large number of differently sized elements
-//! efficiently. Clients of this API need to ensure that elements outside of the scrolled
-//! area do not change their height for this element to function correctly. If your elements
-//! do change height, notify the list element via [`ListState::splice`] or [`ListState::reset`].
-//! In order to minimize re-renders, this element's state is stored intrusively
-//! on your own views, so that your code can coordinate directly with the list element's cached state.
-//!
-//! If all of your elements are the same height, see [`crate::UniformList`] for a simpler API
-
 use crate::{
     AnyElement, App, AvailableSpace, Bounds, ContentMask, DispatchPhase, Edges, Element, EntityId,
     FocusHandle, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
@@ -20,7 +11,6 @@ use sum_tree::{Bias, Dimensions, SumTree};
 
 type RenderItemFn = dyn FnMut(usize, &mut Window, &mut App) -> AnyElement + 'static;
 
-/// Construct a new list element
 pub fn list(
     state: ListState,
     render_item: impl FnMut(usize, &mut Window, &mut App) -> AnyElement + 'static,
@@ -33,7 +23,6 @@ pub fn list(
     }
 }
 
-/// A list element
 pub struct List {
     state: ListState,
     render_item: Box<RenderItemFn>,
@@ -42,14 +31,12 @@ pub struct List {
 }
 
 impl List {
-    /// Set the sizing behavior for the list.
     pub fn with_sizing_behavior(mut self, behavior: ListSizingBehavior) -> Self {
         self.sizing_behavior = behavior;
         self
     }
 }
 
-/// The list state that views must hold on behalf of the list element.
 #[derive(Clone)]
 pub struct ListState(Rc<RefCell<StateInner>>);
 
@@ -73,44 +60,30 @@ struct StateInner {
     measuring_behavior: ListMeasuringBehavior,
 }
 
-/// Whether the list is scrolling from top to bottom or bottom to top.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ListAlignment {
-    /// The list is scrolling from top to bottom, like most lists.
     Top,
-    /// The list is scrolling from bottom to top, like a chat log.
     Bottom,
 }
 
-/// A scroll event that has been converted to be in terms of the list's items.
 pub struct ListScrollEvent {
-    /// The range of items currently visible in the list, after applying the scroll event.
     pub visible_range: Range<usize>,
 
-    /// The number of items that are currently visible in the list, after applying the scroll event.
     pub count: usize,
 
-    /// Whether the list has been scrolled.
     pub is_scrolled: bool,
 }
 
-/// The sizing behavior to apply during layout.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ListSizingBehavior {
-    /// The list should calculate its size based on the size of its items.
     Infer,
-    /// The list should not calculate a fixed size.
     #[default]
     Auto,
 }
 
-/// The measuring behavior to apply during layout.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ListMeasuringBehavior {
-    /// Measure all items in the list.
-    /// Note: This can be expensive for the first frame in a large list.
     Measure(bool),
-    /// Only measure visible items
     #[default]
     Visible,
 }
@@ -124,13 +97,10 @@ impl ListMeasuringBehavior {
     }
 }
 
-/// The horizontal sizing behavior to apply during layout.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ListHorizontalSizingBehavior {
-    /// List items' width can never exceed the width of the list.
     #[default]
     FitList,
-    /// List items' width may go over the width of the list, if any item is wider.
     Unconstrained,
 }
 
@@ -146,7 +116,6 @@ struct ItemLayout {
     size: Size<Pixels>,
 }
 
-/// Frame state used by the [List] element after layout.
 pub struct ListPrepaintState {
     hitbox: Hitbox,
     layout: LayoutItemsResponse,
@@ -207,12 +176,6 @@ struct Count(usize);
 struct Height(Pixels);
 
 impl ListState {
-    /// Construct a new list state, for storage on a view.
-    ///
-    /// The overdraw parameter controls how much extra space is rendered
-    /// above and below the visible area. Elements within this area will
-    /// be measured even though they are not visible. This can help ensure
-    /// that the list doesn't flicker or pop in when scrolling.
     pub fn new(item_count: usize, alignment: ListAlignment, overdraw: Pixels) -> Self {
         let this = Self(Rc::new(RefCell::new(StateInner {
             last_layout_bounds: None,
@@ -230,17 +193,11 @@ impl ListState {
         this
     }
 
-    /// Set the list to measure all items in the list in the first layout phase.
-    ///
-    /// This is useful for ensuring that the scrollbar size is correct instead of based on only rendered elements.
     pub fn measure_all(self) -> Self {
         self.0.borrow_mut().measuring_behavior = ListMeasuringBehavior::Measure(false);
         self
     }
 
-    /// Reset this instantiation of the list state.
-    ///
-    /// Note that this will cause scroll events to be dropped until the next paint.
     pub fn reset(&self, element_count: usize) {
         let old_count = {
             let state = &mut *self.0.borrow_mut();
@@ -254,21 +211,14 @@ impl ListState {
         self.splice(0..old_count, element_count);
     }
 
-    /// The number of items in this list.
     pub fn item_count(&self) -> usize {
         self.0.borrow().items.summary().count
     }
 
-    /// Inform the list state that the items in `old_range` have been replaced
-    /// by `count` new items that must be recalculated.
     pub fn splice(&self, old_range: Range<usize>, count: usize) {
         self.splice_focusable(old_range, (0..count).map(|_| None))
     }
 
-    /// Register with the list state that the items in `old_range` have been replaced
-    /// by new items. As opposed to [`Self::splice`], this method allows an iterator of optional focus handles
-    /// to be supplied to properly integrate with items in the list that can be focused. If a focused item
-    /// is scrolled out of view, the list will continue to render it to allow keyboard interaction.
     pub fn splice_focusable(
         &self,
         old_range: Range<usize>,
@@ -306,7 +256,6 @@ impl ListState {
         }
     }
 
-    /// Set a handler that will be called when the list is scrolled.
     pub fn set_scroll_handler(
         &self,
         handler: impl FnMut(&ListScrollEvent, &mut Window, &mut App) + 'static,
@@ -314,12 +263,10 @@ impl ListState {
         self.0.borrow_mut().scroll_handler = Some(Box::new(handler))
     }
 
-    /// Get the current scroll offset, in terms of the list's items.
     pub fn logical_scroll_top(&self) -> ListOffset {
         self.0.borrow().logical_scroll_top()
     }
 
-    /// Scroll the list by the given offset
     pub fn scroll_by(&self, distance: Pixels) {
         if distance == px(0.) {
             return;
@@ -344,7 +291,6 @@ impl ListState {
         });
     }
 
-    /// Scroll the list to the given offset
     pub fn scroll_to(&self, mut scroll_top: ListOffset) {
         let state = &mut *self.0.borrow_mut();
         let item_count = state.items.summary().count;
@@ -356,7 +302,6 @@ impl ListState {
         state.logical_scroll_top = Some(scroll_top);
     }
 
-    /// Scroll the list to the given item, such that the item is fully visible.
     pub fn scroll_to_reveal_item(&self, ix: usize) {
         let state = &mut *self.0.borrow_mut();
 
@@ -388,8 +333,6 @@ impl ListState {
         state.logical_scroll_top = Some(scroll_top);
     }
 
-    /// Get the bounds for the given item in window coordinates, if it's
-    /// been rendered.
     pub fn bounds_for_item(&self, ix: usize) -> Option<Bounds<Pixels>> {
         let state = &*self.0.borrow();
 
@@ -418,29 +361,19 @@ impl ListState {
         None
     }
 
-    /// Call this method when the user starts dragging the scrollbar.
-    ///
-    /// This will prevent the height reported to the scrollbar from changing during the drag
-    /// as items in the overdraw get measured, and help offset scroll position changes accordingly.
     pub fn scrollbar_drag_started(&self) {
         let mut state = self.0.borrow_mut();
         state.scrollbar_drag_start_height = Some(state.items.summary().height);
     }
 
-    /// Called when the user stops dragging the scrollbar.
-    ///
-    /// See `scrollbar_drag_started`.
     pub fn scrollbar_drag_ended(&self) {
         self.0.borrow_mut().scrollbar_drag_start_height.take();
     }
 
-    /// Set the offset from the scrollbar
     pub fn set_offset_from_scrollbar(&self, point: Point<Pixels>) {
         self.0.borrow_mut().set_offset_from_scrollbar(point);
     }
 
-    /// Returns the maximum scroll offset according to the items we have measured.
-    /// This value remains constant while dragging to prevent the scrollbar from moving away unexpectedly.
     pub fn max_offset_for_scrollbar(&self) -> Size<Pixels> {
         let state = self.0.borrow();
         let bounds = state.last_layout_bounds.unwrap_or_default();
@@ -452,7 +385,6 @@ impl ListState {
         Size::new(Pixels::ZERO, Pixels::ZERO.max(height - bounds.size.height))
     }
 
-    /// Returns the current scroll offset adjusted for the scrollbar
     pub fn scroll_px_offset_for_scrollbar(&self) -> Point<Pixels> {
         let state = &self.0.borrow();
         let logical_scroll_top = state.logical_scroll_top();
@@ -462,14 +394,12 @@ impl ListState {
             cursor.summary(&Count(logical_scroll_top.item_ix), Bias::Right);
         let content_height = state.items.summary().height;
         let drag_offset =
-            // if dragging the scrollbar, we want to offset the point if the height changed
             content_height - state.scrollbar_drag_start_height.unwrap_or(content_height);
         let offset = summary.height + logical_scroll_top.offset_in_item - drag_offset;
 
         Point::new(px(0.), -offset)
     }
 
-    /// Return the bounds of the viewport in pixels.
     pub fn viewport_bounds(&self) -> Bounds<Pixels> {
         self.0.borrow().last_layout_bounds.unwrap_or_default()
     }
@@ -493,8 +423,6 @@ impl StateInner {
         window: &mut Window,
         cx: &mut App,
     ) {
-        // Drop scroll events after a reset, since we can't calculate
-        // the new logical scroll top without the item heights
         if self.reset {
             return;
         }
@@ -627,7 +555,6 @@ impl StateInner {
 
         let mut cursor = old_items.cursor::<Count>(());
 
-        // Render items after the scroll top, including those in the trailing overdraw
         cursor.seek(&Count(scroll_top.item_ix), Bias::Right);
         for (ix, item) in cursor.by_ref().enumerate() {
             let visible_height = rendered_height - scroll_top.offset_in_item;
@@ -635,10 +562,8 @@ impl StateInner {
                 break;
             }
 
-            // Use the previously cached height and focus handle if available
             let mut size = item.size();
 
-            // If we're within the visible area or the height wasn't cached, render and measure the item's element
             if visible_height < available_height || size.is_none() {
                 let item_index = scroll_top.item_ix + ix;
                 let mut element = render_item(item_index, window, cx);
@@ -666,11 +591,8 @@ impl StateInner {
         }
         rendered_height += padding.bottom;
 
-        // Prepare to start walking upward from the item at the scroll top.
         cursor.seek(&Count(scroll_top.item_ix), Bias::Right);
 
-        // If the rendered items do not fill the visible region, then adjust
-        // the scroll top upward.
         if rendered_height - scroll_top.offset_in_item < available_height {
             while rendered_height < available_height {
                 cursor.prev();
@@ -717,7 +639,6 @@ impl StateInner {
             };
         }
 
-        // Measure items in the leading overdraw
         let mut leading_overdraw = scroll_top.offset_in_item;
         while leading_overdraw < self.overdraw {
             cursor.prev();
@@ -747,9 +668,6 @@ impl StateInner {
         new_items.append(cursor.suffix(), ());
         self.items = new_items;
 
-        // If none of the visible items are focused, check if an off-screen item is focused
-        // and include it to be rendered after the visible items so keyboard interaction continues
-        // to work for it.
         if !rendered_focused_item {
             let mut cursor = self
                 .items
@@ -804,10 +722,8 @@ impl StateInner {
                 cx,
             );
 
-            // Avoid honoring autoscroll requests from elements other than our children.
             window.take_autoscroll();
 
-            // Only paint the visible items, if there is actually any space for them (taking padding into account)
             if bounds.size.height > padding.top + padding.bottom {
                 let mut item_origin = bounds.origin + Point::new(px(0.), padding.top);
                 item_origin.y -= layout_response.scroll_top.offset_in_item;
@@ -829,10 +745,8 @@ impl StateInner {
                             cursor.seek(&Count(item.index), Bias::Right);
                             let mut height = bounds.size.height - padding.top - padding.bottom;
 
-                            // Account for the height of the element down until the autoscroll bottom.
                             height -= autoscroll_bounds.bottom() - item_origin.y;
 
-                            // Keep decreasing the scroll top until we fill all the available space.
                             while height > Pixels::ZERO {
                                 cursor.prev();
                                 let Some(item) = cursor.item() else { break };
@@ -867,7 +781,6 @@ impl StateInner {
         })
     }
 
-    // Scrollbar support
 
     fn set_offset_from_scrollbar(&mut self, point: Point<Pixels>) {
         let Some(bounds) = self.last_layout_bounds else {
@@ -879,7 +792,6 @@ impl StateInner {
         let content_height = self.items.summary().height;
         let scroll_max = (content_height + padding.top + padding.bottom - height).max(px(0.));
         let drag_offset =
-            // if dragging the scrollbar, we want to offset the point if the height changed
             content_height - self.scrollbar_drag_start_height.unwrap_or(content_height);
         let new_scroll_top = (point.y - drag_offset).abs().max(px(0.)).min(scroll_max);
 
@@ -909,13 +821,9 @@ impl std::fmt::Debug for ListItem {
     }
 }
 
-/// An offset into the list's items, in terms of the item index and the number
-/// of pixels off the top left of the item.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ListOffset {
-    /// The index of an item in the list
     pub item_ix: usize,
-    /// The number of pixels to offset from the item index.
     pub offset_in_item: Pixels,
 }
 
@@ -949,8 +857,6 @@ impl Element for List {
                     let available_height = if let Some(last_bounds) = state.last_layout_bounds {
                         last_bounds.size.height
                     } else {
-                        // If we don't have the last layout bounds (first render),
-                        // we might just use the overdraw value as the available height to layout enough items.
                         state.overdraw
                     };
                     let padding = style.padding.to_pixels(
@@ -1022,7 +928,6 @@ impl Element for List {
 
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
 
-        // If the width of the list has changed, invalidate all cached item heights
         if state
             .last_layout_bounds
             .is_none_or(|last_bounds| last_bounds.size.width != bounds.size.width)
@@ -1198,7 +1103,6 @@ mod test {
 
         let state = ListState::new(5, crate::ListAlignment::Top, px(10.));
 
-        // Ensure that the list is scrolled to the top
         state.scroll_to(gpui::ListOffset {
             item_ix: 0,
             offset_in_item: px(0.0),
@@ -1215,22 +1119,18 @@ mod test {
             }
         }
 
-        // Paint
         cx.draw(point(px(0.), px(0.)), size(px(100.), px(20.)), |_, cx| {
             cx.new(|_| TestView(state.clone()))
         });
 
-        // Reset
         state.reset(5);
 
-        // And then receive a scroll event _before_ the next paint
         cx.simulate_event(ScrollWheelEvent {
             position: point(px(1.), px(1.)),
             delta: ScrollDelta::Pixels(point(px(0.), px(-500.))),
             ..Default::default()
         });
 
-        // Scroll position should stay at the top of the list
         assert_eq!(state.logical_scroll_top().item_ix, 0);
         assert_eq!(state.logical_scroll_top().offset_in_item, px(0.));
     }
@@ -1257,28 +1157,22 @@ mod test {
             }
         }
 
-        // Paint
         cx.draw(point(px(0.), px(0.)), size(px(100.), px(100.)), |_, cx| {
             cx.new(|_| TestView(state.clone()))
         });
 
-        // Test positive distance: start at item 1, move down 30px
         state.scroll_by(px(30.));
 
-        // Should move to item 2
         let offset = state.logical_scroll_top();
         assert_eq!(offset.item_ix, 1);
         assert_eq!(offset.offset_in_item, px(10.));
 
-        // Test negative distance: start at item 2, move up 30px
         state.scroll_by(px(-30.));
 
-        // Should move back to item 1
         let offset = state.logical_scroll_top();
         assert_eq!(offset.item_ix, 0);
         assert_eq!(offset.offset_in_item, px(0.));
 
-        // Test zero distance
         state.scroll_by(px(0.));
         let offset = state.logical_scroll_top();
         assert_eq!(offset.item_ix, 0);

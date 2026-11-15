@@ -526,9 +526,6 @@ fn dispatch_bridge_action(owner: &WeakEntity<AppModel>, action: BridgeAction, cx
     });
 }
 
-/// What accessibility clients read of the panel. These nodes draw nothing. The
-/// model's buttons are left out, as the real ones publish themselves and a
-/// second node with their ID would be dropped from the tree.
 fn accessibility_nodes(
     status: &str,
     shortcut: &str,

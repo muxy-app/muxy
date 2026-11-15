@@ -38,8 +38,6 @@ pub(super) fn network(path: &Path, args: &[impl AsRef<OsStr>]) -> Result<Vec<u8>
     .map(|output| output.0)
 }
 
-/// A Git option that asks `gh` for GitHub credentials. Git runs the helper
-/// through a POSIX shell, Git for Windows included.
 fn github_credential_helper() -> Option<OsString> {
     let gh = github_cli()?;
     let mut value = OsString::from("credential.https://github.com.helper=!'");
@@ -62,8 +60,6 @@ fn github_credential_helper() -> Option<OsString> {
     Some(value)
 }
 
-/// Finds `gh` beyond the system PATH that a server started from the app inherits,
-/// checking Homebrew's folders before asking the login shell.
 pub(super) fn github_cli() -> Option<PathBuf> {
     let inherited = std::env::var_os("PATH").unwrap_or_default();
     let homebrew: &[&str] = if cfg!(windows) {
@@ -114,18 +110,12 @@ fn git_command(path: &Path, args: &[impl AsRef<OsStr>]) -> Command {
     command
 }
 
-/// Keeps only the absolute folders of the inherited `PATH`. Git and `gh` run
-/// inside a repository, where a relative entry, or an empty one, which means
-/// the current folder, would let the repository supply `git` itself or a
-/// program they start.
 pub(super) fn without_relative_path(command: &mut Command) {
     if let Some(path) = std::env::var_os("PATH").and_then(|path| absolute_folders(&path)) {
         command.env("PATH", path);
     }
 }
 
-/// The absolute folders of `path`, or the system's own when none are left,
-/// since an empty `PATH` also means the current folder.
 fn absolute_folders(path: &OsStr) -> Option<OsString> {
     let kept: Vec<PathBuf> = std::env::split_paths(path)
         .filter(|folder| folder.is_absolute())
@@ -149,10 +139,6 @@ fn system_path() -> OsString {
         .unwrap_or_else(|_| r"C:\Windows\System32".into())
 }
 
-/// Drops the `GIT_*` variables the server inherited, which could point Git
-/// at another repository, and keeps Git from prompting. SSH and askpass
-/// settings stay so remotes still authenticate. Set other `GIT_*` variables
-/// after this, or it removes them too.
 pub(super) fn without_inherited_git(command: &mut Command) {
     for (name, _) in std::env::vars_os() {
         let key = name.to_string_lossy();
@@ -184,9 +170,6 @@ pub(super) fn ignored(path: &Path, input: &[u8]) -> Result<Vec<u8>> {
     finish(command, limits, false, true).map(|output| output.0)
 }
 
-/// Runs `command`, keeping at most `truncate_stdout` bytes of its output if
-/// given and failing past 4 MiB otherwise. Returns whether it was cut short.
-/// `allow_difference` accepts exit code 1, which diff uses for "differs".
 pub(super) fn capture_with(
     command: Command,
     timeout: Duration,
@@ -251,8 +234,6 @@ mod tests {
             std::env::split_paths(&kept).collect::<Vec<_>>(),
             [folders[0].clone(), folders[4].clone()]
         );
-        // Nothing absolute left must not leave an empty PATH, which means the
-        // current folder: the repository's.
         let relative = std::env::join_paths(&folders[1..4]).unwrap_or_default();
         let kept = absolute_folders(&relative).unwrap_or_default();
         assert!(!kept.is_empty());

@@ -11,8 +11,6 @@ import ci_scope  # noqa: E402
 import slow_test_guard  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-# Formatting is the same on every platform and the docs are not published, so CI
-# checks both once, in the Linux desktop lint.
 PARTS = {
     "lint": [
         [sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests"],

@@ -35,7 +35,6 @@ fn status_color(status: AgentStatus, model: &AppModel) -> Hsla {
     }
 }
 
-/// The agent's status as its terminal tab shows it, when the tab shows one.
 fn status_glyph(
     agent: &RunningAgent,
     owner: gpui::EntityId,
@@ -95,7 +94,6 @@ fn status_name(status: AgentStatus) -> SharedString {
     }
 }
 
-/// How many agents a worktree has in each status, as clients read it.
 fn counts_description(counts: &[usize; 4]) -> String {
     AgentStatus::ALL
         .into_iter()
@@ -106,7 +104,6 @@ fn counts_description(counts: &[usize; 4]) -> String {
         .join(", ")
 }
 
-/// What a row's icons and colors say, for clients that can't see them.
 fn entry_description(entry: &Entry, model: &AppModel) -> String {
     match entry {
         Entry::Agent(agent) => format!(
@@ -118,7 +115,6 @@ fn entry_description(entry: &Entry, model: &AppModel) -> String {
     }
 }
 
-/// How long ago the agent finished, when the panel shows idle time.
 fn idle_age(agent: &RunningAgent, model: &AppModel) -> Option<SharedString> {
     if !model.appearance.agents_panel_idle_time {
         return None;
@@ -147,9 +143,6 @@ fn idle_time(agent: &RunningAgent, model: &AppModel) -> Option<AnyElement> {
     )
 }
 
-/// The second line of a normal row: where the agent runs, unless its
-/// project's heading says so, which agent it is, unless the title names it,
-/// and what it's doing. A worktree's counts already sit on its right.
 fn details(entry: &Entry, title: &str, model: &AppModel) -> Option<String> {
     let Entry::Agent(agent) = entry else {
         return None;
@@ -230,7 +223,6 @@ fn root_project<'a>(entry: &Entry, model: &'a AppModel) -> Option<&'a muxy_app_c
     )
 }
 
-/// The project's color as a bar down the row's leading edge, spanning it.
 fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     if !model.appearance.agents_panel_project_colors
         || !model.appearance.agents_panel_colors_apply()
@@ -254,7 +246,6 @@ fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     )
 }
 
-/// How big a row's leading icon is: larger beside two lines of text.
 fn icon_size(model: &AppModel) -> gpui::Pixels {
     if compact(model) {
         model.metrics.icon_sm()
@@ -301,7 +292,6 @@ fn leading(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     }
 }
 
-/// A row's title, with its details under it in a normal row.
 fn row_text(entry: &Entry, title: String, model: &AppModel) -> gpui::Div {
     let m = model.metrics;
     let theme = &model.theme;
@@ -571,8 +561,6 @@ fn header_buttons(detached: bool, model: &AppModel, cx: &mut Context<AppModel>) 
     })
 }
 
-/// Space between the panel's edges and its rows. Docked, the sidebar's own
-/// margin already lines rows up with the sidebar's tabs.
 fn inset(placement: Placement, model: &AppModel) -> gpui::Pixels {
     if placement == Placement::Docked {
         px(0.0)
@@ -987,7 +975,6 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
     )
 }
 
-/// The Agents panel as a popup beside the sidebar.
 pub(crate) struct AgentsPopup;
 
 impl OverlayView for AgentsPopup {
@@ -1122,7 +1109,6 @@ fn drag_tracker(cx: &mut Context<AppModel>) -> AnyElement {
     .into_any_element()
 }
 
-/// The detached agents panel's card, for the floating layer.
 pub(crate) fn floating(
     model: &AppModel,
     window: &Window,

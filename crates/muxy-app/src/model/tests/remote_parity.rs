@@ -1,5 +1,3 @@
-//! Remote servers reconnect on their own only when the user expects it.
-
 use super::servers::{connect_remote, entry, work};
 use super::*;
 

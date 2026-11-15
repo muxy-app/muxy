@@ -22,10 +22,6 @@ use core_graphics::base::CGFloat;
 use std::os::raw::c_void;
 use std::path::PathBuf;
 
-/*
-* CTFontTraits.h
-*/
-// actually, these are extern enums
 pub type CTFontFormat = u32;
 pub const kCTFontFormatUnrecognized: CTFontFormat = 0;
 pub const kCTFontFormatOpenTypePostScript: CTFontFormat = 1;
@@ -179,16 +175,13 @@ impl TraitAccessors for CTFontTraits {
     }
 }
 
-/*
-* CTFontDescriptor.h
-*/
 pub type CTFontOrientation = u32;
-pub const kCTFontDefaultOrientation: CTFontOrientation = 0; // deprecated since macOS 10.11, iOS 9
-pub const kCTFontOrientationDefault: CTFontOrientation = 0; // introduced in macOS 10.8, iOS 6
-pub const kCTFontHorizontalOrientation: CTFontOrientation = 1; // deprecated since macOS 10.11, iOS 9
-pub const kCTFontOrientationHorizontal: CTFontOrientation = 1; // introduced in macOS 10.8, iOS 6
-pub const kCTFontVerticalOrientation: CTFontOrientation = 2; // deprecated since macOS 10.11, iOS 9
-pub const kCTFontOrientationVertical: CTFontOrientation = 2; // introduced in macOS 10.8, iOS 6
+pub const kCTFontDefaultOrientation: CTFontOrientation = 0;
+pub const kCTFontOrientationDefault: CTFontOrientation = 0;
+pub const kCTFontHorizontalOrientation: CTFontOrientation = 1;
+pub const kCTFontOrientationHorizontal: CTFontOrientation = 1;
+pub const kCTFontVerticalOrientation: CTFontOrientation = 2;
+pub const kCTFontOrientationVertical: CTFontOrientation = 2;
 
 pub type CTFontPriority = u32;
 pub const kCTFontPrioritySystem: CTFontPriority = 10000;
@@ -213,8 +206,6 @@ impl_TCFType!(
 );
 impl_CFTypeDescription!(CTFontDescriptor);
 
-// "Font objects (CTFont, CTFontDescriptor, and associated objects) can be used
-//  simultaneously by multiple operations, work queues, or threads."
 unsafe impl Send for CTFontDescriptor {}
 unsafe impl Sync for CTFontDescriptor {}
 
@@ -357,28 +348,18 @@ pub fn debug_descriptor(desc: &CTFontDescriptor) {
 }
 
 extern "C" {
-    /*
-     * CTFontTraits.h
-     */
 
-    // font trait constants
     pub static kCTFontSymbolicTrait: CFStringRef;
     pub static kCTFontWeightTrait: CFStringRef;
     pub static kCTFontWidthTrait: CFStringRef;
     pub static kCTFontSlantTrait: CFStringRef;
 
-    /*
-     * CTFontDescriptor.h
-     */
 
-    // font attribute constants. Note that the name-related attributes
-    // here are somewhat flaky. Servo creates CTFont instances and
-    // then uses CTFontCopyName to get more fine-grained names.
-    pub static kCTFontURLAttribute: CFStringRef; // value: CFURLRef
-    pub static kCTFontNameAttribute: CFStringRef; // value: CFStringRef
-    pub static kCTFontDisplayNameAttribute: CFStringRef; // value: CFStringRef
-    pub static kCTFontFamilyNameAttribute: CFStringRef; // value: CFStringRef
-    pub static kCTFontStyleNameAttribute: CFStringRef; // value: CFStringRef
+    pub static kCTFontURLAttribute: CFStringRef;
+    pub static kCTFontNameAttribute: CFStringRef;
+    pub static kCTFontDisplayNameAttribute: CFStringRef;
+    pub static kCTFontFamilyNameAttribute: CFStringRef;
+    pub static kCTFontStyleNameAttribute: CFStringRef;
     pub static kCTFontTraitsAttribute: CFStringRef;
     pub static kCTFontVariationAttribute: CFStringRef;
     pub static kCTFontSizeAttribute: CFStringRef;

@@ -24,7 +24,6 @@ type Master = Box<dyn MasterPty + Send>;
 #[cfg(windows)]
 type Master = Console;
 
-/// On Unix, `std`'s child keeps the number of the signal that ended it.
 #[cfg(unix)]
 type ChildProcess = std::process::Child;
 #[cfg(windows)]
@@ -227,7 +226,6 @@ impl Pty {
             .and_then(|pid| u32::try_from(pid).ok())
     }
 
-    /// Windows has no foreground process group to ask for.
     #[cfg(windows)]
     #[allow(clippy::unused_self, reason = "Matches the Unix signature")]
     pub fn foreground_pid(&self) -> Option<u32> {
@@ -239,7 +237,6 @@ impl Pty {
         self.master_fd
     }
 
-    /// The shell's process handle, open for as long as this `Pty` lives.
     #[cfg(windows)]
     pub fn process_handle(&self) -> Option<RawHandle> {
         self.child.as_raw_handle()

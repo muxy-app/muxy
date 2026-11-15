@@ -1,10 +1,7 @@
-/// A unique identifier for an element that can be inspected.
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct InspectorElementId {
-    /// Stable part of the ID.
     #[cfg(any(feature = "inspector", debug_assertions))]
     pub path: std::rc::Rc<InspectorElementPath>,
-    /// Disambiguates elements that have the same path.
     #[cfg(any(feature = "inspector", debug_assertions))]
     pub instance_id: usize,
 }
@@ -25,13 +22,10 @@ mod conditional {
     use collections::FxHashMap;
     use std::any::{Any, TypeId};
 
-    /// `GlobalElementId` qualified by source location of element construction.
     #[derive(Debug, Eq, PartialEq, Hash)]
     pub struct InspectorElementPath {
-        /// The path to the nearest ancestor element that has an `ElementId`.
         #[cfg(any(feature = "inspector", debug_assertions))]
         pub global_id: crate::GlobalElementId,
-        /// Source location where this element was constructed.
         #[cfg(any(feature = "inspector", debug_assertions))]
         pub source_location: &'static std::panic::Location<'static>,
     }
@@ -51,12 +45,9 @@ mod conditional {
         }
     }
 
-    /// Function set on `App` to render the inspector UI.
     pub type InspectorRenderer =
         Box<dyn Fn(&mut Inspector, &mut Window, &mut Context<Inspector>) -> AnyElement>;
 
-    /// Manages inspector state - which element is currently selected and whether the inspector is
-    /// in picking mode.
     pub struct Inspector {
         active_element: Option<InspectedElement>,
         pub(crate) pick_depth: Option<f32>,
@@ -111,7 +102,6 @@ mod conditional {
             changed
         }
 
-        /// ID of the currently hovered or selected element.
         pub fn active_element_id(&self) -> Option<&InspectorElementId> {
             self.active_element.as_ref().map(|e| &e.id)
         }
@@ -142,17 +132,14 @@ mod conditional {
             result
         }
 
-        /// Starts element picking mode, allowing the user to select elements by clicking.
         pub fn start_picking(&mut self) {
             self.pick_depth = Some(0.0);
         }
 
-        /// Returns whether the inspector is currently in picking mode.
         pub fn is_picking(&self) -> bool {
             self.pick_depth.is_some()
         }
 
-        /// Renders elements for all registered inspector states of the active inspector element.
         pub fn render_inspector_states(
             &mut self,
             window: &mut Window,
@@ -222,27 +209,19 @@ mod conditional {
     }
 }
 
-/// Provides definitions used by `#[derive_inspector_reflection]`.
 #[cfg(any(feature = "inspector", debug_assertions))]
 pub mod inspector_reflection {
     use std::any::Any;
 
-    /// Reification of a function that has the signature `fn some_fn(T) -> T`. Provides the name,
-    /// documentation, and ability to invoke the function.
     #[derive(Clone, Copy)]
     pub struct FunctionReflection<T> {
-        /// The name of the function
         pub name: &'static str,
-        /// The method
         pub function: fn(Box<dyn Any>) -> Box<dyn Any>,
-        /// Documentation for the function
         pub documentation: Option<&'static str>,
-        /// `PhantomData` for the type of the argument and result
         pub _type: std::marker::PhantomData<T>,
     }
 
     impl<T: 'static> FunctionReflection<T> {
-        /// Invoke this method on a value and return the result.
         pub fn invoke(&self, value: T) -> T {
             let boxed = Box::new(value) as Box<dyn Any>;
             let result = (self.function)(boxed);

@@ -6,10 +6,8 @@ use crate::{
 use core_video::pixel_buffer::CVPixelBuffer;
 use refineable::Refineable;
 
-/// A source of a surface's content.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SurfaceSource {
-    /// A macOS image buffer from CoreVideo
     #[cfg(target_os = "macos")]
     Surface(CVPixelBuffer),
 }
@@ -21,14 +19,12 @@ impl From<CVPixelBuffer> for SurfaceSource {
     }
 }
 
-/// A surface element.
 pub struct Surface {
     source: SurfaceSource,
     object_fit: ObjectFit,
     style: StyleRefinement,
 }
 
-/// Create a new surface element.
 pub fn surface(source: impl Into<SurfaceSource>) -> Surface {
     Surface {
         source: source.into(),
@@ -38,7 +34,6 @@ pub fn surface(source: impl Into<SurfaceSource>) -> Surface {
 }
 
 impl Surface {
-    /// Set the object fit for the image.
     pub fn object_fit(mut self, object_fit: ObjectFit) -> Self {
         self.object_fit = object_fit;
         self
@@ -96,7 +91,6 @@ impl Element for Surface {
             SurfaceSource::Surface(surface) => {
                 let size = crate::size(surface.get_width().into(), surface.get_height().into());
                 let new_bounds = self.object_fit.get_bounds(bounds, size);
-                // TODO: Add support for corner_radii
                 window.paint_surface(new_bounds, surface.clone());
             }
             #[allow(unreachable_patterns)]

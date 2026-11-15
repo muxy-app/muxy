@@ -25,12 +25,8 @@ use muxy_terminal::{TerminalArchive, TerminalSnapshot};
 use crate::ServerError;
 use crate::search::Search;
 
-/// The only whole-file record version, written before records were indexed.
 const LEGACY_VERSION: u32 = 1;
 const SCREEN_LIMIT: u64 = 16 * 1024 * 1024 - 1024;
-/// Room a history page's screen and the images on its rows take together,
-/// past which the images placed furthest up are left out, so its rows
-/// still have a mebibyte.
 const PAGE_GRAPHICS_LIMIT: u64 = SCREEN_LIMIT - 1024 * 1024;
 type Completion = Sender<Result<(), String>>;
 type Queue = Arc<Mutex<BTreeMap<SessionId, Job>>>;
@@ -72,7 +68,6 @@ fn validate_screen(screen: &SavedScreen) -> io::Result<()> {
     .map_err(|error| io::Error::other(format!("invalid saved screen: {error:?}")))
 }
 
-/// A terminal copy waiting to become a record, off the session's thread.
 #[derive(Debug)]
 struct Pending {
     snapshot: TerminalSnapshot,
@@ -346,8 +341,6 @@ impl Archive {
         reason: Option<ExitReason>,
     ) -> io::Result<()> {
         let pending = Pending { snapshot, reason };
-        // An ending session waits for its save; converting here keeps it from
-        // queueing behind other sessions' conversions on the single writer.
         let operation = if reason.is_some() {
             Operation::Write(pending.record()?)
         } else {
@@ -545,9 +538,6 @@ pub(crate) fn bound_history_page(
     Ok(page)
 }
 
-/// Leaves out the pixels of the history images the page's screen also lists,
-/// as an app draws those from the screen, then the history images placed
-/// furthest up until they fit beside the screen. Returns their size.
 fn bound_page_graphics(page: &mut HistoryPage, screen_size: usize) -> postcard::Result<usize> {
     let Some(graphics) = &mut page.graphics else {
         return Ok(0);
@@ -1168,8 +1158,6 @@ mod tests {
         Ok(())
     }
 
-    /// Moves the archive folder aside while the archive uses it, which
-    /// Windows refuses while files in it are open.
     #[cfg(unix)]
     #[test]
     fn failed_write_preserves_previous_complete_record_and_discard_drains_pending_saves()

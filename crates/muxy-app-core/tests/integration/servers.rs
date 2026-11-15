@@ -26,7 +26,6 @@ fn acknowledge(state: &mut AppState, server: ServerId) -> TestResult {
     Ok(())
 }
 
-/// The local server's catalog once it has accepted every pending edit.
 fn local_catalog(state: &mut AppState) -> TestResult<CatalogPage> {
     acknowledge(state, LOCAL)?;
     Ok(CatalogPage {
@@ -44,7 +43,6 @@ fn local_catalog(state: &mut AppState) -> TestResult<CatalogPage> {
     })
 }
 
-/// A remote server's catalog: its Home and `projects`, under `/home/dev`.
 fn remote_catalog(identity: u128, home: ProjectId, projects: &[(ProjectId, &str)]) -> CatalogPage {
     let descriptor = |id, home, name: &str, directory: String| ProjectDescriptor {
         id,
@@ -80,7 +78,6 @@ struct TwoServers {
     api: ProjectId,
 }
 
-/// The local server with one project, and a remote one with its Home and `api`.
 fn two_servers() -> TestResult<TwoServers> {
     let mut state = AppState::bootstrap()?;
     state.add_project(LOCAL, std::env::temp_dir())?;
@@ -795,7 +792,6 @@ fn a_devices_tab_saved_by_an_older_version_is_removed_on_load() -> TestResult {
     Ok(())
 }
 
-/// Makes the pane `id` in a saved state the Devices pane older versions saved.
 fn save_as_devices_pane(value: &mut serde_json::Value, id: &str) -> bool {
     match value {
         serde_json::Value::Object(object) => {

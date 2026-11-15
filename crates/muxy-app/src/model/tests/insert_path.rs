@@ -12,7 +12,6 @@ fn entry(name: &str, is_directory: bool) -> Entry {
     }
 }
 
-/// A computer whose `/tmp`, the terminal's folder, holds a few entries.
 fn source(recents: &[String]) -> Source {
     Source {
         list: Ok(Arc::new(|directory| match directory {
@@ -41,7 +40,6 @@ fn terminal(view: &Entity<AppModel>, cx: &mut VisualTestContext) -> Entity<Termi
     })
 }
 
-/// A window with one attached terminal in `/tmp`, running `sh`.
 fn attached(
     cx: &mut TestAppContext,
 ) -> (
@@ -76,8 +74,6 @@ fn attached(
     (view, cx, requests)
 }
 
-/// Presses the shortcut and gives the popover the stub computer to browse,
-/// with the paths the app remembers.
 fn open(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
     cx.simulate_keystrokes(ShortcutId::InsertPath.definition().keys[0]);
     cx.run_until_parked();
@@ -92,7 +88,6 @@ fn is_open(view: &Entity<AppModel>, cx: &mut VisualTestContext) -> bool {
     terminal(view, cx).read_with(cx, |pane, _| pane.insert_path.is_some())
 }
 
-/// The names the popover lists, in order.
 fn rows(view: &Entity<AppModel>, cx: &mut VisualTestContext) -> Vec<String> {
     terminal(view, cx).read_with(cx, |pane, cx| {
         let picker = pane.insert_path.as_ref().expect("open").picker.read(cx);

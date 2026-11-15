@@ -21,7 +21,6 @@ impl SerialData {
 }
 
 #[derive(Debug)]
-/// Helper for tracking of different serial kinds.
 pub(crate) struct SerialTracker {
     serials: HashMap<SerialKind, SerialData>,
 }
@@ -37,9 +36,6 @@ impl SerialTracker {
         self.serials.insert(kind, SerialData::new(value));
     }
 
-    /// Returns the latest tracked serial of the provided [`SerialKind`]
-    ///
-    /// Will return 0 if not tracked.
     pub fn get(&self, kind: SerialKind) -> u32 {
         self.serials
             .get(&kind)

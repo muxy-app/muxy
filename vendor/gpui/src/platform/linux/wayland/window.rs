@@ -304,7 +304,6 @@ impl WaylandWindow {
             fractional_scale_manager.get_fractional_scale(&surface, &globals.qh, surface.id());
         }
 
-        // Attempt to set up window decorations based on the requested configuration
         let decoration = globals
             .decoration_manager
             .as_ref()
@@ -334,7 +333,6 @@ impl WaylandWindow {
             callbacks: Rc::new(RefCell::new(Callbacks::default())),
         });
 
-        // Kick things off
         surface.commit();
 
         Ok((this, surface.id()))
@@ -392,7 +390,6 @@ impl WaylandWindowStatePtr {
                     state.fullscreen = configure.fullscreen;
                     state.maximized = configure.maximized;
                     state.tiling = configure.tiling;
-                    // Limit interactive resizes to once per vblank
                     if configure.resizing && state.resize_throttle {
                         return;
                     } else if configure.resizing {
@@ -457,7 +454,6 @@ impl WaylandWindowStatePtr {
                 }
                 WEnum::Value(zxdg_toplevel_decoration_v1::Mode::ClientSide) => {
                     self.state.borrow_mut().decorations = WindowDecorations::Client;
-                    // Update background to be transparent
                     if let Some(mut appearance_changed) =
                         self.callbacks.borrow_mut().appearance_changed.as_mut()
                     {
@@ -522,7 +518,6 @@ impl WaylandWindowStatePtr {
                             tiling.bottom = true;
                         }
                         _ => {
-                            // noop
                         }
                     }
                 }
@@ -607,7 +602,6 @@ impl WaylandWindowStatePtr {
 
                 let scale = state.primary_output_scale();
 
-                // We use `PreferredBufferScale` instead to set the scale if it's available
                 if state.surface.version() < wl_surface::EVT_PREFERRED_BUFFER_SCALE_SINCE {
                     state.surface.set_buffer_scale(scale);
                     drop(state);
@@ -619,7 +613,6 @@ impl WaylandWindowStatePtr {
 
                 let scale = state.primary_output_scale();
 
-                // We use `PreferredBufferScale` instead to set the scale if it's available
                 if state.surface.version() < wl_surface::EVT_PREFERRED_BUFFER_SCALE_SINCE {
                     state.surface.set_buffer_scale(scale);
                     drop(state);
@@ -627,7 +620,6 @@ impl WaylandWindowStatePtr {
                 }
             }
             wl_surface::Event::PreferredBufferScale { factor } => {
-                // We use `WpFractionalScale` instead to set the scale if it's available
                 if state.globals.fractional_scale_manager.is_none() {
                     state.surface.set_buffer_scale(factor);
                     drop(state);
@@ -921,14 +913,11 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn activate(&self) {
-        // Try to request an activation token. Even though the activation is likely going to be rejected,
-        // KWin and Mutter can use the app_id to visually indicate we're requesting attention.
         let state = self.borrow();
         if let (Some(activation), Some(app_id)) = (&state.globals.activation, state.app_id.clone())
         {
             state.client.set_pending_activation(state.surface.id());
             let token = activation.get_activation_token(&state.globals.qh, ());
-            // The serial isn't exactly important here, since the activation is probably going to be rejected anyway.
             let serial = state.client.get_serial(SerialKind::MousePress);
             token.set_app_id(app_id);
             token.set_serial(serial, &state.globals.seat);
@@ -1130,7 +1119,6 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn a11y_update_window_bounds(&self) {
-        // Wayland doesn't expose window position, so this is a no-op
     }
 }
 
@@ -1180,14 +1168,9 @@ fn update_window(mut state: RefMut<WaylandWindowState>) {
         opaque_area.size.height,
     );
 
-    // Note that rounded corners make this rectangle API hard to work with.
-    // As this is common when using CSD, let's just disable this API.
     if state.background_appearance == WindowBackgroundAppearance::Opaque
         && state.decorations == WindowDecorations::Server
     {
-        // Promise the compositor that this region of the window surface
-        // contains no transparent pixels. This allows the compositor to skip
-        // updating whatever is behind the surface for better performance.
         state.surface.set_opaque_region(Some(&region));
     } else {
         state.surface.set_opaque_region(None);
@@ -1201,7 +1184,6 @@ fn update_window(mut state: RefMut<WaylandWindowState>) {
             }
             state.blur.as_ref().unwrap().commit();
         } else {
-            // It probably doesn't hurt to clear the blur for opaque windows
             blur_manager.unset(&state.surface);
             if let Some(b) = state.blur.take() {
                 b.release()
@@ -1236,9 +1218,6 @@ impl ResizeEdge {
     }
 }
 
-/// The configuration event is in terms of the window geometry, which we are constantly
-/// updating to account for the client decorations. But that's not the area we want to render
-/// to, due to our intrusize CSD. So, here we calculate the 'actual' size, by adding back in the insets
 fn compute_outer_size(
     inset: Pixels,
     new_size: Option<Size<Pixels>>,

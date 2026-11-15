@@ -1,5 +1,3 @@
-//! Commands that act on the tab, pane, or project the user is working in.
-
 use gpui::{Context, Window};
 use muxy_app_core::settings::TerminalAction;
 use muxy_app_core::{Direction, ProjectId, ProjectStatus, TabCloseScope, TabId, TabSide};
@@ -9,7 +7,6 @@ use super::tab_windows::Surface;
 use super::{AppModel, Quitting};
 use crate::views::project_editor::Field;
 
-/// How far a resize command moves a divider, as a share of its split.
 const RESIZE_STEP: f32 = 0.05;
 
 impl AppModel {
@@ -54,8 +51,6 @@ impl AppModel {
         }
     }
 
-    /// The active tab and the tab it trades places with when it moves one
-    /// step: its neighbor in the same project, pinned like it is.
     pub(crate) fn tab_move_target(&self, forward: bool) -> Option<(TabId, TabId)> {
         if self.surface() != Surface::Main {
             return None;
@@ -107,8 +102,6 @@ impl AppModel {
         }
     }
 
-    /// The top-level project the current one belongs to: itself, or the
-    /// project a worktree was made from.
     pub(crate) fn current_parent_project(&self) -> ProjectId {
         let project = self.state.current_project();
         project.parent_id.unwrap_or(project.id)
@@ -123,8 +116,6 @@ impl AppModel {
         self.open_project_editor(project, Field::Name, position, window, cx);
     }
 
-    /// Removes the current project after asking. A worktree whose folder is
-    /// still there is inspected first, as its files go with it.
     pub(crate) fn remove_current_project(&mut self, cx: &mut Context<Self>) {
         let project = self.state.current_project();
         let id = project.id;
@@ -187,8 +178,6 @@ impl AppModel {
         }
     }
 
-    /// Moves focus to the next pane of the active tab, or the previous one,
-    /// wrapping around.
     pub(crate) fn cycle_pane(&mut self, forward: bool, cx: &mut Context<Self>) {
         if self.quitting != Quitting::Idle {
             return;

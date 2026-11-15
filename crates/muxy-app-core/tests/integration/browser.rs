@@ -128,8 +128,6 @@ struct Ids {
     api_feature: ProjectId,
 }
 
-/// A remote server with projects `api` and `web`, each with a `feature`
-/// worktree.
 fn projects() -> TestResult<(AppState, Ids)> {
     projects_with_worktrees("feature", "feature")
 }

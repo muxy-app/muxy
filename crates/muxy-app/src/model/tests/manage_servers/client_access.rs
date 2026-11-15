@@ -1,6 +1,3 @@
-//! This computer's access for phones and other computers, as the Servers page
-//! shows and changes it.
-
 use muxy_protocol::{
     ListenerStatus, PairedDevice, PairingInvite, PairingOffer, RemoteAccessSettings,
     RemoteAccessState,
@@ -48,7 +45,6 @@ fn offer(expires_at: u64) -> PairingOffer {
     }
 }
 
-/// A window with the Servers page open, its first read answered with `state`.
 fn servers_tab(
     cx: &mut TestAppContext,
     state: RemoteAccessState,
@@ -478,7 +474,6 @@ fn focusing_a_split_beside_settings_keeps_a_shown_code(cx: &mut TestAppContext) 
     });
 }
 
-/// A window connected to this computer's server, with no Devices page.
 fn window_without_tab(
     cx: &mut TestAppContext,
 ) -> (

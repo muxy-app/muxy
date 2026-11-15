@@ -109,7 +109,6 @@ fn installed_version(model: &Entity<AppModel>, name: &str, cx: &VisualTestContex
     })
 }
 
-/// An Update All whose first download waits until the sender is used.
 fn start_held_update_all(model: &Entity<AppModel>, cx: &mut VisualTestContext) -> Sender<()> {
     let (release, held): (Sender<()>, Receiver<()>) = channel();
     let held = Mutex::new(held);

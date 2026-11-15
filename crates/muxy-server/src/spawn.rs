@@ -15,8 +15,6 @@ const TERMINAL_ENV: [(&str, &str); 3] = [
     ("TERM_PROGRAM", "muxy"),
 ];
 
-/// A session's shell and, on Windows, the job holding every process it
-/// starts, which ends them all when dropped.
 pub(crate) struct Shell {
     pub(crate) pty: Pty,
     #[cfg(windows)]
@@ -78,8 +76,6 @@ pub(crate) fn spawn_shell(
     Ok(Shell { pty })
 }
 
-/// A login shell on Unix. Windows shells have no common flag; `PowerShell`
-/// only skips its banner.
 fn shell_arguments(program: &Path) -> Vec<OsString> {
     #[cfg(unix)]
     {
@@ -103,7 +99,6 @@ fn resolve_shell(settings: &ServerSettings) -> PathBuf {
         .unwrap_or_else(crate::process::user_shell)
 }
 
-/// `extra`, such as a proxy, replaces inherited variables but never Muxy's own.
 fn environment(
     identity: (muxy_protocol::ServerIdentity, muxy_protocol::SessionId),
     extra: &BTreeMap<String, String>,
@@ -133,14 +128,10 @@ fn environment(
     env
 }
 
-/// Whether a session inherits the server's variable `name`. On Windows the
-/// pseudoconsole reads `PATH` from the registry instead, so a change to it
-/// reaches new sessions without restarting the server.
 fn inherited(name: &OsStr) -> bool {
     !(cfg!(windows) && same_name(name, "PATH"))
 }
 
-/// Windows variable names ignore case; Unix ones do not.
 pub(crate) fn same_name(name: &OsStr, expected: &str) -> bool {
     if cfg!(windows) {
         name.eq_ignore_ascii_case(expected)
@@ -149,8 +140,6 @@ pub(crate) fn same_name(name: &OsStr, expected: &str) -> bool {
     }
 }
 
-/// Whether `path` exists, counting the Store's app execution aliases, which
-/// can't be opened as files.
 #[cfg(windows)]
 pub(crate) fn exists(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.is_dir())
@@ -241,18 +230,15 @@ fn locale_installed(name: &str) -> bool {
     let Ok(name) = std::ffi::CString::new(name) else {
         return false;
     };
-    // SAFETY: `name` is a valid C string and a null base asks for a new locale.
     let locale =
         unsafe { libc::newlocale(libc::LC_CTYPE_MASK, name.as_ptr(), std::ptr::null_mut()) };
     if locale.is_null() {
         return false;
     }
-    // SAFETY: `locale` came from `newlocale` and is freed once.
     unsafe { libc::freelocale(locale) };
     true
 }
 
-/// Windows programs don't take their character set from these variables.
 #[cfg(windows)]
 fn locale_installed(_name: &str) -> bool {
     false

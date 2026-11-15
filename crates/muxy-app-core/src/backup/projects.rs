@@ -12,8 +12,6 @@ use crate::{
 };
 
 impl AppState {
-    /// Backups hold this computer's projects only, for now: exports leave
-    /// remote projects out, and restoring never creates or replaces them.
     #[must_use]
     pub fn configuration_backup(&self) -> Self {
         let mut state = self.clone();
@@ -112,8 +110,6 @@ impl AppState {
         let mut restored = self.configuration_backup();
         let mut ids = self.match_restore_projects(current);
         for project in &restored.projects {
-            // An unmatched project keeps its ID unless that ID is already
-            // taken, such as by a remote project, which must stay as it is.
             ids.entry(project.id).or_insert_with(|| {
                 if current.project(project.id).is_some() {
                     ProjectId::new()
@@ -251,10 +247,6 @@ impl AppState {
         Ok(restored)
     }
 
-    /// Adds an import to `current` and keeps everything `current` has.
-    /// Matching projects keep their details and tabs, and take the imported
-    /// tabs only when they have none. Projects whose folder is gone are left
-    /// out. Workspaces with the same ID or name gain the imported members.
     pub fn merge_configuration(&self, current: &Self) -> Result<Self> {
         let imported = self.configuration_backup();
         let mut ids = imported.match_restore_projects(current);
@@ -284,7 +276,6 @@ impl AppState {
             };
             let mut project = project.clone();
             project.parent_id = parent;
-            // The ID may already belong to a remote project, which stays as it is.
             let id = if merged.project(project.id).is_some() {
                 ProjectId::new()
             } else {
@@ -323,7 +314,6 @@ impl AppState {
         Ok(merged)
     }
 
-    /// Asks this computer's server to create `projects`, parents first.
     fn queue_creates(&mut self, projects: &[ProjectDescriptor]) -> Result<()> {
         for project in projects
             .iter()
@@ -358,8 +348,6 @@ pub fn remap_settings(source: &str, imported: &AppState, restored: &AppState) ->
     ))
 }
 
-/// Moves what `settings` keeps per project onto the projects `imported`
-/// landed on in `restored`.
 #[must_use]
 pub fn remap_project_settings(
     mut settings: crate::settings::Settings,
@@ -396,7 +384,6 @@ pub fn remap_project_settings(
     settings
 }
 
-/// A project's own entry wins over one moved onto it.
 fn remap_keys<K: Ord, V>(entries: BTreeMap<K, V>, remap: impl Fn(&K) -> K) -> BTreeMap<K, V> {
     let (kept, moved): (Vec<_>, Vec<_>) =
         entries.into_iter().partition(|(key, _)| remap(key) == *key);
@@ -407,12 +394,8 @@ fn remap_keys<K: Ord, V>(entries: BTreeMap<K, V>, remap: impl Fn(&K) -> K) -> BT
         .collect()
 }
 
-/// 1.x never lists its built-in Home in `projects.json`, but its layouts and
-/// worktrees still use this ID.
 const LEGACY_HOME: ProjectId = ProjectId::from_u128(1);
 
-/// Converts what 1.x saved. Anything 2.x can't use is left out and reported,
-/// so one stale project, icon, or layout never loses the rest.
 pub fn import_projects(
     projects: &[u8],
     workspaces: Option<&[u8]>,
@@ -573,12 +556,8 @@ fn legacy_project(
     Ok(project)
 }
 
-/// Logos in imported state, in bytes. Every project that uses a logo saves its
-/// own copy, so a few large logos shared by many projects can't expand the
-/// state past this.
 const MAX_IMPORTED_LOGO_BYTES: usize = 16 * 1024 * 1024;
 
-/// Each logo asset read once and shared, with what the state may still hold.
 struct Logos {
     shared: BTreeMap<String, std::sync::Arc<[u8]>>,
     remaining: usize,
@@ -592,7 +571,6 @@ impl Logos {
         }
     }
 
-    /// The asset, allocated once however many projects use it.
     fn shared(
         &mut self,
         asset: &str,
@@ -606,7 +584,6 @@ impl Logos {
         Some(logo)
     }
 
-    /// Whether the state may hold another `bytes` of logos.
     fn charge(&mut self, bytes: usize) -> bool {
         let Some(remaining) = self.remaining.checked_sub(bytes) else {
             return false;
@@ -626,7 +603,6 @@ fn keep_if_valid(project: &mut Project, change: impl FnOnce(&mut Project)) -> bo
     valid
 }
 
-/// 1.x saved bare SF Symbol names, which 2.x tags with `sf:`.
 fn legacy_icon(icon: &str) -> String {
     if icon.graphemes(true).count() == 1 || icon.starts_with("sf:") {
         icon.into()
@@ -635,7 +611,6 @@ fn legacy_icon(icon: &str) -> String {
     }
 }
 
-/// 1.x saved palette names, such as `indigo`, or hex colors.
 fn legacy_color(value: &str) -> Option<Color> {
     value.parse().ok().or_else(|| {
         PROJECT_COLORS
@@ -645,7 +620,6 @@ fn legacy_color(value: &str) -> Option<Color> {
     })
 }
 
-/// A preference this profile already has for the project wins.
 fn import_project_settings(id: ProjectId, value: &Value, settings: &mut crate::settings::Settings) {
     if let Some(prompt) = value["pullRequestPrompt"].as_str() {
         settings
@@ -831,7 +805,6 @@ fn import_layout_snapshot(
     Ok(())
 }
 
-/// 1.x restores any tab that is not a web view as a terminal.
 fn is_terminal(tab: &Value) -> bool {
     !matches!(tab["kind"].as_str(), Some("extensionWebView" | "browser"))
 }
@@ -867,13 +840,8 @@ fn collect_roots(
     Ok(())
 }
 
-/// Layout nodes one 1.x workspace may visit while rebuilding its tabs. Each
-/// tab walks the whole tree, so many tabs in a large tree are refused here
-/// rather than taking quadratic time.
 const MAX_LAYOUT_VISITS: usize = 1 << 20;
 
-/// For each tab area, by address, the first terminal tab that each tab ID
-/// selects, as its own ID or its parent's.
 type Areas<'a> = HashMap<*const Value, HashMap<String, &'a Value>>;
 
 fn index_areas<'a>(node: &'a Value, areas: &mut Areas<'a>) {
@@ -892,7 +860,6 @@ fn index_areas<'a>(node: &'a Value, areas: &mut Areas<'a>) {
     }
 }
 
-/// The tab areas' index and the root tab being rebuilt.
 struct Lookup<'a> {
     areas: &'a Areas<'a>,
     root: String,

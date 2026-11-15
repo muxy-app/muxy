@@ -524,7 +524,6 @@ pub struct TextInput {
     focus_handle: FocusHandle,
     content: SharedString,
     placeholder: SharedString,
-    /// Whether `placeholder` is an English key drawn in the app language.
     placeholder_key: bool,
     ghost: SharedString,
     style: InputStyle,
@@ -555,13 +554,9 @@ pub struct TextInput {
     history: History,
     coalesce_next: bool,
     paste_delegate: Option<PasteDelegate>,
-    /// Shows `*` for the text, such as a password, and never copies it.
     secure: bool,
-    /// The English key of the name accessibility clients read, in the app language.
     accessible_label: Option<&'static str>,
-    /// A name that isn't a translation key, such as a dialog's already translated title.
     accessible_name: Option<SharedString>,
-    /// The stable ID accessibility clients find the input by.
     accessibility_id: Option<SharedString>,
 }
 
@@ -610,8 +605,6 @@ impl TextInput {
         }
     }
 
-    /// Hides the text, such as a password. Each byte shows as `*`, so
-    /// offsets into the text stay offsets into what is drawn.
     pub fn secure(mut self) -> Self {
         self.secure = true;
         self
@@ -628,17 +621,12 @@ impl TextInput {
         self
     }
 
-    /// A placeholder given as an English key, such as a `tr_key!` literal. It
-    /// is drawn in the app language, so it follows language changes.
     pub fn with_placeholder_key(mut self, key: &'static str) -> Self {
         self.placeholder = key.into();
         self.placeholder_key = true;
         self
     }
 
-    /// Names the input for accessibility clients, so dictation and automation
-    /// tools find a text field to insert into. Given as a `tr_key!` literal.
-    /// Without it, they read the placeholder.
     pub fn with_accessible_label(mut self, key: &'static str) -> Self {
         self.accessible_label = Some(key);
         self
@@ -649,7 +637,6 @@ impl TextInput {
         self
     }
 
-    /// Names the input with text that is already translated.
     pub fn set_accessible_name(&mut self, name: impl Into<SharedString>) {
         self.accessible_name = Some(name.into());
     }

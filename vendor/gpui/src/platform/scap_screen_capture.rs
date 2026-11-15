@@ -1,4 +1,3 @@
-//! Screen capture for Linux and Windows
 use crate::{
     DevicePixels, ForegroundExecutor, ScreenCaptureFrame, ScreenCaptureSource, ScreenCaptureStream,
     Size, SourceMetadata, size,
@@ -10,10 +9,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{self, AtomicBool};
 
-/// Populates the receiver with the screens that can be captured.
-///
-/// `scap_default_target_source` should be used instead on Wayland, since `scap_screen_sources`
-/// won't return any results.
 #[allow(dead_code)]
 pub(crate) fn scap_screen_sources(
     foreground_executor: &ForegroundExecutor,
@@ -23,11 +18,6 @@ pub(crate) fn scap_screen_sources(
     to_dyn_screen_capture_sources(sources_rx, foreground_executor)
 }
 
-/// Starts screen capture for the default target, and populates the receiver with a single source
-/// for it. The first frame of the screen capture is used to determine the size of the stream.
-///
-/// On Wayland (Linux), prompts the user to select a target, and populates the receiver with a
-/// single screen capture source for their selection.
 #[allow(dead_code)]
 pub(crate) fn start_scap_default_target_source(
     foreground_executor: &ForegroundExecutor,
@@ -42,9 +32,7 @@ struct ScapCaptureSource {
     size: Size<DevicePixels>,
 }
 
-/// Populates the sender with the screens available for capture.
 fn get_screen_targets(sources_tx: oneshot::Sender<Result<Vec<ScapCaptureSource>>>) {
-    // Due to use of blocking APIs, a new thread is used.
     std::thread::spawn(|| {
         let targets = match scap::get_all_targets() {
             Ok(targets) => targets,
@@ -91,7 +79,6 @@ impl ScreenCaptureSource for ScapCaptureSource {
         let (stream_tx, stream_rx) = oneshot::channel();
         let target = self.target.clone();
 
-        // Due to use of blocking APIs, a dedicated thread is used.
         std::thread::spawn(move || {
             match new_scap_capturer(Some(scap::Target::Display(target.clone()))) {
                 Ok(mut capturer) => {
@@ -109,22 +96,17 @@ impl ScreenCaptureSource for ScapCaptureSource {
 }
 
 struct ScapDefaultTargetCaptureSource {
-    // Sender populated by single call to `ScreenCaptureSource::stream`.
     stream_call_tx: std::sync::mpsc::SyncSender<(
-        // Provides the result of `ScreenCaptureSource::stream`.
         oneshot::Sender<Result<ScapStream>>,
-        // Callback for frames.
         Box<dyn Fn(ScreenCaptureFrame) + Send>,
     )>,
     target: scap::Display,
     size: Size<DevicePixels>,
 }
 
-/// Starts screen capture on the default capture target, and populates the sender with the source.
 fn start_default_target_screen_capture(
     sources_tx: oneshot::Sender<Result<Vec<ScapDefaultTargetCaptureSource>>>,
 ) {
-    // Due to use of blocking APIs, a dedicated thread is used.
     std::thread::spawn(|| {
         let start_result = util::maybe!({
             let mut capturer = new_scap_capturer(None)?;
@@ -187,7 +169,6 @@ impl ScreenCaptureSource for ScapDefaultTargetCaptureSource {
             Ok(()) => {}
             Err(std::sync::mpsc::TrySendError::Full((tx, _)))
             | Err(std::sync::mpsc::TrySendError::Disconnected((tx, _))) => {
-                // Note: support could be added for being called again after end of prior stream.
                 tx.send(Err(anyhow!(
                     "Can't call ScapDefaultTargetCaptureSource::stream multiple times."
                 )))
@@ -203,7 +184,6 @@ fn new_scap_capturer(target: Option<scap::Target>) -> Result<scap::capturer::Cap
         fps: 60,
         show_cursor: true,
         show_highlight: true,
-        // Note that the actual frame output type may differ.
         output_type: scap::frame::FrameType::YUVFrame,
         output_resolution: scap::capturer::Resolution::Captured,
         crop_area: None,
@@ -279,9 +259,6 @@ fn frame_size(frame: &scap::frame::Frame) -> Size<DevicePixels> {
     size(DevicePixels(width), DevicePixels(height))
 }
 
-/// This is used by `get_screen_targets` and `start_default_target_screen_capture` to turn their
-/// results into `Rc<dyn ScreenCaptureSource>`. They need to `Send` their capture source, and so
-/// the capture source structs are used as `Rc<dyn ScreenCaptureSource>` is not `Send`.
 fn to_dyn_screen_capture_sources<T: ScreenCaptureSource + 'static>(
     sources_rx: oneshot::Receiver<Result<Vec<T>>>,
     foreground_executor: &ForegroundExecutor,
@@ -304,7 +281,6 @@ fn to_dyn_screen_capture_sources<T: ScreenCaptureSource + 'static>(
     dyn_sources_rx
 }
 
-/// Same motivation as `to_dyn_screen_capture_sources` above.
 fn to_dyn_screen_capture_stream<T: ScreenCaptureStream + 'static>(
     sources_rx: oneshot::Receiver<Result<T>>,
     foreground_executor: &ForegroundExecutor,

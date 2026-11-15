@@ -1,6 +1,3 @@
-//! What `muxy extension page` asks of an extension page: scripts whose result
-//! comes back through the page's message handler, and pictures of the page.
-
 use std::collections::HashMap;
 
 use async_channel::{Receiver, Sender};
@@ -8,14 +5,11 @@ use muxy_app_core::browser::automation::literal;
 use muxy_ui::webview::Snapshot;
 use serde_json::Value;
 
-/// The message a page posts with what a script returned.
 pub(crate) const RESULT_VERB: &str = "automation.result";
-/// Keeps an answer under the size of message a page may post.
 const RESULT_LIMIT: usize = 900_000;
 
 pub(crate) type Outcome = Result<Value, String>;
 
-/// A page as it looked, in the premultiplied BGRA its snapshot came in.
 pub(crate) struct Picture {
     pub width: u32,
     pub height: u32,
@@ -30,8 +24,6 @@ pub(crate) struct Automation {
 }
 
 impl Automation {
-    /// The script that runs `body` as an async function and posts its
-    /// result, the token that result comes back with, and where it arrives.
     pub(crate) fn start(&mut self, body: &str) -> (String, String, Receiver<Outcome>) {
         self.next += 1;
         let token = format!("automation-{}", self.next);
@@ -40,13 +32,10 @@ impl Automation {
         (wrap(&token, body), token, receiver)
     }
 
-    /// Stops waiting for a script that ran out of time.
     pub(crate) fn forget(&mut self, token: &str) {
         self.scripts.remove(token);
     }
 
-    /// Hands a posted result to the script that is waiting for it. Whether
-    /// one was.
     pub(crate) fn finish(&mut self, token: &str, args: &Value) -> bool {
         let Some(waiting) = self.scripts.remove(token) else {
             return false;
@@ -66,7 +55,6 @@ impl Automation {
         true
     }
 
-    /// Waits for the next snapshot. The number forgets the wait.
     pub(crate) fn capture(&mut self) -> (u64, Receiver<Result<Picture, String>>) {
         self.next += 1;
         let (sender, receiver) = async_channel::bounded(1);
@@ -74,7 +62,6 @@ impl Automation {
         (self.next, receiver)
     }
 
-    /// Stops waiting for a snapshot that didn't come in time.
     pub(crate) fn forget_capture(&mut self, id: u64) {
         self.captures.retain(|(capture, _)| *capture != id);
     }
@@ -99,8 +86,6 @@ impl Automation {
         }
     }
 
-    /// A page that shows another document never answers what the last one
-    /// was asked.
     pub(crate) fn fail_scripts(&mut self, error: &str) {
         for (_, waiting) in self.scripts.drain() {
             let _ = waiting.try_send(Err(error.to_owned()));
@@ -128,7 +113,6 @@ fn wrap(token: &str, body: &str) -> String {
     )
 }
 
-/// Turns the premultiplied BGRA of a snapshot into PNG bytes.
 pub(crate) fn png(picture: Picture) -> Result<Vec<u8>, String> {
     let Picture {
         width,

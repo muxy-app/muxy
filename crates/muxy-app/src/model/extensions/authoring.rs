@@ -1,6 +1,3 @@
-//! Agents working on extensions: the picker's launch, and the `muxy extension`
-//! commands they use to load what they build into this app.
-
 use std::path::{Path, PathBuf};
 
 use gpui::{Context, Task};
@@ -18,12 +15,10 @@ use crate::extensions::publish::{self, GitHub, PublishFailure, PullRequest};
 use crate::model::tabs::OpenTerminal;
 use crate::views::overlays::Overlay;
 
-/// The key in `[ai.providers]` that remembers the last agent used.
 const AGENT_SETTING: &str = "extensions";
 const LOG_LINES_IN_STATUS: usize = 20;
 
 impl AppModel {
-    /// The folder agents work in. Tests keep theirs beside their own profile.
     fn extension_workspace(&self) -> Result<PathBuf, String> {
         if cfg!(test) {
             return Ok(self.path.with_file_name("extension-workspace"));
@@ -31,7 +26,6 @@ impl AppModel {
         muxy_core::dirs::extension_workspace().map_err(|error| error.to_string())
     }
 
-    /// Brings the skill of an existing workspace up to date with this build.
     #[cfg(not(test))]
     pub(crate) fn refresh_extension_workspace(&self, cx: &mut Context<Self>) {
         let Ok(root) = self.extension_workspace() else {
@@ -44,7 +38,6 @@ impl AppModel {
             .detach();
     }
 
-    /// Offers the agents that can change the app's settings in its profile folder.
     pub(crate) fn open_settings_agent(&mut self, cx: &mut Context<Self>) {
         let profile = self
             .path
@@ -54,7 +47,6 @@ impl AppModel {
         self.open_extension_agent(AgentTask::Settings { profile }, cx);
     }
 
-    /// The agents to offer, the last one used first.
     pub(crate) fn extension_agents(&self) -> Vec<Provider> {
         let mut agents = self.ai.installed.clone();
         if let Some(last) = self.settings.ai.providers.get(AGENT_SETTING)
@@ -66,8 +58,6 @@ impl AppModel {
         agents
     }
 
-    /// Stops a start that failed. A long reason needs more room than the picker
-    /// has, so it goes where the app shows its other errors.
     fn fail_extension_agent(&mut self, error: String, cx: &mut Context<Self>) {
         self.close_overlay(cx);
         self.fail(error, cx);
@@ -84,7 +74,6 @@ impl AppModel {
         }
     }
 
-    /// Starts `provider` on the open picker's task, once it can reach `muxy`.
     pub(crate) fn choose_extension_agent(&mut self, provider: Provider, cx: &mut Context<Self>) {
         let Some(Overlay::ExtensionAgent(picker)) = &self.overlay else {
             return;
@@ -110,8 +99,6 @@ impl AppModel {
         }
     }
 
-    /// Whether the picker that started `attempt` is still open. Cancelling or
-    /// choosing again abandons it, whatever it was still waiting for.
     pub(crate) fn extension_attempt_current(&self, attempt: u64) -> bool {
         matches!(
             &self.overlay,
@@ -140,7 +127,6 @@ impl AppModel {
         )
     }
 
-    /// Agents can't load what they build without `muxy`, so declining stops here.
     fn ask_to_install_muxy(&mut self, provider: Provider, attempt: u64, cx: &mut Context<Self>) {
         let title = tr!("Install the muxy Command?");
         let message = tr!(
@@ -256,9 +242,6 @@ impl AppModel {
         self.start_extension_agent_at(provider, task, root, &executable, muxy_directory, cx)
     }
 
-    /// The shell new terminals on this computer start: the server's default,
-    /// or else `$SHELL` when it is an executable file, as the server picks it.
-    /// `None` means the server's own fallback, zsh or sh, which reads the line.
     #[cfg(not(windows))]
     fn local_shell(&self) -> Option<PathBuf> {
         use std::os::unix::ffi::OsStrExt;
@@ -367,7 +350,6 @@ impl AppModel {
         }
     }
 
-    /// The source folder a publish or edit works in.
     pub(crate) fn extension_source(&self, name: &str) -> Result<PathBuf, String> {
         self.extensions
             .registry
@@ -382,8 +364,6 @@ impl AppModel {
             })
     }
 
-    /// Offers an agent's help with what stopped a publish, before opening the
-    /// picker, whose compact rows have no room to explain it.
     pub(crate) fn offer_publish_help(
         &mut self,
         name: &str,
@@ -431,7 +411,6 @@ impl AppModel {
         );
     }
 
-    /// Checks, asks the user, then opens or updates a pull request.
     pub(crate) fn publish_extension(
         &mut self,
         name: &str,
@@ -492,7 +471,6 @@ impl AppModel {
         })
     }
 
-    /// A `muxy extension` command from the app socket.
     pub(crate) fn extension_cli_call(
         &mut self,
         verb: &str,
@@ -557,8 +535,6 @@ impl AppModel {
         }
     }
 
-    /// The command that started the app can arrive before it has read its
-    /// extensions, and would otherwise see none.
     fn extension_cli_call_once_loaded(
         &mut self,
         verb: String,
@@ -650,8 +626,6 @@ impl AppModel {
         Ok(json!({ "lines": self.extension_log_tail(name, lines) }))
     }
 
-    /// Loading the folder that is already loaded reloads it, so an agent can
-    /// repeat itself. The same name from another folder is an error.
     fn load_extension_folder(path: PathBuf, cx: &mut Context<Self>) -> Task<Result<Value, String>> {
         let reading = crate::extensions::io::run(move || {
             let extension = Extension::load(&path)?;
@@ -689,9 +663,6 @@ impl AppModel {
         })
     }
 
-    /// Reloads one extension, leaving the others running. It is only stopped
-    /// once its folder has been read: one that no longer loads, or now names
-    /// another package, is reported and leaves the running copy alone.
     pub(crate) fn reload_extension(
         &mut self,
         name: &str,
@@ -747,7 +718,6 @@ impl AppModel {
         })
     }
 
-    /// Lets the extension's pages close, then disables or unloads it.
     fn stop_then(
         &mut self,
         name: &str,

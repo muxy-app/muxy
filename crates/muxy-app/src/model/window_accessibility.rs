@@ -1,6 +1,3 @@
-//! What the operating system sees of the main window's title: the active tab
-//! and project. Time trackers and automation tools read it.
-
 use gpui::{App, Context, Window};
 
 use super::AppModel;

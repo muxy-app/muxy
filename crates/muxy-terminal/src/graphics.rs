@@ -37,35 +37,20 @@ use libghostty_vt::{
 
 type Result<T> = std::result::Result<T, libghostty_vt::Error>;
 
-/// The character a program prints where an image with a virtual placement should appear.
 pub(crate) const PLACEHOLDER: char = '\u{10EEEE}';
-/// The widest or tallest image any decoder accepts.
 const MAX_SIDE: u32 = 8192;
-/// Memory a decoder may use for one image before it is shrunk to fit.
 const MAX_DECODE_BYTES: u64 = 64 * 1024 * 1024;
-/// Each picture is shrunk to at most this, so two large pictures fit together
-/// in one screen's list of images.
 const PICTURE_BUDGET: usize = MAX_GRAPHICS_BYTES / 2;
-/// Base64 bytes per Kitty command when showing a converted image.
 const KITTY_CHUNK: usize = 4096;
-/// Animations of the largest size that fit a terminal's image storage
-/// together. One more makes libghostty drop the oldest image.
 const STORED_FILMS: usize = 4;
-/// libghostty keeps every frame of an animation in its image storage.
 pub(crate) const STORAGE_LIMIT: usize = MAX_GRAPHICS_BYTES + STORED_FILMS * film::FILM_BUDGET;
-/// Image numbers for the animations Muxy converts start here, out of the
-/// way of the small numbers programs pick.
 const FIRST_FILM_NUMBER: u32 = 1 << 31;
 
 thread_local! {
-    /// Animations decoded for libghostty during the write in progress on
-    /// this thread. libghostty takes only a first frame from its decoder.
     static DECODED_FILMS: RefCell<Vec<Film>> = const { RefCell::new(Vec::new()) };
 }
-/// IND: moves the cursor down a row, scrolling at the bottom, in its column.
 const INDEX: &[u8] = b"\x1bD";
 
-/// libghostty's default answers, plus Sixel, which is drawn as Kitty images.
 const DEVICE_ATTRIBUTES: DeviceAttributes = DeviceAttributes {
     primary: PrimaryDeviceAttributes::new(
         ConformanceLevel::VT220,
@@ -82,7 +67,6 @@ const DEVICE_ATTRIBUTES: DeviceAttributes = DeviceAttributes {
     tertiary: TertiaryDeviceAttributes { unit_id: 0 },
 };
 
-/// RGBA pixels decoded from a protocol libghostty doesn't implement.
 #[derive(Debug)]
 pub(crate) struct Picture {
     pub(crate) width: u32,
@@ -90,14 +74,12 @@ pub(crate) struct Picture {
     pub(crate) rgba: Vec<u8>,
 }
 
-/// An image's size in pixels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Size {
     width: u32,
     height: u32,
 }
 
-/// Cells a picture is stretched over; a missing side keeps the aspect ratio.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Placement {
     pub(crate) columns: Option<u32>,
@@ -108,35 +90,23 @@ pub(crate) struct Placement {
 pub(crate) struct Cache {
     images: BTreeMap<u32, Cached>,
     placements: ImageIterator<'static>,
-    /// Whether an animation lists its frames. A saved screen keeps only the
-    /// frame on show, so it doesn't read the others.
     films: bool,
 }
 
 #[derive(Debug)]
 struct Cached {
     image: GraphicImage,
-    /// The storage generation the image was read at.
     storage: u64,
 }
 
-/// Must run before this process makes any other libghostty call.
 pub(crate) fn install_png_decoder() -> Result<()> {
     static PNG_DECODER: OnceLock<Result<()>> = OnceLock::new();
     #[allow(unsafe_code)]
-    // SAFETY: The decoder is process-global and unsynchronized. Every libghostty
-    // call in this process goes through a terminal, and `Terminal::new` calls this
-    // first. A concurrent first call waits on the lock until the install is done.
     *PNG_DECODER.get_or_init(|| unsafe { graphics::set_png_decoder(Some(Box::new(PngDecoder))) })
 }
 
 pub(crate) fn configure(engine: &mut Terminal<'_, '_>) -> Result<()> {
     engine.set_kitty_image_storage_limit(STORAGE_LIMIT as u64)?;
-    // libghostty reads only regular files outside /proc, /sys and /dev, and
-    // refuses FIFOs before opening them (libghostty-vt-sys
-    // patches/kitty-image-file.patch). It deletes temporary files only inside a
-    // temporary folder and named for the protocol, and unlinks shared memory
-    // once read, as Kitty and Ghostty do.
     engine.set_kitty_image_from_file_allowed(true)?;
     let temporary = std::env::temp_dir();
     engine.set_kitty_image_temp_file_dir(temporary.to_str().map(Path::new))?;
@@ -155,8 +125,6 @@ pub(crate) fn configure(engine: &mut Terminal<'_, '_>) -> Result<()> {
     Ok(())
 }
 
-/// Shows a Sixel image at the cursor. As in xterm and foot, the cursor then
-/// sits at the image's left edge, on the last row the image covers.
 pub(crate) fn show_sixel(
     engine: &mut Terminal<'static, 'static>,
     cell: CellSize,
@@ -179,8 +147,6 @@ pub(crate) fn show_sixel(
     engine.vt_write(&INDEX.repeat(down as usize));
 }
 
-/// Shrinks a picture over the picture budget, placing it over the columns its
-/// full size covers.
 fn within_budget(picture: Picture, cell: CellSize) -> Option<(Picture, Placement)> {
     if picture.rgba.len() <= PICTURE_BUDGET {
         return Some((picture, Placement::default()));
@@ -203,7 +169,6 @@ fn within_budget(picture: Picture, cell: CellSize) -> Option<(Picture, Placement
     Some((picture, placement))
 }
 
-/// Shows an iTerm2 inline image at the cursor.
 pub(crate) fn show_iterm(engine: &mut Terminal<'static, 'static>, cell: CellSize, file: &[u8]) {
     let Some(file) = iterm::parse(file) else {
         return;
@@ -215,8 +180,6 @@ pub(crate) fn show_iterm(engine: &mut Terminal<'static, 'static>, cell: CellSize
     show(engine, &file.film, &placement, file.move_cursor);
 }
 
-/// Stores `film` with Kitty commands and places it at the cursor. An
-/// animation plays without end, as in iTerm2.
 fn show(
     engine: &mut Terminal<'static, 'static>,
     film: &Film,
@@ -250,15 +213,11 @@ fn show(
     animate(engine, &target, film);
 }
 
-/// A number no other converted animation has, so the commands that add its
-/// frames can name it, and reach nothing if its first frame was refused.
 fn film_number() -> u32 {
     static NEXT: AtomicU32 = AtomicU32::new(0);
     FIRST_FILM_NUMBER | NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Adds the frames after the first to the image `target` names, then plays
-/// them.
 fn animate(engine: &mut Terminal<'static, 'static>, target: &str, film: &Film) {
     let Some((first, rest)) = film.frames.split_first() else {
         return;
@@ -277,8 +236,6 @@ fn animate(engine: &mut Terminal<'static, 'static>, target: &str, film: &Film) {
     engine.vt_write(play.as_bytes());
 }
 
-/// Writes one Kitty command that carries `pixels`, in chunks. `keys` ends
-/// with a comma.
 fn transmit(engine: &mut Terminal<'static, 'static>, keys: &str, pixels: &[u8]) {
     let encoded = base64::engine::general_purpose::STANDARD.encode(pixels);
     let chunks = encoded.as_bytes().chunks(KITTY_CHUNK);
@@ -297,10 +254,6 @@ fn transmit(engine: &mut Terminal<'static, 'static>, keys: &str, pixels: &[u8]) 
     }
 }
 
-/// Gives the animations libghostty's decoder met during the last write to
-/// the images they belong to. The decoder isn't told which image it works
-/// for, so the image is found by its first frame, and only once it is placed:
-/// an animation sent now and placed by a later command stays a still image.
 pub(crate) fn attach_films(engine: &mut Terminal<'static, 'static>) {
     for film in DECODED_FILMS.take() {
         if let Some(id) = decoded_image(engine, &film) {
@@ -309,7 +262,6 @@ pub(crate) fn attach_films(engine: &mut Terminal<'static, 'static>) {
     }
 }
 
-/// The newest placed still image holding the first frame of `film`.
 fn decoded_image(engine: &Terminal<'static, 'static>, film: &Film) -> Option<u32> {
     let first = film.frames.first()?.rgba.as_slice();
     let storage = engine.kitty_graphics().ok()?;
@@ -336,9 +288,6 @@ fn decoded_image(engine: &Terminal<'static, 'static>, film: &Film) -> Option<u32
     newest.map(|(_, id)| id)
 }
 
-/// Decodes an image file, shrinking a picture over the picture budget to fit
-/// it, so large screenshots still show. The picture is shrunk in its decoded
-/// pixel format, so only the shrunk copy is ever converted to RGBA.
 pub(crate) fn decode_image(mut reader: image::ImageReader<Cursor<&[u8]>>) -> Option<RgbaImage> {
     reader.limits(decode_limits());
     let decoded = reader.decode().ok()?;
@@ -349,7 +298,6 @@ pub(crate) fn decode_image(mut reader: image::ImageReader<Cursor<&[u8]>>) -> Opt
     Some(decoded.thumbnail_exact(size.0, size.1).into_rgba8())
 }
 
-/// What a decoder may allocate and the largest picture it reads.
 fn decode_limits() -> image::Limits {
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(MAX_DECODE_BYTES);
@@ -358,7 +306,6 @@ fn decode_limits() -> image::Limits {
     limits
 }
 
-/// Shrinks `picture` to the picture budget, keeping its aspect ratio.
 fn fit(picture: RgbaImage) -> RgbaImage {
     let (width, height) = fitted(picture.width(), picture.height(), PICTURE_BUDGET);
     if (width, height) == picture.dimensions() {
@@ -367,7 +314,6 @@ fn fit(picture: RgbaImage) -> RgbaImage {
     image::imageops::thumbnail(&picture, width, height)
 }
 
-/// The size a `width` by `height` picture takes within `bytes` of RGBA.
 #[allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
@@ -386,10 +332,6 @@ fn fitted(width: u32, height: u32, bytes: usize) -> (u32, u32) {
     )
 }
 
-/// Decodes Kitty `f=100` images. Kitty defines only PNG; as in some other
-/// terminals, any format the server can read is accepted, found from the data.
-/// libghostty takes the first frame; an animation's other frames wait in
-/// `DECODED_FILMS` for `attach_films`.
 struct PngDecoder;
 
 impl DecodePng for PngDecoder {
@@ -429,15 +371,11 @@ impl Cache {
         })
     }
 
-    /// Lists every image as a still one from now on.
     pub(crate) fn stills_only(&mut self) {
         self.films = false;
         self.images.clear();
     }
 
-    /// Lists placements from the render state, which also places images shown with placeholder cells.
-    /// When the images on screen pass what one screen lists, the newest are kept, and only
-    /// they are converted. One image larger than a whole screen's share is scaled down to it.
     pub(crate) fn snapshot(
         &mut self,
         engine: &Terminal<'static, 'static>,
@@ -449,9 +387,6 @@ impl Cache {
         listing(engine, &mut self.images, found, cell, films)
     }
 
-    /// The images placed on rows of history, listed as stills and kept apart
-    /// from the screen's. `found` holds placements whose rows count from the
-    /// first of those rows.
     pub(crate) fn history(
         engine: &Terminal<'static, 'static>,
         found: Vec<Found>,
@@ -460,8 +395,6 @@ impl Cache {
         listing(engine, &mut BTreeMap::new(), found, cell, false)
     }
 
-    /// The Kitty placements the render state lists for the rows in view,
-    /// with rows counted from the top of the view.
     pub(crate) fn placed(
         &mut self,
         engine: &Terminal<'static, 'static>,
@@ -487,7 +420,6 @@ impl Cache {
                 height: image.height()?,
             };
             let size = [placement.pixel_width()?, placement.pixel_height()?];
-            // Placeholder rows round their slice of the image, which can pass its edge.
             let x = placement.source_x()?.min(full.width);
             let y = placement.source_y()?.min(full.height);
             let source = [
@@ -517,12 +449,6 @@ impl Cache {
         Ok(found)
     }
 
-    /// The pixels of the frames of an image on screen that `keys` name, in
-    /// that order, as far as one reply holds them. Frames that are gone are
-    /// left out. A still image has one frame, and answers with the pixels it
-    /// has now under their key, so an app that asks late still gets a picture.
-    /// An image only history shows, and an animation asked for the still a
-    /// history page lists it as, answer with that still.
     pub(crate) fn frames(
         &self,
         engine: &Terminal<'static, 'static>,
@@ -579,8 +505,6 @@ impl Cache {
     }
 }
 
-/// One placement the render state lists, with its image's full size and the
-/// generation that orders images when they don't all fit.
 #[derive(Clone, Debug)]
 pub(crate) struct Found {
     full: Size,
@@ -588,10 +512,6 @@ pub(crate) struct Found {
     pub(crate) placement: GraphicPlacement,
 }
 
-/// What views of history saw, each with the history row at its top, as
-/// placements on the `rows` rows starting at history row `first`, counted
-/// from that row. Placements covering none of those rows are left out, and
-/// one seen from two views is kept once.
 pub(crate) fn page_placements(
     viewed: Vec<(usize, Vec<Found>)>,
     first: usize,
@@ -626,8 +546,6 @@ pub(crate) fn page_placements(
     placed
 }
 
-/// The images `found` places, newest first as far as one list holds them,
-/// read through `images` and dropping the rest of it.
 fn listing(
     engine: &Terminal<'static, 'static>,
     images: &mut BTreeMap<u32, Cached>,
@@ -673,8 +591,6 @@ fn listing(
     })
 }
 
-/// The image as the screen lists it, read again when the storage changed.
-/// `None` for an image whose pixels can't be shown.
 fn cached<'a>(
     images: &'a mut BTreeMap<u32, Cached>,
     id: u32,
@@ -724,8 +640,6 @@ fn cached<'a>(
     Ok(images.get(&id).map(|cached| &cached.image))
 }
 
-/// The frames of an animated image and how it plays. A still image has no
-/// frames.
 fn animation(image: &graphics::Image<'_>) -> Result<(Vec<GraphicFrame>, Playback)> {
     let count = image.frame_count()?;
     if count < 2 {
@@ -762,8 +676,6 @@ fn animation(image: &graphics::Image<'_>) -> Result<(Vec<GraphicFrame>, Playback
     Ok((frames, playback))
 }
 
-/// The pixels of the frame `key` names, unless they changed since the image
-/// was listed.
 fn frame_pixels(
     image: &graphics::Image<'_>,
     listed: &GraphicImage,
@@ -781,7 +693,6 @@ fn frame_pixels(
     if fingerprint(frame.data) != key {
         return Ok(None);
     }
-    // Only the first frame can be in a format other than RGBA.
     let format = if index == 0 {
         image.format()?
     } else {
@@ -790,8 +701,6 @@ fn frame_pixels(
     Ok(pixels(format, listed.width, listed.height, frame.data))
 }
 
-/// Tells frames apart by their pixels, so a frame keeps its key until a
-/// program changes it. Not for untrusted comparisons.
 fn fingerprint(data: &[u8]) -> u64 {
     const MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;
     let mix = |hash: u64, word: u64| (hash.rotate_left(5) ^ word).wrapping_mul(MULTIPLIER);
@@ -808,8 +717,6 @@ fn fingerprint(data: &[u8]) -> u64 {
     hash
 }
 
-/// An image's pixels as a screen lists them: RGBA, scaled down to fit a
-/// whole screen's share when larger.
 struct Stored {
     width: u32,
     height: u32,
@@ -838,8 +745,6 @@ fn stored_pixels(image: &graphics::Image<'_>) -> Result<Option<Stored>> {
     )
 }
 
-/// Scales pixels in `format` straight to RGBA of the given size, without a
-/// full-size RGBA copy first.
 fn shrunk(
     format: ImageFormat,
     width: u32,
@@ -876,7 +781,6 @@ fn shrunk(
     Some(image.into_rgba8())
 }
 
-/// The images to list, newest first, while their pixels fit one screen.
 fn within_screen(sizes: &BTreeMap<u32, (u64, Size)>) -> BTreeSet<u32> {
     let mut newest: Vec<_> = sizes.iter().collect();
     newest.sort_by_key(|(_, (generation, _))| std::cmp::Reverse(*generation));
@@ -894,8 +798,6 @@ fn within_screen(sizes: &BTreeMap<u32, (u64, Size)>) -> BTreeSet<u32> {
     listed
 }
 
-/// The part of `image` a placement shows, given as a part of the image at
-/// its `full` size, for an image that was scaled down.
 fn scaled_source(source: [u32; 4], full: Size, image: &GraphicImage) -> [u32; 4] {
     if (image.width, image.height) == (full.width, full.height) {
         return source;
@@ -906,8 +808,6 @@ fn scaled_source(source: [u32; 4], full: Size, image: &GraphicImage) -> [u32; 4]
     [x, y, x_end - x, y_end - y]
 }
 
-/// A span starting at `start` of `length` along a side `from` long, on a side
-/// `to` long: at least one pixel, inside the side.
 #[allow(clippy::cast_possible_truncation)]
 fn scaled_span(start: u32, length: u32, from: u32, to: u32) -> (u32, u32) {
     let scale = |value: u32, up: bool| {

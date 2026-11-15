@@ -1,12 +1,8 @@
-//! The desktop's session bus, which the Linux backends reach its services through.
-
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use zbus::blocking::{Connection, connection::Builder, fdo::DBusProxy};
 
-/// The session bus, connected on first use. A failed attempt is tried again
-/// on the next call.
 pub(crate) fn session() -> zbus::Result<Connection> {
     static SESSION: Mutex<Option<Connection>> = Mutex::new(None);
     let mut session = SESSION.lock().unwrap_or_else(PoisonError::into_inner);
@@ -20,7 +16,6 @@ pub(crate) fn session() -> zbus::Result<Connection> {
     Ok(connection)
 }
 
-/// Whether a service owns `name`, or the bus can start one for it.
 pub(crate) fn offers(connection: &Connection, name: &str) -> bool {
     let Ok(bus) = DBusProxy::new(connection) else {
         return false;

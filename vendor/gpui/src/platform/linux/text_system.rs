@@ -37,10 +37,7 @@ struct CosmicTextSystemState {
     swash_cache: SwashCache,
     font_system: FontSystem,
     scratch: ShapeBuffer,
-    /// Contains all already loaded fonts, including all faces. Indexed by `FontId`.
     loaded_fonts: Vec<LoadedFont>,
-    /// Caches the `FontId`s associated with a specific family to avoid iterating the font database
-    /// for every font face in a family.
     font_ids_by_family_cache: HashMap<FontKey, SmallVec<[FontId; 4]>>,
 }
 
@@ -52,7 +49,6 @@ struct LoadedFont {
 
 impl CosmicTextSystem {
     pub(crate) fn new() -> Self {
-        // todo(linux) make font loading non-blocking
         let mut font_system = FontSystem::new();
 
         Self(RwLock::new(CosmicTextSystemState {
@@ -91,7 +87,6 @@ impl PlatformTextSystem for CosmicTextSystem {
     }
 
     fn font_id(&self, font: &Font) -> Result<FontId> {
-        // todo(linux): Do we need to use CosmicText's Font APIs? Can we consolidate this to use font_kit?
         let mut state = self.0.write();
         let key = FontKey::new(font.family.clone(), font.features.clone());
         let candidates = if let Some(font_ids) = state.font_ids_by_family_cache.get(&key) {
@@ -102,7 +97,6 @@ impl PlatformTextSystem for CosmicTextSystem {
             state.font_ids_by_family_cache[&key].as_ref()
         };
 
-        // todo(linux) ideally we would make fontdb's `find_best_match` pub instead of using font-kit here
         let candidate_properties = candidates
             .iter()
             .map(|font_id| {
@@ -131,13 +125,12 @@ impl PlatformTextSystem for CosmicTextSystem {
         FontMetrics {
             units_per_em: metrics.units_per_em as u32,
             ascent: metrics.ascent,
-            descent: -metrics.descent, // todo(linux) confirm this is correct
+            descent: -metrics.descent,
             line_gap: metrics.leading,
             underline_position: metrics.underline_offset,
             underline_thickness: metrics.stroke_size,
             cap_height: metrics.cap_height,
             x_height: metrics.x_height,
-            // todo(linux): Compute this correctly
             bounding_box: Bounds {
                 origin: point(0.0, 0.0),
                 size: size(metrics.max_width, metrics.ascent + metrics.descent),
@@ -149,8 +142,6 @@ impl PlatformTextSystem for CosmicTextSystem {
         let lock = self.0.read();
         let glyph_metrics = lock.loaded_font(font_id).font.as_swash().glyph_metrics(&[]);
         let glyph_id = glyph_id.0 as u16;
-        // todo(linux): Compute this correctly
-        // see https://github.com/servo/font-kit/blob/master/src/loaders/freetype.rs#L614-L620
         Ok(Bounds {
             origin: point(0.0, 0.0),
             size: size(
@@ -212,7 +203,6 @@ impl CosmicTextSystemState {
         name: &str,
         features: &FontFeatures,
     ) -> Result<SmallVec<[FontId; 4]>> {
-        // TODO: Determine the proper system UI font.
         let name = crate::text_system::font_name_with_fallbacks(name, "IBM Plex Sans");
 
         let families = self
@@ -230,9 +220,8 @@ impl CosmicTextSystemState {
                 .get_font(font_id)
                 .context("Could not load font")?;
 
-            // HACK: To let the storybook run and render Windows caption icons. We should actually do better font fallback.
             let allowed_bad_font_names = [
-                "SegoeFluentIcons", // NOTE: Segoe fluent icons postscript name is inconsistent
+                "SegoeFluentIcons",
                 "Segoe Fluent Icons",
             ];
 
@@ -331,7 +320,6 @@ impl CosmicTextSystemState {
                 .with_context(|| format!("no image for {params:?} in font {font:?}"))?;
 
             if params.is_emoji {
-                // Convert from RGBA to BGRA.
                 for pixel in image.data.chunks_exact_mut(4) {
                     pixel.swap(0, 2);
                 }
@@ -341,14 +329,6 @@ impl CosmicTextSystemState {
         }
     }
 
-    /// This is used when cosmic_text has chosen a fallback font instead of using the requested
-    /// font, typically to handle some unicode characters. When this happens, `loaded_fonts` may not
-    /// yet have an entry for this fallback font, and so one is added.
-    ///
-    /// Note that callers shouldn't use this `FontId` somewhere that will retrieve the corresponding
-    /// `LoadedFont.features`, as it will have an arbitrarily chosen or empty value. The only
-    /// current use of this field is for the *input* of `layout_line`, and so it's fine to use
-    /// `font_id_for_cosmic_id` when computing the *output* of `layout_line`.
     fn font_id_for_cosmic_id(&mut self, id: cosmic_text::fontdb::ID) -> FontId {
         if let Some(ix) = self
             .loaded_fonts
@@ -403,7 +383,7 @@ impl CosmicTextSystemState {
         line.layout_to_buffer(
             &mut self.scratch,
             font_size.0,
-            None, // We do our own wrapping
+            None,
             cosmic_text::Wrap::None,
             None,
             &mut layout_lines,
@@ -421,7 +401,6 @@ impl CosmicTextSystemState {
             }
             let is_emoji = loaded_font.is_known_emoji_font;
 
-            // HACK: Prevent crash caused by variation selectors.
             if glyph.glyph_id == 3 && is_emoji {
                 continue;
             }
@@ -559,7 +538,6 @@ fn face_info_into_properties(
             cosmic_text::Style::Italic => font_kit::properties::Style::Italic,
             cosmic_text::Style::Oblique => font_kit::properties::Style::Oblique,
         },
-        // both libs use the same values for weight
         weight: font_kit::properties::Weight(face_info.weight.0.into()),
         stretch: match face_info.stretch {
             cosmic_text::Stretch::Condensed => font_kit::properties::Stretch::CONDENSED,
@@ -576,6 +554,5 @@ fn face_info_into_properties(
 }
 
 fn check_is_known_emoji_font(postscript_name: &str) -> bool {
-    // TODO: Include other common emoji fonts
     postscript_name == "NotoColorEmoji"
 }

@@ -9,7 +9,6 @@ use crate::{
 mod extension;
 pub use extension::*;
 
-/// Git operations always resolve their repository through a server project.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct GitRequest {
     #[n(0)]
@@ -44,15 +43,12 @@ pub enum GitAction {
     InspectRemoval,
     #[n(11)]
     Worktree(#[n(0)] WorktreeIntent),
-    /// Replace this connection's filesystem watch with the requested project.
     #[n(12)]
     Watch,
     #[n(13)]
     Status {
         #[n(0)]
         local: bool,
-        /// Ask the remote again instead of using what the server remembers.
-        /// Older servers ignore it; they remember nothing.
         #[n(1)]
         #[cbor(default)]
         #[serde(default)]
@@ -111,7 +107,6 @@ pub enum GitAction {
     },
     #[n(28)]
     PullRequest(#[n(0)] GitPullRequestAction),
-    /// Preview committed changes on this branch relative to an origin branch.
     #[n(29)]
     BranchDiff {
         #[n(0)]
@@ -119,13 +114,11 @@ pub enum GitAction {
         #[n(1)]
         line_limit: Option<u32>,
     },
-    /// Snapshot every working-tree change without touching the index.
     #[n(30)]
     ChangesPreview {
         #[n(0)]
         line_limit: Option<u32>,
     },
-    /// Stage every change and commit only while the tree still matches its preview.
     #[n(31)]
     CommitAll {
         #[n(0)]
@@ -135,7 +128,6 @@ pub enum GitAction {
         #[n(2)]
         expected_tree: String,
     },
-    /// Push the current branch to the destination its preview reported.
     #[n(32)]
     PublishBranch {
         #[n(0)]
@@ -143,22 +135,18 @@ pub enum GitAction {
         #[n(1)]
         destination: GitPushDestination,
     },
-    /// Switch to a merged pull request's base branch and fast-forward it.
     #[n(33)]
     SwitchToBase(#[n(0)] String),
-    /// Preview the hooks configured on the server for explicit approval.
     #[n(34)]
     WorktreeHooks {
         #[n(0)]
         teardown: bool,
     },
-    /// Snapshot only the staged changes without touching the index.
     #[n(35)]
     StagedPreview {
         #[n(0)]
         line_limit: Option<u32>,
     },
-    /// Commit the index only while it still matches its staged preview.
     #[n(36)]
     CommitStaged {
         #[n(0)]
@@ -181,7 +169,6 @@ pub struct WorktreeIntent {
     pub options: Option<WorktreeOptions>,
 }
 
-/// Commands are approved as an exact, ordered preview, never as arbitrary scripts.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct WorktreeHook {
     #[n(0)]
@@ -196,7 +183,6 @@ pub struct WorktreeHook {
 pub struct WorktreeOptions {
     #[n(0)]
     pub name: Option<String>,
-    /// None skips hooks. Some approves precisely these commands.
     #[n(1)]
     pub hooks: Option<Vec<WorktreeHook>>,
 }
@@ -211,7 +197,6 @@ pub enum WorktreeAction {
         directory: ServerPath,
         #[n(2)]
         branch: String,
-        /// None checks out an existing branch; Some creates a branch from this ref.
         #[n(3)]
         base: Option<String>,
     },
@@ -333,7 +318,6 @@ pub struct GitWorktree {
     pub registered: Option<ProjectId>,
 }
 
-/// An inspection binds confirmation to the directory identity and current Git state.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct WorktreeRemoval {
     #[n(0)]
@@ -361,7 +345,6 @@ pub struct GitPushDestination {
     pub branch: String,
 }
 
-/// Every change as it would be committed, computed without touching the index.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct GitChangesPreview {
     #[n(0)]
@@ -394,14 +377,12 @@ pub struct GitPreviewFile {
 pub enum GitBaseSwitch {
     #[n(0)]
     Updated,
-    /// The base branch is checked out by another worktree, so nothing changed.
     #[n(1)]
     CheckedOutElsewhere(#[n(0)] ServerPath),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum GitReply {
-    /// None means an existing directory without a Git repository.
     #[n(0)]
     Summary(#[n(0)] Option<GitSummary>),
     #[n(1)]
@@ -442,7 +423,6 @@ pub enum GitReply {
     BaseSwitch(#[n(0)] GitBaseSwitch),
     #[n(19)]
     WorktreeHooks(#[n(0)] Vec<WorktreeHook>),
-    /// Creation succeeded, but setup failed; the worktree remains available.
     #[n(20)]
     WorktreeSetupFailed {
         #[n(0)]

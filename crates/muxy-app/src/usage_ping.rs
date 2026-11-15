@@ -1,7 +1,3 @@
-//! The once-a-day anonymous ping that counts active installs per version.
-//! It sends the app version, operating system, and processor architecture,
-//! and nothing that identifies the install or the person using it.
-
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -9,7 +5,6 @@ const ENDPOINT: &str = "https://muxy.app/api/ping";
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-/// Whether `DO_NOT_TRACK` asks for no pings. Unset, empty, `0`, and `false` don't.
 pub(crate) fn declined(do_not_track: Option<&str>) -> bool {
     do_not_track.is_some_and(|value| {
         let value = value.trim();
@@ -17,9 +12,6 @@ pub(crate) fn declined(do_not_track: Option<&str>) -> bool {
     })
 }
 
-/// Sends the ping unless one already went out on this UTC day, then saves the
-/// day to `record`. Any answer from the server counts as sent; only a request
-/// that never reached it is tried again.
 pub(crate) fn send_if_due(record: &Path) -> Result<bool> {
     let today = utc_day(SystemTime::now());
     if !due(record, today) {

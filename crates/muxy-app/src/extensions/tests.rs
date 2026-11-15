@@ -45,7 +45,6 @@ fn unchanged_manifests_load_without_api_changes() {
 
 const TYPES: &str = include_str!("../../../../docs/extensions/types/muxy.d.ts");
 
-/// Whether the types declare `name` as a member.
 fn declared(name: &str) -> bool {
     [
         format!("{name}("),
@@ -56,7 +55,6 @@ fn declared(name: &str) -> bool {
     .any(|form| TYPES.contains(form.as_str()))
 }
 
-/// The names that open lines indented by exactly `indent` spaces.
 fn members(block: &str, indent: usize) -> Vec<&str> {
     block
         .lines()

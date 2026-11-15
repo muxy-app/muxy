@@ -107,7 +107,6 @@ fn a_panel_composer_covers_only_its_rectangle(cx: &mut TestAppContext) {
     });
 }
 
-/// Draws the window and returns the rectangles marked over native views.
 fn drawn_marks(view: &Entity<AppModel>, cx: &mut VisualTestContext) -> Vec<Bounds<Pixels>> {
     view.update(cx, |_, cx| cx.notify());
     cx.run_until_parked();
@@ -119,7 +118,6 @@ fn drawn_marks(view: &Entity<AppModel>, cx: &mut VisualTestContext) -> Vec<Bound
 
 pub(super) type Open = Box<dyn Fn(&mut AppModel, &mut Window, &mut Context<AppModel>)>;
 
-/// Gives an anchored popover a place on screen, as its button would.
 fn anchor(anchor: &muxy_ui::popover::PopoverAnchor) {
     anchor.set(Some(Bounds::new(
         gpui::point(px(300.0), px(500.0)),
@@ -127,10 +125,6 @@ fn anchor(anchor: &muxy_ui::popover::PopoverAnchor) {
     )));
 }
 
-/// Every overlay a test can open. `Webview`, `Popover`, `Native`,
-/// `ProjectLogo` and `Projects` need a native web view, an extension, a
-/// decoded image or a folder search; `PullRequest` needs a loaded pull request.
-/// Windows builds offer no remote servers, so their popover is left out there.
 pub(super) fn openers(project: ProjectId) -> Vec<(&'static str, Open)> {
     let at = gpui::point(px(200.0), px(200.0));
     let openers: [(&'static str, Open); 22] = [

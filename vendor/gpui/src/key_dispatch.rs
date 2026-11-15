@@ -1,54 +1,3 @@
-//! KeyDispatch is where GPUI deals with binding actions to key events.
-//!
-//! The key pieces to making a key binding work are to define an action,
-//! implement a method that takes that action as a type parameter,
-//! and then to register the action during render on a focused node
-//! with a keymap context:
-//!
-//! ```ignore
-//! actions!(editor,[Undo, Redo]);
-//!
-//! impl Editor {
-//!   fn undo(&mut self, _: &Undo, _window: &mut Window, _cx: &mut Context<Self>) { ... }
-//!   fn redo(&mut self, _: &Redo, _window: &mut Window, _cx: &mut Context<Self>) { ... }
-//! }
-//!
-//! impl Render for Editor {
-//!   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-//!     div()
-//!       .track_focus(&self.focus_handle(cx))
-//!       .key_context("Editor")
-//!       .on_action(cx.listener(Editor::undo))
-//!       .on_action(cx.listener(Editor::redo))
-//!     ...
-//!    }
-//! }
-//!```
-//!
-//! The keybindings themselves are managed independently by calling cx.bind_keys().
-//! (Though mostly when developing Zed itself, you just need to add a new line to
-//!  assets/keymaps/default-{platform}.json).
-//!
-//! ```ignore
-//! cx.bind_keys([
-//!   KeyBinding::new("cmd-z", Editor::undo, Some("Editor")),
-//!   KeyBinding::new("cmd-shift-z", Editor::redo, Some("Editor")),
-//! ])
-//! ```
-//!
-//! With all of this in place, GPUI will ensure that if you have an Editor that contains
-//! the focus, hitting cmd-z will Undo.
-//!
-//! In real apps, it is a little more complicated than this, because typically you have
-//! several nested views that each register keyboard handlers. In this case action matching
-//! bubbles up from the bottom. For example in Zed, the Workspace is the top-level view, which contains Pane's, which contain Editors. If there are conflicting keybindings defined
-//! then the Editor's bindings take precedence over the Pane's bindings, which take precedence over the Workspace.
-//!
-//! In GPUI, keybindings are not limited to just single keystrokes, you can define
-//! sequences by separating the keys with a space:
-//!
-//!  KeyBinding::new("cmd-k left", pane::SplitLeft, Some("Pane"))
-
 use crate::{
     Action, ActionRegistry, App, DispatchPhase, EntityId, FocusId, KeyBinding, KeyContext, Keymap,
     Keystroke, ModifiersChangedEvent, Window,
@@ -63,8 +12,6 @@ use std::{
     rc::Rc,
 };
 
-/// ID of a node within `DispatchTree`. Note that these are **not** stable between frames, and so a
-/// `DispatchNodeId` should only be used with the `DispatchTree` that provided it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct DispatchNodeId(usize);
 
@@ -366,8 +313,6 @@ impl DispatchTree {
             for DispatchActionListener { action_type, .. } in &node.action_listeners {
                 if let Err(ix) = actions.binary_search_by_key(action_type, |a| a.as_any().type_id())
                 {
-                    // Intentionally silence these errors without logging.
-                    // If an action cannot be built by default, it's not available.
                     let action = self.action_registry.build_action_type(action_type).ok();
                     if let Some(action) = action {
                         actions.insert(ix, action);
@@ -392,18 +337,11 @@ impl DispatchTree {
         false
     }
 
-    /// Returns key bindings that invoke an action on the currently focused element. Bindings are
-    /// returned in the order they were added. For display, the last binding should take precedence.
-    ///
-    /// Bindings are only included if they are the highest precedence match for their keystrokes, so
-    /// shadowed bindings are not included.
     pub fn bindings_for_action(
         &self,
         action: &dyn Action,
         context_stack: &[KeyContext],
     ) -> Vec<KeyBinding> {
-        // Ideally this would return a `DoubleEndedIterator` to avoid `highest_precedence_*`
-        // methods, but this can't be done very cleanly since keymap must be borrowed.
         let keymap = self.keymap.borrow();
         keymap
             .bindings_for_action(action)
@@ -414,8 +352,6 @@ impl DispatchTree {
             .collect()
     }
 
-    /// Returns the highest precedence binding for the given action and context stack. This is the
-    /// same as the last result of `bindings_for_action`, but more efficient than getting all bindings.
     pub fn highest_precedence_binding_for_action(
         &self,
         action: &dyn Action,
@@ -461,13 +397,6 @@ impl DispatchTree {
         (bindings, partial, context_stack)
     }
 
-    /// dispatch_key processes the keystroke
-    /// input should be set to the value of `pending` from the previous call to dispatch_key.
-    /// This returns three instructions to the input handler:
-    /// - bindings: any bindings to execute before processing this keystroke
-    /// - pending: the new set of pending keystrokes to store
-    /// - to_replay: any keystroke that had been pushed to pending, but are no-longer matched,
-    ///   these should be replayed first.
     pub fn dispatch_key(
         &mut self,
         mut input: SmallVec<[Keystroke; 1]>,
@@ -505,8 +434,6 @@ impl DispatchTree {
         result
     }
 
-    /// If the user types a matching prefix of a binding and then waits for a timeout
-    /// flush_dispatch() converts any previously pending input to replay events.
     pub fn flush_dispatch(
         &mut self,
         input: SmallVec<[Keystroke; 1]>,
@@ -521,7 +448,6 @@ impl DispatchTree {
         to_replay
     }
 
-    /// Converts the longest prefix of input to a replay event and returns the rest.
     fn replay_prefix(
         &self,
         mut input: SmallVec<[Keystroke; 1]>,
@@ -554,7 +480,7 @@ impl DispatchTree {
             dispatch_path.push(node_id);
             current_node_id = self.nodes.get(node_id.0).and_then(|node| node.parent);
         }
-        dispatch_path.reverse(); // Reverse the path so it goes from the root to the focused node.
+        dispatch_path.reverse();
         dispatch_path
     }
 
@@ -568,7 +494,7 @@ impl DispatchTree {
             }
             current_node_id = node.parent;
         }
-        focus_path.reverse(); // Reverse the path so it goes from the root to the focused node.
+        focus_path.reverse();
         focus_path
     }
 
@@ -582,7 +508,7 @@ impl DispatchTree {
             }
             current_node_id = node.parent;
         }
-        view_path.reverse(); // Reverse the path so it goes from the root to the view node.
+        view_path.reverse();
         view_path
     }
 

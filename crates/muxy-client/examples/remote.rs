@@ -1,11 +1,3 @@
-//! A minimal paired device: pair from a `muxy://pair` link, then reconnect,
-//! list projects, and type into a new shell in the server's Home project.
-//!
-//! `remote pair <folder>` reads the link from standard input, so the live
-//! invitation never shows in the process list, and saves the device token in
-//! `<folder>`, a new folder that only you can open. Then run
-//! `remote connect <folder>`.
-
 #[path = "support/printable.rs"]
 mod support;
 
@@ -57,7 +49,6 @@ fn pair(folder: &Path) -> Result {
         invite.fingerprint,
         paired.credential,
     );
-    // The folder is private, so on Windows the file inherits its access list.
     let mut output = muxy_core::files::private_file()
         .write(true)
         .create_new(true)
@@ -67,9 +58,6 @@ fn pair(folder: &Path) -> Result {
     Ok(())
 }
 
-/// Makes `folder` private and returns where its token goes. The folder must
-/// be new or empty: making it private changes who may open what it holds, and
-/// pairing spends the invitation, so a token already there is never replaced.
 fn credential_file(folder: &Path) -> Result<PathBuf> {
     match fs::read_dir(folder) {
         Ok(mut entries) => {
@@ -86,8 +74,6 @@ fn credential_file(folder: &Path) -> Result<PathBuf> {
     Ok(folder.join(CREDENTIAL))
 }
 
-/// The pairing link, read from standard input rather than the command line,
-/// where other users of this computer could read it and pair first.
 fn read_link() -> Result<String> {
     let stdin = io::stdin();
     if stdin.is_terminal() {

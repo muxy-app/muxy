@@ -1,5 +1,3 @@
-//! Git in a project's repository: one call for each action the desktop can run.
-
 mod pull_requests;
 mod records;
 mod repository;

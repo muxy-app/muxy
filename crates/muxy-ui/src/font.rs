@@ -41,8 +41,6 @@ fn system_family() -> String {
     windows_family(&Path::new(&windows).join("Fonts")).to_owned()
 }
 
-/// Cascadia Mono where Windows has it, as Windows 11 does, else Consolas,
-/// which every Windows since Vista has.
 #[cfg(windows)]
 fn windows_family(fonts: &Path) -> &'static str {
     if fonts.join("CascadiaMono.ttf").is_file() {

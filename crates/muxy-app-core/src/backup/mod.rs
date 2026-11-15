@@ -15,9 +15,7 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 #[derive(Debug, Default)]
 pub struct ImportReport {
     pub imported: usize,
-    /// Options Muxy 2 doesn't have.
     pub skipped: Vec<String>,
-    /// The user's own data that could not come along, to check after import.
     pub attention: Vec<String>,
 }
 

@@ -14,7 +14,6 @@ const SEMIBOLD: f32 = 0.3;
 #[cfg(target_os = "macos")]
 const APPKIT_SYMBOL_CORRECTION: f32 = 0.97;
 
-/// How much of each pixel a glyph covers, before it is tinted.
 #[derive(Debug)]
 pub(super) struct Mask {
     pub width: u32,
@@ -117,7 +116,6 @@ pub fn tinted_symbol_weight(
     })
 }
 
-/// A template SVG tinted with `color`; `key` must change whenever the bytes do.
 pub fn tinted_svg(
     key: &SharedString,
     bytes: &[u8],
@@ -167,9 +165,6 @@ fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, _cx: &App) -> Option
     sfsymbol::rasterize_svg(bytes, point_size, scale)
 }
 
-/// Rasterizes an SVG into an alpha mask that fits a `point_size` square. The
-/// SVG is drawn as an image inside a document of that size, which fits it to
-/// the square and keeps it from reading any other file.
 #[cfg(not(target_os = "macos"))]
 #[allow(
     clippy::cast_possible_truncation,
@@ -185,7 +180,6 @@ fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, cx: &App) -> Option<
     {
         return None;
     }
-    // Compressed SVG is not text, and is refused before it is expanded.
     std::str::from_utf8(bytes).ok()?;
     let side = (point_size * scale).round().max(1.0) as u32;
     let document = super::svg::fitted_document(bytes, side);
@@ -197,7 +191,6 @@ fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, cx: &App) -> Option<
         .chunks_exact(4)
         .map(|pixel| pixel[3])
         .collect();
-    // An SVG that could not be read draws nothing.
     (alpha.len() == (side * side) as usize && alpha.iter().any(|alpha| *alpha != 0)).then_some(
         Mask {
             width: side,
@@ -241,7 +234,6 @@ fn channel(value: f32) -> u8 {
 mod tests {
     use gpui::{SharedString, TestAppContext, black, px};
 
-    /// The rows of a 16 pixel square glyph that have ink in them.
     fn inked_rows(name: &str, svg: &str, cx: &mut TestAppContext) -> Option<Vec<usize>> {
         cx.update(|cx| {
             let key = SharedString::from(name.to_owned());
@@ -286,7 +278,6 @@ mod tests {
             r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><image width="1" height="1" href="{}"/></svg>"#,
             other.display()
         );
-        // The renderer follows the reference when the SVG is the document.
         let followed = cx.update(|cx| {
             gpui::Image::from_bytes(gpui::ImageFormat::Svg, svg.clone().into_bytes())
                 .to_image_data(cx.svg_renderer())

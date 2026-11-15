@@ -1,12 +1,7 @@
-//! Opening files below a folder without following a link anywhere on the
-//! way, so swapping a file, or a folder above it, for a link after it was
-//! listed can't make a read land outside the folder.
-
 use std::fs::File;
 use std::io;
 use std::path::{Component, Path};
 
-/// A folder held open, whose files open relative to it.
 #[derive(Debug)]
 pub(crate) struct Folder {
     #[cfg_attr(
@@ -23,7 +18,6 @@ fn linked() -> io::Error {
 }
 
 impl Folder {
-    /// Opens `path`, which must be a folder and not a link to one.
     pub(crate) fn open(path: &Path) -> io::Result<Self> {
         Ok(Self {
             file: platform::open_folder(path)?,
@@ -32,8 +26,6 @@ impl Folder {
         })
     }
 
-    /// Opens `relative`, made only of plain names, as a regular file, refusing
-    /// a link in place of it or of any folder on the way.
     pub(crate) fn open_file(&self, relative: &Path) -> io::Result<File> {
         let mut names = Vec::new();
         for part in relative.components() {
@@ -62,7 +54,6 @@ mod platform {
         .union(OFlags::DIRECTORY)
         .union(OFlags::NOFOLLOW)
         .union(OFlags::CLOEXEC);
-    /// `NONBLOCK` so a pipe put in a file's place can't stall the open.
     const FILE: OFlags = OFlags::RDONLY
         .union(OFlags::NOFOLLOW)
         .union(OFlags::NONBLOCK)
@@ -87,9 +78,6 @@ mod platform {
     }
 }
 
-/// Each folder on the way is held without delete sharing, so neither it nor
-/// a folder above it can be renamed while the file opens, and each name
-/// opens as itself, never following a symbolic link, junction or mount point.
 #[cfg(windows)]
 mod platform {
     use std::ffi::OsStr;

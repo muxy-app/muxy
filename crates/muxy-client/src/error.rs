@@ -16,78 +16,46 @@ pub enum ClientError {
     UnexpectedReply(Box<ReplyBody>),
     Timeout,
     Disconnected,
-    /// A paired server presented a certificate other than the pinned one.
     IdentityMismatch,
-    /// A server on another computer couldn't be reached through its bridge.
     Remote {
         reason: RemoteReason,
-        /// The other computer as the user named it, such as an SSH destination.
         destination: String,
-        /// What the transport reported, such as ssh's last line of errors.
         detail: String,
     },
-    /// The local server runs where this program must not use it. Only on
-    /// Windows.
     ServerElsewhere(ServerElsewhere),
 }
 
-/// Why this program refuses the local server on Windows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ServerElsewhere {
-    /// It runs in another Windows session, such as an SSH login, where the
-    /// programs its terminals start can't show windows on this screen.
     Session,
-    /// It runs as administrator and this program doesn't, so using it would
-    /// let a normal program drive administrator shells.
     Elevated,
-    /// This program runs as administrator and the server doesn't.
     NotElevated,
 }
 
-/// Why a server on another computer couldn't be reached, so apps can offer
-/// the right fix.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RemoteReason {
-    /// SSH has no trusted key for the host yet.
     HostKeyUnknown,
-    /// The host's key differs from the one SSH trusted before.
     HostKeyChanged,
-    /// SSH refused every key, agent, and certificate it tried.
     AuthenticationFailed,
-    /// The host can't be resolved or reached.
     Unreachable,
-    /// The remote shell can't find `muxy`.
     NotInstalled,
-    /// No server runs there, and this connection must not start one.
     NotRunning,
-    /// This computer can't run ssh.
     SshMissing,
-    /// The remote shell printed output instead of starting the bridge.
     UnexpectedOutput,
-    /// The bridge on the other computer reported an error.
     BridgeFailed,
-    /// The bridge didn't answer in time.
     Timeout,
-    /// The other computer runs a Muxy whose bridge this build can't use.
     Incompatible,
-    /// The paired server no longer knows this device, such as after a revoke.
     Unpaired,
-    /// The paired server presented a certificate other than the pinned one.
     IdentityChanged,
 }
 
 impl RemoteReason {
-    /// Whether connecting again may work without the user's help. The network
-    /// or the other computer can recover, but a refused login, an untrusted
-    /// host key, or a missing or incompatible Muxy can't, and repeated failed
-    /// logins can get this computer blocked.
     pub fn recoverable(self) -> bool {
         matches!(self, Self::Unreachable | Self::Timeout | Self::BridgeFailed)
     }
 }
 
 impl ClientError {
-    /// Why another computer's server couldn't be reached, when the failure says.
     pub fn remote_reason(&self) -> Option<RemoteReason> {
         match self {
             Self::Remote { reason, .. } => Some(*reason),
@@ -99,9 +67,6 @@ impl ClientError {
         }
     }
 
-    /// Whether connecting again may work without the user's help; see
-    /// [`RemoteReason::recoverable`]. Other failures, such as a dropped
-    /// connection, may.
     pub fn recoverable(&self) -> bool {
         match self {
             Self::Remote { reason, .. } => reason.recoverable(),

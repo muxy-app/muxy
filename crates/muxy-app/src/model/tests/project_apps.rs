@@ -15,7 +15,6 @@ fn listed(id: &str, name: &str) -> Listed {
     }
 }
 
-/// Finder and two editors, with launches reported instead of run.
 fn install(model: &mut AppModel) -> mpsc::Receiver<(PathBuf, String)> {
     let (sender, launches) = mpsc::channel();
     model.project_apps.listed = Some(vec![
@@ -249,8 +248,6 @@ fn a_failed_launch_forgets_editors_that_were_uninstalled(cx: &mut TestAppContext
     });
 }
 
-/// The Open in IDE control in a window `width` wide whose sidebar is as wide
-/// as it goes, with the tab strip beside it.
 fn cramped(
     width: f32,
     cx: &mut TestAppContext,

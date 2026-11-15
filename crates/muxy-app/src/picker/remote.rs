@@ -1,5 +1,3 @@
-//! Folders on another computer, which its server lists anywhere there.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -14,9 +12,7 @@ type Create = dyn Fn(&str, u64) -> Result<(), String> + Send + Sync;
 
 #[derive(Clone)]
 pub(crate) struct RemoteFolders {
-    /// The computer's name, for messages.
     pub(crate) name: String,
-    /// Its Home folder, which `~` means.
     pub(crate) home: String,
     list: Arc<List>,
     check: Arc<Check>,
@@ -40,9 +36,6 @@ impl RemoteFolders {
         }
     }
 
-    /// Lists any folder through the server. Servers from before folder
-    /// listing can only list inside Home, through `Files` on its Home
-    /// project; any absolute path can still be typed there.
     pub(crate) fn through(
         client: muxy_client::Client,
         name: String,
@@ -106,7 +99,6 @@ impl RemoteFolders {
         )
     }
 
-    /// Folders in `path`, an absolute path on that computer.
     pub(crate) fn list(&self, path: &str) -> Result<Vec<DirectoryItem>, String> {
         (self.list)(path)
     }
@@ -164,7 +156,6 @@ fn run(
     Ok(result.stdout)
 }
 
-/// Folders in `path` through `Files` on the Home project, so only inside Home.
 fn home_folders(
     client: &muxy_client::Client,
     project: ProjectId,
@@ -190,7 +181,6 @@ fn home_folders(
         .collect())
 }
 
-/// `path` relative to `root`, or `None` outside it.
 fn inside<'a>(root: &str, path: &'a str) -> Option<&'a str> {
     if path == root {
         return Some("");

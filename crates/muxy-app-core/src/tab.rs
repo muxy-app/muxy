@@ -51,7 +51,6 @@ pub struct Tab {
     pub(crate) legacy_active_pane: Option<PaneId>,
     pub layout: Layout,
     pub zoomed: Option<PaneId>,
-    /// The window of its own the tab shows in, instead of the main window.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<crate::TabWindow>,
 }
@@ -123,14 +122,12 @@ impl Tab {
             .filter(|title| !title.is_empty());
     }
 
-    /// Whether a terminal in the tab started with the app's proxy.
     pub fn uses_proxy(&self) -> bool {
         self.panes
             .iter()
             .any(|pane| pane.proxy && matches!(pane.content, PaneContent::Terminal { .. }))
     }
 
-    /// Whether the tab shows in a window of its own.
     pub fn detached(&self) -> bool {
         self.window.is_some()
     }

@@ -293,7 +293,6 @@ impl AppModel {
         self.confirm_project_layout(project, directory, &layout.name, config, cx);
     }
 
-    /// Asks before `config` replaces the tabs of `project`, still in `directory`.
     pub(crate) fn confirm_project_layout(
         &mut self,
         project: ProjectId,
@@ -384,7 +383,6 @@ impl AppModel {
         }
     }
 
-    /// Forgets the layouts `server` listed, which a new connection lists again.
     pub(super) fn forget_server_layouts(&mut self, server: ServerId, cx: &mut Context<Self>) {
         let on_server =
             |model: &Self, project: ProjectId| model.state.project_server(project) == Some(server);

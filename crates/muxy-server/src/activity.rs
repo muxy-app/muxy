@@ -36,10 +36,8 @@ impl State {
     }
 }
 
-/// Told about each new event, outside the activity lock.
 type Observer = Box<dyn Fn(&ActivityEvent) + Send + Sync>;
 
-/// Live agent state and at most one unread indicator event per session, held only in memory.
 #[derive(Default)]
 pub(crate) struct Activity {
     state: Mutex<State>,
@@ -65,15 +63,12 @@ impl Activity {
         }
     }
 
-    /// Installs the one observer of new events.
     pub(crate) fn observe(&self, observer: impl Fn(&ActivityEvent) + Send + Sync + 'static) {
         if self.observer.set(Box::new(observer)).is_err() {
             log::warn!("activity already has an observer");
         }
     }
 
-    /// The event while it is still unread: not acknowledged, replaced by a
-    /// newer one for its session, or gone with the session.
     pub(crate) fn event(&self, id: u64) -> Option<ActivityEvent> {
         lock(&self.state)
             .events
@@ -88,7 +83,6 @@ impl Activity {
             Err(error) if error.kind() == io::ErrorKind::NotFound => (),
             Err(error) => return Err(error),
         }
-        // Native notifications from an earlier server must never target a new event.
         let next_id = u64::try_from(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -107,7 +101,6 @@ impl Activity {
         })
     }
 
-    /// Bumps the revision and tells watching connections once the lock is released.
     fn changed(&self, mut state: MutexGuard<'_, State>) {
         state.revision += 1;
         let revision = state.revision;
@@ -191,7 +184,6 @@ impl Activity {
         }
     }
 
-    /// Attributes a session's agent and unread event to another project.
     pub(crate) fn move_session(&self, session: SessionId, project: ProjectId) {
         let mut state = lock(&self.state);
         let mut moved = false;

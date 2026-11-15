@@ -15,8 +15,6 @@ use std::{
     time::Duration,
 };
 
-/// All items in the generated file are marked as pub, so we're gonna wrap it in a separate mod to prevent
-/// these pub items from leaking into public API.
 pub(crate) mod dispatch_sys {
     include!(concat!(env!("OUT_DIR"), "/dispatch_sys.rs"));
 }

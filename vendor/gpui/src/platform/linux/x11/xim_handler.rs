@@ -117,13 +117,6 @@ impl<C: Client<XEvent = xproto::KeyPressEvent>> ClientHandler<C> for XimHandler 
         preedit_string: &str,
         _feedbacks: Vec<xim::Feedback>,
     ) -> Result<(), ClientError> {
-        // XIMReverse: 1, XIMPrimary: 8, XIMTertiary: 32: selected text
-        // XIMUnderline: 2, XIMSecondary: 16: underlined text
-        // XIMHighlight: 4: normal text
-        // XIMVisibleToForward: 64, XIMVisibleToBackward: 128, XIMVisibleCenter: 256: text align position
-        // XIMPrimary, XIMHighlight, XIMSecondary, XIMTertiary are not specified,
-        // but interchangeable as above
-        // Currently there's no way to support these.
         self.last_callback_event = Some(XimCallbackEvent::XimPreeditEvent(
             self.window,
             String::from(preedit_string),

@@ -1,6 +1,3 @@
-//! Panels slide in beside a terminal: the file tree, then Source Control. The
-//! cards below follow the real installs.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{Div, FontWeight, Hsla, ParentElement, SharedString, Styled, div};
 use muxy_ui::components::IconGlyph;
@@ -233,7 +230,6 @@ fn source_control(frame: &Frame) -> Div {
         }))
 }
 
-/// How an offered extension is really doing, from the tour's install queue.
 struct Status {
     label: SharedString,
     color: Hsla,
@@ -316,7 +312,6 @@ fn status_card(frame: &Frame, x: f32, name: &str, icon: Icon, title: SharedStrin
         .when(status.busy, |card| card.child(shimmer(frame, width)))
 }
 
-/// A sliver moving along the card's foot while its install runs.
 fn shimmer(frame: &Frame, width: f32) -> Div {
     let sliver = 70.0;
     let x = lerp(-sliver, width, cycle(frame.t, 1.3) / 1.3);

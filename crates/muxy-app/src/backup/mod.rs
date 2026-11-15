@@ -32,7 +32,6 @@ pub(super) const ROOTS: &[&str] = &[
 pub(super) const MAX_BYTES: u64 = 64 * 1024 * 1024;
 pub(super) const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 pub(super) const PENDING: &str = "pending-import.muxy";
-/// Marks a profile whose one automatic import of the installed 1.x was decided.
 const MIGRATION_CHECKED: &str = "legacy-import-checked";
 const LEGACY_SETTINGS: &[&str] = &[
     "settings.json",
@@ -51,12 +50,8 @@ type Files = BTreeMap<String, Vec<u8>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Restore {
-    /// Replaces every configuration file, resetting what the backup leaves out.
     Complete,
-    /// Replaces only the files the backup holds.
     Partial,
-    /// Replaces only the files the import holds, and adds its projects and
-    /// workspaces to the current ones.
     Merge,
 }
 
@@ -68,7 +63,6 @@ pub(crate) struct PreparedImport {
     extensions: Option<extensions::Copies>,
 }
 
-/// Where 1.x installed extensions, and whether it had one turned on.
 type LegacyExtensions<'a> = Option<(&'a Path, &'a dyn Fn(&str) -> bool)>;
 
 pub(crate) fn prepare_installed(profile: &Path) -> Result<PreparedImport> {
@@ -81,8 +75,6 @@ pub(crate) fn prepare_installed(profile: &Path) -> Result<PreparedImport> {
     )
 }
 
-/// The projects, workspaces, and layouts of a 1.x folder, for the running
-/// app to add, with the preferences 1.x kept per project.
 pub(crate) struct LegacyProjects {
     pub(crate) state: muxy_app_core::AppState,
     pub(crate) settings: Settings,
@@ -90,7 +82,6 @@ pub(crate) struct LegacyProjects {
 }
 
 impl LegacyProjects {
-    /// What to tell the user once the app added this many of each.
     pub(crate) fn summary(&self, projects: usize, workspaces: usize) -> Result<String> {
         let mut summary = tr!(
             "Added %lld projects and %lld workspaces from Muxy 1.x. Projects, tabs, and workspaces you already had are unchanged.",
@@ -140,10 +131,6 @@ fn installed_legacy() -> Result<Option<PathBuf>> {
     Ok(path.is_dir().then_some(path))
 }
 
-/// Stages the installed 1.x configuration, once, for a profile that has no
-/// projects or workspaces yet, so upgrading keeps projects, workspaces, and
-/// layouts. A profile chosen with `MUXY_DIR` is left alone. Returns what the
-/// user should check, if anything could not come along.
 pub(crate) fn migrate_installed(profile: &Path) -> Result<Option<String>> {
     if std::env::var_os("MUXY_DIR").is_some() {
         return Ok(None);
@@ -160,9 +147,6 @@ pub(crate) fn migrate_installed(profile: &Path) -> Result<Option<String>> {
     )
 }
 
-/// Muxy 2.0.0 opened profiles without importing, so a profile it left with
-/// nothing but Home still gets the import. Muxy 2.1.0 imported without
-/// marking the profile, so an import applied earlier counts as done.
 fn migrate_once(
     profile: &Path,
     source: &Path,

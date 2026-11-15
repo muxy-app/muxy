@@ -28,7 +28,6 @@ impl Form {
         self.location_mode = location_mode;
     }
 
-    /// Which of the form's inputs has focus, or `chooser` inside the branch chooser.
     #[cfg(test)]
     pub(crate) fn focused_input(&self, window: &gpui::Window, cx: &App) -> Option<&'static str> {
         if let Some(chooser) = &self.chooser
@@ -55,8 +54,6 @@ impl Form {
         }
     }
 
-    /// The text fields shown, in order. The branch chooser fills `existing_branch`
-    /// and `base`, so they aren't typed in.
     pub(super) fn visible_fields(&self, cx: &App) -> Vec<FocusHandle> {
         let mut fields = Vec::new();
         if self.worktree {
@@ -334,7 +331,6 @@ pub(super) fn location(form: &Form, model: &AppModel, cx: &mut Context<AppModel>
     field(&tr!("Location"), content.into_any_element(), model).into_any_element()
 }
 
-/// Where the worktree would go, or why it can't go there, which is announced.
 fn location_preview(form: &Form, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let preview = div().text_size(model.metrics.font_caption());
     match model.worktree_directory(form, cx) {

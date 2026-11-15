@@ -16,7 +16,6 @@ use super::args::{Session, Until};
 use super::{Output, Paths, Result, path_text, projects};
 
 const SHOW_WAIT: Duration = Duration::from_secs(10);
-/// Each command attaches at most once, so one tag tells its terminal apart.
 const ATTACH: u64 = 0;
 
 pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Paths) -> Result {
@@ -115,8 +114,6 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
     }
 }
 
-/// `session`, or else the terminal this command runs in, when that terminal
-/// belongs to the server `client` uses.
 fn calling(client: &Client, session: Option<SessionId>) -> Result<SessionId> {
     match session {
         Some(session) => Ok(session),
@@ -205,7 +202,6 @@ fn screen(
     }
 }
 
-/// The project of the terminal this command runs in.
 fn own_project(client: &Client) -> Result<ProjectDescriptor> {
     let session = crate::target::hosting_session(client.catalog_page(None, None)?.server)
         .ok_or("give a project; this isn't a Muxy terminal on that server")?;
@@ -432,7 +428,6 @@ enum Waited {
     Ended(ExitReason),
 }
 
-/// Follows the session's screen until `until` happens or `timeout` passes.
 fn wait(
     client: &Client,
     session: SessionId,
@@ -480,7 +475,6 @@ fn wait(
                 session: ended,
                 reason,
             }) if ended == session => {
-                // The last output before an exit may never reach a frame.
                 break match until {
                     Until::Exit => Ok(Waited::Ended(reason)),
                     Until::Text { text, ignore_case } => {
@@ -499,7 +493,6 @@ fn wait(
     report(session, &finish_attachment(waited, detached)?, output)
 }
 
-/// The line containing `text` on an ended session's saved screen.
 fn saved_line(
     saved: Option<muxy_protocol::SavedScreen>,
     text: &str,

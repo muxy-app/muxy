@@ -1,6 +1,3 @@
-//! Servers on other computers, reached through ssh or a custom command that
-//! runs the bridge there.
-
 use std::ffi::OsString;
 use std::fmt;
 use std::io;
@@ -14,13 +11,8 @@ use muxy_protocol::transport::ChildStream;
 use crate::bridge::{self, BridgeExit, Start};
 use crate::{Client, ClientError, ErrorTail, RemoteReason};
 
-/// Covers ssh's 10 s connect timeout, logging in, and starting the server.
 const CONNECT_AND_START_TIMEOUT: Duration = Duration::from_secs(20);
-/// How long a failed ssh gets to exit and finish its error output.
 const EXIT_TIMEOUT: Duration = Duration::from_secs(1);
-/// Keepalives end a dead connection instead of hanging. A shared master
-/// would keep running with our pipes, and the user's remote command and
-/// forwards belong to interactive sessions, not to the bridge.
 const OPTIONS: [&str; 6] = [
     "ConnectTimeout=10",
     "ServerAliveInterval=15",
@@ -30,8 +22,6 @@ const OPTIONS: [&str; 6] = [
     "ClearAllForwardings=yes",
 ];
 
-/// A computer to reach with ssh: an `ssh_config` alias, `user@host`, or
-/// `ssh://user@host:port`, or a custom command prefix.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SshTarget {
     destination: String,
@@ -43,19 +33,14 @@ pub struct SshTarget {
     host_key_prompt: bool,
 }
 
-/// A program that connects ssh to the computer, such as through a proxy. ssh
-/// runs it with the host and port after `arguments` and talks to it over its
-/// standard input and output.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProxyCommand {
     pub program: PathBuf,
     pub arguments: Vec<String>,
-    /// More environment for the program, such as which proxy to use.
     pub environment: Vec<(OsString, OsString)>,
 }
 
 impl ProxyCommand {
-    /// ssh expands `%` tokens, then runs the line with the user's shell.
     fn option(&self) -> String {
         let quote = |value: &str| format!("'{}'", value.replace('\'', r"'\''").replace('%', "%%"));
         let mut line = quote(&self.program.to_string_lossy());
@@ -67,18 +52,13 @@ impl ProxyCommand {
     }
 }
 
-/// A program that answers ssh's prompts, such as for a saved password. ssh
-/// runs it with the prompt as its only argument and reads the answer.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Askpass {
     pub program: PathBuf,
-    /// More environment for the program, such as which answer to give.
     pub environment: Vec<(OsString, OsString)>,
 }
 
 impl SshTarget {
-    /// Refuses destinations that ssh could read as an option or that would
-    /// split into several arguments.
     pub fn new(destination: &str) -> io::Result<Self> {
         let invalid = |message| Err(io::Error::new(io::ErrorKind::InvalidInput, message));
         if destination.is_empty() {
@@ -124,15 +104,12 @@ impl SshTarget {
         self.custom_arguments.is_some()
     }
 
-    /// Logs in with this private key file only.
     #[must_use]
     pub fn with_identity(mut self, identity: impl Into<PathBuf>) -> Self {
         self.identity = Some(identity.into());
         self
     }
 
-    /// Lets ssh ask `askpass` once for a password or a key's passphrase.
-    /// Without it, ssh never prompts.
     #[must_use]
     pub fn with_askpass(mut self, askpass: Askpass) -> Self {
         self.askpass = Some(askpass);
@@ -151,7 +128,6 @@ impl SshTarget {
         self
     }
 
-    /// Runs `program` instead of ssh. It must accept ssh's arguments.
     #[must_use]
     pub fn with_program(mut self, program: impl Into<PathBuf>) -> Self {
         self.program = Some(program.into());
@@ -166,18 +142,12 @@ impl SshTarget {
         self.askpass.as_ref()
     }
 
-    /// The login ssh prompts for, `user@host`, as its config resolves this
-    /// destination (`ssh -G`, which reads config and contacts nothing). A
-    /// password prompt that names another login, such as a jump host's, is
-    /// not for this destination.
     pub fn login(&self) -> io::Result<String> {
         login_from(&self.config()?).ok_or_else(|| {
             io::Error::other(format!("no SSH user or host for {}", self.destination))
         })
     }
 
-    /// Whether ssh's config already reaches this destination its own way,
-    /// with `ProxyJump` or `ProxyCommand`.
     pub fn has_own_route(&self) -> io::Result<bool> {
         Ok(route_from(&self.config()?))
     }
@@ -209,8 +179,6 @@ impl SshTarget {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// Runs `remote` there through the same ssh and login as the bridge,
-    /// such as an installer. Its output is the caller's to read.
     pub fn command(&self, remote: &str) -> io::Result<Command> {
         let program = program(self.program.as_deref(), std::env::var_os("MUXY_SSH"))?;
         let proxy = self
@@ -224,8 +192,6 @@ impl SshTarget {
         Ok(command)
     }
 
-    /// Prompts only reach an askpass program, since nobody may be there to
-    /// answer them.
     fn arguments_for(&self, remote: &str, proxy: Option<&ProxyCommand>) -> Vec<OsString> {
         if let Some(arguments) = &self.custom_arguments {
             return arguments
@@ -272,8 +238,6 @@ impl SshTarget {
         arguments
     }
 
-    /// `SSH_ASKPASS_REQUIRE=force` makes ssh use the program even without
-    /// a display or a terminal.
     fn environment(&self, proxy: Option<&ProxyCommand>) -> Vec<(OsString, OsString)> {
         if self.is_custom_command() {
             return Vec::new();
@@ -312,8 +276,6 @@ impl fmt::Display for SshTarget {
     }
 }
 
-/// `user@host` from `ssh -G` output. ssh names a host key alias in its
-/// prompts instead of the host name, when there is one.
 fn route_from(config: &str) -> bool {
     config.lines().any(|line| {
         line.split_once(' ').is_some_and(|(key, value)| {
@@ -351,7 +313,6 @@ fn identity_from(config: &str, home: &Path) -> Option<PathBuf> {
     })
 }
 
-/// The program set on the target, else `MUXY_SSH`, else ssh from `PATH`.
 fn program(explicit: Option<&Path>, environment: Option<OsString>) -> io::Result<PathBuf> {
     match (explicit, environment) {
         (Some(program), _) => Ok(program.into()),
@@ -365,10 +326,6 @@ fn program(explicit: Option<&Path>, environment: Option<OsString>) -> io::Result
 }
 
 impl Client {
-    /// Connects to the server on another computer through ssh, which runs
-    /// `muxy stdio` there. ssh prompts only through the target's askpass
-    /// program, so logging in otherwise needs ssh-agent, a key, or a
-    /// certificate. The host's key must already be trusted.
     pub fn connect_ssh(target: &SshTarget, start: Start) -> Result<Self, ClientError> {
         let mut command = target.command(bridge::command(start))?;
         let program = PathBuf::from(command.get_program());

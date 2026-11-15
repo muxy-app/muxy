@@ -98,16 +98,12 @@ fn max_tab_width(model: &AppModel) -> f32 {
     f32::from(model.metrics.scaled(200.0))
 }
 
-/// Whether the built-in sidebar shows tabs, each project with its own new tab
-/// button, so the titlebar needs none.
 pub(super) fn sidebar_opens_tabs(model: &AppModel) -> bool {
     model.appearance.layout != muxy_app_core::settings::AppLayout::ProjectFocused
         && model.appearance.sidebar_expanded
         && !model.extension_sidebar_active()
 }
 
-/// The strip above a group's panes: its tabs and a button for a new tab in
-/// the group.
 pub(crate) fn group_strip(
     group: &TabGroup,
     width: f32,
@@ -170,7 +166,6 @@ pub(crate) fn group_strip(
         .into_any_element()
 }
 
-/// Tab cells for `tabs`, measured for dragging. `shortcuts` shows ⌘1–9 hints.
 fn tab_cells(
     tabs: &[&Tab],
     width: f32,
@@ -205,7 +200,6 @@ fn tab_cells(
     )
 }
 
-/// Opens a tab after `anchor` in its group, or at the end of the focused one.
 pub(super) fn new_tab_button(
     anchor: Option<TabId>,
     model: &AppModel,
@@ -264,7 +258,6 @@ pub(super) fn existing_terminals_button(
         .into_any_element()
 }
 
-/// Opens a browser tab in the current project.
 pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let name = tr!("Open Browser Tab");
     let tooltip = model.tooltip(name.clone(), ShortcutId::NewBrowserTab);
@@ -458,8 +451,6 @@ fn tab_cell(
         .when(!model.tab_drag.is_active(), |cell| {
             cell.group(group.clone())
         })
-        // On Windows the strip behind is the window's caption, where a press
-        // would never start a drag.
         .when(cfg!(windows), InteractiveElement::occlude)
         .relative()
         .flex()
@@ -597,7 +588,6 @@ enum Glyph {
     Bell,
     Pin,
     Settings,
-    /// A terminal in the tab started with the app's proxy.
     Proxy,
     Terminal,
 }

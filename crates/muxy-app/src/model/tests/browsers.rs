@@ -3,7 +3,6 @@ use std::cell::RefCell;
 use super::*;
 use serde_json::{Value, json};
 
-/// Sends a `browser.*` request as the CLI does and waits for the reply.
 fn call(
     view: &Entity<AppModel>,
     cx: &mut VisualTestContext,

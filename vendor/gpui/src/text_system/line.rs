@@ -7,45 +7,34 @@ use derive_more::{Deref, DerefMut};
 use smallvec::SmallVec;
 use std::sync::Arc;
 
-/// Set the text decoration for a run of text.
 #[derive(Debug, Clone)]
 pub struct DecorationRun {
-    /// The length of the run in utf-8 bytes.
     pub len: u32,
 
-    /// The color for this run
     pub color: Hsla,
 
-    /// The background color for this run
     pub background_color: Option<Hsla>,
 
-    /// The underline style for this run
     pub underline: Option<UnderlineStyle>,
 
-    /// The strikethrough style for this run
     pub strikethrough: Option<StrikethroughStyle>,
 }
 
-/// A line of text that has been shaped and decorated.
 #[derive(Clone, Default, Debug, Deref, DerefMut)]
 pub struct ShapedLine {
     #[deref]
     #[deref_mut]
     pub(crate) layout: Arc<LineLayout>,
-    /// The text that was shaped for this line.
     pub text: SharedString,
     pub(crate) decoration_runs: SmallVec<[DecorationRun; 32]>,
 }
 
 impl ShapedLine {
-    /// The length of the line in utf-8 bytes.
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.layout.len
     }
 
-    /// Override the len, useful if you're rendering text a
-    /// as text b (e.g. rendering invisibles).
     pub fn with_len(mut self, len: usize) -> Self {
         let layout = self.layout.as_ref();
         self.layout = Arc::new(LineLayout {
@@ -59,7 +48,6 @@ impl ShapedLine {
         self
     }
 
-    /// Paint the line of text to the window.
     pub fn paint(
         &self,
         origin: Point<Pixels>,
@@ -82,7 +70,6 @@ impl ShapedLine {
         Ok(())
     }
 
-    /// Paint the background of the line to the window.
     pub fn paint_background(
         &self,
         origin: Point<Pixels>,
@@ -106,25 +93,21 @@ impl ShapedLine {
     }
 }
 
-/// A line of text that has been shaped, decorated, and wrapped by the text layout system.
 #[derive(Clone, Default, Debug, Deref, DerefMut)]
 pub struct WrappedLine {
     #[deref]
     #[deref_mut]
     pub(crate) layout: Arc<WrappedLineLayout>,
-    /// The text that was shaped for this line.
     pub text: SharedString,
     pub(crate) decoration_runs: SmallVec<[DecorationRun; 32]>,
 }
 
 impl WrappedLine {
-    /// The length of the underlying, unwrapped layout, in utf-8 bytes.
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.layout.len()
     }
 
-    /// Paint this line of text to the window.
     pub fn paint(
         &self,
         origin: Point<Pixels>,
@@ -154,7 +137,6 @@ impl WrappedLine {
         Ok(())
     }
 
-    /// Paint the background of line of text to the window.
     pub fn paint_background(
         &self,
         origin: Point<Pixels>,
@@ -282,7 +264,6 @@ fn paint_line(
                 if glyph.index >= run_end {
                     let mut style_run = decoration_runs.next();
 
-                    // ignore style runs that apply to a partial glyph
                     while let Some(run) = style_run {
                         if glyph.index < run_end + (run.len as usize) {
                             break;
@@ -499,7 +480,6 @@ fn paint_line_background(
                 if glyph.index >= run_end {
                     let mut style_run = decoration_runs.next();
 
-                    // ignore style runs that apply to a partial glyph
                     while let Some(run) = style_run {
                         if glyph.index < run_end + (run.len as usize) {
                             break;

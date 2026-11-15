@@ -6,18 +6,13 @@ use muxy_protocol::{
     ProjectSessions, ReplyBody, RequestBody, SessionId, SessionStatus,
 };
 
-/// How many times a paged read is tried while the catalog keeps changing
-/// between its pages.
 const PAGED_ATTEMPTS: usize = 8;
-/// The most terminals one listing returns.
 const MAX_LISTED_SESSIONS: usize = 16_384;
 
 fn catalog_changed<T>(result: &Result<T, ClientError>) -> bool {
     matches!(result, Err(ClientError::Server(error)) if error.code == ErrorCode::CatalogChanged)
 }
 
-/// Reads every page again until no page saw the catalog change, a bounded
-/// number of times.
 pub(crate) fn consistent<T>(
     mut read: impl FnMut() -> Result<T, ClientError>,
 ) -> Result<T, ClientError> {
@@ -30,7 +25,6 @@ pub(crate) fn consistent<T>(
     Err(ClientError::Timeout)
 }
 
-/// Like `consistent`, without blocking.
 pub(crate) async fn consistent_async<T, F: Future<Output = Result<T, ClientError>>>(
     mut read: impl FnMut() -> F,
 ) -> Result<T, ClientError> {
@@ -91,9 +85,6 @@ impl Client {
         }
     }
 
-    /// The folders directly inside `directory`, an absolute path on the
-    /// server's computer. Servers from before this request answer
-    /// `Unsupported`.
     pub fn list_folders(
         &self,
         directory: muxy_protocol::ServerPath,
@@ -104,9 +95,6 @@ impl Client {
         }
     }
 
-    /// The files and folders directly inside `directory`, an absolute path on
-    /// the server's computer, sorted by name ignoring case. Servers from
-    /// before this request answer `Unsupported`.
     pub fn list_entries(
         &self,
         directory: muxy_protocol::ServerPath,
@@ -117,9 +105,6 @@ impl Client {
         }
     }
 
-    /// Sends `bytes` as a file named `name` for `session` to keep on the
-    /// server's computer, in chunks, and returns its absolute path there.
-    /// Servers from before uploads answer `Unsupported`.
     pub fn upload(
         &self,
         session: SessionId,
@@ -187,7 +172,6 @@ impl Client {
         }
     }
 
-    /// Every project, from one consistent catalog revision.
     pub fn catalog(&self) -> Result<CatalogPage, ClientError> {
         consistent(|| self.catalog_snapshot())
     }
@@ -220,7 +204,6 @@ impl Client {
         }
     }
 
-    /// The project's terminals that are running and shown nowhere.
     pub fn available_project_sessions(
         &self,
         project: ProjectId,
@@ -228,8 +211,6 @@ impl Client {
         self.all_project_sessions(project, available)
     }
 
-    /// Every terminal of the project that `keep` accepts, from one consistent
-    /// listing.
     pub fn all_project_sessions(
         &self,
         project: ProjectId,

@@ -35,7 +35,6 @@ impl ShortcutHints {
     }
 }
 
-/// How one key reads on screen: its symbol, or its name in capitals.
 pub(crate) fn key_glyph(key: &str) -> String {
     match key {
         "enter" => "↩".into(),
@@ -58,8 +57,6 @@ pub(crate) fn key_glyph(key: &str) -> String {
 }
 
 impl AppModel {
-    /// `name` as the tooltip of a control that runs the command `id`: with
-    /// the command's key after it in parentheses, when it has one.
     pub(crate) fn tooltip(
         &self,
         name: impl Into<gpui::SharedString>,
@@ -72,7 +69,6 @@ impl AppModel {
         }
     }
 
-    /// The key of the command `id`, as menus and tooltips show it.
     pub(crate) fn shortcut_label(&self, id: ShortcutId) -> Option<gpui::SharedString> {
         let chord = self.settings.keymap.chord(id)?;
         Some(super::command_palette::chord_label(chord).into())
@@ -103,7 +99,6 @@ impl AppModel {
         cx.notify();
     }
 
-    // The system can swallow a modifier's release, so no event ever reports it.
     fn recheck_shortcut_hints(&mut self, cx: &mut Context<Self>) -> bool {
         #[cfg(test)]
         let held = self.shortcut_hints.held;

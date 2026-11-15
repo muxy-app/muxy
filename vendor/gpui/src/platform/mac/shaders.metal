@@ -109,7 +109,6 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
     quad.corner_radii.top_right == 0.0 &&
     quad.corner_radii.bottom_right == 0.0;
 
-  // Fast path when the quad is not rounded and doesn't have any border
   if (quad.border_widths.top == 0.0 &&
       quad.border_widths.left == 0.0 &&
       quad.border_widths.right == 0.0 &&
@@ -123,132 +122,79 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
   float2 point = input.position.xy - float2(quad.bounds.origin.x, quad.bounds.origin.y);
   float2 center_to_point = point - half_size;
 
-  // Signed distance field threshold for inclusion of pixels. 0.5 is the
-  // minimum distance between the center of the pixel and the edge.
   const float antialias_threshold = 0.5;
 
-  // Radius of the nearest corner
   float corner_radius = pick_corner_radius(center_to_point, quad.corner_radii);
 
-  // Width of the nearest borders
   float2 border = float2(
     center_to_point.x < 0.0 ? quad.border_widths.left : quad.border_widths.right,
     center_to_point.y < 0.0 ? quad.border_widths.top : quad.border_widths.bottom
   );
 
-  // 0-width borders are reduced so that `inner_sdf >= antialias_threshold`.
-  // The purpose of this is to not draw antialiasing pixels in this case.
   float2 reduced_border = float2(
     border.x == 0.0 ? -antialias_threshold : border.x,
     border.y == 0.0 ? -antialias_threshold : border.y);
 
-  // Vector from the corner of the quad bounds to the point, after mirroring
-  // the point into the bottom right quadrant. Both components are <= 0.
   float2 corner_to_point = fabs(center_to_point) - half_size;
 
-  // Vector from the point to the center of the rounded corner's circle, also
-  // mirrored into bottom right quadrant.
   float2 corner_center_to_point = corner_to_point + corner_radius;
 
-  // Whether the nearest point on the border is rounded
   bool is_near_rounded_corner =
     corner_center_to_point.x >= 0.0 &&
     corner_center_to_point.y >= 0.0;
 
-  // Vector from straight border inner corner to point.
-  //
-  // 0-width borders are turned into width -1 so that inner_sdf is > 1.0 near
-  // the border. Without this, antialiasing pixels would be drawn.
   float2 straight_border_inner_corner_to_point = corner_to_point + reduced_border;
 
-  // Whether the point is beyond the inner edge of the straight border
   bool is_beyond_inner_straight_border =
     straight_border_inner_corner_to_point.x > 0.0 ||
     straight_border_inner_corner_to_point.y > 0.0;
 
 
-  // Whether the point is far enough inside the quad, such that the pixels are
-  // not affected by the straight border.
   bool is_within_inner_straight_border =
     straight_border_inner_corner_to_point.x < -antialias_threshold &&
     straight_border_inner_corner_to_point.y < -antialias_threshold;
 
-  // Fast path for points that must be part of the background
   if (is_within_inner_straight_border && !is_near_rounded_corner) {
     return background_color;
   }
 
-  // Signed distance of the point to the outside edge of the quad's border
   float outer_sdf = quad_sdf_impl(corner_center_to_point, corner_radius);
 
-  // Approximate signed distance of the point to the inside edge of the quad's
-  // border. It is negative outside this edge (within the border), and
-  // positive inside.
-  //
-  // This is not always an accurate signed distance:
-  // * The rounded portions with varying border width use an approximation of
-  //   nearest-point-on-ellipse.
-  // * When it is quickly known to be outside the edge, -1.0 is used.
   float inner_sdf = 0.0;
   if (corner_center_to_point.x <= 0.0 || corner_center_to_point.y <= 0.0) {
-    // Fast paths for straight borders
     inner_sdf = -max(straight_border_inner_corner_to_point.x,
                      straight_border_inner_corner_to_point.y);
   } else if (is_beyond_inner_straight_border) {
-    // Fast path for points that must be outside the inner edge
     inner_sdf = -1.0;
   } else if (reduced_border.x == reduced_border.y) {
-    // Fast path for circular inner edge.
     inner_sdf = -(outer_sdf + reduced_border.x);
   } else {
     float2 ellipse_radii = max(float2(0.0), float2(corner_radius) - reduced_border);
     inner_sdf = quarter_ellipse_sdf(corner_center_to_point, ellipse_radii);
   }
 
-  // Negative when inside the border
   float border_sdf = max(inner_sdf, outer_sdf);
 
   float4 color = background_color;
   if (border_sdf < antialias_threshold) {
     float4 border_color = input.border_color;
 
-    // Dashed border logic when border_style == 1
     if (quad.border_style == 1) {
-      // Position along the perimeter in "dash space", where each dash
-      // period has length 1
       float t = 0.0;
 
-      // Total number of dash periods, so that the dash spacing can be
-      // adjusted to evenly divide it
       float max_t = 0.0;
 
-      // Border width is proportional to dash size. This is the behavior
-      // used by browsers, but also avoids dashes from different segments
-      // overlapping when dash size is smaller than the border width.
-      //
-      // Dash pattern: (2 * border width) dash, (1 * border width) gap
       const float dash_length_per_width = 2.0;
       const float dash_gap_per_width = 1.0;
       const float dash_period_per_width = dash_length_per_width + dash_gap_per_width;
 
-      // Since the dash size is determined by border width, the density of
-      // dashes varies. Multiplying a pixel distance by this returns a
-      // position in dash space - it has units (dash period / pixels). So
-      // a dash velocity of (1 / 10) is 1 dash every 10 pixels.
       float dash_velocity = 0.0;
 
-      // Dividing this by the border width gives the dash velocity
       const float dv_numerator = 1.0 / dash_period_per_width;
 
       if (unrounded) {
-        // When corners aren't rounded, the dashes are separately laid
-        // out on each straight line, rather than around the whole
-        // perimeter. This way each line starts and ends with a dash.
         bool is_horizontal = corner_center_to_point.x < corner_center_to_point.y;
 
-        // Choosing the right border width for dashed borders.
-        // TODO: A better solution exists taking a look at the whole file.
-        // this does not fix single dashed borders at the corners
         float2 dashed_border = float2(
         fmax(quad.border_widths.bottom, quad.border_widths.top),
         fmax(quad.border_widths.right, quad.border_widths.left));
@@ -260,8 +206,6 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
         max_t = is_horizontal ? size.x : size.y;
         max_t *= dash_velocity;
       } else {
-        // When corners are rounded, the dashes are laid out clockwise
-        // around the whole perimeter.
 
         float r_tr = quad.corner_radii.top_right;
         float r_br = quad.corner_radii.bottom_right;
@@ -273,13 +217,11 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
         float w_b = quad.border_widths.bottom;
         float w_l = quad.border_widths.left;
 
-        // Straight side dash velocities
         float dv_t = w_t <= 0.0 ? 0.0 : dv_numerator / w_t;
         float dv_r = w_r <= 0.0 ? 0.0 : dv_numerator / w_r;
         float dv_b = w_b <= 0.0 ? 0.0 : dv_numerator / w_b;
         float dv_l = w_l <= 0.0 ? 0.0 : dv_numerator / w_l;
 
-        // Straight side lengths in dash space
         float s_t = (size.x - r_tl - r_tr) * dv_t;
         float s_r = (size.y - r_tr - r_br) * dv_r;
         float s_b = (size.x - r_br - r_bl) * dv_b;
@@ -290,13 +232,11 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
         float corner_dash_velocity_bl = corner_dash_velocity(dv_b, dv_l);
         float corner_dash_velocity_tl = corner_dash_velocity(dv_t, dv_l);
 
-        // Corner lengths in dash space
         float c_tr = r_tr * (M_PI_F / 2.0) * corner_dash_velocity_tr;
         float c_br = r_br * (M_PI_F / 2.0) * corner_dash_velocity_br;
         float c_bl = r_bl * (M_PI_F / 2.0) * corner_dash_velocity_bl;
         float c_tl = r_tl * (M_PI_F / 2.0) * corner_dash_velocity_tl;
 
-        // Cumulative dash space upto each segment
         float upto_tr = s_t;
         float upto_r = upto_tr + c_tr;
         float upto_br = upto_r + s_r;
@@ -313,33 +253,21 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
           if (center_to_point.x >= 0.0) {
             if (center_to_point.y < 0.0) {
               dash_velocity = corner_dash_velocity_tr;
-              // Subtracted because radians is pi/2 to 0 when
-              // going clockwise around the top right corner,
-              // since the y axis has been flipped
               t = upto_r - corner_t * dash_velocity;
             } else {
               dash_velocity = corner_dash_velocity_br;
-              // Added because radians is 0 to pi/2 when going
-              // clockwise around the bottom-right corner
               t = upto_br + corner_t * dash_velocity;
             }
           } else {
             if (center_to_point.y >= 0.0) {
               dash_velocity = corner_dash_velocity_bl;
-              // Subtracted because radians is pi/1 to 0 when
-              // going clockwise around the bottom-left corner,
-              // since the x axis has been flipped
               t = upto_l - corner_t * dash_velocity;
             } else {
               dash_velocity = corner_dash_velocity_tl;
-              // Added because radians is 0 to pi/2 when going
-              // clockwise around the top-left corner, since both
-              // axis were flipped
               t = upto_tl + corner_t * dash_velocity;
             }
           }
         } else {
-          // Straight borders
           bool is_horizontal = corner_center_to_point.x < corner_center_to_point.y;
           if (is_horizontal) {
             if (center_to_point.y < 0.0) {
@@ -364,19 +292,13 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
       float dash_length = dash_length_per_width / dash_period_per_width;
       float desired_dash_gap = dash_gap_per_width / dash_period_per_width;
 
-      // Straight borders should start and end with a dash, so max_t is
-      // reduced to cause this.
       max_t -= unrounded ? dash_length : 0.0;
       if (max_t >= 1.0) {
-        // Adjust dash gap to evenly divide max_t
         float dash_count = floor(max_t);
         float dash_period = max_t / dash_count;
         border_color.a *= dash_alpha(t, dash_period, dash_length, dash_velocity,
                                      antialias_threshold);
       } else if (unrounded) {
-        // When there isn't enough space for the full gap between the
-        // two start / end dashes of a straight border, reduce gap to
-        // make them fit.
         float dash_gap = max_t - dash_length;
         if (dash_gap > 0.0) {
           float dash_period = dash_length + dash_gap;
@@ -386,8 +308,6 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
       }
     }
 
-    // Blend the border on top of the background and then linearly interpolate
-    // between the two as we slide inside the background.
     float4 blended_border = over(background_color, border_color);
     color = mix(background_color, blended_border,
                 saturate(antialias_threshold - inner_sdf));
@@ -396,14 +316,6 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
   return color * float4(1.0, 1.0, 1.0, saturate(antialias_threshold - outer_sdf));
 }
 
-// Returns the dash velocity of a corner given the dash velocity of the two
-// sides, by returning the slower velocity (larger dashes).
-//
-// Since 0 is used for dash velocity when the border width is 0 (instead of
-// +inf), this returns the other dash velocity in that case.
-//
-// An alternative to this might be to appropriately interpolate the dash
-// velocity around the corner, but that seems overcomplicated.
 float corner_dash_velocity(float dv1, float dv2) {
   if (dv1 == 0.0) {
     return dv2;
@@ -414,35 +326,19 @@ float corner_dash_velocity(float dv1, float dv2) {
   }
 }
 
-// Returns alpha used to render antialiased dashes.
-// `t` is within the dash when `fmod(t, period) < length`.
 float dash_alpha(
     float t, float period, float length, float dash_velocity,
     float antialias_threshold) {
   float half_period = period / 2.0;
   float half_length = length / 2.0;
-  // Value in [-half_period, half_period]
-  // The dash is in [-half_length, half_length]
   float centered = fmod(t + half_period - half_length, period) - half_period;
-  // Signed distance for the dash, negative values are inside the dash
   float signed_distance = abs(centered) - half_length;
-  // Antialiased alpha based on the signed distance
   return saturate(antialias_threshold - signed_distance / dash_velocity);
 }
 
-// This approximates distance to the nearest point to a quarter ellipse in a way
-// that is sufficient for anti-aliasing when the ellipse is not very eccentric.
-// The components of `point` are expected to be positive.
-//
-// Negative on the outside and positive on the inside.
 float quarter_ellipse_sdf(float2 point, float2 radii) {
-  // Scale the space to treat the ellipse like a unit circle
   float2 circle_vec = point / radii;
   float unit_circle_sdf = length(circle_vec) - 1.0;
-  // Approximate up-scaling of the length by using the average of the radii.
-  //
-  // TODO: A better solution would be to use the gradient of the implicit
-  // function for an ellipse to approximate a scaling factor.
   return unit_circle_sdf * (radii.x + radii.y) * -0.5;
 }
 
@@ -469,8 +365,6 @@ vertex ShadowVertexOutput shadow_vertex(
   Shadow shadow = shadows[shadow_id];
 
   float margin = 3. * shadow.blur_radius;
-  // Set the bounds of the shadow and adjust its size based on the shadow's
-  // spread radius to achieve the spreading effect
   Bounds_ScaledPixels bounds = shadow.bounds;
   bounds.origin.x -= margin;
   bounds.origin.y -= margin;
@@ -520,13 +414,11 @@ fragment float4 shadow_fragment(ShadowFragmentInput input [[stage_in]],
     float distance = quad_sdf(input.position.xy, shadow.bounds, shadow.corner_radii);
     alpha = saturate(0.5 - distance);
   } else {
-    // The signal is only non-zero in a limited range, so don't waste samples
     float low = point.y - half_size.y;
     float high = point.y + half_size.y;
     float start = clamp(-3. * shadow.blur_radius, low, high);
     float end = clamp(3. * shadow.blur_radius, low, high);
 
-    // Accumulate samples (we can get away with surprisingly few samples)
     float step = (end - start) / 4.;
     float y = start + step * 0.5;
     alpha = 0.;
@@ -812,8 +704,6 @@ vertex PathSpriteVertexOutput path_sprite_vertex(
 ) {
   float2 unit_vertex = unit_vertices[unit_vertex_id];
   PathSprite sprite = sprites[sprite_id];
-  // Don't apply content mask because it was already accounted for when
-  // rasterizing the path.
   float4 device_position =
       to_device_position(unit_vertex, sprite.bounds, viewport_size);
 
@@ -859,8 +749,6 @@ vertex SurfaceVertexOutput surface_vertex(
       to_device_position(unit_vertex, surface.bounds, viewport_size);
   float4 clip_distance = distance_from_clip_rect(unit_vertex, surface.bounds,
                                                  surface.content_mask.bounds);
-  // We are going to copy the whole texture, so the texture position corresponds
-  // to the current vertex of the unit triangle.
   float2 texture_position = unit_vertex;
   return SurfaceVertexOutput{
       device_position,
@@ -887,7 +775,7 @@ fragment float4 surface_fragment(SurfaceFragmentInput input [[stage_in]],
 }
 
 float4 hsla_to_rgba(Hsla hsla) {
-  float h = hsla.h * 6.0; // Now, it's an angle but scaled in [0, 6) range
+  float h = hsla.h * 6.0;
   float s = hsla.s;
   float l = hsla.l;
   float a = hsla.a;
@@ -942,10 +830,7 @@ float3 linear_to_srgb(float3 color) {
   return pow(color, float3(1.0 / 2.2));
 }
 
-// Converts a sRGB color to the Oklab color space.
-// Reference: https://bottosson.github.io/posts/oklab/#converting-from-linear-srgb-to-oklab
 float4 srgb_to_oklab(float4 color) {
-  // Convert non-linear sRGB to linear sRGB
   color = float4(srgb_to_linear(color.rgb), color.a);
 
   float l = 0.4122214708 * color.r + 0.5363325363 * color.g + 0.0514459929 * color.b;
@@ -964,7 +849,6 @@ float4 srgb_to_oklab(float4 color) {
   );
 }
 
-// Converts an Oklab color to the sRGB color space.
 float4 oklab_to_srgb(float4 color) {
   float l_ = color.r + 0.3963377774 * color.g + 0.2158037573 * color.b;
   float m_ = color.r - 0.1055613458 * color.g - 0.0638541728 * color.b;
@@ -980,7 +864,6 @@ float4 oklab_to_srgb(float4 color) {
    	-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
   );
 
-  // Convert linear sRGB to non-linear sRGB
   return float4(linear_to_srgb(linear_rgb), color.a);
 }
 
@@ -1003,12 +886,10 @@ float4 to_device_position_transformed(float2 unit_vertex, Bounds_ScaledPixels bo
       unit_vertex * float2(bounds.size.width, bounds.size.height) +
       float2(bounds.origin.x, bounds.origin.y);
 
-  // Apply the transformation matrix to the position via matrix multiplication.
   float2 transformed_position = float2(0, 0);
   transformed_position[0] = position[0] * transformation.rotation_scale[0][0] + position[1] * transformation.rotation_scale[0][1];
   transformed_position[1] = position[0] * transformation.rotation_scale[1][0] + position[1] * transformation.rotation_scale[1][1];
 
-  // Add in the translation component of the transformation matrix.
   transformed_position[0] += transformation.translation[0];
   transformed_position[1] += transformation.translation[1];
 
@@ -1028,7 +909,6 @@ float2 to_tile_position(float2 unit_vertex, AtlasTile tile,
          float2((float)atlas_size->width, (float)atlas_size->height);
 }
 
-// Selects corner radius based on quadrant.
 float pick_corner_radius(float2 center_to_point, Corners_ScaledPixels corner_radii) {
   if (center_to_point.x < 0.) {
     if (center_to_point.y < 0.) {
@@ -1045,8 +925,6 @@ float pick_corner_radius(float2 center_to_point, Corners_ScaledPixels corner_rad
   }
 }
 
-// Signed distance of the point to the quad's border - positive outside the
-// border, and negative inside.
 float quad_sdf(float2 point, Bounds_ScaledPixels bounds,
                Corners_ScaledPixels corner_radii) {
     float2 half_size = float2(bounds.size.width, bounds.size.height) / 2.0;
@@ -1058,30 +936,22 @@ float quad_sdf(float2 point, Bounds_ScaledPixels bounds,
     return quad_sdf_impl(corner_center_to_point, corner_radius);
 }
 
-// Implementation of quad signed distance field
 float quad_sdf_impl(float2 corner_center_to_point, float corner_radius) {
     if (corner_radius == 0.0) {
-        // Fast path for unrounded corners
         return max(corner_center_to_point.x, corner_center_to_point.y);
     } else {
-        // Signed distance of the point from a quad that is inset by corner_radius
-        // It is negative inside this quad, and positive outside
         float signed_distance_to_inset_quad =
-            // 0 inside the inset quad, and positive outside
             length(max(float2(0.0), corner_center_to_point)) +
-            // 0 outside the inset quad, and negative inside
             min(0.0, max(corner_center_to_point.x, corner_center_to_point.y));
 
         return signed_distance_to_inset_quad - corner_radius;
     }
 }
 
-// A standard gaussian function, used for weighting samples
 float gaussian(float x, float sigma) {
   return exp(-(x * x) / (2. * sigma * sigma)) / (sqrt(2. * M_PI_F) * sigma);
 }
 
-// This approximates the error function, needed for the gaussian integral
 float2 erf(float2 x) {
   float2 s = sign(x);
   float2 a = abs(x);
@@ -1146,10 +1016,7 @@ GradientColor prepare_fill_color(uint tag, uint color_space, Hsla solid,
     out.color0 = hsla_to_rgba(color0);
     out.color1 = hsla_to_rgba(color1);
 
-    // Prepare color space in vertex for avoid conversion
-    // in fragment shader for performance reasons
     if (color_space == 1) {
-      // Oklab
       out.color0 = srgb_to_oklab(out.color0);
       out.color1 = srgb_to_oklab(out.color1);
     }
@@ -1175,31 +1042,26 @@ float4 fill_color(Background background,
       color = solid_color;
       break;
     case 1: {
-      // -90 degrees to match the CSS gradient angle.
       float gradient_angle = background.gradient_angle_or_pattern_height;
       float radians = (fmod(gradient_angle, 360.0) - 90.0) * (M_PI_F / 180.0);
       float2 direction = float2(cos(radians), sin(radians));
 
-      // Expand the short side to be the same as the long side
       if (bounds.size.width > bounds.size.height) {
           direction.y *= bounds.size.height / bounds.size.width;
       } else {
           direction.x *=  bounds.size.width / bounds.size.height;
       }
 
-      // Get the t value for the linear gradient with the color stop percentages.
       float2 half_size = float2(bounds.size.width, bounds.size.height) / 2.;
       float2 center = float2(bounds.origin.x, bounds.origin.y) + half_size;
       float2 center_to_point = position - center;
       float t = dot(center_to_point, direction) / length(direction);
-      // Check the direction to determine whether to use x or y
       if (abs(direction.x) > abs(direction.y)) {
           t = (t + half_size.x) / bounds.size.width;
       } else {
           t = (t + half_size.y) / bounds.size.height;
       }
 
-      // Adjust t based on the stop percentages
       t = (t - background.colors[0].percentage)
         / (background.colors[1].percentage
         - background.colors[0].percentage);

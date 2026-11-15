@@ -130,7 +130,6 @@ fn coalescing_retains_completions_and_utf8_boundaries_never_start_an_osc() -> Te
         terminal.feed(&text.as_bytes()[split..]);
         assert!(terminal.take_events().is_empty());
     }
-    // Outside a sequence, 8-bit introducers are text, as the screen shows them.
     terminal.feed(b"\x9d9;4;0\x9c");
     assert!(terminal.take_events().is_empty());
     terminal.feed(b"\x1b]9;4;0\x1b\\");

@@ -3,7 +3,6 @@ use crate::model::extensions::Placement;
 use crate::views::overlays::{Mark, OverlayView};
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div};
 
-/// The open extension popover.
 pub(crate) struct ExtensionPopover;
 
 impl OverlayView for ExtensionPopover {
@@ -17,14 +16,11 @@ impl OverlayView for ExtensionPopover {
         render(model, cx)
     }
 
-    /// Outside clicks and toggles close it without asking the page.
     fn on_close(&self, model: &mut AppModel, cx: &mut Context<AppModel>) {
         model.close_extension_popover(cx);
     }
 }
 
-/// The open extension popover: below its topbar item, left of its rail item,
-/// or above its status-bar item.
 fn render(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let Some(popover) = &model.webviews.popover else {
         return div().into_any_element();

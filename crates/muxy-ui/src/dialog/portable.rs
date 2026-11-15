@@ -88,8 +88,6 @@ impl Request {
     }
 }
 
-/// The look of a prompt opened straight through `Window::prompt`, which has no
-/// caller style.
 impl Default for Request {
     fn default() -> Self {
         Self::new(Style {

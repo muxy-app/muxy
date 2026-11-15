@@ -94,7 +94,6 @@ impl Source {
     }
 }
 
-/// A path inside the project as it travels: `/`-separated on every platform.
 fn relative(path: &Path) -> ServerPath {
     let parts: Vec<_> = path
         .components()

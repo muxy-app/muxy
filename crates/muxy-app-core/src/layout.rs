@@ -37,8 +37,6 @@ pub enum Branch {
 const MIN_RATIO: f32 = 0.15;
 const MAX_RATIO: f32 = 0.85;
 
-/// A split tree. Tabs split into panes; a project's tab groups split the same
-/// way.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Layout<L = PaneId> {
     Leaf(L),
@@ -71,7 +69,6 @@ impl<L: Copy + Eq> Layout<L> {
         leaves
     }
 
-    /// Each leaf with its share of the whole as `[x, y, width, height]`.
     pub fn rects(&self) -> Vec<(L, [f32; 4])> {
         let mut rects = Vec::new();
         self.visit(
@@ -111,7 +108,6 @@ impl<L: Copy + Eq> Layout<L> {
         }
     }
 
-    /// Puts `new` where `pane` is.
     pub fn replace(&mut self, pane: L, new: L) {
         match self {
             Self::Leaf(id) if *id == pane => *id = new,
@@ -169,16 +165,10 @@ impl<L: Copy + Eq> Layout<L> {
         Ok(())
     }
 
-    /// Moves the divider nearest `pane` on `direction`'s axis toward
-    /// `direction` by `step` of its split. Returns whether it moved: `pane`
-    /// may have no such divider, or the divider may be as far as it goes.
     pub fn resize(&mut self, pane: L, direction: Direction, step: f32) -> bool {
         self.resize_nearest(pane, direction, step) == Some(true)
     }
 
-    /// `None` when no divider on `direction`'s axis bounds `pane` here;
-    /// otherwise whether the nearest one moved. One at its limit stays the
-    /// nearest, so the dividers around it are left alone.
     fn resize_nearest(&mut self, pane: L, direction: Direction, step: f32) -> Option<bool> {
         let Self::Split {
             axis,
@@ -269,8 +259,6 @@ impl<L: Copy + Eq> Layout<L> {
             .map(|(id, _)| id)
     }
 
-    /// The leaf that takes over when `leaf` closes: the one beside it,
-    /// preferring the right, then left, below, above.
     pub fn nearest(&self, leaf: L) -> Option<L> {
         [
             Direction::Right,

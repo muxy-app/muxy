@@ -4,8 +4,6 @@ use std::time::Duration;
 
 use muxy_ui::tr;
 
-/// Starts an opener and waits for it to hand the file over. The program it
-/// opens may keep running, so only the opener itself is ever killed.
 pub(super) fn launch(command: &mut Command, timeout: Duration) -> io::Result<()> {
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(command, crate::NO_WINDOW);

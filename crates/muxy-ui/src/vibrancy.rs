@@ -9,7 +9,6 @@ use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use crate::theme::Appearance;
 
-/// A native background effect confined to the window's left sidebar.
 #[derive(Debug)]
 pub struct SidebarVibrancy {
     view: Retained<NSVisualEffectView>,
@@ -21,8 +20,6 @@ impl SidebarVibrancy {
     pub fn new(window: &Window, width: f32, background: Hsla) -> Option<Self> {
         let mtm = MainThreadMarker::new()?;
         let gpui_view = crate::appkit::gpui_view(window).ok()?;
-        // SAFETY: This is GPUI's live main-thread view. Install the effect as a
-        // sibling below it so the Metal surface and input handling stay on top.
         let content = unsafe { gpui_view.superview() }?;
         let frame = NSRect::new(
             NSPoint::ZERO,

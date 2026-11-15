@@ -1,6 +1,3 @@
-//! Scrollback for one pane: a frozen copy of its screen plus the history the
-//! server has paged in for it. The live grid keeps updating underneath.
-
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use muxy_client::{ClientError, RunGrid};
@@ -8,7 +5,6 @@ use muxy_protocol::{ErrorCode, HistoryCursor, HistoryPage};
 
 const RECENT_ROWS: u16 = 200;
 const OLDER_ROWS: u16 = 500;
-/// Older history is requested once the view comes this close to its top.
 const PREFETCH_ROWS: usize = 100;
 
 static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
@@ -37,10 +33,7 @@ impl HistoryRequest {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Scroll {
     view: Option<RunGrid>,
-    /// Rows above the bottom that were asked for.
     wanted: usize,
-    /// Rows above the bottom that are shown; less than `wanted` while
-    /// history is still loading.
     offset: usize,
     pending: Option<HistoryRequest>,
     restarted: bool,
@@ -55,7 +48,6 @@ impl Scroll {
         self.offset
     }
 
-    /// Rows that can be scrolled through, once the server has said.
     pub(crate) fn total(&self, height: usize) -> Option<usize> {
         let view = self.view.as_ref().filter(|view| view.history_fresh)?;
         Some(
@@ -66,13 +58,10 @@ impl Scroll {
         )
     }
 
-    /// The grid to draw: the frozen view while scrolled, otherwise `live`.
     pub(crate) fn grid<'a>(&'a self, live: &'a RunGrid) -> &'a RunGrid {
         self.view.as_ref().unwrap_or(live)
     }
 
-    /// The first content row shown in a pane `height` rows tall. The live
-    /// screen is drawn from its top; the frozen view from its bottom.
     pub(crate) fn start(&self, live: &RunGrid, height: usize) -> usize {
         let Some(view) = &self.view else {
             return live.history.len();

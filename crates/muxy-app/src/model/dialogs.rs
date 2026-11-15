@@ -1,6 +1,3 @@
-//! Dialogs on the app's windows, shown one at a time. A dialog asked for
-//! while another is open waits its turn.
-
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::pin;
@@ -13,26 +10,19 @@ use muxy_ui::dialog::Parent;
 
 use super::AppModel;
 
-/// One dialog asked for, to dismiss it before it is answered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct DialogId(u64);
 
-/// A question asked once at a time: asking it again while it is open or
-/// waiting adds nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Question {
-    /// Installing this version.
     Update(String),
     TerminalReset,
-    /// Stopping the server, or restarting it.
     ServerControl(ServerId, bool),
     RevokeDevice(DeviceId),
-    /// Pausing push notifications for every phone.
     PausePush,
     ResetPush(DeviceId),
     ForgetServers(Vec<ServerId>),
     InstallServer(ServerId),
-    /// Installing the server the form names.
     InstallFormServer(String),
 }
 
@@ -48,13 +38,10 @@ struct Waiting {
 struct Open {
     id: DialogId,
     question: Option<Question>,
-    /// Closes the dialog from inside its task, so the dialog is gone before
-    /// the next one opens on the same window.
     dismiss: async_channel::Sender<()>,
     _task: Task<()>,
 }
 
-/// The open dialog and those waiting, in the order they were asked for.
 #[derive(Default)]
 pub(crate) struct Dialogs {
     last: u64,
@@ -79,8 +66,6 @@ impl Dialogs {
 }
 
 impl AppModel {
-    /// Shows a dialog on `window` once those asked for before it are
-    /// answered. `ask` shows it and waits; `answered` gets what it returns.
     pub(crate) fn ask_dialog<T: 'static>(
         &mut self,
         window: AnyWindowHandle,
@@ -91,8 +76,6 @@ impl AppModel {
         self.queue_dialog(None, window, ask, answered, cx)
     }
 
-    /// Like [`Self::ask_dialog`], unless `question` is already open or
-    /// waiting.
     pub(crate) fn ask_once<T: 'static>(
         &mut self,
         question: Question,
@@ -148,7 +131,6 @@ impl AppModel {
         id
     }
 
-    /// Closes dialog `id` without an answer, or takes it out of the queue.
     pub(crate) fn dismiss_dialog(&mut self, id: DialogId, cx: &mut Context<Self>) {
         if let Some(open) = self.dialogs.open.as_ref().filter(|open| open.id == id) {
             let _ = open.dismiss.try_send(());

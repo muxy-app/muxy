@@ -12,7 +12,6 @@ const LAST_RETRY: Duration = Duration::from_secs(60);
 pub(super) struct PendingExits {
     statuses: BTreeMap<SessionId, (SessionStatus, u64)>,
     retry_after: Option<Instant>,
-    /// A thread retries the write until no status is pending.
     retrying: bool,
 }
 
@@ -74,7 +73,6 @@ impl Catalog {
     }
 }
 
-/// Retries with a growing delay; stops once every status is written or the catalog is gone.
 fn retry_until_written(catalog: &Weak<Catalog>) {
     let mut delay = FIRST_RETRY;
     loop {

@@ -13,10 +13,7 @@ use crate::views::move_drag::Moving;
 #[derive(Default)]
 pub(crate) struct TabDragState {
     gesture: Option<TabDrag>,
-    /// Tab cells of the titlebar and group strips. Cleared on every render.
     pub(crate) cells: TabBounds,
-    /// Each group's strip, under the tab the group shows. Cleared on every
-    /// render.
     pub(crate) strips: TabBounds,
 }
 
@@ -26,19 +23,15 @@ pub(crate) enum Source {
     Sidebar,
 }
 
-/// Where a dragged tab lands when released away from its own strip.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum TabDrop {
-    /// A new group on the `edge` side of the group showing `beside`.
     Split { beside: TabId, edge: Direction },
-    /// The group holding `group`, before `before` or after its last tab.
     Into { group: TabId, before: Option<TabId> },
 }
 
 struct TabDrag {
     project: ProjectId,
     tab: TabId,
-    /// The tab `tab`'s group showed before pressing `tab` selected it.
     previous: Option<TabId>,
     origin: Point<Pixels>,
     source: Source,
@@ -47,7 +40,6 @@ struct TabDrag {
     drop: Option<(TabDrop, Bounds<Pixels>)>,
 }
 
-/// Share of a group, from each edge, that splits instead of joining it.
 const EDGE_ZONE: f32 = 0.3;
 
 impl TabDragState {
@@ -101,7 +93,6 @@ impl TabDragState {
         self.gesture.as_ref().is_some_and(|drag| drag.active)
     }
 
-    /// Where the dragged tab would land.
     pub(crate) fn preview(&self) -> Option<Bounds<Pixels>> {
         self.gesture
             .as_ref()
@@ -155,7 +146,6 @@ impl AppModel {
         }
     }
 
-    /// Ends drags of tabs and layouts, leaving a move of the window alone.
     pub(crate) fn cancel_tab_and_layout_drags(&mut self, cx: &mut Context<Self>) {
         self.cancel_move(cx);
         let layout_changed = self.layout_drag.cancel();
@@ -166,7 +156,6 @@ impl AppModel {
         }
     }
 
-    /// Where `tab` would land if dropped at `position`, outside any strip tab.
     fn tab_drop_at(
         &self,
         tab: TabId,
@@ -206,7 +195,6 @@ impl AppModel {
         }
     }
 
-    /// Joining the group holding `target`, previewed over the group's panes.
     fn join_group(
         &self,
         tab: TabId,
@@ -232,7 +220,6 @@ impl AppModel {
     }
 }
 
-/// The edge of `bounds` whose zone holds `position`, nearest first.
 fn edge_at(position: Point<Pixels>, bounds: Bounds<Pixels>) -> Option<Direction> {
     let width = f32::from(bounds.size.width).max(1.0);
     let height = f32::from(bounds.size.height).max(1.0);
@@ -257,7 +244,6 @@ fn edge_at(position: Point<Pixels>, bounds: Bounds<Pixels>) -> Option<Direction>
     .map(|(edge, _)| edge)
 }
 
-/// The half of `bounds` along `edge`.
 fn half(bounds: Bounds<Pixels>, edge: Direction) -> Bounds<Pixels> {
     let width = bounds.size.width / 2.0;
     let height = bounds.size.height / 2.0;
@@ -275,7 +261,6 @@ fn half(bounds: Bounds<Pixels>, edge: Direction) -> Bounds<Pixels> {
     }
 }
 
-/// Records where the strip's tabs, `ids` in order, were laid out.
 pub(super) fn measure_tabs(cells: Div, ids: Vec<TabId>, targets: TabBounds) -> Div {
     cells.on_children_prepainted(move |bounds, window, _| {
         let clip = window.content_mask().bounds;

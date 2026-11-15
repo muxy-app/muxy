@@ -137,8 +137,6 @@ fn atomic_utf8_writes_preserve_modes_and_enforce_both_limits() {
     }));
 }
 
-/// A replacement is written while nobody else can open it, and only then
-/// gets the permissions of the file it replaces.
 #[test]
 fn a_replacement_is_private_while_its_content_is_written() {
     let workspace = Workspace::new();
@@ -158,8 +156,6 @@ fn a_replacement_is_private_while_its_content_is_written() {
     drop(replacement);
 }
 
-/// Windows has no mode bits, so the replaced file's DACL carries over,
-/// including one that no longer inherits from its folder.
 #[cfg(windows)]
 #[test]
 fn windows_writes_keep_a_files_own_dacl() {
@@ -299,7 +295,6 @@ fn root_aliases_and_traversal_cannot_be_mutated() {
         assert!(workspace.files(FilesAction::Delete(vec![p(root)])).is_err());
     }
     let mut escapes = vec!["../file", "nested/../../file", "/tmp/file"];
-    // On Unix these are ordinary names.
     if cfg!(windows) {
         escapes.extend(["C:/file", "C:file", "\\\\?\\C:\\file", "..\\file"]);
     }
@@ -419,7 +414,6 @@ fn windows_refuses_junctions_links_streams_devices_and_trailing_dots() {
     let mut refused = vec!["junction/secret", "junction"];
     let link =
         std::os::windows::fs::symlink_dir(workspace.path.join("real"), workspace.path.join("link"));
-    // Creating links needs Developer Mode or a privilege (error 1314).
     if !link
         .as_ref()
         .is_err_and(|error| error.raw_os_error() == Some(1314))
@@ -522,7 +516,6 @@ fn windows_delete_moves_to_the_recycle_bin_and_refuses_volumes_without_one() {
         .files(FilesAction::Delete(vec![p("recycled.txt")]))
         .unwrap();
     assert!(!workspace.path.join("recycled.txt").exists());
-    // An administrative share is a network path, which has no Recycle Bin.
     let local = workspace.path.to_str().unwrap();
     let share = format!(r"\\localhost\{}${}", &local[..1], &local[2..]);
     if !Path::new(&share).is_dir() {

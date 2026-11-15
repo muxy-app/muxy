@@ -1,6 +1,3 @@
-//! The Windows Recycle Bin, through the shell's `IFileOperation`. A file the
-//! shell would delete permanently, as on a drive without a Recycle Bin, is
-//! kept instead.
 #![allow(
     clippy::inline_always,
     clippy::ref_as_ptr,
@@ -30,9 +27,6 @@ const NO_RECYCLE_BIN: &str = "This drive has no Recycle Bin, so the file was kep
 pub(in crate::files) fn move_to_trash(root: &Root, source: &Target) -> Result<()> {
     use muxy_core::files::FileId;
 
-    // The shell works by path. Pinning the folder that holds the file keeps
-    // every folder on that path in place until the shell is done, so the path
-    // can't be redirected through a junction swapped in after these checks.
     let pinned = super::super::native::pin_directory(&source.parent).map_err(error)?;
     let expected = source.stat()?;
     let absolute = root.path.join(&source.relative);
@@ -43,12 +37,10 @@ pub(in crate::files) fn move_to_trash(root: &Root, source: &Target) -> Result<()
     if FileId::of_path(folder).map_err(error)? != FileId::of(&pinned).map_err(error)? {
         return Err(changed());
     }
-    // The path must still name the file just checked.
     let current = FileId::of_link(&absolute).map_err(error)?;
     if current.device() != expected.device || current.index() != expected.index {
         return Err(changed());
     }
-    // The shell's file operations need a single-threaded apartment.
     let result = std::thread::scope(|scope| {
         scope
             .spawn(|| recycle(&absolute))
@@ -60,13 +52,10 @@ pub(in crate::files) fn move_to_trash(root: &Root, source: &Target) -> Result<()
 }
 
 fn recycle(path: &Path) -> Result<()> {
-    // SAFETY: this thread was just started and ends after the operation, so
-    // its apartment is initialized once and released below.
     unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) }
         .ok()
         .map_err(error)?;
     let result = perform(path);
-    // SAFETY: balances the successful CoInitializeEx above.
     unsafe { CoUninitialize() };
     result
 }
@@ -74,8 +63,6 @@ fn recycle(path: &Path) -> Result<()> {
 fn perform(path: &Path) -> Result<()> {
     let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
     let kept = std::sync::Arc::new(AtomicBool::new(false));
-    // SAFETY: COM is initialized on this thread, and every pointer passed
-    // stays alive for the calls that use it.
     unsafe {
         let operation: IFileOperation =
             CoCreateInstance(&FileOperation, None, CLSCTX_ALL).map_err(error)?;
@@ -111,7 +98,6 @@ fn perform(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Cancels any delete that wouldn't go to the Recycle Bin.
 #[implement(IFileOperationProgressSink)]
 struct RecycleOnly {
     kept: std::sync::Arc<AtomicBool>,

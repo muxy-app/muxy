@@ -11,7 +11,6 @@ pub(crate) struct Display {
     width: usize,
 }
 
-/// The width of the terminal that stdout writes to, if it writes to one.
 fn stdout_width() -> Option<usize> {
     #[cfg(unix)]
     let columns = rustix::termios::tcgetwinsize(io::stdout())
@@ -151,9 +150,6 @@ fn escape(text: &str) -> String {
     escape_except(text, &[])
 }
 
-/// `text` safe to write to a terminal: control characters other than line
-/// breaks and tabs show as escapes, so text from a page, an extension or a
-/// server can't move the cursor, retitle the window or set the clipboard.
 pub(crate) fn terminal_text(text: &str) -> String {
     escape_except(text, &['\n', '\t'])
 }

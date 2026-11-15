@@ -47,8 +47,6 @@ fn copy_tree(source: &Path, destination: &Path) {
     }
 }
 
-/// Symlinks are copied as the file they point to. Links to directories and
-/// broken links are skipped, since Windows can't always create or follow them.
 fn links_to_file(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
 }

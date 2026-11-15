@@ -1,10 +1,3 @@
-//! Protocol-free ordered byte streams and their platform adapters: local
-//! sockets, TLS, and a child process's stdin and stdout, plus a relay that
-//! carries a stream over a process's own stdin and stdout.
-//!
-//! Framing, messages, sessions, and application policy are deliberately
-//! outside this crate.
-
 mod accepting;
 mod error;
 mod stdio;

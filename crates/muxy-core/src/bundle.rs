@@ -17,9 +17,6 @@ pub fn lock_replacement(directory: &Path) -> io::Result<FileLock> {
         .map_err(file_lock::busy(REPLACEMENT_BUSY))
 }
 
-/// Waits while an installation or update replaces Muxy in `directory`. Starts
-/// share the lock, so they never wait for each other. A user who can't open or
-/// create the lock can't replace Muxy there either, so starts without it.
 fn wait_for_replacement(directory: &Path) -> io::Result<Option<FileLock>> {
     let file = match File::open(replacement_lock(directory)) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => create_replacement_lock(directory),
@@ -35,8 +32,6 @@ fn wait_for_replacement(directory: &Path) -> io::Result<Option<FileLock>> {
         .map_err(file_lock::busy(REPLACEMENT_BUSY))
 }
 
-/// Opens the replacement lock for this user's installations and updates,
-/// readable by every user who starts Muxy from `directory`.
 fn create_replacement_lock(directory: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
@@ -56,7 +51,6 @@ fn replacement_lock(directory: &Path) -> PathBuf {
     directory.join(".muxy-beta-update.lock")
 }
 
-/// The app bundle whose `Contents/MacOS` holds `executable`.
 pub fn containing(executable: &Path) -> Option<&Path> {
     executable
         .parent()
@@ -112,7 +106,6 @@ pub fn acquire_runtime(
     Ok(Some(BundleLease { _file: file }))
 }
 
-/// The root of a versioned, user-installed Linux desktop, including its matching helpers.
 #[cfg(target_os = "linux")]
 pub fn linux_root(executable: &Path) -> Option<&Path> {
     let version = executable.parent()?;
@@ -244,7 +237,6 @@ mod tests {
         assert!(matches!(old.try_lock(), Err(fs::TryLockError::WouldBlock)));
         let new = lease_file(root.path(), &identity(&current)?)?;
         new.try_lock()?;
-        // Closing alone keeps the lock while a child spawned by another test still shares the file.
         lease.unlock()?;
         old.try_lock()?;
         Ok(())

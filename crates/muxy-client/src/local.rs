@@ -36,10 +36,6 @@ pub fn server_executable() -> io::Result<PathBuf> {
     ))
 }
 
-/// Connects to the local server's socket. On Unix it refuses a server that
-/// runs as another user, which could only be there if someone replaced the
-/// socket, before sending it anything. On Windows it refuses a server in
-/// another Windows session or at another elevation than this program.
 pub fn connect(socket: &Path) -> Result<Box<dyn ByteStream>, ClientError> {
     let stream = muxy_protocol::transport::connect_local(socket)?;
     #[cfg(unix)]
@@ -62,9 +58,6 @@ pub fn ensure_running(socket: &Path, executable: &Path) -> Result<Client, Client
     start_and_connect(socket, executable, spawn, Client::connect_with_timeout)
 }
 
-/// Like [`ensure_running`], but a packaged app starts the server through a
-/// `host`, so terminals keep the app's macOS privacy permissions after the
-/// app quits. Only for the app, whose `main` runs the host.
 pub fn ensure_running_hosted(socket: &Path, executable: &Path) -> Result<Client, ClientError> {
     start_and_connect(
         socket,
@@ -74,8 +67,6 @@ pub fn ensure_running_hosted(socket: &Path, executable: &Path) -> Result<Client,
     )
 }
 
-/// Like [`ensure_running`], but returns the socket without a handshake, so a
-/// bridge can leave version negotiation to the client at its other end.
 pub fn ensure_listening(
     socket: &Path,
     executable: &Path,
@@ -83,7 +74,6 @@ pub fn ensure_listening(
     start_and_connect(socket, executable, spawn, |socket, _| connect(socket))
 }
 
-/// Connects, first starting the server if nothing listens on `socket`.
 fn start_and_connect<T>(
     socket: &Path,
     executable: &Path,
@@ -121,7 +111,6 @@ fn start_and_connect<T>(
     }
 }
 
-/// The server starts in its own folder, so its paths can't be relative.
 fn server_arguments(socket: &Path) -> [OsString; 6] {
     let socket = std::path::absolute(socket).unwrap_or_else(|_| socket.to_owned());
     [
@@ -144,14 +133,11 @@ fn spawn(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
     Ok(())
 }
 
-/// A program started by [`spawn_detached`].
 #[cfg(unix)]
 pub type Detached = std::process::Child;
 #[cfg(windows)]
 pub use windows::Detached;
 
-/// Starts `program` with no input or output, away from this program's
-/// terminal, so it outlives the terminal.
 pub fn spawn_detached(program: &Path, arguments: &[OsString]) -> io::Result<Detached> {
     #[cfg(unix)]
     {
@@ -173,8 +159,6 @@ pub fn spawn_detached(program: &Path, arguments: &[OsString]) -> io::Result<Deta
 fn spawn_hosted(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
     #[cfg(target_os = "macos")]
     if let Some(app) = host::app_for(executable)? {
-        // The host can't report a server that fails to start, so a missing
-        // one fails here, as it would when started directly.
         std::fs::metadata(executable)?;
         return host::spawn(&app, arguments);
     }

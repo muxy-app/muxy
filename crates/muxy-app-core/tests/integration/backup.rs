@@ -480,7 +480,6 @@ fn restoring_never_replaces_a_remote_project_that_shares_a_local_projects_id() {
     let local = exported
         .add_project(ServerId::local(), directory.path().into())
         .unwrap();
-    // A backup whose local project uses the remote project's ID.
     let source = serde_json::to_string(&exported.configuration_backup())
         .unwrap()
         .replace(&local.to_string(), &api.to_string());
@@ -537,7 +536,6 @@ fn one_x_projects_share_logos_and_stop_at_the_logo_budget() {
         .iter()
         .filter_map(|project| project.logo.clone())
         .collect();
-    // 16 MiB holds 54 of the 300 KiB logos, all one allocation.
     assert_eq!(logos.len(), 54);
     assert!(
         logos

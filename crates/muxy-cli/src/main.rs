@@ -1,5 +1,3 @@
-//! Command-line and terminal client for the server on this computer or, with
-//! `--host`, on another one; the server runs as a separate executable.
 mod args;
 mod browser;
 mod clipboard;

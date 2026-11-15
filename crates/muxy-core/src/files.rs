@@ -1,5 +1,3 @@
-//! File operations whose safe form differs between Unix and Windows.
-
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod windows;
@@ -13,15 +11,6 @@ use std::time::{Duration, Instant};
 
 use crate::file_lock::FileLock;
 
-/// Creates `path` and its parents, and makes `path` open only to the user.
-///
-/// On Unix every directory it creates gets mode `0o700`. An existing `path`
-/// must belong to the user, and loses any access it gives other users, so
-/// nobody else can replace what Muxy keeps there. When `path` is a symbolic
-/// link, its target is checked but left as it is, and refused if other users
-/// can change it. On Windows `path` gets a protected DACL for the user and
-/// SYSTEM, which everything below it inherits; parents keep the permissions
-/// they inherit.
 pub fn private_dir(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -39,9 +28,6 @@ pub fn private_dir(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Refuses a folder another user owns, and takes away other users' access
-/// to one the user owns. A link's target is only checked, since it may be a
-/// folder the user shares on purpose.
 #[cfg(unix)]
 fn restrict_directory(path: &Path) -> io::Result<()> {
     use rustix::fs::{Mode, OFlags};
@@ -49,7 +35,6 @@ fn restrict_directory(path: &Path) -> io::Result<()> {
     let link = fs::symlink_metadata(path)?.file_type().is_symlink();
     let mut flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
     if !link {
-        // The folder just checked, never a link swapped in since.
         flags |= OFlags::NOFOLLOW;
     }
     let directory = rustix::fs::open(path, flags, Mode::empty())?;
@@ -80,8 +65,6 @@ fn restrict_directory(path: &Path) -> io::Result<()> {
     )?)
 }
 
-/// Options that create files only the user can open. On Windows a new file
-/// inherits the DACL of its [`private_dir`].
 pub fn private_file() -> OpenOptions {
     #[cfg_attr(windows, allow(unused_mut))]
     let mut options = OpenOptions::new();
@@ -90,8 +73,6 @@ pub fn private_file() -> OpenOptions {
     options
 }
 
-/// Makes a rename or removal inside `directory` durable. Windows has no
-/// directory fsync, so there it does nothing.
 pub fn sync_directory(directory: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -104,9 +85,6 @@ pub fn sync_directory(directory: &Path) -> io::Result<()> {
     }
 }
 
-/// Locks `directory` exclusively, retrying for up to `wait`, or forever when
-/// `wait` is too long to measure. Windows cannot
-/// lock a directory handle, so there it locks `<directory>\.lock`.
 pub fn lock_directory(directory: &Path, wait: Duration) -> io::Result<FileLock> {
     #[cfg(unix)]
     let file = File::open(directory)?;
@@ -135,9 +113,6 @@ pub fn lock_directory(directory: &Path, wait: Duration) -> io::Result<FileLock> 
     }
 }
 
-/// Which file a handle or path refers to: [`device`](Self::device) and
-/// [`index`](Self::index) are the device and inode on Unix, the volume
-/// serial number and file index on Windows.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct FileId {
     device: u64,
@@ -156,7 +131,6 @@ impl FileId {
         }
     }
 
-    /// Follows symbolic links, as [`fs::metadata`] does.
     pub fn of_path(path: &Path) -> io::Result<Self> {
         #[cfg(unix)]
         {
@@ -168,8 +142,6 @@ impl FileId {
         }
     }
 
-    /// The link itself rather than its target, as [`fs::symlink_metadata`]
-    /// does. On Windows this also reads a socket, which is a reparse point.
     pub fn of_link(path: &Path) -> io::Result<Self> {
         #[cfg(unix)]
         {
@@ -195,7 +167,6 @@ impl FileId {
     #[cfg(windows)]
     fn open(path: &Path, flags: u32) -> io::Result<Self> {
         use std::os::windows::fs::OpenOptionsExt;
-        // Access 0 reads attributes only; backup semantics opens directories.
         let file = OpenOptions::new()
             .access_mode(0)
             .custom_flags(
@@ -221,13 +192,10 @@ impl fmt::Display for FileId {
     }
 }
 
-/// Whether both paths name the same file, following symbolic links.
 pub fn same_file(first: &Path, second: &Path) -> io::Result<bool> {
     Ok(FileId::of_path(first)? == FileId::of_path(second)?)
 }
 
-/// Atomically replaces `target` with `source`. On Windows it retries for a
-/// moment while antivirus, sync or indexing tools hold `target` open.
 pub fn replace_file(source: &Path, target: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -259,9 +227,6 @@ pub fn replace_file(source: &Path, target: &Path) -> io::Result<()> {
     }
 }
 
-/// [`fs::canonicalize`], without the `\\?\` prefix on Windows when the path
-/// means the same without it. Other programs, such as `cmd.exe`, refuse that
-/// prefix, and paths compared as keys must not differ by it.
 pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
     let path = fs::canonicalize(path)?;
     #[cfg(windows)]
@@ -271,9 +236,6 @@ pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
     Ok(path)
 }
 
-/// `\\?\C:\a` becomes `C:\a` and `\\?\UNC\host\share\a` becomes
-/// `\\host\share\a`, unless a component would change meaning without the
-/// prefix.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn strip_verbatim(path: &str) -> Option<String> {
     let (plain, rest) = if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
@@ -292,7 +254,6 @@ fn strip_verbatim(path: &str) -> Option<String> {
     rest.split('\\').all(plain_component).then_some(plain)
 }
 
-/// Whether Win32 path parsing keeps `component` as written.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn plain_component(component: &str) -> bool {
     let stem = component

@@ -17,7 +17,6 @@ pub enum ToastKind {
     Error,
 }
 
-/// `element`, a [`toast`] with an id, read out when it appears. Problems interrupt.
 pub fn announced(
     element: Stateful<Div>,
     kind: ToastKind,
@@ -31,7 +30,6 @@ pub fn announced(
     crate::accessibility::announced(element, text, kind != ToastKind::Success)
 }
 
-/// Success toasts stay compact; problems wrap so their full text stays readable.
 pub fn toast(kind: ToastKind, message: &str, body: Option<&str>, theme: &Theme, m: Metrics) -> Div {
     let (symbol, color) = match kind {
         ToastKind::Success => ("checkmark.circle.fill", theme.diff_add),
@@ -61,7 +59,6 @@ pub fn toast(kind: ToastKind, message: &str, body: Option<&str>, theme: &Theme, 
         .border_color(if problem { color } else { theme.border })
         .child(SymbolGlyph::new(symbol, m.font_body(), color))
         .child(
-            // Block layout sets the width before wrapping; a flex column measures text unwrapped.
             div()
                 .min_w(px(0.0))
                 .max_w(m.scaled(if problem { 420.0 } else { 360.0 }))

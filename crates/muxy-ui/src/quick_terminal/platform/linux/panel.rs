@@ -259,8 +259,6 @@ impl PanelAdapter {
             .is_some_and(|reply| reply.map_state == xproto::MapState::VIEWABLE)
     }
 
-    /// Window managers drop `_NET_WM_STATE` when a window is hidden and only honour
-    /// requests for mapped windows, so the states are requested again on every show.
     fn keep_above_on_every_desktop(&self) {
         const ADD: u32 = 1;
         const NORMAL_APPLICATION: u32 = 1;
@@ -298,7 +296,6 @@ impl PanelAdapter {
         let _ = self.connection.flush();
     }
 
-    /// The panel is sticky on every desktop whether or not it is pinned.
     pub(in crate::quick_terminal::platform) fn set_pinned(&self, _pinned: bool) {}
 
     pub(in crate::quick_terminal::platform) fn forget_previous_focus(&mut self) {
@@ -317,9 +314,6 @@ impl Drop for PanelAdapter {
     }
 }
 
-/// Window managers ignore focus requests for a window they haven't shown yet, and Mutter shows a
-/// decorated window only once its frame exists. A panel that isn't viewable yet asks for focus
-/// when the window manager maps it.
 #[derive(Debug)]
 struct FocusOnMap {
     connection: Arc<RustConnection>,

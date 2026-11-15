@@ -11,7 +11,6 @@ const CELL: CellSize = CellSize {
     width: 10,
     height: 20,
 };
-/// A 1x1 green PNG.
 const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNg+M/wHwAEAQH/cetH5QAAAABJRU5ErkJggg==";
 const GREEN: [u8; 4] = [0, 255, 0, 255];
 
@@ -50,14 +49,12 @@ fn kitty_file_transfer_shows_the_image_from_the_issue_repro() -> Result {
         terminal.feed(part);
     }
     assert_eq!(only_pixels(&mut terminal)?, GREEN);
-    // X=1 starts the image one pixel into its cell; it still ends at column 5.
     let placement = &terminal.graphics()?.placements[0];
     assert_eq!(placement.offset[0], 1);
     assert_eq!(
         placement.offset[0] + placement.size[0],
         5 * u32::from(CELL.width)
     );
-    // The file medium never deletes the file.
     assert!(path.exists());
     Ok(())
 }
@@ -164,7 +161,6 @@ fn kitty_file_transfer_refuses_fifos_and_folders_without_blocking() -> Result {
     assert!(status.success());
     let paths = [fifo, folder.path().to_path_buf()];
     let (sender, receiver) = mpsc::channel();
-    // A blocked open would hang this thread, so the test waits with a deadline.
     std::thread::spawn(move || {
         let replies = paths
             .iter()
@@ -190,7 +186,6 @@ fn kitty_file_transfer_refuses_fifos_and_folders_without_blocking() -> Result {
 
 #[test]
 fn sixel_is_drawn_and_leaves_the_cursor_on_its_last_row() -> Result {
-    // Red, 2 pixels wide and 30 tall: two rows of 20-pixel cells.
     let sixel = b"abc\x1bP0;1;0q#1;2;100;0;0!2~-!2~-!2~-!2~-!2~\x1b\\x";
     for size in [1, 4, sixel.len()] {
         let mut terminal = terminal()?;
@@ -205,7 +200,6 @@ fn sixel_is_drawn_and_leaves_the_cursor_on_its_last_row() -> Result {
         let placement = &graphics.placements[0];
         assert_eq!((placement.column, placement.row), (3, 0));
         assert_eq!(placement.size, [2, 30]);
-        // The cursor stays at the image's left edge on its last row.
         let cursor = terminal.cursor()?;
         assert_eq!((cursor.row, cursor.col), (1, 4));
         let rows = terminal.screen()?;
@@ -233,7 +227,6 @@ fn iterm_inline_images_fill_the_requested_cells() -> Result {
     let placement = &terminal.graphics()?.placements[0];
     assert_eq!((placement.column, placement.row), (0, 0));
     assert_eq!(placement.size, [40, 40]);
-    // Like iTerm2, the cursor ends right of the image on its last row.
     let cursor = terminal.cursor()?;
     assert_eq!((cursor.row, cursor.col), (1, 4));
     Ok(())
@@ -319,7 +312,6 @@ fn sixel_pictures_over_the_image_budget_are_shrunk_but_keep_their_width() -> Res
     Ok(())
 }
 
-/// A GIF of solid frames, each showing for its delay in milliseconds.
 fn gif(colors: &[([u8; 3], u32)]) -> Vec<u8> {
     gif_of(2, 2, colors)
 }
@@ -342,7 +334,6 @@ fn gif_of(width: u32, height: u32, colors: &[([u8; 3], u32)]) -> Vec<u8> {
 
 const RED_THEN_BLUE: [([u8; 3], u32); 2] = [([255, 0, 0], 70), ([0, 0, 255], 130)];
 
-/// The first pixel of each frame the terminal hands out for the only image.
 fn frame_pixels(
     terminal: &mut Terminal,
 ) -> std::result::Result<Vec<[u8; 4]>, Box<dyn std::error::Error>> {
@@ -370,7 +361,6 @@ fn kitty_animations_list_their_frames_and_hand_out_each_one() -> Result {
     let pixels = terminal.image_frames(5, &[still.generation])?;
     assert_eq!(pixels.len(), 1);
     assert_eq!(&pixels[0].rgba[..], &[255, 0, 0, 255]);
-    // Asked for pixels it no longer has, a still image answers with its own.
     let late = terminal.image_frames(5, &[still.generation + 1])?;
     assert_eq!(late.len(), 1);
     assert_eq!(late[0].key, still.generation);
@@ -392,7 +382,6 @@ fn kitty_animations_list_their_frames_and_hand_out_each_one() -> Result {
         [[255, 0, 0, 255], [0, 0, 255, 255]]
     );
 
-    // Starting it, and one more frame, leave the frames already read as they were.
     terminal.feed(b"\x1b_Ga=a,i=5,s=3,v=3,c=2,q=2\x1b\\");
     terminal.feed(b"\x1b_Ga=f,i=5,f=32,s=1,v=1,z=30,q=2;AP8A/w==\x1b\\");
     let playing = terminal.graphics()?.images[0].clone();
@@ -401,7 +390,6 @@ fn kitty_animations_list_their_frames_and_hand_out_each_one() -> Result {
     assert_eq!(playing.frames.len(), 3);
     assert_eq!(playing.frames[..2], loading.frames[..]);
 
-    // Drawing over a frame gives it a new key.
     terminal.feed(b"\x1b_Ga=f,i=5,r=1,f=32,s=1,v=1,q=2;AP8A/w==\x1b\\");
     let edited = terminal.graphics()?.images[0].clone();
     assert_ne!(edited.frames[0].key, playing.frames[0].key);
@@ -464,7 +452,6 @@ fn kitty_gif_files_play_when_sent_and_shown_together() -> Result {
             [[255, 0, 0, 255], [0, 0, 255, 255]]
         );
     }
-    // Sent now and placed later, it is a still image of its first frame.
     let mut terminal = terminal()?;
     terminal.feed(format!("\x1b_Gi=3,a=t,f=100,t=f,q=2;{}\x1b\\", encoded(&path)).as_bytes());
     terminal.feed(b"\x1b_Gi=3,a=p,q=2\x1b\\");
@@ -476,7 +463,6 @@ fn kitty_gif_files_play_when_sent_and_shown_together() -> Result {
 
 #[test]
 fn one_reply_holds_only_the_frames_that_fit() -> Result {
-    // Two frames of 1024 by 1100 pixels are over the size of one reply.
     let frame = |shade: u8| STANDARD.encode(vec![shade; 1024 * 1100 * 4]);
     let mut terminal = terminal()?;
     terminal.feed(format!("\x1b_Ga=T,i=2,f=32,s=1024,v=1100,q=2;{}\x1b\\", frame(255)).as_bytes());
@@ -502,7 +488,6 @@ fn one_reply_holds_only_the_frames_that_fit() -> Result {
 
 #[test]
 fn frames_too_large_for_one_command_arrive_whole() -> Result {
-    // Each frame is several Kitty commands long once Muxy hands it on.
     let (width, height) = (64, 48);
     let file = STANDARD.encode(gif_of(width, height, &RED_THEN_BLUE));
     let mut terminal = terminal()?;
@@ -549,7 +534,6 @@ fn two_converted_animations_keep_their_own_frames() -> Result {
 
 #[test]
 fn the_newest_images_are_listed_when_they_do_not_all_fit() -> Result {
-    // Three pictures of about 4 MB each; one screen lists 8 MB.
     let pixels = STANDARD.encode(vec![255_u8; 1024 * 1000 * 4]);
     for ids in [[4, 5, 6], [2, 3, 1], [25, 26, 27]] {
         let mut terminal = terminal()?;
@@ -570,7 +554,6 @@ fn the_newest_images_are_listed_when_they_do_not_all_fit() -> Result {
     Ok(())
 }
 
-/// Sends one Kitty command whose pixels go in chunks, as programs send large images.
 fn send_chunked(terminal: &mut Terminal, keys: &str, pixels: &[u8]) {
     let encoded = STANDARD.encode(pixels);
     let chunks: Vec<&[u8]> = encoded.as_bytes().chunks(4096).collect();
@@ -646,7 +629,6 @@ fn frames_streamed_as_new_images_show_the_newest_whole() -> Result {
 
 #[test]
 fn large_animations_show_together_and_a_saved_screen_keeps_them() -> Result {
-    // Two animations of 44 frames, about 26 MB each.
     let side = 400;
     let frame = |shade: u8| STANDARD.encode(vec![shade; side * side * 4]);
     let mut terminal = terminal()?;

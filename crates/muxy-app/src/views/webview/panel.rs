@@ -112,9 +112,6 @@ impl AppModel {
         content
     }
 
-    /// A detached extension panel: a card of its own, or the bare page,
-    /// floating over the window. Its hit regions block what is under them and
-    /// its drag regions move it.
     pub(crate) fn detached_webview_panel(
         &self,
         id: &PanelId,
@@ -217,12 +214,6 @@ impl AppModel {
         Some(card.into_any_element())
     }
 
-    /// Hides every native page, and every browser, under app content drawn
-    /// after their occlusions were applied, such as a tooltip.
-    ///
-    /// The pages are held weakly: GPUI can keep a tooltip, and so this
-    /// closure, alive after its element is gone, and a page it kept would
-    /// stay on screen where it was last placed.
     fn native_cover(&self, cx: &gpui::App) -> impl Fn(gpui::Bounds<gpui::Pixels>) + 'static {
         let pages: Vec<_> = self
             .webviews
@@ -259,7 +250,6 @@ impl AppModel {
         }
     }
 
-    /// A framed detached panel's header, which moves the panel when dragged.
     fn detached_header(
         id: &PanelId,
         movable: bool,
@@ -337,8 +327,6 @@ impl AppModel {
         (pinned_space, floating_space)
     }
 
-    /// main's panel header: icon, title, header buttons, and the position,
-    /// pin, and close controls, each hideable; `None` when nothing shows.
     fn webview_panel_chrome(&self, id: &PanelId, cx: &Context<Self>) -> Option<PanelChrome> {
         use muxy_app_core::extensions::PanelControl as Hidden;
         let panel = &self.webviews.panels[id];

@@ -1,4 +1,3 @@
-# Based on Xal's TUI status-bar.ts; terminal evidence only, no plugin reports.
 id = "xal"
 version = "2026.09.18.1"
 

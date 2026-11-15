@@ -1,6 +1,3 @@
-//! Asking whether closing a pane would end a program running in its session.
-//! Closing tabs and panes and closing the Quick Terminal share it.
-
 use gpui::Context;
 use muxy_app_core::closing::runs_program;
 use muxy_app_core::{PaneId, ServerId};
@@ -13,21 +10,14 @@ use super::quick_terminal::QuickClose;
 use crate::boot::{CloseCheckId, Work, missing_session};
 use crate::views::terminal::pane::PaneState;
 
-/// What is known about the program closing a pane would end.
 pub(super) enum CloseCheck {
-    /// A program other than the shell is running.
     Running,
-    /// Nothing worth asking about is running.
     Safe,
-    /// The server was asked. It answers with `Update::CloseChecked`.
     Asked(CloseCheckId),
-    /// The question could not be sent.
     Unsent,
 }
 
 impl AppModel {
-    /// Asks `server` what runs in `session`, which `pane` shows. Without a
-    /// server to ask, the pane's last known process answers.
     pub(super) fn check_close(
         &mut self,
         server: ServerId,
