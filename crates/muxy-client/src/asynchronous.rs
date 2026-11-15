@@ -1,5 +1,5 @@
 use crate::{Client, ClientError, Request};
-use muxy_protocol::{CatalogPage, ChannelId, MAX_PROJECTS, ProjectId, ReplyBody, RequestBody};
+use muxy_protocol::{CatalogPage, ChannelId, ProjectId, ReplyBody, RequestBody};
 use std::time::Duration;
 
 impl Client {
@@ -90,15 +90,7 @@ impl Client {
             let page = self
                 .catalog_page_async(Some(after), Some(result.revision))
                 .await?;
-            if page.server != result.server
-                || page.home != result.home
-                || page.next.is_some_and(|next| next <= after)
-                || result.projects.len() + page.projects.len() > MAX_PROJECTS
-            {
-                return Err(ClientError::Protocol("invalid catalog pagination".into()));
-            }
-            result.projects.extend(page.projects);
-            result.next = page.next;
+            crate::catalog::append_page(&mut result, page, after)?;
         }
         Ok(result)
     }
