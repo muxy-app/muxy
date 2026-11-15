@@ -56,7 +56,7 @@ impl WorktreeLocation {
 impl WorktreeSettings {
     pub fn load(path: &Path) -> Result<Self> {
         let context = || format!("{}: worktrees", path.display());
-        let document = super::appearance::read_document(path)
+        let document = super::document::read_document(path)
             .map_err(|error| Error::new(path.display().to_string(), error))?;
         let settings: Self = match document.get("worktrees") {
             Some(table) => table
@@ -192,7 +192,7 @@ fn normalize(path: &Path) -> PathBuf {
 impl Settings {
     pub fn save_worktrees(&self, path: &Path) -> Result<()> {
         self.worktrees.validate()?;
-        super::appearance::save_section(path, "worktrees", &self.worktrees)
+        super::document::save_section(path, "worktrees", &self.worktrees)
             .map_err(|error| Error::new("worktrees", error))
     }
 }

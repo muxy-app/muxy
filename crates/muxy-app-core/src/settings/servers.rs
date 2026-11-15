@@ -275,9 +275,9 @@ fn edit_servers(
     path: &Path,
     change: impl FnOnce(&mut Vec<ServerEntry>) -> Result<()>,
 ) -> Result<Vec<ServerEntry>> {
-    let _lock = super::appearance::lock(path).map_err(|error| Error::new("servers", error))?;
+    let _lock = super::document::lock(path).map_err(|error| Error::new("servers", error))?;
     let mut document =
-        super::appearance::read_document(path).map_err(|error| Error::new("servers", error))?;
+        super::document::read_document(path).map_err(|error| Error::new("servers", error))?;
     let mut servers: Vec<ServerEntry> = document
         .remove("servers")
         .map(toml::Value::try_into)
@@ -292,6 +292,6 @@ fn edit_servers(
         document.insert("servers".into(), value);
     }
     let source = toml::to_string_pretty(&document).map_err(|error| Error::new("servers", error))?;
-    super::appearance::atomic_write(path, &source).map_err(|error| Error::new("servers", error))?;
+    super::document::atomic_write(path, &source).map_err(|error| Error::new("servers", error))?;
     Ok(servers)
 }
