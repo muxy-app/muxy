@@ -114,6 +114,52 @@ fn exact_identity_duplicate_paths_private_catalog_and_idempotent_mutations() -> 
 }
 
 #[test]
+fn failed_creation_is_replayed_after_restart_even_when_the_folder_now_exists() -> Result {
+    let fixture = Fixture::new()?;
+    let registry = fixture.registry(LegacyImport::default())?;
+    let folder = fixture.0.join("later");
+    let project = project(&folder);
+    let create = intent(ProjectMutation::Create(project.clone()));
+    let failure = registry.mutate_project(&create).unwrap_err();
+    assert_eq!(failure.code(), ErrorCode::BadPath);
+    drop(registry);
+
+    fs::create_dir(&folder)?;
+    let registry = fixture.registry(LegacyImport::default())?;
+    let revision = registry.catalog_revision();
+    let replayed = registry.mutate_project(&create).unwrap_err();
+    assert_eq!(replayed.to_reply(), failure.to_reply());
+    assert_eq!(registry.catalog_revision(), revision);
+    assert!(
+        !registry
+            .read_catalog(None, None)?
+            .projects
+            .iter()
+            .any(|stored| stored.id == project.id)
+    );
+
+    let reused = ProjectIntent {
+        operation: create.operation,
+        mutation: ProjectMutation::Delete(registry.home_project()),
+    };
+    let failure = registry.mutate_project(&reused).unwrap_err();
+    assert_eq!(failure.code(), ErrorCode::BadRequest);
+    assert_eq!(
+        failure.message(),
+        "operation token reused with different project mutation"
+    );
+    registry.mutate_project(&intent(create.mutation))?;
+    assert!(
+        registry
+            .read_catalog(None, None)?
+            .projects
+            .iter()
+            .any(|stored| stored == &project)
+    );
+    Ok(())
+}
+
+#[test]
 fn import_is_once_preserves_home_and_rejects_missing_membership_without_committing() -> Result {
     let fixture = Fixture::new()?;
     let mut home = project(&fixture.0);
