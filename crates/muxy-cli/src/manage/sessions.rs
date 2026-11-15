@@ -145,7 +145,7 @@ fn show(
         args.insert("background".into(), true.into());
     }
     show_when_ready(
-        || crate::browser::call_app("session.show", args.clone(), true, Duration::ZERO),
+        || crate::app::call_app("session.show", args.clone(), true, Duration::ZERO),
         Instant::now,
     )?;
     if output.json {

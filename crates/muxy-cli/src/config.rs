@@ -144,7 +144,7 @@ pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
 }
 
 fn reload_app() -> Result<bool, Box<dyn Error>> {
-    match crate::browser::call_app(RELOAD, Map::new(), false, Duration::ZERO) {
+    match crate::app::call_app(RELOAD, Map::new(), false, Duration::ZERO) {
         Ok(_) => Ok(true),
         Err(error) => match error.downcast_ref::<CallError>() {
             Some(CallError::NotRunning) => Ok(false),
