@@ -1,0 +1,4 @@
+interface:
+  display_name: "Muxy Visual Testing"
+  short_description: "Test one feature or fix visually on macOS, Wayland and X11 VMs, and fix until it works"
+  default_prompt: "Use $visual-testing to test my current change in the VMs."
