@@ -21,64 +21,7 @@ impl Catalog {
             .validate()
             .map_err(|_| bad("invalid project mutation"))?;
         self.update(|state| {
-            let result = match &intent.mutation {
-                ProjectMutation::Create(project) => {
-                    if state.projects.contains_key(&project.id)
-                        || state.projects.len() == MAX_PROJECTS
-                    {
-                        Err(bad("project identity already exists or catalog is full"))
-                    } else if !is_folder(&project.directory) {
-                        Err(ServerError::new(
-                            muxy_protocol::ErrorCode::BadPath,
-                            "project folder does not exist",
-                        ))
-                    } else {
-                        state.validate_parent(project).and_then(|()| {
-                            if project
-                                .parent_id
-                                .is_some_and(|id| state.deleting.contains(&id))
-                            {
-                                return Err(unknown());
-                            }
-                            state.projects.insert(project.id, project.clone());
-                            Ok(())
-                        })
-                    }
-                }
-                ProjectMutation::Patch { project, patch } => {
-                    if state.deleting.contains(project) {
-                        Err(unknown())
-                    } else if let Some(project) = state.projects.get_mut(project) {
-                        patch.apply(project);
-                        Ok(())
-                    } else {
-                        Err(unknown())
-                    }
-                }
-                ProjectMutation::Delete(project) => {
-                    if *project == state.home {
-                        Err(bad("Home cannot be deleted"))
-                    } else if !state.projects.contains_key(project) {
-                        Err(unknown())
-                    } else {
-                        state.deleting.insert(*project);
-                        state.deleting.extend(
-                            state
-                                .projects
-                                .values()
-                                .filter(|child| child.parent_id == Some(*project))
-                                .map(|child| child.id),
-                        );
-                        Ok(())
-                    }
-                }
-                ProjectMutation::PruneWorktree(id) => {
-                    if state.can_prune_worktree(*id) {
-                        state.projects.remove(id);
-                    }
-                    Ok(())
-                }
-            };
+            let result = state.apply_mutation(&intent.mutation);
             state.receipts.insert(
                 intent.operation,
                 Receipt {
@@ -132,6 +75,64 @@ impl Catalog {
 }
 
 impl State {
+    fn apply_mutation(&mut self, mutation: &ProjectMutation) -> Result<(), ServerError> {
+        match mutation {
+            ProjectMutation::Create(project) => {
+                if self.projects.contains_key(&project.id) || self.projects.len() == MAX_PROJECTS {
+                    Err(bad("project identity already exists or catalog is full"))
+                } else if !is_folder(&project.directory) {
+                    Err(ServerError::new(
+                        muxy_protocol::ErrorCode::BadPath,
+                        "project folder does not exist",
+                    ))
+                } else {
+                    self.validate_parent(project).and_then(|()| {
+                        if project
+                            .parent_id
+                            .is_some_and(|id| self.deleting.contains(&id))
+                        {
+                            return Err(unknown());
+                        }
+                        self.projects.insert(project.id, project.clone());
+                        Ok(())
+                    })
+                }
+            }
+            ProjectMutation::Patch { project, patch } => {
+                if self.deleting.contains(project) {
+                    Err(unknown())
+                } else if let Some(project) = self.projects.get_mut(project) {
+                    patch.apply(project);
+                    Ok(())
+                } else {
+                    Err(unknown())
+                }
+            }
+            ProjectMutation::Delete(project) => {
+                if *project == self.home {
+                    Err(bad("Home cannot be deleted"))
+                } else if !self.projects.contains_key(project) {
+                    Err(unknown())
+                } else {
+                    self.deleting.insert(*project);
+                    self.deleting.extend(
+                        self.projects
+                            .values()
+                            .filter(|child| child.parent_id == Some(*project))
+                            .map(|child| child.id),
+                    );
+                    Ok(())
+                }
+            }
+            ProjectMutation::PruneWorktree(id) => {
+                if self.can_prune_worktree(*id) {
+                    self.projects.remove(id);
+                }
+                Ok(())
+            }
+        }
+    }
+
     fn can_prune_worktree(&self, id: ProjectId) -> bool {
         let Some(project) = self.projects.get(&id) else {
             return false;

@@ -529,6 +529,60 @@ fn a_saved_session_name_that_is_not_valid_is_dropped() {
 }
 
 #[test]
+fn project_deletion_stays_pending_until_child_sessions_are_discarded() {
+    let catalog = Catalog::from_state(sample(), None, std::sync::Arc::default());
+    let parent = ProjectId::from_u128(2);
+    let child = ProjectId::from_u128(3);
+    let delete = ProjectIntent {
+        operation: OperationId::new(),
+        mutation: ProjectMutation::Delete(parent),
+    };
+    assert_eq!(catalog.begin_mutation(&delete), Ok(false));
+    assert_eq!(catalog.begin_mutation(&delete), Ok(false));
+    assert_eq!(catalog.deleting(), vec![parent, child]);
+
+    let patch = ProjectIntent {
+        operation: OperationId::new(),
+        mutation: ProjectMutation::Patch {
+            project: child,
+            patch: ProjectPatch::Name("Changed".into()),
+        },
+    };
+    assert_eq!(
+        catalog.begin_mutation(&patch).unwrap_err().code(),
+        ErrorCode::UnknownProject
+    );
+    let mut sibling = catalog.lock().projects[&child].clone();
+    sibling.id = ProjectId::new();
+    sibling.directory = ServerPath::from(crate::test_support::folder());
+    let create = ProjectIntent {
+        operation: OperationId::new(),
+        mutation: ProjectMutation::Create(sibling.clone()),
+    };
+    assert_eq!(
+        catalog.begin_mutation(&create).unwrap_err().code(),
+        ErrorCode::UnknownProject
+    );
+    assert!(!catalog.lock().projects.contains_key(&sibling.id));
+    assert_eq!(
+        catalog.finish_deletions().unwrap_err().message(),
+        "project still owns session content"
+    );
+    assert!(catalog.lock().projects.contains_key(&parent));
+    assert!(catalog.lock().projects.contains_key(&child));
+    assert_eq!(catalog.begin_mutation(&delete), Ok(false));
+
+    for owned in catalog.owned(child) {
+        catalog.finish_discard(owned).unwrap();
+    }
+    catalog.finish_deletions().unwrap();
+    assert!(!catalog.lock().projects.contains_key(&parent));
+    assert!(!catalog.lock().projects.contains_key(&child));
+    assert!(catalog.deleting().is_empty());
+    assert_eq!(catalog.begin_mutation(&delete), Ok(true));
+}
+
+#[test]
 fn a_session_moves_only_to_a_project_that_stays_and_never_while_discarded() {
     let mut state = State::fresh(std::path::Path::new("/home/muxy"));
     let home = state.home;
