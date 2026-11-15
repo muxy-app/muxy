@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 use serde_json::{Map, Value, json};
 
 use super::{CHANGE_TIME, invalid};
-use crate::browser::call_app;
+use crate::app::call_app;
 
 const POLL: Duration = Duration::from_millis(400);
 const QUIET: Duration = Duration::from_millis(300);

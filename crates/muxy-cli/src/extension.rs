@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
+use crate::app::call_app;
 use crate::args::Command;
-use crate::browser::call_app;
 use crate::manage::help;
 
 const CHANGE_TIME: Duration = Duration::from_secs(30);

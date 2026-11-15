@@ -1,3 +1,4 @@
+mod app;
 mod args;
 mod browser;
 mod clipboard;
