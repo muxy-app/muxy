@@ -131,15 +131,10 @@ impl Root {
     pub(super) fn mkdir(&self, path: &Path) -> Result<ServerPath> {
         let target = self.mutation(path)?;
         let name = sanitized(&target.name)?;
-        for number in 1..=10_000 {
-            let name = unique_name(&name, number);
-            match native::create_directory(&target.parent, &name) {
-                Ok(()) => return wire_path(&target.relative.with_file_name(name)),
-                Err(cause) if cause.kind() == io::ErrorKind::AlreadyExists => (),
-                Err(cause) => return Err(error(cause)),
-            }
-        }
-        Err(error("Cannot find an available directory name"))
+        let name =
+            use_available_name(&name, |name| native::create_directory(&target.parent, name))?
+                .ok_or_else(|| error("Cannot find an available directory name"))?;
+        wire_path(&target.relative.with_file_name(name))
     }
 
     pub(super) fn rename(&self, path: &Path, name: &OsStr) -> Result<ServerPath> {
@@ -188,19 +183,11 @@ impl Root {
                 moved.push(wire_path(&source.relative)?);
                 continue;
             }
-            let mut result = None;
-            for number in 1..=10_000 {
-                let name = unique_name(&source.name, number);
-                match native::rename(&source.parent, &source.name, &directory, &name) {
-                    Ok(()) => {
-                        result = Some(wire_path(&destination.relative.join(name))?);
-                        break;
-                    }
-                    Err(cause) if cause.kind() == io::ErrorKind::AlreadyExists => (),
-                    Err(cause) => return Err(error(cause)),
-                }
-            }
-            moved.push(result.ok_or_else(|| error("Cannot find an available destination name"))?);
+            let name = use_available_name(&source.name, |name| {
+                native::rename(&source.parent, &source.name, &directory, name)
+            })?
+            .ok_or_else(|| error("Cannot find an available destination name"))?;
+            moved.push(wire_path(&destination.relative.join(name))?);
         }
         Ok(moved)
     }
@@ -231,6 +218,21 @@ fn sanitized(name: &OsStr) -> Result<OsString> {
         return Err(error(refusal));
     }
     Ok(name)
+}
+
+fn use_available_name(
+    name: &OsStr,
+    mut attempt: impl FnMut(&OsStr) -> io::Result<()>,
+) -> Result<Option<OsString>> {
+    for number in 1..=10_000 {
+        let name = unique_name(name, number);
+        match attempt(&name) {
+            Ok(()) => return Ok(Some(name)),
+            Err(cause) if cause.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(cause) => return Err(error(cause)),
+        }
+    }
+    Ok(None)
 }
 
 fn unique_name(name: &OsStr, number: u32) -> OsString {
