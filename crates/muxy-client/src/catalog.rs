@@ -9,6 +9,9 @@ use muxy_protocol::{
 const PAGED_ATTEMPTS: usize = 8;
 const MAX_LISTED_SESSIONS: usize = 16_384;
 
+#[cfg(test)]
+mod pagination_tests;
+
 fn catalog_changed<T>(result: &Result<T, ClientError>) -> bool {
     matches!(result, Err(ClientError::Server(error)) if error.code == ErrorCode::CatalogChanged)
 }
@@ -35,6 +38,27 @@ pub(crate) async fn consistent_async<T, F: Future<Output = Result<T, ClientError
         }
     }
     Err(ClientError::Timeout)
+}
+
+pub(crate) fn append_page(
+    result: &mut CatalogPage,
+    page: CatalogPage,
+    after: ProjectId,
+) -> Result<(), ClientError> {
+    if page.server != result.server
+        || page.home != result.home
+        || page.next.is_some_and(|next| next <= after)
+        || page
+            .projects
+            .first()
+            .is_some_and(|project| project.id <= after)
+        || result.projects.len() + page.projects.len() > MAX_PROJECTS
+    {
+        return Err(ClientError::Protocol("invalid catalog pagination".into()));
+    }
+    result.projects.extend(page.projects);
+    result.next = page.next;
+    Ok(())
 }
 
 fn available(session: &ProjectSession) -> bool {
@@ -180,19 +204,7 @@ impl Client {
         let mut result = self.catalog_page(None, None)?;
         while let Some(after) = result.next {
             let page = self.catalog_page(Some(after), Some(result.revision))?;
-            if page.server != result.server
-                || page.home != result.home
-                || page.next.is_some_and(|next| next <= after)
-                || page
-                    .projects
-                    .first()
-                    .is_some_and(|project| project.id <= after)
-                || result.projects.len() + page.projects.len() > MAX_PROJECTS
-            {
-                return Err(ClientError::Protocol("invalid catalog pagination".into()));
-            }
-            result.projects.extend(page.projects);
-            result.next = page.next;
+            append_page(&mut result, page, after)?;
         }
         Ok(result)
     }
