@@ -6,6 +6,7 @@ mod github;
 mod hooks;
 mod mutate;
 mod operations;
+mod parse;
 mod processes;
 mod read;
 mod snapshot;
@@ -414,7 +415,7 @@ fn mutate_files(repository: &Path, action: &GitAction, paths: &[ServerPath]) -> 
         }
         return Ok(());
     }
-    let current = read::files(&read::status(repository)?)?;
+    let current = parse::files(&read::status(repository)?)?;
     let mut tracked = Vec::new();
     let mut untracked = Vec::new();
     for relative in paths {

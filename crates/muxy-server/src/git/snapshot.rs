@@ -1,4 +1,6 @@
-use super::{Result, command, diff, error, read, run, same_canonical, text, validate_branch};
+use super::{
+    Result, command, diff, error, parse, read, run, same_canonical, text, validate_branch,
+};
 use muxy_protocol::{
     GitBaseSwitch, GitChangesPreview, GitPreviewFile, GitPushDestination, ServerPath,
 };
@@ -17,7 +19,7 @@ pub(super) fn preview(
     if summary.conflicted > 0 {
         return Err(error("Resolve merge conflicts before committing"));
     }
-    let untracked: HashSet<Vec<u8>> = read::files(&read::status(repository)?)?
+    let untracked: HashSet<Vec<u8>> = parse::files(&read::status(repository)?)?
         .into_iter()
         .filter(muxy_protocol::GitFile::untracked)
         .map(|file| file.path.0)
