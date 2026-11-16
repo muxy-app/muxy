@@ -244,16 +244,16 @@ impl RemoteAccess {
         let _write = self.writes.lock().unwrap_or_else(PoisonError::into_inner);
         let listening = {
             let mut state = self.lock();
-            let mut stored = state.stored.clone();
-            stored.settings = settings;
-            if settings.enabled && stored.identity.is_none() {
-                stored.identity = Some(identity::generate()?);
-            }
-            self.save(&stored)?;
+            self.edit_stored(&mut state.stored, |stored| {
+                stored.settings = settings;
+                if settings.enabled && stored.identity.is_none() {
+                    stored.identity = Some(identity::generate()?);
+                }
+                Ok(())
+            })?;
             if !settings.enabled {
                 state.offer = None;
             }
-            state.stored = stored;
             settings
                 .enabled
                 .then(|| state.stored.identity.clone())
@@ -349,21 +349,21 @@ impl RemoteAccess {
         }
         let token: [u8; 32] = random().ok()?;
         let id = DeviceId::new();
-        let mut stored = state.stored.clone();
-        stored.devices.push(Device {
-            id,
-            name: request.name.trim().to_owned(),
-            token_hash: hash(&token),
-            paired_at: now,
-            last_seen: Some(now),
-            kind: store::StoredKind::from(request.kind).into(),
-            push: None,
-        });
-        if let Err(error) = self.save(&stored) {
+        if let Err(error) = self.edit_stored(&mut state.stored, |stored| {
+            stored.devices.push(Device {
+                id,
+                name: request.name.trim().to_owned(),
+                token_hash: hash(&token),
+                paired_at: now,
+                last_seen: Some(now),
+                kind: store::StoredKind::from(request.kind).into(),
+                push: None,
+            });
+            Ok(())
+        }) {
             log::error!("pairing not saved: {error}");
             return None;
         }
-        state.stored = stored;
         state.offer = None;
         drop(state);
         self.changed();
@@ -400,12 +400,11 @@ impl RemoteAccess {
         let matched = same(&presented, &expected);
         let index = device.filter(|_| usable && matched)?;
         let kind = state.stored.devices[index].kind;
-        let mut stored = state.stored.clone();
-        stored.devices[index].last_seen = Some(now);
-        if let Err(error) = self.save(&stored) {
+        if let Err(error) = self.edit_stored(&mut state.stored, |stored| {
+            stored.devices[index].last_seen = Some(now);
+            Ok(())
+        }) {
             log::warn!("last seen time not saved: {error}");
-        } else {
-            state.stored = stored;
         }
         drop(state);
         self.changed();
@@ -424,13 +423,16 @@ impl RemoteAccess {
 
     pub(crate) fn revoke(&self, device: DeviceId) -> Result<Option<PushRecord>, ServerError> {
         let mut state = self.lock();
-        let mut stored = state.stored.clone();
-        let Some(index) = stored.devices.iter().position(|stored| stored.id == device) else {
+        let Some(index) = state
+            .stored
+            .devices
+            .iter()
+            .position(|stored| stored.id == device)
+        else {
             return Ok(None);
         };
-        let removed = stored.devices.remove(index);
-        self.save(&stored)?;
-        state.stored = stored;
+        let removed =
+            self.edit_stored(&mut state.stored, |stored| Ok(stored.devices.remove(index)))?;
         drop(state);
         self.changed();
         Ok(removed.push)
@@ -449,23 +451,23 @@ impl RemoteAccess {
         if state.stored.push_notifications == on {
             return Ok(PushSwitch::default());
         }
-        let mut stored = state.stored.clone();
-        stored.push_notifications = on;
-        stored.push_off_since = (!on).then(now);
-        let mut switch = PushSwitch::default();
-        for device in &mut stored.devices {
-            let Some(push) = &mut device.push else {
-                continue;
-            };
-            if on {
-                switch.resumed.push(device.id);
-            } else {
-                switch.deleted.extend(push.relay.take());
-                push.status = PushStatus::Pending;
+        let switch = self.edit_stored(&mut state.stored, |stored| {
+            stored.push_notifications = on;
+            stored.push_off_since = (!on).then(now);
+            let mut switch = PushSwitch::default();
+            for device in &mut stored.devices {
+                let Some(push) = &mut device.push else {
+                    continue;
+                };
+                if on {
+                    switch.resumed.push(device.id);
+                } else {
+                    switch.deleted.extend(push.relay.take());
+                    push.status = PushStatus::Pending;
+                }
             }
-        }
-        self.save(&stored)?;
-        state.stored = stored;
+            Ok(switch)
+        })?;
         drop(state);
         self.changed();
         Ok(switch)
@@ -486,12 +488,12 @@ impl RemoteAccess {
         if !expired {
             return Ok(false);
         }
-        let mut stored = state.stored.clone();
-        for device in &mut stored.devices {
-            device.push = None;
-        }
-        self.save(&stored)?;
-        state.stored = stored;
+        self.edit_stored(&mut state.stored, |stored| {
+            for device in &mut stored.devices {
+                device.push = None;
+            }
+            Ok(())
+        })?;
         drop(state);
         self.changed();
         Ok(true)
@@ -548,10 +550,10 @@ impl RemoteAccess {
         }
         let shown =
             current.as_ref().map(|push| push.status) != next.as_ref().map(|push| push.status);
-        let mut stored = state.stored.clone();
-        stored.devices[index].push = next;
-        self.save(&stored)?;
-        state.stored = stored;
+        self.edit_stored(&mut state.stored, |stored| {
+            stored.devices[index].push = next;
+            Ok(())
+        })?;
         drop(state);
         if shown {
             self.changed();
@@ -575,22 +577,29 @@ impl RemoteAccess {
         })
     }
 
-    fn save(&self, stored: &Stored) -> Result<(), ServerError> {
+    fn edit_stored<T>(
+        &self,
+        current: &mut Stored,
+        change: impl FnOnce(&mut Stored) -> Result<T, ServerError>,
+    ) -> Result<T, ServerError> {
+        let mut stored = current.clone();
+        let result = change(&mut stored)?;
         if self.closed.load(Ordering::Acquire) {
             return Err(ServerError::new(
                 ErrorCode::PersistenceFailed,
                 "the server is stopping",
             ));
         }
-        match &self.store {
-            Some(path) => store::save(path, stored).map_err(|error| {
+        if let Some(path) = &self.store {
+            store::save(path, &stored).map_err(|error| {
                 ServerError::new(
                     ErrorCode::PersistenceFailed,
                     format!("could not save device access: {error}"),
                 )
-            }),
-            None => Ok(()),
+            })?;
         }
+        *current = stored;
+        Ok(result)
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
