@@ -47,6 +47,8 @@ pub(super) fn top_corners<T: Styled>(element: T, window: &Window, left: bool, ri
 }
 
 pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> (Div, f32) {
+    #[cfg(target_os = "macos")]
+    let _ = window;
     let project = model.state.current_project();
     let available = project.status() == muxy_app_core::ProjectStatus::Available;
     let existing_count = if available {
@@ -74,21 +76,10 @@ pub(super) fn actions(model: &AppModel, window: &Window, cx: &mut Context<AppMod
     let mut width = f32::from(controls)
         * f32::from(model.metrics.control_medium() + model.metrics.spacing2())
         + model.extension_toolbar_width();
-    #[cfg(target_os = "linux")]
-    let window_controls = linux::controls_width(window, model.metrics);
-    #[cfg(windows)]
-    let window_controls = windows::controls_width() + f32::from(model.metrics.spacing2());
-    #[cfg(target_os = "macos")]
-    let window_controls = 0.0;
-    let room = f32::from(content_size(window).width)
-        - navigation_width(model, window).max(model.sidebar_width())
-        - width
-        - window_controls;
-    let project_apps =
-        super::project_apps::control(model, room, window, cx).map(|(control, used)| {
-            width += used;
-            control
-        });
+    let project_apps = super::project_apps::control(model, cx).map(|(control, used)| {
+        width += used;
+        control
+    });
     let bar = div()
         .debug_selector(|| "titlebar-actions".into())
         .flex()

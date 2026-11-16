@@ -113,6 +113,12 @@ pub(super) fn rows(
             Change::PaneHeaders(!appearance.pane_headers),
         ),
         (
+            "open-in-app-button",
+            tr_key!("Show Open in App button"),
+            appearance.open_in_app_button,
+            Change::OpenInAppButton(!appearance.open_in_app_button),
+        ),
+        (
             "confirm-process",
             tr_key!("Confirm before closing a running process"),
             pane.snapshot.settings.window.confirm_running_process,
