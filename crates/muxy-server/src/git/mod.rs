@@ -14,15 +14,14 @@ mod tests;
 pub(crate) mod watch;
 mod worktree;
 
-use crate::{Registry, ServerError};
+use crate::{Registry, ServerError, locks::KeyedLocks};
 use command::run;
 use muxy_protocol::{
     GitAction, GitPullRequestAction, GitReply, GitRequest, ProjectId, ProjectKind, ServerPath,
 };
-use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
+use std::sync::{Arc, PoisonError, RwLock};
 
 type Result<T> = std::result::Result<T, ServerError>;
 fn error(message: impl std::fmt::Display) -> ServerError {
@@ -53,7 +52,7 @@ fn git_path(output: &[u8]) -> Result<PathBuf> {
 
 #[derive(Debug, Default)]
 pub(crate) struct Git {
-    locks: Mutex<HashMap<PathBuf, Weak<RwLock<()>>>>,
+    locks: KeyedLocks<PathBuf, RwLock<()>>,
     github: github::Github,
     hook_config: Option<PathBuf>,
     pub(crate) operations: operations::Operations,
@@ -66,18 +65,7 @@ impl Git {
             &["rev-parse", "--path-format=absolute", "--git-common-dir"],
         )?;
         let common = muxy_core::files::canonicalize(&git_path(&common)?).map_err(error)?;
-        Ok(self.lock_at(common))
-    }
-
-    fn lock_at(&self, common: PathBuf) -> Arc<RwLock<()>> {
-        let mut locks = self.locks.lock().unwrap_or_else(PoisonError::into_inner);
-        locks.retain(|_, lock| lock.strong_count() > 0);
-        let lock = locks
-            .get(&common)
-            .and_then(Weak::upgrade)
-            .unwrap_or_default();
-        locks.insert(common, Arc::downgrade(&lock));
-        lock
+        Ok(self.locks.get(common))
     }
 }
 
@@ -123,7 +111,7 @@ impl Registry {
             let lock = if is_repository(directory)? {
                 self.git.lock_for(directory)?
             } else {
-                self.git.lock_at(
+                self.git.locks.get(
                     muxy_core::files::canonicalize(directory)
                         .map_err(error)?
                         .join(".git"),

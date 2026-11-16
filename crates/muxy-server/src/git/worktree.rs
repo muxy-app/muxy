@@ -71,7 +71,7 @@ impl Registry {
         owner: ProjectId,
         intent: &WorktreeIntent,
     ) -> Result<GitReply> {
-        let token = self.git.operations.token(intent.operation);
+        let token = self.git.operations.tokens.get(intent.operation);
         let _token = token.lock().unwrap_or_else(PoisonError::into_inner);
         let previous = self.catalog.git_receipt(intent.operation);
         if let Some(receipt) = &previous {
