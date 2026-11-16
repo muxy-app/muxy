@@ -1,6 +1,6 @@
 use super::parse::{self, RawPullRequest, fields, is_open, no_pr, valid_segment};
 use super::{CurrentBranch, Github, Remote};
-use crate::git::{Result, command, diff, error, read, run, snapshot, text, validate_branch};
+use crate::git::{Result, branches, command, diff, error, read, run, text, validate_branch};
 use muxy_protocol::{GitMergeMethod, GitPullRequest, GitPullRequestFilter, GitReply};
 use serde_json::Value;
 use std::path::Path;
@@ -139,7 +139,7 @@ impl Github {
                 "Commit or stash your changes before updating the branch",
             ));
         }
-        let destination = snapshot::destination(repository, &branch)?
+        let destination = branches::destination(repository, &branch)?
             .ok_or_else(|| error("No remote to push the updated branch to"))?;
         command::network(repository, &["fetch", "origin", &pr.base_branch])?;
         if let Err(cause) = run(
@@ -157,7 +157,7 @@ impl Github {
                 cause.message()
             )));
         }
-        snapshot::publish(repository, &branch, &destination).map_err(|cause| {
+        branches::publish(repository, &branch, &destination).map_err(|cause| {
             error(format!(
                 "Merged origin/{} into {branch} locally, but couldn't push it: {}. Push the branch to finish.",
                 pr.base_branch,
@@ -180,9 +180,9 @@ impl Github {
             .branch
             .ok_or_else(|| error("Cannot create a PR from detached HEAD"))?;
         validate_branch(repository, base)?;
-        let destination = snapshot::destination(repository, &branch)?
+        let destination = branches::destination(repository, &branch)?
             .ok_or_else(|| error("No remote to push the pull request branch to"))?;
-        snapshot::publish(repository, &branch, &destination)?;
+        branches::publish(repository, &branch, &destination)?;
         let mut args = vec![
             "pr",
             "create",

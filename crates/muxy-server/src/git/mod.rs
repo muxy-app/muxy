@@ -1,3 +1,4 @@
+mod branches;
 mod cache;
 mod command;
 mod details;
@@ -336,10 +337,10 @@ fn review(directory: &Path, action: &GitAction) -> Result<GitReply> {
             branch,
             destination,
         } => {
-            snapshot::publish(directory, branch, destination)?;
+            branches::publish(directory, branch, destination)?;
             Ok(GitReply::Done)
         }
-        GitAction::SwitchToBase(base) => Ok(GitReply::BaseSwitch(snapshot::switch_to_base(
+        GitAction::SwitchToBase(base) => Ok(GitReply::BaseSwitch(branches::switch_to_base(
             directory, base,
         )?)),
         _ => Err(error("Unsupported review action")),

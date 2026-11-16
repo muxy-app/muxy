@@ -4,6 +4,8 @@
     reason = "Test fixtures and assertions fail immediately"
 )]
 
+mod branch_workflow;
+
 use super::*;
 use crate::connection::Connection;
 use muxy_protocol::{Message, OperationId, ProjectDescriptor, ProjectIntent, ProjectMutation};
