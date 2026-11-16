@@ -80,7 +80,7 @@ mod tests {
             for name in ["SKILL.md", "settings.md"] {
                 std::fs::write(target.join(name), "keep this file")?;
             }
-            let link = profile.join(relative);
+            let link: PathBuf = profile.join(relative).components().collect();
             std::fs::create_dir_all(link.parent().unwrap_or(&profile))?;
             #[cfg(unix)]
             std::os::unix::fs::symlink(&target, &link)?;
