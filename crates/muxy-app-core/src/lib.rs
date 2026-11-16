@@ -1,4 +1,5 @@
 pub mod agent_sessions;
+mod agent_skills;
 pub mod backup;
 pub mod browser;
 pub mod closing;

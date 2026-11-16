@@ -3,12 +3,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
+use crate::agent_skills::{AGENT_SKILLS, refuse_links_on_the_way, write_if_changed};
+
 static PREPARING: Mutex<()> = Mutex::new(());
 
 pub const SKILL_NAME: &str = "muxy-extensions";
 pub const SKILL: &str = include_str!("../../skills/muxy-extensions/SKILL.md");
 
-const AGENT_SKILLS: [&str; 2] = [".claude/skills", ".agents/skills"];
 const POINTER: &str = include_str!("../../skills/muxy-extensions/POINTER.md");
 const POINTERS: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 const FILES: &[(&str, &str)] = &[
@@ -123,35 +124,6 @@ pub fn prepare(root: &Path) -> io::Result<()> {
 
 pub fn refresh(root: &Path) -> io::Result<()> {
     if root.is_dir() { prepare(root) } else { Ok(()) }
-}
-
-pub(crate) fn refuse_links_on_the_way(folder: &Path, relative: &str) -> io::Result<()> {
-    let mut path = folder.to_owned();
-    for part in Path::new(relative)
-        .parent()
-        .into_iter()
-        .flat_map(Path::components)
-    {
-        path.push(part);
-        if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_symlink()) {
-            return Err(io::Error::other(format!(
-                "{} is a link; Muxy keeps its skill in real folders",
-                path.display()
-            )));
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn write_if_changed(path: &Path, contents: &str) -> io::Result<()> {
-    if fs::read(path).is_ok_and(|current| current == contents.as_bytes()) {
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    muxy_core::fs::write_atomic(path, contents.as_bytes(), 0o644)?;
-    Ok(())
 }
 
 fn remove_others(root: &Path, folder: &Path) -> io::Result<()> {
