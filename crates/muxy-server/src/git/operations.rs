@@ -1,12 +1,13 @@
 use super::{Result, error};
+use crate::locks::KeyedLocks;
 use muxy_protocol::{OperationId, ProjectId, ProjectMutation};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Mutex, PoisonError};
 
 #[derive(Debug, Default)]
 pub(crate) struct Operations {
-    tokens: Mutex<HashMap<OperationId, Weak<Mutex<()>>>>,
+    pub(super) tokens: KeyedLocks<OperationId, Mutex<()>>,
     active: Mutex<Active>,
 }
 
@@ -34,17 +35,6 @@ pub(super) struct Reservation<'a> {
 }
 
 impl Operations {
-    pub(super) fn token(&self, operation: OperationId) -> Arc<Mutex<()>> {
-        let mut tokens = self.tokens.lock().unwrap_or_else(PoisonError::into_inner);
-        tokens.retain(|_, token| token.strong_count() > 0);
-        let token = tokens
-            .get(&operation)
-            .and_then(Weak::upgrade)
-            .unwrap_or_default();
-        tokens.insert(operation, Arc::downgrade(&token));
-        token
-    }
-
     pub(super) fn reserve(
         &self,
         projects: Vec<ProjectId>,
@@ -112,6 +102,41 @@ impl Drop for Reservation<'_> {
 mod tests {
     use super::*;
     use muxy_protocol::{ProjectDescriptor, ProjectPatch, ServerPath};
+    use std::sync::Arc;
+
+    #[test]
+    fn operation_locks_are_shared_by_key_until_the_last_caller_leaves() -> Result<()> {
+        let operations = Operations::default();
+        let operation = OperationId::new();
+        let barrier = std::sync::Barrier::new(4);
+        let locks = std::thread::scope(|scope| {
+            let callers: Vec<_> = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        operations.tokens.get(operation)
+                    })
+                })
+                .collect();
+            callers
+                .into_iter()
+                .map(|caller| caller.join().map_err(|_| error("lock lookup panicked")))
+                .collect::<Result<Vec<_>>>()
+        })?;
+        let other = operations.tokens.get(OperationId::new());
+        let guard = locks[0].lock().unwrap_or_else(PoisonError::into_inner);
+        for lock in &locks {
+            assert!(lock.try_lock().is_err());
+        }
+        assert!(other.try_lock().is_ok());
+        drop(guard);
+        assert!(locks[1].try_lock().is_ok());
+        let released = Arc::downgrade(&locks[0]);
+        drop(locks);
+        assert!(released.upgrade().is_none());
+        assert!(operations.tokens.get(operation).try_lock().is_ok());
+        Ok(())
+    }
 
     #[test]
     fn sessions_stay_put_while_their_project_has_a_worktree_operation() {

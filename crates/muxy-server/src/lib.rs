@@ -2,6 +2,7 @@ mod archive;
 pub mod connection;
 mod error;
 mod exec;
+mod locks;
 mod platform;
 mod process;
 mod references;

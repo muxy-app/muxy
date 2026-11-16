@@ -77,6 +77,47 @@ impl Drop for Repository {
 }
 
 #[test]
+fn repository_locks_are_shared_by_key_until_the_last_caller_leaves() {
+    let git = Git::default();
+    let barrier = std::sync::Barrier::new(4);
+    let locks = std::thread::scope(|scope| {
+        let callers: Vec<_> = (0..4)
+            .map(|_| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    git.locks.get(PathBuf::from("repository"))
+                })
+            })
+            .collect();
+        callers
+            .into_iter()
+            .map(|caller| caller.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    let other = git.locks.get(PathBuf::from("other"));
+    let writer = locks[0].write().unwrap();
+    for lock in &locks {
+        assert!(lock.try_read().is_err());
+        assert!(lock.try_write().is_err());
+    }
+    assert!(other.try_write().is_ok());
+    drop(writer);
+    let reader = locks[0].read().unwrap();
+    assert!(locks[1].try_read().is_ok());
+    assert!(locks[1].try_write().is_err());
+    drop(reader);
+    let released = Arc::downgrade(&locks[0]);
+    drop(locks);
+    assert!(released.upgrade().is_none());
+    assert!(
+        git.locks
+            .get(PathBuf::from("repository"))
+            .try_write()
+            .is_ok()
+    );
+}
+
+#[test]
 fn every_subscriber_shares_one_watch_until_the_last_leaves() {
     let repository = Repository::new();
     let registry = &repository.registry;

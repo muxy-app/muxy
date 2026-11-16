@@ -11,7 +11,7 @@ use muxy_protocol::{
 };
 #[cfg(unix)]
 use std::os::unix::fs::{PermissionsExt, symlink};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 
 pub(super) struct Workspace {
     pub(super) path: PathBuf,
@@ -73,6 +73,48 @@ impl Drop for Workspace {
 
 fn p(value: &str) -> ServerPath {
     ServerPath::from(value)
+}
+
+#[test]
+fn file_locks_are_shared_by_key_until_the_last_caller_leaves() {
+    let files = Files::default();
+    let barrier = std::sync::Barrier::new(4);
+    let locks = std::thread::scope(|scope| {
+        let callers: Vec<_> = (0..4)
+            .map(|_| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    files.locks.get(PathBuf::from("project"))
+                })
+            })
+            .collect();
+        callers
+            .into_iter()
+            .map(|caller| caller.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    let other = files.locks.get(PathBuf::from("other"));
+    let writer = locks[0].write().unwrap();
+    for lock in &locks {
+        assert!(lock.try_read().is_err());
+        assert!(lock.try_write().is_err());
+    }
+    assert!(other.try_write().is_ok());
+    drop(writer);
+    let reader = locks[0].read().unwrap();
+    assert!(locks[1].try_read().is_ok());
+    assert!(locks[1].try_write().is_err());
+    drop(reader);
+    let released = Arc::downgrade(&locks[0]);
+    drop(locks);
+    assert!(released.upgrade().is_none());
+    assert!(
+        files
+            .locks
+            .get(PathBuf::from("project"))
+            .try_write()
+            .is_ok()
+    );
 }
 
 #[test]
