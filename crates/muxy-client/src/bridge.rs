@@ -1,5 +1,7 @@
+mod readiness;
+
 use std::fs::File;
-use std::io::{self, Cursor, Read, Write};
+use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -9,11 +11,8 @@ use muxy_protocol::transport::{self, ByteStream, StreamCancellation};
 
 use crate::client::DEFAULT_TIMEOUT;
 use crate::{Client, ClientError, RemoteReason, local};
+use readiness::{NotReady, READY, VERSION, ready};
 
-const READY: &[u8] = b"MUXY-STDIO/";
-const VERSION: &[u8] = b"1";
-const MAX_NOISE: usize = 64 * 1024;
-const MAX_VERSION: usize = 16;
 const MAX_DETAIL: usize = 300;
 const NOT_RUNNING: &str = "the server isn't running";
 const NOT_FOUND: [&str; 3] = [
@@ -99,9 +98,9 @@ impl Client {
                 let _ = sender.send(ready(reader));
             })?;
         let (reason, detail) = match receiver.recv_timeout(timeout) {
-            Ok(Ok((reader, rest))) => {
+            Ok(Ok(reader)) => {
                 let stream = Bridged {
-                    reader: Box::new(Cursor::new(rest).chain(reader)),
+                    reader: Box::new(reader),
                     writer,
                     cancellation,
                 };
@@ -170,73 +169,6 @@ impl StreamCancellation for SharedCancellation {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
-enum NotReady {
-    Ended(Vec<u8>),
-    Noisy(Vec<u8>),
-    Version(Vec<u8>),
-}
-
-fn ready<R: Read>(mut reader: R) -> Result<(R, Vec<u8>), NotReady> {
-    let mut line = ReadyLine::default();
-    let mut chunk = [0; 4096];
-    loop {
-        let read = match reader.read(&mut chunk) {
-            Ok(0) => return Err(line.ended()),
-            Ok(read) => read,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(_) => return Err(line.ended()),
-        };
-        if let Some(outcome) = line.push(&chunk[..read]) {
-            return outcome.map(|rest| (reader, rest));
-        }
-    }
-}
-
-#[derive(Default)]
-struct ReadyLine {
-    seen: Vec<u8>,
-    start: Option<usize>,
-    searched: usize,
-}
-
-impl ReadyLine {
-    fn push(&mut self, bytes: &[u8]) -> Option<Result<Vec<u8>, NotReady>> {
-        self.seen.extend_from_slice(bytes);
-        let Some(start) = self.start.or_else(|| self.find()) else {
-            return (self.seen.len() >= MAX_NOISE + READY.len())
-                .then(|| Err(NotReady::Noisy(std::mem::take(&mut self.seen))));
-        };
-        if start > MAX_NOISE {
-            return Some(Err(NotReady::Noisy(self.seen[..start].to_vec())));
-        }
-        let line = &self.seen[start + READY.len()..];
-        match line.iter().position(|&byte| byte == b'\n') {
-            Some(end) if &line[..end] == VERSION => {
-                Some(Ok(self.seen.split_off(start + READY.len() + end + 1)))
-            }
-            Some(end) => Some(Err(NotReady::Version(line[..end].to_vec()))),
-            None if line.len() > MAX_VERSION => {
-                Some(Err(NotReady::Version(line[..MAX_VERSION].to_vec())))
-            }
-            None => None,
-        }
-    }
-
-    fn find(&mut self) -> Option<usize> {
-        self.start = self.seen[self.searched..]
-            .windows(READY.len())
-            .position(|window| window == READY)
-            .map(|offset| self.searched + offset);
-        self.searched = self.seen.len().saturating_sub(READY.len() - 1);
-        self.start
-    }
-
-    fn ended(self) -> NotReady {
-        NotReady::Ended(self.seen)
-    }
-}
-
 fn explain(exit: &BridgeExit, printed: &[u8]) -> (RemoteReason, String) {
     let stderr = exit.stderr.as_str();
     let said = |texts: &[&str]| texts.iter().any(|text| stderr.contains(text));
@@ -294,35 +226,11 @@ fn last_line(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
-    fn scan(chunks: &[&[u8]]) -> Result<Vec<u8>, NotReady> {
-        let mut line = ReadyLine::default();
-        for chunk in chunks {
-            if let Some(outcome) = line.push(chunk) {
-                return outcome;
-            }
-        }
-        Err(line.ended())
-    }
-
     fn exit(status: Option<i32>, stderr: &str) -> BridgeExit {
         BridgeExit {
             status,
             stderr: stderr.into(),
         }
-    }
-
-    #[test]
-    fn the_ready_line_is_found_after_any_noise_and_keeps_later_bytes() {
-        assert_eq!(scan(&[b"MUXY-STDIO/1\n"]), Ok(vec![]));
-        assert_eq!(
-            scan(&[b"Welcome!\nlast login\n", b"MUXY-STDIO/1\nhello"]),
-            Ok(b"hello".to_vec())
-        );
-        assert_eq!(scan(&[b"no newline", b"MUXY-STDIO/1\n"]), Ok(vec![]));
-        assert_eq!(
-            scan(&[b"noise MUXY-", b"ST", b"DIO/", b"1", b"\nrest"]),
-            Ok(b"rest".to_vec())
-        );
     }
 
     #[test]
