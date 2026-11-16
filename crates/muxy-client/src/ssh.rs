@@ -1,3 +1,5 @@
+mod config;
+
 use std::ffi::OsString;
 use std::fmt;
 use std::io;
@@ -142,43 +144,6 @@ impl SshTarget {
         self.askpass.as_ref()
     }
 
-    pub fn login(&self) -> io::Result<String> {
-        login_from(&self.config()?).ok_or_else(|| {
-            io::Error::other(format!("no SSH user or host for {}", self.destination))
-        })
-    }
-
-    pub fn has_own_route(&self) -> io::Result<bool> {
-        Ok(route_from(&self.config()?))
-    }
-
-    pub fn default_identity(&self) -> io::Result<Option<PathBuf>> {
-        let config = self.config()?;
-        Ok(std::env::home_dir().and_then(|home| identity_from(&config, &home)))
-    }
-
-    fn config(&self) -> io::Result<String> {
-        if self.is_custom_command() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "Custom commands manage their own SSH settings and authentication",
-            ));
-        }
-        let program = program(self.program.as_deref(), std::env::var_os("MUXY_SSH"))?;
-        let output = Command::new(program)
-            .args(["-G", "--", &self.destination])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()?;
-        if !output.status.success() {
-            return Err(io::Error::other(format!(
-                "could not read the SSH settings for {}",
-                self.destination
-            )));
-        }
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-    }
-
     pub fn command(&self, remote: &str) -> io::Result<Command> {
         let program = program(self.program.as_deref(), std::env::var_os("MUXY_SSH"))?;
         let proxy = self
@@ -276,43 +241,6 @@ impl fmt::Display for SshTarget {
     }
 }
 
-fn route_from(config: &str) -> bool {
-    config.lines().any(|line| {
-        line.split_once(' ').is_some_and(|(key, value)| {
-            matches!(key, "proxyjump" | "proxycommand") && value.trim() != "none"
-        })
-    })
-}
-
-fn login_from(config: &str) -> Option<String> {
-    let value = |key: &str| {
-        config.lines().find_map(|line| {
-            let (name, value) = line.split_once(' ')?;
-            (name == key).then(|| value.trim().to_owned())
-        })
-    };
-    let user = value("user")?;
-    let host = value("hostkeyalias").or_else(|| value("hostname"))?;
-    Some(format!("{user}@{host}"))
-}
-
-fn identity_from(config: &str, home: &Path) -> Option<PathBuf> {
-    config.lines().find_map(|line| {
-        let value = line.strip_prefix("identityfile ")?.trim();
-        let path = if let Some(relative) = value
-            .strip_prefix("~/")
-            .or_else(|| value.strip_prefix("%d/"))
-        {
-            home.join(relative)
-        } else if value.contains('%') || value.starts_with('~') || value == "none" {
-            return None;
-        } else {
-            PathBuf::from(value)
-        };
-        path.is_file().then_some(path)
-    })
-}
-
 fn program(explicit: Option<&Path>, environment: Option<OsString>) -> io::Result<PathBuf> {
     match (explicit, environment) {
         (Some(program), _) => Ok(program.into()),
@@ -392,6 +320,10 @@ mod tests {
             target.default_identity().err().map(|error| error.kind()),
             Some(io::ErrorKind::Unsupported)
         );
+        assert_eq!(
+            target.has_own_route().err().map(|error| error.kind()),
+            Some(io::ErrorKind::Unsupported)
+        );
         Ok(())
     }
 
@@ -429,14 +361,6 @@ mod tests {
         assert!(command.get_args().all(|argument| argument != "-o"));
         assert_eq!(command.get_envs().count(), 0);
         Ok(())
-    }
-
-    #[test]
-    fn jump_hosts_and_proxy_commands_in_ssh_config_are_their_own_route() {
-        assert!(route_from("user me\nproxyjump bastion.example\nport 22\n"));
-        assert!(route_from("proxycommand nc -X 5 %h %p\n"));
-        assert!(!route_from("user me\nproxycommand none\nport 22\n"));
-        assert!(!route_from("user me\nhostname box\n"));
     }
 
     #[test]
