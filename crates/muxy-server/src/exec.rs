@@ -17,16 +17,22 @@ use crate::{Registry, ServerError, connection::Connection};
 
 #[derive(Default)]
 pub(crate) struct Jobs {
-    active: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
-    cancelled: Mutex<BTreeSet<u64>>,
+    state: Arc<Mutex<JobState>>,
+}
+
+#[derive(Default)]
+struct JobState {
+    active: HashMap<u64, Arc<AtomicBool>>,
+    cancelled: BTreeSet<u64>,
 }
 
 impl Drop for Jobs {
     fn drop(&mut self) {
         for cancelled in self
-            .active
+            .state
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .active
             .values()
         {
             cancelled.store(true, Ordering::Release);
@@ -36,33 +42,25 @@ impl Drop for Jobs {
 
 impl Jobs {
     pub(crate) fn cancel(&self, job: u64) {
-        let active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(cancelled) = active.get(&job) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(cancelled) = state.active.get(&job) {
             cancelled.store(true, Ordering::Release);
         } else {
-            let mut cancelled = self
-                .cancelled
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            cancelled.insert(job);
-            if cancelled.len() > 128 {
-                cancelled.pop_first();
+            state.cancelled.insert(job);
+            if state.cancelled.len() > 128 {
+                state.cancelled.pop_first();
             }
         }
     }
 
     fn register(&self, job: u64) -> Result<Arc<AtomicBool>, ServerError> {
-        let mut active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
-        if active.len() >= 32 || active.contains_key(&job) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.active.len() >= 32 || state.active.contains_key(&job) {
             return Err(error("too many commands or duplicate job ID"));
         }
-        let was_cancelled = self
-            .cancelled
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&job);
+        let was_cancelled = state.cancelled.remove(&job);
         let cancelled = Arc::new(AtomicBool::new(was_cancelled));
-        active.insert(job, Arc::clone(&cancelled));
+        state.active.insert(job, Arc::clone(&cancelled));
         Ok(cancelled)
     }
 
@@ -75,7 +73,7 @@ impl Jobs {
     ) -> Result<(), ServerError> {
         let job = request.job;
         let cancelled = self.register(job)?;
-        let active = Arc::clone(&self.active);
+        let state = Arc::clone(&self.state);
         let spawn = std::thread::Builder::new()
             .name("extension-command".into())
             .spawn(move || {
@@ -93,9 +91,10 @@ impl Jobs {
                         })?;
                         execute(&request, &root, &cancelled, || output.is_closed())
                     });
-                active
+                state
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
+                    .active
                     .remove(&job);
                 output.push_control(Message::Reply {
                     id,
@@ -106,9 +105,10 @@ impl Jobs {
                 });
             });
         if let Err(cause) = spawn {
-            self.active
+            self.state
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
+                .active
                 .remove(&job);
             return Err(error(cause));
         }
@@ -428,7 +428,87 @@ mod tests {
         for job in 2..1000 {
             jobs.cancel(job);
         }
-        assert!(jobs.cancelled.lock().unwrap().len() <= 128);
+        assert!(jobs.state.lock().unwrap().cancelled.len() <= 128);
+    }
+
+    #[test]
+    fn duplicate_registration_keeps_the_original_cancellation_handle() {
+        let jobs = Jobs::default();
+        let first = jobs.register(1).unwrap();
+        let second = jobs.register(2).unwrap();
+        let duplicate = jobs.register(1).unwrap_err();
+        assert_eq!(duplicate.code(), ErrorCode::BadRequest);
+        assert_eq!(duplicate.message(), "too many commands or duplicate job ID");
+        jobs.cancel(1);
+        assert!(first.load(Ordering::Acquire));
+        assert!(!second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn registration_capacity_preserves_the_running_jobs() {
+        let jobs = Jobs::default();
+        let running: Vec<_> = (1..=32).map(|job| jobs.register(job).unwrap()).collect();
+        jobs.cancel(33);
+        let refused = jobs.register(33).unwrap_err();
+        assert_eq!(refused.code(), ErrorCode::BadRequest);
+        assert_eq!(refused.message(), "too many commands or duplicate job ID");
+        assert!(running.iter().all(|flag| !flag.load(Ordering::Acquire)));
+        for job in 1..=32 {
+            jobs.cancel(job);
+        }
+        assert!(running.iter().all(|flag| flag.load(Ordering::Acquire)));
+    }
+
+    #[test]
+    fn remembered_cancellations_evict_the_smallest_job_id() {
+        let jobs = Jobs::default();
+        jobs.cancel(200);
+        for job in 1..=128 {
+            jobs.cancel(job);
+        }
+        assert!(!jobs.register(1).unwrap().load(Ordering::Acquire));
+        assert!(jobs.register(2).unwrap().load(Ordering::Acquire));
+        assert!(jobs.register(200).unwrap().load(Ordering::Acquire));
+        assert!(!jobs.register(129).unwrap().load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn dropping_jobs_cancels_all_registered_commands() {
+        let jobs = Jobs::default();
+        let first = jobs.register(1).unwrap();
+        let second = jobs.register(2).unwrap();
+        jobs.cancel(1);
+        assert!(!second.load(Ordering::Acquire));
+        drop(jobs);
+        assert!(first.load(Ordering::Acquire));
+        assert!(second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn cancellation_racing_registration_reaches_every_command() {
+        let jobs = Jobs::default();
+        let start = std::sync::Barrier::new(2);
+        let running = std::thread::scope(|scope| {
+            let registering = scope.spawn(|| {
+                start.wait();
+                (1..=32)
+                    .map(|job| {
+                        let flag = jobs.register(job).unwrap();
+                        std::thread::yield_now();
+                        flag
+                    })
+                    .collect::<Vec<_>>()
+            });
+            scope.spawn(|| {
+                start.wait();
+                for job in 1..=32 {
+                    jobs.cancel(job);
+                    std::thread::yield_now();
+                }
+            });
+            registering.join().unwrap()
+        });
+        assert!(running.iter().all(|flag| flag.load(Ordering::Acquire)));
     }
 
     #[cfg(windows)]
