@@ -31,6 +31,7 @@ pub(crate) enum Change {
     StatusBar(bool),
     Rail(bool),
     PaneHeaders(bool),
+    OpenInAppButton(bool),
     Tips(bool),
     RememberProjectsWithoutTabs(bool),
     SidebarServers(bool),
@@ -659,6 +660,10 @@ impl AppModel {
             }
             Change::PaneHeaders(value) => {
                 settings.appearance.pane_headers = value;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::OpenInAppButton(value) => {
+                settings.appearance.open_in_app_button = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
             Change::Tips(value) => {
@@ -1422,6 +1427,7 @@ fn change_id(change: &Change) -> &str {
         Change::StatusBar(_) => "status-bar",
         Change::Rail(_) => "rail",
         Change::PaneHeaders(_) => "pane-headers",
+        Change::OpenInAppButton(_) => "open-in-app-button",
         Change::Tips(_) => "tips",
         Change::RememberProjectsWithoutTabs(_) => "remember-projects-without-tabs",
         Change::SidebarServers(_) => "sidebar-servers",

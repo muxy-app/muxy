@@ -248,40 +248,46 @@ fn a_failed_launch_forgets_editors_that_were_uninstalled(cx: &mut TestAppContext
     });
 }
 
-fn cramped(
-    width: f32,
-    cx: &mut TestAppContext,
-) -> (gpui::Bounds<gpui::Pixels>, gpui::Bounds<gpui::Pixels>) {
+#[gpui::test]
+fn hiding_the_control_is_saved_and_keeps_the_shortcut_working(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
         .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.open_terminal_tab(project).expect("tab");
-    let (mut boot, _requests) = stub_boot(state);
-    boot.settings.appearance.sidebar_expanded = true;
-    boot.settings.appearance.sidebar_expanded_width = Some(480.0);
+    let (boot, _requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(width), px(600.0)));
-    view.update(cx, |model, cx| {
+    cx.simulate_resize(size(px(1200.0), px(600.0)));
+    let launches = view.update(cx, |model, cx| {
         model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
-        let _ = install(model);
+        let launches = install(model);
         cx.notify();
+        launches
     });
     cx.run_until_parked();
-    (
-        cx.debug_bounds("open-in-ide").expect("control"),
-        cx.debug_bounds("tabs-scroll").expect("tab strip"),
-    )
-}
+    assert!(cx.debug_bounds("open-in-ide").is_some());
 
-#[gpui::test]
-fn the_control_drops_its_name_before_the_tab_strip_runs_out_of_room(cx: &mut TestAppContext) {
-    let (named, _) = cramped(1400.0, cx);
-    let (compact, tabs) = cramped(700.0, cx);
-    assert!(
-        compact.size.width < named.size.width,
-        "{compact:?} {named:?}"
+    view.update(cx, |model, cx| {
+        model.change_preference(
+            crate::model::preferences::Change::OpenInAppButton(false),
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("open-in-ide").is_none());
+    view.update(cx, AppModel::open_project_in_default);
+    assert_eq!(
+        launched(&launches),
+        (
+            crate::test_support::project_directory(),
+            "dev.zed.Zed".to_owned()
+        )
     );
-    assert!(tabs.size.width > px(0.0), "{tabs:?}");
+    view.read_with(cx, |model, _| {
+        let saved =
+            muxy_app_core::settings::Settings::load(&model.configuration_path("settings.toml"))
+                .expect("saved settings");
+        assert!(!saved.appearance.open_in_app_button);
+    });
 }

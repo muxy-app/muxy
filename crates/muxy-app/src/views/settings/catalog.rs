@@ -400,6 +400,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
+        id: "open-in-app-button",
+        label: tr_key!("Show Open in App button"),
+        description: tr_key!(
+            "Show the top bar button that opens the project in a file manager or an editor. Its shortcut works either way."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "sidebar-collapsed-style",
         label: tr_key!("Collapsed sidebar style"),
         description: tr_key!(

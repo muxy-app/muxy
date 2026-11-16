@@ -1825,6 +1825,7 @@
 "Show Floating Terminal in All Projects" = "Show Floating Terminal in All Projects";
 "Show Muxy Tip" = "Show Muxy Tip";
 "Show Only in %@" = "Show Only in %@";
+"Show Open in App button" = "Show Open in App button";
 "Show Pairing Code" = "Show Pairing Code";
 "Show Project in File Manager" = "Show Project in File Manager";
 "Show Welcome Tour" = "Show Welcome Tour";
@@ -1854,6 +1855,7 @@
 "Show recently used paths" = "Show recently used paths";
 "Show status bar" = "Show status bar";
 "Show the agents panel, or its button when the sidebar is collapsed." = "Show the agents panel, or its button when the sidebar is collapsed.";
+"Show the top bar button that opens the project in a file manager or an editor. Its shortcut works either way." = "Show the top bar button that opens the project in a file manager or an editor. Its shortcut works either way.";
 "Show tips" = "Show tips";
 "Show unread completion counts beside worktrees." = "Show unread completion counts beside worktrees.";
 "Show unread worktree indicators" = "Show unread worktree indicators";
