@@ -175,8 +175,10 @@ and extensions.
 
 **Settings → Extensions → Browse** installs extensions from the marketplace.
 New extensions start disabled; review their permissions and turn them on.
-Updates are manual: use **Update all**, or update one from its page. Building
-your own? Choose **Create Extension…** to
+On **Installed**, use **Check for updates** to check marketplace extensions.
+Updates are manual: use **Update all**, which appears when updates are
+available, or update one from its page.
+Building your own? Choose **Create Extension…** to
 [have an agent build it](../extensions/agents.md), or see
 [Extensions](../extensions/overview.md).
 

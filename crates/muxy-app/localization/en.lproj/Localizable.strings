@@ -602,6 +602,7 @@
 "Copy on select" = "Copy on select";
 "Copy selected terminal text to the clipboard as soon as you finish selecting." = "Copy selected terminal text to the clipboard as soon as you finish selecting.";
 "Could Not Install Command Line Tool" = "Could Not Install Command Line Tool";
+"Could not check for extension updates: %@" = "Could not check for extension updates: %@";
 "Could not check for or download the latest app update: %@" = "Could not check for or download the latest app update: %@";
 "Could not check the running process: %@" = "Could not check the running process: %@";
 "Could not choose a key file: %@" = "Could not choose a key file: %@";

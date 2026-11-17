@@ -12,9 +12,19 @@ type Resolve = fn(&[String]) -> Result<BTreeMap<String, String>, String>;
 
 pub(crate) const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
+#[derive(Debug, Default, PartialEq)]
+pub(crate) enum UpdateCheck {
+    #[default]
+    Idle,
+    Checking,
+    Complete,
+    Failed(String),
+}
+
 #[derive(Default)]
 pub(super) struct Checks {
     available: BTreeMap<String, String>,
+    status: UpdateCheck,
     task: Option<Task<()>>,
     schedule: Option<Task<()>>,
     #[cfg(test)]
@@ -34,6 +44,10 @@ impl Checks {
 }
 
 impl AppModel {
+    pub(crate) fn extension_update_check(&self) -> &UpdateCheck {
+        &self.extensions.checks.status
+    }
+
     pub(crate) fn extension_update_version(&self, name: &str) -> Option<&str> {
         self.extensions
             .checks
@@ -95,8 +109,11 @@ impl AppModel {
             .collect();
         if names.is_empty() {
             self.extensions.checks.available.clear();
+            self.extensions.checks.status = UpdateCheck::Complete;
+            cx.notify();
             return;
         }
+        self.extensions.checks.status = UpdateCheck::Checking;
         self.extensions.checks.task = Some(cx.spawn(async move |model, cx| {
             let result = io::network(move || {
                 let mut versions = resolve(&names)?;
@@ -111,15 +128,20 @@ impl AppModel {
                     Ok(versions) => {
                         extensions.checks.available = versions;
                         extensions.checks.retain_installed(&extensions.registry);
-                        cx.notify();
+                        extensions.checks.status = UpdateCheck::Complete;
                     }
-                    Err(error) => crate::diagnostics::event(
-                        "extension-update-check-failed",
-                        format_args!("{error}"),
-                    ),
+                    Err(error) => {
+                        crate::diagnostics::event(
+                            "extension-update-check-failed",
+                            format_args!("{error}"),
+                        );
+                        extensions.checks.status = UpdateCheck::Failed(error);
+                    }
                 }
+                cx.notify();
             });
         }));
+        cx.notify();
     }
 }
 

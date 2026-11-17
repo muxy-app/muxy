@@ -25,7 +25,7 @@ use crate::{
     },
     model::{
         AppModel,
-        extensions::{ActiveInstall, FinishedInstall},
+        extensions::{ActiveInstall, FinishedInstall, UpdateCheck},
     },
 };
 use muxy_app_core::extensions::{Consent, Extension, Rule};
@@ -413,6 +413,17 @@ impl ExtensionsView {
             model.install_marketplace_extension(details, cx)
         });
         self.install_started(started.unwrap_or(false));
+    }
+
+    fn check_updates(&mut self, cx: &mut Context<Self>) {
+        if self.busy(cx) {
+            return;
+        }
+        self.completed = None;
+        self.install_status = None;
+        self.error = None;
+        let _ = self.model.update(cx, AppModel::check_extension_updates);
+        cx.notify();
     }
 
     fn update_all(&mut self, cx: &mut Context<Self>) {
@@ -1022,45 +1033,56 @@ impl ExtensionsView {
     }
 
     fn header(&self, installed: &[(Extension, bool, bool)], cx: &Context<Self>) -> gpui::Div {
-        div().flex().flex_col().gap(self.metrics.spacing6()).child(
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .justify_between()
-                .gap(self.metrics.spacing6())
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .items_center()
-                        .gap(self.metrics.spacing6())
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(self.metrics.spacing4())
-                                .child(SymbolGlyph::new(
-                                    "puzzlepiece.extension",
-                                    self.metrics.icon_md(),
-                                    self.theme.fg_muted,
-                                ))
-                                .child(
-                                    div()
-                                        .text_size(self.metrics.font_title())
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(accessibility::label(
-                                            "extensions-heading",
-                                            tr!("Extensions"),
-                                        )),
-                                ),
-                        )
-                        .child(self.tab_control(installed.len(), cx)),
-                )
-                .when(self.tab == Tab::Installed, |header| {
-                    header.child(self.header_actions(installed, cx))
-                }),
-        )
+        let heading = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(self.metrics.spacing4())
+            .child(SymbolGlyph::new(
+                "puzzlepiece.extension",
+                self.metrics.icon_md(),
+                self.theme.fg_muted,
+            ))
+            .child(
+                div()
+                    .text_size(self.metrics.font_title())
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(accessibility::label(
+                        "extensions-heading",
+                        tr!("Extensions"),
+                    )),
+            );
+        let tabs = div()
+            .flex_none()
+            .child(self.tab_control(installed.len(), cx));
+        let installed_tab = self.tab == Tab::Installed;
+        let packaged = installed.iter().any(|(_, _, unpacked)| !unpacked);
+        let status = div()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .justify_end()
+            .when(installed_tab && packaged, |status| {
+                status.children(self.update_status(cx))
+            });
+        let actions = installed_tab.then(|| self.header_actions(installed, cx));
+        let row = || div().flex().items_center().gap(self.metrics.spacing6());
+        let width = self.width.get();
+        let compact = width > px(0.0) && width < self.layout_scale().scaled(720.0);
+        let header = div().flex().flex_col().gap(self.metrics.spacing6());
+        if compact {
+            header
+                .child(row().child(heading).child(div().flex_1()).children(actions))
+                .child(row().child(tabs).child(status))
+        } else {
+            header.child(
+                row()
+                    .child(heading)
+                    .child(tabs)
+                    .child(status)
+                    .children(actions),
+            )
+        }
     }
 
     fn tab_control(&self, installed: usize, cx: &Context<Self>) -> AnyElement {
@@ -1103,6 +1125,78 @@ impl ExtensionsView {
         )
     }
 
+    fn update_status(&self, cx: &Context<Self>) -> Option<AnyElement> {
+        let model = self.model.upgrade()?;
+        let model = model.read(cx);
+        let (message, error) = match model.extension_update_check() {
+            UpdateCheck::Idle => return None,
+            UpdateCheck::Checking => (tr!("Checking for extension updates…"), false),
+            UpdateCheck::Complete => (
+                match model.extension_update_count() {
+                    0 => tr!("All extensions are up to date."),
+                    1 => tr!("1 update available"),
+                    count => tr!("%@ updates available", count.to_string()),
+                },
+                false,
+            ),
+            UpdateCheck::Failed(error) => (
+                tr!("Could not check for extension updates: %@", error),
+                true,
+            ),
+        };
+        let status = div()
+            .id("extension-check-status")
+            .min_w_0()
+            .truncate()
+            .text_size(self.metrics.font_footnote())
+            .text_color(if error {
+                self.theme.danger
+            } else {
+                self.theme.fg_muted
+            })
+            .child(message.clone())
+            .tooltip(muxy_ui::components::tooltip(message.clone(), &self.theme));
+        Some(accessibility::announced(status, message, error).into_any_element())
+    }
+
+    fn header_button(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        symbol: &'static str,
+        action: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+        cx: &Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let checking = id == "extension-check-updates"
+            && self.model.upgrade().is_some_and(|model| {
+                *model.read(cx).extension_update_check() == UpdateCheck::Checking
+            });
+        let label = if checking {
+            tr!("Checking…")
+        } else {
+            translate(self.button_label(id, label, cx))
+        };
+        controls::button(
+            self.style(),
+            id,
+            controls::Button::secondary("")
+                .named(&label)
+                .icon(symbol)
+                .enabled(!self.busy(cx) && !checking),
+            cx.listener(move |view, _, window, cx| {
+                if !view.busy(cx) {
+                    view.completed = None;
+                    view.install_status = None;
+                    action(view, window, cx);
+                    cx.notify();
+                }
+            }),
+        )
+        .size(self.metrics.control_medium())
+        .p_0()
+        .tooltip(muxy_ui::components::tooltip(label, &self.theme))
+    }
+
     fn header_actions(
         &self,
         installed: &[(Extension, bool, bool)],
@@ -1115,47 +1209,65 @@ impl ExtensionsView {
         let packaged = installed.iter().any(|(_, _, unpacked)| !unpacked);
         div()
             .flex()
-            .flex_wrap()
-            .gap(self.metrics.spacing4())
-            .child(self.button(
+            .flex_none()
+            .items_center()
+            .gap(self.metrics.spacing3())
+            .child(self.header_button(
                 "extension-load",
                 tr_key!("Load Unpacked…"),
+                "folder",
                 |view, _, cx| view.load_unpacked(cx),
                 cx,
             ))
-            .child(self.button(
+            .child(self.header_button(
                 "extension-reload",
                 tr_key!("Reload"),
+                "arrow.clockwise",
                 |view, _, cx| view.reload(cx),
                 cx,
             ))
             .when(packaged, |actions| {
-                let button = self.styled_button(
-                    "extension-update-all",
-                    tr_key!("Update all"),
-                    updates > 0,
-                    |view, _, cx| view.update_all(cx),
-                    cx,
-                );
-                actions.child(if updates > 0 {
-                    button
-                        .aria_description(if updates == 1 {
-                            tr!("1 update available")
-                        } else {
-                            tr!("%@ updates available", updates.to_string())
-                        })
-                        .child(
-                            div()
-                                .px(self.metrics.spacing2())
-                                .rounded_full()
-                                .bg(self.theme.accent_foreground)
-                                .text_color(self.theme.accent)
-                                .text_size(self.metrics.font_caption())
-                                .child(updates.to_string()),
-                        )
-                } else {
-                    button
-                })
+                actions.child(
+                    self.header_button(
+                        "extension-check-updates",
+                        tr_key!("Check for updates"),
+                        "checkmark.circle",
+                        |view, _, cx| view.check_updates(cx),
+                        cx,
+                    )
+                    .debug_selector(|| "extension-check-updates".into()),
+                )
+            })
+            .when(packaged && updates > 0, |actions| {
+                actions.child(
+                    self.styled_button(
+                        "extension-update-all",
+                        tr_key!("Update all"),
+                        true,
+                        |view, _, cx| view.update_all(cx),
+                        cx,
+                    )
+                    .aria_description(if updates == 1 {
+                        tr!("1 update available")
+                    } else {
+                        tr!("%@ updates available", updates.to_string())
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .min_w(self.metrics.scaled(16.0))
+                            .h(self.metrics.scaled(16.0))
+                            .px(self.metrics.spacing2())
+                            .rounded_full()
+                            .bg(self.theme.accent_foreground)
+                            .text_color(self.theme.accent)
+                            .text_size(self.metrics.font_caption())
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(updates.to_string()),
+                    ),
+                )
             })
     }
 
