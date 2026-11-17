@@ -23,7 +23,7 @@ def main():
         'git', '-C', str(root), 'ls-files', '-z', '--cached', '--others', '--exclude-standard'
     ]).split(b'\0')
     files = []
-    excluded = {'.git', '.agents', '.codex', '.aws', '.ssh', 'target', 'CLAUDE.md'}
+    excluded = {'.git', '.agents', '.claude', '.codex', '.aws', '.ssh', 'target', 'CLAUDE.md'}
     for raw in sorted(set(names)):
         if not raw:
             continue

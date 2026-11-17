@@ -602,6 +602,7 @@
 "Copy on select" = "Copy on select";
 "Copy selected terminal text to the clipboard as soon as you finish selecting." = "Copy selected terminal text to the clipboard as soon as you finish selecting.";
 "Could Not Install Command Line Tool" = "Could Not Install Command Line Tool";
+"Could not check for extension updates: %@" = "Could not check for extension updates: %@";
 "Could not check for or download the latest app update: %@" = "Could not check for or download the latest app update: %@";
 "Could not check the running process: %@" = "Could not check the running process: %@";
 "Could not choose a key file: %@" = "Could not choose a key file: %@";
@@ -1159,12 +1160,10 @@
 "Make %@ Default" = "Make %@ Default";
 "Make Default" = "Make Default";
 "Make it yours" = "Make it yours";
-"Manage" = "Manage";
 "Manage Extensions" = "Manage Extensions";
 "Manage Profiles…" = "Manage Profiles…";
 "Manage Servers" = "Manage Servers";
 "Manage Servers…" = "Manage Servers…";
-"Manage extension" = "Manage extension";
 "Manage extensions marketplace installed unpacked" = "Manage extensions marketplace installed unpacked";
 "Manage scheduled update…" = "Manage scheduled update…";
 "Manage servers clients remote ssh pairing paired mobile phones computers port qr" = "Manage servers clients remote ssh pairing paired mobile phones computers port qr";

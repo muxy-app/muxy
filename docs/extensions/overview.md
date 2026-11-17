@@ -59,8 +59,9 @@ which offers Files and Git with their permissions listed.
 Muxy checks installed marketplace extensions for updates at startup, every six
 hours while it stays open, and when you open **Settings → Extensions**. A dot on
 **Extensions** at the bottom of the sidebar marks available updates. They appear
-in the installed list; use **Update all** or an extension's update controls to
-install them.
+in the installed list. Use **Check for updates** on the **Installed** tab to
+check again at any time; the page shows the result or an error if the check
+fails. Use **Update all** or an extension's update controls to install updates.
 Unpacked development extensions are excluded from these checks.
 
 ## Security

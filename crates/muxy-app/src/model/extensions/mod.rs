@@ -21,6 +21,7 @@ mod updates;
 mod workspace;
 mod worktrees;
 
+pub(crate) use checks::UpdateCheck;
 pub(crate) use commands::{ExtensionShortcut, RunCommand};
 pub(in crate::model) use events::root_of;
 pub(crate) use installs::{ActiveInstall, FinishedInstall};

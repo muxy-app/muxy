@@ -667,14 +667,13 @@ fn an_installed_page_links_to_every_section(cx: &mut TestAppContext) {
                 Section::Overview,
                 Section::Updates,
                 Section::Permissions,
-                Section::Logs,
-                Section::Manage
+                Section::Logs
             ]
         );
         view.sections = vec![
             (Section::Overview, 0),
+            (Section::Permissions, 2),
             (Section::Logs, 3),
-            (Section::Manage, 4),
         ];
         view.jumped = Some(Section::Logs);
         assert_eq!(

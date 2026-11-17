@@ -27,7 +27,6 @@ pub(super) enum Section {
     Permissions,
     Settings,
     Logs,
-    Manage,
 }
 
 impl Section {
@@ -38,7 +37,6 @@ impl Section {
             Self::Permissions => tr_key!("Permissions"),
             Self::Settings => tr_key!("Settings"),
             Self::Logs => tr_key!("Logs"),
-            Self::Manage => tr_key!("Manage"),
         }
     }
 
@@ -49,7 +47,6 @@ impl Section {
             Self::Permissions => "permissions",
             Self::Settings => "settings",
             Self::Logs => "logs",
-            Self::Manage => "manage",
         }
     }
 }
@@ -201,6 +198,20 @@ impl ExtensionsView {
             )
         };
         let byline = Self::byline(&details.about);
+        let actions = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(self.metrics.spacing3())
+            .when_some(local, |actions, (extension, _, unpacked)| {
+                actions.children(self.manage_actions(extension, *unpacked, cx))
+            })
+            .child(action);
+        let (inline, trailing) = if self.compact() {
+            (Some(actions), None)
+        } else {
+            (None, Some(actions))
+        };
         div()
             .flex()
             .items_start()
@@ -268,9 +279,13 @@ impl ExtensionsView {
                                         .map(|(text, accent)| self.badge(text, accent)),
                                 ),
                         )
-                    }),
+                    })
+                    .children(
+                        inline
+                            .map(|actions| div().flex().pt(self.metrics.spacing4()).child(actions)),
+                    ),
             )
-            .child(action)
+            .children(trailing)
     }
 
     fn section_links(&self, cx: &Context<Self>) -> gpui::Stateful<gpui::Div> {
@@ -329,7 +344,6 @@ impl ExtensionsView {
         installed: &[(Extension, bool, bool)],
         cx: &Context<Self>,
     ) -> Vec<(Option<Section>, AnyElement)> {
-        let name = details.name.clone();
         let local = Self::local(details, installed);
         let shown = shown(details, local);
         let art = self.art(details, local);
@@ -349,7 +363,7 @@ impl ExtensionsView {
             self.section(&tr!("Requested permissions"), self.permissions_body(&shown))
                 .into_any_element(),
         ));
-        let Some((extension, _, unpacked)) = local else {
+        let Some((extension, _, _)) = local else {
             return children;
         };
         if let Some(model) = self.model.upgrade() {
@@ -385,70 +399,90 @@ impl ExtensionsView {
                     .into_any_element(),
             ));
         }
-        children.push((
-            Some(Section::Manage),
-            self.manage_section(&name, extension, *unpacked, cx)
-                .into_any_element(),
-        ));
         children
     }
 
-    fn manage_section(
+    fn manage_actions(
         &self,
-        name: &str,
         extension: &Extension,
         unpacked: bool,
         cx: &Context<Self>,
-    ) -> gpui::Div {
-        let agent = self.agent_button("extension-agent", extension, unpacked, cx);
-        let owner = name.to_owned();
-        let removed = name.to_owned();
-        let published = self
+    ) -> Vec<gpui::Stateful<gpui::Div>> {
+        let name = extension.name.clone();
+        let mut actions = vec![self.icon_button(
+            "extension-reload",
+            tr_key!("Reload"),
+            "arrow.clockwise",
+            false,
+            |view, _, cx| view.reload(cx),
+            cx,
+        )];
+        if let Some((label, task)) = self.agent_action(extension, unpacked, cx) {
+            actions.push(self.icon_button(
+                &format!("extension-agent-{name}"),
+                label,
+                "sparkles",
+                false,
+                move |view, _, cx| view.agent_task(task.clone(), cx),
+                cx,
+            ));
+        }
+        if unpacked {
+            let folder = self
+                .model
+                .upgrade()
+                .and_then(|model| model.read(cx).extension_source(&name).ok())
+                .unwrap_or_else(|| extension.directory.clone());
+            actions.push(self.icon_button(
+                "extension-reveal-folder",
+                crate::opener::reveal_key(),
+                "folder",
+                false,
+                move |view, _, cx| view.reveal(folder.clone(), cx),
+                cx,
+            ));
+            let owner = name.clone();
+            actions.push(self.icon_button(
+                "extension-publish",
+                tr_key!("Publish…"),
+                "arrow.up.circle",
+                false,
+                move |view, _, cx| view.publish(&owner, cx),
+                cx,
+            ));
+        }
+        if let Some(url) = self
             .published
             .as_ref()
-            .filter(|(extension, _)| extension == name)
-            .map(|(_, url)| url.clone());
-        self.section(
-            &tr!("Manage extension"),
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(self.metrics.spacing4())
-                .children(agent)
-                .when(unpacked, |actions| {
-                    actions.child(self.button(
-                        "extension-publish",
-                        tr_key!("Publish…"),
-                        move |view, _, cx| view.publish(&owner, cx),
-                        cx,
-                    ))
-                })
-                .when_some(published, |actions, url| {
-                    actions.child(self.button(
-                        "extension-open-pull-request",
-                        tr_key!("Open Pull Request"),
-                        move |view, _, _| {
-                            if let Err(error) = crate::opener::open_url(&url, None) {
-                                view.error = Some(error.to_string());
-                            }
-                        },
-                        cx,
-                    ))
-                })
-                .child(
-                    self.button(
-                        "extension-remove",
-                        if unpacked {
-                            tr_key!("Unload folder")
-                        } else {
-                            tr_key!("Uninstall")
-                        },
-                        move |view, _, cx| view.remove(&removed, cx),
-                        cx,
-                    )
-                    .text_color(self.theme.danger),
-                ),
-        )
+            .filter(|(published, _)| *published == name)
+            .map(|(_, url)| url.clone())
+        {
+            actions.push(self.icon_button(
+                "extension-open-pull-request",
+                tr_key!("Open Pull Request"),
+                "arrow.up.forward.app",
+                false,
+                move |view, _, _| {
+                    if let Err(error) = crate::opener::open_url(&url, None) {
+                        view.error = Some(error.to_string());
+                    }
+                },
+                cx,
+            ));
+        }
+        actions.push(self.icon_button(
+            "extension-remove",
+            if unpacked {
+                tr_key!("Unload folder")
+            } else {
+                tr_key!("Uninstall")
+            },
+            "trash",
+            true,
+            move |view, _, cx| view.remove(&name, cx),
+            cx,
+        ));
+        actions
     }
 
     fn overview(
