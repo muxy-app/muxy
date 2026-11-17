@@ -29,12 +29,16 @@ pub(crate) const FILE_MANAGER: &str = if cfg!(target_os = "macos") {
 };
 
 pub(crate) fn reveal_label() -> gpui::SharedString {
+    muxy_ui::l10n::translate(reveal_key())
+}
+
+pub(crate) fn reveal_key() -> &'static str {
     if cfg!(target_os = "macos") {
-        tr!("Reveal in Finder")
+        muxy_ui::l10n::tr_key!("Reveal in Finder")
     } else if cfg!(windows) {
-        tr!("Show in File Explorer")
+        muxy_ui::l10n::tr_key!("Show in File Explorer")
     } else {
-        tr!("Show in File Manager")
+        muxy_ui::l10n::tr_key!("Show in File Manager")
     }
 }
 

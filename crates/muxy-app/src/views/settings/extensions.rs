@@ -1067,8 +1067,7 @@ impl ExtensionsView {
             });
         let actions = installed_tab.then(|| self.header_actions(installed, cx));
         let row = || div().flex().items_center().gap(self.metrics.spacing6());
-        let width = self.width.get();
-        let compact = width > px(0.0) && width < self.layout_scale().scaled(720.0);
+        let compact = self.compact();
         let header = div().flex().flex_col().gap(self.metrics.spacing6());
         if compact {
             header
@@ -1159,11 +1158,17 @@ impl ExtensionsView {
         Some(accessibility::announced(status, message, error).into_any_element())
     }
 
-    fn header_button(
+    fn compact(&self) -> bool {
+        let width = self.width.get();
+        width > px(0.0) && width < self.layout_scale().scaled(720.0)
+    }
+
+    fn icon_button(
         &self,
-        id: &'static str,
+        id: &str,
         label: &'static str,
         symbol: &'static str,
+        danger: bool,
         action: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
         cx: &Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
@@ -1179,10 +1184,14 @@ impl ExtensionsView {
         controls::button(
             self.style(),
             id,
-            controls::Button::secondary("")
-                .named(&label)
-                .icon(symbol)
-                .enabled(!self.busy(cx) && !checking),
+            if danger {
+                controls::Button::danger("")
+            } else {
+                controls::Button::secondary("")
+            }
+            .named(&label)
+            .icon(symbol)
+            .enabled(!self.busy(cx) && !checking),
             cx.listener(move |view, _, window, cx| {
                 if !view.busy(cx) {
                     view.completed = None;
@@ -1212,26 +1221,29 @@ impl ExtensionsView {
             .flex_none()
             .items_center()
             .gap(self.metrics.spacing3())
-            .child(self.header_button(
+            .child(self.icon_button(
                 "extension-load",
                 tr_key!("Load Unpacked…"),
                 "folder",
+                false,
                 |view, _, cx| view.load_unpacked(cx),
                 cx,
             ))
-            .child(self.header_button(
+            .child(self.icon_button(
                 "extension-reload",
                 tr_key!("Reload"),
                 "arrow.clockwise",
+                false,
                 |view, _, cx| view.reload(cx),
                 cx,
             ))
             .when(packaged, |actions| {
                 actions.child(
-                    self.header_button(
+                    self.icon_button(
                         "extension-check-updates",
                         tr_key!("Check for updates"),
                         "checkmark.circle",
+                        false,
                         |view, _, cx| view.check_updates(cx),
                         cx,
                     )
