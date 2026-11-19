@@ -1,5 +1,6 @@
 mod archive;
 mod clear;
+mod colors;
 mod detection;
 mod events;
 mod fidelity;
