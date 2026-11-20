@@ -120,6 +120,7 @@ pub(super) struct NativeWebview {
     last_click: Cell<Option<std::time::Instant>>,
     placed: Cell<Option<(u32, u32, f32)>>,
     shown: Cell<Option<bool>>,
+    background: Cell<Option<Rgba>>,
 }
 
 impl NativeWebview {
@@ -127,13 +128,17 @@ impl NativeWebview {
         window: &Window,
         source: Source,
         script: &str,
-        _background: Rgba,
+        background: Rgba,
     ) -> Result<(Self, Receiver<Event>), String> {
         HasWindowHandle::window_handle(window).map_err(|error| error.to_string())?;
-        Self::open(source, script)
+        Self::open(source, script, background)
     }
 
-    fn open(source: Source, script: &str) -> Result<(Self, Receiver<Event>), String> {
+    fn open(
+        source: Source,
+        script: &str,
+        background: Rgba,
+    ) -> Result<(Self, Receiver<Event>), String> {
         let url = source.entry_url().map_err(|error| error.to_string())?;
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
         let (events, receiver) = async_channel::bounded(256);
@@ -144,7 +149,7 @@ impl NativeWebview {
             source: Some(source),
             browser: None,
             script: script.to_owned(),
-            transparent: true,
+            background: Some(background),
             events: Events::Extension(events.clone()),
             shared: shared.clone(),
         };
@@ -166,6 +171,7 @@ impl NativeWebview {
                 last_click: Cell::new(None),
                 placed: Cell::new(None),
                 shown: Cell::new(None),
+                background: Cell::new(Some(background)),
             },
             receiver,
         ))
@@ -283,10 +289,16 @@ impl NativeWebview {
         &self,
         bounds: Bounds<Pixels>,
         _clip: Bounds<Pixels>,
-        _background: Rgba,
+        background: Rgba,
         _radius: f64,
         scale: f32,
     ) {
+        if let Some(current) = self.background.get()
+            && current != background
+        {
+            self.background.set(Some(background));
+            self.with(move |runtime, page| page.set_background(runtime, background));
+        }
         let pixels =
             |points: Pixels| (f32::from(points) * scale).round().clamp(0.0, 16384.0) as u32;
         let placed = (pixels(bounds.size.width), pixels(bounds.size.height), scale);
