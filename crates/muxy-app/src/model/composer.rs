@@ -495,13 +495,14 @@ impl AppModel {
                 } else {
                     preview.rewritten.clone()
                 };
-                let attachments = open_draft
-                    .map(|draft| draft.file_attachments)
-                    .unwrap_or_else(|| {
+                let attachments = open_draft.map_or_else(
+                    || {
                         existing
                             .map(|draft| draft.file_attachments.clone())
                             .unwrap_or_default()
-                    });
+                    },
+                    |draft| draft.file_attachments,
+                );
                 let image_numbers: Vec<u64> = existing
                     .map(|draft| {
                         draft
@@ -848,9 +849,11 @@ impl AppModel {
                             .unwrap_or_else(PoisonError::into_inner)
                             .draft_revision(&key)
                             == revision
-                            && let Some(view) = &model.composer.view
                         {
-                            view.update(cx, |view, cx| view.set_draft(draft, cx));
+                            model.composer.enhancement_previews.remove(&key);
+                            if let Some(view) = &model.composer.view {
+                                view.update(cx, |view, cx| view.set_draft(draft, cx));
+                            }
                         }
                     }
                     Err(error) => model.composer_error(error, cx),
@@ -1424,6 +1427,7 @@ impl AppModel {
                     .clear_if_revision(key, revision);
                 match cleared {
                     Ok(true) => {
+                        self.composer.enhancement_previews.remove(key);
                         if self.composer.key.as_ref() == Some(key)
                             && let Some(view) = &self.composer.view
                         {

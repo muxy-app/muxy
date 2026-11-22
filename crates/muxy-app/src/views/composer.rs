@@ -232,6 +232,7 @@ impl Composer {
     }
 
     pub(crate) fn set_draft(&mut self, draft: ComposerDraft, cx: &mut Context<Self>) {
+        self.enhanced_preview = None;
         self.input
             .update(cx, |input, cx| input.set_text(draft.text.clone(), cx));
         self.draft = draft;
