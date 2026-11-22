@@ -252,7 +252,7 @@ impl AppModel {
         self.toggle_sidebar_peek(cx);
     }
 
-    pub(crate) fn flip_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn flip_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.appearance.sidebar_expanded = !self.appearance.sidebar_expanded;
         self.save_appearance(cx);
         self.dismiss_overlay(cx);
@@ -418,10 +418,7 @@ impl AppModel {
         if !self.sidebar_auto_hides() {
             self.reset_sidebar_peek();
         }
-        #[cfg(target_os = "windows")]
-        if !window.is_window_hovered() {
-            self.sidebar_pointer_left(cx);
-        }
+        self.note_window_hover(window.is_window_hovered(), cx);
         let pending = self.tab_drag.pending();
         self.tab_drag
             .cancel_unavailable(self.state.current_project(), false);

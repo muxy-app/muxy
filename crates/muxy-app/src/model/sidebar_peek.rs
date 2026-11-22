@@ -29,6 +29,8 @@ pub(crate) struct SidebarPeek {
     pub(crate) reach: Rc<Cell<Option<Bounds<Pixels>>>>,
     pointer: Option<Point<Pixels>>,
     pressed: bool,
+    dismissed: bool,
+    window_hovered: bool,
     timer: Option<Task<()>>,
 }
 
@@ -53,9 +55,17 @@ impl AppModel {
             )
     }
 
+    pub(crate) fn sidebar_shown(&self) -> bool {
+        if self.appearance.sidebar_auto_hide {
+            self.sidebar_peek_open()
+        } else {
+            self.appearance.sidebar_expanded
+        }
+    }
+
     pub(crate) fn toggle_sidebar_peek(&mut self, cx: &mut Context<Self>) {
         if self.sidebar_peek_open() {
-            self.hide_peek(cx);
+            self.dismiss_peek(cx);
         } else {
             self.show_peek(cx);
             self.sidebar_peek.phase = Phase::Pinned;
@@ -76,7 +86,11 @@ impl AppModel {
         let at_edge = self.pointer_within(&self.sidebar_peek.edge);
         let within = self.pointer_within(&self.sidebar_peek.reach);
         match self.sidebar_peek.phase {
-            Phase::Hidden if self.sidebar_peek.motion.is_some() && within => self.show_peek(cx),
+            Phase::Hidden
+                if self.sidebar_peek.motion.is_some() && within && !self.sidebar_peek.dismissed =>
+            {
+                self.show_peek(cx);
+            }
             Phase::Hidden if at_edge && self.window_active && !self.coverage().modal() => {
                 self.sidebar_peek.phase = Phase::Arming;
                 self.schedule_peek(DWELL, cx);
@@ -108,7 +122,7 @@ impl AppModel {
             .get()
             .is_some_and(|reach| position.y >= reach.top() && !reach.contains(&position));
         if self.sidebar_peek.phase == Phase::Pinned && below_title {
-            self.hide_peek(cx);
+            self.dismiss_peek(cx);
         }
     }
 
@@ -118,9 +132,17 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn note_window_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        let left = self.sidebar_peek.window_hovered && !hovered;
+        self.sidebar_peek.window_hovered = hovered;
+        if left {
+            self.sidebar_pointer_left(cx);
+        }
+    }
+
     pub(crate) fn dismiss_sidebar_peek(&mut self, cx: &mut Context<Self>) {
         if self.sidebar_peek.phase != Phase::Hidden {
-            self.hide_peek(cx);
+            self.dismiss_peek(cx);
         }
     }
 
@@ -138,7 +160,7 @@ impl AppModel {
     }
 
     fn peek_held(&self) -> bool {
-        self.sidebar_peek.pressed || self.coverage().modal()
+        self.sidebar_peek.pressed || self.coverage().modal() || self.layout_drag_pending()
     }
 
     fn schedule_peek(&mut self, delay: Duration, cx: &mut Context<Self>) {
@@ -176,6 +198,7 @@ impl AppModel {
 
     fn show_peek(&mut self, cx: &mut Context<Self>) {
         self.sidebar_peek.phase = Phase::Shown;
+        self.sidebar_peek.dismissed = false;
         self.sidebar_peek.timer = None;
         match &mut self.sidebar_peek.motion {
             Some(motion) => motion.show(),
@@ -187,6 +210,11 @@ impl AppModel {
             }
         }
         cx.notify();
+    }
+
+    fn dismiss_peek(&mut self, cx: &mut Context<Self>) {
+        self.hide_peek(cx);
+        self.sidebar_peek.dismissed = true;
     }
 
     fn hide_peek(&mut self, cx: &mut Context<Self>) {

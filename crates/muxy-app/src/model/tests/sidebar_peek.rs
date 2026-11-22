@@ -379,3 +379,27 @@ fn the_island_stays_clear_of_a_visible_status_bar(cx: &mut TestAppContext) {
         "the island ends above the status bar"
     );
 }
+
+#[gpui::test]
+fn the_window_losing_hover_hides_the_island(cx: &mut TestAppContext) {
+    let (view, cx) = open(FLOATING, cx);
+    reveal(cx);
+    view.update(cx, |model, cx| {
+        model.note_window_hover(true, cx);
+        model.note_window_hover(false, cx);
+    });
+    wait(cx, GRACE + SLIDE);
+    assert!(!peeking(&view, cx));
+}
+
+#[gpui::test]
+fn hiding_with_toggle_sidebar_is_not_undone_by_a_small_move(cx: &mut TestAppContext) {
+    let (view, cx) = open(FLOATING, cx);
+    reveal(cx);
+    hover(cx, INSIDE);
+    cx.dispatch_action(ToggleSidebar);
+    wait(cx, SLIDE / 4);
+    hover(cx, point(INSIDE.x + px(40.0), INSIDE.y));
+    wait(cx, SLIDE * 2);
+    assert!(!peeking(&view, cx));
+}
