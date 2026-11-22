@@ -276,6 +276,7 @@
 "Auto" = "Auto";
 "Auto · %@" = "Auto · %@";
 "Auto · None installed" = "Auto · None installed";
+"Auto-hide sidebar" = "Auto-hide sidebar";
 "Automatic updates are available in installed releases of %@" = "Automatic updates are available in installed releases of %@";
 "Automatic updates are not available on this platform yet." = "Automatic updates are not available on this platform yet.";
 "Automatic updates require a Developer ID signed app" = "Automatic updates require a Developer ID signed app";
@@ -974,6 +975,7 @@
 "Hide Others" = "Hide Others";
 "Hide agents panel" = "Hide agents panel";
 "Hide projects without tabs" = "Hide projects without tabs";
+"Hide the sidebar until the pointer nears the window's left edge, then slide it in as a floating panel over your tabs. It keeps its expanded or icon look. Toggle Sidebar shows or hides it without turning this off." = "Hide the sidebar until the pointer nears the window's left edge, then slide it in as a floating panel over your tabs. It keeps its expanded or icon look. Toggle Sidebar shows or hides it without turning this off.";
 "Hides the panel" = "Hides the panel";
 "Hides when it loses focus" = "Hides when it loses focus";
 "Hiding apps is not available on this platform." = "Hiding apps is not available on this platform.";

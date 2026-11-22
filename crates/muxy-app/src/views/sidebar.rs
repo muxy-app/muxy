@@ -1,7 +1,9 @@
+mod island;
 mod resize;
 mod vibrancy;
 pub(super) mod worktrees;
 
+pub(super) use island::layer as island;
 pub(crate) use resize::SidebarResize;
 pub(super) use resize::handle as resize_handle;
 
@@ -151,17 +153,20 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
             .flex()
             .flex_col()
             .flex_none()
-            .w(px(model.sidebar_width()))
+            .w(px(model.sidebar_panel_width()))
             .h_full()
             .min_h(px(0.0))
             .bg(model.sidebar_background())
             .map(|sidebar| super::titlebar::top_corners(sidebar, window, true, false))
-            .child(div().h(m.title_bar_height()).flex_none())
+            .child(div().h(top_inset(model)).flex_none())
             .children(model.webviews.sidebar.as_ref().map(|sidebar| {
                 div()
                     .flex()
                     .flex_1()
                     .min_h(px(0.0))
+                    .when(model.sidebar_peeking(), |surface| {
+                        surface.pt(m.spacing3()).pb(m.radius_xl())
+                    })
                     .child(sidebar.surface.view.clone())
             }))
             .into_any_element();
@@ -178,7 +183,7 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .flex()
         .flex_col()
         .flex_none()
-        .w(px(model.sidebar_width()))
+        .w(px(model.sidebar_panel_width()))
         .h_full()
         .min_h(px(0.0))
         .child(
@@ -189,7 +194,7 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
                 .min_h(px(0.0))
                 .bg(model.sidebar_background())
                 .map(|sidebar| super::titlebar::top_corners(sidebar, window, true, false))
-                .child(div().h(m.title_bar_height()).flex_none())
+                .child(div().h(top_inset(model)).flex_none())
                 .child(header)
                 .child(contents)
                 .children(super::agents_panel::collapsed_button(model, cx)),
@@ -197,6 +202,14 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .children(super::agents_panel::docked(model, window, cx))
         .child(footer(model, cx))
         .into_any_element()
+}
+
+fn top_inset(model: &AppModel) -> Pixels {
+    if model.sidebar_peeking() {
+        model.metrics.spacing2()
+    } else {
+        model.metrics.title_bar_height()
+    }
 }
 
 fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
@@ -551,7 +564,7 @@ impl AppModel {
     pub(crate) fn cached_sidebar(&self) -> gpui::AnyView {
         gpui::AnyView::from(self.sidebar_view.clone()).cached(
             div()
-                .w(px(self.sidebar_width()))
+                .w(px(self.sidebar_panel_width()))
                 .h_full()
                 .min_h(px(0.0))
                 .flex_none()
@@ -561,16 +574,16 @@ impl AppModel {
     }
 
     pub(crate) fn sidebar_width(&self) -> f32 {
+        if self.appearance.sidebar_auto_hide {
+            0.0
+        } else {
+            self.sidebar_natural_width()
+        }
+    }
+
+    pub(crate) fn sidebar_natural_width(&self) -> f32 {
         if self.appearance.sidebar_expanded {
-            let width = self
-                .appearance
-                .sidebar_expanded_width
-                .filter(|width| width.is_finite())
-                .map_or_else(
-                    || self.metrics.sidebar_expanded_width(),
-                    |width| self.metrics.scaled(width),
-                );
-            f32::from(self.clamp_expanded_sidebar_width(width))
+            f32::from(self.expanded_sidebar_width())
         } else if (self.appearance.layout == AppLayout::ProjectFocused
             || self.extension_sidebar_active())
             && self.appearance.sidebar_collapsed_style == SidebarCollapsedStyle::Icons
@@ -579,6 +592,26 @@ impl AppModel {
         } else {
             0.0
         }
+    }
+
+    pub(crate) fn sidebar_panel_width(&self) -> f32 {
+        if self.sidebar_peeking() {
+            self.sidebar_natural_width()
+        } else {
+            self.sidebar_width()
+        }
+    }
+
+    fn expanded_sidebar_width(&self) -> Pixels {
+        let width = self
+            .appearance
+            .sidebar_expanded_width
+            .filter(|width| width.is_finite())
+            .map_or_else(
+                || self.metrics.sidebar_expanded_width(),
+                |width| self.metrics.scaled(width),
+            );
+        self.clamp_expanded_sidebar_width(width)
     }
 
     fn clamp_expanded_sidebar_width(&self, width: Pixels) -> Pixels {

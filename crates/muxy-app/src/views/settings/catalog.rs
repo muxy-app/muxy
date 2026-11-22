@@ -425,6 +425,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
+        id: "sidebar-auto-hide",
+        label: tr_key!("Auto-hide sidebar"),
+        description: tr_key!(
+            "Hide the sidebar until the pointer nears the window's left edge, then slide it in as a floating panel over your tabs. It keeps its expanded or icon look. Toggle Sidebar shows or hides it without turning this off."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "sidebar-vibrancy",
         label: tr_key!("Sidebar vibrancy"),
         description: tr_key!("Use a translucent macOS background while the sidebar is expanded."),

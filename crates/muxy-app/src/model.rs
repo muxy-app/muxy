@@ -43,6 +43,7 @@ mod server_groups;
 mod server_status;
 mod servers;
 pub(crate) use server_status::ServerStatus;
+pub(crate) mod sidebar_peek;
 pub(crate) mod tab_windows;
 mod tabs;
 pub(crate) mod tips;
@@ -191,6 +192,7 @@ pub(crate) struct AppModel {
     pub(crate) focus_owner: focus::FocusOwner,
     pub(crate) split_resize: crate::views::splits::SplitResizeState,
     pub(crate) sidebar_resize: Option<crate::views::sidebar::SidebarResize>,
+    pub(crate) sidebar_peek: sidebar_peek::SidebarPeek,
     #[cfg(not(target_os = "macos"))]
     pub(crate) sidebar_available_width: gpui::Pixels,
     pub(crate) agent_sessions: agent_sessions::AgentSessions,
@@ -485,6 +487,9 @@ impl AppModel {
 
     fn activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.window_active = window.is_window_active();
+        if !self.window_active {
+            self.dismiss_sidebar_peek(cx);
+        }
         if self.window_active {
             let surface = self
                 .focused_float(window, cx)
@@ -671,6 +676,7 @@ impl AppModel {
             focus_owner: focus::FocusOwner::default(),
             split_resize: crate::views::splits::SplitResizeState::default(),
             sidebar_resize: None,
+            sidebar_peek: sidebar_peek::SidebarPeek::default(),
             #[cfg(not(target_os = "macos"))]
             sidebar_available_width: gpui::px(f32::MAX),
             agent_sessions: agent_sessions::AgentSessions::new(cx),
@@ -3324,6 +3330,7 @@ pub(crate) mod tests {
     mod session_names;
     mod session_ownership;
     mod session_show;
+    mod sidebar_peek;
     mod splits;
     mod tab_groups;
     mod tab_menu;

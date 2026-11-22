@@ -62,7 +62,7 @@ fn fits(kind: SettingKind, value: &Value) -> bool {
 impl AppModel {
     pub(super) fn ui_state(&self) -> Value {
         json!({
-            "sidebar": self.appearance.sidebar_expanded,
+            "sidebar": self.sidebar_shown(),
             "agentsPanel": self.agents_panel_shown(),
             "agentSessions": self.appearance.agent_sessions_visible,
             "composer": self.composer.view.is_some(),
@@ -107,7 +107,7 @@ impl AppModel {
         match call.verb.as_str() {
             "ui.state" => return Ok(self.ui_state()),
             "ui.setSidebar" => {
-                if visible != Some(self.appearance.sidebar_expanded) {
+                if visible != Some(self.sidebar_shown()) {
                     self.toggle_sidebar(window, cx);
                 }
             }
