@@ -37,6 +37,7 @@ type Target = (PaneId, (ServerId, ChannelId), Modes, Option<PathQuoting>);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct EnhancementPreview {
     pub(super) key: DraftId,
+    pub(super) original: String,
     pub(super) rewritten: String,
 }
 
@@ -137,6 +138,7 @@ impl AppModel {
                 (!store.load_status().is_ready()).then(|| store.load_status().warnings.join("; ")),
             )
         };
+        let preview_text = draft.text.clone();
         let view = cx.new(|cx| {
             Composer::new(
                 draft,
@@ -146,6 +148,14 @@ impl AppModel {
                 cx,
             )
         });
+        if self
+            .composer
+            .enhancement_preview
+            .as_ref()
+            .is_some_and(|preview| preview.key == key && preview.original != preview_text)
+        {
+            self.composer.enhancement_preview = None;
+        }
         let preview = self
             .composer
             .enhancement_preview
@@ -426,6 +436,7 @@ impl AppModel {
         let open = self.composer.view.is_some() && self.composer.key.as_ref() == Some(key);
         self.composer.enhancement_preview = Some(EnhancementPreview {
             key: key.clone(),
+            original: original.to_owned(),
             rewritten: rewritten.clone(),
         });
         if open && let Some(view) = &self.composer.view {
@@ -447,8 +458,24 @@ impl AppModel {
             return;
         };
         let open = self.composer.view.is_some() && self.composer.key.as_ref() == Some(&preview.key);
+        let current = self.draft_text(&preview.key, cx);
+        if current != preview.original {
+            if open && let Some(view) = &self.composer.view {
+                view.update(cx, |view, cx| {
+                    if view.enhanced_preview.take().is_some() {
+                        cx.notify();
+                    }
+                });
+            }
+            self.show_toast(
+                tr!("The draft changed while it was being rewritten, so it was left as you wrote it.")
+                    .to_string(),
+                None,
+                cx,
+            );
+            return;
+        }
         let next_text = if append {
-            let current = self.draft_text(&preview.key, cx);
             crate::prompt::appended(&current, &preview.rewritten)
         } else {
             preview.rewritten.clone()
@@ -629,7 +656,13 @@ impl AppModel {
         let (Some(key), Some(view)) = (&self.composer.key, &self.composer.view) else {
             return Ok(());
         };
+        let key = key.clone();
         let draft = view.read(cx).draft.clone();
+        let stale_preview = self
+            .composer
+            .enhancement_preview
+            .as_ref()
+            .is_some_and(|preview| preview.key == key && preview.original != draft.text);
         let result = {
             let mut store = self
                 .composer
@@ -638,7 +671,7 @@ impl AppModel {
                 .unwrap_or_else(PoisonError::into_inner);
             store
                 .edit_content(key.clone(), draft.text, draft.file_attachments)
-                .map(|_| store.draft(key).cloned().unwrap_or_default())
+                .map(|_| store.draft(&key).cloned().unwrap_or_default())
         };
         let saved = match result {
             Ok(draft) => {
@@ -653,6 +686,9 @@ impl AppModel {
                 Err(error.to_string())
             }
         };
+        if stale_preview {
+            self.dismiss_prompt_enhancement_for(&key, cx);
+        }
         self.save_composer(cx);
         saved
     }

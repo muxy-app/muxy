@@ -774,3 +774,33 @@ fn submitting_the_composer_cancels_only_its_own_in_flight_prompt_enhancement(
     cx.run_until_parked();
     assert_eq!(composer_text(&view, cx), "");
 }
+
+#[gpui::test]
+fn editing_the_draft_while_a_preview_is_open_dismisses_the_stale_preview(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    cx.simulate_input("fix login");
+    view.update(cx, |model, cx| {
+        let key = model.composer_key();
+        let id = model.start_prompt_enhancement(&key, cx).0;
+        model.finish_prompt_enhancement(
+            id,
+            &key,
+            "fix login",
+            Ok("Fix the login bug cleanly.".into()),
+            cx,
+        );
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert_eq!(
+            composer.enhanced_preview.as_deref(),
+            Some("Fix the login bug cleanly.")
+        );
+    });
+    cx.simulate_input(" and signup");
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert!(composer.enhanced_preview.is_none());
+        assert!(model.composer.enhancement_preview.is_none());
+        assert_eq!(composer.draft.text, "fix login and signup");
+    });
+}
