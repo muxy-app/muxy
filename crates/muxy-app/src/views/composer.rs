@@ -31,6 +31,9 @@ pub(crate) enum ComposerEvent {
     Image(Vec<u8>),
     Close,
     Menu,
+    Enhance,
+    AcceptEnhancement { append: bool },
+    DismissEnhancement,
     Preferences(ComposerSettings),
 }
 
@@ -42,6 +45,8 @@ pub(crate) struct Composer {
     pub(crate) settings: ComposerSettings,
     pub(crate) error: Option<String>,
     pub(crate) sending: bool,
+    pub(crate) enhancing: bool,
+    pub(crate) enhanced_preview: Option<String>,
     theme: Theme,
     metrics: Metrics,
     resize: PanelResizeState,
@@ -116,6 +121,8 @@ impl Composer {
             settings,
             error: None,
             sending: false,
+            enhancing: false,
+            enhanced_preview: None,
             theme,
             metrics,
             resize: PanelResizeState::default(),

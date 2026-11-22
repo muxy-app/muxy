@@ -22,7 +22,7 @@ On macOS, choose **About Muxy** (or **About Muxy Beta**) from the app menu to op
 | Browser | The [built-in browser](../features/browser.md): terminal links, search engine, home page, profiles, import |
 | Servers | This computer's [server](../features/server.md#settings): connect, restart and stop, shell, history, and shell integration; the [phones](../features/mobile.md) and computers paired as clients; and [remote servers](../features/remote-servers.md) |
 | Extensions | Installed extensions and the marketplace |
-| AI | Tools and prompts for [Git](../features/git.md) actions |
+| AI | Tools and prompts for [Git](../features/git.md) actions, and for rewriting the Rich Input |
 | Backup & Restore | Export, restore, and import from 1.x |
 | About | App name, version, channel, Check for Updates |
 

@@ -34,6 +34,18 @@ use crate::{
 
 type Target = (PaneId, (ServerId, ChannelId), Modes, Option<PathQuoting>);
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct EnhancementPreview {
+    pub(super) key: DraftId,
+    pub(super) rewritten: String,
+}
+
+pub(super) struct ActiveEnhancement {
+    pub(super) id: u64,
+    pub(super) key: DraftId,
+    pub(super) cancellation: crate::ai::Cancellation,
+}
+
 pub(crate) struct ComposerRuntime {
     pub(crate) view: Option<Entity<Composer>>,
     pub(crate) closing: Option<Entity<Composer>>,
@@ -44,7 +56,18 @@ pub(crate) struct ComposerRuntime {
     subscription: Option<Subscription>,
     save: Option<Task<()>>,
     submission: Option<Task<()>>,
+    pub(super) enhancing: Option<ActiveEnhancement>,
+    enhance_serial: u64,
+    pub(super) enhancement_preview: Option<EnhancementPreview>,
     pub(super) preferences_dirty: bool,
+}
+
+impl Drop for ComposerRuntime {
+    fn drop(&mut self) {
+        if let Some(active) = self.enhancing.take() {
+            active.cancellation.cancel();
+        }
+    }
 }
 
 impl ComposerRuntime {
@@ -59,6 +82,9 @@ impl ComposerRuntime {
             subscription: None,
             save: None,
             submission: None,
+            enhancing: None,
+            enhance_serial: 0,
+            enhancement_preview: None,
             preferences_dirty: false,
         }
     }
@@ -120,9 +146,21 @@ impl AppModel {
                 cx,
             )
         });
+        let preview = self
+            .composer
+            .enhancement_preview
+            .as_ref()
+            .filter(|preview| preview.key == key)
+            .map(|preview| preview.rewritten.clone());
         view.update(cx, |view, _| {
             view.error = error;
             view.sending = self.composer.submission.is_some();
+            view.enhancing = self
+                .composer
+                .enhancing
+                .as_ref()
+                .is_some_and(|active| active.key == key);
+            view.enhanced_preview = preview;
         });
         self.place_composer_panel(&view, cx);
         self.composer.subscription = Some(cx.subscribe(&view, |model, _, event, cx| match event {
@@ -133,6 +171,11 @@ impl AppModel {
             ComposerEvent::Files(paths) => model.attach_composer_files(paths.clone(), cx),
             ComposerEvent::Image(bytes) => model.attach_composer_image(bytes.clone(), cx),
             ComposerEvent::Menu => model.composer_menu(cx),
+            ComposerEvent::Enhance => model.enhance_prompt(cx),
+            ComposerEvent::AcceptEnhancement { append } => {
+                model.apply_prompt_enhancement(*append, cx);
+            }
+            ComposerEvent::DismissEnhancement => model.dismiss_prompt_enhancement(cx),
             ComposerEvent::Preferences(settings) => {
                 if model.settings.composer.presentation != settings.presentation
                     && let Some(view) = &model.composer.view
@@ -197,6 +240,298 @@ impl AppModel {
         self.save_composer_draft(cx)
     }
 
+    pub(crate) fn enhance_prompt(&mut self, cx: &mut Context<Self>) {
+        if self.composer.enhancing.is_some() {
+            self.show_toast(
+                tr!("A prompt is already being rewritten.").to_string(),
+                None,
+                cx,
+            );
+            return;
+        }
+        if self.composer.submission.is_some() {
+            self.show_toast(
+                tr!("Wait for the composer to finish sending.").to_string(),
+                None,
+                cx,
+            );
+            return;
+        }
+        self.flush_preferences(cx);
+        let key = self
+            .composer
+            .key
+            .clone()
+            .unwrap_or_else(|| self.composer_key());
+        let original = self.draft_text(&key, cx);
+        if original.trim().is_empty() {
+            self.show_toast(
+                tr!("The composer is empty. Write a prompt, then try again.").to_string(),
+                None,
+                cx,
+            );
+            return;
+        }
+        #[cfg(not(test))]
+        self.ai.refresh_installed();
+        let configured = self
+            .settings
+            .ai
+            .providers
+            .get(crate::prompt::PROMPT_PROVIDER)
+            .map_or("", String::as_str);
+        let provider = match crate::ai::prompt_provider(&self.ai.installed, configured) {
+            Ok(provider) => provider,
+            Err(error) => {
+                self.fail_detail(error, "", cx);
+                return;
+            }
+        };
+        let model_id = self
+            .settings
+            .ai
+            .prompts
+            .get(crate::prompt::PROMPT_MODEL)
+            .cloned()
+            .unwrap_or_default();
+        if let Err(error) = provider.arguments_for("prompt", Some(&model_id)) {
+            self.fail_detail(error, "", cx);
+            return;
+        }
+        let instructions = self
+            .settings
+            .ai
+            .prompts
+            .get(crate::prompt::PROMPT_INSTRUCTIONS)
+            .cloned()
+            .unwrap_or_default();
+        let prompt = crate::prompt::enhancement_prompt(&original, &instructions);
+        let project = self.state.current_project();
+        let directory = if project.server_id.is_local() {
+            project.directory.clone()
+        } else {
+            self.path
+                .parent()
+                .map_or_else(std::env::temp_dir, std::path::Path::to_path_buf)
+        };
+        self.dismiss_prompt_enhancement_for(&key, cx);
+        let (id, cancellation) = self.start_prompt_enhancement(&key, cx);
+        cx.spawn(async move |model, cx| {
+            let result = crate::ai::run(move || {
+                provider.generate_with_model(&prompt, Some(&model_id), &directory, &cancellation)
+            })
+            .await;
+            let _ = model.update(cx, |model, cx| {
+                model.finish_prompt_enhancement(id, &key, &original, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn start_prompt_enhancement(
+        &mut self,
+        key: &DraftId,
+        cx: &mut Context<Self>,
+    ) -> (u64, crate::ai::Cancellation) {
+        self.composer.enhance_serial = self.composer.enhance_serial.wrapping_add(1);
+        let id = self.composer.enhance_serial;
+        let cancellation = crate::ai::Cancellation::default();
+        self.composer.enhancing = Some(ActiveEnhancement {
+            id,
+            key: key.clone(),
+            cancellation: cancellation.clone(),
+        });
+        self.set_enhancing(key, true, cx);
+        (id, cancellation)
+    }
+
+    fn cancel_prompt_enhancement(&mut self, key: &DraftId, cx: &mut Context<Self>) {
+        if self
+            .composer
+            .enhancing
+            .as_ref()
+            .is_some_and(|active| &active.key == key)
+            && let Some(active) = self.composer.enhancing.take()
+        {
+            active.cancellation.cancel();
+            self.set_enhancing(key, false, cx);
+        }
+    }
+
+    fn draft_text(&self, key: &DraftId, cx: &gpui::App) -> String {
+        if self.composer.key.as_ref() == Some(key)
+            && let Some(view) = &self.composer.view
+        {
+            return view.read(cx).draft.text.clone();
+        }
+        self.composer
+            .store
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .draft(key)
+            .map(|draft| draft.text.clone())
+            .unwrap_or_default()
+    }
+
+    fn set_enhancing(&mut self, key: &DraftId, enhancing: bool, cx: &mut Context<Self>) {
+        if self.composer.key.as_ref() == Some(key)
+            && let Some(view) = &self.composer.view
+        {
+            view.update(cx, |view, cx| {
+                view.enhancing = enhancing;
+                cx.notify();
+            });
+        }
+    }
+
+    pub(super) fn finish_prompt_enhancement(
+        &mut self,
+        id: u64,
+        key: &DraftId,
+        original: &str,
+        result: Result<String, String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .composer
+            .enhancing
+            .as_ref()
+            .is_none_or(|active| active.id != id)
+        {
+            return;
+        }
+        self.composer.enhancing = None;
+        self.set_enhancing(key, false, cx);
+        let output = match result {
+            Ok(output) => output,
+            Err(error) => {
+                self.fail_detail(error, "", cx);
+                return;
+            }
+        };
+        let current = self.draft_text(key, cx);
+        let Some(rewritten) = crate::prompt::replacement(original, &current, &output) else {
+            if current == original {
+                self.fail_detail(tr!("The CLI returned an empty prompt.").to_string(), "", cx);
+            } else {
+                self.show_toast(
+                    tr!("The draft changed while it was being rewritten, so it was left as you wrote it.")
+                        .to_string(),
+                    None,
+                    cx,
+                );
+            }
+            return;
+        };
+        let open = self.composer.view.is_some() && self.composer.key.as_ref() == Some(key);
+        self.composer.enhancement_preview = Some(EnhancementPreview {
+            key: key.clone(),
+            rewritten: rewritten.clone(),
+        });
+        if open && let Some(view) = &self.composer.view {
+            view.update(cx, |view, cx| {
+                view.enhanced_preview = Some(rewritten);
+                cx.notify();
+            });
+        } else {
+            self.show_toast(
+                tr!("Enhanced prompt is ready in Composer.").to_string(),
+                None,
+                cx,
+            );
+        }
+    }
+
+    pub(super) fn apply_prompt_enhancement(&mut self, append: bool, cx: &mut Context<Self>) {
+        let Some(preview) = self.composer.enhancement_preview.take() else {
+            return;
+        };
+        let open = self.composer.view.is_some() && self.composer.key.as_ref() == Some(&preview.key);
+        let next_text = if append {
+            let current = self.draft_text(&preview.key, cx);
+            crate::prompt::appended(&current, &preview.rewritten)
+        } else {
+            preview.rewritten.clone()
+        };
+        let open_attachments = open
+            .then(|| {
+                self.composer
+                    .view
+                    .as_ref()
+                    .map(|view| view.read(cx).draft.file_attachments.clone())
+            })
+            .flatten();
+        let updated = {
+            let mut store = self
+                .composer
+                .store
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let existing = store.draft(&preview.key);
+            let attachments = open_attachments.unwrap_or_else(|| {
+                existing
+                    .map(|draft| draft.file_attachments.clone())
+                    .unwrap_or_default()
+            });
+            let image_numbers: Vec<u64> = existing
+                .map(|draft| {
+                    draft
+                        .image_attachments
+                        .iter()
+                        .map(|attachment| attachment.number)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let next_text = crate::prompt::preserve_image_placeholders(next_text, &image_numbers);
+            store
+                .edit_content(preview.key.clone(), next_text, attachments)
+                .map(|_| store.draft(&preview.key).cloned().unwrap_or_default())
+        };
+        match updated {
+            Ok(draft) => {
+                if open && let Some(view) = &self.composer.view {
+                    view.update(cx, |view, cx| {
+                        view.enhanced_preview = None;
+                        view.set_draft(draft, cx);
+                    });
+                }
+                self.save_composer(cx);
+            }
+            Err(error) => {
+                self.composer.enhancement_preview = Some(preview);
+                self.fail_detail(error.to_string(), "", cx);
+            }
+        }
+    }
+
+    pub(super) fn dismiss_prompt_enhancement(&mut self, cx: &mut Context<Self>) {
+        if let Some(key) = self.composer.key.clone() {
+            self.dismiss_prompt_enhancement_for(&key, cx);
+        } else {
+            self.composer.enhancement_preview = None;
+        }
+    }
+
+    fn dismiss_prompt_enhancement_for(&mut self, key: &DraftId, cx: &mut Context<Self>) {
+        if self
+            .composer
+            .enhancement_preview
+            .as_ref()
+            .is_some_and(|preview| &preview.key == key)
+        {
+            self.composer.enhancement_preview = None;
+        }
+        if self.composer.key.as_ref() == Some(key)
+            && let Some(view) = &self.composer.view
+        {
+            view.update(cx, |view, cx| {
+                if view.enhanced_preview.take().is_some() {
+                    cx.notify();
+                }
+            });
+        }
+    }
+
     pub(crate) fn send_composer(
         &mut self,
         enter: bool,
@@ -222,6 +557,14 @@ impl AppModel {
     pub(super) fn dismiss_composer(&mut self, clear: bool, cx: &mut Context<Self>) {
         self.close_composer_menu(cx);
         if clear && let Some(key) = &self.composer.key {
+            if self
+                .composer
+                .enhancement_preview
+                .as_ref()
+                .is_some_and(|preview| &preview.key == key)
+            {
+                self.composer.enhancement_preview = None;
+            }
             let result = self
                 .composer
                 .store
@@ -935,19 +1278,21 @@ impl AppModel {
             return;
         };
         let targets = match self.composer_targets(cx) {
-            Ok(targets) => targets,
+            Ok(targets) if !targets.is_empty() => targets,
+            Ok(_) => {
+                self.composer_error(tr!("Open a live terminal before sending.").to_string(), cx);
+                return;
+            }
             Err(error) => {
                 self.composer_error(error, cx);
                 return;
             }
         };
-        if targets.is_empty() {
-            self.composer_error(tr!("Open a live terminal before sending.").to_string(), cx);
-            return;
-        }
         let Some((revision, plan)) = self.composer_plan(&key, &view, &targets, enter, cx) else {
             return;
         };
+        self.cancel_prompt_enhancement(&key, cx);
+        self.dismiss_prompt_enhancement_for(&key, cx);
         let clear = self.settings.composer.clear_after_sending;
         view.update(cx, |view, cx| {
             view.sending = true;
@@ -957,77 +1302,214 @@ impl AppModel {
         let store = self.composer.store.clone();
         let workers = self.composer_workers(&targets);
         self.composer.submission = Some(cx.spawn(async move |model, cx| {
-            let prepared = cx.background_executor().spawn(async move { prepare(&plan, &mut store.lock().unwrap_or_else(PoisonError::into_inner)) }).await;
+            let prepared = cx
+                .background_executor()
+                .spawn(async move {
+                    prepare(
+                        &plan,
+                        &mut store.lock().unwrap_or_else(PoisonError::into_inner),
+                    )
+                })
+                .await;
             let mut completed = 0;
             let result = async {
                 let steps = prepared?;
                 let _ = model.update(cx, |model, cx| {
                     if model.composer.key.as_ref() == Some(&key)
-                        && model.settings.composer.presentation == muxy_app_core::settings::ComposerPresentation::Floating {
+                        && model.settings.composer.presentation
+                            == muxy_app_core::settings::ComposerPresentation::Floating
+                    {
                         model.dismiss_composer(false, cx);
                     }
                 });
-                let pastes_images = steps.iter().any(|step| matches!(step, Step::Image(_))) && targets.iter().any(|(_, (server, _), ..)| server.is_local());
-                let mut clipboard = if pastes_images { Some(muxy_ui::pasteboard::Lease::capture()?) } else { None };
-                for (pane, attachment, modes, quoting) in &targets {
-                    let (server, channel) = *attachment;
-                    let (worker, generation) = workers.get(&server).ok_or_else(|| tr!("Terminal connection closed before delivery was confirmed").to_string())?;
-                    let generation = *generation;
-                    let mut payload = vec![0x15];
-                    for step in &steps {
-                        let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, *quoting, cx)).unwrap_or(false);
-                        if !current { return Err(tr!("Composer target changed; sending stopped.").to_string()); }
-                        match step {
-                            Step::Text(text) => payload.extend(muxy_client::input::paste(text, *modes)),
-                            Step::File(path) if !server.is_local() => {
-                                let remote = send_remote(&model, cx, *pane, server, *quoting, Upload::Files(vec![path.clone()])).await?;
-                                payload.extend(muxy_client::input::paste(&remote, *modes));
-                            }
-                            Step::File(path) => {
-                                let text = quoted(std::slice::from_ref(path), *quoting, || tr!("Invalid attachment path").to_string())?;
-                                payload.extend(muxy_client::input::paste(&text, *modes));
-                            }
-                            Step::Image(png) if !server.is_local() => {
-                                let remote = send_remote(&model, cx, *pane, server, *quoting, Upload::Image(png.to_vec(), "png")).await?;
-                                payload.extend(muxy_client::input::paste(&remote, *modes));
-                            }
-                            Step::Image(png) => {
-                                if !payload.is_empty() { deliver(worker, generation, channel, std::mem::take(&mut payload)).await?; }
-                                if let Some(clipboard) = &mut clipboard { clipboard.write_png(png.to_vec())?; }
-                                deliver(worker, generation, channel, vec![0x16]).await?;
-                                cx.background_executor().timer(std::time::Duration::from_millis(350)).await;
-                            }
-                        }
-                    }
-                    let current = model.update(cx, |model, cx| model.composer_target_current(&key, *pane, *attachment, generation, *quoting, cx)).unwrap_or(false);
-                    if !current { return Err(tr!("Composer target changed; sending stopped.").to_string()); }
-                    if enter { payload.push(b'\r'); }
-                    if !payload.is_empty() { deliver(worker, generation, channel, payload).await?; }
+                let pastes_images = steps.iter().any(|step| matches!(step, Step::Image(_)))
+                    && targets.iter().any(|(_, (server, _), ..)| server.is_local());
+                let mut clipboard = if pastes_images {
+                    Some(muxy_ui::pasteboard::Lease::capture()?)
+                } else {
+                    None
+                };
+                for target in &targets {
+                    deliver_composer_target(
+                        &model,
+                        cx,
+                        &key,
+                        *target,
+                        &workers,
+                        &steps,
+                        &mut clipboard,
+                        enter,
+                    )
+                    .await?;
                     completed += 1;
                 }
                 Ok::<_, String>(())
-            }.await;
+            }
+            .await;
             let _ = model.update(cx, |model, cx| {
-                model.composer.submission = None;
-                if let Some(view) = &model.composer.view { view.update(cx, |view, cx| { view.sending = false; cx.notify(); }); }
-                match result {
-                    Ok(()) if clear => {
-                        let cleared = model.composer.store.lock().unwrap_or_else(PoisonError::into_inner).clear_if_revision(&key, revision);
-                        match cleared {
-                            Ok(true) => {
-                                if model.composer.key.as_ref() == Some(&key) && let Some(view) = &model.composer.view { view.update(cx, |view, cx| view.set_draft(ComposerDraft::default(), cx)); }
-                                model.save_composer(cx);
-                            }
-                            Ok(false) => {},
-                            Err(error) => model.composer_error(error.to_string(), cx),
-                        }
-                    }
-                    Ok(()) => {},
-                    Err(error) => model.composer_error(tr!("%lld/%lld terminals sent. %@ Draft preserved; check the terminal before retrying.", completed, targets.len(), &error).to_string(), cx),
-                }
+                model.finish_composer_submission(
+                    &key,
+                    revision,
+                    clear,
+                    completed,
+                    targets.len(),
+                    result,
+                    cx,
+                );
             });
         }));
     }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Internal submission completion state"
+    )]
+    fn finish_composer_submission(
+        &mut self,
+        key: &DraftId,
+        revision: u64,
+        clear: bool,
+        completed: usize,
+        total: usize,
+        result: Result<(), String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.composer.submission = None;
+        if let Some(view) = &self.composer.view {
+            view.update(cx, |view, cx| {
+                view.sending = false;
+                cx.notify();
+            });
+        }
+        match result {
+            Ok(()) if clear => {
+                let cleared = self
+                    .composer
+                    .store
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clear_if_revision(key, revision);
+                match cleared {
+                    Ok(true) => {
+                        if self.composer.key.as_ref() == Some(key)
+                            && let Some(view) = &self.composer.view
+                        {
+                            view.update(cx, |view, cx| view.set_draft(ComposerDraft::default(), cx));
+                        }
+                        self.save_composer(cx);
+                    }
+                    Ok(false) => {}
+                    Err(error) => self.composer_error(error.to_string(), cx),
+                }
+            }
+            Ok(()) => {}
+            Err(error) => self.composer_error(
+                tr!(
+                    "%lld/%lld terminals sent. %@ Draft preserved; check the terminal before retrying.",
+                    completed,
+                    total,
+                    &error
+                )
+                .to_string(),
+                cx,
+            ),
+        }
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Async delivery helper receives submission state from submit_composer"
+)]
+async fn deliver_composer_target(
+    model: &gpui::WeakEntity<AppModel>,
+    cx: &mut gpui::AsyncApp,
+    key: &DraftId,
+    target: Target,
+    workers: &HashMap<ServerId, (crate::boot::Worker, u64)>,
+    steps: &[Step],
+    clipboard: &mut Option<muxy_ui::pasteboard::Lease>,
+    enter: bool,
+) -> Result<(), String> {
+    let (pane, attachment, terminal_modes, quoting) = target;
+    let (server, channel) = attachment;
+    let (worker, generation) = workers.get(&server).ok_or_else(|| {
+        tr!("Terminal connection closed before delivery was confirmed").to_string()
+    })?;
+    let generation = *generation;
+    let mut payload = vec![0x15];
+    for step in steps {
+        let current = model
+            .update(cx, |model, cx| {
+                model.composer_target_current(key, pane, attachment, generation, quoting, cx)
+            })
+            .unwrap_or(false);
+        if !current {
+            return Err(tr!("Composer target changed; sending stopped.").to_string());
+        }
+        match step {
+            Step::Text(text) => {
+                payload.extend(muxy_client::input::paste(text, terminal_modes));
+            }
+            Step::File(path) if !server.is_local() => {
+                let remote = send_remote(
+                    model,
+                    cx,
+                    pane,
+                    server,
+                    quoting,
+                    Upload::Files(vec![path.clone()]),
+                )
+                .await?;
+                payload.extend(muxy_client::input::paste(&remote, terminal_modes));
+            }
+            Step::File(path) => {
+                let text = quoted(std::slice::from_ref(path), quoting, || {
+                    tr!("Invalid attachment path").to_string()
+                })?;
+                payload.extend(muxy_client::input::paste(&text, terminal_modes));
+            }
+            Step::Image(png) if !server.is_local() => {
+                let remote = send_remote(
+                    model,
+                    cx,
+                    pane,
+                    server,
+                    quoting,
+                    Upload::Image(png.to_vec(), "png"),
+                )
+                .await?;
+                payload.extend(muxy_client::input::paste(&remote, terminal_modes));
+            }
+            Step::Image(png) => {
+                if !payload.is_empty() {
+                    deliver(worker, generation, channel, std::mem::take(&mut payload)).await?;
+                }
+                if let Some(clipboard) = clipboard {
+                    clipboard.write_png(png.to_vec())?;
+                }
+                deliver(worker, generation, channel, vec![0x16]).await?;
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(350))
+                    .await;
+            }
+        }
+    }
+    let current = model
+        .update(cx, |model, cx| {
+            model.composer_target_current(key, pane, attachment, generation, quoting, cx)
+        })
+        .unwrap_or(false);
+    if !current {
+        return Err(tr!("Composer target changed; sending stopped.").to_string());
+    }
+    if enter {
+        payload.push(b'\r');
+    }
+    if !payload.is_empty() {
+        deliver(worker, generation, channel, payload).await?;
+    }
+    Ok(())
 }
 
 pub(super) async fn deliver(

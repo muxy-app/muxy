@@ -295,6 +295,7 @@ impl SettingsView {
                 PickerKind::QuickTheme(true),
                 PickerKind::AiProvider(crate::repository_actions::Action::Commit),
                 PickerKind::AiProvider(crate::repository_actions::Action::CreatePullRequest),
+                PickerKind::PromptProvider,
                 PickerKind::ExtensionSidebar,
                 PickerKind::FileOpener,
                 PickerKind::AppLanguage,
@@ -446,7 +447,28 @@ impl SettingsView {
                     .cloned()
                     .unwrap_or_else(|| action.default_prompt().into()),
             )
-        })) {
+        }))
+        .chain([
+            (
+                crate::prompt::PROMPT_MODEL,
+                settings
+                    .ai
+                    .prompts
+                    .get(crate::prompt::PROMPT_MODEL)
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            (
+                crate::prompt::PROMPT_INSTRUCTIONS,
+                settings
+                    .ai
+                    .prompts
+                    .get(crate::prompt::PROMPT_INSTRUCTIONS)
+                    .filter(|prompt| !prompt.trim().is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| crate::prompt::DEFAULT_INSTRUCTIONS.into()),
+            ),
+        ]) {
             if !self.dirty.contains(id)
                 && self.dragging() != Some(id)
                 && !self.errors.contains_key(id)
@@ -847,6 +869,10 @@ fn field_ids() -> impl Iterator<Item = (&'static str, bool)> {
     .chain(terminal_lists::EDITOR_FIELDS)
     .map(|id| (id, false))
     .chain(ai::PROMPTS.iter().map(|(_, id)| (*id, true)))
+    .chain([
+        (crate::prompt::PROMPT_MODEL, false),
+        (crate::prompt::PROMPT_INSTRUCTIONS, true),
+    ])
 }
 
 fn palette_index(id: &str) -> Option<&str> {
@@ -981,6 +1007,7 @@ mod tests {
                 PickerKind::QuickTheme(true),
                 PickerKind::AiProvider(crate::repository_actions::Action::Commit),
                 PickerKind::AiProvider(crate::repository_actions::Action::CreatePullRequest),
+                PickerKind::PromptProvider,
                 PickerKind::ExtensionSidebar,
                 PickerKind::FileOpener,
                 PickerKind::AppLanguage,

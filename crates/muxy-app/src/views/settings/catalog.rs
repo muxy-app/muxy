@@ -136,6 +136,33 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Create Pull Request"),
     },
     Setting {
+        id: "prompt-provider",
+        label: tr_key!("Prompt provider"),
+        description: tr_key!(
+            "AI CLI that rewrites the Rich Input draft. Auto uses the first installed CLI."
+        ),
+        category: Category::Ai,
+        section: tr_key!("Prompt Enhancer"),
+    },
+    Setting {
+        id: "prompt-model",
+        label: tr_key!("Prompt model"),
+        description: tr_key!(
+            "Model id for that CLI. Leave empty to use its default. Xal has no confirmed model flag: clear this to use its default."
+        ),
+        category: Category::Ai,
+        section: tr_key!("Prompt Enhancer"),
+    },
+    Setting {
+        id: "prompt-instructions",
+        label: tr_key!("Prompt instructions"),
+        description: tr_key!(
+            "Instructions for rewriting the Rich Input draft. An empty prompt uses the default. Do not include secrets."
+        ),
+        category: Category::Ai,
+        section: tr_key!("Prompt Enhancer"),
+    },
+    Setting {
         id: "composer-clear-after",
         label: tr_key!("Clear after sending"),
         description: tr_key!("Clear the draft only after every terminal confirms delivery."),

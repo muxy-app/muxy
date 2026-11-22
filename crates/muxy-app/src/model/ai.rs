@@ -137,6 +137,12 @@ impl Runtime {
 
 impl AppModel {
     #[cfg(not(test))]
+    pub(crate) fn refresh_ai_installed(&mut self, cx: &mut Context<Self>) {
+        self.ai.refresh_installed();
+        self.sync_preferences(cx);
+    }
+
+    #[cfg(not(test))]
     pub(crate) fn discover_ai_providers(cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             let installed = crate::ai::run(|| Ok(Provider::discover())).await;
@@ -159,30 +165,35 @@ impl AppModel {
         }
         self.save_ai_entry(
             "providers",
-            action,
+            action.key(),
             Some(id).filter(|id| !id.is_empty()),
             cx,
         );
     }
 
-    pub(crate) fn set_ai_prompt(&mut self, action: Action, prompt: &str, cx: &mut Context<Self>) {
-        let prompt = prompt.trim();
-        let value =
-            Some(prompt).filter(|prompt| !prompt.is_empty() && *prompt != action.default_prompt());
-        self.save_ai_entry("prompts", action, value, cx);
+    pub(crate) fn set_prompt_provider(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !id.is_empty() && crate::ai::provider(id).is_none() {
+            return;
+        }
+        self.save_ai_entry(
+            "providers",
+            crate::prompt::PROMPT_PROVIDER,
+            Some(id).filter(|id| !id.is_empty()),
+            cx,
+        );
     }
 
     fn save_ai_entry(
         &mut self,
         table: &str,
-        action: Action,
+        key: &str,
         value: Option<&str>,
         cx: &mut Context<Self>,
     ) {
         match muxy_app_core::settings::Settings::save_ai_entry(
             &self.path.with_file_name("settings.toml"),
             table,
-            action.key(),
+            key,
             value,
         ) {
             Ok(saved) => self.settings.ai = saved,

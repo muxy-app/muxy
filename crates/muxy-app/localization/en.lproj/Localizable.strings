@@ -17,6 +17,7 @@
 "%@ exited with %@" = "%@ exited with %@";
 "%@ failed: %@" = "%@ failed: %@";
 "%@ has no changes compared to %@" = "%@ has no changes compared to %@";
+"%@ has no confirmed model flag. Clear the model to use its default." = "%@ has no confirmed model flag. Clear the model to use its default.";
 "%@ installs" = "%@ installs";
 "%@ is a folder. Only files can be sent to %@." = "%@ is a folder. Only files can be sent to %@.";
 "%@ is already published by %@. Your pull request would change their extension." = "%@ is already published by %@. Your pull request would change their extension.";
@@ -40,6 +41,7 @@
 "%@ must contain an object" = "%@ must contain an object";
 "%@ of %@" = "%@ of %@";
 "%@ on %@" = "%@ on %@";
+"%@ returned an empty response" = "%@ returned an empty response";
 "%@ returned an empty response: %@" = "%@ returned an empty response: %@";
 "%@ returned invalid UTF-8" = "%@ returned invalid UTF-8";
 "%@ runs an older Muxy that lists only folders inside %@. Update it there to browse others, or type a full path." = "%@ runs an older Muxy that lists only folders inside %@. Update it there to browse others, or type a full path.";
@@ -112,12 +114,14 @@
 "A process is still running in this terminal." = "A process is still running in this terminal.";
 "A profile needs a name" = "A profile needs a name";
 "A project is a folder with its own tabs, splits, and worktrees. Switch with a click, and everything is where you left it." = "A project is a folder with its own tabs, splits, and worktrees. Switch with a click, and everything is where you left it.";
+"A prompt is already being rewritten." = "A prompt is already being rewritten.";
 "A sidebar of projects with their worktrees." = "A sidebar of projects with their worktrees.";
 "A single-line shell command, such as cargo test or npm run dev." = "A single-line shell command, such as cargo test or npm run dev.";
 "A small background program, muxy-server, runs every terminal. This app, the muxy command, and your phone are all clients of it." = "A small background program, muxy-server, runs every terminal. This app, the muxy command, and your phone are all clients of it.";
 "AI" = "AI";
 "AI CLI that drafts commit messages. Auto uses the first installed provider." = "AI CLI that drafts commit messages. Auto uses the first installed provider.";
 "AI CLI that drafts pull requests. Auto uses the first installed provider." = "AI CLI that drafts pull requests. Auto uses the first installed provider.";
+"AI CLI that rewrites the Rich Input draft. Auto uses the first installed CLI." = "AI CLI that rewrites the Rich Input draft. Auto uses the first installed CLI.";
 "AI Provider" = "AI Provider";
 "AI agents working, waiting for you, and done." = "AI agents working, waiting for you, and done.";
 "AI drafts only the commit message. Muxy commits, and pushes when you choose to. An empty prompt uses the default. Do not include secrets." = "AI drafts only the commit message. Muxy commits, and pushes when you choose to. An empty prompt uses the default. Do not include secrets.";
@@ -232,6 +236,7 @@
 "App update waiting for %lld session" = "App update waiting for %lld session";
 "App update waiting for %lld sessions" = "App update waiting for %lld sessions";
 "Appearance" = "Appearance";
+"Append Below" = "Append Below";
 "Appended after the configured prompt for this action only." = "Appended after the configured prompt for this action only.";
 "Apply" = "Apply";
 "Apply %@ to pull request #%lld (%@) at its reviewed commit %@? Afterwards Muxy asks to remove this worktree and switches to the primary checkout." = "Apply %@ to pull request #%lld (%@) at its reviewed commit %@? Afterwards Muxy asks to remove this worktree and switches to the primary checkout.";
@@ -810,6 +815,9 @@
 "End All Sessions and Quit" = "End All Sessions and Quit";
 "English" = "English";
 "English is built in. Additional languages can be provided by enabled extensions." = "English is built in. Additional languages can be provided by enabled extensions.";
+"Enhance Prompt" = "Enhance Prompt";
+"Enhanced Prompt" = "Enhanced Prompt";
+"Enhanced prompt is ready in Composer." = "Enhanced prompt is ready in Composer.";
 "Enter a branch name." = "Enter a branch name.";
 "Enter a commit message of up to 10,000 characters" = "Enter a commit message of up to 10,000 characters";
 "Enter a file pattern, such as *.md or Dockerfile." = "Enter a file pattern, such as *.md or Dockerfile.";
@@ -1056,6 +1064,7 @@
 "Installing the command line tool is not available on this platform yet." = "Installing the command line tool is not available on this platform yet.";
 "Installing…" = "Installing…";
 "Installs" = "Installs";
+"Instructions for rewriting the Rich Input draft. An empty prompt uses the default. Do not include secrets." = "Instructions for rewriting the Rich Input draft. An empty prompt uses the default. Do not include secrets.";
 "Interface" = "Interface";
 "Interface size" = "Interface size";
 "Invalid Mobile port" = "Invalid Mobile port";
@@ -1065,6 +1074,7 @@
 "Invalid image path" = "Invalid image path";
 "Invalid manifest path" = "Invalid manifest path";
 "Invalid marketplace response" = "Invalid marketplace response";
+"Invalid model \"%@\". Model names cannot start with \"-\" or contain spaces." = "Invalid model \"%@\". Model names cannot start with \"-\" or contain spaces.";
 "Invalid or oversized backup content" = "Invalid or oversized backup content";
 "Invalid pending update" = "Invalid pending update";
 "Invalid pending update path" = "Invalid pending update path";
@@ -1194,6 +1204,7 @@
 "Missing update size" = "Missing update size";
 "Missing update version" = "Missing update version";
 "Mobile settings may contain only enabled and port" = "Mobile settings may contain only enabled and port";
+"Model id for that CLI. Leave empty to use its default. Xal has no confirmed model flag: clear this to use its default." = "Model id for that CLI. Leave empty to use its default. Xal has no confirmed model flag: clear this to use its default.";
 "More Actions" = "More Actions";
 "More Actions for %@" = "More Actions for %@";
 "More Composer Actions" = "More Composer Actions";
@@ -1289,6 +1300,7 @@
 "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead." = "No Muxy 1.x configuration was found on this computer. Choose a 1.x backup file instead.";
 "No SSH? Pair instead" = "No SSH? Pair instead";
 "No Shortcut" = "No Shortcut";
+"No agent CLI is installed" = "No agent CLI is installed";
 "No agent found. Install Claude Code, Codex, or another supported agent." = "No agent found. Install Claude Code, Codex, or another supported agent.";
 "No agent sessions in this project" = "No agent sessions in this project";
 "No agents running" = "No agents running";
@@ -1509,6 +1521,10 @@
 "Project folder is missing" = "Project folder is missing";
 "Project is unavailable" = "Project is unavailable";
 "Projects" = "Projects";
+"Prompt Enhancer" = "Prompt Enhancer";
+"Prompt instructions" = "Prompt instructions";
+"Prompt model" = "Prompt model";
+"Prompt provider" = "Prompt provider";
 "Proxy" = "Proxy";
 "Proxy removed" = "Proxy removed";
 "Proxy saved" = "Proxy saved";
@@ -1626,6 +1642,7 @@
 "Rename Worktree…" = "Rename Worktree…";
 "Rename to Name Below" = "Rename to Name Below";
 "Rename…" = "Rename…";
+"Replace" = "Replace";
 "Replaces the 16 ANSI colors. Leave a color empty to use the theme." = "Replaces the 16 ANSI colors. Leave a color empty to use the theme.";
 "Replaces the theme's terminal background, such as #1e1e2e. Leave empty to use the theme." = "Replaces the theme's terminal background, such as #1e1e2e. Leave empty to use the theme.";
 "Replaces the theme's terminal text color. Leave empty to use the theme." = "Replaces the theme's terminal text color. Leave empty to use the theme.";
@@ -1691,6 +1708,7 @@
 "Revoke" = "Revoke";
 "Revoke %@" = "Revoke %@";
 "Revoke %@?" = "Revoke %@?";
+"Rewriting prompt…" = "Rewriting prompt…";
 "Rich Input" = "Rich Input";
 "Right" = "Right";
 "Right padding" = "Right padding";
@@ -1956,6 +1974,7 @@
 "The AI provider returned an empty commit message" = "The AI provider returned an empty commit message";
 "The AI provider returned an empty pull request title" = "The AI provider returned an empty pull request title";
 "The AI provider returned an invalid response. Update the prompt or try another provider." = "The AI provider returned an invalid response. Update the prompt or try another provider.";
+"The CLI returned an empty prompt." = "The CLI returned an empty prompt.";
 "The GitHub CLI (gh) isn't installed." = "The GitHub CLI (gh) isn't installed.";
 "The GitHub CLI (gh) isn't signed in. Run gh auth login." = "The GitHub CLI (gh) isn't signed in. Run gh auth login.";
 "The PNG icon must be at most 1 MB." = "The PNG icon must be at most 1 MB.";
@@ -1970,6 +1989,7 @@
 "The bundled client and server do not match the release" = "The bundled client and server do not match the release";
 "The client disconnects now and must be paired again to reconnect." = "The client disconnects now and must be paired again to reconnect.";
 "The command path changed during installation; try again." = "The command path changed during installation; try again.";
+"The composer is empty. Write a prompt, then try again." = "The composer is empty. Write a prompt, then try again.";
 "The composer open over two terminals, with a prompt being written." = "The composer open over two terminals, with a prompt being written.";
 "The computer at this link isn't the one that made it. Copy the link again from its Settings → Servers." = "The computer at this link isn't the one that made it. Copy the link again from its Settings → Servers.";
 "The connection closed before the server confirmed it stopped, so it may still be running." = "The connection closed before the server confirmed it stopped, so it may still be running.";
@@ -1977,6 +1997,7 @@
 "The desktop app, terminal UI, command line, and phone all connected to one server." = "The desktop app, terminal UI, command line, and phone all connected to one server.";
 "The desktop refused a notification: %@" = "The desktop refused a notification: %@";
 "The development build at %@ is uploaded to %@. It installs muxy-server and its muxy helper in ~/.local/bin, then tests the connection. It requires x86_64 Linux with glibc 2.35 or newer." = "The development build at %@ is uploaded to %@. It installs muxy-server and its muxy helper in ~/.local/bin, then tests the connection. It requires x86_64 Linux with glibc 2.35 or newer.";
+"The draft changed while it was being rewritten, so it was left as you wrote it." = "The draft changed while it was being rewritten, so it was left as you wrote it.";
 "The extension changed. Check for updates and try again." = "The extension changed. Check for updates and try again.";
 "The extension could not be found." = "The extension could not be found.";
 "The extension could not be installed." = "The extension could not be installed.";
@@ -2129,6 +2150,7 @@
 "Ungrouped" = "Ungrouped";
 "Uninstall" = "Uninstall";
 "Uninstalling…" = "Uninstalling…";
+"Unknown CLI \"%@\"." = "Unknown CLI \"%@\".";
 "Unknown app setting" = "Unknown app setting";
 "Unknown composer preference" = "Unknown composer preference";
 "Unknown server setting" = "Unknown server setting";
@@ -2210,6 +2232,7 @@
 "Viewfinder Circle" = "Viewfinder Circle";
 "Violet" = "Violet";
 "Wait for the AI repository action to finish" = "Wait for the AI repository action to finish";
+"Wait for the composer to finish sending." = "Wait for the composer to finish sending.";
 "Wait for the current AI action to finish" = "Wait for the current AI action to finish";
 "Wait for the current Git action to finish" = "Wait for the current Git action to finish";
 "Wait for the current client access change to finish" = "Wait for the current client access change to finish";
@@ -2320,6 +2343,7 @@
 "detach terminal" = "detach terminal";
 "dock floating terminal" = "dock floating terminal";
 "end all sessions and quit" = "end all sessions and quit";
+"enhance prompt" = "enhance prompt";
 "equalize splits" = "equalize splits";
 "existing terminals" = "existing terminals";
 "extension archive expands beyond its limit" = "extension archive expands beyond its limit";

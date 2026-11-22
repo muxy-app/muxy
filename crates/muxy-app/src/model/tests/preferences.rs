@@ -1169,3 +1169,171 @@ fn reloading_keeps_a_cli_change_and_an_unsaved_field_of_the_same_section(cx: &mu
         assert_eq!(saved.window, model.settings.window);
     });
 }
+
+#[gpui::test]
+fn prompt_settings_persist_and_clear_in_settings_toml(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (model, settings) = settings_tab(boot, cx);
+    model.update(settings, |model, cx| {
+        model.set_prompt_provider("xal", cx);
+        model
+            .try_change_preference(
+                Change::Field(crate::prompt::PROMPT_MODEL, "  gpt-5.4  ".into()),
+                cx,
+            )
+            .expect("model saved");
+        model
+            .try_change_preference(
+                Change::Field(crate::prompt::PROMPT_INSTRUCTIONS, "  Be concise  ".into()),
+                cx,
+            )
+            .expect("instructions saved");
+        let saved = muxy_app_core::settings::Settings::load(&path).expect("load");
+        assert_eq!(
+            saved
+                .ai
+                .providers
+                .get(crate::prompt::PROMPT_PROVIDER)
+                .map(String::as_str),
+            Some("xal")
+        );
+        assert_eq!(
+            saved
+                .ai
+                .prompts
+                .get(crate::prompt::PROMPT_MODEL)
+                .map(String::as_str),
+            Some("gpt-5.4")
+        );
+        assert_eq!(
+            saved
+                .ai
+                .prompts
+                .get(crate::prompt::PROMPT_INSTRUCTIONS)
+                .map(String::as_str),
+            Some("Be concise")
+        );
+
+        model.set_prompt_provider("", cx);
+        model
+            .try_change_preference(Change::Field(crate::prompt::PROMPT_MODEL, "   ".into()), cx)
+            .expect("model cleared");
+        model
+            .try_change_preference(
+                Change::Field(
+                    crate::prompt::PROMPT_INSTRUCTIONS,
+                    crate::prompt::DEFAULT_INSTRUCTIONS.into(),
+                ),
+                cx,
+            )
+            .expect("instructions restored");
+        let saved = muxy_app_core::settings::Settings::load(&path).expect("load");
+        assert!(
+            !saved
+                .ai
+                .providers
+                .contains_key(crate::prompt::PROMPT_PROVIDER)
+        );
+        assert!(!saved.ai.prompts.contains_key(crate::prompt::PROMPT_MODEL));
+        assert!(
+            !saved
+                .ai
+                .prompts
+                .contains_key(crate::prompt::PROMPT_INSTRUCTIONS)
+        );
+    });
+    settings.simulate_resize(size(px(1400.0), px(1800.0)));
+    click_preference(settings, "settings-category-AI");
+    model.update(settings, |model, cx| {
+        model
+            .try_change_preference(
+                Change::Field(crate::prompt::PROMPT_INSTRUCTIONS, "Custom rubric".into()),
+                cx,
+            )
+            .expect("custom saved");
+    });
+    settings.run_until_parked();
+    click_preference(settings, "prompt-instructions-restore");
+    settings.run_until_parked();
+    let saved = muxy_app_core::settings::Settings::load(&path).expect("load");
+    assert!(
+        !saved
+            .ai
+            .prompts
+            .contains_key(crate::prompt::PROMPT_INSTRUCTIONS)
+    );
+}
+
+#[gpui::test]
+fn prompt_provider_picker_filters_and_enhance_flushes_dirty_model(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (model, settings) = settings_tab(boot, cx);
+    settings.simulate_resize(size(px(1400.0), px(1200.0)));
+    model.update(settings, |model, cx| {
+        model.ai.installed = vec![crate::ai::provider("xal").expect("xal")];
+        model.set_prompt_provider("xal", cx);
+    });
+
+    click_preference(settings, "settings-category-AI");
+    click_preference(settings, "settings-picker-prompt-provider");
+    settings.simulate_input("codex");
+    settings.run_until_parked();
+    model.read_with(settings, |model, cx| {
+        let Some(crate::views::settings::tab::SettingsOverlay::Providers { picker, .. }) = &model
+            .settings_tab
+            .as_ref()
+            .expect("tab")
+            .root
+            .read(cx)
+            .overlay
+        else {
+            panic!("provider picker is not open");
+        };
+        let ids: Vec<_> = picker
+            .read(cx)
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                muxy_ui::picker::PickerItem::Row(row) => Some(row.id.as_ref()),
+                muxy_ui::picker::PickerItem::Section(_) => None,
+            })
+            .collect();
+        assert_eq!(ids, vec!["codex"]);
+    });
+    settings.simulate_keystrokes("escape");
+    settings.run_until_parked();
+
+    click_preference(settings, "settings-field-prompt-model");
+    settings.simulate_input("big");
+    settings.run_until_parked();
+    model.update_in(settings, |model, window, cx| {
+        assert!(
+            !model
+                .settings
+                .ai
+                .prompts
+                .contains_key(crate::prompt::PROMPT_MODEL)
+        );
+        model
+            .set_composer_text("fix the login bug".into(), window, cx)
+            .expect("draft");
+        model.enhance_prompt(cx);
+        assert!(model.composer.enhancing.is_none());
+        assert!(
+            model
+                .visible_error()
+                .is_some_and(|error| error.contains("no confirmed model flag"))
+        );
+        let saved = muxy_app_core::settings::Settings::load(&path).expect("load");
+        assert_eq!(
+            saved
+                .ai
+                .prompts
+                .get(crate::prompt::PROMPT_MODEL)
+                .map(String::as_str),
+            Some("big")
+        );
+    });
+}

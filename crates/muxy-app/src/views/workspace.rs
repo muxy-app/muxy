@@ -63,6 +63,7 @@ actions!(
         ToggleThemePicker,
         ToggleCommandPalette,
         ToggleComposer,
+        EnhancePrompt,
         NavigateBack,
         NavigateForward,
         Quit,
