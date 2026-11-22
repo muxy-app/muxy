@@ -286,7 +286,7 @@ pub(crate) fn navigation(
         .items_center()
         .justify_end()
         .pr(m.spacing4())
-        .bg(if model.appearance.sidebar_expanded {
+        .bg(if model.sidebar_docks_expanded() {
             gpui::transparent_black()
         } else {
             theme.bg
@@ -305,7 +305,7 @@ pub(crate) fn navigation(
                         .w(m.sidebar_collapsed_width())
                         .child(toggle),
                 )
-                .when(model.appearance.sidebar_expanded, |bar| {
+                .when(model.sidebar_docks_expanded(), |bar| {
                     bar.child(
                         div()
                             .flex_1()
@@ -345,7 +345,11 @@ fn sidebar_toggle(model: &AppModel, cx: &mut Context<AppModel>) -> Div {
                 theme.fg_muted,
                 theme.fg,
             )
-            .expanded(model.appearance.sidebar_expanded)
+            .expanded(if model.appearance.sidebar_auto_hide {
+                model.sidebar_peek_open()
+            } else {
+                model.appearance.sidebar_expanded
+            })
             .tooltip(theme)
             .shortcut(model.shortcut_label(ShortcutId::ToggleSidebar))
             .on_click(cx.listener(|model, _, window, cx| {

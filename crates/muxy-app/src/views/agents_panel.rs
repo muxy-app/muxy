@@ -909,7 +909,7 @@ fn scrollbar(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
 pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyElement> {
     let open = matches!(model.overlay, Some(super::overlays::Overlay::Agents));
     if model.agents_panel_placement() != Placement::Popup
-        || model.appearance.sidebar_expanded
+        || model.sidebar_docks_expanded()
         || !(open || model.appearance.agents_panel_visible)
     {
         return None;

@@ -17,6 +17,7 @@ pub(crate) enum Change {
     QuickNumber(&'static str, u16),
     Theme(bool, String),
     Sidebar(bool),
+    SidebarAutoHide(bool),
     SidebarVibrancy(bool),
     ExtensionSidebar(String),
     Language(String),
@@ -581,6 +582,10 @@ impl AppModel {
             }
             Change::Sidebar(value) => {
                 settings.appearance.sidebar_expanded = value;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
+            Change::SidebarAutoHide(value) => {
+                settings.appearance.sidebar_auto_hide = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
             Change::SidebarCollapsedStyle(style) => {
@@ -1413,6 +1418,7 @@ fn change_id(change: &Change) -> &str {
         Change::Theme(false, _) => "light-theme",
         Change::Theme(true, _) => "dark-theme",
         Change::Sidebar(_) => "sidebar",
+        Change::SidebarAutoHide(_) => "sidebar-auto-hide",
         Change::SidebarVibrancy(_) => "sidebar-vibrancy",
         Change::ExtensionSidebar(_) => "extension-sidebar",
         Change::Language(_) => "app-language",

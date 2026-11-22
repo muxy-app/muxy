@@ -282,7 +282,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         if let Some(sidebar) = &self.webviews.sidebar {
-            let visible = self.extension_sidebar_active() && self.sidebar_width() > 0.0;
+            let visible = self.extension_sidebar_shown();
             sidebar.surface.view.update(cx, |view, cx| {
                 view.native
                     .set_shortcuts(self.layout_drag_pending(), shortcuts.clone());

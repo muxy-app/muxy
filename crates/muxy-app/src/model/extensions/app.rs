@@ -108,7 +108,7 @@ impl AppModel {
             "ui.state" => return Ok(self.ui_state()),
             "ui.setSidebar" => {
                 if visible != Some(self.appearance.sidebar_expanded) {
-                    self.toggle_sidebar(window, cx);
+                    self.flip_sidebar(window, cx);
                 }
             }
             "ui.setAgentsPanel" => {

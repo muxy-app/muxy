@@ -142,6 +142,18 @@ pub(super) fn rows(
     if category == Category::Appearance && pane.matches(category, tr_key!("Active sidebar")) {
         rows.push(active_sidebar(pane, cx));
     }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Auto-hide sidebar")) {
+        rows.push(pane.row(
+            "sidebar-auto-hide",
+            tr_key!("Auto-hide sidebar"),
+            pane.toggle(
+                "sidebar-auto-hide",
+                appearance.sidebar_auto_hide,
+                Change::SidebarAutoHide(!appearance.sidebar_auto_hide),
+                cx,
+            ),
+        ));
+    }
     if category == Category::Appearance && pane.matches(category, tr_key!("Sidebar vibrancy")) {
         rows.push(pane.row(
             "sidebar-vibrancy",

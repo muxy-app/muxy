@@ -100,7 +100,7 @@ fn max_tab_width(model: &AppModel) -> f32 {
 
 pub(super) fn sidebar_opens_tabs(model: &AppModel) -> bool {
     model.appearance.layout != muxy_app_core::settings::AppLayout::ProjectFocused
-        && model.appearance.sidebar_expanded
+        && model.sidebar_docks_expanded()
         && !model.extension_sidebar_active()
 }
 
