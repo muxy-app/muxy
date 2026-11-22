@@ -36,7 +36,6 @@ type Target = (PaneId, (ServerId, ChannelId), Modes, Option<PathQuoting>);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct EnhancementPreview {
-    pub(super) key: DraftId,
     pub(super) original: String,
     pub(super) rewritten: String,
 }
@@ -59,7 +58,7 @@ pub(crate) struct ComposerRuntime {
     submission: Option<Task<()>>,
     pub(super) enhancing: Option<ActiveEnhancement>,
     enhance_serial: u64,
-    pub(super) enhancement_preview: Option<EnhancementPreview>,
+    pub(super) enhancement_previews: HashMap<DraftId, EnhancementPreview>,
     pub(super) preferences_dirty: bool,
 }
 
@@ -85,7 +84,7 @@ impl ComposerRuntime {
             submission: None,
             enhancing: None,
             enhance_serial: 0,
-            enhancement_preview: None,
+            enhancement_previews: HashMap::new(),
             preferences_dirty: false,
         }
     }
@@ -150,18 +149,17 @@ impl AppModel {
         });
         if self
             .composer
-            .enhancement_preview
-            .as_ref()
-            .is_some_and(|preview| preview.key == key && preview.original != preview_text)
+            .enhancement_previews
+            .get(&key)
+            .is_some_and(|preview| preview.original != preview_text)
         {
-            self.composer.enhancement_preview = None;
+            self.composer.enhancement_previews.remove(&key);
         }
         let preview = self
             .composer
-            .enhancement_preview
-            .as_ref()
-            .filter(|preview| preview.key == key)
-            .map(|preview| preview.rewritten.clone());
+            .enhancement_previews
+            .get(&key)
+            .map(|preview| (key.clone(), preview.rewritten.clone()));
         view.update(cx, |view, _| {
             view.error = error;
             view.sending = self.composer.submission.is_some();
@@ -182,10 +180,12 @@ impl AppModel {
             ComposerEvent::Image(bytes) => model.attach_composer_image(bytes.clone(), cx),
             ComposerEvent::Menu => model.composer_menu(cx),
             ComposerEvent::Enhance => model.enhance_prompt(cx),
-            ComposerEvent::AcceptEnhancement { append } => {
-                model.apply_prompt_enhancement(*append, cx);
+            ComposerEvent::AcceptEnhancement { key, append } => {
+                model.apply_prompt_enhancement(key, *append, cx);
             }
-            ComposerEvent::DismissEnhancement => model.dismiss_prompt_enhancement(cx),
+            ComposerEvent::DismissEnhancement(key) => {
+                model.dismiss_prompt_enhancement_for(key, cx);
+            }
             ComposerEvent::Preferences(settings) => {
                 if model.settings.composer.presentation != settings.presentation
                     && let Some(view) = &model.composer.view
@@ -267,7 +267,9 @@ impl AppModel {
             );
             return;
         }
-        self.flush_preferences(cx);
+        if !self.flush_preferences(cx) {
+            return;
+        }
         let key = self
             .composer
             .key
@@ -434,14 +436,16 @@ impl AppModel {
             return;
         };
         let open = self.composer.view.is_some() && self.composer.key.as_ref() == Some(key);
-        self.composer.enhancement_preview = Some(EnhancementPreview {
-            key: key.clone(),
-            original: original.to_owned(),
-            rewritten: rewritten.clone(),
-        });
+        self.composer.enhancement_previews.insert(
+            key.clone(),
+            EnhancementPreview {
+                original: original.to_owned(),
+                rewritten: rewritten.clone(),
+            },
+        );
         if open && let Some(view) = &self.composer.view {
             view.update(cx, |view, cx| {
-                view.enhanced_preview = Some(rewritten);
+                view.enhanced_preview = Some((key.clone(), rewritten));
                 cx.notify();
             });
         } else {
@@ -453,69 +457,69 @@ impl AppModel {
         }
     }
 
-    pub(super) fn apply_prompt_enhancement(&mut self, append: bool, cx: &mut Context<Self>) {
-        let Some(preview) = self.composer.enhancement_preview.take() else {
+    pub(super) fn apply_prompt_enhancement(
+        &mut self,
+        key: &DraftId,
+        append: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(preview) = self.composer.enhancement_previews.remove(key) else {
+            self.clear_composer_preview(key, cx);
             return;
         };
-        let open = self.composer.view.is_some() && self.composer.key.as_ref() == Some(&preview.key);
-        let current = self.draft_text(&preview.key, cx);
-        if current != preview.original {
-            if open && let Some(view) = &self.composer.view {
-                view.update(cx, |view, cx| {
-                    if view.enhanced_preview.take().is_some() {
-                        cx.notify();
-                    }
-                });
-            }
-            self.show_toast(
-                tr!("The draft changed while it was being rewritten, so it was left as you wrote it.")
-                    .to_string(),
-                None,
-                cx,
-            );
-            return;
-        }
-        let next_text = if append {
-            crate::prompt::appended(&current, &preview.rewritten)
-        } else {
-            preview.rewritten.clone()
-        };
-        let open_attachments = open
+        let open = self.composer.view.is_some() && self.composer.key.as_ref() == Some(key);
+        let open_draft = open
             .then(|| {
                 self.composer
                     .view
                     .as_ref()
-                    .map(|view| view.read(cx).draft.file_attachments.clone())
+                    .map(|view| view.read(cx).draft.clone())
             })
             .flatten();
-        let updated = {
+        let outcome = {
             let mut store = self
                 .composer
                 .store
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
-            let existing = store.draft(&preview.key);
-            let attachments = open_attachments.unwrap_or_else(|| {
-                existing
-                    .map(|draft| draft.file_attachments.clone())
-                    .unwrap_or_default()
-            });
-            let image_numbers: Vec<u64> = existing
-                .map(|draft| {
-                    draft
-                        .image_attachments
-                        .iter()
-                        .map(|attachment| attachment.number)
-                        .collect()
-                })
-                .unwrap_or_default();
-            let next_text = crate::prompt::preserve_image_placeholders(next_text, &image_numbers);
-            store
-                .edit_content(preview.key.clone(), next_text, attachments)
-                .map(|_| store.draft(&preview.key).cloned().unwrap_or_default())
+            let existing = store.draft(key);
+            let stored_text = existing.map_or("", |draft| draft.text.as_str());
+            let view_diverged = open_draft
+                .as_ref()
+                .is_some_and(|draft| draft.text != preview.original);
+            if stored_text != preview.original || view_diverged {
+                Ok(None)
+            } else {
+                let base_text = if append {
+                    crate::prompt::appended(stored_text, &preview.rewritten)
+                } else {
+                    preview.rewritten.clone()
+                };
+                let attachments = open_draft
+                    .map(|draft| draft.file_attachments)
+                    .unwrap_or_else(|| {
+                        existing
+                            .map(|draft| draft.file_attachments.clone())
+                            .unwrap_or_default()
+                    });
+                let image_numbers: Vec<u64> = existing
+                    .map(|draft| {
+                        draft
+                            .image_attachments
+                            .iter()
+                            .map(|attachment| attachment.number)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let next_text =
+                    crate::prompt::preserve_image_placeholders(base_text, &image_numbers);
+                store
+                    .edit_content(key.clone(), next_text, attachments)
+                    .map(|_| Some(store.draft(key).cloned().unwrap_or_default()))
+            }
         };
-        match updated {
-            Ok(draft) => {
+        match outcome {
+            Ok(Some(draft)) => {
                 if open && let Some(view) = &self.composer.view {
                     view.update(cx, |view, cx| {
                         view.enhanced_preview = None;
@@ -524,30 +528,30 @@ impl AppModel {
                 }
                 self.save_composer(cx);
             }
+            Ok(None) => {
+                self.clear_composer_preview(key, cx);
+                self.show_toast(
+                    tr!("The draft changed while it was being rewritten, so it was left as you wrote it.")
+                        .to_string(),
+                    None,
+                    cx,
+                );
+            }
             Err(error) => {
-                self.composer.enhancement_preview = Some(preview);
+                self.composer
+                    .enhancement_previews
+                    .insert(key.clone(), preview);
                 self.fail_detail(error.to_string(), "", cx);
             }
         }
     }
 
-    pub(super) fn dismiss_prompt_enhancement(&mut self, cx: &mut Context<Self>) {
-        if let Some(key) = self.composer.key.clone() {
-            self.dismiss_prompt_enhancement_for(&key, cx);
-        } else {
-            self.composer.enhancement_preview = None;
-        }
+    pub(super) fn dismiss_prompt_enhancement_for(&mut self, key: &DraftId, cx: &mut Context<Self>) {
+        self.composer.enhancement_previews.remove(key);
+        self.clear_composer_preview(key, cx);
     }
 
-    fn dismiss_prompt_enhancement_for(&mut self, key: &DraftId, cx: &mut Context<Self>) {
-        if self
-            .composer
-            .enhancement_preview
-            .as_ref()
-            .is_some_and(|preview| &preview.key == key)
-        {
-            self.composer.enhancement_preview = None;
-        }
+    fn clear_composer_preview(&mut self, key: &DraftId, cx: &mut Context<Self>) {
         if self.composer.key.as_ref() == Some(key)
             && let Some(view) = &self.composer.view
         {
@@ -584,14 +588,7 @@ impl AppModel {
     pub(super) fn dismiss_composer(&mut self, clear: bool, cx: &mut Context<Self>) {
         self.close_composer_menu(cx);
         if clear && let Some(key) = &self.composer.key {
-            if self
-                .composer
-                .enhancement_preview
-                .as_ref()
-                .is_some_and(|preview| &preview.key == key)
-            {
-                self.composer.enhancement_preview = None;
-            }
+            self.composer.enhancement_previews.remove(key);
             let result = self
                 .composer
                 .store
@@ -660,9 +657,9 @@ impl AppModel {
         let draft = view.read(cx).draft.clone();
         let stale_preview = self
             .composer
-            .enhancement_preview
-            .as_ref()
-            .is_some_and(|preview| preview.key == key && preview.original != draft.text);
+            .enhancement_previews
+            .get(&key)
+            .is_some_and(|preview| preview.original != draft.text);
         let result = {
             let mut store = self
                 .composer

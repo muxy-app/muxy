@@ -14,6 +14,8 @@ use crate::views::overlays::Overlay;
 
 pub(crate) struct Runtime {
     pub(crate) installed: Vec<Provider>,
+    #[cfg(not(test))]
+    installed_generation: u64,
     pub(crate) confirmation: Option<PendingConfirmation>,
     runs: HashMap<ProjectId, Run>,
     next: u64,
@@ -46,6 +48,8 @@ impl Default for Runtime {
             } else {
                 Provider::installed()
             },
+            #[cfg(not(test))]
+            installed_generation: 0,
             confirmation: None,
             runs: HashMap::new(),
             next: 0,
@@ -63,6 +67,7 @@ pub(crate) enum Availability {
 impl Runtime {
     #[cfg(not(test))]
     pub(crate) fn refresh_installed(&mut self) {
+        self.installed_generation = self.installed_generation.wrapping_add(1);
         self.installed = Provider::installed();
     }
 
@@ -144,11 +149,14 @@ impl AppModel {
 
     #[cfg(not(test))]
     pub(crate) fn discover_ai_providers(cx: &mut Context<Self>) {
+        let generation = cx.entity().read(cx).ai.installed_generation;
         cx.spawn(async move |this, cx| {
             let installed = crate::ai::run(|| Ok(Provider::discover())).await;
             if let Ok(installed) = installed {
                 let _ = this.update(cx, |model, cx| {
-                    if model.ai.installed != installed {
+                    if model.ai.installed_generation == generation
+                        && model.ai.installed != installed
+                    {
                         model.ai.installed = installed;
                         model.sync_preferences(cx);
                         cx.notify();

@@ -341,23 +341,65 @@ impl Composer {
             .into_any_element()
     }
 
+    fn enhancement_preview_actions(
+        &self,
+        key: &muxy_app_core::composer::DraftId,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let m = self.metrics;
+        let append_key = key.clone();
+        let replace_key = key.clone();
+        let style = Style {
+            theme: &self.theme,
+            metrics: &self.metrics,
+        };
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_end()
+            .gap(m.spacing3())
+            .child(controls::button(
+                style,
+                "composer-enhance-append",
+                controls::Button::secondary(&tr!("Append Below")),
+                cx.listener(move |_, _, _, cx| {
+                    cx.emit(ComposerEvent::AcceptEnhancement {
+                        key: append_key.clone(),
+                        append: true,
+                    });
+                }),
+            ))
+            .child(controls::button(
+                style,
+                "composer-enhance-replace",
+                controls::Button::primary(&tr!("Replace")),
+                cx.listener(move |_, _, _, cx| {
+                    cx.emit(ComposerEvent::AcceptEnhancement {
+                        key: replace_key.clone(),
+                        append: false,
+                    });
+                }),
+            ))
+            .into_any_element()
+    }
+
     fn enhancement_preview(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.enhancing {
             return Some(self.enhancing_status());
         }
         let m = self.metrics;
-        let preview = self.enhanced_preview.as_ref()?;
-        let style = Style {
-            theme: &self.theme,
-            metrics: &self.metrics,
-        };
+        let (key, preview) = self.enhanced_preview.as_ref()?;
+        let discard_key = key.clone();
         Some(
             div()
                 .id("composer-enhance-preview")
                 .debug_selector(|| "composer-enhance-preview".into())
                 .flex()
                 .flex_col()
-                .flex_none()
+                .flex_shrink()
+                .min_h_0()
+                .overflow_hidden()
                 .gap(m.spacing3())
                 .p(m.spacing4())
                 .rounded(m.radius_md())
@@ -367,6 +409,7 @@ impl Composer {
                 .child(
                     div()
                         .flex()
+                        .flex_none()
                         .items_center()
                         .gap(m.spacing2())
                         .child(SymbolGlyph::new(
@@ -390,42 +433,24 @@ impl Composer {
                                 control: Control::Dismiss,
                                 enabled: true,
                             },
-                            |_, _, cx| cx.emit(ComposerEvent::DismissEnhancement),
+                            move |_, _, cx| {
+                                cx.emit(ComposerEvent::DismissEnhancement(discard_key.clone()));
+                            },
                             cx,
                         )),
                 )
                 .child(
                     div()
                         .id("composer-enhance-preview-text")
+                        .flex_1()
+                        .min_h_0()
                         .max_h(m.scaled(160.0))
                         .overflow_y_scroll()
                         .text_size(m.font_body())
                         .text_color(self.theme.fg)
                         .child(preview.clone()),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_end()
-                        .gap(m.spacing3())
-                        .child(controls::button(
-                            style,
-                            "composer-enhance-append",
-                            controls::Button::secondary(&tr!("Append Below")),
-                            cx.listener(|_, _, _, cx| {
-                                cx.emit(ComposerEvent::AcceptEnhancement { append: true });
-                            }),
-                        ))
-                        .child(controls::button(
-                            style,
-                            "composer-enhance-replace",
-                            controls::Button::primary(&tr!("Replace")),
-                            cx.listener(|_, _, _, cx| {
-                                cx.emit(ComposerEvent::AcceptEnhancement { append: false });
-                            }),
-                        )),
-                )
+                .child(self.enhancement_preview_actions(key, cx))
                 .into_any_element(),
         )
     }
@@ -657,15 +682,20 @@ impl Composer {
                             .flex_col()
                             .flex_1()
                             .min_w_0()
-                            .min_h_0()
+                            .min_h(m.scaled(48.0))
                             .px(m.spacing1())
                             .py(m.spacing6())
                             .child(self.input.clone()),
                     )
-                    .children(
-                        self.enhancement_preview(cx)
-                            .map(|preview| div().pt(m.spacing2()).child(preview)),
-                    )
+                    .children(self.enhancement_preview(cx).map(|preview| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_shrink()
+                            .min_h_0()
+                            .pt(m.spacing2())
+                            .child(preview)
+                    }))
                     .children(
                         self.error_row(cx)
                             .map(|error| div().pt(m.spacing2()).child(error)),

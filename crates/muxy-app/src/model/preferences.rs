@@ -398,10 +398,14 @@ impl AppModel {
             .collect()
     }
 
-    pub(crate) fn flush_preferences(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn flush_preferences(&mut self, cx: &mut Context<Self>) -> bool {
+        let mut ok = true;
         for change in self.take_pending_preferences(cx) {
-            self.change_preference(change, cx);
+            if !self.apply_change_preference(change, cx) {
+                ok = false;
+            }
         }
+        ok
     }
 
     pub(super) fn preferences_before_quit(&mut self, cx: &mut Context<Self>) -> bool {
@@ -460,9 +464,14 @@ impl AppModel {
     }
 
     pub(crate) fn change_preference(&mut self, change: Change, cx: &mut Context<Self>) {
+        self.apply_change_preference(change, cx);
+    }
+
+    fn apply_change_preference(&mut self, change: Change, cx: &mut Context<Self>) -> bool {
         if self.quitting != Quitting::Idle {
-            return;
+            return false;
         }
+        let mut saved = true;
         let id = change_id(&change).to_owned();
         if matches!(
             &change,
@@ -474,6 +483,7 @@ impl AppModel {
                     .retain(|pending| change_id(pending) != id);
                 self.server_preferences.pending.push_back(change);
             } else if let Err(error) = self.write_server_preference(change, cx) {
+                saved = false;
                 self.preference_result(&id, Some(&error.to_string()), cx);
             }
         } else {
@@ -485,6 +495,7 @@ impl AppModel {
             let error = result.err().map(|error| error.to_string());
             self.preference_result(&id, error.as_deref(), cx);
             if let Some(error) = error {
+                saved = false;
                 if theme_change {
                     self.fail(tr!("Could not save theme: %@", &error).to_string(), cx);
                 } else if file_change {
@@ -504,6 +515,7 @@ impl AppModel {
         }
         self.sync_preferences(cx);
         cx.notify();
+        saved
     }
 
     #[allow(

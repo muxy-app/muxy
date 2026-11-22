@@ -521,7 +521,7 @@ impl SettingsTab {
             .ai
             .providers
             .get(key)
-            .cloned()
+            .map(|id| id.trim().to_owned())
             .unwrap_or_default();
         let (theme, metrics) = (view.theme.clone(), view.metrics);
         let picker_id = if action.is_some() {

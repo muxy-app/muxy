@@ -35,6 +35,7 @@ fn provider_label(view: &SettingsView, key: &str) -> SharedString {
         .ai
         .providers
         .get(key)
+        .map(|id| id.trim())
         .filter(|id| !id.is_empty())
     {
         Some(id) => match crate::ai::provider(id) {

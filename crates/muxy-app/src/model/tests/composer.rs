@@ -560,7 +560,7 @@ fn finishing_prompt_enhancement_previews_then_appends_or_discards_and_keeps_edit
     view.update(cx, |model, cx| {
         model.finish_prompt_enhancement(id, &key, "fix bug", Ok("rewritten".into()), cx);
         assert!(model.composer.enhancing.is_none());
-        assert!(model.composer.enhancement_preview.is_none());
+        assert!(model.composer.enhancement_previews.is_empty());
         assert!(
             model
                 .notice
@@ -573,7 +573,7 @@ fn finishing_prompt_enhancement_previews_then_appends_or_discards_and_keeps_edit
     view.update(cx, |model, cx| {
         let id = model.start_prompt_enhancement(&key, cx).0;
         model.finish_prompt_enhancement(id, &key, "fix bug now", Ok("  \n\t ".into()), cx);
-        assert!(model.composer.enhancement_preview.is_none());
+        assert!(model.composer.enhancement_previews.is_empty());
         assert!(
             model
                 .visible_error()
@@ -594,10 +594,13 @@ fn finishing_prompt_enhancement_previews_then_appends_or_discards_and_keeps_edit
         let composer = model.composer.view.as_ref().expect("composer").read(cx);
         assert_eq!(composer.draft.text, "fix bug now");
         assert_eq!(
-            composer.enhanced_preview.as_deref(),
+            composer
+                .enhanced_preview
+                .as_ref()
+                .map(|(_, text)| text.as_str()),
             Some("Fix the login bug cleanly.")
         );
-        model.dismiss_prompt_enhancement(cx);
+        model.dismiss_prompt_enhancement_for(&key, cx);
         let composer = model.composer.view.as_ref().expect("composer").read(cx);
         assert_eq!(composer.draft.text, "fix bug now");
         assert!(composer.enhanced_preview.is_none());
@@ -610,7 +613,7 @@ fn finishing_prompt_enhancement_previews_then_appends_or_discards_and_keeps_edit
             Ok("  Fix the login bug cleanly.\n".into()),
             cx,
         );
-        model.apply_prompt_enhancement(true, cx);
+        model.apply_prompt_enhancement(&key, true, cx);
         let composer = model.composer.view.as_ref().expect("composer").read(cx);
         assert_eq!(
             composer.draft.text,
@@ -671,10 +674,13 @@ fn finishing_prompt_enhancement_while_closed_restores_preview_on_reopen_and_repl
         model.toggle_composer(window, cx);
         let composer = model.composer.view.as_ref().expect("composer").read(cx);
         assert_eq!(
-            composer.enhanced_preview.as_deref(),
+            composer
+                .enhanced_preview
+                .as_ref()
+                .map(|(_, text)| text.as_str()),
             Some("Final rewritten prompt")
         );
-        model.apply_prompt_enhancement(false, cx);
+        model.apply_prompt_enhancement(&key, false, cx);
         let composer = model.composer.view.as_ref().expect("composer").read(cx);
         assert_eq!(composer.draft.text, "Final rewritten prompt");
         assert!(composer.enhanced_preview.is_none());
@@ -709,7 +715,7 @@ fn replacing_with_an_enhanced_prompt_preserves_pasted_image_attachments(cx: &mut
             Ok("Fix the layout issue cleanly.".into()),
             cx,
         );
-        model.apply_prompt_enhancement(false, cx);
+        model.apply_prompt_enhancement(&key, false, cx);
         let composer = model.composer.view.as_ref().expect("composer").read(cx);
         assert_eq!(composer.draft.image_attachments.len(), 1);
         assert!(
@@ -768,6 +774,17 @@ fn submitting_the_composer_cancels_only_its_own_in_flight_prompt_enhancement(
         assert!(cancellation.is_cancelled());
         assert!(model.composer.enhancing.is_none());
         model.finish_prompt_enhancement(id, &key, "ship again", Ok("late rewrite".into()), cx);
+        assert!(model.composer.enhancement_previews.is_empty());
+        assert!(
+            model
+                .composer
+                .view
+                .as_ref()
+                .expect("composer")
+                .read(cx)
+                .enhanced_preview
+                .is_none()
+        );
     });
     assert_eq!(composer_text(&view, cx), "ship again");
     completion.try_send(Ok(())).expect("ack");
@@ -779,6 +796,8 @@ fn submitting_the_composer_cancels_only_its_own_in_flight_prompt_enhancement(
 fn editing_the_draft_while_a_preview_is_open_dismisses_the_stale_preview(cx: &mut TestAppContext) {
     let (view, cx, _requests) = attached_composer(cx);
     cx.simulate_input("fix login");
+    let other_key =
+        muxy_app_core::composer::DraftId::for_project(ServerId::local(), ProjectId::new());
     view.update(cx, |model, cx| {
         let key = model.composer_key();
         let id = model.start_prompt_enhancement(&key, cx).0;
@@ -789,18 +808,32 @@ fn editing_the_draft_while_a_preview_is_open_dismisses_the_stale_preview(cx: &mu
             Ok("Fix the login bug cleanly.".into()),
             cx,
         );
+        let other_id = model.start_prompt_enhancement(&other_key, cx).0;
+        model.finish_prompt_enhancement(
+            other_id,
+            &other_key,
+            "",
+            Ok("Other project rewrite.".into()),
+            cx,
+        );
         let composer = model.composer.view.as_ref().expect("composer").read(cx);
         assert_eq!(
-            composer.enhanced_preview.as_deref(),
+            composer
+                .enhanced_preview
+                .as_ref()
+                .map(|(_, text)| text.as_str()),
             Some("Fix the login bug cleanly.")
         );
+        assert!(model.composer.enhancement_previews.contains_key(&other_key));
     });
     cx.simulate_input(" and signup");
     cx.run_until_parked();
     view.update(cx, |model, cx| {
+        let key = model.composer_key();
         let composer = model.composer.view.as_ref().expect("composer").read(cx);
         assert!(composer.enhanced_preview.is_none());
-        assert!(model.composer.enhancement_preview.is_none());
+        assert!(!model.composer.enhancement_previews.contains_key(&key));
+        assert!(model.composer.enhancement_previews.contains_key(&other_key));
         assert_eq!(composer.draft.text, "fix login and signup");
     });
 }

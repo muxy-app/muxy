@@ -546,6 +546,9 @@ fn capture(
     limit: usize,
     cancellation: &Cancellation,
 ) -> Result<(Vec<u8>, Vec<u8>), Failure> {
+    if cancellation.is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
     let cancelled = || cancellation.is_cancelled();
     let limits = Limits {
         cancelled: Some(&cancelled),

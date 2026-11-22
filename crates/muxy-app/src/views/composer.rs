@@ -6,7 +6,7 @@ use gpui::{
     Subscription, Window, actions, px,
 };
 use muxy_app_core::{
-    composer::ComposerDraft,
+    composer::{ComposerDraft, DraftId},
     settings::{ComposerPosition, ComposerSettings},
 };
 use muxy_ui::{
@@ -32,8 +32,8 @@ pub(crate) enum ComposerEvent {
     Close,
     Menu,
     Enhance,
-    AcceptEnhancement { append: bool },
-    DismissEnhancement,
+    AcceptEnhancement { key: DraftId, append: bool },
+    DismissEnhancement(DraftId),
     Preferences(ComposerSettings),
 }
 
@@ -46,7 +46,7 @@ pub(crate) struct Composer {
     pub(crate) error: Option<String>,
     pub(crate) sending: bool,
     pub(crate) enhancing: bool,
-    pub(crate) enhanced_preview: Option<String>,
+    pub(crate) enhanced_preview: Option<(DraftId, String)>,
     theme: Theme,
     metrics: Metrics,
     resize: PanelResizeState,
