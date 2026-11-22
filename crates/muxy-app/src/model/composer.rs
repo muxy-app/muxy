@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -58,7 +58,7 @@ pub(crate) struct ComposerRuntime {
     submission: Option<Task<()>>,
     pub(super) enhancing: Option<ActiveEnhancement>,
     enhance_serial: u64,
-    pub(super) enhancement_previews: HashMap<DraftId, EnhancementPreview>,
+    pub(super) enhancement_previews: BTreeMap<DraftId, EnhancementPreview>,
     pub(super) preferences_dirty: bool,
 }
 
@@ -84,7 +84,7 @@ impl ComposerRuntime {
             submission: None,
             enhancing: None,
             enhance_serial: 0,
-            enhancement_previews: HashMap::new(),
+            enhancement_previews: BTreeMap::new(),
             preferences_dirty: false,
         }
     }
