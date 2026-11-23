@@ -21,6 +21,7 @@ pub mod project_selector;
 pub mod qr;
 pub mod restore;
 mod servers;
+pub mod session_link;
 mod set_aside;
 mod settings_tab;
 mod state;

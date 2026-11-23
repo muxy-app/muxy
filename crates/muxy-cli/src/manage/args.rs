@@ -98,6 +98,10 @@ pub(crate) enum Session {
         session: Option<SessionId>,
         background: bool,
     },
+    Link {
+        session: Option<SessionId>,
+        split: Option<muxy_app_core::Direction>,
+    },
     Send {
         session: Option<SessionId>,
         text: String,
@@ -269,6 +273,7 @@ fn options(group: &str, verb: &str) -> (&'static [&'static str], &'static [&'sta
         ("session", "list") => (&["--project"], &["--all", "--quiet", "-q"]),
         ("session", "send") => (&[], &["--stdin"]),
         ("session", "show") => (&[], &["--background"]),
+        ("session", "link") => (&["--split"], &[]),
         ("session", "create") => (&["--directory", "--cols", "--rows"], &[]),
         ("session", "read-screen") => (&["--lines"], &["--saved"]),
         ("session", "history") => (&["--before", "--limit"], &["--saved"]),
@@ -363,7 +368,7 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
     let arguments = match verb {
         "send" if o.flag("--stdin") => 0,
         "send" | "search" | "rename" => 1,
-        "end" | "discard" | "show" | "read-screen" | "history" | "wait" | "inspect" => 0,
+        "end" | "discard" | "show" | "link" | "read-screen" | "history" | "wait" | "inspect" => 0,
         _ => return Err(invalid(help::SESSION)),
     };
     let given = o
@@ -398,6 +403,15 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
         "show" => Ok(Session::Show {
             session,
             background: o.flag("--background"),
+        }),
+        "link" => Ok(Session::Link {
+            session,
+            split: match o.value("--split")? {
+                None => None,
+                Some("right") => Some(muxy_app_core::Direction::Right),
+                Some("down") => Some(muxy_app_core::Direction::Down),
+                Some(_) => return Err(invalid("--split must be right or down")),
+            },
         }),
         "send" if o.flag("--stdin") => Ok(Session::SendStdin(session)),
         "send" => Ok(Session::Send {
@@ -719,6 +733,9 @@ mod tests {
             vec!["session", "send", "1", "two", "three"],
             vec!["session", "show", "1", "2"],
             vec!["session", "show", "tab"],
+            vec!["session", "link", "1", "2"],
+            vec!["session", "link", "--split", "left"],
+            vec!["session", "link", "--split"],
             vec!["session", "create", "--background"],
             vec!["session", "list", "--background"],
             vec!["session", "wait", "1"],
@@ -770,6 +787,20 @@ mod tests {
             Action::Session(Session::Show {
                 session: None,
                 background: true
+            })
+        );
+        assert_eq!(
+            action(&["session", "link"])?,
+            Action::Session(Session::Link {
+                session: None,
+                split: None
+            })
+        );
+        assert_eq!(
+            action(&["session", "link", "5", "--split", "down"])?,
+            Action::Session(Session::Link {
+                session: id,
+                split: Some(muxy_app_core::Direction::Down)
             })
         );
         assert_eq!(

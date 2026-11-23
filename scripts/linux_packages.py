@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 
-from release import APPS, ROOT, channel, check_build
+from release import APPS, ROOT, URL_SCHEMES, channel, check_build
 
 
 ARCHITECTURES = {"arm64": ("arm64", "aarch64"), "x86_64": ("amd64", "x86_64")}
@@ -24,8 +24,10 @@ def identity(version):
 def desktop_entry(version, executable):
     name, identifier, _ = identity(version)
     return (f"[Desktop Entry]\nType=Application\nName={name}\n"
-            f"Exec={executable} %F\nIcon={identifier}\nTerminal=false\n"
-            f"Categories=Development;TerminalEmulator;\nStartupWMClass={identifier}\n")
+            f"Exec={executable} %U\nIcon={identifier}\nTerminal=false\n"
+            f"Categories=Development;TerminalEmulator;\n"
+            f"MimeType=x-scheme-handler/{URL_SCHEMES[channel(version)]};\n"
+            f"StartupWMClass={identifier}\n")
 
 
 def copy(source, destination, mode=0o644):

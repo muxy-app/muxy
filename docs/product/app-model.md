@@ -155,6 +155,11 @@ windows are on screen.
   **Open With**, opens the folder in the desktop app. It selects the folder's
   project on this computer or adds one, then opens a new terminal tab there. Without the desktop
   app, or over SSH, `muxy <folder>` opens in the terminal UI.
+- A session link from `muxy session link` raises the desktop app and selects the
+  tab that shows the terminal. Without one, it opens the terminal in a new tab
+  of its project, or beside the selected pane of that project when the link
+  asks for a split. A link that starts the app waits until the tabs are
+  restored.
 - **Existing Terminals** lists a project's terminals that this app isn't
   showing, and which app owns each one. Opening one adds it to your layout.
   On this computer's server, the ones other clients show open as tabs by

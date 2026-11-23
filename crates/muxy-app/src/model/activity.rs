@@ -455,16 +455,7 @@ impl AppModel {
             .session_pane(server, event.session)
             .map(|(project, tab, pane)| (project.id, tab, pane))
         {
-            if self.raise_pane_window(pane, cx) {
-                self.dismiss_overlay(cx);
-                return;
-            }
-            self.select_project(project, cx);
-            self.select_tab(tab, cx);
-            self.focus_pane(pane, cx);
-            self.dismiss_overlay(cx);
-            self.focus_owner.request_active_pane();
-            self.raise_window(cx);
+            self.jump_to_pane(project, tab, pane, cx);
         } else if server.is_local() && !self.quick.visible && self.supports(Feature::QuickTerminal)
         {
             self.toggle_quick_terminal(cx);

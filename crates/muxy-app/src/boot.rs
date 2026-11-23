@@ -330,6 +330,7 @@ pub(crate) enum Work {
     ProjectSessions {
         project: muxy_protocol::ProjectId,
     },
+    LocateSession(SessionId),
     ProjectLayouts {
         project: muxy_protocol::ProjectId,
         request: u64,
@@ -443,6 +444,7 @@ impl Work {
             Self::ClaimActivity(..) => "ClaimActivity",
             Self::Git(..) => "Git",
             Self::ProjectSessions { .. } => "ProjectSessions",
+            Self::LocateSession(..) => "LocateSession",
             Self::ProjectLayouts { .. } => "ProjectLayouts",
             Self::LoadProjectLayout { .. } => "LoadProjectLayout",
             Self::ReadCatalog => "ReadCatalog",
@@ -510,6 +512,10 @@ pub(crate) enum Update {
     ProjectSessions {
         project: muxy_protocol::ProjectId,
         result: Result<muxy_protocol::ProjectSessions, ClientError>,
+    },
+    SessionLocated {
+        session: SessionId,
+        result: Result<Option<SessionInfo>, ClientError>,
     },
     CreationCancelled {
         operation: muxy_protocol::OperationId,
@@ -989,6 +995,10 @@ fn rejected(work: Work, error: ClientError) -> Update {
             project,
             result: Err(error),
         },
+        Work::LocateSession(session) => Update::SessionLocated {
+            session,
+            result: Err(error),
+        },
         Work::CancelCreation(operation) => Update::CreationCancelled {
             operation,
             result: Err(error),
@@ -1107,6 +1117,14 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             return Some(Update::ProjectSessions {
                 project,
                 result: client.available_project_sessions(project),
+            });
+        }
+        Work::LocateSession(session) => {
+            return Some(Update::SessionLocated {
+                session,
+                result: client
+                    .list_sessions()
+                    .map(|sessions| sessions.into_iter().find(|info| info.id == session)),
             });
         }
         Work::CancelCreation(operation) => {

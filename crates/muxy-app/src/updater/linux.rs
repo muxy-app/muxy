@@ -116,8 +116,11 @@ impl Installation {
     }
 
     pub(crate) fn cleanup(&self, _socket: &Path) -> Result<()> {
-        run(&mut self.command("prune"))?;
-        Ok(())
+        let pruned = run(&mut self.command("prune"));
+        run(self
+            .command("upgrade-entry")
+            .args(["--version", env!("CARGO_PKG_VERSION")]))?;
+        pruned.map(drop)
     }
 }
 

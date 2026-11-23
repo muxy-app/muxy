@@ -269,6 +269,7 @@ Commands:
   end [id] --yes                   End the process, keeping saved output
   discard [id] --yes               End the process and delete saved output
   show [id] [--background]         Show it in a desktop app tab without raising the app
+  link [id] [--split DIRECTION]    Print a link that opens it in the desktop app
 
 Create prints the new session ID and types COMMAND into it, then Return.
 COMMAND words are joined with spaces without shell quoting; quote the whole
@@ -278,6 +279,8 @@ Show opens the session in a new tab of its project in the desktop app on this
 computer, or selects the tab that already shows it, without bringing a running
 app to the front; it starts the app if needed and doesn't take --host.
 --background adds the tab without switching the window to it.
+Link prints a link that raises the desktop app and selects the tab showing the
+session, or opens one; --split right or down splits the selected pane instead.
 Inside a Muxy terminal, the ID defaults to that terminal and the project to its
 project. Wait prints the first visible line containing TEXT, or how the session
 ended; it fails after the timeout (default 30000ms, maximum 3600000ms).

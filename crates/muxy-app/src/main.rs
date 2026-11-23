@@ -150,7 +150,10 @@ fn main() -> ExitCode {
         return proxy::run_tunnel(std::env::args_os().skip(2));
     }
     #[cfg(windows)]
-    muxy_ui::notifications::identify_process();
+    {
+        muxy_ui::notifications::identify_process();
+        let _ = muxy_ui::registry::register_url_scheme();
+    }
     run()
 }
 
@@ -184,9 +187,9 @@ fn run() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let (folders, opened_folders) = async_channel::unbounded();
+    let (opened, opened_urls) = async_channel::unbounded();
     #[cfg(any(target_os = "linux", windows))]
-    let _instance = match instance::claim(std::env::args_os().skip(1), &folders) {
+    let _instance = match instance::claim(std::env::args_os().skip(1), &opened) {
         Ok(Some(instance)) => instance,
         Ok(None) => return ExitCode::SUCCESS,
         Err(error) => {
@@ -210,7 +213,7 @@ fn run() -> ExitCode {
     muxy_ui::native_scroll::use_overlay_scrollers();
     let application = Application::new().with_assets(muxy_ui::assets::Assets);
     application.on_open_urls(move |urls| {
-        let _ = folders.try_send(urls);
+        let _ = opened.try_send(urls);
     });
     let exit_code = Rc::new(Cell::new(ExitCode::SUCCESS));
     let startup_exit_code = exit_code.clone();
@@ -242,7 +245,7 @@ fn run() -> ExitCode {
             #[cfg(target_os = "linux")]
             window.set_window_title(app_name());
             let model = cx.new(|cx| AppModel::new(boot, window, cx));
-            model.update(cx, |_, cx| AppModel::open_folders_from(opened_folders, cx));
+            model.update(cx, |_, cx| AppModel::open_urls_from(opened_urls, cx));
             model.update(cx, |model, cx| model.start_app_socket(window, cx));
             let configuration = model.downgrade();
             cx.on_action(move |_: &views::workspace::ReloadConfiguration, cx| {

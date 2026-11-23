@@ -54,6 +54,10 @@ pub mod window_drag;
 #[allow(unsafe_code)]
 pub mod quick_terminal;
 
+#[cfg(windows)]
+#[allow(unsafe_code, reason = "Writing the app's per-user registry keys")]
+pub mod registry;
+
 #[allow(
     unsafe_code,
     reason = "Native notification delegate and Objective-C initialization"

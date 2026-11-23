@@ -22,6 +22,13 @@ impl Channel {
             Self::Stable => "com.muxy.app",
         }
     }
+
+    pub const fn url_scheme(self) -> &'static str {
+        match self {
+            Self::Beta => "muxy-beta",
+            Self::Stable => "muxy",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
