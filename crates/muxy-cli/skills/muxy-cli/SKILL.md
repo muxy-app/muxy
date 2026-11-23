@@ -36,6 +36,9 @@ Muxy sets `MUXY_SESSION_ID` and `MUXY_SERVER_ID` in every terminal. Session
 commands then default to your own terminal, and `session create` to your
 project, so most commands need no IDs.
 
+`muxy session link` prints a link that opens your terminal in the desktop app.
+Give it to a dashboard or another app that should be able to jump to you.
+
 ## Start a terminal and capture its ID
 
 `session create` prints the new session ID. Everything after `--` is typed into

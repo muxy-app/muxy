@@ -83,6 +83,104 @@ cmd_quit() {
   echo "app did not quit on SIGTERM; killed"
 }
 
+LINK_APP="$HOME/Applications/Muxy Beta E2E.app"
+LINK_ENTRY="$HOME/.local/share/applications/muxy-e2e-links.desktop"
+
+wait_for_app() {
+  local i
+  for i in $(seq 1 60); do
+    sleep 0.5
+    if [ -n "$(app_pid)" ] && muxy server status >/dev/null 2>&1; then
+      sleep 3
+      echo "app running: pid $(app_pid); server: $(muxy server status 2>&1 | head -1)"
+      return 0
+    fi
+  done
+  die "the app did not start within 30 seconds"
+}
+
+cmd_link_launch() {
+  cmd_quit >/dev/null
+  if [ "$OS" = Darwin ]; then
+    rm -rf "$LINK_APP"
+    mkdir -p "$LINK_APP/Contents/MacOS" "$MUXY_DIR"
+    local binary
+    for binary in muxy-app muxy muxy-server; do
+      cp -c "$BIN/$binary" "$LINK_APP/Contents/MacOS/$binary" 2>/dev/null || cp "$BIN/$binary" "$LINK_APP/Contents/MacOS/$binary"
+    done
+    python3 - "$HOME/src/muxy/scripts" "$LINK_APP/Contents/Info.plist" "$MUXY_DIR" "$BIN" <<'PLIST' || die "could not write the bundle's Info.plist"
+import plistlib
+import sys
+sys.path.insert(0, sys.argv[1])
+import release
+info = release.bundle_info("2.0.0-beta.1", "1")
+info["LSEnvironment"] = {"MUXY_DIR": sys.argv[3], "MUXY_SERVER_BIN": sys.argv[4] + "/muxy-server",
+                         "PATH": sys.argv[4] + ":/usr/bin:/bin:/usr/sbin:/sbin"}
+with open(sys.argv[2], "wb") as output:
+    plistlib.dump(info, output)
+PLIST
+    codesign --force --deep --sign - "$LINK_APP" >/dev/null 2>&1 || true
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$LINK_APP"
+    printf '\n==== link-launch %s\n' "$(date)" >> "$APP_LOG"
+    open "$LINK_APP" || die "could not open $LINK_APP"
+    wait_for_app
+    echo "muxy-beta:// links open $LINK_APP"
+    return 0
+  fi
+  mkdir -p "$(dirname "$LINK_ENTRY")"
+  cat > "$LINK_ENTRY" <<ENTRY
+[Desktop Entry]
+Type=Application
+Name=Muxy Beta E2E
+Exec="$HOME/.local/bin/muxy-vm-run" %U
+Terminal=false
+NoDisplay=true
+MimeType=x-scheme-handler/muxy-beta;
+ENTRY
+  update-desktop-database -q "$(dirname "$LINK_ENTRY")" 2>/dev/null || true
+  xdg-mime default "$(basename "$LINK_ENTRY")" x-scheme-handler/muxy-beta
+  cmd_launch
+  echo "muxy-beta:// links open $(xdg-mime query default x-scheme-handler/muxy-beta)"
+}
+
+cmd_open_link() {
+  local url="$1"
+  if [ "$OS" = Darwin ]; then
+    open "$url" || die "open refused $url"
+  else
+    linux_display_env
+    export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+    printf '\n==== open-link %s %s\n' "$url" "$(date)" >> "$APP_LOG"
+    nohup xdg-open "$url" >> "$APP_LOG" 2>&1 < /dev/null &
+  fi
+  sleep 3
+  echo "opened $url"
+}
+
+session_showing() {
+  local text="$1" id matches=""
+  for id in $(live_ids); do
+    if screen_of "$id" | grep -qF -- "$text"; then matches="$matches $id"; fi
+  done
+  set -- $matches
+  [ $# -eq 1 ] || die "expected one live terminal showing '$text', found $#"
+  echo "$1"
+}
+
+cmd_open_session() {
+  local link id="$1"
+  case "$id" in
+    ''|*[!0-9]*) id="$(session_showing "$1")" || exit 1; echo "session: $id" ;;
+  esac
+  if [ -n "${2:-}" ]; then
+    link="$(muxy session link "$id" --split "$2")" || die "muxy session link failed"
+  else
+    link="$(muxy session link "$id")" || die "muxy session link failed"
+  fi
+  echo "link: $link"
+  cmd_open_link "$link"
+}
+
 cmd_stop_all() {
   cmd_quit >/dev/null
   muxy server stop --force >/dev/null 2>&1 || true
@@ -815,6 +913,9 @@ Usage: muxy-e2e <command> [arguments]      (guest side; on the host use: e2e g <
   config <file>          Print a file from the test profile, e.g. settings.toml or terminal.toml
   lines <path>           Count the lines of a file (0 if it doesn't exist)
   app-pid                Print the app's pid (empty if not running)
+  link-launch            Register this build for muxy-beta:// links (a bundle on macOS, a desktop entry on Linux) and start it that way
+  open-link <url>        Open a URL as a browser would (open / xdg-open), e.g. a muxy-beta:// link
+  open-session <id|text> [right|down]  Print muxy session link for that terminal (by id, or the one live terminal showing text) and open it
   agent-fixture          Install stub agents (claude, codex, kiro-cli) that print how they were started
   extension-fixture      With the app quit: ~/e2e/hello-ext, ~/e2e/hello-ready, and focus-timer as if from the store
   extension-edit <v>     Set ~/e2e/hello-ext to version <v>, or break its package.json with "broken"
@@ -943,6 +1044,9 @@ case "$command" in
   exists) [ $# -ge 1 ] || die "usage: exists <path>"; cmd_exists "$1" ;;
   rm-tree) [ $# -ge 1 ] || die "usage: rm-tree <path>"; cmd_rm_tree "$1" ;;
   app-pid) app_pid || true ;;
+  link-launch) cmd_link_launch ;;
+  open-link) [ $# -ge 1 ] || die "usage: open-link <url>"; cmd_open_link "$1" ;;
+  open-session) [ $# -ge 1 ] || die "usage: open-session <id|text> [right|down]"; cmd_open_session "$@" ;;
   help|-h|--help) usage ;;
   *) usage >&2; exit 2 ;;
 esac

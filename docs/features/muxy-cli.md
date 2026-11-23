@@ -57,7 +57,7 @@ muxy help session send  # help for one subcommand
 | `muxy <folder>` | Opens a new terminal in the folder's project in the desktop app, adding the project if needed. Over SSH, or without the desktop app, opens it in the terminal UI. |
 | `muxy server start\|status\|stop` | Starts, inspects, or stops the server. `stop` refuses while terminals run; add `--force` to end them. |
 | `muxy project list\|inspect\|add\|rename\|set-color\|set-icon\|delete` | Manages projects. Deleting ends its terminals but keeps files on disk. |
-| `muxy session list\|inspect\|rename\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard\|show` | Creates and names terminals, inspects live or saved sessions, sends input, reads output, waits for text or exit, and shows a terminal in the desktop app. |
+| `muxy session list\|inspect\|rename\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard\|show\|link` | Creates and names terminals, inspects live or saved sessions, sends input, reads output, waits for text or exit, shows a terminal in the desktop app, and prints a [link](#session-links) that opens it. |
 | `muxy worktree list\|create\|checkout-pr\|register\|remove` | Manages Git worktree projects, including checking out pull requests. |
 | `muxy settings get\|set` | Reads or changes [server settings](server.md#settings). |
 | `muxy config list\|get\|set\|unset\|reload` | Reads or changes the desktop app's settings on this computer and applies them to the running app. See [App settings](#app-settings). |
@@ -219,6 +219,32 @@ connected app sees it. Names must be nonempty, trimmed, at most 256 bytes and
 contain no control characters. Existing session commands continue to target
 numeric IDs; renaming does not change the ID. Older servers without session
 naming report that the operation is unsupported.
+
+## Session links
+
+`muxy session link` prints a link that opens a terminal in the desktop app. Inside
+a Muxy terminal it defaults to that terminal, so an agent can hand its own
+terminal to a dashboard or another app.
+
+```bash
+muxy session link                   # muxy://session/42?server=…
+muxy session link 42 --split right  # muxy://session/42?server=…&split=right
+```
+
+Opening the link raises the desktop app on this computer, starting it if needed,
+and selects the project, worktree, and tab that show the terminal. If no tab
+shows it, Muxy opens it in a new tab of its project. With `--split right` or
+`--split down`, it splits the selected pane of that project instead.
+
+- The link is `muxy://session/<id>`, with `server=<MUXY_SERVER_ID>` and
+  `split=right|down` as options. Without `server`, it means this computer's
+  server.
+- Muxy Beta links start with `muxy-beta://`, so each link opens the app whose
+  server owns the terminal.
+- A terminal on a [remote server](remote-servers.md) opens too, once the app has
+  connected to that server before. `--host` prints links for that server.
+- A link to an ended terminal, or to a server the app doesn't know, shows an
+  error and changes nothing.
 
 ## Browser control
 

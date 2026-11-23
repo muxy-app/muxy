@@ -10,6 +10,7 @@ use gpui::{
     AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
     IntoElement, Render, Subscription,
 };
+use muxy_app_core::session_link::SessionLink;
 use muxy_app_core::{ProjectStatus, ServerId, settings::Keymap};
 use muxy_core::shortcuts::{ShortcutId, ShortcutSettings};
 use muxy_ui::command_palette::Registry;
@@ -1161,15 +1162,20 @@ impl AppModel {
         );
     }
 
-    pub(crate) fn open_folders_from(
-        folders: async_channel::Receiver<Vec<String>>,
+    pub(crate) fn open_urls_from(
+        opened: async_channel::Receiver<Vec<String>>,
         cx: &mut Context<Self>,
     ) {
         cx.spawn(async move |this, cx| {
-            while let Ok(urls) = folders.recv().await {
+            while let Ok(urls) = opened.recv().await {
                 if this
                     .update(cx, |model, cx| {
                         model.raise_window(cx);
+                        if let Some(link) =
+                            urls.iter().rev().find_map(|url| SessionLink::parse(url))
+                        {
+                            model.open_session_link(link, cx);
+                        }
                         model
                             .pending_folders
                             .extend(urls.iter().filter_map(|url| folder_from_url(url)));

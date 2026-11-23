@@ -630,6 +630,7 @@
 "Could not open link: %@" = "Could not open link: %@";
 "Could not open project: %@" = "Could not open project: %@";
 "Could not open the file chooser: %@" = "Could not open the file chooser: %@";
+"Could not open the terminal: %@" = "Could not open the terminal: %@";
 "Could not prepare the app update: %@" = "Could not prepare the app update: %@";
 "Could not prepare the update: %@. Check for updates to retry." = "Could not prepare the update: %@. Check for updates to retry.";
 "Could not preserve the clipboard" = "Could not preserve the clipboard";
@@ -1941,6 +1942,7 @@
 "Templates must include {branch}. Relative paths start from the project folder." = "Templates must include {branch}. Relative paths start from the project folder.";
 "Terminal" = "Terminal";
 "Terminal %lld" = "Terminal %lld";
+"Terminal %lld isn't running." = "Terminal %lld isn't running.";
 "Terminal Fill" = "Terminal Fill";
 "Terminal UI" = "Terminal UI";
 "Terminal connection closed before delivery was confirmed" = "Terminal connection closed before delivery was confirmed";
@@ -2041,6 +2043,7 @@
 "The store has no source for %@" = "The store has no source for %@";
 "The store takes at most 6 screenshots." = "The store takes at most 6 screenshots.";
 "The terminal closed before sending." = "The terminal closed before sending.";
+"The terminal's project isn't in Muxy yet. Try again in a moment." = "The terminal's project isn't in Muxy yet. Try again in a moment.";
 "The typeface used to render text in every terminal pane." = "The typeface used to render text in every terminal pane.";
 "The update download is incomplete or has an unexpected size" = "The update download is incomplete or has an unexpected size";
 "The updater is starting. Try again shortly." = "The updater is starting. Try again shortly.";
@@ -2072,6 +2075,7 @@
 "This is not a released version" = "This is not a released version";
 "This link has expired or was already used. Copy a new one from the other computer." = "This link has expired or was already used. Copy a new one from the other computer.";
 "This link is for %@, which is already listed. Pair it again from its own Edit… form." = "This link is for %@, which is already listed. Pair it again from its own Edit… form.";
+"This link is for a server Muxy isn't connected to." = "This link is for a server Muxy isn't connected to.";
 "This opens a public pull request against %@ from your GitHub account, %@. Maintainers review it, and once merged it is listed for everyone." = "This opens a public pull request against %@ from your GitHub account, %@. Maintainers review it, and once merged it is listed for everyone.";
 "This page can't be opened" = "This page can't be opened";
 "This path can't be typed safely into the program running here." = "This path can't be typed safely into the program running here.";

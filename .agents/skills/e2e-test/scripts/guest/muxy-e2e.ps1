@@ -299,9 +299,33 @@ Usage: muxy-e2e.ps1 <command> [arguments]   (guest side; on the host use: e2e g 
   config <file>          Print a file from the test profile, e.g. settings.toml or terminal.toml
   lines <path>           Count the lines of a file (0 if it doesn't exist)
   app-pid                Print the app's pid (empty if not running)
+  link-launch            Restart the app; it registers muxy-beta:// links for itself when it starts
+  open-link <url>        Open a URL as a browser would (start), e.g. a muxy-beta:// link
+  open-session <id|text> [right|down]  Print muxy session link for that terminal (by id, or the one live terminal showing text) and open it
 
 Other muxy-e2e commands (TUI, agent, extension, image and IME fixtures) are not available on Windows.
 '@
+}
+
+function Invoke-OpenLink([string]$Url) {
+    Start-Process cmd.exe -ArgumentList '/d', '/c', "start `"`" `"$Url`"" -WindowStyle Hidden -WorkingDirectory $HOME
+    Start-Sleep -Seconds 3
+    "opened $Url"
+}
+
+function Invoke-OpenSession([string[]]$Arguments) {
+    if ($Arguments.Count -lt 1) { Fail 'usage: open-session <id|text> [right|down]' }
+    $id = $Arguments[0]
+    if ($id -notmatch '^[0-9]+$') {
+        $found = @(Get-Sessions | Where-Object { @(Get-Screen $_.id | Where-Object { $_.Contains($Arguments[0]) }).Count -gt 0 })
+        if ($found.Count -ne 1) { Fail "expected one live terminal showing '$($Arguments[0])', found $($found.Count)" }
+        $id = "$($found[0].id)"
+        "session: $id"
+    }
+    $link = if ($Arguments.Count -gt 1) { Invoke-Muxy session link $id --split $Arguments[1] } else { Invoke-Muxy session link $id }
+    if ($LASTEXITCODE -ne 0 -or -not $link) { Fail 'muxy session link failed' }
+    "link: $link"
+    Invoke-OpenLink "$link"
 }
 
 $command = if ($args.Count) { $args[0] } else { 'help' }
@@ -345,6 +369,9 @@ switch ($command) {
         if (Test-Path $file -PathType Leaf) { @(Get-Content $file).Count } else { 0 }
     }
     'app-pid' { $app = Get-AppProcess; if ($app) { $app.Id } }
+    'link-launch' { Invoke-Quit | Out-Null; Invoke-Launch; "muxy-beta:// links open the app, which registers itself when it starts" }
+    'open-link' { if ($rest.Count -lt 1) { Fail 'usage: open-link <url>' }; Invoke-OpenLink $rest[0] }
+    'open-session' { Invoke-OpenSession $rest }
     { $_ -in 'help', '-h', '--help' } { Show-Usage }
     default { Show-Usage | ForEach-Object { [Console]::Error.WriteLine($_) }; Fail "'$command' is not available on Windows" }
 }

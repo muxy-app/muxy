@@ -96,6 +96,10 @@ of output and stop: don't run the suites.
 | `$E g $VM bg-fixture` | Writes `~/e2e/bg-ext`: palette commands "BG Test: Plain Panel", "Slow Panel", "Glass Panel", "Plain Tab", "Slow Tab" and "Modal", and the sidebar "BG Sidebar". Slow pages show nothing for 15 seconds, then a red page. Load it with `$E g $VM muxy extension load '~/e2e/bg-ext'`. |
 | `$E g $VM launch-without-muxy` | With the app quit: starts it with no `muxy` on its `PATH` and no installed link. Linux only. |
 | `$E g $VM logs` | App and server log tails and processes. |
+| `$E g $VM app-pid` | Prints the Muxy app's process id, or nothing when it isn't running. |
+| `$E g $VM link-launch` | Restarts Muxy registered for `muxy-beta://` links, as an installed app would be: through a generated app bundle on macOS, a desktop entry on Linux, and the app's own registration on Windows. Use it instead of `launch` in link tests. |
+| `$E g $VM open-link '<url>'` | Opens a URL the way a browser or another app would (`open`, `xdg-open`, `start`), then waits 3 seconds. Always single-quote the URL. |
+| `$E g $VM open-session <id\|'text'> [right\|down]` | Finds the terminal by id, or the one live terminal whose screen shows the text, prints `muxy session link` for it (with `--split right` or `--split down` when given) as `link: ...`, then opens that link like `open-link`. |
 | `$E desktop $VM <action> [args]` | Runs `swiftvm control` on the VM (see Driving the desktop). |
 
 A command that prints `muxy: ...` or `muxy-e2e: ...` and exits non-zero has

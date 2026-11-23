@@ -290,19 +290,47 @@ def restart(root, version, previous, parent):
     subprocess.Popen([str(root / "current/muxy-app")], start_new_session=True)
 
 
-def desktop_entry(root, version, appimage=False):
+def desktop_entry(root, version, appimage=False, legacy=False):
     beta = channel(version) == "beta"
     identifier = "com.muxy-beta.app" if beta else "com.muxy.app"
     path = data_home() / "applications" / f"{identifier}.desktop"
     executable = str(root / ("usr/bin/muxy-app" if appimage else "current/muxy-app"))
     executable = executable.replace("\\", "\\\\\\\\").replace('"', '\\\\"').replace("`", "\\\\`").replace("$", "\\\\$").replace("%", "%%")
     icon = str(root / (f"{identifier}.png" if appimage else "current/icon.png")).replace("\\", "\\\\")
+    links = "" if legacy else f"MimeType=x-scheme-handler/{'muxy-beta' if beta else 'muxy'};\n"
     contents = (f"[Desktop Entry]\nType=Application\nName={'Muxy Beta' if beta else 'Muxy'}\n"
-                f'Exec="{executable}" %F\nIcon={icon}\nTerminal=false\nCategories=Development;TerminalEmulator;\n'
-                f"StartupWMClass={identifier}\n")
+                f'Exec="{executable}" {"%F" if legacy else "%U"}\nIcon={icon}\nTerminal=false\n'
+                f"Categories=Development;TerminalEmulator;\n{links}StartupWMClass={identifier}\n")
     if appimage:
         contents += f"X-Muxy-AppImage={root.name}\n"
     return path, contents
+
+
+def owned_entries(root, version, appimage=False):
+    return {desktop_entry(root, version, appimage, legacy)[1] for legacy in (False, True)}
+
+
+def write_entry(path, contents):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as output:
+        temporary = Path(output.name)
+        try:
+            output.write(contents)
+            output.flush()
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+    tool = shutil.which("update-desktop-database")
+    if tool:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            subprocess.run([tool, "-q", str(path.parent)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=30, check=False)
+
+
+def upgrade_entry(root, version):
+    path, contents = desktop_entry(root, version)
+    if path.is_file() and not path.is_symlink() and path.read_text() in owned_entries(root, version) - {contents}:
+        write_entry(path, contents)
 
 
 def integrate_appimage(root, version):
@@ -315,26 +343,17 @@ def integrate_appimage(root, version):
         if previous == contents:
             return
         owner = re.search(r"^X-Muxy-AppImage=([0-9a-f]{64})$", previous, re.MULTILINE)
-        if not owner or previous != desktop_entry(root.parent / owner[1], version, appimage=True)[1]:
+        if not owner or previous not in owned_entries(root.parent / owner[1], version, appimage=True):
             print(f"Kept existing desktop entry {path}", file=sys.stderr)
             return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as output:
-        temporary = Path(output.name)
-        try:
-            output.write(contents)
-            output.flush()
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
+    write_entry(path, contents)
 
 
 def integrate(root, version):
     path, contents = desktop_entry(root, version)
-    if path.is_symlink() or (path.exists() and path.read_text() != contents):
+    if path.is_symlink() or (path.exists() and path.read_text() not in owned_entries(root, version)):
         raise ValueError(f"Refusing to overwrite an unrelated desktop entry: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(contents)
+    write_entry(path, contents)
     commands = Path.home() / ".local/bin"
     commands.mkdir(parents=True, exist_ok=True)
     suffix = "-beta" if channel(version) == "beta" else ""
@@ -358,8 +377,8 @@ def uninstall(root):
             if {path.name for path in directory.iterdir()} - FILES - {".lease"}:
                 raise ValueError(f"Unrecognized files in {directory}; move them before uninstalling")
             stack.enter_context(lease(directory))
-        path, contents = desktop_entry(root, version)
-        if path.is_file() and not path.is_symlink() and path.read_text() == contents:
+        path, _ = desktop_entry(root, version)
+        if path.is_file() and not path.is_symlink() and path.read_text() in owned_entries(root, version):
             path.unlink()
         commands = Path.home() / ".local/bin"
         for name in ("muxy", "muxy-server", "muxy-beta", "muxy-server-beta"):
@@ -425,7 +444,7 @@ def download(version, directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("install", "stage", "verify", "prune", "discard", "activate", "restart", "uninstall", "integrate-appimage"))
+    parser.add_argument("command", choices=("install", "stage", "verify", "prune", "discard", "activate", "restart", "uninstall", "integrate-appimage", "upgrade-entry"))
     parser.add_argument("--version", help="Exact release; otherwise install the latest release in the selected channel")
     parser.add_argument("--channel", choices=("stable", "beta"), help="Channel for install (default: stable)")
     parser.add_argument("--root", type=Path)
@@ -446,7 +465,7 @@ def main():
         if args.channel and channel(args.version) != args.channel:
             raise ValueError("The version does not belong to the selected channel")
         print(f"Installing Muxy {args.version} for Linux {architecture()}…", flush=True)
-    if args.command in {"install", "stage", "verify", "discard", "activate", "restart", "integrate-appimage"}:
+    if args.command in {"install", "stage", "verify", "discard", "activate", "restart", "integrate-appimage", "upgrade-entry"}:
         channel(args.version or "")
     root = args.root or (default_root(args.version) if args.command == "install" else Path(__file__).resolve().parent.parent.parent)
     if not root.is_absolute() or any(character in str(root) for character in "\n\r\0"):
@@ -486,6 +505,9 @@ def main():
         elif args.command == "prune":
             installation(root, current_version(root))
             prune(root)
+        elif args.command == "upgrade-entry":
+            installation(root, args.version)
+            upgrade_entry(root, args.version)
         elif args.command == "activate":
             installation(root, args.version)
             activate(root, args.version, args.current, args.pid)

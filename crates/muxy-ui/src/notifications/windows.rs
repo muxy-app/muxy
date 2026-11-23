@@ -13,12 +13,11 @@ use windows::Data::Xml::Dom::XmlDocument;
 use windows::UI::Notifications::{
     NotificationSetting, ToastNotification, ToastNotificationManager, ToastNotifier,
 };
-use windows::Win32::Foundation::{CLASS_E_NOAGGREGATION, ERROR_SUCCESS};
+use windows::Win32::Foundation::CLASS_E_NOAGGREGATION;
 use windows::Win32::System::Com::{
     CLSCTX_LOCAL_SERVER, CoRegisterClassObject, IClassFactory, IClassFactory_Impl,
     REGCLS_MULTIPLEUSE,
 };
-use windows::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RegSetKeyValueW};
 use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
 use windows::Win32::UI::Notifications::{
     INotificationActivationCallback, INotificationActivationCallback_Impl,
@@ -60,7 +59,7 @@ fn registration(
     name: &str,
     activator: GUID,
     executable: &str,
-) -> Vec<(String, &'static str, String)> {
+) -> Vec<crate::registry::Value> {
     let activator = format!("{{{activator:?}}}");
     let application = format!(r"Software\Classes\AppUserModelId\{id}");
     vec![
@@ -76,31 +75,12 @@ fn registration(
 
 fn register() -> Result<(), String> {
     let executable = muxy_core::executable::current_path().map_err(|error| error.to_string())?;
-    let values = registration(
+    crate::registry::set_user_values(registration(
         app_id(),
         muxy_core::release::Channel::current().app_name(),
         activator(),
         &executable.to_string_lossy(),
-    );
-    for (key, name, value) in values {
-        let key = HSTRING::from(key);
-        let data: Vec<u16> = value.encode_utf16().chain([0]).collect();
-        let bytes = u32::try_from(data.len() * 2).map_err(|error| error.to_string())?;
-        let result = unsafe {
-            RegSetKeyValueW(
-                HKEY_CURRENT_USER,
-                &key,
-                &HSTRING::from(name),
-                REG_SZ.0,
-                Some(data.as_ptr().cast()),
-                bytes,
-            )
-        };
-        if result != ERROR_SUCCESS {
-            return Err(windows::core::Error::from(result.to_hresult()).message());
-        }
-    }
-    Ok(())
+    ))
 }
 
 fn tag(id: &str) -> String {
