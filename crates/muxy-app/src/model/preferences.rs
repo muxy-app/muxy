@@ -16,6 +16,7 @@ pub(crate) enum Change {
     QuickTerminal(muxy_app_core::settings::QuickTerminalSettings),
     QuickNumber(&'static str, u16),
     Theme(bool, String),
+    AppIcon(String),
     Sidebar(bool),
     SidebarAutoHide(bool),
     SidebarVibrancy(bool),
@@ -580,6 +581,13 @@ impl AppModel {
                 }
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
             }
+            Change::AppIcon(icon) => {
+                if !open_app_icon(&icon, false) {
+                    return Err(app_icon_error(&icon).into());
+                }
+                settings.appearance.app_icon = icon;
+                settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
+            }
             Change::Sidebar(value) => {
                 settings.appearance.sidebar_expanded = value;
                 settings.appearance = settings.appearance.save_changes(&self.appearance, &path)?;
@@ -871,6 +879,7 @@ impl AppModel {
             || self.appearance.light_theme != settings.appearance.light_theme
             || self.appearance.interface_size != settings.appearance.interface_size;
         let language_changed = self.appearance.language != settings.appearance.language;
+        let icon_changed = self.appearance.app_icon != settings.appearance.app_icon;
         if settings.appearance.remember_projects_without_tabs
             && settings.appearance.projects_without_tabs_shown
                 != self.appearance.projects_without_tabs_shown
@@ -891,6 +900,9 @@ impl AppModel {
         }
         if language_changed {
             self.sync_language(cx);
+        }
+        if icon_changed {
+            self.sync_app_icon(cx);
         }
         for pane in self.grids.values() {
             pane.view.update(cx, |pane, cx| {
@@ -963,6 +975,9 @@ impl AppModel {
         loaded.servers.clone_from(&self.settings.servers);
         let mut current = self.settings.clone();
         current.appearance = self.appearance.clone();
+        if self.app_icon_failed && loaded.appearance.app_icon == current.appearance.app_icon {
+            self.sync_app_icon(cx);
+        }
         if loaded == current {
             return Ok(());
         }
@@ -1027,6 +1042,14 @@ impl AppModel {
             });
         }
         Ok(())
+    }
+
+    pub(crate) fn sync_app_icon(&mut self, cx: &mut Context<Self>) {
+        let icon = self.appearance.app_icon.clone();
+        self.app_icon_failed = !open_app_icon(&icon, true);
+        if self.app_icon_failed {
+            self.fail(app_icon_error(&icon), cx);
+        }
     }
 
     #[cfg(all(target_os = "macos", not(test)))]
@@ -1417,6 +1440,7 @@ fn change_id(change: &Change) -> &str {
         Change::QuickTerminal(_) => "quick-shortcut",
         Change::Theme(false, _) => "light-theme",
         Change::Theme(true, _) => "dark-theme",
+        Change::AppIcon(_) => "app-icon",
         Change::Sidebar(_) => "sidebar",
         Change::SidebarAutoHide(_) => "sidebar-auto-hide",
         Change::SidebarVibrancy(_) => "sidebar-vibrancy",
@@ -1472,6 +1496,25 @@ fn change_id(change: &Change) -> &str {
             | BrowserChange::DeleteProfile(_) => "browser-profiles",
         },
     }
+}
+
+#[cfg(all(target_os = "macos", not(test)))]
+fn open_app_icon(icon: &str, show: bool) -> bool {
+    let path = (!icon.is_empty()).then(|| std::path::Path::new(icon));
+    if show {
+        muxy_ui::app_icon::set_dock_icon(path)
+    } else {
+        path.is_none_or(muxy_ui::app_icon::is_image)
+    }
+}
+
+#[cfg(not(all(target_os = "macos", not(test))))]
+fn open_app_icon(_icon: &str, _show: bool) -> bool {
+    true
+}
+
+fn app_icon_error(icon: &str) -> String {
+    tr!("Could not open %@ as an image", icon).to_string()
 }
 
 fn browser_settings(

@@ -223,6 +223,7 @@
 "App Store" = "App Store";
 "App Window" = "App Window";
 "App closed. Your terminals keep running." = "App closed. Your terminals keep running.";
+"App icon" = "App icon";
 "App language" = "App language";
 "App name" = "App name";
 "App update failed" = "App update failed";
@@ -421,11 +422,13 @@
 "Checks" = "Checks";
 "Checks failing" = "Checks failing";
 "Checks running" = "Checks running";
+"Choose App Icon" = "Choose App Icon";
 "Choose App to Open Project" = "Choose App to Open Project";
 "Choose Folder" = "Choose Folder";
 "Choose Folder…" = "Choose Folder…";
 "Choose Font…" = "Choose Font…";
 "Choose Icon…" = "Choose Icon…";
+"Choose Image…" = "Choose Image…";
 "Choose Logo" = "Choose Logo";
 "Choose Muxy backup or 1.x settings.json" = "Choose Muxy backup or 1.x settings.json";
 "Choose Provider for %@" = "Choose Provider for %@";
@@ -624,6 +627,7 @@
 "Could not load themes from %@: %@" = "Could not load themes from %@: %@";
 "Could not mark activity read: %@" = "Could not mark activity read: %@";
 "Could not move the terminal to its new project: %@" = "Could not move the terminal to its new project: %@";
+"Could not open %@ as an image" = "Could not open %@ as an image";
 "Could not open %@: %@" = "Could not open %@: %@";
 "Could not open a copy: %@" = "Could not open a copy: %@";
 "Could not open file: %@" = "Could not open file: %@";
@@ -1838,6 +1842,7 @@
 "Show a persistent home-directory shell with a shortcut." = "Show a persistent home-directory shell with a shortcut.";
 "Show agents panel" = "Show agents panel";
 "Show an enabled extension's sidebar in place of the built-in one." = "Show an enabled extension's sidebar in place of the built-in one.";
+"Show an image file as the Dock icon while Muxy runs. Use Default to go back to the standard icon." = "Show an image file as the Dock icon while Muxy runs. Use Default to go back to the standard icon.";
 "Show connection and terminal information at the bottom of the workspace." = "Show connection and terminal information at the bottom of the workspace.";
 "Show each agent on two lines with its agent and status, or fit more on one line each." = "Show each agent on two lines with its agent and status, or fit more on one line each.";
 "Show each agent's icon, or the icon of the project it runs in." = "Show each agent's icon, or the icon of the project it runs in.";

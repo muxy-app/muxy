@@ -195,6 +195,7 @@ pub(crate) struct AppModel {
     pub(crate) split_resize: crate::views::splits::SplitResizeState,
     pub(crate) sidebar_resize: Option<crate::views::sidebar::SidebarResize>,
     pub(crate) sidebar_peek: sidebar_peek::SidebarPeek,
+    pub(crate) app_icon_failed: bool,
     #[cfg(not(target_os = "macos"))]
     pub(crate) sidebar_available_width: gpui::Pixels,
     pub(crate) agent_sessions: agent_sessions::AgentSessions,
@@ -437,8 +438,12 @@ impl AppModel {
                 let theme_changed = self.appearance.dark_theme != saved.dark_theme
                     || self.appearance.light_theme != saved.light_theme
                     || self.appearance.interface_size != saved.interface_size;
+                let icon_changed = self.appearance.app_icon != saved.app_icon;
                 self.appearance = saved;
                 self.settings.appearance = self.appearance.clone();
+                if icon_changed {
+                    self.sync_app_icon(cx);
+                }
                 self.sync_agents_panel(cx);
                 self.sync_agent_sessions(cx);
                 self.filter_agent_sessions(cx);
@@ -680,6 +685,7 @@ impl AppModel {
             split_resize: crate::views::splits::SplitResizeState::default(),
             sidebar_resize: None,
             sidebar_peek: sidebar_peek::SidebarPeek::default(),
+            app_icon_failed: false,
             #[cfg(not(target_os = "macos"))]
             sidebar_available_width: gpui::px(f32::MAX),
             agent_sessions: agent_sessions::AgentSessions::new(cx),
@@ -761,6 +767,7 @@ impl AppModel {
         model.start_tips(window, cx);
         model.sync_ssh_proxy(cx);
         model.start_servers();
+        model.sync_app_icon(cx);
         if stopped_in_background {
             model.explain_background_stop(cx);
         }

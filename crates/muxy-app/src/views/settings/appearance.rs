@@ -1,7 +1,7 @@
 use super::slider::{Commit, Slider};
 use super::{Category, PickerKind, SettingsEvent, SettingsView, Snapshot};
 use crate::model::preferences::{AgentsPanelToggle, Change, WorktreeToggle};
-use gpui::{AnyElement, Context, InteractiveElement, IntoElement};
+use gpui::{AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, div};
 use muxy_app_core::localization;
 use muxy_app_core::settings::{
     AgentsPanelDensity, AgentsPanelGrouping, AgentsPanelIcon, CloseBehavior, InterfaceSize,
@@ -86,6 +86,12 @@ pub(super) fn rows(
     }
     if category == Category::Appearance && pane.matches(category, tr_key!("Size")) {
         rows.push(interface_size(pane, cx));
+    }
+    if cfg!(target_os = "macos")
+        && category == Category::Appearance
+        && pane.matches(category, tr_key!("App icon"))
+    {
+        rows.push(app_icon(pane, cx));
     }
     for (id, label, value, change) in [
         (
@@ -523,6 +529,55 @@ fn agents_panel_icon(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Any
             }),
         ),
     )
+}
+
+fn app_icon(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
+    let custom = !pane.snapshot.settings.appearance.app_icon.is_empty();
+    pane.row(
+        "app-icon",
+        tr_key!("App icon"),
+        div()
+            .flex()
+            .gap(pane.layout_metrics.scaled(6.0))
+            .child(controls::button(
+                pane.style(),
+                "app-icon-choose",
+                controls::Button::secondary(&tr!("Choose Image…")),
+                cx.listener(|_, _, _, cx| choose_app_icon(cx)),
+            ))
+            .child(controls::button(
+                pane.style(),
+                "app-icon-default",
+                controls::Button::secondary(&tr!("Default")).enabled(custom),
+                cx.listener(|_, _, _, cx| {
+                    cx.emit(SettingsEvent::Change(Change::AppIcon(String::new())));
+                }),
+            ))
+            .into_any_element(),
+    )
+}
+
+fn choose_app_icon(cx: &mut Context<SettingsView>) {
+    let prompt = cx.prompt_for_paths(gpui::PathPromptOptions {
+        files: true,
+        directories: false,
+        multiple: false,
+        prompt: Some(tr!("Choose App Icon")),
+    });
+    cx.spawn(async move |pane, cx| {
+        let Ok(Ok(Some(paths))) = prompt.await else {
+            return;
+        };
+        let Some(path) = paths.into_iter().next() else {
+            return;
+        };
+        let _ = pane.update(cx, |_, cx| {
+            cx.emit(SettingsEvent::Change(Change::AppIcon(
+                path.to_string_lossy().into_owned(),
+            )));
+        });
+    })
+    .detach();
 }
 
 fn interface_size(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {

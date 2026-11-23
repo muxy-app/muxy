@@ -15,7 +15,7 @@ On macOS, choose **About Muxy** (or **About Muxy Beta**) from the app menu to op
 | General | Closing behavior, file types, defaults, and opener rules, window size, worktree locations, the anonymous daily ping |
 | Quick Terminal | Global shortcut, pinning, size, transparency |
 | Composer | Clearing, image submission, font |
-| Appearance | Language, light and dark themes, interface size, sidebar, status bar, rail, pane headers, the Open in App button, tips |
+| Appearance | Language, light and dark themes, interface size, app icon, sidebar, status bar, rail, pane headers, the Open in App button, tips |
 | Keyboard | Every shortcut. See [Keyboard shortcuts](keyboard-shortcuts.md) |
 | Commands | Your own commands, each run in a new tab, with optional shortcuts |
 | Terminal | Fonts, spacing, transparency, vibrancy, colors, cursor, padding, selection, scrolling, Option keys, key bindings |
@@ -150,6 +150,17 @@ appearance.
 
 Custom themes in the profile's `themes/` folder show up too. The chosen theme
 colors the app and its terminals.
+
+## App icon
+
+On macOS, **App icon** in **Settings → Appearance** sets the Dock icon. Click
+**Choose Image…** and pick a PNG, ICNS, or other image file. **Default** goes
+back to the standard icon. Muxy saves the path of the file as `app_icon` in
+the `[appearance]` table of `settings.toml`.
+
+Muxy shows the image only while it runs. When Muxy is closed, the Dock and
+Finder show the standard icon. If you move or delete the image file, Muxy
+shows an error at the next launch and keeps the standard icon.
 
 ## Sidebar
 

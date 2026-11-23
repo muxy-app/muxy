@@ -366,6 +366,15 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Interface"),
     },
     Setting {
+        id: "app-icon",
+        label: tr_key!("App icon"),
+        description: tr_key!(
+            "Show an image file as the Dock icon while Muxy runs. Use Default to go back to the standard icon."
+        ),
+        category: Category::Appearance,
+        section: tr_key!("Interface"),
+    },
+    Setting {
         id: "sidebar",
         label: tr_key!("Expand sidebar"),
         description: tr_key!("Show project names alongside their icons in the workspace sidebar."),
@@ -1014,6 +1023,7 @@ pub(super) fn setting(id: &str) -> Option<&'static Setting> {
 pub(super) fn search_aliases(id: &str) -> &'static str {
     match id {
         "interface-size" => "zoom density",
+        "app-icon" => "dock logo image picture",
         "file-rules" | "file-registrations" | "always-ask-files" => {
             "open files with opener default custom extension associations patterns chooser"
         }

@@ -1,5 +1,6 @@
 pub mod accessibility;
 #[cfg(target_os = "macos")]
+#[allow(unsafe_code, reason = "Main-thread Dock icon image")]
 pub mod app_icon;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
