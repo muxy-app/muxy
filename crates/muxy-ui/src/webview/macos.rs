@@ -460,8 +460,8 @@ impl NativeWebview {
         self.host.sync(bounds, clip, radius);
     }
 
-    pub(super) fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
-        self.host.occlude(occlusions);
+    pub(super) fn occlude(&self, occlusions: &[super::Cover], window: &mut Window) {
+        self.host.occlude(occlusions, window);
     }
 
     pub(super) fn occlude_also(&self, bounds: Bounds<Pixels>) {

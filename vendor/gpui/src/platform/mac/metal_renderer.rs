@@ -367,6 +367,11 @@ impl MetalRenderer {
             return;
         };
         let layer = self.layer.clone();
+        let present_with_transaction =
+            self.presents_with_transaction || scene.synchronize_native_layers;
+        if layer.presents_with_transaction() != present_with_transaction {
+            layer.set_presents_with_transaction(present_with_transaction);
+        }
         let viewport_size = layer.drawable_size();
         let viewport_size: Size<DevicePixels> = size(
             (viewport_size.width.ceil() as i32).into(),
@@ -399,7 +404,7 @@ impl MetalRenderer {
                 let block = block.copy();
                 command_buffer.add_completed_handler(&block);
 
-                if self.presents_with_transaction {
+                if present_with_transaction {
                     command_buffer.commit();
                     command_buffer.wait_until_scheduled();
                     drawable.present();

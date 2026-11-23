@@ -75,6 +75,7 @@ struct Suggestion {
 struct Suggestions {
     entries: Vec<Suggestion>,
     selected: Option<usize>,
+    scroll: gpui::ScrollHandle,
     open: bool,
 }
 
@@ -100,7 +101,7 @@ pub(crate) struct BrowserView {
     pub(crate) zoom: f64,
     pub(crate) engine: SearchEngine,
     address: Entity<TextInput>,
-    address_width: Rc<Cell<Pixels>>,
+    address_bounds: Rc<Cell<gpui::Bounds<Pixels>>>,
     history: Option<History>,
     suggestions: Suggestions,
     find: Option<FindBar>,
@@ -180,7 +181,7 @@ impl BrowserView {
                 zoom: 1.0,
                 engine: setup.engine,
                 address,
-                address_width: Rc::default(),
+                address_bounds: Rc::default(),
                 history,
                 suggestions: Suggestions::default(),
                 find: None,
@@ -583,6 +584,7 @@ impl BrowserView {
             })
             .collect();
         self.suggestions.selected = None;
+        self.suggestions.scroll.scroll_to_item(0);
         cx.notify();
     }
 
@@ -597,6 +599,9 @@ impl BrowserView {
             (Some(index), true) => (index + 1 < count).then_some(index + 1),
             (Some(index), false) => index.checked_sub(1),
         };
+        self.suggestions
+            .scroll
+            .scroll_to_item(self.suggestions.selected.unwrap_or(0));
         cx.notify();
         true
     }
@@ -957,6 +962,11 @@ impl Render for BrowserView {
                 )
                 .absolute()
                 .size_full(),
+            )
+            .children(
+                self.menu
+                    .as_ref()
+                    .map(|menu| self.option_menu(menu, cx).into_any_element()),
             );
         div()
             .track_focus(&self.focus)
@@ -991,13 +1001,8 @@ impl Render for BrowserView {
             )
             .child(toolbar::render(self, window, cx))
             .children(toolbar::find_bar(self, cx))
-            .child(
-                content.children(
-                    self.menu
-                        .as_ref()
-                        .map(|menu| self.option_menu(menu, cx).into_any_element()),
-                ),
-            )
+            .child(content)
+            .children(toolbar::suggestions(self, cx))
     }
 }
 

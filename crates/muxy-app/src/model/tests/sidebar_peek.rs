@@ -116,6 +116,52 @@ fn an_auto_hiding_expanded_sidebar_floats_in_from_near_the_edge(cx: &mut TestApp
 }
 
 #[gpui::test]
+fn webview_coverage_follows_the_sidebar_as_it_slides_in_and_out(cx: &mut TestAppContext) {
+    let (view, cx) = open(FLOATING, cx);
+    view.read_with(cx, |model, _| {
+        let edge = model.sidebar_peek.edge.get().expect("hover target");
+        let near_edge = point(edge.left() + px(1.0), edge.center().y);
+        let regions = model.webviews.occlusions.borrow();
+        assert!(
+            regions
+                .iter()
+                .any(|(_, cover)| cover.pointer_only && cover.bounds.contains(&near_edge)),
+            "native pages pass edge input to the sidebar"
+        );
+        assert!(
+            regions
+                .iter()
+                .all(|(_, cover)| cover.pointer_only || !cover.bounds.contains(&near_edge)),
+            "the hover target leaves the underlying page visible"
+        );
+    });
+
+    for _ in 0..2 {
+        cx.dispatch_action(ToggleSidebar);
+        wait(cx, SLIDE / 2);
+        let card = island(cx).expect("sidebar in motion");
+        let offset = card.size.width / 4.0;
+        view.read_with(cx, |model, _| {
+            let regions = model.webviews.occlusions.borrow();
+            let covered = |x| {
+                regions.iter().any(|(_, cover)| {
+                    !cover.pointer_only && cover.bounds.contains(&point(x, card.center().y))
+                })
+            };
+            assert!(
+                covered(card.right() - offset),
+                "the sidebar covers the page"
+            );
+            assert!(
+                !covered(card.right() + offset),
+                "the page stays visible beyond the moving sidebar"
+            );
+        });
+        wait(cx, SLIDE / 2);
+    }
+}
+
+#[gpui::test]
 fn an_auto_hiding_icon_sidebar_floats_as_a_narrow_column(cx: &mut TestAppContext) {
     let (view, cx) = open(
         Sidebar {

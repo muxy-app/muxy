@@ -322,7 +322,7 @@ impl Spinners {
         self.0.borrow_mut().blocked = blocked;
     }
 
-    pub(crate) fn present(&self, covers: &[(Option<gpui::EntityId>, Bounds<Pixels>)]) {
+    pub(crate) fn present(&self, covers: &[(Option<gpui::EntityId>, muxy_ui::webview::Cover)]) {
         let mut registry = self.0.borrow_mut();
         let blocked = registry.blocked;
         registry.natives.retain(|native| {
@@ -334,7 +334,9 @@ impl Spinners {
                 && native.bounds.get().is_some_and(|bounds| {
                     let owner = native.owner.get();
                     !covers.iter().any(|(cover_owner, cover)| {
-                        (owner.is_none() || *cover_owner != owner) && cover.intersects(&bounds)
+                        !cover.pointer_only
+                            && (owner.is_none() || *cover_owner != owner)
+                            && cover.bounds.intersects(&bounds)
                     })
                 });
             native.visible.set(visible);
@@ -424,7 +426,7 @@ impl Spinners {
         clippy::unused_self,
         reason = "GPUI clips its own overlays; only AppKit needs this hook"
     )]
-    pub(crate) fn present(&self, _covers: &[(Option<gpui::EntityId>, Bounds<Pixels>)]) {}
+    pub(crate) fn present(&self, _covers: &[(Option<gpui::EntityId>, muxy_ui::webview::Cover)]) {}
 
     pub(super) fn glyph_in(
         &self,

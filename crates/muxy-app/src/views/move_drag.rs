@@ -830,7 +830,7 @@ pub(crate) fn overlay(model: &AppModel, window: &Window) -> AnyElement {
                 if main {
                     occlusions
                         .borrow_mut()
-                        .push((None, indicator.bounds.dilate(px(2.0))));
+                        .push((None, indicator.bounds.dilate(px(2.0)).into()));
                 }
             },
             move |_, (), window, _| {

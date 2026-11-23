@@ -1593,6 +1593,10 @@ impl Window {
         RefCell::borrow_mut(&self.next_frame_callbacks).push(Box::new(callback));
     }
 
+    pub fn synchronize_native_layers(&mut self) {
+        self.next_frame.scene.synchronize_native_layers = true;
+    }
+
     pub fn request_animation_frame(&self) {
         let entity = self.current_view();
         self.on_next_frame(move |_, cx| cx.notify(entity));
