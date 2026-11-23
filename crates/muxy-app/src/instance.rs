@@ -164,11 +164,7 @@ fn receive(mut stream: LocalStream, opened: &Opened) -> io::Result<()> {
         })
         .collect();
     let closing = |_| io::Error::other("the app is closing");
-    let urls = urls(&asked);
-    if !urls.is_empty() {
-        opened.try_send(urls).map_err(closing)?;
-    }
-    opened.try_send(Vec::new()).map_err(closing)?;
+    opened.try_send(urls(&asked)).map_err(closing)?;
     stream.write_all(&[DONE])
 }
 
@@ -238,5 +234,6 @@ mod tests {
                     .to_string()
             ]
         );
+        assert!(urls.try_recv().is_err());
     }
 }
