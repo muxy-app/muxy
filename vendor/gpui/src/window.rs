@@ -1877,6 +1877,9 @@ impl Window {
         self.invalidator.set_phase(DrawPhase::Focus);
         let previous_focus_path = self.rendered_frame.focus_path();
         let previous_window_active = self.rendered_frame.window_active;
+        if self.needs_present.get() && self.rendered_frame.scene.synchronize_native_layers {
+            self.next_frame.scene.synchronize_native_layers = true;
+        }
         mem::swap(&mut self.rendered_frame, &mut self.next_frame);
         self.next_frame.clear();
         let current_focus_path = self.rendered_frame.focus_path();

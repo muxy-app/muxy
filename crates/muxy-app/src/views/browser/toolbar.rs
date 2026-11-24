@@ -235,7 +235,7 @@ fn address(
             let anchor = view.address_bounds.clone();
             canvas(move |bounds, _, _| anchor.set(bounds), |_, (), _, _| ())
                 .absolute()
-                .size_full()
+                .inset_0()
         })
         .capture_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, _, cx| {
             let keystroke = &event.keystroke;
