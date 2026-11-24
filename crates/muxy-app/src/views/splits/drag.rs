@@ -524,7 +524,7 @@ pub(crate) fn overlay(model: &AppModel, window: &Window) -> AnyElement {
     canvas(
         move |_, _, _| {
             if let Some(bounds) = preview().filter(|_| main) {
-                occlusions.borrow_mut().push((None, bounds));
+                occlusions.borrow_mut().push((None, bounds.into()));
             }
         },
         move |_, (), window, _| {

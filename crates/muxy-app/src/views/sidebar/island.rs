@@ -1,15 +1,14 @@
-use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, DispatchPhase, InteractiveElement, IntoElement, MouseDownEvent,
+    AnyElement, Context, DispatchPhase, InteractiveElement, IntoElement, MouseDownEvent,
     MouseExitEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Styled, Window, canvas,
-    div, px, size,
+    div, px,
 };
+use muxy_ui::webview::Cover;
 
 use crate::model::AppModel;
 
 const EDGE: f32 = 20.0;
-const OCCLUDED_EDGE: f32 = 8.0;
-const OPACITY_FLOOR: f32 = 0.35;
+const NATIVE_EDGE: f32 = 8.0;
 
 pub(crate) fn layer(
     model: &AppModel,
@@ -47,13 +46,17 @@ fn edge(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let occlusions = model.webviews.occlusions.clone();
     let weak = cx.weak_entity();
     canvas(
-        move |area, _, _| {
+        move |mut area, _, _| {
             bounds.set(Some(area));
-            let strip = Bounds::new(
-                area.origin,
-                size(area.size.width.min(px(OCCLUDED_EDGE)), area.size.height),
-            );
-            occlusions.borrow_mut().push((None, strip));
+            area.size.width = area.size.width.min(px(NATIVE_EDGE));
+            occlusions.borrow_mut().push((
+                None,
+                Cover {
+                    bounds: area,
+                    pointer_only: true,
+                    ..Cover::default()
+                },
+            ));
         },
         move |_, (), window, _| {
             let moving = weak.clone();
@@ -106,23 +109,13 @@ fn edge(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
 
 fn reach(model: &AppModel, width: Pixels) -> AnyElement {
     let bounds = model.sidebar_peek.reach.clone();
-    let occlusions = model.webviews.occlusions.clone();
-    let peeking = model.sidebar_peeking();
-    canvas(
-        move |area, _, _| {
-            bounds.set(Some(area));
-            if peeking {
-                occlusions.borrow_mut().push((None, area));
-            }
-        },
-        |_, (), _, _| (),
-    )
-    .absolute()
-    .left_0()
-    .top_0()
-    .bottom_0()
-    .w(width)
-    .into_any_element()
+    canvas(move |area, _, _| bounds.set(Some(area)), |_, (), _, _| ())
+        .absolute()
+        .left_0()
+        .top_0()
+        .bottom_0()
+        .w(width)
+        .into_any_element()
 }
 
 fn card(model: &AppModel, margin: Pixels, width: Pixels, window: &Window) -> Option<AnyElement> {
@@ -135,6 +128,25 @@ fn card(model: &AppModel, margin: Pixels, width: Pixels, window: &Window) -> Opt
     let m = model.metrics;
     let theme = &model.theme;
     let travel = width + margin * 2.0 + m.spacing9();
+    let radius = m.radius_xl();
+    let shadows = muxy_ui::theme::Elevation::Modal.shadow(theme.bg);
+    let occlusions = model.webviews.occlusions.clone();
+    let owner = model
+        .webviews
+        .sidebar
+        .as_ref()
+        .map(|sidebar| sidebar.surface.view.entity_id());
+    let surface = div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .rounded(radius)
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.raised())
+        .shadow(shadows.clone())
+        .child(model.cached_sidebar());
     Some(
         div()
             .id("sidebar-island")
@@ -145,20 +157,25 @@ fn card(model: &AppModel, margin: Pixels, width: Pixels, window: &Window) -> Opt
             .bottom(margin)
             .left(margin - travel * (1.0 - progress))
             .w(width)
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .rounded(m.radius_xl())
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.raised())
-            .shadow(muxy_ui::theme::Elevation::Modal.shadow(theme.bg))
-            .opacity(OPACITY_FLOOR + (1.0 - OPACITY_FLOOR) * progress)
-            .child(model.webview_occlusion())
-            .when_some(model.webviews.sidebar.as_ref(), |card, sidebar| {
-                card.child(model.webview_layer(sidebar.surface.view.entity_id()))
-            })
-            .child(model.cached_sidebar())
+            .child(
+                canvas(
+                    move |bounds, _, _| {
+                        occlusions.borrow_mut().push((
+                            owner,
+                            Cover {
+                                bounds,
+                                radius,
+                                shadows,
+                                pointer_only: false,
+                            },
+                        ));
+                    },
+                    |_, (), _, _| (),
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .child(surface)
             .into_any_element(),
     )
 }

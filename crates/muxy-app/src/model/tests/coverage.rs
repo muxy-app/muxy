@@ -112,7 +112,7 @@ fn drawn_marks(view: &Entity<AppModel>, cx: &mut VisualTestContext) -> Vec<Bound
     cx.run_until_parked();
     view.update(cx, |model, _| {
         let marks = model.webviews.occlusions.borrow();
-        marks.iter().map(|(_, bounds)| *bounds).collect()
+        marks.iter().map(|(_, cover)| cover.bounds).collect()
     })
 }
 

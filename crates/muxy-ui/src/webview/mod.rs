@@ -28,6 +28,23 @@ use unsupported as backend;
 
 pub use backend::CAPABILITY;
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Cover {
+    pub bounds: Bounds<Pixels>,
+    pub radius: Pixels,
+    pub shadows: Vec<gpui::BoxShadow>,
+    pub pointer_only: bool,
+}
+
+impl From<Bounds<Pixels>> for Cover {
+    fn from(bounds: Bounds<Pixels>) -> Self {
+        Self {
+            bounds,
+            ..Self::default()
+        }
+    }
+}
+
 pub struct Snapshot {
     pub width: u32,
     pub height: u32,
@@ -194,8 +211,8 @@ impl NativeWebview {
         self.0.sync(bounds, clip, background, radius, scale);
     }
 
-    pub fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
-        self.0.occlude(occlusions);
+    pub fn occlude(&self, occlusions: &[Cover], window: &mut Window) {
+        self.0.occlude(occlusions, window);
     }
 
     pub fn occlude_also(&self, bounds: Bounds<Pixels>) {

@@ -51,7 +51,7 @@ impl NativeBrowser {
     pub fn sync(&self, _bounds: Bounds<Pixels>, _clip: Bounds<Pixels>, _radius: f64, _scale: f32) {
         match *self {}
     }
-    pub fn occlude(&self, _occlusions: &[Bounds<Pixels>]) {
+    pub fn occlude(&self, _occlusions: &[crate::webview::Cover], _window: &mut Window) {
         match *self {}
     }
     pub fn occlude_also(&self, _bounds: Bounds<Pixels>) {

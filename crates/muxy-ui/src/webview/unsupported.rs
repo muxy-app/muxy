@@ -78,7 +78,7 @@ impl NativeWebview {
     ) {
         match *self {}
     }
-    pub(super) fn occlude(&self, _occlusions: &[Bounds<Pixels>]) {
+    pub(super) fn occlude(&self, _occlusions: &[super::Cover], _window: &mut Window) {
         match *self {}
     }
     pub(super) fn set_visible(&self, _visible: bool) {

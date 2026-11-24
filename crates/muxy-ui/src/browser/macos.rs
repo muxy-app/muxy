@@ -145,8 +145,8 @@ impl NativeBrowser {
         self.host.sync(bounds, clip, radius);
     }
 
-    pub fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
-        self.host.occlude(occlusions);
+    pub fn occlude(&self, occlusions: &[crate::webview::Cover], window: &mut Window) {
+        self.host.occlude(occlusions, window);
     }
 
     pub fn occlude_also(&self, bounds: Bounds<Pixels>) {

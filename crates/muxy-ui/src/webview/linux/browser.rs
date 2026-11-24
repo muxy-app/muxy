@@ -116,8 +116,8 @@ impl NativeBrowser {
         self.page
             .sync(bounds, clip, gpui::Rgba::default(), radius, scale);
     }
-    pub fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
-        self.page.occlude(occlusions);
+    pub fn occlude(&self, occlusions: &[crate::webview::Cover], window: &mut Window) {
+        self.page.occlude(occlusions, window);
     }
     #[allow(clippy::unused_self)]
     pub fn occlude_also(&self, _bounds: Bounds<Pixels>) {}
