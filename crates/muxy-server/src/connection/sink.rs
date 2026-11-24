@@ -394,6 +394,48 @@ mod tests {
     }
 
     #[test]
+    fn a_picture_refitted_to_another_size_is_sent_again() -> TestResult {
+        let image = |width: u32| muxy_protocol::GraphicImage {
+            id: 1,
+            generation: 3,
+            width,
+            height: 1,
+            rgba: vec![255; width as usize * 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        };
+        let (connection, _commands, mut sink) = attached()?;
+        connection.stream_images();
+        let snapshot = snapshot()?;
+        let frame = |seq, width| ScreenFrame {
+            size: snapshot.size,
+            graphics: Some(muxy_protocol::Graphics {
+                images: vec![image(width)],
+                ..muxy_protocol::Graphics::default()
+            }),
+            seq,
+            reset: false,
+            rows: Vec::new(),
+            cursor: snapshot.cursor,
+            modes: snapshot.modes,
+        };
+        assert!(sink.send(AttachmentEvent::Snapshot {
+            snapshot: Box::new(snapshot.clone()),
+            process: None,
+        }));
+        connection.next();
+        for (seq, width, pixels) in [(1, 4, true), (2, 4, false), (3, 2, true)] {
+            assert!(sink.send(AttachmentEvent::Frame(frame(seq, width))));
+            let Some((CHANNEL, Message::Frame(sent))) = connection.next() else {
+                return Err("no frame".into());
+            };
+            let sent = sent.graphics.ok_or("no graphics")?;
+            assert_eq!(!sent.images[0].rgba.is_empty(), pixels, "frame {seq}");
+            connection.ack(CHANNEL, seq);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn a_session_that_goes_away_fails_the_pending_attach_once() -> TestResult {
         for ended in [false, true] {
             let (connection, _commands, mut sink) = attached()?;

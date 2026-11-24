@@ -528,13 +528,14 @@ impl Owner {
             .screen
             .ok_or_else(|| io::Error::other("fresh history has no screen"))?;
         let shares = sink.shares_images();
+        let graphics = if shares {
+            self.terminal.full_graphics()?
+        } else {
+            screen.graphics
+        };
         let snapshot = AttachSnapshot {
             links: history.links,
-            graphics: if shares {
-                self.terminal.full_graphics()?
-            } else {
-                screen.graphics
-            },
+            graphics: graphics.clone(),
             prompts: history.prompts,
             channel,
             size: self.size,
@@ -562,6 +563,11 @@ impl Owner {
                 seq: 0,
                 rows: self.links.clone(),
             }));
+            if shares {
+                self.full_graphics = graphics;
+            } else {
+                self.graphics = graphics;
+            }
             self.attachments.insert(
                 id,
                 Attachment {

@@ -475,6 +475,16 @@ fn visible_pictures_share_the_budget_and_hidden_ones_do_not_count() -> Result {
             .iter()
             .all(|image| image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES / 2)
     );
+
+    let clear = STANDARD.encode(vec![0_u8; (side * side * 4) as usize]);
+    let mut overlaid = terminal()?;
+    place(&mut overlaid, 1, 1);
+    overlaid.feed(
+        format!("\x1b[1;1H\x1b_Ga=T,i=2,f=32,s={side},v={side},c=4,r=2,C=1,q=2;{clear}\x1b\\")
+            .as_bytes(),
+    );
+    let seen_through = overlaid.graphics()?;
+    assert_eq!(seen_through.images.len(), 2);
     Ok(())
 }
 

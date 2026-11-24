@@ -205,6 +205,7 @@ impl Graphics {
             };
             if let Some(kept) = older.images.iter().find(|kept| {
                 kept.id == image.id
+                    && (kept.width, kept.height) == (image.width, image.height)
                     && (!kept.rgba.is_empty() || kept.shared.is_some())
                     && kept.shown_key() == Some(key)
             }) {

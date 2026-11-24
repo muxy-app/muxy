@@ -15,7 +15,7 @@ pub(super) struct Outbox {
     frames: HashMap<ChannelId, ScreenFrame>,
     credit: HashMap<ChannelId, bool>,
     sent: HashMap<ChannelId, u64>,
-    pixels: HashMap<ChannelId, BTreeSet<(u32, u64)>>,
+    pixels: HashMap<ChannelId, BTreeSet<(u32, u64, u32, u32)>>,
     regions: HashMap<ChannelId, Vec<(Option<u64>, Region)>>,
 }
 
@@ -135,7 +135,7 @@ impl Outbox {
             let Some(key) = image.shown_key() else {
                 continue;
             };
-            let frame = (image.id, key);
+            let frame = (image.id, key, image.width, image.height);
             if sent.contains(&frame) {
                 image.rgba = Arc::default();
             } else if image.rgba.is_empty() {

@@ -572,6 +572,13 @@ BLACK = bytes([0, 0, 0, 255])
 RED = bytes([255, 0, 0, 255])
 MAGENTA = bytes([255, 0, 255, 255])
 GREEN = bytes([0, 255, 0, 255])
+REPORT = re.compile(rb"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
+PARTIAL = re.compile(rb"\x1b(\[(<[\d;]*)?)?$")
+MIN_IMAGE_ROWS = 4
+
+
+class TooSmall(Exception):
+    pass
 
 
 def write(data):
@@ -603,19 +610,6 @@ def window():
     return cols, rows
 
 
-def shared_transport():
-    try:
-        from multiprocessing import shared_memory
-    except ImportError:
-        return False
-    name = put_shared(bytes(4))
-    if name is None:
-        return False
-    write(b"\x1b_Gi=4321,a=q,t=s,f=32,s=1,v=1;" + base64.b64encode(name.encode()) + b"\x1b\\")
-    reply = read_until(lambda data: b"i=4321;" in data and data.endswith(b"\x1b\\"), 1.5)
-    return b"i=4321;OK" in reply
-
-
 def put_shared(data):
     try:
         from multiprocessing import resource_tracker, shared_memory
@@ -632,35 +626,76 @@ def put_shared(data):
         return None
 
 
-class Screen:
+def unlink_shared(name):
+    try:
+        import _posixshmem
+        _posixshmem.shm_unlink(name)
+    except Exception:
+        pass
+
+
+def shared_transport():
+    name = put_shared(bytes(4))
+    if name is None:
+        return False
+    write(b"\x1b_Gi=4321,a=q,t=s,f=32,s=1,v=1;" + base64.b64encode(name.encode()) + b"\x1b\\")
+    reply = read_until(lambda data: b"i=4321;" in data and data.endswith(b"\x1b\\"), 1.5)
+    unlink_shared(name)
+    return b"i=4321;OK" in reply
+
+
+class Reports:
     def __init__(self):
+        self.pending = b""
+
+    def feed(self, data):
+        self.pending += data
+        found = []
+        end = 0
+        for match in REPORT.finditer(self.pending):
+            button, x, y, kind = match.groups()
+            found.append((int(button), int(x), int(y), kind == b"M"))
+            end = match.end()
+        partial = PARTIAL.search(self.pending[end:])
+        tail = len(partial.group(0)) if partial else 0
+        keys = REPORT.sub(b"", self.pending[: len(self.pending) - tail])
+        self.pending = self.pending[len(self.pending) - tail:]
+        return found, b"q" in keys
+
+
+class Screen:
+    def __init__(self, images):
         self.cw, self.ch = cell_size()
         self.cols, self.rows = window()
         self.width = self.cols * self.cw
         self.height = (self.rows - 3) * self.ch
-        self.shared = shared_transport()
-        self.base = self.pattern()
+        if images and self.rows - 3 < MIN_IMAGE_ROWS:
+            raise TooSmall
+        self.shared = images and shared_transport()
+        self.base = self.pattern() if images else bytearray()
 
     def pattern(self):
         w, h = self.width, self.height
         third = max(16, w // 3)
+        pairs = (third - 8) // 2
+        rest = w - 8 - 2 * pairs
         plain = BG * w
-        stripes = BG * 8 + (WHITE + BLACK) * ((third - 8) // 2) + BG * (w - 8 - 2 * ((third - 8) // 2))
-        check_a = BG * 8 + (WHITE + BLACK) * ((third - 8) // 2) + BG * (w - 8 - 2 * ((third - 8) // 2))
-        check_b = BG * 8 + (BLACK + WHITE) * ((third - 8) // 2) + BG * (w - 8 - 2 * ((third - 8) // 2))
+        stripes = BG * 8 + (WHITE + BLACK) * pairs + BG * rest
+        check_b = BG * 8 + (BLACK + WHITE) * pairs + BG * rest
         frame = bytearray(w * h * 4)
         stride = w * 4
         for y in range(h):
             if 8 <= y < h // 2:
                 row = stripes
             elif h // 2 <= y < h - 8:
-                row = check_a if y % 2 == 0 else check_b
+                row = stripes if y % 2 == 0 else check_b
             else:
                 row = plain
             frame[y * stride:(y + 1) * stride] = row
-        for (x0, y0, color) in ((0, 0, MAGENTA), (w - 24, h - 24, GREEN)):
-            for y in range(y0, y0 + 24):
-                frame[(y * w + x0) * 4:(y * w + x0 + 24) * 4] = color * 24
+        size = min(24, w, h)
+        for (x0, y0, color) in ((0, 0, MAGENTA), (w - size, h - size, GREEN)):
+            for y in range(y0, y0 + size):
+                frame[(y * w + x0) * 4:(y * w + x0 + size) * 4] = color * size
         return frame
 
     def with_marker(self, frame, mx, my):
@@ -711,8 +746,8 @@ def leftover_regions():
     return str(sum(1 for name in os.listdir("/dev/shm") if re.match(r"mx[0-9a-f]+-[0-9a-f]+$", name)))
 
 
-def events(data):
-    return re.findall(rb"\x1b\[<(\d+);(\d+);(\d+)([Mm])", data)
+def clicked(button, press):
+    return press and button & 32 == 0 and button < 64
 
 
 def run_draw(screen):
@@ -721,45 +756,39 @@ def run_draw(screen):
     screen.header()
     screen.status(1, "MOUSE none yet")
     screen.status(2, "q quits")
+    reports = Reports()
     clicks = 0
-    pending = b""
     while True:
         ready, _, _ = select.select([FD], [], [], 0.2)
         if not ready:
             continue
-        data = os.read(FD, 4096)
-        if b"q" in re.sub(rb"\x1b\[<[\d;]*[Mm]?", b"", data):
-            return
-        pending += data
-        found = events(pending)
-        complete = list(re.finditer(rb"\x1b\[<\d+;\d+;\d+[Mm]", pending))
-        pending = pending[complete[-1].end():] if complete else pending
-        if len(pending) > 64:
-            pending = b""
-        for button, x, y, kind in found:
-            button, x, y = int(button), int(x), int(y)
-            if kind == b"M" and button & 32 == 0 and button < 64:
+        found, quit_pressed = reports.feed(os.read(FD, 4096))
+        for button, x, y, press in found:
+            if clicked(button, press):
                 clicks += 1
                 screen.show(screen.with_marker(bytearray(screen.base), x, y))
                 screen.status(1, "CLICK-%d x=%d y=%d cell=%d,%d" % (clicks, x, y, x // screen.cw, y // screen.ch))
             elif button & 32:
-                screen.status(1, "MOVE x=%d y=%d" % (x, y))
+                screen.status(2, "MOVE x=%d y=%d   (q quits)" % (x, y))
+        if quit_pressed:
+            return
 
 
 def run_cells(screen):
     write(b"\x1b[?1003h\x1b[?1006h")
     screen.status(0, "CELLS mode: SGR cell reports")
     screen.status(2, "q quits")
+    reports = Reports()
     while True:
         ready, _, _ = select.select([FD], [], [], 0.2)
         if not ready:
             continue
-        data = os.read(FD, 4096)
-        if b"q" in re.sub(rb"\x1b\[<[\d;]*[Mm]", b"", data):
+        found, quit_pressed = reports.feed(os.read(FD, 4096))
+        for button, x, y, press in found:
+            if clicked(button, press):
+                screen.status(1, "CELL-CLICK col=%d row=%d" % (x, y))
+        if quit_pressed:
             return
-        for button, x, y, kind in events(data):
-            if kind == b"M" and int(button) & 32 == 0 and int(button) < 64:
-                screen.status(1, "CELL-CLICK col=%d row=%d" % (int(x), int(y)))
 
 
 def run_stream(screen):
@@ -773,7 +802,7 @@ def run_stream(screen):
         time.sleep(max(0.0, start + frames / 60.0 - time.time()))
     elapsed = time.time() - start
     time.sleep(2)
-    screen.status(1, "STREAM-DONE frames=%d rate=%.0f/s shm-left=%s" % (frames, frames / elapsed, leftover_regions()))
+    screen.status(1, "STREAM-DONE sent=%d rate=%.0f/s shm-left=%s" % (frames, frames / elapsed, leftover_regions()))
     screen.status(2, "q quits")
     while b"q" not in read_until(lambda data: b"q" in data, 3600):
         pass
@@ -781,15 +810,21 @@ def run_stream(screen):
 
 def main():
     old = termios.tcgetattr(FD)
-    tty.setraw(FD)
-    write(b"\x1b[?1049h\x1b[?25l\x1b[2J")
+    message = "PROBE-EXIT"
     try:
-        screen = Screen()
+        tty.setraw(FD)
+        write(b"\x1b[?1049h\x1b[?25l\x1b[2J")
+        screen = Screen(images=MODE != "cells")
         {"draw": run_draw, "cells": run_cells, "stream": run_stream}[MODE](screen)
+    except TooSmall:
+        message = "PROBE-TOO-SMALL: make the pane at least %d rows tall" % (MIN_IMAGE_ROWS + 3)
     finally:
-        write(b"\x1b[?1016l\x1b[?1006l\x1b[?1003l\x1b_Ga=d,q=2\x1b\\\x1b[?25h\x1b[?1049l")
+        try:
+            write(b"\x1b[?1016l\x1b[?1006l\x1b[?1003l\x1b_Ga=d,q=2\x1b\\\x1b[?25h\x1b[?1049l")
+        except OSError:
+            pass
         termios.tcsetattr(FD, termios.TCSADRAIN, old)
-    print("PROBE-EXIT")
+    print(message)
 
 
 main()

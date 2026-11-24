@@ -183,3 +183,26 @@ fn sgr_pixel_reports_use_the_pointer_position_in_device_pixels() -> Result<(), B
     assert_eq!(terminal.encode_mouse(&press)?, b"\x1b[<0;3;4M");
     Ok(())
 }
+
+#[test]
+fn cell_reports_skip_motion_within_a_cell_even_after_pixel_reports() -> Result<(), Box<dyn Error>> {
+    let mut terminal = terminal()?;
+    terminal.set_cell_size(CellSize {
+        width: 16,
+        height: 34,
+    })?;
+    terminal.feed(b"\x1b[?1003h\x1b[?1016h\x1b[?1006h");
+    let moved = |x: u32| MouseEvent {
+        pixel: Some([x, 110]),
+        column: u16::try_from(x / 16).unwrap_or_default(),
+        row: 3,
+        ..event(MouseAction::Motion, None)
+    };
+    assert_eq!(terminal.encode_mouse(&moved(33))?, b"\x1b[<35;3;4M");
+    assert!(terminal.encode_mouse(&moved(40))?.is_empty());
+    assert_eq!(terminal.encode_mouse(&moved(50))?, b"\x1b[<35;4;4M");
+    terminal.feed(b"\x1b[?1016h");
+    assert_eq!(terminal.encode_mouse(&moved(51))?, b"\x1b[<35;51;110M");
+    assert_eq!(terminal.encode_mouse(&moved(52))?, b"\x1b[<35;52;110M");
+    Ok(())
+}

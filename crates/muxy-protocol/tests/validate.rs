@@ -1312,6 +1312,19 @@ fn graphics_keep_inline_pixels_small_and_shared_pixels_by_name() {
             .validate()
             .is_err()
     );
+    let quarter = |id| GraphicImage {
+        id,
+        width: 1024,
+        height: 1024,
+        rgba: vec![0; 1024 * 1024 * 4].into(),
+        ..GraphicImage::default()
+    };
+    assert!(graphics(vec![quarter(1), quarter(2)]).validate().is_ok());
+    assert!(
+        graphics(vec![quarter(1), quarter(2), quarter(3)])
+            .validate()
+            .is_err()
+    );
     assert!(
         graphics(vec![large(1, true, Some("/mx1-2"))])
             .validate()
@@ -1365,4 +1378,32 @@ fn image_frame_requests_and_replies_are_bounded() {
     let half = MAX_GRAPHICS_BYTES / 2 + 4;
     let side = u32::try_from(half / 4).unwrap_or_default();
     assert!(answer(vec![frame(side, 1, half), frame(side, 1, half)]).is_err());
+}
+
+#[test]
+fn pixels_kept_from_an_older_screen_must_match_the_new_size() {
+    use muxy_protocol::{GraphicImage, Graphics};
+    let image = |width: u32, pixels: bool| GraphicImage {
+        id: 1,
+        generation: 5,
+        width,
+        height: 1,
+        rgba: if pixels {
+            vec![255; width as usize * 4].into()
+        } else {
+            std::sync::Arc::default()
+        },
+        ..GraphicImage::default()
+    };
+    let graphics = |image| Graphics {
+        images: vec![image],
+        ..Graphics::default()
+    };
+    let older = graphics(image(4, true));
+    let mut same = graphics(image(4, false));
+    same.keep_pixels(&older);
+    assert_eq!(same.images[0].rgba.len(), 16);
+    let mut refitted = graphics(image(2, false));
+    refitted.keep_pixels(&older);
+    assert!(refitted.images[0].rgba.is_empty());
 }

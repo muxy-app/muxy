@@ -107,6 +107,7 @@ impl Resolution {
 pub(crate) struct Cache {
     images: BTreeMap<u32, Cached>,
     full: BTreeMap<u32, Cached>,
+    opacity: BTreeMap<(u32, u64), bool>,
     placements: ImageIterator<'static>,
     films: bool,
 }
@@ -386,6 +387,7 @@ impl Cache {
         Ok(Self {
             images: BTreeMap::new(),
             full: BTreeMap::new(),
+            opacity: BTreeMap::new(),
             placements: ImageIterator::new()?,
             films: true,
         })
@@ -414,7 +416,20 @@ impl Cache {
             Resolution::Fitted => &mut self.images,
             Resolution::Full => &mut self.full,
         };
-        listing(engine, images, found, cell, films, resolution)
+        self.opacity.retain(|(id, generation), _| {
+            found
+                .iter()
+                .any(|found| found.placement.image == *id && found.generation == *generation)
+        });
+        listing(
+            engine,
+            images,
+            &mut self.opacity,
+            found,
+            cell,
+            films,
+            resolution,
+        )
     }
 
     pub(crate) fn history(
@@ -424,6 +439,7 @@ impl Cache {
     ) -> Result<Graphics> {
         listing(
             engine,
+            &mut BTreeMap::new(),
             &mut BTreeMap::new(),
             found,
             cell,
@@ -601,6 +617,7 @@ pub(crate) fn page_placements(
 fn listing(
     engine: &Terminal<'static, 'static>,
     images: &mut BTreeMap<u32, Cached>,
+    opacity: &mut BTreeMap<(u32, u64), bool>,
     found: Vec<Found>,
     cell: CellSize,
     films: bool,
@@ -613,7 +630,12 @@ fn listing(
         .map(|found| (found.placement.image, (found.generation, found.full)))
         .collect();
     let budget = resolution.budget();
-    let cap = if visible_images(&found, cell) > 1 {
+    let mut opaque = |id: u32, generation: u64| {
+        *opacity
+            .entry((id, generation))
+            .or_insert_with(|| storage.image(id).is_some_and(|image| is_opaque(&image)))
+    };
+    let cap = if visible_images(&found, cell, &mut opaque) > 1 {
         budget / 2
     } else {
         budget
@@ -871,7 +893,23 @@ fn within_screen(sizes: &BTreeMap<u32, (u64, Size)>, budget: usize, cap: usize) 
     listed
 }
 
-fn visible_images(found: &[Found], cell: CellSize) -> usize {
+fn is_opaque(image: &graphics::Image<'_>) -> bool {
+    let Ok(Some(data)) = image.data() else {
+        return false;
+    };
+    match image.format() {
+        Ok(ImageFormat::Rgb | ImageFormat::Gray) => true,
+        Ok(ImageFormat::Rgba) => data.chunks_exact(4).all(|pixel| pixel[3] == u8::MAX),
+        Ok(ImageFormat::GrayAlpha) => data.chunks_exact(2).all(|pixel| pixel[1] == u8::MAX),
+        _ => false,
+    }
+}
+
+fn visible_images(
+    found: &[Found],
+    cell: CellSize,
+    opaque: &mut dyn FnMut(u32, u64) -> bool,
+) -> usize {
     let area = |found: &Found| {
         let placement = &found.placement;
         let left =
@@ -899,6 +937,7 @@ fn visible_images(found: &[Found], cell: CellSize) -> usize {
                 && newer_top <= top
                 && newer_right >= right
                 && newer_bottom >= bottom
+                && opaque(newer.placement.image, newer.generation)
         });
         if !covered {
             visible.insert(older.placement.image);

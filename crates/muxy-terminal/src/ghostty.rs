@@ -105,6 +105,7 @@ pub struct Terminal {
     mouse_encoder: mouse::Encoder<'static>,
     mouse_event: mouse::Event<'static>,
     held_buttons: Vec<MouseButton>,
+    last_motion: Vec<u8>,
     keyboard: crate::input::Keyboard,
     graphics_cache: crate::graphics::Cache,
     inline_images: crate::graphics::Interceptor,
@@ -241,6 +242,7 @@ impl Terminal {
             },
             mouse_event: mouse::Event::new().map_err(create)?,
             held_buttons: Vec::new(),
+            last_motion: Vec::new(),
             keyboard: crate::input::Keyboard::new().map_err(create)?,
             graphics_cache: crate::graphics::Cache::new().map_err(create)?,
             inline_images: crate::graphics::Interceptor::default(),
@@ -444,6 +446,7 @@ impl Terminal {
         self.size = size;
         self.mouse_encoder.set_size(mouse_size(size, self.cell));
         self.mouse_encoder.reset();
+        self.last_motion.clear();
         self.history_generation = self.history_generation.wrapping_add(1);
         self.history_anchor = None;
         Ok(())
@@ -484,6 +487,7 @@ impl Terminal {
         self.cell = cell;
         self.mouse_encoder.set_size(mouse_size(self.size, cell));
         self.mouse_encoder.reset();
+        self.last_motion.clear();
         self.engine
             .resize(
                 self.size.cols,
@@ -575,6 +579,7 @@ impl Terminal {
         let modes = self.input_modes()?;
         if !modes.mouse_tracking {
             self.held_buttons.clear();
+            self.last_motion.clear();
             self.mouse_encoder.reset();
             if modes.alternate_scroll
                 && event.action == MouseAction::Scroll
@@ -628,11 +633,23 @@ impl Terminal {
             .set_action(action)
             .set_button(button)
             .set_mods(mouse_modifiers(event.modifiers))
-            .set_position(mouse_position(event, self.size, self.cell));
+            .set_position(mouse_position(
+                event,
+                self.size,
+                self.cell,
+                modes.mouse_pixels,
+            ));
         let mut bytes = Vec::new();
         self.mouse_encoder
             .encode_to_vec(&self.mouse_event, &mut bytes)
             .map_err(|error| TerminalError::wrap(TerminalStep::Input, error))?;
+        if event.action != MouseAction::Motion {
+            self.last_motion.clear();
+        } else if bytes == self.last_motion {
+            return Ok(Vec::new());
+        } else {
+            self.last_motion.clone_from(&bytes);
+        }
         Ok(bytes)
     }
 
@@ -994,7 +1011,13 @@ fn mouse_size(size: Size, cell: crate::CellSize) -> mouse::EncoderSize {
 }
 
 #[allow(clippy::cast_precision_loss)]
-fn mouse_position(event: &MouseEvent, size: Size, cell: crate::CellSize) -> mouse::Position {
+fn mouse_position(
+    event: &MouseEvent,
+    size: Size,
+    cell: crate::CellSize,
+    pixels: bool,
+) -> mouse::Position {
+    let pixel = event.pixel.filter(|_| pixels);
     let axis = |pixel: Option<u32>, index: u16, count: u16, cell: u16| {
         let cell = u32::from(cell.max(1));
         let end = u32::from(count.max(1)) * cell - 1;
@@ -1004,18 +1027,8 @@ fn mouse_position(event: &MouseEvent, size: Size, cell: crate::CellSize) -> mous
         )
     };
     mouse::Position {
-        x: axis(
-            event.pixel.map(|[x, _]| x),
-            event.column,
-            size.cols,
-            cell.width,
-        ),
-        y: axis(
-            event.pixel.map(|[_, y]| y),
-            event.row,
-            size.rows,
-            cell.height,
-        ),
+        x: axis(pixel.map(|[x, _]| x), event.column, size.cols, cell.width),
+        y: axis(pixel.map(|[_, y]| y), event.row, size.rows, cell.height),
     }
 }
 
