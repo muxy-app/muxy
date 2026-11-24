@@ -209,6 +209,14 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("ImagesStreamed", ChannelKind::Control),
             Message::Request {
+                body: RequestBody::ShareImages,
+                ..
+            } => ("ShareImages", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ImagesShared,
+                ..
+            } => ("ImagesShared", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::ImageFrames { .. },
                 ..
             } => ("ImageFramesRequest", ChannelKind::Control),
@@ -591,7 +599,15 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 },
                 ChannelKind::Session,
             ),
+            Message::Mouse(event) if event.pixel.is_some() => ("PixelMouse", ChannelKind::Session),
             Message::Mouse(_) => ("Mouse", ChannelKind::Session),
+            Message::Frame(frame)
+                if frame.graphics.as_ref().is_some_and(|graphics| {
+                    graphics.images.iter().any(|image| image.shared.is_some())
+                }) =>
+            {
+                ("FrameWithSharedImages", ChannelKind::Session)
+            }
             Message::Frame(frame) if frame.graphics.is_some() => {
                 ("FrameWithImages", ChannelKind::Session)
             }
@@ -603,6 +619,9 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ("ScreenPrompts", ChannelKind::Session)
             }
             Message::Metadata(MetadataEvent::Links { .. }) => ("Links", ChannelKind::Session),
+            Message::Metadata(MetadataEvent::InputModes(modes)) if modes.mouse_pixels => {
+                ("PixelInputModes", ChannelKind::Session)
+            }
             Message::Metadata(MetadataEvent::InputModes(_)) => ("InputModes", ChannelKind::Session),
             Message::Metadata(MetadataEvent::CursorBlinking(_)) => {
                 ("CursorBlinking", ChannelKind::Session)
@@ -723,6 +742,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "ClearInput",
             "Mouse",
             "InputModes",
+            "PixelMouse",
+            "PixelInputModes",
             "CursorBlinking",
             "ClipboardWrite",
             "Progress",
@@ -757,9 +778,12 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "ImagesDeferred",
             "StreamImages",
             "ImagesStreamed",
+            "ShareImages",
+            "ImagesShared",
             "ImageFramesRequest",
             "ImageFramesReply",
             "FrameWithImages",
+            "FrameWithSharedImages",
             "RemoteAccessWithPush",
             "Authenticated",
             "Paired",
@@ -1249,7 +1273,77 @@ fn graphics_accept_deferred_pixels_and_check_animation_frames() {
     assert_eq!(graphics.images[0].frame_keys().collect::<Vec<_>>(), [9]);
     graphics.images[0].width = 4096;
     graphics.images[0].height = 4096;
+    assert!(graphics.validate().is_ok());
+    graphics.images[0].width = 8192;
+    graphics.images[0].height = 8192;
     assert!(graphics.validate().is_err());
+}
+
+#[test]
+fn graphics_keep_inline_pixels_small_and_shared_pixels_by_name() {
+    use muxy_protocol::{
+        GraphicImage, Graphics, MAX_GRAPHICS_BYTES, MAX_SHARED_GRAPHICS_BYTES, SharedPixels,
+    };
+    let side = 2048;
+    let large = |id, rgba: bool, shared: Option<&str>| GraphicImage {
+        id,
+        width: side,
+        height: side,
+        rgba: if rgba {
+            vec![0; (side * side * 4) as usize].into()
+        } else {
+            std::sync::Arc::default()
+        },
+        shared: shared.map(|name| SharedPixels { name: name.into() }),
+        ..GraphicImage::default()
+    };
+    let graphics = |images| Graphics {
+        images,
+        ..Graphics::default()
+    };
+    assert!(side as usize * side as usize * 4 > MAX_GRAPHICS_BYTES / 2);
+    assert!(
+        graphics(vec![large(1, false, Some("/mx1-2"))])
+            .validate()
+            .is_ok()
+    );
+    assert!(
+        graphics(vec![large(1, true, None), large(2, true, None)])
+            .validate()
+            .is_err()
+    );
+    let quarter = |id| GraphicImage {
+        id,
+        width: 1024,
+        height: 1024,
+        rgba: vec![0; 1024 * 1024 * 4].into(),
+        ..GraphicImage::default()
+    };
+    assert!(graphics(vec![quarter(1), quarter(2)]).validate().is_ok());
+    assert!(
+        graphics(vec![quarter(1), quarter(2), quarter(3)])
+            .validate()
+            .is_err()
+    );
+    assert!(
+        graphics(vec![large(1, true, Some("/mx1-2"))])
+            .validate()
+            .is_err()
+    );
+    assert!(
+        graphics(vec![large(1, false, Some("/etc/passwd"))])
+            .validate()
+            .is_err()
+    );
+    let count = u32::try_from(MAX_SHARED_GRAPHICS_BYTES / (side as usize * side as usize * 4))
+        .unwrap_or_default();
+    let fits: Vec<_> = (0..count)
+        .map(|id| large(id, false, Some("/mx1-2")))
+        .collect();
+    assert!(graphics(fits.clone()).validate().is_ok());
+    let mut over = fits;
+    over.push(large(count, false, Some("/mx1-2")));
+    assert!(graphics(over).validate().is_err());
 }
 
 #[test]
@@ -1284,4 +1378,32 @@ fn image_frame_requests_and_replies_are_bounded() {
     let half = MAX_GRAPHICS_BYTES / 2 + 4;
     let side = u32::try_from(half / 4).unwrap_or_default();
     assert!(answer(vec![frame(side, 1, half), frame(side, 1, half)]).is_err());
+}
+
+#[test]
+fn pixels_kept_from_an_older_screen_must_match_the_new_size() {
+    use muxy_protocol::{GraphicImage, Graphics};
+    let image = |width: u32, pixels: bool| GraphicImage {
+        id: 1,
+        generation: 5,
+        width,
+        height: 1,
+        rgba: if pixels {
+            vec![255; width as usize * 4].into()
+        } else {
+            std::sync::Arc::default()
+        },
+        ..GraphicImage::default()
+    };
+    let graphics = |image| Graphics {
+        images: vec![image],
+        ..Graphics::default()
+    };
+    let older = graphics(image(4, true));
+    let mut same = graphics(image(4, false));
+    same.keep_pixels(&older);
+    assert_eq!(same.images[0].rgba.len(), 16);
+    let mut refitted = graphics(image(2, false));
+    refitted.keep_pixels(&older);
+    assert!(refitted.images[0].rgba.is_empty());
 }

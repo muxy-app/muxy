@@ -10,7 +10,8 @@ pub(super) fn run(
     connection: &Connection,
     cancellation: &dyn StreamCancellation,
 ) -> Result<(), WireError> {
-    while let Some((channel, message)) = connection.next() {
+    while let Some((channel, mut message)) = connection.next() {
+        connection.share_pixels(channel, &mut message);
         if let Err(error) = encoder.send(channel, &message) {
             let closed = connection.is_closed();
             connection.close();

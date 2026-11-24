@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
+use muxy_protocol::shared_memory::Region;
 use muxy_protocol::{
     AttachSnapshot, ChannelId, ClientKind, DeviceId, DeviceKind, ErrorCode, ExitReason,
     ForegroundProcess, Message, MetadataEvent, OperationId, ReplyBody, RequestId, ScreenFrame,
-    SessionClient, SessionId, Size, TerminalColors, Topic,
+    SessionClient, SessionId, SharedPixels, Size, TerminalColors, Topic,
 };
 
 use crate::notifier::Notifier;
@@ -187,6 +188,35 @@ impl Connection {
         self.lock().state.images = ImageDelivery::Stream;
     }
 
+    pub(super) fn share_images(&self) {
+        self.lock().state.images = ImageDelivery::Share;
+    }
+
+    pub(super) fn shares_images(&self) -> bool {
+        self.lock().state.images == ImageDelivery::Share
+    }
+
+    pub(super) fn share_pixels(&self, channel: ChannelId, message: &mut Message) {
+        if !self.shares_images() {
+            return;
+        }
+        let (channel, seq, graphics) = match message {
+            Message::Frame(frame) => (channel, Some(frame.seq), frame.graphics.as_mut()),
+            Message::Reply {
+                body: ReplyBody::Attached { snapshot, .. },
+                ..
+            } => (snapshot.channel, None, Some(&mut snapshot.graphics)),
+            _ => return,
+        };
+        let Some(graphics) = graphics else {
+            return;
+        };
+        let regions = share(graphics);
+        if !regions.is_empty() {
+            self.lock().outbox.hold(channel, seq, regions);
+        }
+    }
+
     pub(super) fn defer_page(&self, page: &mut muxy_protocol::HistoryPage) {
         if self.lock().state.images != ImageDelivery::Defer {
             return;
@@ -348,7 +378,10 @@ impl Connection {
             return false;
         };
         if let Some(id) = attachment.waiting.take() {
-            if inner.state.images == ImageDelivery::Stream {
+            if matches!(
+                inner.state.images,
+                ImageDelivery::Stream | ImageDelivery::Share
+            ) {
                 inner.outbox.send_once(channel, &mut snapshot.graphics);
             }
             inner.outbox.push_control(Message::Reply {
@@ -534,6 +567,29 @@ impl Connection {
             notifier: &self.notifier,
         }
     }
+}
+
+fn share(graphics: &mut muxy_protocol::Graphics) -> Vec<Region> {
+    graphics
+        .images
+        .iter_mut()
+        .filter(|image| !image.rgba.is_empty())
+        .filter_map(|image| {
+            let pixels = std::mem::take(&mut image.rgba);
+            match Region::create(&pixels) {
+                Ok(region) => {
+                    image.shared = Some(SharedPixels {
+                        name: region.name().to_owned(),
+                    });
+                    Some(region)
+                }
+                Err(error) => {
+                    log::warn!("could not share image {} in memory: {error}", image.id);
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
 fn session_state(message: &Message) -> Option<SessionId> {

@@ -14,6 +14,7 @@ pub(crate) struct Textures {
     frames: BTreeMap<FrameKey, Arc<RenderImage>>,
     asked: BTreeSet<FrameKey>,
     failed: BTreeSet<FrameKey>,
+    unshared: BTreeSet<FrameKey>,
     answering: BTreeSet<FrameKey>,
     converting: BTreeSet<FrameKey>,
     requests: usize,
@@ -45,21 +46,38 @@ pub(crate) struct Conversion {
     key: FrameKey,
     width: u32,
     height: u32,
-    rgba: Arc<[u8]>,
+    source: Source,
     epoch: u64,
+}
+
+enum Source {
+    Inline(Arc<[u8]>),
+    Shared(String),
 }
 
 pub(crate) struct Converted {
     key: FrameKey,
-    texture: Arc<RenderImage>,
+    texture: Option<Arc<RenderImage>>,
     epoch: u64,
 }
 
 impl Conversion {
     pub(crate) fn run(self) -> Converted {
+        let texture = match &self.source {
+            Source::Inline(rgba) => Some(texture(self.width, self.height, rgba)),
+            Source::Shared(name) => (self.width as usize)
+                .checked_mul(self.height as usize)
+                .and_then(|pixels| pixels.checked_mul(4))
+                .and_then(|len| {
+                    muxy_protocol::shared_memory::take(name, len, |rgba| {
+                        texture(self.width, self.height, rgba)
+                    })
+                    .ok()
+                }),
+        };
         Converted {
             key: self.key,
-            texture: texture(self.width, self.height, &self.rgba),
+            texture,
             epoch: self.epoch,
         }
     }
@@ -76,6 +94,7 @@ impl Textures {
     pub(crate) fn drain(&mut self) -> impl Iterator<Item = Arc<RenderImage>> {
         self.asked.clear();
         self.failed.clear();
+        self.unshared.clear();
         self.answering.clear();
         self.converting.clear();
         self.requests = 0;
@@ -104,6 +123,10 @@ impl Textures {
         self.frames.contains_key(&(image, key))
     }
 
+    pub(crate) fn idle(&self) -> bool {
+        self.converting.is_empty()
+    }
+
     pub(crate) fn retry(&mut self) {
         for key in std::mem::take(&mut self.failed) {
             self.asked.remove(&key);
@@ -119,14 +142,20 @@ impl Textures {
             .retain(|id, _| images().any(|image| image.id == *id));
         self.forget();
         let mut conversions = Vec::new();
+        let listed = &self.listed;
+        self.unshared.retain(|key| listed.contains(key));
         for image in images() {
-            if image.rgba.is_empty() {
-                continue;
-            }
             let Some(key) = image.shown_key() else {
                 continue;
             };
             let frame = (image.id, key);
+            let source = match &image.shared {
+                _ if !image.rgba.is_empty() => Source::Inline(image.rgba.clone()),
+                Some(shared) if !self.unshared.contains(&frame) => {
+                    Source::Shared(shared.name.clone())
+                }
+                _ => continue,
+            };
             if self.frames.contains_key(&frame) || !self.converting.insert(frame) {
                 continue;
             }
@@ -134,7 +163,7 @@ impl Textures {
                 key: frame,
                 width: image.width,
                 height: image.height,
-                rgba: image.rgba.clone(),
+                source,
                 epoch: self.epoch,
             });
         }
@@ -146,9 +175,17 @@ impl Textures {
             && self.converting.remove(&converted.key)
             && self.listed.contains(&converted.key)
         {
-            self.frames
-                .entry(converted.key)
-                .or_insert(converted.texture);
+            match converted.texture {
+                Some(texture) => {
+                    self.frames.entry(converted.key).or_insert(texture);
+                    if !self.players.contains_key(&converted.key.0) {
+                        self.drawn.insert(converted.key.0, converted.key.1);
+                    }
+                }
+                None => {
+                    self.unshared.insert(converted.key);
+                }
+            }
         }
         self.converting.is_empty()
     }
@@ -252,12 +289,14 @@ impl Textures {
     pub(super) fn prepare(
         &mut self,
         graphics: &Graphics,
+        also: Option<&Graphics>,
         origin: Point<Pixels>,
         cell: gpui::Size<Pixels>,
         now: Instant,
         fetch: bool,
     ) -> Prepared {
-        let conversions = self.convert(&[graphics]);
+        let listed: Vec<&Graphics> = std::iter::once(graphics).chain(also).collect();
+        let conversions = self.convert(&listed);
         let listed = &self.listed;
         self.asked.retain(|key| listed.contains(key));
         self.failed.retain(|key| listed.contains(key));
@@ -517,7 +556,7 @@ mod tests {
     }
 
     fn prepare(textures: &mut Textures, graphics: &Graphics, now: Instant) -> Prepared {
-        textures.prepare(graphics, Point::default(), CELL, now, true)
+        textures.prepare(graphics, None, Point::default(), CELL, now, true)
     }
 
     fn showing(textures: &Textures, prepared: &Prepared) -> Option<u64> {
@@ -683,6 +722,77 @@ mod tests {
         assert_eq!(textures.retired().count(), 1);
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn shared_pixels_become_a_texture_and_lost_ones_are_asked_for() -> std::io::Result<()> {
+        let mut textures = Textures::default();
+        let start = Instant::now();
+        let region = muxy_protocol::shared_memory::Region::create(&[1, 2, 3, 255])?;
+        let mut shared = still(1, 1, false);
+        shared.images[0].shared = Some(muxy_protocol::SharedPixels {
+            name: region.name().to_owned(),
+        });
+        let prepared = prepare(&mut textures, &shared, start);
+        assert!(prepared.wanted.is_empty());
+        assert!(convert(&mut textures, prepared));
+        let texture = textures
+            .frames
+            .get(&(1, 1))
+            .ok_or(std::io::ErrorKind::NotFound)?;
+        assert_eq!(texture.as_bytes(0), Some([3, 2, 1, 255].as_slice()));
+
+        let mut lost = still(2, 2, false);
+        lost.images[0].shared = Some(muxy_protocol::SharedPixels {
+            name: region.name().to_owned(),
+        });
+        let prepared = prepare(&mut textures, &lost, start);
+        assert!(prepared.wanted.is_empty());
+        assert!(convert(&mut textures, prepared));
+        assert!(!textures.has_frame(2, 2));
+        let prepared = prepare(&mut textures, &lost, start);
+        assert!(prepared.conversions.is_empty());
+        assert_eq!(prepared.wanted, [(2, vec![2])]);
+        Ok(())
+    }
+
+    #[test]
+    fn a_picture_converted_before_it_was_painted_shows_until_a_newer_one_is_ready() {
+        let mut textures = Textures::default();
+        let start = Instant::now();
+        let first = still(1, 1, true);
+        let prepared = prepare(&mut textures, &first, start);
+        assert!(convert(&mut textures, prepared));
+        let second = still(1, 2, true);
+        let conversions = textures.convert(&[&second]);
+        let prepared = prepare(&mut textures, &second, start);
+        assert_eq!(showing(&textures, &prepared), Some(1));
+        for conversion in conversions {
+            textures.converted(conversion.run());
+        }
+        let third = still(1, 3, true);
+        let conversions = textures.convert(&[&third]);
+        assert!(textures.has_frame(1, 2));
+        for conversion in conversions {
+            textures.converted(conversion.run());
+        }
+        let prepared = prepare(&mut textures, &third, start);
+        assert_eq!(showing(&textures, &prepared), Some(3));
+    }
+
+    #[test]
+    fn an_image_converting_while_scrolled_back_is_kept_for_the_live_screen() {
+        let mut textures = Textures::default();
+        let start = Instant::now();
+        let live = still(1, 1, true);
+        let history = still(2, 2, true);
+        let started = textures.convert(&[&live, &history]);
+        let painted = textures.prepare(&history, Some(&live), Point::default(), CELL, start, true);
+        for conversion in started.into_iter().chain(painted.conversions) {
+            textures.converted(conversion.run());
+        }
+        assert!(textures.has_frame(1, 1));
+    }
+
     #[test]
     fn a_new_image_read_from_the_server_shows_the_old_one_until_answered() {
         let mut textures = Textures::default();
@@ -792,11 +902,11 @@ mod tests {
         textures.retry();
         assert_eq!(images(prepare(&mut textures, &graphics, start)), [1]);
         let mut idle = Textures::default();
-        let prepared = idle.prepare(&graphics, Point::default(), CELL, start, false);
+        let prepared = idle.prepare(&graphics, None, Point::default(), CELL, start, false);
         assert!(prepared.wanted.is_empty());
         assert!(
             !idle
-                .prepare(&graphics, Point::default(), CELL, start, true)
+                .prepare(&graphics, None, Point::default(), CELL, start, true)
                 .wanted
                 .is_empty()
         );

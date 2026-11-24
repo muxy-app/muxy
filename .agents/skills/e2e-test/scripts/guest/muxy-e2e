@@ -546,6 +546,297 @@ SHOW
   echo "image fixtures written to $dir"
 }
 
+cmd_pixel_fixture() {
+  local dir="$FIXTURES/pixels"
+  mkdir -p "$dir"
+  cat > "$dir/probe" <<'PROBE'
+#!/usr/bin/env python3
+import base64
+import fcntl
+import os
+import re
+import select
+import struct
+import sys
+import termios
+import time
+import tty
+
+MODE = sys.argv[1] if len(sys.argv) > 1 else "draw"
+SECONDS = float(sys.argv[2]) if len(sys.argv) > 2 else 8.0
+FD = sys.stdin.fileno()
+OUT = sys.stdout.buffer
+BG = bytes([30, 30, 40, 255])
+WHITE = bytes([255, 255, 255, 255])
+BLACK = bytes([0, 0, 0, 255])
+RED = bytes([255, 0, 0, 255])
+MAGENTA = bytes([255, 0, 255, 255])
+GREEN = bytes([0, 255, 0, 255])
+REPORT = re.compile(rb"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
+PARTIAL = re.compile(rb"\x1b(\[(<[\d;]*)?)?$")
+MIN_IMAGE_ROWS = 4
+MIN_IMAGE_WIDTH = 32
+
+
+class TooSmall(Exception):
+    pass
+
+
+def write(data):
+    OUT.write(data)
+    OUT.flush()
+
+
+def read_until(done, timeout):
+    data = b""
+    end = time.time() + timeout
+    while time.time() < end and not done(data):
+        ready, _, _ = select.select([FD], [], [], 0.05)
+        if ready:
+            data += os.read(FD, 4096)
+    return data
+
+
+def cell_size():
+    write(b"\x1b[16t")
+    reply = read_until(lambda data: re.search(rb"\x1b\[6;(\d+);(\d+)t", data), 1.5)
+    match = re.search(rb"\x1b\[6;(\d+);(\d+)t", reply)
+    if not match:
+        return 8, 16
+    return int(match.group(2)), int(match.group(1))
+
+
+def window():
+    rows, cols, _, _ = struct.unpack("HHHH", fcntl.ioctl(FD, termios.TIOCGWINSZ, b"\0" * 8))
+    return cols, rows
+
+
+def put_shared(data):
+    try:
+        from multiprocessing import resource_tracker, shared_memory
+        memory = shared_memory.SharedMemory(create=True, size=len(data))
+        memory.buf[: len(data)] = data
+        name = memory._name
+        try:
+            resource_tracker.unregister(name, "shared_memory")
+        except Exception:
+            pass
+        memory.close()
+        return name
+    except Exception:
+        return None
+
+
+def unlink_shared(name):
+    try:
+        import _posixshmem
+        _posixshmem.shm_unlink(name)
+    except Exception:
+        pass
+
+
+def shared_transport():
+    name = put_shared(bytes(4))
+    if name is None:
+        return False
+    write(b"\x1b_Gi=4321,a=q,t=s,f=32,s=1,v=1;" + base64.b64encode(name.encode()) + b"\x1b\\")
+    reply = read_until(lambda data: b"i=4321;" in data and data.endswith(b"\x1b\\"), 1.5)
+    unlink_shared(name)
+    return b"i=4321;OK" in reply
+
+
+class Reports:
+    def __init__(self):
+        self.pending = b""
+
+    def feed(self, data):
+        self.pending += data
+        found = []
+        end = 0
+        for match in REPORT.finditer(self.pending):
+            button, x, y, kind = match.groups()
+            found.append((int(button), int(x), int(y), kind == b"M"))
+            end = match.end()
+        partial = PARTIAL.search(self.pending[end:])
+        tail = len(partial.group(0)) if partial else 0
+        keys = REPORT.sub(b"", self.pending[: len(self.pending) - tail])
+        self.pending = self.pending[len(self.pending) - tail:]
+        return found, b"q" in keys
+
+
+class Screen:
+    def __init__(self, images):
+        self.cw, self.ch = cell_size()
+        self.cols, self.rows = window()
+        self.width = self.cols * self.cw
+        self.height = (self.rows - 3) * self.ch
+        if images and (self.rows - 3 < MIN_IMAGE_ROWS or self.width < MIN_IMAGE_WIDTH):
+            raise TooSmall
+        self.shared = images and shared_transport()
+        self.base = self.pattern() if images else bytearray()
+
+    def pattern(self):
+        w, h = self.width, self.height
+        third = max(16, w // 3)
+        pairs = (third - 8) // 2
+        rest = w - 8 - 2 * pairs
+        plain = BG * w
+        stripes = BG * 8 + (WHITE + BLACK) * pairs + BG * rest
+        check_b = BG * 8 + (BLACK + WHITE) * pairs + BG * rest
+        frame = bytearray(w * h * 4)
+        stride = w * 4
+        for y in range(h):
+            if 8 <= y < h // 2:
+                row = stripes
+            elif h // 2 <= y < h - 8:
+                row = stripes if y % 2 == 0 else check_b
+            else:
+                row = plain
+            frame[y * stride:(y + 1) * stride] = row
+        size = min(24, w, h)
+        for (x0, y0, color) in ((0, 0, MAGENTA), (w - size, h - size, GREEN)):
+            for y in range(y0, y0 + size):
+                frame[(y * w + x0) * 4:(y * w + x0 + size) * 4] = color * size
+        return frame
+
+    def with_marker(self, frame, mx, my):
+        w, h = self.width, self.height
+        if not (0 <= mx < w and 0 <= my < h):
+            return frame
+        x0, x1 = max(0, mx - 20), min(w, mx + 21)
+        frame[(my * w + x0) * 4:(my * w + x1) * 4] = RED * (x1 - x0)
+        for y in range(max(0, my - 20), min(h, my + 21)):
+            frame[(y * w + mx) * 4:(y * w + mx + 1) * 4] = RED
+        return frame
+
+    def with_bar(self, frame, x):
+        w = self.width
+        x = x % max(1, w - 12)
+        stride = w * 4
+        for y in range(self.height // 2, self.height - 8):
+            frame[y * stride + x * 4:y * stride + (x + 12) * 4] = MAGENTA * 12
+        return frame
+
+    def show(self, frame):
+        keys = "a=T,f=32,s=%d,v=%d,i=1,p=1,C=1,q=2" % (self.width, self.height)
+        write(b"\x1b[1;1H")
+        if self.shared:
+            name = put_shared(bytes(frame))
+            if name is not None:
+                write(("\x1b_G%s,t=s,S=%d;" % (keys, len(frame))).encode() + base64.b64encode(name.encode()) + b"\x1b\\")
+                return
+        encoded = base64.b64encode(bytes(frame))
+        chunks = [encoded[i:i + 4096] for i in range(0, len(encoded), 4096)]
+        for index, chunk in enumerate(chunks):
+            more = 1 if index + 1 < len(chunks) else 0
+            head = (keys + ",") if index == 0 else ""
+            write(("\x1b_G%sm=%d;" % (head, more)).encode() + chunk + b"\x1b\\")
+
+    def status(self, line, text):
+        write(("\x1b[%d;1H\x1b[2K%s" % (self.rows - 2 + line, text)).encode())
+
+    def header(self):
+        megabytes = self.width * self.height * 4 / 1048576
+        self.status(0, "PROBE image=%dx%d bytes=%.1fMB cell=%dx%d transport=%s" % (
+            self.width, self.height, megabytes, self.cw, self.ch, "shared" if self.shared else "direct"))
+
+
+def leftover_regions():
+    if not os.path.isdir("/dev/shm"):
+        return "n/a"
+    return str(sum(1 for name in os.listdir("/dev/shm") if re.match(r"mx[0-9a-f]+-[0-9a-f]+$", name)))
+
+
+def clicked(button, press):
+    return press and button & 32 == 0 and button < 64
+
+
+def run_draw(screen):
+    write(b"\x1b[?1003h\x1b[?1006h\x1b[?1016h")
+    screen.show(screen.base)
+    screen.header()
+    screen.status(1, "MOUSE none yet")
+    screen.status(2, "q quits")
+    reports = Reports()
+    clicks = 0
+    while True:
+        ready, _, _ = select.select([FD], [], [], 0.2)
+        if not ready:
+            continue
+        found, quit_pressed = reports.feed(os.read(FD, 4096))
+        for button, x, y, press in found:
+            if clicked(button, press):
+                clicks += 1
+                screen.show(screen.with_marker(bytearray(screen.base), x, y))
+                screen.status(1, "CLICK-%d x=%d y=%d cell=%d,%d" % (clicks, x, y, x // screen.cw, y // screen.ch))
+            elif button & 32:
+                screen.status(2, "MOVE x=%d y=%d   (q quits)" % (x, y))
+        if quit_pressed:
+            return
+
+
+def run_cells(screen):
+    write(b"\x1b[?1003h\x1b[?1006h")
+    screen.status(0, "CELLS mode: SGR cell reports")
+    screen.status(2, "q quits")
+    reports = Reports()
+    while True:
+        ready, _, _ = select.select([FD], [], [], 0.2)
+        if not ready:
+            continue
+        found, quit_pressed = reports.feed(os.read(FD, 4096))
+        for button, x, y, press in found:
+            if clicked(button, press):
+                screen.status(1, "CELL-CLICK col=%d row=%d" % (x, y))
+        if quit_pressed:
+            return
+
+
+def run_stream(screen):
+    screen.header()
+    frames = 0
+    start = time.time()
+    while time.time() - start < SECONDS:
+        frames += 1
+        screen.show(screen.with_bar(bytearray(screen.base), frames * 8))
+        screen.status(1, "STREAMING frame=%d" % frames)
+        time.sleep(max(0.0, start + frames / 60.0 - time.time()))
+    elapsed = time.time() - start
+    time.sleep(2)
+    screen.status(1, "STREAM-DONE sent=%d rate=%.0f/s shm-left=%s" % (frames, frames / elapsed, leftover_regions()))
+    screen.status(2, "q quits")
+    while b"q" not in read_until(lambda data: b"q" in data, 3600):
+        pass
+
+
+def main():
+    old = termios.tcgetattr(FD)
+    message = "PROBE-EXIT"
+    try:
+        tty.setraw(FD)
+        write(b"\x1b[?1049h\x1b[?25l\x1b[2J")
+        screen = Screen(images=MODE != "cells")
+        {"draw": run_draw, "cells": run_cells, "stream": run_stream}[MODE](screen)
+    except TooSmall:
+        message = "PROBE-TOO-SMALL: make the pane at least %d rows tall and %d pixels wide" % (
+            MIN_IMAGE_ROWS + 3,
+            MIN_IMAGE_WIDTH,
+        )
+    finally:
+        try:
+            write(b"\x1b[?1016l\x1b[?1006l\x1b[?1003l\x1b_Ga=d,q=2\x1b\\\x1b[?25h\x1b[?1049l")
+        except OSError:
+            pass
+        termios.tcsetattr(FD, termios.TCSADRAIN, old)
+    print(message)
+
+
+main()
+PROBE
+  chmod +x "$dir/probe"
+  echo "pixel fixture written to $dir"
+}
+
 cmd_floating_fixture() {
   python3 - <<'PY'
 import json
@@ -1018,6 +1309,7 @@ case "$command" in
   gone) [ $# -ge 1 ] || die "usage: gone <text> [seconds]"; cmd_gone "$@" ;;
   floating-fixture) cmd_floating_fixture ;;
   image-fixture) cmd_image_fixture ;;
+  pixel-fixture) cmd_pixel_fixture ;;
   clip-set) cmd_clip_set "${1:-}" ;;
   clip-get) cmd_clip_get ;;
   http-start) cmd_http_start ;;

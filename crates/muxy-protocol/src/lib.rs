@@ -42,9 +42,10 @@ pub use version::{CURRENT, FEATURES, Feature, SUPPORTED, V1, V2, Version};
 mod graphics;
 pub use graphics::{
     CellSize, GraphicFrame, GraphicImage, GraphicPlacement, Graphics, ImageFrame,
-    MAX_GRAPHICS_BYTES, MAX_GRAPHICS_FRAMES, MAX_GRAPHICS_PLACEMENTS, Playback, PlaybackState,
-    validate_image_frames,
+    MAX_GRAPHICS_BYTES, MAX_GRAPHICS_FRAMES, MAX_GRAPHICS_PLACEMENTS, MAX_SHARED_GRAPHICS_BYTES,
+    Playback, PlaybackState, SharedPixels, validate_image_frames,
 };
+pub mod shared_memory;
 
 mod project;
 pub use project::{

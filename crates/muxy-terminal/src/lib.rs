@@ -21,7 +21,8 @@ pub use screen::{
 mod graphics;
 pub use graphics::{
     CellSize, GraphicFrame, GraphicImage, GraphicPlacement, Graphics, ImageFrame,
-    MAX_GRAPHICS_BYTES, MAX_GRAPHICS_PLACEMENTS, Playback, PlaybackState,
+    MAX_GRAPHICS_BYTES, MAX_GRAPHICS_PLACEMENTS, MAX_SHARED_GRAPHICS_BYTES, Playback,
+    PlaybackState,
 };
 
 pub mod pty;

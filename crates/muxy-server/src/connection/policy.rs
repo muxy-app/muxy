@@ -19,7 +19,8 @@ pub(super) fn permit(device: Option<DeviceKind>, body: &RequestBody) -> Result<(
         | RequestBody::CancelPairing
         | RequestBody::RevokeDevice(_)
         | RequestBody::SetPushNotifications(_)
-        | RequestBody::ResetPush(_) => local_only(device),
+        | RequestBody::ResetPush(_)
+        | RequestBody::ShareImages => local_only(device),
         RequestBody::RegisterPush(_) | RequestBody::UnregisterPush => phone_only(device),
         RequestBody::StopServer
         | RequestBody::StopServerIfIdle

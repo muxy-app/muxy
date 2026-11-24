@@ -411,6 +411,13 @@ impl Client {
         }
     }
 
+    pub fn share_images(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::ShareImages)? {
+            ReplyBody::ImagesShared => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     pub fn image_frames(
         &self,
         channel: ChannelId,

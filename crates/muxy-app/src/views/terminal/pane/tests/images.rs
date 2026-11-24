@@ -72,6 +72,43 @@ fn a_frame_that_brings_pixels_is_acknowledged_once_they_can_be_drawn(cx: &mut Te
 }
 
 #[gpui::test]
+fn a_frame_that_arrives_while_pixels_are_converting_waits_for_them(cx: &mut TestAppContext) {
+    let pane = cx.new(|cx| {
+        let mut pane = TerminalPane::new(
+            Palette::new(true),
+            muxy_app_core::settings::TerminalSettings::default(),
+            cx,
+        );
+        prepare_mouse(&mut pane);
+        pane
+    });
+    let cx = cx.add_empty_window();
+    let acks = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    cx.update(|_, cx| {
+        let acks = acks.clone();
+        cx.subscribe(&pane, move |_, event, _| {
+            if let PaneEvent::Ack(_, seq) = event {
+                acks.borrow_mut().push(*seq);
+            }
+        })
+        .detach();
+    });
+    pane.update(cx, |pane, cx| {
+        let first = pane.apply(&frame(pane, 1, graphics(1, 1, true)), cx);
+        assert_eq!(first, None);
+        let text_only = ScreenFrame {
+            graphics: None,
+            ..frame(pane, 2, graphics(1, 1, false))
+        };
+        assert_eq!(pane.apply(&text_only, cx), None);
+    });
+    assert!(acks.borrow().is_empty());
+    cx.run_until_parked();
+    assert_eq!(*acks.borrow(), [2]);
+    pane.update(cx, |pane, _| assert!(pane.images.has_frame(1, 1)));
+}
+
+#[gpui::test]
 fn images_only_history_shows_are_drawn_while_scrolled_back(cx: &mut TestAppContext) {
     let pane = cx.new(|cx| {
         let mut pane = TerminalPane::new(

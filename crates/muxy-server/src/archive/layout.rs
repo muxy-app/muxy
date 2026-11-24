@@ -153,6 +153,7 @@ impl From<&GraphicImage> for StoredImage {
             rgba,
             frames: _,
             playback: _,
+            shared: _,
         } = image;
         Self {
             id: *id,
