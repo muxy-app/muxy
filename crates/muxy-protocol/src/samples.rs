@@ -509,8 +509,8 @@ fn shared_image_sample() -> Message {
             images: vec![crate::GraphicImage {
                 id: 8,
                 generation: 4,
-                width: 2400,
-                height: 1598,
+                width: 64,
+                height: 34,
                 shared: Some(crate::SharedPixels {
                     name: "/mx1f-2a".into(),
                 }),
@@ -522,8 +522,8 @@ fn shared_image_sample() -> Message {
                 column: 0,
                 row: 0,
                 offset: [0, 0],
-                size: [2400, 1598],
-                source: [0, 0, 2400, 1598],
+                size: [64, 34],
+                source: [0, 0, 64, 34],
                 z: 0,
             }],
         }),
