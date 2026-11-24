@@ -158,9 +158,10 @@ On macOS, **App icon** in **Settings → Appearance** sets the Dock icon. Click
 back to the standard icon. Muxy saves the path of the file as `app_icon` in
 the `[appearance]` table of `settings.toml`.
 
-Muxy shows the image only while it runs. When Muxy is closed, the Dock and
-Finder show the standard icon. If you move or delete the image file, Muxy
-shows an error at the next launch and keeps the standard icon.
+If you keep Muxy in the Dock, the Dock also shows the image while Muxy is
+closed. Finder always shows the standard icon. If you move or delete the image
+file, Muxy shows an error at the next launch and goes back to the standard
+icon.
 
 ## Sidebar
 

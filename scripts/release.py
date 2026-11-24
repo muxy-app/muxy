@@ -14,6 +14,7 @@ STABLE_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 APPS = {"beta": ("Muxy Beta", "com.muxy-beta.app"), "stable": ("Muxy", "com.muxy.app")}
 URL_SCHEMES = {"beta": "muxy-beta", "stable": "muxy"}
 SPARKLE_PUBLIC_KEY = "X5YPWvD11Qthw+41DPZQRK8aOYBlPjjfeWW2k3510cY="
+DOCK_TILE = "MuxyDockTile"
 
 
 def build_metadata(root=ROOT):
@@ -148,6 +149,7 @@ def bundle_info(version, build):
         "NSHighResolutionCapable": True,
         "NSSupportsAutomaticGraphicsSwitching": True,
         "NSPrincipalClass": "NSApplication",
+        "NSDockTilePlugIn": f"{DOCK_TILE}.docktileplugin",
         "NSMicrophoneUsageDescription": "Programs you run in Muxy terminals can use your microphone.",
         "NSLocalNetworkUsageDescription": "Commands you run in Muxy terminals can connect to devices on your local network.",
         "NSAppTransportSecurity": {"NSAllowsArbitraryLoadsInWebContent": True},
@@ -163,6 +165,26 @@ def bundle_info(version, build):
         }],
         **sparkle,
     }
+
+
+def build_dock_tile(identifier, app, arch):
+    """Compile the plugin that keeps a custom Dock icon while the app is closed."""
+    plugin = app / "Contents/PlugIns" / f"{DOCK_TILE}.docktileplugin"
+    executable = plugin / "Contents/MacOS" / DOCK_TILE
+    executable.parent.mkdir(parents=True)
+    (plugin / "Contents/Info.plist").write_bytes(plistlib.dumps({
+        "CFBundleExecutable": DOCK_TILE,
+        "CFBundleIdentifier": f"{identifier}.dock-tile",
+        "CFBundleInfoDictionaryVersion": "6.0",
+        "CFBundlePackageType": "BNDL",
+        "NSPrincipalClass": "MuxyDockTilePlugIn",
+    }))
+    subprocess.run([
+        "xcrun", "clang", "-arch", arch, "-mmacosx-version-min=14.0", "-fobjc-arc", "-O2",
+        "-bundle", "-framework", "AppKit", "-o", str(executable),
+        str(ROOT / "packaging/macos/DockTile.m"),
+    ], check=True)
+    return plugin
 
 
 def update_metadata(version, repository, directory):
@@ -217,6 +239,10 @@ def main():
     check = commands.add_parser("check-build")
     check.add_argument("version")
     check.add_argument("executable", type=Path)
+    dock_tile = commands.add_parser("dock-tile")
+    dock_tile.add_argument("version")
+    dock_tile.add_argument("app", type=Path)
+    dock_tile.add_argument("--arch", required=True, choices=("arm64", "x86_64"))
     metadata = commands.add_parser("update")
     metadata.add_argument("version")
     metadata.add_argument("repository")
@@ -246,6 +272,8 @@ def main():
             print(channel(args.version))
         elif args.command == "app-name":
             print(APPS[channel(args.version)][0])
+        elif args.command == "dock-tile":
+            print(build_dock_tile(APPS[channel(args.version)][1], args.app, args.arch))
         elif args.command == "update":
             metadata = update_metadata(args.version, args.repository, args.directory)
             (args.directory / "update.json").write_text(json.dumps(metadata, indent=2) + "\n")

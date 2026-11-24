@@ -1842,7 +1842,7 @@
 "Show a persistent home-directory shell with a shortcut." = "Show a persistent home-directory shell with a shortcut.";
 "Show agents panel" = "Show agents panel";
 "Show an enabled extension's sidebar in place of the built-in one." = "Show an enabled extension's sidebar in place of the built-in one.";
-"Show an image file as the Dock icon while Muxy runs. Use Default to go back to the standard icon." = "Show an image file as the Dock icon while Muxy runs. Use Default to go back to the standard icon.";
+"Show an image file as the Dock icon. Use Default to go back to the standard icon." = "Show an image file as the Dock icon. Use Default to go back to the standard icon.";
 "Show connection and terminal information at the bottom of the workspace." = "Show connection and terminal information at the bottom of the workspace.";
 "Show each agent on two lines with its agent and status, or fit more on one line each." = "Show each agent on two lines with its agent and status, or fit more on one line each.";
 "Show each agent's icon, or the icon of the project it runs in." = "Show each agent's icon, or the icon of the project it runs in.";

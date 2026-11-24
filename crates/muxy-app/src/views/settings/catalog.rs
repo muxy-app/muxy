@@ -369,7 +369,7 @@ pub(super) const SETTINGS: &[Setting] = &[
         id: "app-icon",
         label: tr_key!("App icon"),
         description: tr_key!(
-            "Show an image file as the Dock icon while Muxy runs. Use Default to go back to the standard icon."
+            "Show an image file as the Dock icon. Use Default to go back to the standard icon."
         ),
         category: Category::Appearance,
         section: tr_key!("Interface"),
