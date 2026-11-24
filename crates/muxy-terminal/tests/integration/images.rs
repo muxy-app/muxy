@@ -371,17 +371,74 @@ fn frames_listed_at_full_resolution_are_handed_out() -> Result {
     );
     assert_eq!(&frames[1].rgba[..], &[0, 0, 255, 255]);
 
-    terminal.feed(b"\x1b_Ga=T,i=6,f=32,s=1,v=1,q=2;AP8A/w==\x1b\\");
-    let replaced = terminal.full_graphics()?;
-    let still = replaced
-        .images
-        .iter()
-        .find(|image| image.id == 6)
-        .ok_or("no still")?;
-    let frames = terminal.image_frames(6, &[still.generation])?;
+    terminal.graphics()?;
+    let (width, height) = (2400_u32, 1600_u32);
+    send_chunked(
+        &mut terminal,
+        &format!("a=T,i=5,f=24,s={width},v={height},"),
+        &[0_u8, 200, 0].repeat((width * height) as usize),
+    );
+    let still = terminal.full_graphics()?.images[0].clone();
+    assert_eq!((still.width, still.height), (width, height));
+    let frames = terminal.image_frames(5, &[still.generation])?;
     assert_eq!(frames.len(), 1);
     assert_eq!(frames[0].key, still.generation);
-    assert_eq!(&frames[0].rgba[..], &[0, 255, 0, 255]);
+    assert_eq!(muxy_protocol::validate_image_frames(&frames), Ok(()));
+    assert_eq!(&frames[0].rgba[..4], &[0, 200, 0, 255]);
+    Ok(())
+}
+
+#[test]
+fn animations_too_large_to_hand_out_are_listed_as_stills() -> Result {
+    let (width, height) = (2400_u32, 1600_u32);
+    let mut terminal = terminal()?;
+    let pixels = [10_u8, 20, 30].repeat((width * height) as usize);
+    send_chunked(
+        &mut terminal,
+        &format!("a=T,i=9,f=24,s={width},v={height},"),
+        &pixels,
+    );
+    send_chunked(
+        &mut terminal,
+        &format!("a=f,i=9,f=24,s={width},v={height},z=100,"),
+        &pixels,
+    );
+    let full = terminal.full_graphics()?;
+    let image = full
+        .images
+        .iter()
+        .find(|image| image.id == 9)
+        .ok_or("no image")?;
+    assert_eq!((image.width, image.height), (width, height));
+    assert!(image.frames.is_empty());
+    Ok(())
+}
+
+#[test]
+fn pictures_are_fitted_again_when_more_of_them_come_into_view() -> Result {
+    let side = 1500_u32;
+    let pixels = vec![255_u8; (side * side * 4) as usize];
+    let mut terminal = terminal()?;
+    send_chunked(
+        &mut terminal,
+        &format!("a=T,i=1,f=32,s={side},v={side},c=4,r=2,C=1,"),
+        &pixels,
+    );
+    terminal.feed("\r\n".repeat(10).as_bytes());
+    terminal.feed(b"\x1b[1;10H");
+    send_chunked(
+        &mut terminal,
+        &format!("a=T,i=2,f=32,s={side},v={side},c=4,r=2,C=1,"),
+        &pixels,
+    );
+    let alone = terminal.graphics()?;
+    assert_eq!(alone.images.len(), 1);
+    assert!(alone.images[0].rgba.len() > muxy_terminal::MAX_GRAPHICS_BYTES / 2);
+    terminal.feed(b"\x1b[5;1H");
+    terminal.resize(Size { cols: 20, rows: 20 })?;
+    let together = terminal.graphics()?;
+    assert_eq!(together.images.len(), 2);
+    assert_eq!(together.validate(), Ok(()));
     Ok(())
 }
 

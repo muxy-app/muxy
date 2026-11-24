@@ -289,12 +289,14 @@ impl Textures {
     pub(super) fn prepare(
         &mut self,
         graphics: &Graphics,
+        also: Option<&Graphics>,
         origin: Point<Pixels>,
         cell: gpui::Size<Pixels>,
         now: Instant,
         fetch: bool,
     ) -> Prepared {
-        let conversions = self.convert(&[graphics]);
+        let listed: Vec<&Graphics> = std::iter::once(graphics).chain(also).collect();
+        let conversions = self.convert(&listed);
         let listed = &self.listed;
         self.asked.retain(|key| listed.contains(key));
         self.failed.retain(|key| listed.contains(key));
@@ -554,7 +556,7 @@ mod tests {
     }
 
     fn prepare(textures: &mut Textures, graphics: &Graphics, now: Instant) -> Prepared {
-        textures.prepare(graphics, Point::default(), CELL, now, true)
+        textures.prepare(graphics, None, Point::default(), CELL, now, true)
     }
 
     fn showing(textures: &Textures, prepared: &Prepared) -> Option<u64> {
@@ -778,6 +780,20 @@ mod tests {
     }
 
     #[test]
+    fn an_image_converting_while_scrolled_back_is_kept_for_the_live_screen() {
+        let mut textures = Textures::default();
+        let start = Instant::now();
+        let live = still(1, 1, true);
+        let history = still(2, 2, true);
+        let started = textures.convert(&[&live, &history]);
+        let painted = textures.prepare(&history, Some(&live), Point::default(), CELL, start, true);
+        for conversion in started.into_iter().chain(painted.conversions) {
+            textures.converted(conversion.run());
+        }
+        assert!(textures.has_frame(1, 1));
+    }
+
+    #[test]
     fn a_new_image_read_from_the_server_shows_the_old_one_until_answered() {
         let mut textures = Textures::default();
         let start = Instant::now();
@@ -886,11 +902,11 @@ mod tests {
         textures.retry();
         assert_eq!(images(prepare(&mut textures, &graphics, start)), [1]);
         let mut idle = Textures::default();
-        let prepared = idle.prepare(&graphics, Point::default(), CELL, start, false);
+        let prepared = idle.prepare(&graphics, None, Point::default(), CELL, start, false);
         assert!(prepared.wanted.is_empty());
         assert!(
             !idle
-                .prepare(&graphics, Point::default(), CELL, start, true)
+                .prepare(&graphics, None, Point::default(), CELL, start, true)
                 .wanted
                 .is_empty()
         );

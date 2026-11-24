@@ -293,5 +293,13 @@ fn attachments_that_share_images_get_them_whole_and_others_get_them_fitted() -> 
         AttachmentEvent::Frame(frame) => frame.graphics.is_none(),
         _ => true,
     }));
+
+    fixture.owner.detach(AttachmentId(2));
+    assert!(fixture.owner.full_graphics.images.is_empty());
+    let relisted = fixture.owner.terminal.full_graphics()?;
+    assert_ne!(
+        relisted.images[0].rgba.as_ptr(),
+        whole.images[0].rgba.as_ptr()
+    );
     Ok(())
 }

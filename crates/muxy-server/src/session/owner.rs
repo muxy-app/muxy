@@ -354,7 +354,7 @@ impl Owner {
                     let _ = reply.send(self.history_page(before, max_rows));
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::Detach(id))) => {
-                    self.attachments.remove(&id);
+                    self.detach(id);
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::ImageFrames {
                     image,
@@ -880,13 +880,26 @@ impl Owner {
             self.full_graphics = graphics;
             changed
         } else {
-            if !self.full_graphics.images.is_empty() {
-                self.full_graphics = muxy_protocol::Graphics::default();
-                self.terminal.release_full_graphics();
-            }
+            self.release_full_graphics();
             false
         };
         Ok((fitted, full))
+    }
+
+    fn detach(&mut self, id: AttachmentId) {
+        self.attachments.remove(&id);
+        if !self
+            .attachments
+            .values()
+            .any(|attachment| attachment.shares)
+        {
+            self.release_full_graphics();
+        }
+    }
+
+    fn release_full_graphics(&mut self) {
+        self.full_graphics = muxy_protocol::Graphics::default();
+        self.terminal.release_full_graphics();
     }
 
     fn broadcast_frame(&mut self, resized: Option<AttachmentId>) -> Result<(), Fault> {

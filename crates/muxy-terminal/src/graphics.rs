@@ -494,11 +494,16 @@ impl Cache {
     ) -> Result<Vec<ImageFrame>> {
         let storage = engine.kitty_graphics()?;
         let mut stills = BTreeMap::new();
+        let Some(stored_image) = storage.image(id) else {
+            return Ok(Vec::new());
+        };
+        let current = stored_image.generation()?;
         let entries = || {
             [self.images.get(&id), self.full.get(&id)]
                 .into_iter()
                 .flatten()
                 .map(|cached| &cached.image)
+                .filter(|image| image.generation == current)
         };
         let screen = entries()
             .find(|image| image.frames.iter().any(|frame| keys.contains(&frame.key)))
@@ -516,12 +521,9 @@ impl Cache {
         let cached = if let Some(image) = screen {
             image
         } else {
-            let Some(image) = storage.image(id) else {
-                return Ok(Vec::new());
-            };
             let stored = storage.generation()?;
             let budget = Resolution::Fitted.budget();
-            let Some(still) = cached(&mut stills, id, &image, stored, false, budget)? else {
+            let Some(still) = cached(&mut stills, id, &stored_image, stored, false, budget)? else {
                 return Ok(Vec::new());
             };
             still
@@ -536,11 +538,8 @@ impl Cache {
                 rgba: cached.rgba.clone(),
             }]);
         }
-        let Some(image) = storage.image(id) else {
-            return Ok(Vec::new());
-        };
         for &key in keys {
-            let Some(rgba) = frame_pixels(&image, cached, key)? else {
+            let Some(rgba) = frame_pixels(&stored_image, cached, key)? else {
                 continue;
             };
             if !frames.is_empty() && total + rgba.len() > MAX_GRAPHICS_BYTES {
@@ -661,7 +660,7 @@ fn cached<'a>(
 ) -> Result<Option<&'a GraphicImage>> {
     if images
         .get(&id)
-        .is_none_or(|cached| cached.storage != stored)
+        .is_none_or(|cached| cached.storage != stored || cached.budget != budget)
     {
         let generation = image.generation()?;
         let kept = images
@@ -888,6 +887,9 @@ fn visible_images(found: &[Found], cell: CellSize) -> usize {
     };
     let mut visible = BTreeSet::new();
     for older in found {
+        if visible.len() > 1 {
+            break;
+        }
         let [left, top, right, bottom] = area(older);
         let covered = found.iter().any(|newer| {
             let [newer_left, newer_top, newer_right, newer_bottom] = area(newer);
