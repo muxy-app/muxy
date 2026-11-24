@@ -20,6 +20,7 @@ fn fixture(home: &Path, relative: &str, records: &[serde_json::Value]) -> std::i
 }
 
 #[test]
+// guards: Session titles are scoped to the provider even when two providers return the same ID.
 fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     let home = tempfile::tempdir()?;
     let project = home.path().join("project");
@@ -28,7 +29,7 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     let examples = [
         (
             ".claude/projects/project/claude.jsonl",
-            json!({"type":"user","sessionId":"claude-1","cwd":project,"message":{"content":[{"type":"text","text":"Fix regression"}]}}),
+            json!({"type":"user","sessionId":"codex-1","cwd":project,"message":{"content":[{"type":"text","text":"Fix regression"}]}}),
         ),
         (
             ".codex/sessions/2026/01/01/codex.jsonl",
@@ -60,6 +61,11 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     }
     fixture(
         home.path(),
+        ".codex/session_index.jsonl",
+        &[json!({"id":"codex-1","thread_name":"Codex saved title"})],
+    )?;
+    fixture(
+        home.path(),
         ".claude/projects/worktree/child.jsonl",
         &[json!({"type":"user","sessionId":"worktree-1","cwd":worktree})],
     )?;
@@ -80,6 +86,15 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     let listing = catalog.scan(&roots, &project);
     assert_eq!(listing.sessions.len(), 7);
     assert!(listing.warnings.is_empty());
+    let title = |provider| {
+        listing
+            .sessions
+            .iter()
+            .find(|session| session.provider == provider)
+            .map(|session| session.title.as_str())
+    };
+    assert_eq!(title(AgentProvider::Claude), Some("Fix regression"));
+    assert_eq!(title(AgentProvider::Codex), Some("Codex saved title"));
     for provider in PROVIDERS
         .into_iter()
         .filter(|provider| supported(*provider))
@@ -98,6 +113,7 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
 }
 
 #[test]
+// guards: Claude's automatic title is shown until a manual title takes priority.
 fn refresh_handles_appends_partial_records_renames_and_deletions() -> Result {
     let home = tempfile::tempdir()?;
     let path = fixture(
@@ -105,13 +121,14 @@ fn refresh_handles_appends_partial_records_renames_and_deletions() -> Result {
         ".claude/projects/project/one.jsonl",
         &[
             json!({"type":"user","sessionId":"session-1","cwd":home.path(),"message":{"content":"Initial prompt"}}),
+            json!({"type":"ai-title","aiTitle":"Automatic name"}),
         ],
     )?;
     let roots = Roots::from_home(home.path());
     let mut catalog = Catalog::default();
     assert_eq!(
         catalog.scan(&roots, home.path()).sessions[0].title,
-        "Initial prompt"
+        "Automatic name"
     );
     let mut file = fs::OpenOptions::new().append(true).open(&path)?;
     write!(
@@ -120,15 +137,55 @@ fn refresh_handles_appends_partial_records_renames_and_deletions() -> Result {
     )?;
     assert_eq!(
         catalog.scan(&roots, home.path()).sessions[0].title,
-        "Initial prompt"
+        "Automatic name"
     );
     writeln!(file)?;
+    writeln!(
+        file,
+        "{}",
+        json!({"type":"ai-title","aiTitle":"New automatic name"})
+    )?;
     let listing = catalog.scan(&roots, home.path());
     assert_eq!(listing.sessions[0].title, "Renamed");
     assert!(listing.sessions[0].matches("rename CLAUDE"));
     assert!(!listing.sessions[0].matches("missing"));
     fs::remove_file(path)?;
     assert!(catalog.scan(&roots, home.path()).sessions.is_empty());
+    Ok(())
+}
+
+#[test]
+// guards: Codex index appends and replacements refresh names in bounded batches without transcript changes.
+fn codex_names_refresh_without_transcript_changes() -> Result {
+    let home = tempfile::tempdir()?;
+    fixture(
+        home.path(),
+        ".codex/sessions/2026/01/01/codex.jsonl",
+        &[
+            json!({"type":"session_meta","payload":{"id":"codex-1","cwd":home.path(),"history_mode":"paginated"}}),
+        ],
+    )?;
+    let index = fixture(
+        home.path(),
+        ".codex/session_index.jsonl",
+        &[json!({"id":"codex-1","thread_name":"Initial name"})],
+    )?;
+    let roots = Roots::from_home(home.path());
+    let mut catalog = Catalog::default();
+    let listing = catalog.scan(&roots, home.path());
+    assert_eq!(listing.sessions[0].title, "Initial name");
+    let mut file = fs::OpenOptions::new().append(true).open(&index)?;
+    writeln!(file, "{}", "x".repeat(8 * 1024 * 1024 - 16))?;
+    writeln!(file, "{}", json!({"id":"codex-1","thread_name":"Renamed"}))?;
+    assert!(catalog.scan(&roots, home.path()).pending);
+    let listing = catalog.scan(&roots, home.path());
+    assert_eq!(listing.sessions[0].title, "Renamed");
+    drop(file);
+    tempfile::NamedTempFile::new_in(home.path().join(".codex"))?.persist(index)?;
+    assert_eq!(
+        catalog.scan(&roots, home.path()).sessions[0].title,
+        "codex-1"
+    );
     Ok(())
 }
 
