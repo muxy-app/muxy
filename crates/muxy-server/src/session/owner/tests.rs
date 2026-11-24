@@ -65,6 +65,7 @@ impl Fixture {
                 Attachment {
                     sink: sink.into(),
                     seq: 1,
+                    shares: false,
                 },
             )]),
             output_pending: false,
@@ -76,6 +77,7 @@ impl Fixture {
             cursor_blinking: true,
             links: Vec::new(),
             graphics: muxy_protocol::Graphics::default(),
+            full_graphics: muxy_protocol::Graphics::default(),
             prompts: Vec::new(),
             frame_state: None,
             next_tick: None,
@@ -223,5 +225,73 @@ fn ordinary_output_keeps_a_frame_budget_and_stops_ticking_when_idle() -> Result<
     assert!(!fixture.owner.has_pending_work());
     assert!(fixture.owner.next_tick.is_none());
     assert!(fixture.frames().is_empty());
+    Ok(())
+}
+
+#[test]
+fn attachments_that_share_images_get_them_whole_and_others_get_them_fitted() -> Result<(), Fault> {
+    let mut fixture = Fixture::new()?;
+    let (sharing, shared_frames) = mpsc::channel();
+    fixture.owner.attachments.insert(
+        AttachmentId(2),
+        Attachment {
+            sink: sharing.into(),
+            seq: 1,
+            shares: true,
+        },
+    );
+    fixture
+        .owner
+        .terminal
+        .set_cell_size(muxy_protocol::CellSize {
+            width: 16,
+            height: 34,
+        })?;
+    let (width, height) = (2400_u32, 1600_u32);
+    let pixels = vec![90_u8; (width * height * 4) as usize];
+    let encoded = muxy_core::base64::encode(&pixels);
+    let chunks: Vec<&[u8]> = encoded.as_bytes().chunks(4096).collect();
+    for (index, chunk) in chunks.iter().enumerate() {
+        let keys = if index == 0 {
+            format!("a=T,f=32,s={width},v={height},C=1,")
+        } else {
+            String::new()
+        };
+        let more = u8::from(index + 1 < chunks.len());
+        fixture
+            .owner
+            .terminal
+            .feed(format!("\x1b_G{keys}q=2,m={more};").as_bytes());
+        fixture.owner.terminal.feed(chunk);
+        fixture.owner.terminal.feed(b"\x1b\\");
+    }
+    fixture.owner.broadcast_frame(None)?;
+    let fitted = fixture.frames().pop().and_then(|frame| frame.graphics);
+    let fitted = fitted.ok_or("no fitted images")?;
+    assert!(fitted.images[0].width < width);
+    assert!(fitted.images[0].rgba.len() <= muxy_protocol::MAX_GRAPHICS_BYTES);
+    let whole = shared_frames.try_iter().find_map(|event| match event {
+        AttachmentEvent::Frame(frame) => frame.graphics,
+        _ => None,
+    });
+    let whole = whole.ok_or("no whole images")?;
+    assert_eq!(
+        (whole.images[0].width, whole.images[0].height),
+        (width, height)
+    );
+    assert_eq!(whole.images[0].rgba.len(), pixels.len());
+    assert_eq!(whole.images[0].generation, fitted.images[0].generation);
+
+    fixture.owner.broadcast_frame(None)?;
+    assert!(
+        fixture
+            .frames()
+            .iter()
+            .all(|frame| frame.graphics.is_none())
+    );
+    assert!(shared_frames.try_iter().all(|event| match event {
+        AttachmentEvent::Frame(frame) => frame.graphics.is_none(),
+        _ => true,
+    }));
     Ok(())
 }

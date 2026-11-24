@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 
+use muxy_protocol::shared_memory::Region;
 use muxy_protocol::{CONTROL, ChannelId, Graphics, Message, MetadataEvent, ScreenFrame};
 
 use super::merge::merge;
@@ -15,6 +16,7 @@ pub(super) struct Outbox {
     credit: HashMap<ChannelId, bool>,
     sent: HashMap<ChannelId, u64>,
     pixels: HashMap<ChannelId, BTreeSet<(u32, u64)>>,
+    regions: HashMap<ChannelId, Vec<(Option<u64>, Region)>>,
 }
 
 impl Outbox {
@@ -74,7 +76,19 @@ impl Outbox {
         true
     }
 
+    pub(super) fn hold(&mut self, channel: ChannelId, seq: Option<u64>, regions: Vec<Region>) {
+        if self.credit.contains_key(&channel) {
+            self.regions
+                .entry(channel)
+                .or_default()
+                .extend(regions.into_iter().map(|region| (seq, region)));
+        }
+    }
+
     pub(super) fn ack(&mut self, channel: ChannelId, seq: u64) -> bool {
+        if let Some(regions) = self.regions.get_mut(&channel) {
+            regions.retain(|(sent, _)| sent.is_some_and(|sent| sent > seq));
+        }
         if self.sent.get(&channel) == Some(&seq)
             && let Some(credit) = self.credit.get_mut(&channel)
         {
@@ -104,7 +118,7 @@ impl Outbox {
             .find(|channel| self.credit.get(channel) == Some(&true))
             .copied()?;
         let mut frame = self.frames.remove(&channel)?;
-        if images == ImageDelivery::Stream
+        if matches!(images, ImageDelivery::Stream | ImageDelivery::Share)
             && let Some(graphics) = &mut frame.graphics
         {
             self.send_once(channel, graphics);
@@ -135,6 +149,7 @@ impl Outbox {
     pub(super) fn close_channel(&mut self, channel: ChannelId) {
         self.frames.remove(&channel);
         self.pixels.remove(&channel);
+        self.regions.remove(&channel);
         self.metadata.remove(&channel);
         self.credit.remove(&channel);
         self.sent.remove(&channel);
@@ -143,6 +158,7 @@ impl Outbox {
     pub(super) fn close_channels(&mut self) {
         self.frames.clear();
         self.pixels.clear();
+        self.regions.clear();
         self.metadata.clear();
         self.credit.clear();
         self.sent.clear();

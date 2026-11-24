@@ -229,6 +229,7 @@ fn mouse_events_naming_newer_buttons_stay_valid() -> Result<(), WireError> {
         row: 1,
         scroll: Some(ScrollDirection::Unrecognized(9)),
         modifiers: Modifiers::default(),
+        pixel: None,
     });
     let mut bytes = Vec::new();
     encode(&event, ChannelId(1), &mut bytes)?;

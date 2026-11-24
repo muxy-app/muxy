@@ -230,6 +230,8 @@ pub enum RequestBody {
     StreamImages,
     #[n(55)]
     ListEntries(#[n(0)] ServerPath),
+    #[n(56)]
+    ShareImages,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -361,6 +363,8 @@ pub enum ReplyBody {
     ImagesStreamed,
     #[n(48)]
     Entries(#[n(0)] Vec<crate::PathEntry>),
+    #[n(49)]
+    ImagesShared,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]

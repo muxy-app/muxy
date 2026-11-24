@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::wire::cbor::open_enum;
 
 pub const MAX_GRAPHICS_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_SHARED_GRAPHICS_BYTES: usize = 128 * 1024 * 1024;
 pub const MAX_GRAPHICS_PLACEMENTS: usize = 1024;
 pub const MAX_GRAPHICS_FRAMES: usize = 1024;
 
@@ -56,6 +57,15 @@ pub struct GraphicImage {
     #[cbor(default)]
     #[serde(default)]
     pub playback: Playback,
+    #[n(7)]
+    #[serde(default)]
+    pub shared: Option<SharedPixels>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct SharedPixels {
+    #[n(0)]
+    pub name: String,
 }
 
 impl GraphicImage {
@@ -187,16 +197,19 @@ impl Graphics {
 
     pub fn keep_pixels(&mut self, older: &Self) {
         for image in &mut self.images {
-            if !image.rgba.is_empty() {
+            if !image.rgba.is_empty() || image.shared.is_some() {
                 continue;
             }
             let Some(key) = image.shown_key() else {
                 continue;
             };
             if let Some(kept) = older.images.iter().find(|kept| {
-                kept.id == image.id && !kept.rgba.is_empty() && kept.shown_key() == Some(key)
+                kept.id == image.id
+                    && (!kept.rgba.is_empty() || kept.shared.is_some())
+                    && kept.shown_key() == Some(key)
             }) {
                 image.rgba = kept.rgba.clone();
+                image.shared.clone_from(&kept.shared);
             }
         }
     }
@@ -211,18 +224,23 @@ impl Graphics {
             return Err(BadRequest);
         }
         let mut images = std::collections::BTreeMap::new();
-        let mut total = 0_usize;
+        let mut inline = 0_usize;
+        let mut listed = 0_u64;
         for image in &self.images {
             let bytes = u64::from(image.width)
                 .checked_mul(u64::from(image.height))
                 .and_then(|pixels| pixels.checked_mul(4))
                 .ok_or(BadRequest)?;
-            total = total.checked_add(image.rgba.len()).ok_or(BadRequest)?;
+            inline = inline.checked_add(image.rgba.len()).ok_or(BadRequest)?;
+            listed = listed.checked_add(bytes).ok_or(BadRequest)?;
             if image.width == 0
                 || image.height == 0
-                || bytes > MAX_GRAPHICS_BYTES as u64
+                || listed > MAX_SHARED_GRAPHICS_BYTES as u64
                 || (!image.rgba.is_empty() && bytes != image.rgba.len() as u64)
-                || total > MAX_GRAPHICS_BYTES
+                || inline > MAX_GRAPHICS_BYTES
+                || image.shared.as_ref().is_some_and(|shared| {
+                    !image.rgba.is_empty() || !crate::shared_memory::is_region_name(&shared.name)
+                })
                 || image.frames.len() > MAX_GRAPHICS_FRAMES
                 || image.playback.frame as usize >= image.frames.len().max(1)
                 || images.insert(image.id, image).is_some()

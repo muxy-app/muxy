@@ -633,6 +633,7 @@ pub(super) fn forward(
             alt: event.modifiers.contains(KeyModifiers::ALT),
             ctrl: event.modifiers.contains(KeyModifiers::CONTROL),
         },
+        pixel: None,
     };
     worker.mouse(channel, mouse)
 }

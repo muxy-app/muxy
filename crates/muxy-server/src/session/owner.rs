@@ -73,6 +73,7 @@ enum OutputState {
 struct Attachment {
     sink: AttachmentSink,
     seq: u64,
+    shares: bool,
 }
 
 #[allow(
@@ -107,6 +108,7 @@ struct Owner {
     cursor_blinking: bool,
     links: Vec<muxy_protocol::LinkRow>,
     graphics: muxy_protocol::Graphics,
+    full_graphics: muxy_protocol::Graphics,
     prompts: Vec<u16>,
     frame_state: Option<(muxy_protocol::Cursor, muxy_protocol::Modes)>,
     next_tick: Option<Instant>,
@@ -201,6 +203,7 @@ pub(crate) fn start(
                 cursor_blinking: true,
                 links: Vec::new(),
                 graphics: muxy_protocol::Graphics::default(),
+                full_graphics: muxy_protocol::Graphics::default(),
                 prompts: Vec::new(),
                 frame_state: None,
                 next_tick: None,
@@ -524,9 +527,14 @@ impl Owner {
         let screen = history
             .screen
             .ok_or_else(|| io::Error::other("fresh history has no screen"))?;
+        let shares = sink.shares_images();
         let snapshot = AttachSnapshot {
             links: history.links,
-            graphics: screen.graphics,
+            graphics: if shares {
+                self.terminal.full_graphics()?
+            } else {
+                screen.graphics
+            },
             prompts: history.prompts,
             channel,
             size: self.size,
@@ -554,7 +562,14 @@ impl Owner {
                 seq: 0,
                 rows: self.links.clone(),
             }));
-            self.attachments.insert(id, Attachment { sink, seq: 1 });
+            self.attachments.insert(
+                id,
+                Attachment {
+                    sink,
+                    seq: 1,
+                    shares,
+                },
+            );
         }
         Ok(())
     }
@@ -842,6 +857,38 @@ impl Owner {
         )
     }
 
+    fn refresh_graphics(&mut self) -> Result<(bool, bool), Fault> {
+        let fitted = if self
+            .attachments
+            .values()
+            .any(|attachment| !attachment.shares)
+        {
+            let graphics = self.terminal.graphics()?;
+            let changed = graphics != self.graphics || self.resize_pending;
+            self.graphics = graphics;
+            changed
+        } else {
+            false
+        };
+        let full = if self
+            .attachments
+            .values()
+            .any(|attachment| attachment.shares)
+        {
+            let graphics = self.terminal.full_graphics()?;
+            let changed = graphics != self.full_graphics || self.resize_pending;
+            self.full_graphics = graphics;
+            changed
+        } else {
+            if !self.full_graphics.images.is_empty() {
+                self.full_graphics = muxy_protocol::Graphics::default();
+                self.terminal.release_full_graphics();
+            }
+            false
+        };
+        Ok((fitted, full))
+    }
+
     fn broadcast_frame(&mut self, resized: Option<AttachmentId>) -> Result<(), Fault> {
         if self.attachments.is_empty() {
             return Ok(());
@@ -859,12 +906,11 @@ impl Owner {
                     }))
             });
         }
-        let graphics = self.terminal.graphics()?;
-        let graphics_changed = graphics != self.graphics || self.resize_pending;
-        self.graphics = graphics;
+        let (fitted_changed, full_changed) = self.refresh_graphics()?;
+        let graphics_changed = fitted_changed || full_changed;
         let frame = ScreenFrame {
             size: self.size,
-            graphics: graphics_changed.then(|| self.graphics.clone()),
+            graphics: None,
             seq: 0,
             reset: self.resize_pending,
             rows: self.terminal.take_changed_rows()?,
@@ -889,8 +935,14 @@ impl Owner {
         }
         self.frame_state = Some(state);
         self.attachments.retain(|id, attachment| {
+            let graphics = if attachment.shares {
+                full_changed.then(|| self.full_graphics.clone())
+            } else {
+                fitted_changed.then(|| self.graphics.clone())
+            };
             let frame = ScreenFrame {
                 seq: attachment.seq,
+                graphics,
                 ..frame.clone()
             };
             if prompts_changed || frame.reset {

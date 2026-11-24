@@ -25,6 +25,12 @@ impl OutboxSink {
         }
     }
 
+    pub(crate) fn shares_images(&self) -> bool {
+        self.connection
+            .upgrade()
+            .is_some_and(|connection| connection.shares_images())
+    }
+
     pub(crate) fn send(&mut self, event: AttachmentEvent) -> bool {
         let Some(connection) = self.connection.upgrade() else {
             return false;
@@ -306,6 +312,84 @@ mod tests {
             assert_eq!(sent.validate(), Ok(()));
             connection.ack(CHANNEL, seq);
         }
+        Ok(())
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn shared_pixels_stay_readable_until_their_screen_is_acknowledged() -> TestResult {
+        use muxy_protocol::shared_memory::take;
+
+        let image = |generation, shade| muxy_protocol::GraphicImage {
+            id: 1,
+            generation,
+            width: 1,
+            height: 1,
+            rgba: vec![shade; 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        };
+        let graphics = |generation, shade| muxy_protocol::Graphics {
+            images: vec![image(generation, shade)],
+            ..muxy_protocol::Graphics::default()
+        };
+        let (connection, _commands, mut sink) = attached()?;
+        connection.share_images();
+        assert!(sink.shares_images());
+        let mut snapshot = snapshot()?;
+        snapshot.graphics = graphics(1, 10);
+        let frame = |seq, generation, shade| ScreenFrame {
+            size: snapshot.size,
+            graphics: Some(graphics(generation, shade)),
+            seq,
+            reset: false,
+            rows: Vec::new(),
+            cursor: snapshot.cursor,
+            modes: snapshot.modes,
+        };
+        let next = |connection: &Connection| -> Result<(ChannelId, Message), Box<dyn Error>> {
+            let (channel, mut message) = connection.next().ok_or("nothing to send")?;
+            connection.share_pixels(channel, &mut message);
+            Ok((channel, message))
+        };
+        let shared = |message: &Message| -> Option<String> {
+            let graphics = match message {
+                Message::Frame(frame) => frame.graphics.as_ref()?,
+                Message::Reply {
+                    body: ReplyBody::Attached { snapshot, .. },
+                    ..
+                } => &snapshot.graphics,
+                _ => return None,
+            };
+            let image = graphics.images.first()?;
+            assert!(image.rgba.is_empty());
+            image.shared.as_ref().map(|shared| shared.name.clone())
+        };
+        assert!(sink.send(AttachmentEvent::Snapshot {
+            snapshot: Box::new(snapshot.clone()),
+            process: None,
+        }));
+        let attached = shared(&next(&connection)?.1).ok_or("snapshot pixels not shared")?;
+
+        assert!(sink.send(AttachmentEvent::Frame(frame(1, 1, 10))));
+        let (_, unchanged) = next(&connection)?;
+        assert_eq!(shared(&unchanged), None);
+        assert_eq!(take(&attached, 4, <[u8]>::to_vec)?, [10; 4]);
+        connection.ack(CHANNEL, 1);
+
+        assert!(sink.send(AttachmentEvent::Frame(frame(2, 2, 20))));
+        let acked = shared(&next(&connection)?.1).ok_or("frame 2 pixels not shared")?;
+        connection.ack(CHANNEL, 2);
+        assert!(take(&acked, 4, <[u8]>::len).is_err());
+
+        assert!(sink.send(AttachmentEvent::Frame(frame(3, 3, 30))));
+        let pending = shared(&next(&connection)?.1).ok_or("frame 3 pixels not shared")?;
+        assert_eq!(take(&pending, 4, <[u8]>::to_vec)?, [30; 4]);
+
+        connection.ack(CHANNEL, 3);
+        assert!(sink.send(AttachmentEvent::Frame(frame(4, 4, 40))));
+        let detached = shared(&next(&connection)?.1).ok_or("frame 4 pixels not shared")?;
+        connection.detach(CHANNEL)?;
+        assert!(take(&detached, 4, <[u8]>::len).is_err());
         Ok(())
     }
 

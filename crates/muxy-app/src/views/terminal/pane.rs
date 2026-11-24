@@ -486,7 +486,7 @@ impl TerminalPane {
         }
         self.validate_selection();
         cx.notify();
-        if conversions.is_empty() {
+        if conversions.is_empty() && self.images.idle() {
             return Some(seq);
         }
         self.unacked = Some((channel, seq));
@@ -1177,13 +1177,28 @@ impl TerminalPane {
             return;
         };
         let size = self.viewport.unwrap_or(grid.size);
+        let columns = (position.x - bounds.origin.x) / cell.width;
+        let rows = (position.y - bounds.origin.y) / cell.height;
+        let pixel = self
+            .sent_cell_size
+            .filter(|(sent, _)| *sent == channel && self.input_modes.mouse_pixels)
+            .map(|(_, physical)| {
+                let axis = |cells: f32, count: u16, cell: u16| {
+                    let end = f32::from(count.max(1)) * f32::from(cell) - 1.0;
+                    (cells * f32::from(cell)).floor().clamp(0.0, end.max(0.0)) as u32
+                };
+                [
+                    axis(columns, size.cols, physical.width),
+                    axis(rows, size.rows, physical.height),
+                ]
+            });
         let event = MouseEvent {
             action,
             button: button.map(mouse_button),
-            column: ((position.x - bounds.origin.x) / cell.width)
+            column: columns
                 .floor()
                 .clamp(0.0, f32::from(size.cols.saturating_sub(1))) as u16,
-            row: ((position.y - bounds.origin.y) / cell.height)
+            row: rows
                 .floor()
                 .clamp(0.0, f32::from(size.rows.saturating_sub(1))) as u16,
             scroll,
@@ -1192,6 +1207,7 @@ impl TerminalPane {
                 alt: modifiers.alt,
                 ctrl: modifiers.control,
             },
+            pixel,
         };
         if action == MouseAction::Motion && self.last_mouse == Some(event) {
             return;
@@ -2676,6 +2692,77 @@ mod tests {
     }
 
     #[gpui::test]
+    fn pixel_reporting_sends_device_pixels_and_motion_within_a_cell(cx: &mut TestAppContext) {
+        let (pane, cx) = cx.add_window_view(|_, cx| {
+            TerminalPane::new(
+                Palette::new(true),
+                muxy_app_core::settings::TerminalSettings::default(),
+                cx,
+            )
+        });
+        let reported = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        cx.update(|window, cx| {
+            let events = reported.clone();
+            cx.subscribe(&pane, move |_, event, _| {
+                if let PaneEvent::Mouse(_, event) = event {
+                    events.borrow_mut().push(*event);
+                }
+            })
+            .detach();
+            pane.update(cx, |pane, cx| {
+                prepare_mouse(pane);
+                pane.sent_cell_size = Some((
+                    ChannelId(1),
+                    muxy_protocol::CellSize {
+                        width: 20,
+                        height: 40,
+                    },
+                ));
+                pane.input_modes.mouse_tracking = true;
+                pane.input_modes.mouse_pixels = true;
+                let move_to = |pane: &mut TerminalPane, x: f32, cx: &mut Context<TerminalPane>| {
+                    pane.mouse_move(
+                        &gpui::MouseMoveEvent {
+                            position: point(px(x), px(25.0)),
+                            ..gpui::MouseMoveEvent::default()
+                        },
+                        cx,
+                    );
+                };
+                move_to(pane, 13.0, cx);
+                move_to(pane, 14.6, cx);
+                move_to(pane, 14.6, cx);
+                pane.mouse_down(
+                    &gpui::MouseDownEvent {
+                        button: MouseButton::Left,
+                        position: point(px(500.0), px(500.0)),
+                        ..gpui::MouseDownEvent::default()
+                    },
+                    window,
+                    cx,
+                );
+                pane.input_modes.mouse_pixels = false;
+                move_to(pane, 16.0, cx);
+                move_to(pane, 17.0, cx);
+            });
+        });
+        cx.run_until_parked();
+        let events = reported.borrow();
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| (event.action, event.column, event.row, event.pixel))
+                .collect::<Vec<_>>(),
+            [
+                (MouseAction::Motion, 1, 1, Some([26, 50])),
+                (MouseAction::Motion, 1, 1, Some([29, 50])),
+                (MouseAction::Press, 19, 2, Some([399, 119])),
+                (MouseAction::Motion, 1, 1, None),
+            ]
+        );
+    }
+
+    #[gpui::test]
     fn shift_selection_stays_local_until_release_and_can_be_copied(cx: &mut TestAppContext) {
         let (pane, cx) = cx.add_window_view(|_, cx| {
             TerminalPane::new(
@@ -2950,6 +3037,7 @@ mod tests {
                         mouse_tracking: true,
                         alternate_scroll: true,
                         focus_events: true,
+                        mouse_pixels: true,
                     };
                     pane.focus_changed(true, cx);
                     pane.focus_changed(false, cx);

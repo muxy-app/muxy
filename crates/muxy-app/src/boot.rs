@@ -830,6 +830,24 @@ fn start_connect(
     }
 }
 
+type ImageRequest = fn(&Client) -> Result<(), ClientError>;
+
+fn request_images(client: &Client, local: bool) -> Result<(), ClientError> {
+    let requests: [ImageRequest; 3] = [
+        Client::share_images,
+        Client::stream_images,
+        Client::defer_images,
+    ];
+    let skipped = usize::from(!(local && muxy_protocol::shared_memory::supported()));
+    for request in requests.into_iter().skip(skipped) {
+        match request(client) {
+            Err(ClientError::Server(_)) => {}
+            result => return result,
+        }
+    }
+    Ok(())
+}
+
 fn connect(
     target: &Target,
     generation: u64,
@@ -845,14 +863,7 @@ fn connect(
         Target::Paired { .. } => target.connect()?,
     };
     client.identify(muxy_protocol::ClientKind::Desktop)?;
-    match client.stream_images() {
-        Ok(()) => {}
-        Err(ClientError::Server(_)) => match client.defer_images() {
-            Ok(()) | Err(ClientError::Server(_)) => {}
-            Err(error) => return Err(error),
-        },
-        Err(error) => return Err(error),
-    }
+    request_images(&client, matches!(target, Target::Local(_)))?;
     if let Target::Local(socket) = target {
         let profile = socket
             .parent()

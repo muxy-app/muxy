@@ -36,6 +36,7 @@ pub(crate) fn click(
             alt: modifiers.alt,
             ctrl: modifiers.control,
         },
+        pixel: None,
     };
     [
         press,
@@ -57,5 +58,6 @@ pub(crate) fn scroll(direction: ScrollDirection, row: u16, column: u16) -> Mouse
             ScrollDirection::Down => muxy_protocol::ScrollDirection::Down,
         }),
         modifiers: muxy_protocol::Modifiers::default(),
+        pixel: None,
     }
 }

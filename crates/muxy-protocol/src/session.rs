@@ -270,6 +270,10 @@ pub enum MetadataEvent {
     ClipboardWrite(#[n(0)] String),
 }
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Each mode is an independent terminal setting"
+)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct InputModes {
     #[n(0)]
@@ -278,6 +282,10 @@ pub struct InputModes {
     pub alternate_scroll: bool,
     #[n(2)]
     pub focus_events: bool,
+    #[n(3)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub mouse_pixels: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -294,6 +302,9 @@ pub struct MouseEvent {
     pub scroll: Option<ScrollDirection>,
     #[n(5)]
     pub modifiers: Modifiers,
+    #[n(6)]
+    #[serde(default)]
+    pub pixel: Option<[u32; 2]>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
