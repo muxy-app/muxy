@@ -635,12 +635,13 @@ fn listing(
             .entry((id, generation))
             .or_insert_with(|| storage.image(id).is_some_and(|image| is_opaque(&image)))
     };
-    let cap = if visible_images(&found, cell, &mut opaque) > 1 {
+    let visible = visible_images(&found, cell, &mut opaque);
+    let cap = if visible.len() > 1 {
         budget / 2
     } else {
         budget
     };
-    let listed = within_screen(&sizes, budget, cap);
+    let listed = within_screen(&sizes, &visible, budget, cap);
     images.retain(|id, _| listed.contains(id));
     let mut shown = Vec::new();
     for &id in &listed {
@@ -876,9 +877,19 @@ fn shrunk(
     Some(image.into_rgba8())
 }
 
-fn within_screen(sizes: &BTreeMap<u32, (u64, Size)>, budget: usize, cap: usize) -> BTreeSet<u32> {
+fn within_screen(
+    sizes: &BTreeMap<u32, (u64, Size)>,
+    visible: &BTreeSet<u32>,
+    budget: usize,
+    cap: usize,
+) -> BTreeSet<u32> {
     let mut newest: Vec<_> = sizes.iter().collect();
-    newest.sort_by_key(|(_, (generation, _))| std::cmp::Reverse(*generation));
+    newest.sort_by_key(|(id, (generation, _))| {
+        (
+            std::cmp::Reverse(visible.contains(id)),
+            std::cmp::Reverse(*generation),
+        )
+    });
     let mut total = 0;
     let mut listed = BTreeSet::new();
     for (&id, (_, size)) in newest {
@@ -909,7 +920,7 @@ fn visible_images(
     found: &[Found],
     cell: CellSize,
     opaque: &mut dyn FnMut(u32, u64) -> bool,
-) -> usize {
+) -> BTreeSet<u32> {
     let area = |found: &Found| {
         let placement = &found.placement;
         let left =
@@ -923,16 +934,15 @@ fn visible_images(
             top + i64::from(placement.size[1]),
         ]
     };
+    let above = |upper: &GraphicPlacement, lower: &GraphicPlacement| {
+        (upper.z, upper.image, upper.id) > (lower.z, lower.image, lower.id)
+    };
     let mut visible = BTreeSet::new();
     for older in found {
-        if visible.len() > 1 {
-            break;
-        }
         let [left, top, right, bottom] = area(older);
         let covered = found.iter().any(|newer| {
             let [newer_left, newer_top, newer_right, newer_bottom] = area(newer);
-            newer.generation > older.generation
-                && newer.placement.z >= older.placement.z
+            above(&newer.placement, &older.placement)
                 && newer_left <= left
                 && newer_top <= top
                 && newer_right >= right
@@ -943,7 +953,7 @@ fn visible_images(
             visible.insert(older.placement.image);
         }
     }
-    visible.len()
+    visible
 }
 
 fn scaled_source(source: [u32; 4], full: Size, image: &GraphicImage) -> [u32; 4] {

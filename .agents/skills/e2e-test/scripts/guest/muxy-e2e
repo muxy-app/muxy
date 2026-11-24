@@ -575,6 +575,7 @@ GREEN = bytes([0, 255, 0, 255])
 REPORT = re.compile(rb"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
 PARTIAL = re.compile(rb"\x1b(\[(<[\d;]*)?)?$")
 MIN_IMAGE_ROWS = 4
+MIN_IMAGE_WIDTH = 32
 
 
 class TooSmall(Exception):
@@ -669,7 +670,7 @@ class Screen:
         self.cols, self.rows = window()
         self.width = self.cols * self.cw
         self.height = (self.rows - 3) * self.ch
-        if images and self.rows - 3 < MIN_IMAGE_ROWS:
+        if images and (self.rows - 3 < MIN_IMAGE_ROWS or self.width < MIN_IMAGE_WIDTH):
             raise TooSmall
         self.shared = images and shared_transport()
         self.base = self.pattern() if images else bytearray()
@@ -817,7 +818,10 @@ def main():
         screen = Screen(images=MODE != "cells")
         {"draw": run_draw, "cells": run_cells, "stream": run_stream}[MODE](screen)
     except TooSmall:
-        message = "PROBE-TOO-SMALL: make the pane at least %d rows tall" % (MIN_IMAGE_ROWS + 3)
+        message = "PROBE-TOO-SMALL: make the pane at least %d rows tall and %d pixels wide" % (
+            MIN_IMAGE_ROWS + 3,
+            MIN_IMAGE_WIDTH,
+        )
     finally:
         try:
             write(b"\x1b[?1016l\x1b[?1006l\x1b[?1003l\x1b_Ga=d,q=2\x1b\\\x1b[?25h\x1b[?1049l")

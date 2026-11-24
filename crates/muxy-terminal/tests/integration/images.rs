@@ -485,6 +485,14 @@ fn visible_pictures_share_the_budget_and_hidden_ones_do_not_count() -> Result {
     );
     let seen_through = overlaid.graphics()?;
     assert_eq!(seen_through.images.len(), 2);
+
+    let mut beneath = terminal()?;
+    place(&mut beneath, 2, 1);
+    place(&mut beneath, 1, 1);
+    let on_top = beneath.graphics()?;
+    let listed: Vec<u32> = on_top.images.iter().map(|image| image.id).collect();
+    assert_eq!(listed, [2]);
+    assert!(on_top.images[0].rgba.len() > muxy_terminal::MAX_GRAPHICS_BYTES / 2);
     Ok(())
 }
 
