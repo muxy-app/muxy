@@ -11,14 +11,14 @@ use objc2_app_kit::{
     NSApplication, NSAutoresizingMaskOptions, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags,
     NSEventType, NSImage, NSMenu, NSView, NSWindowOrderingMode,
 };
-use objc2_core_graphics::CGMutablePath;
+use objc2_core_graphics::{CGColor, CGMutablePath, CGPath};
 use objc2_foundation::{
     NSComparisonResult, NSError, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
 };
-use objc2_quartz_core::CAShapeLayer;
+use objc2_quartz_core::{CALayer, CAShapeLayer, CATransaction};
 use objc2_web_kit::WKWebView;
 
-use super::Snapshot;
+use super::{Cover, Snapshot};
 
 #[derive(Debug)]
 pub(crate) enum Signal {
@@ -38,7 +38,8 @@ struct Focus {
 
 #[derive(Debug, Default)]
 struct HitTestRegions {
-    occluded: RefCell<Vec<NSRect>>,
+    mask: RefCell<Option<Retained<CAShapeLayer>>>,
+    pointer_exclusions: RefCell<Vec<NSRect>>,
     passthrough_all: Cell<bool>,
     interactive: RefCell<Option<Vec<NSRect>>>,
 }
@@ -46,8 +47,13 @@ struct HitTestRegions {
 impl HitTestRegions {
     fn excludes(&self, point: NSPoint, page: NSPoint) -> bool {
         self.passthrough_all.get()
+            || self.mask.borrow().as_ref().is_some_and(|mask| {
+                mask.path().is_none_or(|path| !unsafe {
+                    CGPath::contains_point(Some(&path), ptr::null(), point, false)
+                })
+            })
             || self
-                .occluded
+                .pointer_exclusions
                 .borrow()
                 .iter()
                 .any(|rect| contains_point(*rect, point))
@@ -176,13 +182,14 @@ struct Applied {
     frame: Option<NSRect>,
     radius: Option<f64>,
     mask: Option<Mask>,
+    shadows: Vec<Retained<CALayer>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 struct Mask {
     bounds: Bounds<Pixels>,
     clip: Bounds<Pixels>,
-    occlusions: Vec<Bounds<Pixels>>,
+    occlusions: Vec<Cover>,
 }
 
 #[derive(Debug)]
@@ -196,7 +203,7 @@ pub(crate) struct Host {
     visible: Cell<bool>,
     bounds: Cell<Bounds<Pixels>>,
     clip: Cell<Bounds<Pixels>>,
-    occlusions: RefCell<Vec<Bounds<Pixels>>>,
+    occlusions: RefCell<Vec<Cover>>,
     applied: RefCell<Applied>,
 }
 
@@ -398,7 +405,11 @@ impl Host {
             window.invalidateCursorRectsForView(&self.grips);
         }
         *self.parent.borrow_mut() = parent;
-        *self.applied.borrow_mut() = Applied::default();
+        let mut applied = self.applied.borrow_mut();
+        for shadow in applied.shadows.drain(..) {
+            shadow.removeFromSuperlayer();
+        }
+        *applied = Applied::default();
     }
 
     fn subview_order(&self) -> Vec<*const NSView> {
@@ -458,18 +469,23 @@ impl Host {
         self.apply_mask();
     }
 
-    pub(crate) fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
+    pub(crate) fn occlude(&self, occlusions: &[Cover], window: &mut gpui::Window) {
         if *self.occlusions.borrow() != occlusions {
             *self.occlusions.borrow_mut() = occlusions.to_vec();
+            if self.visible.get() {
+                window.synchronize_native_layers();
+            }
         }
         self.apply_mask();
     }
 
     pub(crate) fn occlude_also(&self, bounds: Bounds<Pixels>) {
-        let mut occlusions = self.occlusions.borrow().clone();
-        if !occlusions.contains(&bounds) {
-            occlusions.push(bounds);
-            self.occlude(&occlusions);
+        let mut occlusions = self.occlusions.borrow_mut();
+        let cover = Cover::from(bounds);
+        if !occlusions.contains(&cover) {
+            occlusions.push(cover);
+            drop(occlusions);
+            self.apply_mask();
         }
     }
 
@@ -477,38 +493,82 @@ impl Host {
         let bounds = self.bounds.get();
         let clip = bounds.intersect(&self.clip.get());
         let occlusions = self.occlusions.borrow();
-        let mask = Mask {
+        let mut applied = self.applied.borrow_mut();
+        if applied.mask.as_ref().is_some_and(|mask| {
+            mask.bounds == bounds && mask.clip == clip && mask.occlusions == *occlusions
+        }) {
+            return;
+        }
+        let Some(layer) = self.container.layer() else {
+            return;
+        };
+        applied.mask = Some(Mask {
             bounds,
             clip,
             occlusions: occlusions.clone(),
-        };
-        if self.applied.borrow().mask.as_ref() == Some(&mask) {
-            return;
-        }
-        self.applied.borrow_mut().mask = Some(mask);
-        let (regions, excluded) = composition_regions(bounds, clip, &occlusions);
-        *self.container.ivars().occluded.borrow_mut() = excluded
-            .into_iter()
-            .map(|region| self.local_rect(region))
+        });
+        let mut cuts = occlusions
+            .iter()
+            .filter(|cover| !cover.pointer_only && clip.intersects(&cover.bounds))
+            .peekable();
+        let mask = (clip != bounds || cuts.peek().is_some()).then(|| {
+            let cuts = cuts.map(|cover| (self.local_rect(cover.bounds), f64::from(cover.radius)));
+            let mask = visible_mask(self.local_rect(clip), cuts);
+            mask.setContentsScale(layer.contentsScale());
+            mask
+        });
+        let actions_disabled = CATransaction::disableActions();
+        CATransaction::setDisableActions(true);
+        unsafe { layer.setMask(mask.as_deref().map(AsRef::as_ref)) };
+        let regions = self.container.ivars();
+        *regions.mask.borrow_mut() = mask;
+        *regions.pointer_exclusions.borrow_mut() = occlusions
+            .iter()
+            .filter(|cover| cover.pointer_only && clip.intersects(&cover.bounds))
+            .map(|cover| self.local_rect(cover.bounds))
             .collect();
-        if let Some(layer) = self.container.layer() {
-            if occlusions.is_empty() && clip == bounds {
-                unsafe {
-                    layer.setMask(None);
+        self.sync_shadows(&layer, &mut applied.shadows, clip, &occlusions);
+        CATransaction::setDisableActions(actions_disabled);
+    }
+
+    fn sync_shadows(
+        &self,
+        layer: &CALayer,
+        layers: &mut Vec<Retained<CALayer>>,
+        clip: Bounds<Pixels>,
+        covers: &[Cover],
+    ) {
+        let mut count = 0;
+        for cover in covers {
+            for shadow in &cover.shadows {
+                let shape = (cover.bounds + shadow.offset).dilate(shadow.spread_radius);
+                if !clip.intersects(&shape.dilate(shadow.blur_radius * 3.0)) {
+                    continue;
                 }
-                return;
-            }
-            let path = CGMutablePath::new();
-            for region in regions {
-                unsafe {
-                    CGMutablePath::add_rect(Some(&path), ptr::null(), self.local_rect(region));
+                if count == layers.len() {
+                    let shadow_layer = CALayer::new();
+                    shadow_layer.setZPosition(1.0);
+                    shadow_layer.setShadowOffset(NSSize::ZERO);
+                    layer.addSublayer(&shadow_layer);
+                    layers.push(shadow_layer);
                 }
+                let shadow_layer = &layers[count];
+                shadow_layer.setFrame(layer.bounds());
+                let radius = f64::from(cover.radius);
+                let path = unsafe {
+                    CGPath::with_rounded_rect(self.local_rect(shape), radius, radius, ptr::null())
+                };
+                shadow_layer.setShadowPath(Some(&path));
+                let color: gpui::Rgba = shadow.color.into();
+                let rgb = CGColor::new_srgb(color.r.into(), color.g.into(), color.b.into(), 1.0);
+                shadow_layer.setShadowColor(Some(&rgb));
+                shadow_layer.setShadowOpacity(color.a);
+                shadow_layer.setShadowRadius(f64::from(shadow.blur_radius));
+                count += 1;
             }
-            let mask = CAShapeLayer::new();
-            mask.setPath(Some(&path));
-            unsafe {
-                layer.setMask(Some(&mask));
-            }
+        }
+        for layer in layers.drain(count..) {
+            layer.removeFromSuperlayer();
         }
     }
 
@@ -619,7 +679,7 @@ fn pixel_dimension(points: Pixels, scale: f64) -> Option<u32> {
 
 fn visible_grips(
     bounds: Bounds<Pixels>,
-    occlusions: &[Bounds<Pixels>],
+    occlusions: &[Cover],
     grips: &[(Bounds<Pixels>, CursorStyle)],
 ) -> Vec<(Bounds<Pixels>, CursorStyle)> {
     grips
@@ -631,7 +691,7 @@ fn visible_grips(
                 .fold(vec![*grip], |regions, occlusion| {
                     regions
                         .into_iter()
-                        .flat_map(|region| subtract(region, *occlusion))
+                        .flat_map(|region| subtract(region, occlusion.bounds))
                         .collect()
                 })
                 .into_iter()
@@ -653,30 +713,28 @@ fn flipped_rect(bounds: Bounds<Pixels>) -> NSRect {
     )
 }
 
-fn composition_regions(
-    bounds: Bounds<Pixels>,
-    clip: Bounds<Pixels>,
-    occlusions: &[Bounds<Pixels>],
-) -> (Vec<Bounds<Pixels>>, Vec<Bounds<Pixels>>) {
-    let clip = bounds.intersect(&clip);
-    let mut regions = if clip.size.width > gpui::px(0.0) && clip.size.height > gpui::px(0.0) {
-        vec![clip]
-    } else {
-        Vec::new()
-    };
-    let mut excluded = subtract(bounds, clip);
-    for occlusion in occlusions {
-        let clipped = bounds.intersect(occlusion);
-        if clipped.size.width <= gpui::px(0.0) || clipped.size.height <= gpui::px(0.0) {
-            continue;
-        }
-        excluded.push(clipped);
-        regions = regions
-            .into_iter()
-            .flat_map(|region| subtract(region, *occlusion))
-            .collect();
+fn visible_mask(
+    clip: NSRect,
+    covers: impl Iterator<Item = (NSRect, f64)>,
+) -> Retained<CAShapeLayer> {
+    let mask = CAShapeLayer::new();
+    if clip.size.width <= 0.0 || clip.size.height <= 0.0 {
+        return mask;
     }
-    (regions, excluded)
+    let page = unsafe { CGPath::with_rect(clip, ptr::null()) };
+    let cuts = CGMutablePath::new();
+    for (rect, radius) in covers {
+        if radius == 0.0 {
+            unsafe { CGMutablePath::add_rect(Some(&cuts), ptr::null(), rect) };
+        } else {
+            unsafe {
+                CGMutablePath::add_rounded_rect(Some(&cuts), ptr::null(), rect, radius, radius);
+            }
+        }
+    }
+    let visible = CGPath::new_copy_by_subtracting_path(Some(&page), Some(&cuts), false);
+    mask.setPath(visible.as_deref());
+    mask
 }
 
 fn subtract(region: Bounds<Pixels>, cut: Bounds<Pixels>) -> Vec<Bounds<Pixels>> {
@@ -883,6 +941,41 @@ fn route_key_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_live_page_keeps_its_rounded_cutouts_and_respects_overlapping_covers() {
+        let rect = |x, y, w, h| NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+        let page = rect(0.0, 0.0, 100.0, 80.0);
+        let covers = [
+            (rect(-20.0, -10.0, 90.0, 70.0), 16.0),
+            (rect(50.0, 10.0, 55.0, 25.0), 0.0),
+        ];
+        let regions = HitTestRegions::default();
+        *regions.mask.borrow_mut() = Some(visible_mask(page, covers.into_iter()));
+        let hits_page = |x, y| {
+            let point = NSPoint::new(x, y);
+            !regions.excludes(point, point)
+        };
+        assert!(hits_page(69.0, 59.0), "page at the rounded corner");
+        assert!(!hits_page(64.0, 54.0), "inside the sidebar curve");
+        assert!(!hits_page(60.0, 24.0), "where the two covers overlap");
+        assert!(!hits_page(85.0, 22.0), "inside only the second cover");
+        assert!(hits_page(85.0, 50.0), "uncovered page");
+        assert!(!hits_page(105.0, 50.0), "outside the content clip");
+        *regions.mask.borrow_mut() = Some(visible_mask(page, std::iter::empty()));
+        assert!(hits_page(60.0, 24.0), "page restored when the covers leave");
+        assert!(!hits_page(105.0, 50.0), "the content clip still applies");
+        assert!(hits_page(2.0, 40.0));
+        regions
+            .pointer_exclusions
+            .borrow_mut()
+            .push(rect(0.0, 0.0, 8.0, 80.0));
+        assert!(
+            !hits_page(2.0, 40.0),
+            "the edge can receive input over the visible page"
+        );
+        assert!(hits_page(9.0, 40.0));
+    }
 
     #[test]
     fn command_shortcuts_try_webkit_before_native_menu() {

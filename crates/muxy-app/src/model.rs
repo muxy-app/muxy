@@ -43,6 +43,8 @@ mod server_groups;
 mod server_status;
 mod servers;
 pub(crate) use server_status::ServerStatus;
+mod session_links;
+pub(crate) mod sidebar_peek;
 pub(crate) mod tab_windows;
 mod tabs;
 pub(crate) mod tips;
@@ -173,6 +175,7 @@ pub(crate) struct AppModel {
     pub(crate) servers_page: crate::views::servers_page::ServersPage,
     pub(crate) pending_remote: Option<PendingRemote>,
     pub(crate) pending_folders: Vec<PathBuf>,
+    session_links: session_links::SessionLinks,
     pub(crate) remote_links: remote_files::RemoteLinks,
     pub(crate) tips: tips::Tips,
     pub(crate) onboarding: onboarding::Onboarding,
@@ -191,6 +194,7 @@ pub(crate) struct AppModel {
     pub(crate) focus_owner: focus::FocusOwner,
     pub(crate) split_resize: crate::views::splits::SplitResizeState,
     pub(crate) sidebar_resize: Option<crate::views::sidebar::SidebarResize>,
+    pub(crate) sidebar_peek: sidebar_peek::SidebarPeek,
     #[cfg(not(target_os = "macos"))]
     pub(crate) sidebar_available_width: gpui::Pixels,
     pub(crate) agent_sessions: agent_sessions::AgentSessions,
@@ -485,6 +489,9 @@ impl AppModel {
 
     fn activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.window_active = window.is_window_active();
+        if !self.window_active {
+            self.dismiss_sidebar_peek(cx);
+        }
         if self.window_active {
             let surface = self
                 .focused_float(window, cx)
@@ -651,6 +658,7 @@ impl AppModel {
             servers_page: crate::views::servers_page::ServersPage::new(metrics),
             pending_remote: None,
             pending_folders: Vec::new(),
+            session_links: session_links::SessionLinks::default(),
             remote_links: remote_files::RemoteLinks::default(),
             tips: tips::Tips::default(),
             onboarding: onboarding::Onboarding::default(),
@@ -671,6 +679,7 @@ impl AppModel {
             focus_owner: focus::FocusOwner::default(),
             split_resize: crate::views::splits::SplitResizeState::default(),
             sidebar_resize: None,
+            sidebar_peek: sidebar_peek::SidebarPeek::default(),
             #[cfg(not(target_os = "macos"))]
             sidebar_available_width: gpui::px(f32::MAX),
             agent_sessions: agent_sessions::AgentSessions::new(cx),
@@ -2576,6 +2585,9 @@ impl AppModel {
             Update::ProjectSessions { project, result } => {
                 self.receive_session_page(project, result, cx);
             }
+            Update::SessionLocated { session, result } => {
+                self.receive_located_session(server, session, result, cx);
+            }
             Update::CreationCancelled { operation, result } => {
                 self.receive_creation_cancelled(server, operation, result, cx);
             }
@@ -2640,6 +2652,7 @@ impl AppModel {
                     self.pending_remote = None;
                 }
                 self.resume_folders(server, cx);
+                self.forget_session_link(server);
                 self.sync_preferences(cx);
                 if local {
                     self.fail(error, cx);
@@ -3321,9 +3334,11 @@ pub(crate) mod tests {
     #[cfg(unix)]
     mod remote_parity;
     mod servers;
+    mod session_links;
     mod session_names;
     mod session_ownership;
     mod session_show;
+    mod sidebar_peek;
     mod splits;
     mod tab_groups;
     mod tab_menu;

@@ -13,6 +13,7 @@ use muxy_app_core::{
     webview::{ModalOptions, ModalResult, WebviewDescriptor},
 };
 use muxy_core::capability::Feature;
+use muxy_ui::webview::Cover;
 use muxy_ui::webview::assets::Source;
 use serde_json::{Value, json};
 
@@ -51,7 +52,7 @@ impl Drop for Modal {
     }
 }
 
-type Occlusion = (Option<gpui::EntityId>, gpui::Bounds<gpui::Pixels>);
+type Occlusion = (Option<gpui::EntityId>, Cover);
 type Grip = (
     Option<gpui::EntityId>,
     gpui::Bounds<gpui::Pixels>,
@@ -282,7 +283,7 @@ impl AppModel {
         cx: &mut Context<Self>,
     ) {
         if let Some(sidebar) = &self.webviews.sidebar {
-            let visible = self.extension_sidebar_active() && self.sidebar_width() > 0.0;
+            let visible = self.extension_sidebar_shown();
             sidebar.surface.view.update(cx, |view, cx| {
                 view.native
                     .set_shortcuts(self.layout_drag_pending(), shortcuts.clone());
@@ -1008,7 +1009,7 @@ impl AppModel {
         use gpui::{IntoElement, Styled};
         let occlusions = self.webviews.occlusions.clone();
         gpui::canvas(
-            move |bounds, _, _| occlusions.borrow_mut().push((except, bounds)),
+            move |bounds, _, _| occlusions.borrow_mut().push((except, bounds.into())),
             |_, (), _, _| (),
         )
         .absolute()
@@ -1025,7 +1026,7 @@ impl AppModel {
             move |_, _, _| {
                 occlusions
                     .borrow_mut()
-                    .push((Some(owner), gpui::Bounds::default()));
+                    .push((Some(owner), Cover::default()));
             },
             |_, (), _, _| (),
         )
@@ -1128,21 +1129,21 @@ impl AppModel {
         let grips = self.webviews.grips.clone();
         let spinners = self.spinners.clone();
         gpui::canvas(
-            move |_, _, _| {
+            move |_, window, _| {
                 for view in &pages_elsewhere {
-                    view.occlude(&[]);
+                    view.occlude(&[], window);
                     view.set_grips(&[]);
                 }
                 for view in &browsers_elsewhere {
-                    view.occlude(&[]);
+                    view.occlude(&[], window);
                     view.set_grips(&[]);
                 }
                 for (id, view, pane) in &views {
-                    view.occlude(&occlusions_for(*id, &occlusions.borrow()));
+                    view.occlude(&occlusions_for(*id, &occlusions.borrow()), window);
                     view.set_grips(&grips_for(*id, *pane, &grips.borrow()));
                 }
                 for (id, view) in &browsers {
-                    view.occlude(&occlusions_for(*id, &occlusions.borrow()));
+                    view.occlude(&occlusions_for(*id, &occlusions.borrow()), window);
                     view.set_grips(&grips_for(*id, true, &grips.borrow()));
                 }
             },
@@ -1330,15 +1331,15 @@ fn grips_for(
         .collect()
 }
 
-fn occlusions_for(id: gpui::EntityId, occlusions: &[Occlusion]) -> Vec<gpui::Bounds<gpui::Pixels>> {
+fn occlusions_for(id: gpui::EntityId, occlusions: &[Occlusion]) -> Vec<Cover> {
     let start = occlusions
         .iter()
         .position(|(owner, _)| *owner == Some(id))
         .map_or(0, |index| index + 1);
     occlusions[start..]
         .iter()
-        .map(|(_, bounds)| *bounds)
-        .filter(|bounds| !bounds.is_empty())
+        .filter(|(_, cover)| !cover.bounds.is_empty())
+        .map(|(_, cover)| cover.clone())
         .collect()
 }
 

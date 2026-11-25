@@ -433,6 +433,47 @@ fn extensions_drive_the_window_layout_and_report_it(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn extensions_show_and_hide_an_auto_hiding_sidebar(cx: &mut TestAppContext) {
+    let (view, cx) = open(AppState::bootstrap().expect("state"), cx);
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.sidebar_auto_hide = true;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    let state = call(&view, cx, "ui.state", json!({})).expect("state");
+    assert_eq!(
+        state["sidebar"], false,
+        "an auto-hiding sidebar starts hidden"
+    );
+
+    assert_eq!(
+        call(&view, cx, "ui.setSidebar", json!({"visible": true})),
+        Ok(Value::Null)
+    );
+    view.read_with(cx, |model, _| {
+        assert!(model.sidebar_peek_open());
+        assert!(model.appearance.sidebar_auto_hide);
+    });
+    let state = call(&view, cx, "ui.state", json!({})).expect("state");
+    assert_eq!(state["sidebar"], true);
+
+    assert_eq!(
+        call(&view, cx, "ui.setSidebar", json!({"visible": true})),
+        Ok(Value::Null)
+    );
+    assert!(view.read_with(cx, |model, _| model.sidebar_peek_open()));
+    assert_eq!(
+        call(&view, cx, "ui.setSidebar", json!({"visible": false})),
+        Ok(Value::Null)
+    );
+    view.read_with(cx, |model, _| {
+        assert!(!model.sidebar_peek_open());
+        assert!(model.appearance.sidebar_expanded);
+    });
+}
+
+#[gpui::test]
 fn extensions_list_and_run_built_in_commands_but_never_quit(cx: &mut TestAppContext) {
     let (state, _) = three_tabs();
     let (view, cx) = open(state, cx);

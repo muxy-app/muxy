@@ -33,6 +33,7 @@ pub(super) enum ImageDelivery {
     Send,
     Defer,
     Stream,
+    Share,
 }
 
 #[derive(Debug, Default)]

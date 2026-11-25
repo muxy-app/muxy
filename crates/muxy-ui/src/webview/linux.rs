@@ -203,7 +203,7 @@ impl NativeWebview {
     pub(super) fn set_grips(&self, _grips: &[(Bounds<Pixels>, CursorStyle)]) {}
 
     #[allow(clippy::unused_self)]
-    pub(super) fn occlude(&self, _occlusions: &[Bounds<Pixels>]) {}
+    pub(super) fn occlude(&self, _occlusions: &[super::Cover], _window: &mut Window) {}
 
     #[allow(clippy::unused_self)]
     pub(super) fn occlude_also(&self, _bounds: Bounds<Pixels>) {}

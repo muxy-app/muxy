@@ -151,6 +151,24 @@ appearance.
 Custom themes in the profile's `themes/` folder show up too. The chosen theme
 colors the app and its terminals.
 
+## Sidebar
+
+`Cmd+B` expands and collapses the sidebar. **Collapsed sidebar style** in
+**Settings → Appearance** picks what a collapsed sidebar leaves: **Icons**, a
+narrow column of project icons in Project Focused or of an extension sidebar,
+or **Hidden**.
+
+Turn on **Auto-hide sidebar** to give the window its full width. The sidebar
+then stays out of sight until the pointer rests near the window's left edge,
+below the title bar. It slides in as a floating panel over your tabs, expanded
+or as icons as you left it, and slides away once the pointer leaves it. It
+stays while one of its menus is open or you drag something.
+
+With auto-hide on, `Cmd+B` shows or hides the floating sidebar instead of
+resizing it. A sidebar shown this way stays until you press `Cmd+B` again,
+click outside it, or pass the pointer over it and leave. A collapsed sidebar set
+to Hidden never floats, and `Cmd+B` expands it into the floating panel.
+
 ## Backup and restore
 
 - **Export…** saves a `.muxy` file with your settings, `terminal.toml`, themes,

@@ -61,6 +61,7 @@ pub(super) fn header(
         .terminal(&id)
         .is_some_and(|terminal| terminal.view.read(cx).bell_flashing);
     let zoomed = tab.zoomed == Some(id);
+    let movable = tab.zoomed.is_none();
     let actions = actions(pane, tab, model);
     let count = u16::try_from(actions.len()).unwrap_or(u16::MAX);
     let edges = model.header_edges(id, tab);
@@ -114,6 +115,8 @@ pub(super) fn header(
                     );
                     window.prevent_default();
                     cx.stop_propagation();
+                } else if movable && edges.carries.is_none() {
+                    model.begin_pane_handle_drag(id, event, window, cx);
                 }
             }),
         )

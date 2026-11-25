@@ -273,7 +273,7 @@ impl AppModel {
             Placement::Floating
         } else if self.appearance.agents_panel_dock == AgentsPanelDock::Right {
             Placement::Right
-        } else if self.appearance.sidebar_expanded && !self.extension_sidebar_active() {
+        } else if self.sidebar_docks_expanded() && !self.extension_sidebar_active() {
             Placement::Docked
         } else {
             Placement::Popup

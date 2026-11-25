@@ -115,6 +115,11 @@ pub(super) const COMMANDS: &[(&str, &str, &str)] = &[
         "Show a terminal in the local desktop app without raising it. --background adds the tab without selecting it. Starts the app if needed; does not accept --host.",
     ),
     (
+        "session link",
+        "[id] [--split DIRECTION] [--json]",
+        "Print a link that opens the terminal in the desktop app, for a web page or another app to open. With --split right or --split down, a terminal no tab shows yet opens beside the selected tab's pane instead of in a new tab.",
+    ),
+    (
         "worktree list",
         "<project> [--json | --quiet]",
         "List Git worktrees. --quiet (-q) prints registered project IDs only, omitting unregistered worktrees.",

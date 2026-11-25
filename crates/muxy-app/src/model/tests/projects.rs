@@ -524,7 +524,7 @@ fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppC
     let (boot, _requests) = stub_boot(state);
     let (folders, opened) = async_channel::unbounded();
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |_, cx| AppModel::open_folders_from(opened, cx));
+    view.update(cx, |_, cx| AppModel::open_urls_from(opened, cx));
     let url = |name: &str| {
         reqwest::Url::from_directory_path(root.join(name))
             .expect("url")
@@ -609,7 +609,7 @@ fn folders_opened_at_launch_find_projects_added_while_the_app_was_closed(cx: &mu
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (folders, opened) = async_channel::unbounded();
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |_, cx| AppModel::open_folders_from(opened, cx));
+    view.update(cx, |_, cx| AppModel::open_urls_from(opened, cx));
     folders
         .try_send(vec![
             reqwest::Url::from_directory_path(root.join("Shared"))
@@ -660,7 +660,7 @@ fn folders_arriving_after_connection_failure_open_with_saved_projects(cx: &mut T
     let (folders, opened) = async_channel::unbounded();
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        AppModel::open_folders_from(opened, cx);
+        AppModel::open_urls_from(opened, cx);
         let generation = model.servers.local.generation;
         model.receive(
             local(generation, Update::ConnectFailed("offline".into(), None)),

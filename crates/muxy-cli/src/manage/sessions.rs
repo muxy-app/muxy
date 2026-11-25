@@ -5,6 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use muxy_app_core::browser::api;
+use muxy_app_core::session_link::SessionLink;
 use muxy_client::{Client, ClientError, ClientEvent, RunGrid};
 use muxy_protocol::{
     ChannelId, ErrorCode, ExitReason, HistoryCursor, ProjectDescriptor, ProjectId, ProjectSession,
@@ -55,6 +56,7 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
             session,
             background,
         } => show(client, calling(client, session)?, background, output, paths),
+        Session::Link { session, split } => link(client, calling(client, session)?, split, output),
         Session::Send { session, text } => {
             input(client, calling(client, session)?, text.into_bytes(), output)
         }
@@ -152,6 +154,33 @@ fn show(
         Output::json(&json!({"id":session.get().to_string(), "project_id":entry.info.project}))
     } else {
         output.ok()
+    }
+}
+
+fn link(
+    client: &Client,
+    session: SessionId,
+    split: Option<muxy_app_core::Direction>,
+    output: &Output,
+) -> Result {
+    if !client
+        .list_sessions()?
+        .iter()
+        .any(|info| info.id == session)
+    {
+        return Err(format!("session {} isn't running", session.get()).into());
+    }
+    let link = SessionLink {
+        session,
+        server: Some(client.catalog_page(None, None)?.server),
+        split,
+    }
+    .to_link();
+    if output.json {
+        Output::json(&json!({"id":session.get().to_string(), "link":link}))
+    } else {
+        writeln!(io::stdout(), "{link}")?;
+        Ok(())
     }
 }
 

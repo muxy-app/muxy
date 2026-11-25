@@ -330,6 +330,7 @@ pub(crate) enum Work {
     ProjectSessions {
         project: muxy_protocol::ProjectId,
     },
+    LocateSession(SessionId),
     ProjectLayouts {
         project: muxy_protocol::ProjectId,
         request: u64,
@@ -443,6 +444,7 @@ impl Work {
             Self::ClaimActivity(..) => "ClaimActivity",
             Self::Git(..) => "Git",
             Self::ProjectSessions { .. } => "ProjectSessions",
+            Self::LocateSession(..) => "LocateSession",
             Self::ProjectLayouts { .. } => "ProjectLayouts",
             Self::LoadProjectLayout { .. } => "LoadProjectLayout",
             Self::ReadCatalog => "ReadCatalog",
@@ -510,6 +512,10 @@ pub(crate) enum Update {
     ProjectSessions {
         project: muxy_protocol::ProjectId,
         result: Result<muxy_protocol::ProjectSessions, ClientError>,
+    },
+    SessionLocated {
+        session: SessionId,
+        result: Result<Option<SessionInfo>, ClientError>,
     },
     CreationCancelled {
         operation: muxy_protocol::OperationId,
@@ -824,6 +830,24 @@ fn start_connect(
     }
 }
 
+type ImageRequest = fn(&Client) -> Result<(), ClientError>;
+
+fn request_images(client: &Client, local: bool) -> Result<(), ClientError> {
+    let requests: [ImageRequest; 3] = [
+        Client::share_images,
+        Client::stream_images,
+        Client::defer_images,
+    ];
+    let skipped = usize::from(!(local && muxy_protocol::shared_memory::supported()));
+    for request in requests.into_iter().skip(skipped) {
+        match request(client) {
+            Err(ClientError::Server(_)) => {}
+            result => return result,
+        }
+    }
+    Ok(())
+}
+
 fn connect(
     target: &Target,
     generation: u64,
@@ -839,14 +863,7 @@ fn connect(
         Target::Paired { .. } => target.connect()?,
     };
     client.identify(muxy_protocol::ClientKind::Desktop)?;
-    match client.stream_images() {
-        Ok(()) => {}
-        Err(ClientError::Server(_)) => match client.defer_images() {
-            Ok(()) | Err(ClientError::Server(_)) => {}
-            Err(error) => return Err(error),
-        },
-        Err(error) => return Err(error),
-    }
+    request_images(&client, matches!(target, Target::Local(_)))?;
     if let Target::Local(socket) = target {
         let profile = socket
             .parent()
@@ -989,6 +1006,10 @@ fn rejected(work: Work, error: ClientError) -> Update {
             project,
             result: Err(error),
         },
+        Work::LocateSession(session) => Update::SessionLocated {
+            session,
+            result: Err(error),
+        },
         Work::CancelCreation(operation) => Update::CreationCancelled {
             operation,
             result: Err(error),
@@ -1107,6 +1128,14 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             return Some(Update::ProjectSessions {
                 project,
                 result: client.available_project_sessions(project),
+            });
+        }
+        Work::LocateSession(session) => {
+            return Some(Update::SessionLocated {
+                session,
+                result: client
+                    .list_sessions()
+                    .map(|sessions| sessions.into_iter().find(|info| info.id == session)),
             });
         }
         Work::CancelCreation(operation) => {

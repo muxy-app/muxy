@@ -568,6 +568,16 @@ fn ordered_request(
             connection.stream_images();
             ReplyBody::ImagesStreamed
         }
+        RequestBody::ShareImages => {
+            if !muxy_protocol::shared_memory::supported() {
+                return Err(ServerError::new(
+                    ErrorCode::Unsupported,
+                    "this server can't share images in memory",
+                ));
+            }
+            connection.share_images();
+            ReplyBody::ImagesShared
+        }
         RequestBody::ImageFrames {
             channel,
             image,

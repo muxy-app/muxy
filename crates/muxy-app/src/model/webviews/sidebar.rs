@@ -38,6 +38,10 @@ impl AppModel {
                     .is_some_and(|extension| extension.manifest.sidebar.is_some()))
     }
 
+    pub(crate) fn extension_sidebar_shown(&self) -> bool {
+        self.extension_sidebar_active() && self.sidebar_panel_width() > 0.0
+    }
+
     pub(super) fn sync_extension_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let wanted = self
             .extensions

@@ -3,8 +3,9 @@ use std::io::Cursor;
 use image::codecs::gif::GifDecoder;
 use image::{AnimationDecoder, ImageDecoder, ImageFormat, RgbaImage};
 
-use super::{MAX_DECODE_BYTES, PICTURE_BUDGET, Picture, decode_limits, fitted};
+use super::{MAX_DECODE_BYTES, Picture, decode_limits, fitted};
 
+const FRAME_BUDGET: usize = crate::MAX_GRAPHICS_BYTES / 2;
 pub(crate) const FILM_BUDGET: usize = 32 * 1024 * 1024;
 const MAX_FRAMES: usize = muxy_protocol::MAX_GRAPHICS_FRAMES;
 const DRAWN_BUDGET: u64 = 1024 * 1024 * 1024;
@@ -73,7 +74,7 @@ fn gif(bytes: &[u8], budget: usize, limits: image::Limits) -> Option<Film> {
     let most = usize::try_from(DRAWN_BUDGET / canvas)
         .unwrap_or(MAX_FRAMES)
         .clamp(1, MAX_FRAMES);
-    let mut size = fitted(width, height, PICTURE_BUDGET);
+    let mut size = fitted(width, height, FRAME_BUDGET);
     let mut frames: Vec<(RgbaImage, u32)> = Vec::new();
     for frame in decoder.into_frames().take(most) {
         let Ok(frame) = frame else {

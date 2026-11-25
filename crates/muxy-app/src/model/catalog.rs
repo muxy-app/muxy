@@ -222,6 +222,7 @@ impl AppModel {
         self.resume_activity_navigation(server, cx);
         self.resume_remote(server, cx);
         self.resume_folders(server, cx);
+        self.resume_session_link(cx);
         self.check_remote_projects(server, cx);
         cx.notify();
     }
@@ -466,7 +467,7 @@ impl AppModel {
         Ok(pane.to_string().into())
     }
 
-    fn open_session_tab(
+    pub(super) fn open_session_tab(
         &mut self,
         project: ProjectId,
         session: SessionId,
@@ -515,7 +516,7 @@ impl AppModel {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Opening {
+pub(super) enum Opening {
     Selected,
     Background,
 }

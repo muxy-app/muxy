@@ -21,6 +21,7 @@ pub(crate) type DrawOrder = u32;
 
 #[derive(Default)]
 pub(crate) struct Scene {
+    pub(crate) synchronize_native_layers: bool,
     pub(crate) paint_operations: Vec<PaintOperation>,
     primitive_bounds: BoundsTree<ScaledPixels>,
     layer_stack: Vec<DrawOrder>,
@@ -35,6 +36,7 @@ pub(crate) struct Scene {
 
 impl Scene {
     pub fn clear(&mut self) {
+        self.synchronize_native_layers = false;
         self.paint_operations.clear();
         self.primitive_bounds.clear();
         self.layer_stack.clear();

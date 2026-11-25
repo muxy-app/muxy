@@ -69,10 +69,15 @@ fn kitty_pictures_over_the_image_budget_are_shrunk_to_fit() -> Result {
     assert_eq!(terminal.take_pty_output(), b"\x1b_Gi=9;OK\x1b\\");
     let graphics = terminal.graphics()?;
     let image = &graphics.images[0];
-    assert!(image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES / 2);
+    assert!(image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES);
     assert!(image.width > 1500 && image.width.abs_diff(3 * image.height) <= 3);
     assert_eq!(&image.rgba[..4], &[0, 0, 255, 255]);
     assert_eq!(graphics.placements[0].size[0], 10 * u32::from(CELL.width));
+    let full = terminal.full_graphics()?;
+    assert_eq!((full.images[0].width, full.images[0].height), (3000, 1000));
+    assert_eq!(full.images[0].rgba.len(), 3000 * 1000 * 4);
+    assert_eq!(full.placements[0].source, [0, 0, 3000, 1000]);
+    assert_eq!(full.placements[0].size, graphics.placements[0].size);
     Ok(())
 }
 
@@ -120,7 +125,7 @@ fn large_grayscale_pictures_are_shrunk_before_taking_colour() -> Result {
     terminal.feed(format!("\x1b_Gi=4,a=T,f=100,t=f,c=8;{}\x1b\\", encoded(&path)).as_bytes());
     assert_eq!(terminal.take_pty_output(), b"\x1b_Gi=4;OK\x1b\\");
     let image = &terminal.graphics()?.images[0];
-    assert!(image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES / 2);
+    assert!(image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES);
     assert_eq!(&image.rgba[..4], &[200, 200, 200, 255]);
     Ok(())
 }
@@ -349,6 +354,146 @@ fn frame_pixels(
         .iter()
         .map(|frame| [frame.rgba[0], frame.rgba[1], frame.rgba[2], frame.rgba[3]])
         .collect())
+}
+
+#[test]
+fn frames_listed_at_full_resolution_are_handed_out() -> Result {
+    let mut terminal = terminal()?;
+    terminal.feed(b"\x1b_Ga=T,i=5,f=32,s=1,v=1,q=2;/wAA/w==\x1b\\");
+    terminal.feed(b"\x1b_Ga=f,i=5,f=32,s=1,v=1,z=100,q=2;AAD//w==\x1b\\");
+    let animated = terminal.full_graphics()?.images[0].clone();
+    let keys: Vec<u64> = animated.frame_keys().collect();
+    assert_eq!(keys.len(), 2);
+    let frames = terminal.image_frames(5, &keys)?;
+    assert_eq!(
+        frames.iter().map(|frame| frame.key).collect::<Vec<_>>(),
+        keys
+    );
+    assert_eq!(&frames[1].rgba[..], &[0, 0, 255, 255]);
+
+    terminal.graphics()?;
+    let (width, height) = (2400_u32, 1600_u32);
+    send_chunked(
+        &mut terminal,
+        &format!("a=T,i=5,f=24,s={width},v={height},"),
+        &[0_u8, 200, 0].repeat((width * height) as usize),
+    );
+    let still = terminal.full_graphics()?.images[0].clone();
+    assert_eq!((still.width, still.height), (width, height));
+    let frames = terminal.image_frames(5, &[still.generation])?;
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].key, still.generation);
+    assert_eq!(muxy_protocol::validate_image_frames(&frames), Ok(()));
+    assert_eq!(&frames[0].rgba[..4], &[0, 200, 0, 255]);
+    Ok(())
+}
+
+#[test]
+fn animations_too_large_to_hand_out_are_listed_as_stills() -> Result {
+    let (width, height) = (2400_u32, 1600_u32);
+    let mut terminal = terminal()?;
+    let pixels = [10_u8, 20, 30].repeat((width * height) as usize);
+    send_chunked(
+        &mut terminal,
+        &format!("a=T,i=9,f=24,s={width},v={height},"),
+        &pixels,
+    );
+    send_chunked(
+        &mut terminal,
+        &format!("a=f,i=9,f=24,s={width},v={height},z=100,"),
+        &pixels,
+    );
+    let full = terminal.full_graphics()?;
+    let image = full
+        .images
+        .iter()
+        .find(|image| image.id == 9)
+        .ok_or("no image")?;
+    assert_eq!((image.width, image.height), (width, height));
+    assert!(image.frames.is_empty());
+    Ok(())
+}
+
+#[test]
+fn pictures_are_fitted_again_when_more_of_them_come_into_view() -> Result {
+    let side = 1500_u32;
+    let pixels = vec![255_u8; (side * side * 4) as usize];
+    let mut terminal = terminal()?;
+    send_chunked(
+        &mut terminal,
+        &format!("a=T,i=1,f=32,s={side},v={side},c=4,r=2,C=1,"),
+        &pixels,
+    );
+    terminal.feed("\r\n".repeat(10).as_bytes());
+    terminal.feed(b"\x1b[1;10H");
+    send_chunked(
+        &mut terminal,
+        &format!("a=T,i=2,f=32,s={side},v={side},c=4,r=2,C=1,"),
+        &pixels,
+    );
+    let alone = terminal.graphics()?;
+    assert_eq!(alone.images.len(), 1);
+    assert!(alone.images[0].rgba.len() > muxy_terminal::MAX_GRAPHICS_BYTES / 2);
+    terminal.feed(b"\x1b[5;1H");
+    terminal.resize(Size { cols: 20, rows: 20 })?;
+    let together = terminal.graphics()?;
+    assert_eq!(together.images.len(), 2);
+    assert_eq!(together.validate(), Ok(()));
+    Ok(())
+}
+
+#[test]
+fn visible_pictures_share_the_budget_and_hidden_ones_do_not_count() -> Result {
+    let side = 1700_u32;
+    let pixels = STANDARD.encode(vec![255_u8; (side * side * 4) as usize]);
+    let place = |terminal: &mut Terminal, id: u32, column: usize| {
+        terminal.feed(format!("\x1b[1;{column}H").as_bytes());
+        terminal.feed(
+            format!("\x1b_Ga=T,i={id},f=32,s={side},v={side},c=4,r=2,C=1,q=2;{pixels}\x1b\\")
+                .as_bytes(),
+        );
+    };
+    let mut stacked = terminal()?;
+    place(&mut stacked, 1, 1);
+    place(&mut stacked, 2, 1);
+    let covered = stacked.graphics()?;
+    let newest = covered
+        .images
+        .iter()
+        .find(|image| image.id == 2)
+        .ok_or("newest image missing")?;
+    assert!(newest.rgba.len() > muxy_terminal::MAX_GRAPHICS_BYTES / 2);
+
+    let mut apart = terminal()?;
+    place(&mut apart, 1, 1);
+    place(&mut apart, 2, 10);
+    let side_by_side = apart.graphics()?;
+    assert_eq!(side_by_side.images.len(), 2);
+    assert!(
+        side_by_side
+            .images
+            .iter()
+            .all(|image| image.rgba.len() <= muxy_terminal::MAX_GRAPHICS_BYTES / 2)
+    );
+
+    let clear = STANDARD.encode(vec![0_u8; (side * side * 4) as usize]);
+    let mut overlaid = terminal()?;
+    place(&mut overlaid, 1, 1);
+    overlaid.feed(
+        format!("\x1b[1;1H\x1b_Ga=T,i=2,f=32,s={side},v={side},c=4,r=2,C=1,q=2;{clear}\x1b\\")
+            .as_bytes(),
+    );
+    let seen_through = overlaid.graphics()?;
+    assert_eq!(seen_through.images.len(), 2);
+
+    let mut beneath = terminal()?;
+    place(&mut beneath, 2, 1);
+    place(&mut beneath, 1, 1);
+    let on_top = beneath.graphics()?;
+    let listed: Vec<u32> = on_top.images.iter().map(|image| image.id).collect();
+    assert_eq!(listed, [2]);
+    assert!(on_top.images[0].rgba.len() > muxy_terminal::MAX_GRAPHICS_BYTES / 2);
+    Ok(())
 }
 
 #[test]
@@ -601,6 +746,40 @@ fn kitty_images_larger_than_a_screen_are_scaled_to_fit_it() -> Result {
             image.width / 2,
             image.height / 2
         ]
+    );
+    Ok(())
+}
+
+#[test]
+fn full_resolution_keeps_frames_the_inline_budget_would_shrink() -> Result {
+    let (width, height) = (2400_u32, 1600_u32);
+    let mut terminal = terminal()?;
+    for shade in [40_u8, 120] {
+        terminal.feed(b"\x1b[1;1H");
+        let rgb = [shade, shade, shade].repeat((width * height) as usize);
+        send_chunked(
+            &mut terminal,
+            &format!("a=T,f=24,s={width},v={height},C=1,"),
+            &rgb,
+        );
+    }
+    let fitted = terminal.graphics()?;
+    assert_eq!(fitted.images.len(), 1);
+    assert!(fitted.images[0].width < width);
+    let full = terminal.full_graphics()?;
+    let image = full
+        .images
+        .iter()
+        .max_by_key(|image| image.generation)
+        .ok_or("no image")?;
+    assert_eq!((image.width, image.height), (width, height));
+    assert_eq!(image.generation, fitted.images[0].generation);
+    assert_eq!(&image.rgba[..4], [120, 120, 120, 255]);
+    assert!(
+        full.placements
+            .iter()
+            .filter(|placement| placement.image == image.id)
+            .all(|placement| placement.source == [0, 0, width, height])
     );
     Ok(())
 }

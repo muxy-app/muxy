@@ -97,6 +97,7 @@ impl Message {
         samples.extend(acknowledged_input_samples());
         samples.extend(search_samples(session, channel));
         samples.extend(image_samples(channel));
+        samples.push(shared_image_sample());
         samples.extend(color_samples());
         samples.extend(settings_samples());
         samples.extend(project_samples());
@@ -324,6 +325,7 @@ fn image_samples(channel: ChannelId) -> Vec<Message> {
                 frame: 1,
                 loops: 0,
             },
+            shared: None,
         }],
         placements: vec![crate::GraphicPlacement {
             image: 7,
@@ -355,6 +357,14 @@ fn image_samples(channel: ChannelId) -> Vec<Message> {
             body: ReplyBody::ImagesStreamed,
         },
         Message::Request {
+            id: RequestId(11),
+            body: RequestBody::ShareImages,
+        },
+        Message::Reply {
+            id: RequestId(11),
+            body: ReplyBody::ImagesShared,
+        },
+        Message::Request {
             id: RequestId(9),
             body: RequestBody::ImageFrames {
                 channel,
@@ -373,7 +383,7 @@ fn image_samples(channel: ChannelId) -> Vec<Message> {
         },
         Message::Frame(ScreenFrame {
             size: Size { cols: 80, rows: 24 },
-            graphics: Some(graphics),
+            graphics: Some(graphics.clone()),
             seq: 2,
             reset: false,
             rows: Vec::new(),
@@ -485,24 +495,81 @@ fn color_samples() -> [Message; 4] {
     ]
 }
 
-fn input_samples() -> [Message; 2] {
-    [
-        Message::Mouse(MouseEvent {
-            action: MouseAction::Press,
-            button: Some(MouseButton::Left),
-            column: 3,
-            row: 1,
-            scroll: None,
-            modifiers: Modifiers {
-                shift: false,
-                alt: true,
-                ctrl: false,
+fn shared_image_sample() -> Message {
+    Message::Frame(ScreenFrame {
+        size: Size {
+            cols: 150,
+            rows: 47,
+        },
+        graphics: Some(crate::Graphics {
+            cell: crate::CellSize {
+                width: 16,
+                height: 34,
             },
+            images: vec![crate::GraphicImage {
+                id: 8,
+                generation: 4,
+                width: 64,
+                height: 34,
+                shared: Some(crate::SharedPixels {
+                    name: "/mx1f-2a".into(),
+                }),
+                ..crate::GraphicImage::default()
+            }],
+            placements: vec![crate::GraphicPlacement {
+                image: 8,
+                id: 0,
+                column: 0,
+                row: 0,
+                offset: [0, 0],
+                size: [64, 34],
+                source: [0, 0, 64, 34],
+                z: 0,
+            }],
+        }),
+        seq: 3,
+        reset: false,
+        rows: Vec::new(),
+        cursor: Cursor {
+            shape: CursorShape::default(),
+            row: 0,
+            col: 0,
+            visible: false,
+        },
+        modes: Modes::default(),
+    })
+}
+
+fn input_samples() -> [Message; 4] {
+    let press = MouseEvent {
+        action: MouseAction::Press,
+        button: Some(MouseButton::Left),
+        column: 3,
+        row: 1,
+        scroll: None,
+        modifiers: Modifiers {
+            shift: false,
+            alt: true,
+            ctrl: false,
+        },
+        pixel: None,
+    };
+    let modes = InputModes {
+        mouse_tracking: true,
+        alternate_scroll: false,
+        focus_events: true,
+        mouse_pixels: false,
+    };
+    [
+        Message::Mouse(press),
+        Message::Metadata(MetadataEvent::InputModes(modes)),
+        Message::Mouse(MouseEvent {
+            pixel: Some([29, 21]),
+            ..press
         }),
         Message::Metadata(MetadataEvent::InputModes(InputModes {
-            mouse_tracking: true,
-            alternate_scroll: false,
-            focus_events: true,
+            mouse_pixels: true,
+            ..modes
         })),
     ]
 }

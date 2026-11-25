@@ -1,7 +1,8 @@
 use std::error::Error;
 
 use muxy_terminal::{
-    InputModes, Modifiers, MouseAction, MouseButton, MouseEvent, ScrollDirection, Size, Terminal,
+    CellSize, InputModes, Modifiers, MouseAction, MouseButton, MouseEvent, ScrollDirection, Size,
+    Terminal,
 };
 
 fn event(action: MouseAction, button: Option<MouseButton>) -> MouseEvent {
@@ -12,6 +13,7 @@ fn event(action: MouseAction, button: Option<MouseButton>) -> MouseEvent {
         row: 3,
         scroll: None,
         modifiers: Modifiers::default(),
+        pixel: None,
     }
 }
 
@@ -30,6 +32,7 @@ fn input_modes_follow_tracking_focus_and_the_active_screen() -> Result<(), Box<d
             mouse_tracking: true,
             alternate_scroll: false,
             focus_events: true,
+            mouse_pixels: false,
         }
     );
     terminal.feed(b"\x1b[?1049h");
@@ -150,5 +153,56 @@ fn encoding_follows_terminal_format_changes() -> Result<(), Box<dyn Error>> {
     assert_eq!(terminal.encode_mouse(&press)?, b"\x1b[<0;3;4M");
     terminal.feed(b"\x1b[?1006l");
     assert_eq!(terminal.encode_mouse(&press)?, b"\x1b[M #$");
+    Ok(())
+}
+
+#[test]
+fn sgr_pixel_reports_use_the_pointer_position_in_device_pixels() -> Result<(), Box<dyn Error>> {
+    let mut terminal = terminal()?;
+    terminal.set_cell_size(CellSize {
+        width: 16,
+        height: 34,
+    })?;
+    terminal.feed(b"\x1b[?1003h\x1b[?1016h");
+    assert!(terminal.input_modes()?.mouse_pixels);
+    let mut press = event(MouseAction::Press, Some(MouseButton::Left));
+    press.pixel = Some([45, 110]);
+    assert_eq!(terminal.encode_mouse(&press)?, b"\x1b[<0;45;110M");
+    let mut motion = event(MouseAction::Motion, Some(MouseButton::Left));
+    motion.pixel = Some([47, 110]);
+    assert_eq!(terminal.encode_mouse(&motion)?, b"\x1b[<32;47;110M");
+    let mut outside = event(MouseAction::Release, Some(MouseButton::Left));
+    outside.pixel = Some([u32::MAX, u32::MAX]);
+    assert_eq!(terminal.encode_mouse(&outside)?, b"\x1b[<0;1279;815m");
+    assert_eq!(
+        terminal.encode_mouse(&event(MouseAction::Press, Some(MouseButton::Left)))?,
+        b"\x1b[<0;40;119M"
+    );
+    terminal.feed(b"\x1b[?1016l\x1b[?1006h");
+    assert!(!terminal.input_modes()?.mouse_pixels);
+    assert_eq!(terminal.encode_mouse(&press)?, b"\x1b[<0;3;4M");
+    Ok(())
+}
+
+#[test]
+fn cell_reports_skip_motion_within_a_cell_even_after_pixel_reports() -> Result<(), Box<dyn Error>> {
+    let mut terminal = terminal()?;
+    terminal.set_cell_size(CellSize {
+        width: 16,
+        height: 34,
+    })?;
+    terminal.feed(b"\x1b[?1003h\x1b[?1016h\x1b[?1006h");
+    let moved = |x: u32| MouseEvent {
+        pixel: Some([x, 110]),
+        column: u16::try_from(x / 16).unwrap_or_default(),
+        row: 3,
+        ..event(MouseAction::Motion, None)
+    };
+    assert_eq!(terminal.encode_mouse(&moved(33))?, b"\x1b[<35;3;4M");
+    assert!(terminal.encode_mouse(&moved(40))?.is_empty());
+    assert_eq!(terminal.encode_mouse(&moved(50))?, b"\x1b[<35;4;4M");
+    terminal.feed(b"\x1b[?1016h");
+    assert_eq!(terminal.encode_mouse(&moved(51))?, b"\x1b[<35;51;110M");
+    assert_eq!(terminal.encode_mouse(&moved(52))?, b"\x1b[<35;52;110M");
     Ok(())
 }

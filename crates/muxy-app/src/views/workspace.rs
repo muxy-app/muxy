@@ -240,6 +240,19 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.appearance.sidebar_auto_hide {
+            self.flip_sidebar(window, cx);
+            return;
+        }
+        if !self.sidebar_auto_hides() {
+            self.appearance.sidebar_expanded = true;
+            self.save_appearance(cx);
+        }
+        self.dismiss_overlay(cx);
+        self.toggle_sidebar_peek(cx);
+    }
+
+    fn flip_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.appearance.sidebar_expanded = !self.appearance.sidebar_expanded;
         self.save_appearance(cx);
         self.dismiss_overlay(cx);
@@ -399,9 +412,13 @@ impl AppModel {
         } else if modal {
             self.cancel_titlebar_drag(cx);
         }
-        if !self.appearance.sidebar_expanded || modal {
+        if !self.sidebar_docks_expanded() || modal {
             self.finish_sidebar_resize(cx);
         }
+        if !self.sidebar_auto_hides() {
+            self.reset_sidebar_peek();
+        }
+        self.note_window_hover(window.is_window_hovered(), cx);
         let pending = self.tab_drag.pending();
         self.tab_drag
             .cancel_unavailable(self.state.current_project(), false);
@@ -416,7 +433,7 @@ impl AppModel {
         self.move_drag
             .zones
             .clear(here, super::move_drag::Owner::Strip);
-        if self.sidebar_width() <= 0.0 || self.extension_sidebar_active() {
+        if self.sidebar_panel_width() <= 0.0 || self.extension_sidebar_active() {
             self.move_drag
                 .zones
                 .clear(here, super::move_drag::Owner::Sidebar);
@@ -525,13 +542,14 @@ impl AppModel {
             )
             .child(sidebar_divider(self, sidebar_width, window))
             .child(titlebar::navigation(self, sidebar_width, window, cx))
-            .when(self.appearance.sidebar_expanded, |body| {
+            .when(self.sidebar_docks_expanded(), |body| {
                 body.child(sidebar::resize_handle(self, cx))
             })
             .when(self.sidebar_resize.is_some(), |body| {
                 body.child(div().absolute().inset_0().cursor_ew_resize().occlude())
             })
             .child(super::floating::layer(self, floats, window, cx))
+            .children(sidebar::island(self, window, cx))
             .child(super::splits::drag::track_pointer(cx))
             .child(super::splits::drag::overlay(self, window))
             .child(super::move_drag::overlay(self, window))

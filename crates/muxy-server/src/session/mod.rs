@@ -97,6 +97,13 @@ impl AttachmentSink {
         Self(Target::Outbox(sink))
     }
 
+    pub(crate) fn shares_images(&self) -> bool {
+        match &self.0 {
+            Target::Channel(_) => false,
+            Target::Outbox(outbox) => outbox.shares_images(),
+        }
+    }
+
     pub(crate) fn send(&mut self, event: AttachmentEvent) -> bool {
         match &mut self.0 {
             Target::Channel(sender) => sender.send(event).is_ok(),
