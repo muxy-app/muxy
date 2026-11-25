@@ -742,6 +742,7 @@ fn a_working_agent_keeps_its_icon_in_the_minimized_pill(cx: &mut TestAppContext)
             project: home,
             provider: muxy_protocol::AgentProvider::Codex,
             state: muxy_protocol::AgentState::Working,
+            title: None,
         }];
         model.minimize_float(id, cx);
         (id, tab)

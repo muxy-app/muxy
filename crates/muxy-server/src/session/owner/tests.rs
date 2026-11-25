@@ -54,6 +54,7 @@ impl Fixture {
             next_detection: Instant::now(),
             detection_screen: String::new(),
             detection_progress: String::new(),
+            tab_title: String::new(),
             program_group: None,
             program_reports: 0,
             seen_reports: 0,

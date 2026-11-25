@@ -31,6 +31,7 @@ mod uploads;
 mod watch;
 
 mod activity;
+mod agent_tabs;
 mod detection;
 
 mod push;

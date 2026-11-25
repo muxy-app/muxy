@@ -12,6 +12,27 @@ Oh My Pi, OpenCode, Pi, and Xal.
 The server spots them from the running program and what's on screen.
 Recognition is best effort.
 
+## Agents with session tabs
+
+Some agents keep several sessions as tabs in one terminal. For these, Muxy
+also asks the agent itself, through its local service and the tabs it saves,
+so that:
+
+- A terminal's row is titled with the session it shows.
+- A session counts as working while its subagents or background shells run,
+  even with its prompt idle.
+- Every open tab no terminal shows gets its own dimmed row in the agents
+  panel, under a terminal that has it open, with its own working status.
+  Opening it switches that terminal to the tab, even from another project,
+  or resumes it in a new terminal tab when the agent can't switch to it.
+- When one of two terminals sharing tabs closes, its tab moves under the
+  other at once.
+
+Muxy reads only the agent's files and its service on the server's computer.
+**OpenCode** is supported: its tab shortcut (`ctrl+x` then `1`…`0`) reaches
+the first ten tabs, so a changed leader key stops switching, and later tabs
+resume with `opencode -s`.
+
 An agent that reports its own status with the
 [program status protocol](https://www.superlogical.com/rex/docs/build/program-status)
 (OSC 7501), such as recent Claude Code, is followed by its reports instead of

@@ -16,7 +16,7 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 use crate::model::agents_panel::{
-    AgentStatus, Entry, EntryKey, MIN_HEIGHT, MIN_WIDTH, PANEL, Placement, RunningAgent,
+    AgentStatus, Entry, MIN_HEIGHT, MIN_WIDTH, PANEL, Placement, RunningAgent, in_background,
     starts_project_group,
 };
 use crate::views::overlays::{Mark, OverlayView};
@@ -41,8 +41,12 @@ fn status_glyph(
     model: &AppModel,
 ) -> Option<AnyElement> {
     let m = model.metrics;
-    let key = EntryKey::Agent(agent.server, agent.session);
-    let status = super::tab_activity::agent_status(agent, model);
+    let key = agent.key();
+    let status = if agent.hidden.is_some() {
+        hidden_status(agent.status)
+    } else {
+        super::tab_activity::agent_status(agent, model)
+    };
     if status == super::tab_activity::Status::None {
         return None;
     }
@@ -64,6 +68,17 @@ fn status_glyph(
             ))
             .into_any_element(),
     )
+}
+
+fn hidden_status(status: AgentStatus) -> super::tab_activity::Status {
+    if status == AgentStatus::Working {
+        super::tab_activity::Status::Progress(muxy_protocol::TerminalProgress {
+            state: muxy_protocol::ProgressState::Indeterminate,
+            percent: None,
+        })
+    } else {
+        super::tab_activity::Status::None
+    }
 }
 
 impl AppModel {
@@ -106,6 +121,12 @@ fn counts_description(counts: &[usize; 4]) -> String {
 
 fn entry_description(entry: &Entry, model: &AppModel) -> String {
     match entry {
+        Entry::Agent(agent) if agent.hidden.is_some() => format!(
+            "{}, {}, {}",
+            model.agents_location(agent.project),
+            tr!("Background tab"),
+            status_name(agent.status)
+        ),
         Entry::Agent(agent) => format!(
             "{}, {}",
             model.agents_location(agent.project),
@@ -131,7 +152,7 @@ fn idle_age(agent: &RunningAgent, model: &AppModel) -> Option<SharedString> {
 
 fn idle_time(agent: &RunningAgent, model: &AppModel) -> Option<AnyElement> {
     let age = idle_age(agent, model)?;
-    let key = EntryKey::Agent(agent.server, agent.session);
+    let key = agent.key();
     Some(
         div()
             .debug_selector(move || format!("agents-panel-idle-{key}"))
@@ -143,7 +164,7 @@ fn idle_time(agent: &RunningAgent, model: &AppModel) -> Option<AnyElement> {
     )
 }
 
-fn details(entry: &Entry, title: &str, model: &AppModel) -> Option<String> {
+fn details(entry: &Entry, title: &str, background: bool, model: &AppModel) -> Option<String> {
     let Entry::Agent(agent) = entry else {
         return None;
     };
@@ -159,6 +180,11 @@ fn details(entry: &Entry, title: &str, model: &AppModel) -> Option<String> {
                 String::new()
             } else {
                 provider.to_owned()
+            },
+            if background {
+                tr!("Background tab").to_string()
+            } else {
+                String::new()
             },
             status_name(agent.status).to_string(),
         ]
@@ -292,19 +318,19 @@ fn leading(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     }
 }
 
-fn row_text(entry: &Entry, title: String, model: &AppModel) -> gpui::Div {
+fn row_text(entry: &Entry, title: String, background: bool, model: &AppModel) -> gpui::Div {
     let m = model.metrics;
     let theme = &model.theme;
     let key = entry.key();
     let details = (!compact(model))
-        .then(|| details(entry, &title, model))
+        .then(|| details(entry, &title, background, model))
         .flatten();
     let title = div()
         .debug_selector(move || format!("agents-panel-title-{key}"))
         .when(details.is_none(), |title| title.flex_1().min_w(px(0.0)))
         .truncate()
         .text_size(m.font_body())
-        .text_color(theme.fg)
+        .text_color(if background { theme.fg_muted } else { theme.fg })
         .child(title);
     let Some(details) = details else {
         return title;
@@ -329,6 +355,7 @@ fn entry_row(
     entry: &Entry,
     active: bool,
     selected: bool,
+    background: bool,
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
@@ -337,20 +364,14 @@ fn entry_row(
     let key = entry.key();
     let compact = compact(model);
     let title = match entry {
-        Entry::Agent(agent) => model
-            .state
-            .project(agent.project)
-            .and_then(|project| project.tabs.iter().find(|tab| tab.id == agent.tab))
-            .map(|tab| tab.title(Some(agent.pane)).trim().to_owned())
-            .filter(|title| !title.is_empty())
-            .unwrap_or_else(|| agent.provider.name().to_owned()),
+        Entry::Agent(agent) => model.agent_title(agent),
         Entry::Worktree { project, .. } => model.agents_location(*project),
     };
     let trailing = trailing(entry, model.agents_panel.owner.entity_id(), model);
     let leading = leading(entry, model);
     let stripe = project_stripe(entry, model);
     let label = title.clone();
-    let text = row_text(entry, title, model);
+    let text = row_text(entry, title, background, model);
     div()
         .id(SharedString::from(format!("agents-panel-row-{key}")))
         .role(Role::TreeItem)
@@ -439,6 +460,7 @@ fn rows(
             .into_any_element();
     }
     let headings = model.agents_panel_headings();
+    let switching = model.switching_agent_tab(entries);
     for (index, entry) in entries.iter().enumerate() {
         if let Entry::Agent(agent) = entry
             && headings
@@ -459,7 +481,16 @@ fn rows(
         }
         let is_active = active == Some(entry.key());
         let is_selected = selected == Some(entry.key());
-        list = list.child(entry_row(entry, is_active, is_selected, model, cx));
+        let background = matches!(entry, Entry::Agent(agent)
+            if in_background(agent, switching.as_ref()));
+        list = list.child(entry_row(
+            entry,
+            is_active,
+            is_selected,
+            background,
+            model,
+            cx,
+        ));
     }
     div()
         .relative()

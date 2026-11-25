@@ -15,6 +15,7 @@ fn a_phone_that_connects_first_never_receives_desktop_notifications() {
             project: registry.home_project(),
             provider: muxy_protocol::AgentProvider::Claude,
             state: muxy_protocol::AgentState::Blocked,
+            title: None,
         },
         false,
     );

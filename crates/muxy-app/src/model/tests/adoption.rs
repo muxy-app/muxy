@@ -527,6 +527,7 @@ fn the_agents_panel_shows_every_servers_agents(cx: &mut TestAppContext) {
         project,
         provider: muxy_protocol::AgentProvider::Claude,
         state: muxy_protocol::AgentState::Working,
+        title: None,
     };
     view.update(cx, |model, cx| {
         let local_home = model.state.home().id;

@@ -6,7 +6,7 @@ use crate::wire::cbor::open_enum;
 use crate::{ProjectId, SessionId};
 
 open_enum! {
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
     pub enum AgentProvider {
         Claude = 0,
         Codex = 1,
@@ -67,6 +67,62 @@ pub struct AgentActivity {
     pub provider: AgentProvider,
     #[n(3)]
     pub state: AgentState,
+    #[n(4)]
+    #[cbor(default)]
+    pub title: Option<String>,
+}
+
+pub const MAX_AGENT_TITLE: usize = 256;
+pub const MAX_AGENT_TABS: usize = 1024;
+pub const MAX_AGENT_TAB_ID: usize = 256;
+pub const MAX_AGENT_TAB_HOSTS: usize = 64;
+pub const MAX_AGENT_TAB_SWITCH: usize = 32;
+pub const MAX_AGENT_TAB_RESUME: usize = 1024;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct AgentTab {
+    #[n(0)]
+    pub id: String,
+    #[n(1)]
+    pub project: ProjectId,
+    #[n(2)]
+    pub provider: AgentProvider,
+    #[n(3)]
+    pub title: String,
+    #[n(4)]
+    pub state: AgentState,
+    #[n(5)]
+    #[cbor(default)]
+    pub shown_by: Option<SessionId>,
+    #[n(6)]
+    #[cbor(default)]
+    pub index: Option<u16>,
+    #[n(7)]
+    #[cbor(default)]
+    pub hosts: Vec<SessionId>,
+    #[n(8)]
+    #[cbor(default)]
+    pub switch: Option<Vec<u8>>,
+    #[n(9)]
+    #[cbor(default)]
+    pub resume: Option<String>,
+}
+
+impl AgentTab {
+    pub(crate) fn validate(&self) -> bool {
+        self.id.len() <= MAX_AGENT_TAB_ID
+            && self.title.len() <= MAX_AGENT_TITLE
+            && self.hosts.len() <= MAX_AGENT_TAB_HOSTS
+            && self
+                .switch
+                .as_ref()
+                .is_none_or(|input| !input.is_empty() && input.len() <= MAX_AGENT_TAB_SWITCH)
+            && self.resume.as_ref().is_none_or(|command| {
+                !command.trim().is_empty()
+                    && command.len() <= MAX_AGENT_TAB_RESUME
+                    && !command.chars().any(char::is_control)
+            })
+    }
 }
 
 open_enum! {
@@ -115,4 +171,7 @@ pub struct ActivitySnapshot {
     pub agents: Vec<AgentActivity>,
     #[n(2)]
     pub events: Vec<ActivityEvent>,
+    #[n(3)]
+    #[cbor(default)]
+    pub tabs: Vec<AgentTab>,
 }

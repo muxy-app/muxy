@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use muxy_protocol::{
@@ -19,6 +20,7 @@ struct State {
     agents: BTreeMap<SessionId, AgentActivity>,
     events: Vec<ActivityEvent>,
     claimed: HashSet<u64>,
+    tabs: crate::agent_tabs::Tracker,
 }
 
 impl State {
@@ -43,6 +45,8 @@ pub(crate) struct Activity {
     state: Mutex<State>,
     notifier: Arc<Notifier>,
     observer: OnceLock<Observer>,
+    polling: AtomicBool,
+    wake: Condvar,
 }
 
 impl std::fmt::Debug for Activity {
@@ -57,9 +61,8 @@ impl std::fmt::Debug for Activity {
 impl Activity {
     pub(crate) fn new(notifier: Arc<Notifier>) -> Self {
         Self {
-            state: Mutex::default(),
             notifier,
-            observer: OnceLock::new(),
+            ..Self::default()
         }
     }
 
@@ -98,6 +101,8 @@ impl Activity {
             }),
             notifier,
             observer: OnceLock::new(),
+            polling: AtomicBool::new(false),
+            wake: Condvar::new(),
         })
     }
 
@@ -115,10 +120,92 @@ impl Activity {
 
     pub(crate) fn snapshot(&self) -> ActivitySnapshot {
         let state = lock(&self.state);
+        let tabs = state.tabs.reconciled();
         ActivitySnapshot {
             revision: state.revision,
-            agents: state.agents.values().cloned().collect(),
+            agents: state
+                .agents
+                .values()
+                .map(|agent| AgentActivity {
+                    title: tabs
+                        .shown
+                        .get(&agent.session)
+                        .map(|(_, title)| title.clone()),
+                    ..agent.clone()
+                })
+                .collect(),
             events: state.events.clone(),
+            tabs: tabs.tabs.clone(),
+        }
+    }
+
+    pub(crate) fn observe_agent_tabs(
+        self: &Arc<Self>,
+        session: SessionId,
+        pane: crate::agent_tabs::Pane,
+    ) {
+        let mut state = lock(&self.state);
+        if state.tabs.observe(session, pane) {
+            self.wake.notify_all();
+            self.reconcile_agent_tabs(state);
+        } else {
+            drop(state);
+        }
+        if cfg!(test) || self.polling.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let activity = Arc::downgrade(self);
+        if let Err(error) = std::thread::Builder::new()
+            .name("muxy-agent-tabs".into())
+            .spawn(move || crate::agent_tabs::poll(&activity))
+        {
+            log::warn!("agent tab polling did not start: {error}");
+            self.polling.store(false, Ordering::Release);
+        }
+    }
+
+    pub(crate) fn wait_for_agent_tabs(
+        &self,
+        interval: std::time::Duration,
+    ) -> BTreeMap<SessionId, crate::agent_tabs::Pane> {
+        let state = lock(&self.state);
+        let (mut state, _) = self
+            .wake
+            .wait_timeout_while(state, interval, |state| !state.tabs.stale())
+            .unwrap_or_else(PoisonError::into_inner);
+        state.tabs.take_panes()
+    }
+
+    pub(crate) fn leave_agent_tabs(&self, session: SessionId) {
+        let mut state = lock(&self.state);
+        if state.tabs.forget(session) {
+            self.reconcile_agent_tabs(state);
+        }
+    }
+
+    pub(crate) fn agent_tab_busy(&self, session: SessionId) -> bool {
+        lock(&self.state).tabs.reconciled().busy.contains(&session)
+    }
+
+    pub(crate) fn set_agent_tabs_report(
+        &self,
+        provider: muxy_protocol::AgentProvider,
+        report: crate::agent_tabs::Report,
+    ) {
+        let mut state = lock(&self.state);
+        state.tabs.set_report(provider, report);
+        self.reconcile_agent_tabs(state);
+    }
+
+    pub(crate) fn clear_agent_tabs_busy(&self, provider: muxy_protocol::AgentProvider) {
+        let mut state = lock(&self.state);
+        state.tabs.clear_busy(provider);
+        self.reconcile_agent_tabs(state);
+    }
+
+    fn reconcile_agent_tabs(&self, mut state: MutexGuard<'_, State>) {
+        if state.tabs.reconcile() {
+            self.changed(state);
         }
     }
 
@@ -170,16 +257,18 @@ impl Activity {
 
     pub(crate) fn clear_agent(&self, session: SessionId) {
         let mut state = lock(&self.state);
-        if state.agents.remove(&session).is_some() {
+        let tabs = state.tabs.forget(session) && state.tabs.reconcile();
+        if state.agents.remove(&session).is_some() || tabs {
             self.changed(state);
         }
     }
 
     pub(crate) fn remove(&self, session: SessionId) {
         let mut state = lock(&self.state);
+        let tabs = state.tabs.forget(session) && state.tabs.reconcile();
         let agent_removed = state.agents.remove(&session).is_some();
         let event_removed = state.retain_events(|event| event.session != session);
-        if agent_removed || event_removed {
+        if agent_removed || event_removed || tabs {
             self.changed(state);
         }
     }
@@ -243,6 +332,7 @@ mod tests {
             project: ProjectId::from_u128(1),
             provider: AgentProvider::Xal,
             state,
+            title: None,
         }
     }
 

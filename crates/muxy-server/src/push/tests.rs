@@ -168,6 +168,7 @@ impl Fixture {
                 project: self.registry.home_project(),
                 provider: AgentProvider::Claude,
                 state: AgentState::Working,
+                title: None,
             },
             false,
         );
@@ -177,6 +178,7 @@ impl Fixture {
                 project: self.registry.home_project(),
                 provider: AgentProvider::Claude,
                 state: AgentState::Blocked,
+                title: None,
             },
             false,
         );

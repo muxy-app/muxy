@@ -185,16 +185,30 @@ pub(crate) struct Detector {
     pub(crate) state: AgentState,
     pending: Option<Instant>,
     last_input: Option<(String, String, String)>,
+    background: bool,
     cycle: bool,
 }
 
 impl Detector {
+    #[cfg(test)]
     pub(crate) fn update(
         &mut self,
         provider: Option<AgentProvider>,
         screen: String,
         title: &str,
         progress: &str,
+        now: Instant,
+    ) -> bool {
+        self.update_with_background(provider, screen, title, progress, false, now)
+    }
+
+    pub(crate) fn update_with_background(
+        &mut self,
+        provider: Option<AgentProvider>,
+        screen: String,
+        title: &str,
+        progress: &str,
+        background: bool,
         now: Instant,
     ) -> bool {
         if self.provider != provider {
@@ -207,7 +221,7 @@ impl Detector {
             return false;
         };
         let input = (screen, title.to_owned(), progress.to_owned());
-        let unchanged = self.last_input.as_ref() == Some(&input);
+        let unchanged = self.last_input.as_ref() == Some(&input) && self.background == background;
         if unchanged && self.pending.is_none() {
             return false;
         }
@@ -220,10 +234,14 @@ impl Detector {
             },
         );
         self.last_input = Some(input);
-        let Some((next, explicit_idle)) = result else {
+        self.background = background;
+        let Some((mut next, explicit_idle)) = result else {
             self.pending = None;
             return false;
         };
+        if background && next == AgentState::Idle {
+            next = AgentState::Working;
+        }
         if next == AgentState::Idle
             && matches!(self.state, AgentState::Working | AgentState::Blocked)
         {
@@ -246,7 +264,17 @@ impl Detector {
         self.settle(next)
     }
 
+    #[cfg(test)]
     pub(crate) fn report(&mut self, provider: AgentProvider, state: ProgramState) -> bool {
+        self.report_with_background(provider, state, false)
+    }
+
+    pub(crate) fn report_with_background(
+        &mut self,
+        provider: AgentProvider,
+        state: ProgramState,
+        background: bool,
+    ) -> bool {
         if self.provider != Some(provider) {
             *self = Self {
                 provider: Some(provider),
@@ -254,11 +282,20 @@ impl Detector {
             };
         }
         self.last_input = None;
-        self.settle(match state {
+        let next = match state {
             ProgramState::Working => AgentState::Working,
             ProgramState::Blocked => AgentState::Blocked,
             ProgramState::Idle | ProgramState::Done | ProgramState::Error => AgentState::Idle,
+        };
+        self.settle(if background && next == AgentState::Idle {
+            AgentState::Working
+        } else {
+            next
         })
+    }
+
+    pub(crate) fn forget_cycle(&mut self) {
+        self.cycle = false;
     }
 
     fn settle(&mut self, next: AgentState) -> bool {
