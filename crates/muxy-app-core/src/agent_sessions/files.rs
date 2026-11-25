@@ -142,7 +142,6 @@ impl Catalog {
                 }
             }
             if *provider == AgentProvider::Codex && !pending {
-                // Wait for the full project session list so partial batches don't restart title lookups.
                 match self.codex_index.apply(
                     root,
                     &mut listing.sessions[first_session..],

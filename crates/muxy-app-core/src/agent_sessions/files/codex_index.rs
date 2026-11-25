@@ -22,7 +22,6 @@ impl CodexIndex {
         sessions: &mut [Session],
         budget: u64,
     ) -> io::Result<bool> {
-        // Keep the cursor only after a successful read so a failed or interrupted update can be retried.
         let previous = self.snapshot.take();
         let path = session_root.with_file_name("session_index.jsonl");
         if sessions.is_empty()
@@ -80,7 +79,6 @@ impl Snapshot {
         modified: SystemTime,
         ids: &HashSet<&str>,
     ) -> bool {
-        // Codex appends updates and atomically replaces compacted indexes. An append can resume at the saved offset.
         file == self.file
             && (length > self.length || (length == self.length && modified == self.modified))
             && self.names.len() == ids.len()

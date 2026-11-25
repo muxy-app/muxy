@@ -20,7 +20,6 @@ fn fixture(home: &Path, relative: &str, records: &[serde_json::Value]) -> std::i
 }
 
 #[test]
-// guards: Session titles are scoped to the provider even when two providers return the same ID.
 fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     let home = tempfile::tempdir()?;
     let project = home.path().join("project");
@@ -113,7 +112,6 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
 }
 
 #[test]
-// guards: Claude's automatic title is shown until a manual title takes priority.
 fn refresh_handles_appends_partial_records_renames_and_deletions() -> Result {
     let home = tempfile::tempdir()?;
     let path = fixture(

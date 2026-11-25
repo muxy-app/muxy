@@ -83,7 +83,6 @@ fn filters_persist_and_sessions_share_the_panel_host(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-// guards: Resumed tabs follow the terminal until the user names the tab, and again after reset.
 fn resume_is_transactional_and_uses_the_selected_project(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().expect("directory");
     let (boot, requests) = stub_boot(AppState::bootstrap().expect("state"));

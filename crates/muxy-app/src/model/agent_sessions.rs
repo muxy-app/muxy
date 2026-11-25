@@ -323,7 +323,6 @@ impl AppModel {
         let opened = self.open_terminal(
             super::tabs::OpenTerminal {
                 project: self.state.current_project().id,
-                // Passing a saved name would pin it as a tab override and hide later terminal titles.
                 title: None,
                 command: Some(&command),
                 directory: None,
