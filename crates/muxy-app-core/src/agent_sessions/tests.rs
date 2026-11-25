@@ -48,7 +48,7 @@ fn fixture(home: &Path, relative: &str, records: &[serde_json::Value]) -> std::i
 }
 
 #[test]
-fn cursor_meta_without_a_trailing_newline_is_a_session() -> Result {
+fn cursor_meta_without_a_trailing_newline_is_listed_while_its_store_exists() -> Result {
     let home = tempfile::tempdir()?;
     let project = home.path().join("project");
     fs::create_dir_all(&project)?;
@@ -58,13 +58,17 @@ fn cursor_meta_without_a_trailing_newline_is_a_session() -> Result {
     fs::create_dir_all(path.parent().unwrap())?;
     let record = json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"title":"Plain","cwd":&project});
     fs::write(&path, record.to_string())?;
-    fs::write(path.with_file_name("store.db"), [])?;
     let roots = Roots::from_home(home.path());
-    let listing = Catalog::default().scan(&roots, &project);
+    let mut catalog = Catalog::default();
+    assert!(catalog.scan(&roots, &project).sessions.is_empty());
+    fs::write(path.with_file_name("store.db"), [])?;
+    let listing = catalog.scan(&roots, &project);
     assert!(listing.warnings.is_empty());
     assert_eq!(listing.sessions.len(), 1);
     assert_eq!(listing.sessions[0].id, "cursor-plain");
     assert_eq!(listing.sessions[0].title, "Plain");
+    fs::remove_file(path.with_file_name("store.db"))?;
+    assert!(catalog.scan(&roots, &project).sessions.is_empty());
     Ok(())
 }
 

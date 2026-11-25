@@ -230,6 +230,7 @@ fn discover(
 fn session_file(path: &Path, cursor_chat: bool) -> bool {
     if cursor_chat {
         path.file_name().is_some_and(|name| name == "meta.json")
+            && path.with_file_name("store.db").is_file()
     } else {
         path.extension().is_some_and(|ext| ext == "jsonl")
     }

@@ -214,10 +214,6 @@ fn json_record(line: &[u8]) -> Option<Value> {
 }
 
 fn cursor_identity(path: &Path, metadata: &mut Metadata) {
-    if !path.with_file_name("store.db").is_file() {
-        metadata.reject = true;
-        return;
-    }
     if metadata.id.is_none() {
         metadata.id = path
             .parent()
