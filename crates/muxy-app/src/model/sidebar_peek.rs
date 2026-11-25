@@ -67,6 +67,12 @@ impl AppModel {
         if self.sidebar_peek_open() {
             self.dismiss_peek(cx);
         } else {
+            self.pin_sidebar_peek(cx);
+        }
+    }
+
+    pub(crate) fn pin_sidebar_peek(&mut self, cx: &mut Context<Self>) {
+        if self.sidebar_auto_hides() {
             self.show_peek(cx);
             self.sidebar_peek.phase = Phase::Pinned;
         }

@@ -427,7 +427,7 @@ impl AppModel {
             Placement::Floating
         } else if self.appearance.agents_panel_dock == AgentsPanelDock::Right {
             Placement::Right
-        } else if self.sidebar_docks_expanded() && !self.extension_sidebar_active() {
+        } else if self.appearance.sidebar_expanded && !self.extension_sidebar_active() {
             Placement::Docked
         } else {
             Placement::Popup
@@ -441,7 +441,8 @@ impl AppModel {
                 self.appearance.agents_panel_visible
                     && self.panels.placement(&PanelId::new(PANEL)).is_some()
             }
-            Placement::Docked | Placement::Floating => self.appearance.agents_panel_visible,
+            Placement::Docked => self.appearance.agents_panel_visible && self.sidebar_shown(),
+            Placement::Floating => self.appearance.agents_panel_visible,
         }
     }
 
@@ -471,6 +472,9 @@ impl AppModel {
                     self.dismiss_overlay(cx);
                 }
             }
+        }
+        if self.agents_panel_placement() == Placement::Docked && !self.sidebar_shown() {
+            self.pin_sidebar_peek(cx);
         }
         if self.agents_panel_placement() == Placement::Floating {
             self.raise_floating(&PanelId::new(PANEL), cx);

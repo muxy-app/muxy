@@ -408,6 +408,40 @@ fn the_shortcut_shows_and_focuses_then_hides_and_keys_open_only_live_panes(
 }
 
 #[gpui::test]
+fn an_auto_hiding_sidebar_docks_the_panel_and_the_shortcut_reveals_it(cx: &mut TestAppContext) {
+    let (view, cx, _fixture) = agents(cx);
+    cx.update(|_, cx| {
+        crate::views::workspace::bind_keys(&muxy_app_core::settings::Keymap::default(), cx);
+    });
+    view.update(cx, |model, cx| {
+        model.appearance.sidebar_expanded = true;
+        model.appearance.sidebar_auto_hide = true;
+        model.appearance.agents_panel_visible = false;
+        model.focus_owner.request_active_pane();
+        cx.notify();
+    });
+    cx.run_until_parked();
+
+    cx.simulate_keystrokes(ShortcutId::ToggleAgentsPanel.definition().keys[0]);
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.agents_panel_placement(), Placement::Docked);
+        assert!(model.sidebar_peeking(), "the shortcut reveals the sidebar");
+        assert!(model.agents_panel_shown());
+        assert!(model.overlay.is_none());
+    });
+    let island = cx.debug_bounds("sidebar-island").expect("island");
+    let panel = cx
+        .debug_bounds("agents-panel-docked-resize")
+        .expect("the panel docks in the revealed sidebar");
+    assert!(island.contains(&panel.center()));
+    assert!(view.update_in(cx, |model, window, cx| {
+        model.agents_panel.focus.contains_focused(window, cx)
+    }));
+}
+
+#[gpui::test]
 fn a_collapsed_sidebar_opens_the_panel_as_a_popup_that_escape_closes(cx: &mut TestAppContext) {
     let (view, cx, _fixture) = agents(cx);
     cx.update(|_, cx| {
