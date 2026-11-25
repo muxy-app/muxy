@@ -29,7 +29,7 @@ struct NodeContext {
 }
 pub struct TaffyLayoutEngine {
     taffy: TaffyTree<NodeContext>,
-    absolute_layout_bounds: FxHashMap<LayoutId, Bounds<Pixels>>,
+    absolute_layout_bounds: FxHashMap<LayoutId, (Bounds<Pixels>, Point<f32>)>,
     computed_layouts: FxHashSet<LayoutId>,
 }
 
@@ -217,29 +217,46 @@ impl TaffyLayoutEngine {
     }
 
     pub fn layout_bounds(&mut self, id: LayoutId, scale_factor: f32) -> Bounds<Pixels> {
+        self.device_layout(id, scale_factor).0
+    }
+
+    fn device_layout(&mut self, id: LayoutId, scale_factor: f32) -> (Bounds<Pixels>, Point<f32>) {
         if let Some(layout) = self.absolute_layout_bounds.get(&id).cloned() {
             return layout;
         }
 
-        let layout = self.taffy.layout(id.into()).expect(EXPECT_MESSAGE);
-        let mut bounds = Bounds {
-            origin: point(
-                Pixels(layout.location.x / scale_factor),
-                Pixels(layout.location.y / scale_factor),
-            ),
-            size: size(
-                Pixels(layout.size.width / scale_factor),
-                Pixels(layout.size.height / scale_factor),
-            ),
-        };
-
+        let layout = *self.taffy.unrounded_layout(id.into());
+        let mut origin = point(layout.location.x, layout.location.y);
         if let Some(parent_id) = self.taffy.parent(id.0) {
-            let parent_bounds = self.layout_bounds(parent_id.into(), scale_factor);
-            bounds.origin += parent_bounds.origin;
+            let (_, parent_origin) = self.device_layout(parent_id.into(), scale_factor);
+            origin = origin + parent_origin;
         }
-        self.absolute_layout_bounds.insert(id, bounds);
+        let bounds = snap_to_device_pixels(
+            origin,
+            size(layout.size.width, layout.size.height),
+            scale_factor,
+        );
+        self.absolute_layout_bounds.insert(id, (bounds, origin));
 
-        bounds
+        (bounds, origin)
+    }
+}
+
+fn snap_to_device_pixels(
+    origin: Point<f32>,
+    extent: Size<f32>,
+    scale_factor: f32,
+) -> Bounds<Pixels> {
+    let left = origin.x.round();
+    let top = origin.y.round();
+    let right = (origin.x + extent.width).round();
+    let bottom = (origin.y + extent.height).round();
+    Bounds {
+        origin: point(Pixels(left / scale_factor), Pixels(top / scale_factor)),
+        size: size(
+            Pixels((right - left) / scale_factor),
+            Pixels((bottom - top) / scale_factor),
+        ),
     }
 }
 

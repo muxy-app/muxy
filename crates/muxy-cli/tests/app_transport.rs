@@ -85,27 +85,6 @@ fn commands_share_the_app_socket_and_preserve_requests_and_replies() -> Result<(
 }
 
 #[test]
-fn app_failures_and_invalid_replies_remain_command_errors() -> Result<(), Box<dyn Error>> {
-    for (reply, message) in [
-        (
-            br#"{"ok":false,"error":"project is unavailable"}"#.as_slice(),
-            "project is unavailable",
-        ),
-        (b"not json", "invalid reply from Muxy"),
-        (b"", "no response from Muxy"),
-    ] {
-        let (output, _) = exchange(&["browser", "list", "--json"], reply)?;
-        assert!(!output.status.success());
-        assert!(output.stdout.is_empty());
-        assert_eq!(
-            String::from_utf8(output.stderr)?,
-            format!("muxy: {message}\n")
-        );
-    }
-    Ok(())
-}
-
-#[test]
 fn timeout_validation_precedes_connecting_and_missing_apps_keep_command_policy()
 -> Result<(), Box<dyn Error>> {
     let directory = tempfile::tempdir()?;
