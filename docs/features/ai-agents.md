@@ -147,10 +147,11 @@ This is separate from the running-agents panel.
   load automatically in bounded batches across providers; keep browsing while
   loading completes. Use **Refresh sessions** to pick up later changes.
 
-Discovery only reads local JSONL files; it runs in the background, caches
-metadata rather than conversations, and never installs hooks or launches a
-harness. Files are not modified by discovery. Resuming hands control to the
-harness, which may update its session normally.
+Discovery reads local JSONL transcripts and Cursor chat `meta.json` sidecars.
+It runs in the background, caches metadata rather than conversations, and never
+installs hooks or launches a harness. Cursor's `store.db` conversation
+database stays unread. Files are not modified by discovery. Resuming hands
+control to the harness, which may update its session normally.
 
 | Provider | Session files | Resume command |
 | --- | --- | --- |
@@ -161,9 +162,13 @@ harness, which may update its session normally.
 | Pi | `~/.pi/agent/sessions/*/*.jsonl` | `pi --session ID` |
 | Oh My Pi | `~/.omp/agent/sessions/*/*.jsonl` | `omp --resume ID` |
 | Xal | `~/.xal/sessions/*/*.jsonl` | `xal resume ID` |
+| Cursor | `~/.cursor/chats/*/*/meta.json` | `cursor-agent --resume ID` |
 
-`CLAUDE_CONFIG_DIR` and `CODEX_HOME` are respected when set to absolute paths.
-OpenCode, Cursor, Grok, Kiro, Antigravity, and Hermes appear as **Not
+`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `CURSOR_CONFIG_DIR` are respected when
+set to absolute paths. When `CURSOR_CONFIG_DIR` is unset and
+`XDG_CONFIG_HOME` is set, Cursor chats are read from
+`$XDG_CONFIG_HOME/cursor/chats`, as Cursor does.
+OpenCode, Grok, Kiro, Antigravity, and Hermes appear as **Not
 supported** in the filter menu: their database-only or unverified storage
 formats are not read.
 Running-agent detection for these providers is unaffected.

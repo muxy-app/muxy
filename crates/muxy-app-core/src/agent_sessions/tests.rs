@@ -7,6 +7,34 @@ use super::*;
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
+fn cursor_side_files(home: &Path, project: &Path) -> Result {
+    fs::write(home.join(".cursor/chats/bucket/cursor-1/store.db"), [])?;
+    for (id, record) in [
+        (
+            "cursor-sub",
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"isSubagent":true,"title":"child","cwd":project}),
+        ),
+        (
+            "cursor-empty",
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":false,"title":"empty","cwd":project}),
+        ),
+        (
+            "cursor-nostore",
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"title":"missing","cwd":project}),
+        ),
+    ] {
+        fixture(
+            home,
+            &format!(".cursor/chats/bucket/{id}/meta.json"),
+            &[record],
+        )?;
+        if id != "cursor-nostore" {
+            fs::write(home.join(format!(".cursor/chats/bucket/{id}/store.db")), [])?;
+        }
+    }
+    Ok(())
+}
+
 fn fixture(home: &Path, relative: &str, records: &[serde_json::Value]) -> std::io::Result<PathBuf> {
     let path = home.join(relative);
     if let Some(parent) = path.parent() {
@@ -17,6 +45,31 @@ fn fixture(home: &Path, relative: &str, records: &[serde_json::Value]) -> std::i
         writeln!(file, "{record}")?;
     }
     Ok(path)
+}
+
+#[test]
+fn cursor_meta_without_a_trailing_newline_is_listed_while_its_store_exists() -> Result {
+    let home = tempfile::tempdir()?;
+    let project = home.path().join("project");
+    fs::create_dir_all(&project)?;
+    let path = home
+        .path()
+        .join(".cursor/chats/bucket/cursor-plain/meta.json");
+    fs::create_dir_all(path.parent().unwrap())?;
+    let record = json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"title":"Plain","cwd":&project});
+    fs::write(&path, record.to_string())?;
+    let roots = Roots::from_home(home.path());
+    let mut catalog = Catalog::default();
+    assert!(catalog.scan(&roots, &project).sessions.is_empty());
+    fs::write(path.with_file_name("store.db"), [])?;
+    let listing = catalog.scan(&roots, &project);
+    assert!(listing.warnings.is_empty());
+    assert_eq!(listing.sessions.len(), 1);
+    assert_eq!(listing.sessions[0].id, "cursor-plain");
+    assert_eq!(listing.sessions[0].title, "Plain");
+    fs::remove_file(path.with_file_name("store.db"))?;
+    assert!(catalog.scan(&roots, &project).sessions.is_empty());
+    Ok(())
 }
 
 #[test]
@@ -54,10 +107,15 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
             ".xal/sessions/project/xal.jsonl",
             json!({"type":"meta","meta":{"id":"xal-1","cwd":project}}),
         ),
+        (
+            ".cursor/chats/bucket/cursor-1/meta.json",
+            json!({"schemaVersion":1,"createdAtMs":1,"hasConversation":true,"title":"Fix regression","cwd":project}),
+        ),
     ];
     for (path, record) in examples {
         fixture(home.path(), path, &[record])?;
     }
+    cursor_side_files(home.path(), &project)?;
     fixture(
         home.path(),
         ".codex/session_index.jsonl",
@@ -83,7 +141,7 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     let roots = Roots::from_home(home.path());
     let mut catalog = Catalog::default();
     let listing = catalog.scan(&roots, &project);
-    assert_eq!(listing.sessions.len(), 7);
+    assert_eq!(listing.sessions.len(), 8);
     assert!(listing.warnings.is_empty());
     let title = |provider| {
         listing
@@ -94,6 +152,7 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     };
     assert_eq!(title(AgentProvider::Claude), Some("Fix regression"));
     assert_eq!(title(AgentProvider::Codex), Some("Codex saved title"));
+    assert_eq!(title(AgentProvider::Cursor), Some("Fix regression"));
     for provider in PROVIDERS
         .into_iter()
         .filter(|provider| supported(*provider))
@@ -263,6 +322,7 @@ fn resume_commands_never_interpolate_transcript_text_or_paths() {
         (AgentProvider::Pi, "pi --session"),
         (AgentProvider::OhMyPi, "omp --resume"),
         (AgentProvider::Xal, "xal resume"),
+        (AgentProvider::Cursor, "cursor-agent --resume"),
     ] {
         session.provider = provider;
         assert_eq!(
