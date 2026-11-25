@@ -49,9 +49,7 @@ impl Render for WindowContent {
 
 fn build_window_options(display_id: DisplayId, bounds: Bounds<Pixels>) -> WindowOptions {
     WindowOptions {
-        // Set the bounds of the window in screen coordinates
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        // Specify the display_id to ensure the window is created on the correct screen
         display_id: Some(display_id),
         titlebar: None,
         window_background: WindowBackgroundAppearance::Transparent,
@@ -69,7 +67,6 @@ fn build_window_options(display_id: DisplayId, bounds: Bounds<Pixels>) -> Window
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        // Create several new windows, positioned in the top right corner of each screen
         let size = Size {
             width: px(350.),
             height: px(75.),

@@ -92,6 +92,10 @@ Variables: `--muxy-background`, `--muxy-foreground`, `--muxy-foreground-muted`,
 `colorScheme` set to `light` or `dark`. `muxy.onThemeChange(fn)` reports
 changes.
 
+Muxy draws `--muxy-background` behind every page, unless a panel is
+`transparent`. It shows while the page loads and wherever the page leaves its
+background unset, so a page never flashes white as it opens.
+
 ## File openers
 
 A file opener lets an extension open files that users `Cmd`-click in a
@@ -106,18 +110,49 @@ terminal, in one of its tab types.
 | Field | Notes |
 | --- | --- |
 | `tabType` | One of the extension's tab types. |
-| `patterns` | Globs matched against the project-relative path, case-insensitive. Default `["*"]`. |
+| `patterns` | Default file types, using case-insensitive `*`/`?` globs. Patterns without `/` match the filename at any depth; patterns with `/` match the project-relative path. Omitted or empty means no automatic matches. Use `["*"]` explicitly to support every file. |
+| `fileTypes` | Optional automatic registrations, using the same globs. When present, overrides `patterns` in new Muxy versions, including an empty list. Older Muxy versions ignore it and use `patterns`. |
 | `singleton` | Reuse one tab. Default `true`. |
 
-Users pick it in **Settings → General → Open files with**; extensions never
-open files unasked. The tab receives `data` like
+Enabled extensions register these patterns automatically. One matching opener
+opens the file directly. If several match, Muxy shows a searchable chooser.
+The user can open once or turn on **Always use for this type** before selecting
+an opener. With no matching extension, local files are revealed in Finder (or
+the system file manager on Linux). Directories and files outside the project
+also use the file manager. Remote files retain their remote-file actions.
+
+**Settings → General → Files** lists registrations and lets users add custom
+patterns, choose or remove defaults, reorder rules, select **Always ask** for a
+pattern, or enable **Always show the file opener**. A custom rule can assign a
+file type to an extension even when it is absent from the manifest's patterns.
+The first matching rule with an available opener wins. Unavailable extension
+rules are ignored until the extension is enabled again. The topbar project-app
+picker is independent of terminal file links.
+
+The tab receives `data` like
 `{ "filePath": "docs/README.md", "line": 12, "column": 3, "source": "terminal" }`,
-with `filePath` relative to the project.
+with `filePath` relative to the clicked file's project. Local paths are resolved
+before dispatch, so symlinks must resolve inside that project. The opener
+receives the resolved relative path.
 
-## Pages
+### Supporting older Muxy versions
 
-- Pages load only from the extension's own folder. Navigating elsewhere is
-  blocked.
-- Pages stay alive while hidden.
-- `muxy.lifecycle.onBeforeClose(fn)` can keep a tab open, for example to save
-  first. See [API reference](api.md#page-only).
+Keep the existing opener ID, tab type, `patterns`, and data contract. Add
+`fileTypes` to advertise precise automatic registrations without changing how
+older versions handle an explicitly selected opener:
+
+```json
+"fileOpeners": [
+  {
+    "id": "editor",
+    "tabType": "code-editor",
+    "patterns": ["*"],
+    "fileTypes": ["*.md", "*.txt", "*.rs", "*.png", "*.pdf", "Dockerfile"],
+    "singleton": false
+  }
+]
+```
+
+New Muxy versions use `fileTypes`; older versions continue using `patterns` and
+their global opener preference. No new JavaScript API is required. Publish the
+updated manifest schema before releasing an extension that uses the new field.

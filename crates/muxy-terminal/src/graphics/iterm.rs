@@ -1,5 +1,3 @@
-//! Reads iTerm2 inline image files (`OSC 1337 ; File=`).
-
 use base64::Engine as _;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 
@@ -10,7 +8,6 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(
     &base64::alphabet::STANDARD,
     GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
-/// No placement is wider or taller than this many cells.
 const MAX_CELLS: u32 = 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,7 +18,6 @@ enum Length {
     Percent(u32),
 }
 
-/// An inline image and how iTerm2 asks to size it.
 #[derive(Debug)]
 pub(crate) struct File {
     pub(crate) film: Film,
@@ -31,8 +27,6 @@ pub(crate) struct File {
     pub(crate) move_cursor: bool,
 }
 
-/// Decodes `key=value;…:base64`. Files that aren't inline images, such as
-/// downloads, give `None`.
 pub(crate) fn parse(file: &[u8]) -> Option<File> {
     let split = file.iter().position(|&b| b == b':')?;
     let (arguments, payload) = (&file[..split], &file[split + 1..]);
@@ -74,10 +68,6 @@ pub(crate) fn parse(file: &[u8]) -> Option<File> {
 }
 
 impl File {
-    /// The cells to fill, for a terminal of `columns` by `rows` cells of
-    /// `cell` pixels. A missing side keeps the image's aspect ratio. When both
-    /// sides are set and the ratio is kept, only the side that limits the
-    /// image stays, so it fits inside the box as in iTerm2.
     pub(crate) fn placement(&self, columns: u16, rows: u16, cell: crate::CellSize) -> Placement {
         let mut width = cells(self.width, cell.width, columns);
         let mut height = cells(self.height, cell.height, rows);
@@ -162,10 +152,8 @@ mod tests {
 
     #[test]
     fn keeps_aspect_ratio_inside_the_box() {
-        // 100x100 pixels in a 4x4 cell box (40x80 px): the width limits it.
         let placement = file(100, 100, "width=4;height=4").placement(80, 24, CELL);
         assert_eq!((placement.columns, placement.rows), (Some(4), None));
-        // 100x400 pixels in a 4x1 cell box (40x20 px): the height limits it.
         let placement = file(100, 400, "width=4;height=1").placement(80, 24, CELL);
         assert_eq!((placement.columns, placement.rows), (None, Some(1)));
         let placement =

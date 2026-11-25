@@ -10,17 +10,12 @@ use crate::{
 
 use super::Window;
 
-/// The event emitted when a prompt's option is selected.
-/// The usize is the index of the selected option, from the actions
-/// passed to the prompt.
 pub struct PromptResponse(pub usize);
 
-/// A prompt that can be rendered in the window.
 pub trait Prompt: EventEmitter<PromptResponse> + Focusable {}
 
 impl<V: EventEmitter<PromptResponse> + Focusable> Prompt for V {}
 
-/// A handle to a prompt that can be used to interact with it.
 pub struct PromptHandle {
     sender: oneshot::Sender<usize>,
 }
@@ -30,7 +25,6 @@ impl PromptHandle {
         Self { sender }
     }
 
-    /// Construct a new prompt handle from a view of the appropriate types
     pub fn with_view<V: Prompt + Render>(
         self,
         view: Entity<V>,
@@ -63,13 +57,10 @@ impl PromptHandle {
     }
 }
 
-/// A prompt handle capable of being rendered in a window.
 pub struct RenderablePromptHandle {
     pub(crate) view: Box<dyn PromptViewHandle>,
 }
 
-/// Use this function in conjunction with [App::set_prompt_builder] to force
-/// GPUI to always use the fallback prompt renderer.
 pub fn fallback_prompt_renderer(
     level: PromptLevel,
     message: &str,
@@ -90,7 +81,6 @@ pub fn fallback_prompt_renderer(
     handle.with_view(renderer, window, cx)
 }
 
-/// The default GPUI fallback for rendering prompts, when the platform doesn't support it.
 pub struct FallbackPromptRenderer {
     _level: PromptLevel,
     message: String,

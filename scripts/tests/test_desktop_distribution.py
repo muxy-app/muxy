@@ -1,4 +1,3 @@
-import fcntl
 import gzip
 import hashlib
 import importlib.util
@@ -6,10 +5,16 @@ import io
 import json
 import os
 from pathlib import Path
+import sys
 import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
+
+if sys.platform == "win32":
+    raise unittest.SkipTest("Linux desktop installs rely on POSIX locks, links and modes")
+
+import fcntl
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -139,7 +144,8 @@ class DesktopDistributionTests(unittest.TestCase):
         self.assertEqual(entry.read_text(), old_contents)
         INSTALL.integrate_appimage(new, self.new)
         self.assertEqual(entry.read_text(), INSTALL.desktop_entry(new, self.new, appimage=True)[1])
-        self.assertIn(f'Exec="{new}/usr/bin/muxy-app" %F', entry.read_text())
+        self.assertIn(f'Exec="{new}/usr/bin/muxy-app" %U', entry.read_text())
+        self.assertIn("MimeType=x-scheme-handler/muxy-beta;", entry.read_text())
         self.assertIn(f"Icon={new}/com.muxy-beta.app.png", entry.read_text())
         INSTALL.integrate_appimage(new, "2.2.0")
         stable, stable_contents = INSTALL.desktop_entry(new, "2.2.0", appimage=True)
@@ -154,6 +160,29 @@ class DesktopDistributionTests(unittest.TestCase):
         INSTALL.integrate_appimage(new, self.new)
         self.assertTrue(entry.is_symlink())
         self.assertEqual(stable.read_text(), stable_contents)
+
+    def test_entries_written_before_session_links_are_upgraded_and_removed_as_ours(self):
+        bundle = self.home / "data/muxy-appimage" / ("a" * 64)
+        bundle.mkdir(parents=True)
+        entry, legacy = INSTALL.desktop_entry(bundle, self.new, appimage=True, legacy=True)
+        entry.parent.mkdir(parents=True)
+        entry.write_text(legacy)
+        INSTALL.integrate_appimage(bundle, self.new)
+        self.assertEqual(entry.read_text(), INSTALL.desktop_entry(bundle, self.new, appimage=True)[1])
+
+        self.staged(self.old)
+        INSTALL.switch(self.root, self.old)
+        path, legacy = INSTALL.desktop_entry(self.root, self.old, legacy=True)
+        customized = legacy + "X-User-Customized=true\n"
+        arguments = ["install.py", "upgrade-entry", "--root", str(self.root), "--version", self.old]
+        for written, expected in ((customized, customized), (legacy, INSTALL.desktop_entry(self.root, self.old)[1])):
+            path.write_text(written)
+            with patch.object(INSTALL.platform, "system", return_value="Linux"), patch.object(sys, "argv", arguments):
+                INSTALL.main()
+            self.assertEqual(path.read_text(), expected)
+        path.write_text(legacy)
+        INSTALL.uninstall(self.root)
+        self.assertFalse(path.exists())
 
     def test_symlinked_installation_and_competing_mutations_are_rejected(self):
         link = self.home / "linked"

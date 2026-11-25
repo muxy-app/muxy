@@ -133,7 +133,6 @@ fn editor_buttons(
         ))
 }
 
-/// A list setting's Add control, and its entries when there are any.
 type ListControl = (AnyElement, Option<AnyElement>);
 
 fn entries(pane: &SettingsView, rows: Vec<gpui::Div>) -> Option<AnyElement> {

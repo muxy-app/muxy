@@ -5,20 +5,18 @@ use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Runs the GitHub CLI for a repository.
 #[derive(Debug, Default)]
 pub(super) struct Cli {
-    /// Runs this GitHub CLI instead of the installed one.
     pub(super) executable: Option<PathBuf>,
 }
 
 impl Cli {
-    fn command(&self, repository: &Path, args: &[&str]) -> Command {
+    fn command(&self, repository: &Path, args: &[&str]) -> Result<Command> {
         let executable = self
             .executable
             .clone()
             .or_else(command::github_cli)
-            .unwrap_or_else(|| "gh".into());
+            .ok_or_else(|| error("GitHub CLI: gh is not installed"))?;
         let mut command = Command::new(executable);
         command
             .args(args)
@@ -28,24 +26,23 @@ impl Cli {
             .env("GH_PAGER", "cat")
             .env("LC_ALL", "C")
             .env("NO_COLOR", "1");
+        command::without_relative_path(&mut command);
         command::without_inherited_git(&mut command);
-        command
+        Ok(command)
     }
 
     pub(super) fn run(&self, repository: &Path, args: &[&str]) -> Result<Vec<u8>> {
-        command::capture_with(self.command(repository, args), TIMEOUT, None, false)
+        command::capture_with(self.command(repository, args)?, TIMEOUT, None, false)
             .map(|output| output.0)
             .map_err(|cause| error(format!("GitHub CLI: {}", cause.message())))
     }
 
-    /// Runs `args`, keeping at most `limit` bytes of output. Returns whether
-    /// it was cut short.
     pub(super) fn run_bounded(
         &self,
         repository: &Path,
         args: &[&str],
         limit: usize,
     ) -> Result<(Vec<u8>, bool)> {
-        command::capture_with(self.command(repository, args), TIMEOUT, Some(limit), false)
+        command::capture_with(self.command(repository, args)?, TIMEOUT, Some(limit), false)
     }
 }

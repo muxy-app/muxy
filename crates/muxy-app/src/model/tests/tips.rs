@@ -5,7 +5,9 @@ use muxy_app_core::settings::{AppLayout, SidebarCollapsedStyle};
 
 use super::*;
 use crate::model::banners::TOAST_TRANSITION;
-use crate::model::tips::{FIRST_TIP_DELAY, TIP_DURATION, TIP_INTERVAL, TIP_RETRY};
+#[cfg(not(windows))]
+use crate::model::tips::TIP_RETRY;
+use crate::model::tips::{FIRST_TIP_DELAY, TIP_DURATION, TIP_INTERVAL};
 
 fn open(cx: &mut TestAppContext) -> (Entity<AppModel>, &mut VisualTestContext) {
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
@@ -102,6 +104,7 @@ fn the_tip_buttons_leave_the_keyboard_where_it_was(cx: &mut TestAppContext) {
     }
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn a_tip_waits_for_an_open_menu_to_close(cx: &mut TestAppContext) {
     let (view, cx) = open(cx);

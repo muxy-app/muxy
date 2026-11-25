@@ -1,18 +1,10 @@
-//! The root record of the program status protocol (OSC 7501), in which a
-//! program reports what it is doing. Records about parts of the work (`id=…`)
-//! are not kept, because nothing shows them.
-
 use libghostty_vt::terminal::{ProgramStatus as Report, ProgramStatusState as ReportState};
 use muxy_protocol::{ProgressState, TerminalProgress};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProgramStatus {
     pub state: ProgramState,
-    /// How far along the work is, from 0 through 100, for working and blocked
-    /// programs that say.
     pub progress: Option<u8>,
-    /// The program's machine-readable name, such as `cargo` or `claude-code`.
-    /// Empty when it didn't say.
     pub app: String,
 }
 
@@ -25,8 +17,6 @@ pub enum ProgramState {
     Error,
 }
 
-/// What a report does to the root record. Reports about other records
-/// leave it alone.
 #[derive(Debug)]
 pub(crate) enum Change {
     Replace(ProgramStatus),
@@ -56,8 +46,6 @@ impl Change {
 }
 
 impl ProgramStatus {
-    /// Finished work stays until a later report replaces it; everything
-    /// else ends with the program that reported it.
     pub(crate) fn outlives_program(&self) -> bool {
         matches!(self.state, ProgramState::Done | ProgramState::Error)
     }

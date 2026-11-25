@@ -8,14 +8,11 @@ use crate::{AppState, PaneContent, PaneId, ProjectStatus, ServerId, SessionMove}
 pub struct RestorePlan {
     pub attach: Vec<(PaneId, SessionId)>,
     pub create: Vec<PaneId>,
+    pub restart: Vec<(PaneId, SessionId)>,
     pub close: Vec<(PaneId, SessionId)>,
-    /// Sessions the app moved to the project its pane shows them in while
-    /// the server still lists them under another, as when the request never
-    /// reached it. Their panes attach, and the server is asked again.
     pub moves: Vec<(SessionMove, muxy_protocol::ProjectId)>,
 }
 
-/// Plans `server`'s panes against the sessions that server listed.
 pub fn plan(state: &AppState, server: ServerId, sessions: &[SessionInfo]) -> RestorePlan {
     let live: HashMap<_, _> = sessions
         .iter()
@@ -55,7 +52,10 @@ pub fn plan(state: &AppState, server: ServerId, sessions: &[SessionInfo]) -> Res
                     ));
                 }
             }
-            PaneContent::Terminal { session: Some(id) } => plan.close.push((pane.id, id)),
+            PaneContent::Terminal { session: Some(id) } if live.contains_key(&id) => {
+                plan.close.push((pane.id, id));
+            }
+            PaneContent::Terminal { session: Some(id) } => plan.restart.push((pane.id, id)),
             PaneContent::Terminal { session: None }
                 if project.status() == ProjectStatus::Available =>
             {

@@ -1,5 +1,3 @@
-//! Right-click menus for terminals and tabs.
-
 use muxy_app_core::PaneId;
 use ratatui::{
     Frame,
@@ -17,11 +15,9 @@ pub(crate) enum Command {
     Zoom(PaneId),
     Copy,
     ScrollBack(PaneId),
-    /// Gives the right-click the menu took to the app in the pane.
     RightClick(PaneId, Position),
     ClosePane(PaneId),
     NewTab,
-    /// Commands for the tab holding the pane.
     RenameTab(PaneId),
     MoveTab(PaneId, bool),
     CloseTab(PaneId),
@@ -30,7 +26,6 @@ pub(crate) enum Command {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Item {
     pub label: String,
-    /// The keys that do the same, as a hint.
     pub keys: &'static str,
     pub command: Command,
     pub danger: bool,
@@ -56,9 +51,7 @@ impl Item {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Menu {
-    /// Where it was opened.
     pub at: Position,
-    /// Items, with `None` for a separator.
     pub items: Vec<Option<Item>>,
     pub selected: Option<usize>,
 }
@@ -72,7 +65,6 @@ impl Menu {
         }
     }
 
-    /// Moves the selection to the next or previous item, past separators.
     pub(crate) fn step(&mut self, forward: bool) {
         let count = self.items.len();
         let mut index = self.selected.unwrap_or(if forward { count - 1 } else { 0 });

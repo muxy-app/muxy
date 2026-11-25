@@ -12,7 +12,6 @@ use muxy_ui::tr;
 use super::overlays::{Mark, OverlayView, Placement};
 use crate::model::{AppModel, ServerStatus};
 
-/// The server popover above the status bar's server item.
 pub(crate) struct ServerPopover;
 
 impl OverlayView for ServerPopover {
@@ -45,7 +44,6 @@ fn status_color(status: ServerStatus, model: &AppModel) -> Hsla {
     }
 }
 
-/// What the status bar's server item says: which server, and how it's doing.
 fn control_text(remote: Option<&str>, status: ServerStatus) -> SharedString {
     let status = translate(status.label());
     match remote {

@@ -1,23 +1,23 @@
 use std::io;
 use std::net::Shutdown;
-use std::os::fd::AsFd;
-use std::os::unix::net::UnixStream;
 use std::sync::{Mutex, PoisonError};
 
 use rustix::event::{PollFd, PollFlags};
+use rustix::fd::AsFd;
 
-/// A nonblocking listening socket whose `accept` sleeps in poll(2) until a
-/// peer connects or `close` wakes it.
+use crate::transport::LocalStream;
+use crate::transport::unix::socket_pair;
+
 #[derive(Debug)]
 pub(crate) struct Accepting<S> {
     socket: Mutex<Option<S>>,
-    wake: UnixStream,
-    waker: UnixStream,
+    wake: LocalStream,
+    waker: LocalStream,
 }
 
 impl<S: AsFd> Accepting<S> {
     pub(crate) fn new(socket: S) -> io::Result<Self> {
-        let (wake, waker) = UnixStream::pair()?;
+        let (wake, waker) = socket_pair()?;
         Ok(Self {
             socket: Mutex::new(Some(socket)),
             wake,
@@ -44,7 +44,6 @@ impl<S: AsFd> Accepting<S> {
         }
     }
 
-    /// Returns whether `close` was called.
     fn wait(&self, socket: &S) -> io::Result<bool> {
         let mut descriptors = [
             PollFd::new(socket, PollFlags::IN),
@@ -56,7 +55,6 @@ impl<S: AsFd> Accepting<S> {
         }
     }
 
-    /// Wakes a pending `accept` first, so the socket's lock is free to take.
     pub(crate) fn close(&self) {
         let _ = self.waker.shutdown(Shutdown::Write);
         self.socket
@@ -72,7 +70,7 @@ fn closed() -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::net::UnixListener;
+    use std::net::TcpListener;
     use std::sync::{Arc, mpsc};
     use std::time::Duration;
 
@@ -80,9 +78,7 @@ mod tests {
 
     #[test]
     fn close_wakes_a_pending_accept() -> io::Result<()> {
-        let path =
-            std::env::temp_dir().join(format!("muxy-accept-{}.sock", crate::OperationId::new()));
-        let socket = UnixListener::bind(&path)?;
+        let socket = TcpListener::bind("127.0.0.1:0")?;
         socket.set_nonblocking(true)?;
         let listener = Arc::new(Accepting::new(socket)?);
         let (accepted, result) = mpsc::channel();
@@ -98,7 +94,6 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .map_err(io::Error::other)?
             .err();
-        std::fs::remove_file(path)?;
         assert_eq!(
             error.map(|error| error.kind()),
             Some(io::ErrorKind::NotConnected)

@@ -4,9 +4,10 @@ use muxy_protocol::{
 };
 use muxy_server::{LegacyImport, Registry, ServerSettings};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
+
+mod support;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -21,7 +22,7 @@ impl Fixture {
         let (events, _) = mpsc::channel();
         Ok(Registry::persistent_with_import(
             ServerSettings {
-                default_shell: Some("/bin/sh".into()),
+                default_shell: Some(support::shell()),
                 ..ServerSettings::default()
             },
             events,
@@ -83,13 +84,17 @@ fn exact_identity_duplicate_paths_private_catalog_and_idempotent_mutations() -> 
             .code(),
         ErrorCode::CatalogChanged
     );
-    assert_eq!(
-        fs::metadata(fixture.0.join("sessions/catalog.json"))?
-            .permissions()
-            .mode()
-            & 0o777,
-        0o600
-    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(fixture.0.join("sessions/catalog.json"))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
     drop(registry);
     let reopened = fixture.registry(LegacyImport::default())?;
     let after = reopened.read_catalog(None, None)?;
@@ -104,6 +109,52 @@ fn exact_identity_duplicate_paths_private_catalog_and_idempotent_mutations() -> 
         reopened
             .mutate_project(&intent(ProjectMutation::Delete(after.home)))
             .is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn failed_creation_is_replayed_after_restart_even_when_the_folder_now_exists() -> Result {
+    let fixture = Fixture::new()?;
+    let registry = fixture.registry(LegacyImport::default())?;
+    let folder = fixture.0.join("later");
+    let project = project(&folder);
+    let create = intent(ProjectMutation::Create(project.clone()));
+    let failure = registry.mutate_project(&create).unwrap_err();
+    assert_eq!(failure.code(), ErrorCode::BadPath);
+    drop(registry);
+
+    fs::create_dir(&folder)?;
+    let registry = fixture.registry(LegacyImport::default())?;
+    let revision = registry.catalog_revision();
+    let replayed = registry.mutate_project(&create).unwrap_err();
+    assert_eq!(replayed.to_reply(), failure.to_reply());
+    assert_eq!(registry.catalog_revision(), revision);
+    assert!(
+        !registry
+            .read_catalog(None, None)?
+            .projects
+            .iter()
+            .any(|stored| stored.id == project.id)
+    );
+
+    let reused = ProjectIntent {
+        operation: create.operation,
+        mutation: ProjectMutation::Delete(registry.home_project()),
+    };
+    let failure = registry.mutate_project(&reused).unwrap_err();
+    assert_eq!(failure.code(), ErrorCode::BadRequest);
+    assert_eq!(
+        failure.message(),
+        "operation token reused with different project mutation"
+    );
+    registry.mutate_project(&intent(create.mutation))?;
+    assert!(
+        registry
+            .read_catalog(None, None)?
+            .projects
+            .iter()
+            .any(|stored| stored == &project)
     );
     Ok(())
 }
@@ -153,7 +204,7 @@ fn logo_heavy_catalog_pages_fit_the_wire_and_continue_without_losing_projects() 
     logo.resize(muxy_protocol::MAX_PROJECT_LOGO_BYTES, 0);
     let logo: Arc<[u8]> = logo.into();
     for _ in 0..60 {
-        let mut project = project(Path::new("/tmp"));
+        let mut project = project(&support::folder());
         project.logo = Some(logo.clone());
         registry.mutate_project(&intent(ProjectMutation::Create(project)))?;
     }

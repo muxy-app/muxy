@@ -9,6 +9,8 @@ the apps.
   it is stopped, or until an update replaces it once no terminals are left.
 - Stopping or restarting it ends every terminal but keeps settings and each
   terminal's saved content. Terminal programs are never restarted automatically.
+  The desktop app keeps its tabs and starts a new shell in each pane once the
+  server is back; the terminal UI closes the panes whose terminals ended.
 
 ## Sessions
 

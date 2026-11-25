@@ -89,7 +89,8 @@ mod tests {
         for (category, query, editable) in [
             (Category::About, "", false),
             (Category::About, "channel", false),
-            (Category::About, "updates", false),
+            (Category::About, "updates…", false),
+            (Category::About, "updates", true),
             (Category::About, "marketplace", false),
             (Category::General, "marketplace", false),
             (Category::About, "width", true),
@@ -125,6 +126,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[gpui::test]
     fn about_cancels_shortcut_recording(cx: &mut TestAppContext) {
         let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));

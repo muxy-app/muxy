@@ -1,6 +1,3 @@
-//! Push notifications for paired phones: the token a phone registers and the
-//! key it decrypts notifications with.
-
 use std::fmt;
 
 use minicbor::{Decode, Encode};
@@ -24,7 +21,6 @@ open_enum! {
 }
 
 open_enum! {
-    /// Which APNs servers the iOS build's token belongs to.
     #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
     pub enum PushEnvironment {
         Sandbox = 0,
@@ -35,26 +31,19 @@ open_enum! {
 open_enum! {
     #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
     pub enum PushStatus {
-        /// The relay accepted the token.
         Active = 0,
-        /// The relay couldn't be reached yet; the server keeps trying, and the key is valid.
         Pending = 1,
-        /// APNs or FCM rejected the token; the phone should get a fresh one.
         Refused = 2,
-        /// Push notifications are switched off on this server.
         Disabled = 3,
     }
 }
 
-/// The phone's push token, as `RegisterPush` sends it.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct PushToken {
     #[n(0)]
     pub platform: PushPlatform,
-    /// APNs: the token bytes as hex. FCM: the registration token.
     #[n(1)]
     pub token: String,
-    /// APNs only.
     #[n(2)]
     pub environment: Option<PushEnvironment>,
 }
@@ -92,13 +81,10 @@ impl PushToken {
     }
 }
 
-/// The reply to `RegisterPush`.
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct PushRegistration {
     #[n(0)]
     pub status: PushStatus,
-    /// The key this server encrypts the phone's notifications with; absent
-    /// when push notifications are off.
     #[n(1)]
     #[cbor(with = "crate::wire::cbor::bytes")]
     pub key: Option<[u8; PUSH_KEY_BYTES]>,

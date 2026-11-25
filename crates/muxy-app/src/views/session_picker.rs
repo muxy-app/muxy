@@ -90,9 +90,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Lists the current project's terminals, the open picker's, and those
-    /// of every project on this computer, whose other clients' terminals open
-    /// here as tabs.
     pub(crate) fn refresh_existing_sessions(&mut self, cx: &mut Context<Self>) {
         let project = self.state.current_project().id;
         self.request_sessions(project, cx);
@@ -106,8 +103,6 @@ impl AppModel {
         self.update_session_picker(cx);
     }
 
-    /// Opens other clients' terminals from a listing still current, which
-    /// arrived while this computer's server wasn't confirmed yet.
     fn adopt_listed(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         let Some(current) = self.sessions_revision(project) else {
             return;
@@ -122,7 +117,6 @@ impl AppModel {
         self.adopt_sessions(project, &sessions, cx);
     }
 
-    /// Forgets what `server` listed, which a new connection lists again.
     pub(crate) fn forget_server_sessions(&mut self, server: ServerId, cx: &mut Context<Self>) {
         let state = &self.state;
         self.existing_sessions

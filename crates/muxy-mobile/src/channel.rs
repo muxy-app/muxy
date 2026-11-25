@@ -1,59 +1,45 @@
-//! Connections through an SSH channel that the app opens with its own SSH
-//! client. The channel runs the bridge, `muxy stdio`, on the computer, so its
-//! server sees an ordinary local connection.
-//!
-//! One end of a socket pair is the connection's stream. The app writes what
-//! the channel receives into the other end, and a pump thread hands what the
-//! SDK writes on to the app.
-
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
 use muxy_client::bridge::{self, Start};
 use muxy_client::{Client, ClientError, ErrorTail};
-use muxy_protocol::transport::socket_pair;
+use muxy_protocol::transport::{LocalStream, socket_pair};
 
 use crate::MobileError;
 
-/// Covers the remote shell starting and the bridge starting the server; the
-/// channel is already connected.
 const BRIDGE_START_TIMEOUT: Duration = Duration::from_secs(15);
-/// How long a channel that ended early gets to report how.
 const EXIT_TIMEOUT: Duration = Duration::from_secs(1);
 const BUFFER: usize = 64 * 1024;
 
-/// The command an SSH exec channel runs to reach the computer's server.
+#[doc = " The command an SSH exec channel runs to reach the computer's server."]
 #[uniffi::export]
 pub fn bridge_command() -> String {
     bridge::command(Start::IfNeeded).into()
 }
 
-/// The app's SSH channel, which the SDK writes to from an SDK thread. It is a
-/// callback interface: a foreign trait's generated Kotlin class would also get
-/// `close()` from `AutoCloseable`, and the two would clash.
+#[doc = " The app's SSH channel, which the SDK writes to from an SDK thread. It is a"]
+#[doc = " callback interface: a foreign trait's generated Kotlin class would also get"]
+#[doc = " `close()` from `AutoCloseable`, and the two would clash."]
 #[uniffi::export(callback_interface)]
 pub trait ChannelWriter: Send + Sync {
-    /// Writes to the channel's stdin, in order, and may block while the
-    /// channel is full. Throw once the channel can't take more.
+    #[doc = " Writes to the channel's stdin, in order, and may block while the"]
+    #[doc = " channel is full. Throw once the channel can't take more."]
     fn write(&self, bytes: Vec<u8>) -> Result<(), MobileError>;
-    /// Closes the channel. Called once, when the connection ends or fails to
-    /// start.
+    #[doc = " Closes the channel. Called once, when the connection ends or fails to"]
+    #[doc = " start."]
     fn close(&self) -> Result<(), MobileError>;
 }
 
-/// An SSH exec channel running `bridge_command()`, which the app feeds with
-/// what the channel receives. Use a new one for each connection.
+#[doc = " An SSH exec channel running `bridge_command()`, which the app feeds with"]
+#[doc = " what the channel receives. Use a new one for each connection."]
 #[derive(uniffi::Object)]
 pub struct BridgeChannel {
-    /// The app's end: received bytes go in, and the SDK's bytes come out.
-    socket: UnixStream,
-    /// The SDK's end, until a connection takes it.
-    stream: Mutex<Option<UnixStream>>,
+    socket: LocalStream,
+    stream: Mutex<Option<LocalStream>>,
     writer: Arc<dyn ChannelWriter>,
     ending: ErrorTail,
 }
@@ -79,23 +65,23 @@ impl BridgeChannel {
         }))
     }
 
-    /// Passes on what the channel's stdout received, in order. It blocks
-    /// while the SDK catches up, so call it from one background thread,
-    /// never the main thread or the SSH library's event loop. Output that
-    /// arrives once the connection has ended is dropped.
+    #[doc = " Passes on what the channel's stdout received, in order. It blocks"]
+    #[doc = " while the SDK catches up, so call it from one background thread,"]
+    #[doc = " never the main thread or the SSH library's event loop. Output that"]
+    #[doc = " arrives once the connection has ended is dropped."]
     pub fn receive(&self, bytes: Vec<u8>) {
         let _ = (&self.socket).write_all(&bytes);
     }
 
-    /// Passes on what the channel's stderr received; its end explains a
-    /// connection that fails.
+    #[doc = " Passes on what the channel's stderr received; its end explains a"]
+    #[doc = " connection that fails."]
     pub fn receive_error(&self, bytes: Vec<u8>) {
         self.ending.push(&bytes);
     }
 
-    /// The channel closed, or the app gave up on it. Call it after the last
-    /// output, with the exit status if the server sent one. It also releases
-    /// a `receive` that is waiting.
+    #[doc = " The channel closed, or the app gave up on it. Call it after the last"]
+    #[doc = " output, with the exit status if the server sent one. It also releases"]
+    #[doc = " a `receive` that is waiting."]
     pub fn finish(&self, exit_status: Option<i32>) {
         self.ending.finish(exit_status);
         let _ = self.socket.shutdown(Shutdown::Write);
@@ -103,8 +89,6 @@ impl BridgeChannel {
 }
 
 impl BridgeChannel {
-    /// Connects once the bridge is ready, handing what the SDK writes to the
-    /// app until the connection ends.
     pub(crate) fn connect(&self, host: &str) -> Result<Client, ClientError> {
         let stream = self
             .stream
@@ -130,9 +114,7 @@ impl BridgeChannel {
     }
 }
 
-/// Hands what the SDK writes to the channel until either side ends, then
-/// closes the channel.
-fn pump(mut socket: UnixStream, writer: &dyn ChannelWriter) {
+fn pump(mut socket: LocalStream, writer: &dyn ChannelWriter) {
     let mut buffer = vec![0; BUFFER];
     loop {
         match socket.read(&mut buffer) {

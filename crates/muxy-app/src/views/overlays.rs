@@ -11,10 +11,10 @@ pub(crate) enum Overlay {
     Updates,
     Server,
     Webview,
-    /// The open extension popover (`AppModel::webviews.popover`).
     Popover,
     Native(Entity<super::native_modal::NativeModal>),
     Commands(super::command_palette::Palette),
+    FileOpener(Box<super::file_opener::FileChooser>),
     Git(super::git::GitPicker),
     GitForm(Box<super::git::Form>),
     AiProvider(super::git::AiProviderMenu),
@@ -27,24 +27,18 @@ pub(crate) enum Overlay {
     ProjectIcons(super::project_editor::icons::Icons),
     ProjectLogo(super::project_editor::logo::Cropper),
     Projects(Entity<super::project_picker::ProjectPicker>),
-    /// The popover above the sidebar's Servers section.
     RemoteServers,
     Agents,
     SessionProviders,
     ServerForm(Box<super::remote_servers::ServerForm>),
     PairForm(Box<super::pair_form::PairForm>),
     Password(Box<super::remote_servers::PasswordPrompt>),
-    /// The status bar's proxy popover.
     Proxy(Box<super::proxy::ProxyForm>),
     Onboarding,
     ExtensionAgent(super::extension_agent::ExtensionAgentPicker),
 }
 
-/// One kind of overlay: what it draws, where, and what dismissing it
-/// undoes. Each is implemented beside the overlay's rendering.
 pub(crate) trait OverlayView {
-    /// The overlay's content. `mark` is only given to overlays that place
-    /// themselves; [`place`] marks the others.
     fn render(
         &self,
         mark: Option<Mark>,
@@ -57,52 +51,34 @@ pub(crate) trait OverlayView {
         Placement::Own
     }
 
-    /// Whether native views elsewhere stay visible while the overlay is
-    /// open. Modal dialogs dim the whole window, so they don't.
     fn marks_bounds(&self, _model: &AppModel) -> bool {
         false
     }
 
-    /// Whether a press on the overlay's empty space moves the window, as one
-    /// on the titlebar does.
     fn moves_window(&self) -> bool {
         false
     }
 
-    /// What gets the keyboard back when the overlay closes, instead of the
-    /// active pane.
     fn returns_focus_to(&self, _model: &AppModel, _cx: &App) -> Option<FocusHandle> {
         None
     }
 
-    /// Cancels what the overlay left pending, when the user dismisses it
-    /// rather than finishing it.
     fn on_dismiss(&self, _model: &mut AppModel, _cx: &mut Context<AppModel>) -> Dismissal {
         Dismissal::Close
     }
 
-    /// Releases what the overlay holds once it is gone: closed, dismissed,
-    /// or replaced by another overlay.
     fn on_close(&self, _model: &mut AppModel, _cx: &mut Context<AppModel>) {}
 }
 
 pub(crate) enum Placement {
-    /// A popover above `anchor`.
     Above(PopoverAnchor),
-    /// A popover below `anchor`.
     Below(PopoverAnchor),
-    /// Centered over the dimmed window.
     Modal,
-    /// Where the content puts itself, over a backdrop that dismisses on a
-    /// click.
     Own,
-    /// Where the content puts itself, with its own backdrop.
     OwnBackdrop,
 }
 
 impl Placement {
-    /// Above `anchor` while `shown`. Otherwise the anchor is forgotten, so
-    /// the popover isn't drawn where its hidden button was.
     pub(crate) fn above_while(shown: bool, anchor: PopoverAnchor) -> Self {
         if !shown {
             anchor.set(None);
@@ -111,12 +87,9 @@ impl Placement {
     }
 }
 
-/// What happens to an overlay the user dismissed.
 pub(crate) enum Dismissal {
     Close,
-    /// It closes and `next` opens in its place.
     Reopen(Overlay),
-    /// It stays open until its page agrees to close.
     Stay,
 }
 
@@ -129,6 +102,7 @@ impl Overlay {
             Self::Popover => &super::webview::popover::ExtensionPopover,
             Self::Native(modal) => modal,
             Self::Commands(palette) => palette,
+            Self::FileOpener(chooser) => chooser.as_ref(),
             Self::Git(picker) => picker,
             Self::GitForm(form) => form.as_ref(),
             Self::AiProvider(menu) => menu,
@@ -160,14 +134,11 @@ impl Overlay {
         )
     }
 
-    /// The mark of the area the overlay covers. Rendering and
-    /// [`AppModel::coverage`] both read it.
     pub(crate) fn mark(&self, model: &AppModel) -> Option<Mark> {
         self.view().marks_bounds(model).then_some(Mark(()))
     }
 }
 
-/// Lets an overlay mark the area it covers. Only [`Overlay::mark`] makes one.
 #[derive(Clone, Copy)]
 pub(crate) struct Mark(());
 
@@ -176,23 +147,16 @@ pub(crate) struct Mark(());
     reason = "Taking the mark is what lets a view mark its bounds"
 )]
 impl Mark {
-    /// Marks the bounds of the element it is placed in.
     pub(crate) fn of(self, model: &AppModel) -> AnyElement {
         model.webview_occlusion()
     }
 
-    /// Like [`Mark::of`], leaving `owner`'s web view uncut.
     pub(crate) fn of_except(self, model: &AppModel, owner: gpui::EntityId) -> AnyElement {
         model.webview_occlusion_except(Some(owner))
     }
 }
 
 impl AppModel {
-    /// Shows `overlay` in place of the open one, which closes through its
-    /// [`OverlayView::on_close`].
-    /// Opens `overlay` in the main window, bringing that window forward when
-    /// the user works in a tab window. A floating tab is in the main window
-    /// already and keeps the keyboard, so what the overlay runs acts on it.
     pub(crate) fn open_overlay(&mut self, overlay: Overlay, cx: &mut Context<Self>) {
         if matches!(
             self.surface(),
@@ -210,8 +174,6 @@ impl AppModel {
         }
     }
 
-    /// Closes the overlay and cancels what it left pending, through its
-    /// [`OverlayView::on_dismiss`].
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
         let Some(overlay) = self.overlay.take() else {
             self.overlay_closed(None, cx);
@@ -233,7 +195,6 @@ impl AppModel {
         }
     }
 
-    /// Whether a press on empty space may move the window.
     pub(crate) fn window_can_move(&self) -> bool {
         if !self.coverage().modal() {
             return true;
@@ -245,7 +206,6 @@ impl AppModel {
                 .is_some_and(|overlay| overlay.view().moves_window())
     }
 
-    /// Closes the overlay once its work is done, keeping what it started.
     pub(crate) fn close_overlay(&mut self, cx: &mut Context<Self>) {
         let returns_to = self.overlay.take().and_then(|overlay| {
             let view = overlay.view();
@@ -275,7 +235,6 @@ impl AppModel {
         self.put_overlay(Overlay::Menu(Menu::new(items, position)), cx);
         self.tab_windows.overlay = self.surface_of(window);
         self.overlay_focus.focus(window);
-        // A focusable ancestor of the clicked row would otherwise take focus back.
         window.prevent_default();
         cx.notify();
     }
@@ -283,7 +242,6 @@ impl AppModel {
 
 pub(crate) use muxy_ui::popover::clamp_to_viewport as clamp;
 
-/// `content` at `placement`, with `mark` of the area it covers.
 pub(crate) fn place(
     placement: Placement,
     content: AnyElement,
@@ -316,7 +274,6 @@ pub(crate) fn place(
     }
 }
 
-/// A full-window layer that dismisses the overlay on a click.
 pub(crate) fn backdrop(cx: &mut Context<AppModel>) -> AnyElement {
     div()
         .absolute()

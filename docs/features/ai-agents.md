@@ -70,6 +70,12 @@ terminal on the phone.
 Alerts live in memory on the server, at most one per terminal. Restarting the
 server clears them.
 
+## Linking to an agent's terminal
+
+An agent can give a dashboard or another app a link that opens its terminal in
+the desktop app: run `muxy session link` inside that terminal. See
+[Session links](muxy-cli.md#session-links).
+
 ## Agents panel
 
 `Cmd+Opt+A` shows the agents panel, focuses it, and hides it once it has

@@ -108,31 +108,21 @@ pub struct ProjectDescriptor {
     pub parent_id: Option<ProjectId>,
 }
 
-/// The colors a new project picks from.
 pub const PROJECT_COLORS: [&str; 12] = [
     "#e5484d", "#f76b15", "#f5a623", "#ebcb00", "#9bcd1e", "#30a46c", "#12a594", "#05a2c2",
     "#3e63dd", "#5b5bd6", "#8e4ec6", "#d6409f",
 ];
 
 impl ProjectDescriptor {
-    /// A new project, named after its folder, in a random color that none of
-    /// `taken` uses, while one is left.
     pub fn new<'a>(directory: ServerPath, taken: impl IntoIterator<Item = &'a str>) -> Self {
-        let name = directory
-            .0
-            .rsplit(|byte| *byte == b'/')
-            .find(|part| !part.is_empty())
-            .unwrap_or(&directory.0);
-        let name = String::from_utf8_lossy(name).into_owned();
+        let name = crate::title::folder_name(&directory);
         Self::create(false, name, directory, taken)
     }
 
-    /// A server's Home, in the user's home folder, in a random color.
     pub fn home(directory: ServerPath) -> Self {
         Self::create(true, "Home".into(), directory, [])
     }
 
-    /// Every app and server makes new projects here.
     fn create<'a>(
         home: bool,
         name: String,
@@ -180,8 +170,6 @@ impl ProjectDescriptor {
 
 pub const MAX_SESSION_NAME: usize = 256;
 
-/// A session name is trimmed, not empty, at most [`MAX_SESSION_NAME`] bytes,
-/// and has no control characters.
 pub fn validate_session_name(name: &str) -> Result<(), ErrorCode> {
     if name.is_empty()
         || name.len() > MAX_SESSION_NAME
@@ -214,7 +202,6 @@ fn validate_icon(icon: Option<&str>) -> Result<(), ErrorCode> {
     }
 }
 
-/// SF Symbol names are tagged so existing one-grapheme icons keep their meaning.
 pub fn is_project_symbol(value: &str) -> bool {
     value.strip_prefix("sf:").is_some_and(|name| {
         !name.is_empty()
@@ -375,7 +362,6 @@ pub struct ProjectSession {
     pub owner: Option<crate::SessionClient>,
     #[n(3)]
     pub attached: bool,
-    /// The name `SetSessionName` gave it. Older servers send none.
     #[n(4)]
     #[cbor(default)]
     #[serde(default)]

@@ -26,7 +26,19 @@ gpui = { version = "=0.2.2", default-features = false, features = ["font-kit"] }
 muxy-app-core = { path = "../muxy-app-core" }
 muxy-client = { path = "../muxy-client" }
 muxy-protocol = { path = "../muxy-protocol" }
-rustix = { version = "1.1.4", features = ["system"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs", "system"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gpui = { version = "=0.2.2", default-features = false, features = ["x11", "wayland"] }

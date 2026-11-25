@@ -5,7 +5,6 @@ use gpui::{
     Window, div, px,
 };
 
-/// An extension's modal page.
 pub(crate) struct WebviewModal;
 
 impl OverlayView for WebviewModal {
@@ -23,7 +22,6 @@ impl OverlayView for WebviewModal {
         Placement::OwnBackdrop
     }
 
-    /// The page may keep itself open.
     fn on_dismiss(&self, model: &mut AppModel, cx: &mut Context<AppModel>) -> Dismissal {
         model.dismiss_webview_modal(cx);
         Dismissal::Stay

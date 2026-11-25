@@ -1,4 +1,5 @@
 use gpui::{AnyElement, Context, InteractiveElement, IntoElement, StatefulInteractiveElement};
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
 
@@ -9,9 +10,10 @@ pub(super) fn button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement
     super::titlebar::icon_button(
         "project-layouts",
         Icon::LayoutSplit,
-        tr!("Apply Layout"),
+        model.tooltip(tr!("Apply Layout"), ShortcutId::ApplyLayout),
         model,
     )
+    .aria_label(tr!("Apply Layout"))
     .accessibility_id("project-layouts-button")
     .debug_selector(|| "project-layouts-button".into())
     .on_click(cx.listener(move |model, _, window, cx| {

@@ -24,6 +24,9 @@ impl AppModel {
     }
 
     pub(crate) fn sidebar_background(&self) -> Hsla {
+        if self.sidebar_peeking() {
+            return gpui::transparent_black();
+        }
         #[cfg(target_os = "macos")]
         let available = self.sidebar_vibrancy.is_some();
         #[cfg(not(target_os = "macos"))]
@@ -34,6 +37,7 @@ impl AppModel {
 
 fn enabled(appearance: &Appearance) -> bool {
     appearance.sidebar_expanded
+        && !appearance.sidebar_auto_hide
         && appearance.sidebar_vibrancy
         && appearance.sidebar_vibrancy_level > 0
 }

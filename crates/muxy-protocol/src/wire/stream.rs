@@ -26,7 +26,6 @@ impl<W: Write> Encoder<W> {
         Ok(())
     }
 
-    /// Tells a peer from before V2, in a frame it can read, to update.
     pub fn reject_legacy_peer(&mut self) -> Result<(), WireError> {
         self.writer.write_all(&legacy_version_unsupported())?;
         Ok(())
@@ -49,12 +48,10 @@ impl<R: Read> Decoder<R> {
         }
     }
 
-    /// Rejects larger frames before allocating for them, e.g. from unauthenticated peers.
     pub fn set_payload_limit(&mut self, limit: usize) {
         self.payload_limit = limit;
     }
 
-    /// Reads the next message, skipping those from newer builds that this build ignores.
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<(ChannelId, Message), WireError> {
         loop {

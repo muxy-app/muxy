@@ -11,9 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BETA_PATTERN = re.compile(r"([0-9]+\.[0-9]+\.[0-9]+)-beta\.([1-9][0-9]*)")
 STABLE_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
-# Each channel installs as its own app. Stable replaces Muxy 1.x, which shares its identity.
 APPS = {"beta": ("Muxy Beta", "com.muxy-beta.app"), "stable": ("Muxy", "com.muxy.app")}
-# Muxy 1.x's Sparkle only installs an update that keeps 1.x's EdDSA public key.
+URL_SCHEMES = {"beta": "muxy-beta", "stable": "muxy"}
 SPARKLE_PUBLIC_KEY = "X5YPWvD11Qthw+41DPZQRK8aOYBlPjjfeWW2k3510cY="
 
 
@@ -118,9 +117,9 @@ def stamp_version(root, version):
         lock = replace_once(
             pattern, lambda match: match[1] + version + match[2], lock, name[1]
         )
-    # Only local package versions change. All third-party resolutions stay locked.
-    manifest_path.write_text(manifest)
-    lock_path.write_text(lock)
+    for path, text in ((manifest_path, manifest), (lock_path, lock)):
+        with open(path, "w", newline="\n") as file:
+            file.write(text)
 
 
 def bundle_info(version, build):
@@ -157,6 +156,10 @@ def bundle_info(version, build):
             "CFBundleTypeRole": "Viewer",
             "LSHandlerRank": "Alternate",
             "LSItemContentTypes": ["public.folder"],
+        }],
+        "CFBundleURLTypes": [{
+            "CFBundleURLName": identifier,
+            "CFBundleURLSchemes": [URL_SCHEMES[channel(version)]],
         }],
         **sparkle,
     }
@@ -198,7 +201,6 @@ def update_metadata(version, repository, directory):
 
 def check_build(version, executable):
     channel(version)
-    # The first run of an x86_64 build on Apple silicon waits for Rosetta to translate it.
     metadata = json.loads(subprocess.check_output([str(executable), "--build-info"], timeout=60))
     if metadata != {"version": version, **build_metadata()}:
         raise ValueError("Packaged executable build metadata does not match this release")

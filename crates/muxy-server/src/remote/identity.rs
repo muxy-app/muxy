@@ -3,7 +3,6 @@ use muxy_protocol::transport::tls::TlsIdentity;
 
 use crate::ServerError;
 
-/// A self-signed certificate; phones trust it by pinning its fingerprint.
 pub(super) fn generate() -> Result<TlsIdentity, ServerError> {
     let failed = |error: rcgen::Error| {
         ServerError::new(

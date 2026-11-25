@@ -1,18 +1,13 @@
-//! Durable whole-file replacement.
-
 use std::fmt;
-use std::fs::{File, Permissions};
+use std::fs::{self, File};
 use std::io::{self, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-/// An atomic write that failed, and whether `path` already holds the new
-/// content.
+use crate::files;
+
 #[derive(Debug)]
 pub struct WriteError {
     pub error: io::Error,
-    /// The new file replaced the old one, but syncing its folder failed, so
-    /// the replacement may not survive a crash.
     pub renamed: bool,
 }
 
@@ -43,13 +38,10 @@ impl std::error::Error for WriteError {
     }
 }
 
-/// Replaces `path` with `bytes`, created with `mode`, so readers and crashes
-/// see either the old file or the new one.
 pub fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> Result<(), WriteError> {
     write_atomic_with(path, mode, |file| file.write_all(bytes))
 }
 
-/// Like [`write_atomic`], with `write` filling the new file.
 pub fn write_atomic_with(
     path: &Path,
     mode: u32,
@@ -69,30 +61,33 @@ fn replace(
         .file_name()
         .ok_or_else(|| io::Error::other("an atomic write needs a file name"))?;
     let prefix = format!(".{}.", name.to_string_lossy());
-    let mut temporary = tempfile::Builder::new()
-        .prefix(&prefix)
-        .suffix(".tmp")
-        .permissions(Permissions::from_mode(mode))
-        .tempfile_in(directory)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(&prefix).suffix(".tmp");
+    #[cfg(unix)]
+    builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(mode));
+    #[cfg(windows)]
+    let _ = mode;
+    let mut temporary = builder.tempfile_in(directory)?;
     write(temporary.as_file_mut())?;
     temporary.as_file().sync_all()?;
-    temporary.persist(path).map_err(|error| error.error)?;
+    let temporary = temporary.into_temp_path();
+    files::replace_file(&temporary, path)?;
+    let _renamed = temporary.keep();
     sync(path).map_err(|error| WriteError {
         error,
         renamed: true,
     })
 }
 
-/// Makes a rename or removal in `path`'s folder durable.
 pub fn sync_parent(path: &Path) -> io::Result<()> {
-    let directory = File::open(parent(path)?)?;
-    if !directory.metadata()?.is_dir() {
+    let directory = parent(path)?;
+    if !fs::metadata(directory)?.is_dir() {
         return Err(io::Error::other(format!(
             "{} is not in a directory",
             path.display()
         )));
     }
-    directory.sync_all()
+    files::sync_directory(directory)
 }
 
 fn parent(path: &Path) -> io::Result<&Path> {
@@ -109,27 +104,28 @@ fn parent(path: &Path) -> io::Result<&Path> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::MetadataExt;
 
     fn entries(directory: &Path) -> io::Result<Vec<String>> {
-        let mut names = std::fs::read_dir(directory)?
+        let mut names = fs::read_dir(directory)?
             .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
             .collect::<io::Result<Vec<_>>>()?;
         names.sort();
         Ok(names)
     }
 
+    #[cfg(unix)]
     #[test]
     fn writes_the_content_with_the_given_mode_and_leaves_only_the_file() -> io::Result<()> {
+        use std::os::unix::fs::MetadataExt;
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("state.json");
-        std::fs::write(&path, "old")?;
+        fs::write(&path, "old")?;
         write_atomic(&path, b"new", 0o600)?;
-        assert_eq!(std::fs::read(&path)?, b"new");
-        assert_eq!(std::fs::metadata(&path)?.mode() & 0o777, 0o600);
+        assert_eq!(fs::read(&path)?, b"new");
+        assert_eq!(fs::metadata(&path)?.mode() & 0o777, 0o600);
         write_atomic_with(&path, 0o644, |file| file.write_all(b"newer"))?;
-        assert_eq!(std::fs::read(&path)?, b"newer");
-        assert_eq!(std::fs::metadata(&path)?.mode() & 0o777, 0o644);
+        assert_eq!(fs::read(&path)?, b"newer");
+        assert_eq!(fs::metadata(&path)?.mode() & 0o777, 0o644);
         assert_eq!(entries(directory.path())?, ["state.json"]);
         Ok(())
     }
@@ -138,14 +134,14 @@ mod tests {
     fn a_failed_write_keeps_the_old_file_and_removes_the_temporary_one() -> io::Result<()> {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("state.json");
-        std::fs::write(&path, "old")?;
+        fs::write(&path, "old")?;
         let error = write_atomic_with(&path, 0o600, |file| {
             file.write_all(b"partial")?;
             Err(io::Error::other("serializing failed"))
         })
         .expect_err("the writer failed");
         assert!(!error.renamed);
-        assert_eq!(std::fs::read(&path)?, b"old");
+        assert_eq!(fs::read(&path)?, b"old");
         assert_eq!(entries(directory.path())?, ["state.json"]);
         Ok(())
     }
@@ -154,8 +150,8 @@ mod tests {
     fn a_failed_rename_removes_the_temporary_file() -> io::Result<()> {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("state");
-        std::fs::create_dir(&path)?;
-        std::fs::write(path.join("inside"), "keeps the folder non-empty")?;
+        fs::create_dir(&path)?;
+        fs::write(path.join("inside"), "keeps the folder non-empty")?;
         let error = write_atomic(&path, b"new", 0o600).expect_err("a folder can't be replaced");
         assert!(!error.renamed);
         assert_eq!(entries(directory.path())?, ["state"]);
@@ -166,7 +162,7 @@ mod tests {
     fn a_failed_folder_sync_reports_that_the_file_was_already_replaced() -> io::Result<()> {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("state.json");
-        std::fs::write(&path, "old")?;
+        fs::write(&path, "old")?;
         let error = replace(
             &path,
             0o600,
@@ -175,7 +171,7 @@ mod tests {
         )
         .expect_err("the folder sync failed");
         assert!(error.renamed);
-        assert_eq!(std::fs::read(&path)?, b"new");
+        assert_eq!(fs::read(&path)?, b"new");
         assert_eq!(entries(directory.path())?, ["state.json"]);
         Ok(())
     }
@@ -185,10 +181,10 @@ mod tests {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("muxy.zsh");
         for leftover in ["muxy.tmp-1", ".muxy.zsh.tmp", ".muxy.zsh.AAAAAA.tmp"] {
-            std::fs::write(directory.path().join(leftover), "left by a crash")?;
+            fs::write(directory.path().join(leftover), "left by a crash")?;
         }
         write_atomic(&path, b"hooks", 0o600)?;
-        assert_eq!(std::fs::read(&path)?, b"hooks");
+        assert_eq!(fs::read(&path)?, b"hooks");
         Ok(())
     }
 }

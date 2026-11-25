@@ -26,7 +26,6 @@ impl FakeGit {
 }
 
 impl FakeGit {
-    /// Records `action` and decodes the next scripted reply.
     fn answer<T>(
         &self,
         action: GitAction,

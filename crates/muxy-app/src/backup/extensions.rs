@@ -1,6 +1,3 @@
-//! 1.x kept installed extensions in `~/.config/muxy/extensions` and whether
-//! each is on in its preferences.
-
 use std::collections::BTreeSet;
 use std::fs;
 use std::io;
@@ -14,15 +11,12 @@ use super::{Files, archive};
 
 const PENDING: &str = "pending-extensions";
 
-/// 1.x packages this profile lacks, copied beside it until the import is
-/// staged.
 pub(super) struct Copies {
     folder: TempDir,
     pub(super) names: Vec<String>,
     pub(super) enabled: Vec<String>,
 }
 
-/// A package that can't be loaded or copied is reported and left out.
 pub(super) fn copy_legacy(
     profile: &Path,
     root: &Path,
@@ -70,7 +64,6 @@ pub(super) fn copy_legacy(
     Ok((!copies.names.is_empty()).then_some(copies))
 }
 
-/// Returns how many links were left out because they leave the package.
 fn copy_package(package: &Path, name: &str, destination: &Path) -> Result<usize> {
     if Extension::load(package)?.name != name {
         return Err("name does not match its folder".into());
@@ -108,8 +101,6 @@ pub(super) fn enable(profile: &Path, files: &mut Files, names: &[String]) -> Res
     Ok(())
 }
 
-/// Moves the copies to where the next launch installs them from, replacing
-/// earlier ones.
 pub(super) fn stage(profile: &Path, copies: Option<&Copies>) -> Result<()> {
     cancel(profile)?;
     if let Some(copies) = copies {
@@ -118,8 +109,6 @@ pub(super) fn stage(profile: &Path, copies: Option<&Copies>) -> Result<()> {
     Ok(())
 }
 
-/// An extension this profile already has stays. When one move fails, the
-/// ones before it are moved back.
 pub(super) fn install(profile: &Path) -> Result<()> {
     let pending = profile.join(PENDING);
     let entries = match fs::read_dir(&pending) {
@@ -150,7 +139,6 @@ pub(super) fn install(profile: &Path) -> Result<()> {
     cancel(profile)
 }
 
-/// Staged packages that installing would add, for recovery to take back.
 pub(super) fn additions(profile: &Path) -> Result<Vec<String>> {
     let entries = match fs::read_dir(profile.join(PENDING)) {
         Ok(entries) => entries,
@@ -171,7 +159,6 @@ pub(super) fn additions(profile: &Path) -> Result<Vec<String>> {
     Ok(names)
 }
 
-/// Moves extensions an interrupted restore added back to the staged ones.
 pub(super) fn take_back(profile: &Path, names: &[String]) -> Result<()> {
     let pending = profile.join(PENDING);
     for name in names {
@@ -197,15 +184,18 @@ fn remove_dir(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Keeps only relative links that stay inside `root`, and only regular files.
+#[cfg_attr(windows, allow(clippy::only_used_in_recursion))]
 fn copy(from: &Path, to: &Path, root: &Path, dropped: &mut usize) -> io::Result<()> {
     let metadata = fs::symlink_metadata(from)?;
     if metadata.file_type().is_symlink() {
-        let target = fs::read_link(from)?;
-        if target.is_relative()
-            && fs::canonicalize(from).is_ok_and(|resolved| resolved.starts_with(root))
+        #[cfg(unix)]
         {
-            return std::os::unix::fs::symlink(target, to);
+            let target = fs::read_link(from)?;
+            if target.is_relative()
+                && fs::canonicalize(from).is_ok_and(|resolved| resolved.starts_with(root))
+            {
+                return std::os::unix::fs::symlink(target, to);
+            }
         }
         *dropped += 1;
         return Ok(());

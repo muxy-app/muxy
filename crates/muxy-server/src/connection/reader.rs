@@ -216,6 +216,22 @@ impl Requests {
                     .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
                 Ok(None)
             }
+            RequestBody::ListEntries(directory) => {
+                let output = Arc::clone(connection);
+                self.files_readers
+                    .try_spawn(move || {
+                        if output.is_closed() {
+                            return;
+                        }
+                        let body = match crate::files::entries(&directory) {
+                            Ok(entries) => ReplyBody::Entries(entries),
+                            Err(error) => ReplyBody::Error(error.to_reply()),
+                        };
+                        output.push_control(Message::Reply { id, body });
+                    })
+                    .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
+                Ok(None)
+            }
             RequestBody::Git(request) => {
                 let watch = Arc::clone(&self.git_watch);
                 let registry = Arc::clone(&self.registry);
@@ -459,7 +475,8 @@ fn ordered_request(
         | RequestBody::Exec(_)
         | RequestBody::CancelExec(_)
         | RequestBody::Git(_)
-        | RequestBody::Files(_) => {
+        | RequestBody::Files(_)
+        | RequestBody::ListEntries(_) => {
             return Err(ServerError::new(
                 ErrorCode::BadRequest,
                 "request was routed to the wrong worker",
@@ -550,6 +567,16 @@ fn ordered_request(
         RequestBody::StreamImages => {
             connection.stream_images();
             ReplyBody::ImagesStreamed
+        }
+        RequestBody::ShareImages => {
+            if !muxy_protocol::shared_memory::supported() {
+                return Err(ServerError::new(
+                    ErrorCode::Unsupported,
+                    "this server can't share images in memory",
+                ));
+            }
+            connection.share_images();
+            ReplyBody::ImagesShared
         }
         RequestBody::ImageFrames {
             channel,
@@ -739,8 +766,6 @@ fn attach(
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| ServerError::new(ErrorCode::BadRequest, "attachment IDs exhausted"))?,
     );
-    // The session replies straight to the connection, and the client may use the
-    // channel as soon as it reads that reply.
     last_channel.store(channel.0, Ordering::Release);
     let sink = AttachmentSink::outbox(OutboxSink::new(connection, channel, session));
     connection.attach(

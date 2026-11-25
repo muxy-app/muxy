@@ -1,4 +1,3 @@
-# Restore the user's startup directory before zsh reads the remaining startup files.
 if [[ ${MUXY_ZDOTDIR_SET-} == 1 ]]; then
     export ZDOTDIR=$MUXY_ORIGINAL_ZDOTDIR
 else

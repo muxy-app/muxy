@@ -26,10 +26,7 @@ use super::{
 pub(crate) enum PaneEvent {
     Focused,
     OpenLink(muxy_app_core::opener::Target),
-    /// A link on another computer, which only its server can look up.
     ResolveLink(super::links::Candidate),
-    /// Files or an image for a terminal on another computer, which can't
-    /// reach this computer's.
     Upload(crate::model::remote_files::Upload),
     ContextMenu(gpui::Point<gpui::Pixels>),
     SelectionCopied,
@@ -40,29 +37,20 @@ pub(crate) enum PaneEvent {
     Mouse(ChannelId, MouseEvent),
     CellSize(ChannelId, muxy_protocol::CellSize),
     Title(String),
-    /// The color the pane's header takes from the terminal changed.
     HeaderBackground,
     Bell,
     History(HistoryRequest),
-    /// Frames of an image on screen whose pixels the pane doesn't have yet.
-    ImageFrames {
-        image: u32,
-        keys: Vec<u64>,
-    },
-    /// A frame is applied, its images ready to draw.
+    ImageFrames { image: u32, keys: Vec<u64> },
     Ack(ChannelId, u64),
     Search(find::SearchRequest),
+    BrowsePaths,
+    PathChosen(String),
 }
 
 gpui::actions!(terminal, [CloseFind]);
 
-/// An animation never repaints sooner than this after its last frame.
 const SHORTEST_IMAGE_FRAME: Duration = Duration::from_millis(8);
-/// How long a pane waits before it asks again for frames it couldn't read.
 const IMAGE_RETRY: Duration = Duration::from_secs(1);
-/// How long scrolling has to pause before a view left less than a row above
-/// the bottom returns to it. Longer than the gap between the events of one
-/// scroll gesture, so the view never moves under a scroll still going on.
 const SCROLL_SETTLE: Duration = Duration::from_millis(200);
 
 pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>) {
@@ -72,12 +60,9 @@ pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>
     );
 }
 
-/// What a pane shows. It reads as the grid on screen.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Screen {
-    /// A terminal attached on this server.
     Attached(ServerId, AttachedTerminal),
-    /// The last screen of a terminal no longer attached, or a saved one.
     Detached(RunGrid),
 }
 
@@ -134,11 +119,8 @@ pub(crate) struct TerminalPane {
     pub(crate) render_count: usize,
     pub(crate) sent_cell_size: Option<(ChannelId, muxy_protocol::CellSize)>,
     pub(crate) images: element::images::Textures,
-    /// Repaints when an animation's next frame is due.
     image_animation: Option<(std::time::Instant, Task<()>)>,
-    /// Repaints to ask again for frames a failed request didn't bring.
     image_retry: Option<Task<()>>,
-    /// The frame to acknowledge once textures of the pixels it brought are made.
     unacked: Option<(ChannelId, u64)>,
     pub(crate) rows: std::cell::RefCell<element::Rows>,
     pub(crate) shades: element::shade::Textures,
@@ -149,6 +131,7 @@ pub(crate) struct TerminalPane {
     pub(crate) scroll: Scroll,
     pub(crate) find: Option<find::Find>,
     pub(crate) find_refresh: Option<Task<()>>,
+    pub(crate) insert_path: Option<super::insert_path::InsertPath>,
     pub(crate) selection: Option<Selection>,
     selection_rows: Vec<Option<SelectedRow>>,
     selecting: Option<(Selection, usize)>,
@@ -168,7 +151,6 @@ pub(crate) struct TerminalPane {
     pub(crate) native_visible: bool,
     #[cfg(target_os = "macos")]
     pub(crate) native_scroll: Option<muxy_ui::native_scroll::NativeScrollView>,
-    /// The window the native scroll view lives in.
     #[cfg(target_os = "macos")]
     native_scroll_window: Option<gpui::WindowId>,
     #[cfg(target_os = "macos")]
@@ -179,9 +161,9 @@ pub(crate) struct TerminalPane {
     pub(crate) focused: bool,
     pub(crate) cursor_blink: super::cursor::CursorBlink,
     pub(crate) corner_radius: gpui::Pixels,
-    /// A pane header sits above the terminal, so only its bottom is rounded.
     pub(crate) below_header: bool,
     viewport: Option<Size>,
+    session_size: Option<Size>,
     pub(crate) palette: Palette,
     header_background: Option<u32>,
     pub(crate) background_opacity: f32,
@@ -216,8 +198,6 @@ impl TerminalPane {
         }
     }
 
-    /// The background and text colors of the pane's header: the color the
-    /// program paints the top row in, or the terminal's own background.
     pub(crate) fn header_colors(&self) -> (gpui::Hsla, gpui::Hsla) {
         let background = self.header_background.unwrap_or(self.palette.background);
         let foreground = super::colors::readable_on(
@@ -234,8 +214,6 @@ impl TerminalPane {
         )
     }
 
-    /// The title the pane's header shows: the program's title, else what runs
-    /// in it, its shell included. `None` until the terminal reports either.
     pub(crate) fn header_title(&self) -> Option<String> {
         (self.process.is_some() || !self.title.trim().is_empty()).then(|| {
             muxy_app_core::title::derive_for_header(
@@ -246,7 +224,6 @@ impl TerminalPane {
         })
     }
 
-    /// The folder the pane's header shows beside its title.
     pub(crate) fn header_directory(&self, home: Option<&std::path::Path>) -> Option<String> {
         muxy_app_core::title::directory_for_header(&self.directory, home)
     }
@@ -293,6 +270,7 @@ impl TerminalPane {
             link_hover: super::links::Hover::default(),
             scroll: Scroll::default(),
             find: None,
+            insert_path: None,
             find_refresh: None,
             selection: None,
             selection_rows: Vec::new(),
@@ -325,6 +303,7 @@ impl TerminalPane {
             corner_radius: px(0.0),
             below_header: false,
             viewport: None,
+            session_size: None,
             palette,
             header_background: None,
             background_opacity: 1.0,
@@ -339,7 +318,6 @@ impl TerminalPane {
         }
     }
 
-    /// The font size the user zoomed to, if it isn't the configured one.
     pub(crate) fn zoomed_font_size(&self) -> Option<f32> {
         (self.terminal.font_size.to_bits() != self.configured_font_size.to_bits())
             .then_some(self.terminal.font_size)
@@ -350,11 +328,25 @@ impl TerminalPane {
         path.is_absolute().then_some(path)
     }
 
+    fn key_context(&self) -> &'static str {
+        if self.find.is_some() {
+            "TerminalFindOpen"
+        } else {
+            "TerminalPane"
+        }
+    }
+
+    pub(super) fn server_directory(&self) -> Option<String> {
+        self.directory
+            .is_absolute()
+            .then(|| String::from_utf8(self.directory.0.clone()).ok())
+            .flatten()
+    }
+
     pub(crate) fn channel(&self) -> Option<ChannelId> {
         self.attachment().map(|(_, channel)| channel)
     }
 
-    /// The server that attached this pane, and its channel there.
     pub(crate) fn attachment(&self) -> Option<(ServerId, ChannelId)> {
         match &self.grid {
             Some(Screen::Attached(server, terminal)) => Some((*server, terminal.channel())),
@@ -414,6 +406,7 @@ impl TerminalPane {
     ) -> Option<Size> {
         let live = &attachment.terminal.grid;
         let resized = self.viewport.filter(|size| *size != live.size);
+        self.session_size = Some(resized.unwrap_or(live.size));
         self.reset_input();
         self.clear_selection();
         let history = if resized.is_none() && self.keeps_scroll(live) {
@@ -460,7 +453,6 @@ impl TerminalPane {
             && !scrolls_on_output()
     }
 
-    /// Applies the attached terminal's next frame; returns the sequence number to acknowledge.
     pub(crate) fn apply(&mut self, frame: &ScreenFrame, cx: &mut Context<Self>) -> Option<u64> {
         let _span = crate::profiler::span(crate::profiler::Metric::FrameApply);
         crate::profiler::count(crate::profiler::Metric::FrameRows, frame.rows.len());
@@ -476,7 +468,11 @@ impl TerminalPane {
         }
         let output_changed = !frame.rows.is_empty() || terminal.grid.cursor != frame.cursor;
         let seq = terminal.apply(frame);
-        let conversions = self.images.convert(&terminal.grid.graphics);
+        self.session_size = Some(frame.size);
+        let shown: Vec<_> = std::iter::once(&terminal.grid.graphics)
+            .chain(self.scroll.view.as_ref().map(|view| &view.graphics))
+            .collect();
+        let conversions = self.images.convert(&shown);
         let channel = terminal.channel();
         if output_changed && self.terminal.options.scroll_on_output {
             self.scroll.bottom();
@@ -490,7 +486,7 @@ impl TerminalPane {
         }
         self.validate_selection();
         cx.notify();
-        if conversions.is_empty() {
+        if conversions.is_empty() && self.images.idle() {
             return Some(seq);
         }
         self.unacked = Some((channel, seq));
@@ -498,9 +494,6 @@ impl TerminalPane {
         None
     }
 
-    /// Makes textures of pixels that came with the screen on a background
-    /// thread. A frame that brought them is acknowledged once they are all
-    /// made, so the server sends no newer screens than the pane can draw.
     pub(crate) fn convert_images(
         conversions: Vec<element::images::Conversion>,
         cx: &mut Context<Self>,
@@ -545,7 +538,6 @@ impl TerminalPane {
         }
     }
 
-    /// Moves the view to `rows` above the bottom.
     pub(super) fn scroll_to(&mut self, rows: f64, cx: &mut Context<Self>) {
         if let Some(grid) = &self.grid {
             let height = usize::from(self.viewport.unwrap_or(grid.size).rows);
@@ -562,11 +554,6 @@ impl TerminalPane {
         }
     }
 
-    /// Returns the view to the bottom once scrolling stops less than a row
-    /// above it. A stray scroll of a few pixels would otherwise leave a copy
-    /// of the screen that looks live while new output stays out of sight.
-    /// The view stays while a drag is under way, or while it holds a
-    /// selection the screen would lose.
     pub(super) fn settle_scroll(&mut self, cx: &mut Context<Self>) {
         if !self.scroll.rests_at_bottom() {
             self.scroll_settle = None;
@@ -587,8 +574,6 @@ impl TerminalPane {
         }));
     }
 
-    /// Whether the selection, if any, covers the same text on the screen as
-    /// it does in the scrolled view.
     fn screen_keeps_selection(&self) -> bool {
         self.selection.is_none_or(|selection| {
             self.grid
@@ -621,7 +606,6 @@ impl TerminalPane {
         }));
     }
 
-    /// Repaints once `next` comes, when an animation shows its next frame.
     pub(crate) fn animate_images(
         &mut self,
         next: Option<std::time::Instant>,
@@ -703,8 +687,6 @@ impl TerminalPane {
         self.sync_native_scroll();
     }
 
-    /// Records whether app content leaves the pane uncovered, and applies it to
-    /// every native view the pane owns.
     pub(crate) fn set_native_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
         if self.native_visible != visible {
             self.native_visible = visible;
@@ -721,8 +703,6 @@ impl TerminalPane {
         }
     }
 
-    /// Whether the history can be scrolled with a scroll bar: the pane is
-    /// uncovered, live, and the program doesn't read the wheel itself.
     pub(super) fn scrolls_history(&self) -> bool {
         self.native_visible
             && !self.reports_wheel()
@@ -783,6 +763,15 @@ impl TerminalPane {
         if let Some(request) = self.scroll.receive(request, result, height) {
             cx.emit(PaneEvent::History(request));
         }
+        let shown: Vec<_> = self
+            .grid
+            .as_deref()
+            .map(|grid| &grid.graphics)
+            .into_iter()
+            .chain(self.scroll.view.as_ref().map(|view| &view.graphics))
+            .collect();
+        let conversions = self.images.convert(&shown);
+        Self::convert_images(conversions, cx);
         if failed {
             if let Some(find) = &mut self.find {
                 find.results.loading_history = false;
@@ -992,22 +981,39 @@ impl TerminalPane {
         }
         self.viewport = Some(size);
         if self.attachment().is_some() {
-            self.scroll.reset();
-            self.saved_history = None;
-        } else {
-            self.scroll.resized(usize::from(size.rows));
-            self.saved_history = None;
-            self.prepare_saved_history(cx);
+            self.resize_session(size, cx);
+            return;
         }
-        if self.attachment().is_some()
-            && let Some(grid) = &mut self.grid
-        {
+        self.scroll.resized(usize::from(size.rows));
+        self.saved_history = None;
+        self.prepare_saved_history(cx);
+        self.validate_selection();
+        cx.emit(PaneEvent::Viewport(size));
+        self.restart_find(cx);
+        cx.notify();
+    }
+
+    fn resize_session(&mut self, size: Size, cx: &mut Context<Self>) {
+        self.session_size = Some(size);
+        self.scroll.reset();
+        self.saved_history = None;
+        if let Some(grid) = &mut self.grid {
             grid.resize(size);
         }
         self.validate_selection();
         cx.emit(PaneEvent::Viewport(size));
         self.restart_find(cx);
         cx.notify();
+    }
+
+    fn reclaim_size(&mut self, cx: &mut Context<Self>) {
+        if self.state == PaneState::Live
+            && self.attachment().is_some()
+            && let Some(viewport) = self.viewport
+            && self.session_size.is_some_and(|size| size != viewport)
+        {
+            self.resize_session(viewport, cx);
+        }
     }
 
     pub(crate) fn displayed_grid(&self) -> Option<&RunGrid> {
@@ -1081,7 +1087,9 @@ impl TerminalPane {
         if self.state != PaneState::Live {
             return;
         }
-        if !active {
+        if active {
+            self.reclaim_size(cx);
+        } else {
             self.composition = super::ime::Composition::default();
             if let Some(channel) = self.channel() {
                 for event in self.keyboard.release_all() {
@@ -1169,13 +1177,28 @@ impl TerminalPane {
             return;
         };
         let size = self.viewport.unwrap_or(grid.size);
+        let columns = (position.x - bounds.origin.x) / cell.width;
+        let rows = (position.y - bounds.origin.y) / cell.height;
+        let pixel = self
+            .sent_cell_size
+            .filter(|(sent, _)| *sent == channel && self.input_modes.mouse_pixels)
+            .map(|(_, physical)| {
+                let axis = |cells: f32, count: u16, cell: u16| {
+                    let end = f32::from(count.max(1)) * f32::from(cell) - 1.0;
+                    (cells * f32::from(cell)).floor().clamp(0.0, end.max(0.0)) as u32
+                };
+                [
+                    axis(columns, size.cols, physical.width),
+                    axis(rows, size.rows, physical.height),
+                ]
+            });
         let event = MouseEvent {
             action,
             button: button.map(mouse_button),
-            column: ((position.x - bounds.origin.x) / cell.width)
+            column: columns
                 .floor()
                 .clamp(0.0, f32::from(size.cols.saturating_sub(1))) as u16,
-            row: ((position.y - bounds.origin.y) / cell.height)
+            row: rows
                 .floor()
                 .clamp(0.0, f32::from(size.rows.saturating_sub(1))) as u16,
             scroll,
@@ -1184,6 +1207,7 @@ impl TerminalPane {
                 alt: modifiers.alt,
                 ctrl: modifiers.control,
             },
+            pixel,
         };
         if action == MouseAction::Motion && self.last_mouse == Some(event) {
             return;
@@ -1193,6 +1217,7 @@ impl TerminalPane {
     }
 
     fn mouse_wheel(&mut self, event: &gpui::ScrollWheelEvent, cx: &mut Context<Self>) {
+        self.reclaim_size(cx);
         let (rows, multiplier) = match event.delta {
             gpui::ScrollDelta::Pixels(delta) => (
                 f32::from(delta.y) / self.cell_height.max(1.0),
@@ -1313,6 +1338,7 @@ impl TerminalPane {
     ) {
         self.focus.focus(window);
         cx.emit(PaneEvent::Focused);
+        self.reclaim_size(cx);
         if event.button == MouseButton::Left && self.press_scrollbar(event.position, cx) {
             self.stop_selecting();
             cx.stop_propagation();
@@ -1365,7 +1391,7 @@ impl TerminalPane {
                 anchor: point,
                 head: point,
             },
-            2 => Selection::word(point, grid),
+            2 => Selection::word(point, grid, &self.terminal.options.selection_word_chars),
             _ => Selection::row(point, grid),
         };
         self.selecting = Some((selection, event.click_count));
@@ -1376,6 +1402,12 @@ impl TerminalPane {
         if !self.native_visible {
             self.stop_selecting();
             return;
+        }
+        if self
+            .geometry
+            .is_some_and(|(bounds, _)| bounds.contains(&event.position))
+        {
+            self.reclaim_size(cx);
         }
         if self.scrollbar_dragging() {
             if event.pressed_button == Some(MouseButton::Left) {
@@ -1430,7 +1462,7 @@ impl TerminalPane {
                 anchor: point,
                 head: point,
             },
-            2 => Selection::word(point, grid),
+            2 => Selection::word(point, grid, &self.terminal.options.selection_word_chars),
             _ => Selection::row(point, grid),
         };
         let selection = if target.anchor < anchor.anchor {
@@ -1615,7 +1647,6 @@ impl TerminalPane {
         cx.stop_propagation();
     }
 
-    /// Whether another computer's server runs this terminal.
     pub(crate) fn remote(&self) -> bool {
         self.attachment()
             .is_some_and(|(server, _)| !server.is_local())
@@ -1640,7 +1671,6 @@ impl TerminalPane {
         }
     }
 
-    /// Pastes dropped files' paths; another computer gets the files first.
     pub(crate) fn drop_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         if self.remote() {
             if self.state == PaneState::Live {
@@ -1653,11 +1683,16 @@ impl TerminalPane {
         }
     }
 
-    /// Pastes paths quoted for a shell.
+    pub(crate) fn path_quoting(&self) -> Option<muxy_client::input::PathQuoting> {
+        muxy_client::input::PathQuoting::for_process(self.process.as_ref())
+    }
+
     pub(crate) fn paste_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         if let Some(grid) = &self.grid
-            && let Some(bytes) = muxy_client::input::paths(
+            && let Some(quoting) = self.path_quoting()
+            && let Some(bytes) = muxy_client::input::quoted_paths(
                 paths,
+                quoting,
                 if self.server_input {
                     muxy_protocol::Modes::default()
                 } else {
@@ -1673,11 +1708,28 @@ impl TerminalPane {
         }
     }
 
+    pub(super) fn type_path(&mut self, path: &ServerPath, cx: &mut Context<Self>) -> bool {
+        let modes = match &self.grid {
+            Some(grid) if !self.server_input => grid.modes,
+            _ => muxy_protocol::Modes::default(),
+        };
+        let Some(bytes) = muxy_client::input::typed_path(path, self.path_quoting(), modes) else {
+            return false;
+        };
+        if self.server_input {
+            self.send_clipboard(&bytes, cx);
+        } else {
+            self.send_paste(&bytes, cx);
+        }
+        true
+    }
+
     fn prepare_input(&mut self, cx: &mut Context<Self>) -> Option<ChannelId> {
         if self.state != PaneState::Live {
             return None;
         }
         let channel = self.channel()?;
+        self.reclaim_size(cx);
         if self.terminal.options.scroll_on_keystroke
             && (self.scroll.view.is_some() || self.scroll.elastic != 0.0)
         {
@@ -1709,7 +1761,6 @@ impl TerminalPane {
         if !bytes.is_empty()
             && let Some(channel) = self.prepare_input(cx)
         {
-            // Each bounded chunk is a complete paste, so disconnects cannot leave an open fence.
             for chunk in input::paste_chunks(bytes) {
                 cx.emit(PaneEvent::TerminalInput(
                     channel,
@@ -1811,14 +1862,28 @@ impl TerminalPane {
                     self.send_paste(&bytes, cx);
                 }
             }
+            TerminalAction::Reload => {
+                window.dispatch_action(Box::new(crate::views::workspace::ReloadConfiguration), cx);
+            }
+            action => self.perform(&action, cx),
+        }
+        cx.notify();
+        cx.stop_propagation();
+        true
+    }
+
+    pub(crate) fn perform(
+        &mut self,
+        action: &muxy_app_core::settings::TerminalAction,
+        cx: &mut Context<Self>,
+    ) {
+        use muxy_app_core::settings::TerminalAction;
+        match action {
             TerminalAction::Copy => {
                 self.copy_selection(cx);
             }
             TerminalAction::Paste => self.paste_clipboard(cx),
             TerminalAction::SelectAll => self.select_all(cx),
-            TerminalAction::Reload => {
-                window.dispatch_action(Box::new(crate::views::workspace::ReloadConfiguration), cx);
-            }
             TerminalAction::ClearScreen => {
                 if self.state == PaneState::Live
                     && let Some(channel) = self.channel()
@@ -1839,7 +1904,7 @@ impl TerminalPane {
                 if let Some(grid) = &self.grid {
                     let rows = f32::from(self.viewport.unwrap_or(grid.size).rows);
                     self.scroll_rows(
-                        if action == TerminalAction::ScrollPageUp {
+                        if *action == TerminalAction::ScrollPageUp {
                             rows
                         } else {
                             -rows
@@ -1848,13 +1913,15 @@ impl TerminalPane {
                     );
                 }
             }
-            TerminalAction::IncreaseFontSize(amount) => self.terminal.zoom(amount),
-            TerminalAction::DecreaseFontSize(amount) => self.terminal.zoom(-amount),
+            TerminalAction::IncreaseFontSize(amount) => self.terminal.zoom(*amount),
+            TerminalAction::DecreaseFontSize(amount) => self.terminal.zoom(-*amount),
             TerminalAction::ResetFontSize => self.terminal.font_size = self.configured_font_size,
+            TerminalAction::Text(_)
+            | TerminalAction::Ignore
+            | TerminalAction::Unbind
+            | TerminalAction::Reload => {}
         }
         cx.notify();
-        cx.stop_propagation();
-        true
     }
 
     #[cfg_attr(
@@ -1897,7 +1964,6 @@ impl TerminalPane {
             return;
         }
         if self.server_input {
-            // Cocoa's selector callback drops GPUI's held flag for nonprinting keys.
             let held = event.is_held || self.keyboard.is_pressed(&event.keystroke.key);
             self.send_key(input::key_event(&event.keystroke, held, option_as_alt), cx);
             cx.stop_propagation();
@@ -1983,11 +2049,7 @@ impl Render for TerminalPane {
                 }
                 pane
             })
-            .key_context(if self.find.is_some() {
-                "TerminalFindOpen"
-            } else {
-                "TerminalPane"
-            })
+            .key_context(self.key_context())
             .on_action(cx.listener(|pane, _: &CloseFind, window, cx| {
                 pane.close_find(window, cx);
                 cx.stop_propagation();
@@ -2033,6 +2095,7 @@ impl Render for TerminalPane {
             .on_key_down(cx.listener(Self::terminal_key_down))
             .on_key_up(cx.listener(Self::terminal_key_up))
             .children(find::bar(self, cx))
+            .children(super::insert_path::popover(self, cx))
             .child(
                 div()
                     .flex_1()
@@ -2052,7 +2115,9 @@ mod tests {
     mod images;
     mod links;
     mod scrollbar;
+    mod selection;
     mod server_input;
+    mod session_size;
     mod settle;
 
     use super::*;
@@ -2096,7 +2161,6 @@ mod tests {
         }
     }
 
-    /// Shows the pane's screen as attached on `server`.
     fn attach_screen(pane: &mut TerminalPane, server: ServerId) {
         pane.grid = pane.grid.take().map(|screen| {
             Screen::Attached(
@@ -2485,6 +2549,7 @@ mod tests {
                     next: None,
                     total_rows: 1,
                     screen: None,
+                    graphics: None,
                 }),
                 cx,
             );
@@ -2624,6 +2689,77 @@ mod tests {
             assert_eq!((events[2].column, events[2].row), (19, 2));
             assert!(events[2].modifiers.shift);
         }
+    }
+
+    #[gpui::test]
+    fn pixel_reporting_sends_device_pixels_and_motion_within_a_cell(cx: &mut TestAppContext) {
+        let (pane, cx) = cx.add_window_view(|_, cx| {
+            TerminalPane::new(
+                Palette::new(true),
+                muxy_app_core::settings::TerminalSettings::default(),
+                cx,
+            )
+        });
+        let reported = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        cx.update(|window, cx| {
+            let events = reported.clone();
+            cx.subscribe(&pane, move |_, event, _| {
+                if let PaneEvent::Mouse(_, event) = event {
+                    events.borrow_mut().push(*event);
+                }
+            })
+            .detach();
+            pane.update(cx, |pane, cx| {
+                prepare_mouse(pane);
+                pane.sent_cell_size = Some((
+                    ChannelId(1),
+                    muxy_protocol::CellSize {
+                        width: 20,
+                        height: 40,
+                    },
+                ));
+                pane.input_modes.mouse_tracking = true;
+                pane.input_modes.mouse_pixels = true;
+                let move_to = |pane: &mut TerminalPane, x: f32, cx: &mut Context<TerminalPane>| {
+                    pane.mouse_move(
+                        &gpui::MouseMoveEvent {
+                            position: point(px(x), px(25.0)),
+                            ..gpui::MouseMoveEvent::default()
+                        },
+                        cx,
+                    );
+                };
+                move_to(pane, 13.0, cx);
+                move_to(pane, 14.6, cx);
+                move_to(pane, 14.6, cx);
+                pane.mouse_down(
+                    &gpui::MouseDownEvent {
+                        button: MouseButton::Left,
+                        position: point(px(500.0), px(500.0)),
+                        ..gpui::MouseDownEvent::default()
+                    },
+                    window,
+                    cx,
+                );
+                pane.input_modes.mouse_pixels = false;
+                move_to(pane, 16.0, cx);
+                move_to(pane, 17.0, cx);
+            });
+        });
+        cx.run_until_parked();
+        let events = reported.borrow();
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| (event.action, event.column, event.row, event.pixel))
+                .collect::<Vec<_>>(),
+            [
+                (MouseAction::Motion, 1, 1, Some([26, 50])),
+                (MouseAction::Motion, 1, 1, Some([29, 50])),
+                (MouseAction::Press, 19, 2, Some([399, 119])),
+                (MouseAction::Motion, 1, 1, None),
+            ]
+        );
     }
 
     #[gpui::test]
@@ -2901,6 +3037,7 @@ mod tests {
                         mouse_tracking: true,
                         alternate_scroll: true,
                         focus_events: true,
+                        mouse_pixels: true,
                     };
                     pane.focus_changed(true, cx);
                     pane.focus_changed(false, cx);

@@ -1,6 +1,3 @@
-//! `muxy config`: reads and changes the desktop app's settings in this
-//! computer's profile, then has a running app apply them.
-
 use std::error::Error;
 use std::ffi::OsString;
 use std::io::{self, Write};
@@ -30,8 +27,6 @@ pub(crate) struct Invocation {
     json: bool,
 }
 
-/// Options come before `--`; everything after it is a literal key or value,
-/// so a value may itself look like an option.
 pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Command> {
     let words: Vec<&str> = arguments
         .iter()
@@ -148,10 +143,8 @@ pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Has a running desktop app apply the files. Whether one did; the app is
-/// never started for this, since it reads them when it starts.
 fn reload_app() -> Result<bool, Box<dyn Error>> {
-    match crate::browser::call_app(RELOAD, Map::new(), false, Duration::ZERO) {
+    match crate::app::call_app(RELOAD, Map::new(), false, Duration::ZERO) {
         Ok(_) => Ok(true),
         Err(error) => match error.downcast_ref::<CallError>() {
             Some(CallError::NotRunning) => Ok(false),

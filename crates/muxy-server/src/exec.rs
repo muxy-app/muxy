@@ -17,16 +17,22 @@ use crate::{Registry, ServerError, connection::Connection};
 
 #[derive(Default)]
 pub(crate) struct Jobs {
-    active: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
-    cancelled: Mutex<BTreeSet<u64>>,
+    state: Arc<Mutex<JobState>>,
+}
+
+#[derive(Default)]
+struct JobState {
+    active: HashMap<u64, Arc<AtomicBool>>,
+    cancelled: BTreeSet<u64>,
 }
 
 impl Drop for Jobs {
     fn drop(&mut self) {
         for cancelled in self
-            .active
+            .state
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .active
             .values()
         {
             cancelled.store(true, Ordering::Release);
@@ -36,34 +42,25 @@ impl Drop for Jobs {
 
 impl Jobs {
     pub(crate) fn cancel(&self, job: u64) {
-        let active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(cancelled) = active.get(&job) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(cancelled) = state.active.get(&job) {
             cancelled.store(true, Ordering::Release);
         } else {
-            // Cancellation may arrive before the background sender transmits Exec.
-            let mut cancelled = self
-                .cancelled
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            cancelled.insert(job);
-            if cancelled.len() > 128 {
-                cancelled.pop_first();
+            state.cancelled.insert(job);
+            if state.cancelled.len() > 128 {
+                state.cancelled.pop_first();
             }
         }
     }
 
     fn register(&self, job: u64) -> Result<Arc<AtomicBool>, ServerError> {
-        let mut active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
-        if active.len() >= 32 || active.contains_key(&job) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.active.len() >= 32 || state.active.contains_key(&job) {
             return Err(error("too many commands or duplicate job ID"));
         }
-        let was_cancelled = self
-            .cancelled
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&job);
+        let was_cancelled = state.cancelled.remove(&job);
         let cancelled = Arc::new(AtomicBool::new(was_cancelled));
-        active.insert(job, Arc::clone(&cancelled));
+        state.active.insert(job, Arc::clone(&cancelled));
         Ok(cancelled)
     }
 
@@ -76,7 +73,7 @@ impl Jobs {
     ) -> Result<(), ServerError> {
         let job = request.job;
         let cancelled = self.register(job)?;
-        let active = Arc::clone(&self.active);
+        let state = Arc::clone(&self.state);
         let spawn = std::thread::Builder::new()
             .name("extension-command".into())
             .spawn(move || {
@@ -89,13 +86,15 @@ impl Jobs {
                     .catalog
                     .project(request.project)
                     .and_then(|project| {
-                        execute(&request, project.directory.as_path(), &cancelled, || {
-                            output.is_closed()
-                        })
+                        let root = project.directory.to_path_buf().map_err(|code| {
+                            ServerError::new(code, "project folder is not valid here")
+                        })?;
+                        execute(&request, &root, &cancelled, || output.is_closed())
                     });
-                active
+                state
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
+                    .active
                     .remove(&job);
                 output.push_control(Message::Reply {
                     id,
@@ -106,9 +105,10 @@ impl Jobs {
                 });
             });
         if let Err(cause) = spawn {
-            self.active
+            self.state
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
+                .active
                 .remove(&job);
             return Err(error(cause));
         }
@@ -116,13 +116,18 @@ impl Jobs {
     }
 }
 
-/// The user's login-shell PATH, which a server started from the app doesn't inherit.
 pub(crate) fn login_path() -> Option<&'static str> {
-    static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    PATH.get_or_init(|| read_login_path(&crate::process::user_shell()))
-        .as_deref()
+    #[cfg(unix)]
+    {
+        static PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+        PATH.get_or_init(|| read_login_path(&crate::process::user_shell()))
+            .as_deref()
+    }
+    #[cfg(windows)]
+    None
 }
 
+#[cfg(unix)]
 fn read_login_path(shell: &Path) -> Option<String> {
     let request = ExecRequest {
         job: 1,
@@ -154,24 +159,88 @@ fn error(cause: impl std::fmt::Display) -> ServerError {
     ServerError::new(ErrorCode::BadRequest, cause.to_string())
 }
 
-/// Launch failures read like main's, since extensions match on the text.
 fn launch_failed(request: &ExecRequest, cause: &io::Error) -> ServerError {
     ServerError::spawn_failed(match request.argv.first() {
-        Some(program) if !program.contains('/') && !on_path(program, request.env.get("PATH")) => {
+        Some(program)
+            if !program.contains(['/', std::path::MAIN_SEPARATOR])
+                && !on_path(program, request.env.get("PATH")) =>
+        {
             format!("command not found: {program}")
         }
         _ => format!("spawn process: {}", os_message(cause)),
     })
 }
 
-/// Whether `program` is an executable file in one of the `PATH` folders,
-/// which is how main finds a command before launching it.
 fn on_path(program: &str, path: Option<&String>) -> bool {
     let path = path.map_or_else(|| std::env::var_os("PATH").unwrap_or_default(), Into::into);
-    crate::process::find_executable(program, std::env::split_paths(&path)).is_some()
+    find_program(program, std::env::split_paths(&path)).is_some()
 }
 
-/// The system's description of an error, without Rust's "(os error N)".
+pub(crate) fn find_program(
+    name: &str,
+    folders: impl IntoIterator<Item = PathBuf>,
+) -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        crate::process::find_executable(name, folders)
+    }
+    #[cfg(windows)]
+    {
+        folders
+            .into_iter()
+            .filter(|folder| !folder.as_os_str().is_empty())
+            .find_map(|folder| program_in(&folder, name))
+    }
+}
+
+#[cfg(windows)]
+fn program_in(folder: &Path, name: &str) -> Option<PathBuf> {
+    let file = folder.join(name);
+    if Path::new(name).extension().is_some() {
+        return (has_program_extension(&file) && crate::spawn::exists(&file)).then_some(file);
+    }
+    program_extensions()
+        .into_iter()
+        .map(|extension| folder.join(format!("{name}{extension}")))
+        .find(|file| crate::spawn::exists(file))
+}
+
+#[cfg(windows)]
+pub(crate) fn has_program_extension(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| {
+        program_extensions().iter().any(|known| {
+            known
+                .get(1..)
+                .is_some_and(|known| extension.eq_ignore_ascii_case(known))
+        })
+    })
+}
+
+#[cfg(windows)]
+fn program_extensions() -> Vec<String> {
+    std::env::var("PATHEXT")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into())
+        .split(';')
+        .filter(|extension| {
+            [".com", ".exe", ".bat", ".cmd"]
+                .iter()
+                .any(|startable| extension.eq_ignore_ascii_case(startable))
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+#[cfg(windows)]
+pub(crate) fn cmd_script(script: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    let mut command = Command::new(Path::new(&system).join(r"System32\cmd.exe"));
+    command.raw_arg("/d /s /c").raw_arg(format!("\"{script}\""));
+    command
+}
+
 fn os_message(error: &io::Error) -> String {
     let text = error.to_string();
     let suffix = error
@@ -181,18 +250,19 @@ fn os_message(error: &io::Error) -> String {
     text.strip_suffix(&suffix).unwrap_or(&text).to_owned()
 }
 
-/// Where a command runs: `~` is the home folder, and relative paths start in
-/// the project folder.
-fn working_directory(root: &Path, cwd: Option<&ServerPath>) -> PathBuf {
-    let Some(path) = cwd.map(ServerPath::as_path) else {
-        return root.to_owned();
+fn working_directory(root: &Path, cwd: Option<&ServerPath>) -> Result<PathBuf, ServerError> {
+    let Some(path) = cwd else {
+        return Ok(root.to_owned());
     };
+    let path = path
+        .to_path_buf()
+        .map_err(|code| ServerError::new(code, "working directory is not valid here"))?;
     if let Ok(relative) = path.strip_prefix("~")
-        && let Some(home) = std::env::home_dir()
+        && let Ok(home) = muxy_core::paths::home_dir()
     {
-        return home.join(relative);
+        return Ok(home.join(relative));
     }
-    root.join(path)
+    Ok(root.join(path))
 }
 
 fn utf8(bytes: &[u8], truncated: &mut bool) -> String {
@@ -226,17 +296,20 @@ fn execute(
         });
     }
     let mut command = if let Some(shell) = &request.shell {
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", shell]);
-        command
+        script_command(shell)
     } else {
-        let mut command = Command::new(&request.argv[0]);
+        let path = request
+            .env
+            .iter()
+            .rfind(|(name, _)| crate::spawn::same_name(std::ffi::OsStr::new(name), "PATH"))
+            .map(|(_, value)| value);
+        let mut command = Command::new(program(&request.argv[0], path));
         command.args(&request.argv[1..]);
         command
     };
     command
         .envs(&request.env)
-        .current_dir(working_directory(root, request.cwd.as_ref()));
+        .current_dir(working_directory(root, request.cwd.as_ref())?);
     let stopped = || cancelled.load(Ordering::Acquire) || disconnected();
     let limits = Limits {
         timeout: Duration::from_millis(u64::from(request.timeout_ms)),
@@ -260,6 +333,34 @@ fn execute(
         truncated,
         cancelled: output.cancelled,
     })
+}
+
+fn program(name: &str, path: Option<&String>) -> PathBuf {
+    #[cfg(windows)]
+    if !name.contains(['/', '\\']) {
+        let path = path.map_or_else(|| std::env::var_os("PATH").unwrap_or_default(), Into::into);
+        if let Some(file) = find_program(
+            name,
+            std::env::split_paths(&path).filter(|folder| folder.is_absolute()),
+        ) {
+            return file;
+        }
+    }
+    #[cfg(unix)]
+    let _ = path;
+    PathBuf::from(name)
+}
+
+#[cfg(unix)]
+fn script_command(script: &str) -> Command {
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", script]);
+    command
+}
+
+#[cfg(windows)]
+fn script_command(script: &str) -> Command {
+    cmd_script(script)
 }
 
 #[cfg(test)]
@@ -302,6 +403,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn login_path_comes_from_the_fallback_shell() {
         let path = read_login_path(Path::new("/bin/sh")).unwrap();
@@ -326,6 +428,109 @@ mod tests {
         for job in 2..1000 {
             jobs.cancel(job);
         }
-        assert!(jobs.cancelled.lock().unwrap().len() <= 128);
+        assert!(jobs.state.lock().unwrap().cancelled.len() <= 128);
+    }
+
+    #[test]
+    fn duplicate_registration_keeps_the_original_cancellation_handle() {
+        let jobs = Jobs::default();
+        let first = jobs.register(1).unwrap();
+        let second = jobs.register(2).unwrap();
+        let duplicate = jobs.register(1).unwrap_err();
+        assert_eq!(duplicate.code(), ErrorCode::BadRequest);
+        assert_eq!(duplicate.message(), "too many commands or duplicate job ID");
+        jobs.cancel(1);
+        assert!(first.load(Ordering::Acquire));
+        assert!(!second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn registration_capacity_preserves_the_running_jobs() {
+        let jobs = Jobs::default();
+        let running: Vec<_> = (1..=32).map(|job| jobs.register(job).unwrap()).collect();
+        jobs.cancel(33);
+        let refused = jobs.register(33).unwrap_err();
+        assert_eq!(refused.code(), ErrorCode::BadRequest);
+        assert_eq!(refused.message(), "too many commands or duplicate job ID");
+        assert!(running.iter().all(|flag| !flag.load(Ordering::Acquire)));
+        for job in 1..=32 {
+            jobs.cancel(job);
+        }
+        assert!(running.iter().all(|flag| flag.load(Ordering::Acquire)));
+    }
+
+    #[test]
+    fn remembered_cancellations_evict_the_smallest_job_id() {
+        let jobs = Jobs::default();
+        jobs.cancel(200);
+        for job in 1..=128 {
+            jobs.cancel(job);
+        }
+        assert!(!jobs.register(1).unwrap().load(Ordering::Acquire));
+        assert!(jobs.register(2).unwrap().load(Ordering::Acquire));
+        assert!(jobs.register(200).unwrap().load(Ordering::Acquire));
+        assert!(!jobs.register(129).unwrap().load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn dropping_jobs_cancels_all_registered_commands() {
+        let jobs = Jobs::default();
+        let first = jobs.register(1).unwrap();
+        let second = jobs.register(2).unwrap();
+        jobs.cancel(1);
+        assert!(!second.load(Ordering::Acquire));
+        drop(jobs);
+        assert!(first.load(Ordering::Acquire));
+        assert!(second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn cancellation_racing_registration_reaches_every_command() {
+        let jobs = Jobs::default();
+        let start = std::sync::Barrier::new(2);
+        let running = std::thread::scope(|scope| {
+            let registering = scope.spawn(|| {
+                start.wait();
+                (1..=32)
+                    .map(|job| {
+                        let flag = jobs.register(job).unwrap();
+                        std::thread::yield_now();
+                        flag
+                    })
+                    .collect::<Vec<_>>()
+            });
+            scope.spawn(|| {
+                start.wait();
+                for job in 1..=32 {
+                    jobs.cancel(job);
+                    std::thread::yield_now();
+                }
+            });
+            registering.join().unwrap()
+        });
+        assert!(running.iter().all(|flag| flag.load(Ordering::Acquire)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_programs_are_found_with_pathext_and_missing_ones_read_like_main() {
+        let root = TestDirectory::new();
+        std::fs::write(root.path().join("tool.cmd"), "@echo shim %1").unwrap();
+        let path = root.path().to_str().unwrap().to_owned();
+        assert!(on_path("tool", Some(&path)));
+        assert!(on_path("TOOL.CMD", Some(&path)));
+        assert!(!on_path("tool.txt", Some(&path)));
+        let mut request = request("");
+        request.shell = None;
+        request.argv = vec!["tool".into(), "argument".into()];
+        request.env.insert("PATH".into(), path);
+        let result = execute(&request, root.path(), &AtomicBool::new(false), || false).unwrap();
+        assert_eq!(result.stdout.trim_end(), "shim argument");
+        request.argv = vec!["missing-muxy-tool".into()];
+        let missing = execute(&request, root.path(), &AtomicBool::new(false), || false);
+        assert_eq!(
+            missing.unwrap_err().message(),
+            "command not found: missing-muxy-tool"
+        );
     }
 }

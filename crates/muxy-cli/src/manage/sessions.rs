@@ -5,6 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use muxy_app_core::browser::api;
+use muxy_app_core::session_link::SessionLink;
 use muxy_client::{Client, ClientError, ClientEvent, RunGrid};
 use muxy_protocol::{
     ChannelId, ErrorCode, ExitReason, HistoryCursor, ProjectDescriptor, ProjectId, ProjectSession,
@@ -16,7 +17,6 @@ use super::args::{Session, Until};
 use super::{Output, Paths, Result, path_text, projects};
 
 const SHOW_WAIT: Duration = Duration::from_secs(10);
-/// Each command attaches at most once, so one tag tells its terminal apart.
 const ATTACH: u64 = 0;
 
 pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Paths) -> Result {
@@ -56,6 +56,7 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
             session,
             background,
         } => show(client, calling(client, session)?, background, output, paths),
+        Session::Link { session, split } => link(client, calling(client, session)?, split, output),
         Session::Send { session, text } => {
             input(client, calling(client, session)?, text.into_bytes(), output)
         }
@@ -115,8 +116,6 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
     }
 }
 
-/// `session`, or else the terminal this command runs in, when that terminal
-/// belongs to the server `client` uses.
 fn calling(client: &Client, session: Option<SessionId>) -> Result<SessionId> {
     match session {
         Some(session) => Ok(session),
@@ -148,13 +147,40 @@ fn show(
         args.insert("background".into(), true.into());
     }
     show_when_ready(
-        || crate::browser::call_app("session.show", args.clone(), true, Duration::ZERO),
+        || crate::app::call_app("session.show", args.clone(), true, Duration::ZERO),
         Instant::now,
     )?;
     if output.json {
         Output::json(&json!({"id":session.get().to_string(), "project_id":entry.info.project}))
     } else {
         output.ok()
+    }
+}
+
+fn link(
+    client: &Client,
+    session: SessionId,
+    split: Option<muxy_app_core::Direction>,
+    output: &Output,
+) -> Result {
+    if !client
+        .list_sessions()?
+        .iter()
+        .any(|info| info.id == session)
+    {
+        return Err(format!("session {} isn't running", session.get()).into());
+    }
+    let link = SessionLink {
+        session,
+        server: Some(client.catalog_page(None, None)?.server),
+        split,
+    }
+    .to_link();
+    if output.json {
+        Output::json(&json!({"id":session.get().to_string(), "link":link}))
+    } else {
+        writeln!(io::stdout(), "{link}")?;
+        Ok(())
     }
 }
 
@@ -205,7 +231,6 @@ fn screen(
     }
 }
 
-/// The project of the terminal this command runs in.
 fn own_project(client: &Client) -> Result<ProjectDescriptor> {
     let session = crate::target::hosting_session(client.catalog_page(None, None)?.server)
         .ok_or("give a project; this isn't a Muxy terminal on that server")?;
@@ -432,7 +457,6 @@ enum Waited {
     Ended(ExitReason),
 }
 
-/// Follows the session's screen until `until` happens or `timeout` passes.
 fn wait(
     client: &Client,
     session: SessionId,
@@ -480,7 +504,6 @@ fn wait(
                 session: ended,
                 reason,
             }) if ended == session => {
-                // The last output before an exit may never reach a frame.
                 break match until {
                     Until::Exit => Ok(Waited::Ended(reason)),
                     Until::Text { text, ignore_case } => {
@@ -499,7 +522,6 @@ fn wait(
     report(session, &finish_attachment(waited, detached)?, output)
 }
 
-/// The line containing `text` on an ended session's saved screen.
 fn saved_line(
     saved: Option<muxy_protocol::SavedScreen>,
     text: &str,

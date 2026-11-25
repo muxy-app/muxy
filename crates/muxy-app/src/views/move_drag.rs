@@ -1,8 +1,3 @@
-//! Moving a tab, a pane, or a whole tab window anywhere: into another tab's
-//! splits, among any project's tabs, onto a project, or out into a window of
-//! its own. Every window records where its drop zones are, and a move looks
-//! them up under the pointer in whichever window that is.
-
 mod ghost;
 
 use std::cell::RefCell;
@@ -22,7 +17,6 @@ use crate::model::AppModel;
 use crate::model::tab_windows::dropped_bounds;
 use crate::views::splits::drag::{DropTarget, Placement};
 
-/// Who records a zone, so each can replace its own when it draws.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Owner {
     Strip,
@@ -31,15 +25,12 @@ pub(crate) enum Owner {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum ZoneKind {
-    /// A tab's cell or row. A drop goes before or after it, along `axis`.
     Tab {
         project: ProjectId,
         tab: TabId,
         axis: Axis,
     },
-    /// A tab strip: a drop past its last tab goes last.
     Strip(ProjectId),
-    /// A project's row: a drop becomes its last tab.
     Project(ProjectId),
 }
 
@@ -54,11 +45,9 @@ struct Zone {
 #[derive(Default)]
 struct ZoneMap {
     zones: Vec<Zone>,
-    /// Each window drawn, with its system window number where it has one.
     windows: Vec<(WindowId, AnyWindowHandle, Option<isize>)>,
 }
 
-/// Where tabs and projects can take a drop, in every window.
 #[derive(Clone, Default)]
 pub(crate) struct Zones(Rc<RefCell<ZoneMap>>);
 
@@ -74,7 +63,6 @@ impl Zones {
         self.0.borrow_mut().zones.push(zone);
     }
 
-    /// Records that `window` draws, so a move can find it by its number.
     pub(crate) fn note_window(&self, window: &Window) {
         let id = window.window_handle().window_id();
         let number = if cfg!(test) {
@@ -111,8 +99,6 @@ impl Zones {
             .and_then(|(.., number)| *number)
     }
 
-    /// The zone under `position` in `window`: a tab first, then a project,
-    /// then a strip.
     fn at(&self, window: WindowId, position: Point<Pixels>) -> Option<Zone> {
         let map = self.0.borrow();
         let hits = || {
@@ -127,7 +113,6 @@ impl Zones {
             .copied()
     }
 
-    /// Where `project`'s last tab in `window`'s strip ends.
     fn strip_end(&self, window: WindowId, project: ProjectId) -> Option<Bounds<Pixels>> {
         self.0
             .borrow()
@@ -142,7 +127,6 @@ impl Zones {
     }
 }
 
-/// Records the bounds of the element it fills as a zone of `kind`.
 pub(crate) fn zone(zones: &Zones, owner: Owner, kind: ZoneKind) -> AnyElement {
     let zones = zones.clone();
     canvas(
@@ -162,7 +146,6 @@ pub(crate) fn zone(zones: &Zones, owner: Owner, kind: ZoneKind) -> AnyElement {
     .into_any_element()
 }
 
-/// What is moving.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Moving {
     Tab(TabId),
@@ -170,26 +153,18 @@ pub(crate) enum Moving {
     Window(TabWindowId),
 }
 
-/// Where a move lands.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Target {
-    /// Among a project's listed tabs.
     Place(TabPlace),
-    /// In a tab's splits.
     Pane(PaneDrop),
-    /// In a window of its own.
     NewWindow,
-    /// Somewhere it can't go, such as another computer's project.
     Refused,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Mark {
-    /// Where a pane will be, over a tab's panes.
     Area,
-    /// A line between tabs.
     Insert,
-    /// A project's row.
     Project,
     Refused,
 }
@@ -201,9 +176,7 @@ struct Indicator {
     mark: Mark,
 }
 
-/// How long an indicator glides to its next place.
 const GLIDE: Duration = Duration::from_millis(140);
-/// How far from the pointer the drag chip sits.
 const CHIP_OFFSET: f32 = 14.0;
 
 struct Gesture {
@@ -211,15 +184,11 @@ struct Gesture {
     source: ProjectId,
     label: SharedString,
     icon: Icon,
-    /// Where in the moving thing the pointer holds it, for a new window.
     grab: Point<Pixels>,
-    /// The size a new window takes.
     size: Size<Pixels>,
     target: Option<Target>,
     indicator: Option<Indicator>,
-    /// Where the indicator glides from, and since when.
     glide: Option<(Bounds<Pixels>, Instant)>,
-    /// The pointer, in the window it is over.
     pointer: Option<(WindowId, Point<Pixels>)>,
 }
 
@@ -232,8 +201,6 @@ pub(crate) struct MoveDragState {
     carry: Option<Carry>,
 }
 
-/// A tab window carried by its titlebar, on systems where the app places
-/// windows itself.
 #[derive(Clone, Copy)]
 struct Carry {
     window: TabWindowId,
@@ -243,7 +210,6 @@ struct Carry {
 }
 
 impl MoveDragState {
-    /// Whether a tab window is being carried by its titlebar.
     pub(crate) fn carrying(&self) -> bool {
         self.carry.is_some()
     }
@@ -254,8 +220,6 @@ impl MoveDragState {
 }
 
 impl AppModel {
-    /// Follows a move outside the reach of the tab strip or the tab's own
-    /// splits. Returns whether it found somewhere to drop.
     pub(crate) fn track_move(
         &mut self,
         moving: Moving,
@@ -313,8 +277,6 @@ impl AppModel {
         target.is_some_and(|target| target != Target::Refused)
     }
 
-    /// Forgets where a move would land, while the tab strip or the tab's own
-    /// splits take it over.
     pub(crate) fn clear_move_target(&mut self, cx: &mut Context<Self>) {
         if let Some(gesture) = &mut self.move_drag.gesture
             && (gesture.target.is_some() || gesture.pointer.is_some())
@@ -328,8 +290,6 @@ impl AppModel {
         self.place_ghost(false, cx);
     }
 
-    /// Ends a move, applying it where it was dropped. Returns whether it
-    /// landed anywhere.
     pub(crate) fn finish_move(&mut self, cx: &mut Context<Self>) -> bool {
         let gesture = self.move_drag.gesture.take();
         self.place_ghost(false, cx);
@@ -446,8 +406,6 @@ impl AppModel {
         })
     }
 
-    /// The window under the pointer with the pointer in its coordinates, or
-    /// whether the pointer is outside every window of the app.
     fn locate(
         &self,
         moving: Moving,
@@ -506,7 +464,6 @@ impl AppModel {
         }
     }
 
-    /// Where `moving` lands at `position` in `window`, and how to show it.
     fn target_in(
         &self,
         moving: Moving,
@@ -592,8 +549,6 @@ impl AppModel {
         ))
     }
 
-    /// The place among tabs that `zone` offers at `position`, with the
-    /// indicator's bounds and look.
     fn place_at(
         &self,
         moving: Moving,
@@ -653,7 +608,6 @@ impl AppModel {
         }
     }
 
-    /// Shows or hides the window that follows the pointer outside the app.
     fn place_ghost(&mut self, shown: bool, cx: &mut Context<Self>) {
         let cursor = cursor().filter(|_| can_place_windows());
         let gesture = self.move_drag.gesture.as_ref();
@@ -697,7 +651,6 @@ impl AppModel {
         }
     }
 
-    /// Starts carrying tab window `id` by its titlebar, held at `grab`.
     pub(crate) fn begin_carry(
         &mut self,
         id: TabWindowId,
@@ -757,8 +710,6 @@ impl AppModel {
     }
 }
 
-/// The pointer on screen, where the system says. Tests have none, so they
-/// never depend on where the real pointer is.
 pub(crate) fn cursor() -> Option<muxy_ui::screen::ScreenPoint> {
     if cfg!(test) {
         None
@@ -767,14 +718,10 @@ pub(crate) fn cursor() -> Option<muxy_ui::screen::ScreenPoint> {
     }
 }
 
-/// Whether the app can place windows itself, so a window can follow the
-/// pointer.
 pub(crate) fn can_place_windows() -> bool {
     !cfg!(test) && muxy_ui::screen::can_place_windows()
 }
 
-/// Where a pane from another tab lands at `position` over `placement`'s
-/// panes, with the bounds it would take.
 fn pane_drop(
     pane: PaneId,
     layout: &muxy_app_core::Layout,
@@ -806,7 +753,6 @@ fn pane_drop(
     Some((drop, bounds))
 }
 
-/// A thin line along the start or end edge of `bounds`, across `axis`.
 fn line(bounds: Bounds<Pixels>, axis: Axis, end: bool) -> Bounds<Pixels> {
     const WIDTH: f32 = 3.0;
     match axis {
@@ -838,7 +784,6 @@ fn pane_icon(content: &muxy_app_core::PaneContent) -> Icon {
     }
 }
 
-/// How far a glide has come, eased so it slows into place.
 fn progress(since: Instant) -> f32 {
     let elapsed = since.elapsed().as_secs_f32() / GLIDE.as_secs_f32();
     let t = elapsed.clamp(0.0, 1.0);
@@ -856,7 +801,6 @@ fn lerp(from: Bounds<Pixels>, to: Bounds<Pixels>, t: f32) -> Bounds<Pixels> {
     )
 }
 
-/// Where an indicator showing `to` is drawn now, while it glides there.
 fn current_bounds(
     to: Bounds<Pixels>,
     glide: Option<(Bounds<Pixels>, Instant)>,
@@ -866,8 +810,6 @@ fn current_bounds(
     glide.map_or(to, |(from, since)| lerp(from, to, progress(since)))
 }
 
-/// Draws a move's indicator, and the chip that follows the pointer, where
-/// they fall in `window`.
 pub(crate) fn overlay(model: &AppModel, window: &Window) -> AnyElement {
     let here = window.window_handle().window_id();
     let Some(gesture) = &model.move_drag.gesture else {
@@ -888,7 +830,7 @@ pub(crate) fn overlay(model: &AppModel, window: &Window) -> AnyElement {
                 if main {
                     occlusions
                         .borrow_mut()
-                        .push((None, indicator.bounds.dilate(px(2.0))));
+                        .push((None, indicator.bounds.dilate(px(2.0)).into()));
                 }
             },
             move |_, (), window, _| {
@@ -972,7 +914,6 @@ fn paint_indicator(
     }
 }
 
-/// The chip beside the pointer: what moves, and where it will go.
 fn chip(gesture: &Gesture, position: Point<Pixels>, model: &AppModel) -> AnyElement {
     let caption = match gesture.target {
         Some(Target::Refused) => Some((tr!("Only within this computer"), model.theme.danger)),
@@ -1002,7 +943,6 @@ fn chip(gesture: &Gesture, position: Point<Pixels>, model: &AppModel) -> AnyElem
         .into_any_element()
 }
 
-/// Follows the pointer while a tab window is carried by its titlebar.
 pub(crate) fn track_carry(id: TabWindowId, cx: &Context<AppModel>) -> AnyElement {
     let weak = cx.weak_entity();
     canvas(

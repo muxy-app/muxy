@@ -8,18 +8,6 @@ use std::{
     fmt::Display,
 };
 
-/// Defines and registers unit structs that can be used as actions. For more complex data types, derive `Action`.
-///
-/// For example:
-///
-/// ```
-/// use gpui::actions;
-/// actions!(editor, [MoveUp, MoveDown, MoveLeft, MoveRight, Newline]);
-/// ```
-///
-/// This will create actions with names like `editor::MoveUp`, `editor::MoveDown`, etc.
-///
-/// The namespace argument `editor` can also be omitted, though it is required for Zed actions.
 #[macro_export]
 macro_rules! actions {
     ($namespace:path, [ $( $(#[$attr:meta])* $name:ident),* $(,)? ]) => {
@@ -39,103 +27,21 @@ macro_rules! actions {
     };
 }
 
-/// Actions are used to implement keyboard-driven UI. When you declare an action, you can bind keys
-/// to the action in the keymap and listeners for that action in the element tree.
-///
-/// To declare a list of simple actions, you can use the actions! macro, which defines a simple unit
-/// struct action for each listed action name in the given namespace.
-///
-/// ```
-/// use gpui::actions;
-/// actions!(editor, [MoveUp, MoveDown, MoveLeft, MoveRight, Newline]);
-/// ```
-///
-/// Registering the actions with the same name will result in a panic during  `App` creation.
-///
-/// # Derive Macro
-///
-/// More complex data types can also be actions, by using the derive macro for `Action`:
-///
-/// ```
-/// use gpui::Action;
-/// #[derive(Clone, PartialEq, serde::Deserialize, schemars::JsonSchema, Action)]
-/// #[action(namespace = editor)]
-/// pub struct SelectNext {
-///     pub replace_newest: bool,
-/// }
-/// ```
-///
-/// The derive macro for `Action` requires that the type implement `Clone` and `PartialEq`. It also
-/// requires `serde::Deserialize` and `schemars::JsonSchema` unless `#[action(no_json)]` is
-/// specified. In Zed these trait impls are used to load keymaps from JSON.
-///
-/// Multiple arguments separated by commas may be specified in `#[action(...)]`:
-///
-/// - `namespace = some_namespace` sets the namespace. In Zed this is required.
-///
-/// - `name = "ActionName"` overrides the action's name. This must not contain `::`.
-///
-/// - `no_json` causes the `build` method to always error and `action_json_schema` to return `None`,
-///   and allows actions not implement `serde::Serialize` and `schemars::JsonSchema`.
-///
-/// - `no_register` skips registering the action. This is useful for implementing the `Action` trait
-///   while not supporting invocation by name or JSON deserialization.
-///
-/// - `deprecated_aliases = ["editor::SomeAction"]` specifies deprecated old names for the action.
-///   These action names should *not* correspond to any actions that are registered. These old names
-///   can then still be used to refer to invoke this action. In Zed, the keymap JSON schema will
-///   accept these old names and provide warnings.
-///
-/// - `deprecated = "Message about why this action is deprecation"` specifies a deprecation message.
-///   In Zed, the keymap JSON schema will cause this to be displayed as a warning.
-///
-/// # Manual Implementation
-///
-/// If you want to control the behavior of the action trait manually, you can use the lower-level
-/// `#[register_action]` macro, which only generates the code needed to register your action before
-/// `main`.
-///
-/// ```
-/// use gpui::{SharedString, register_action};
-/// #[derive(Clone, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
-/// pub struct Paste {
-///     pub content: SharedString,
-/// }
-///
-/// impl gpui::Action for Paste {
-///     # fn boxed_clone(&self) -> Box<dyn gpui::Action> { unimplemented!()}
-///     # fn partial_eq(&self, other: &dyn gpui::Action) -> bool { unimplemented!() }
-///     # fn name(&self) -> &'static str { "Paste" }
-///     # fn name_for_type() -> &'static str { "Paste" }
-///     # fn build(value: serde_json::Value) -> anyhow::Result<Box<dyn gpui::Action>> {
-///     #     unimplemented!()
-///     # }
-/// }
-///
-/// register_action!(Paste);
-/// ```
 pub trait Action: Any + Send {
-    /// Clone the action into a new box
     fn boxed_clone(&self) -> Box<dyn Action>;
 
-    /// Do a partial equality check on this action and the other
     fn partial_eq(&self, action: &dyn Action) -> bool;
 
-    /// Get the name of this action, for displaying in UI
     fn name(&self) -> &'static str;
 
-    /// Get the name of this action type (static)
     fn name_for_type() -> &'static str
     where
         Self: Sized;
 
-    /// Build this action from a JSON value. This is used to construct actions from the keymap.
-    /// A value of `{}` will be passed for actions that don't have any parameters.
     fn build(value: serde_json::Value) -> Result<Box<dyn Action>>
     where
         Self: Sized;
 
-    /// Optional JSON schema for the action's input data.
     fn action_json_schema(_: &mut schemars::SchemaGenerator) -> Option<schemars::Schema>
     where
         Self: Sized,
@@ -143,9 +49,6 @@ pub trait Action: Any + Send {
         None
     }
 
-    /// A list of alternate, deprecated names for this action. These names can still be used to
-    /// invoke the action. In Zed, the keymap JSON schema will accept these old names and provide
-    /// warnings.
     fn deprecated_aliases() -> &'static [&'static str]
     where
         Self: Sized,
@@ -153,8 +56,6 @@ pub trait Action: Any + Send {
         &[]
     }
 
-    /// Returns the deprecation message for this action, if any. In Zed, the keymap JSON schema will
-    /// cause this to be displayed as a warning.
     fn deprecation_message() -> Option<&'static str>
     where
         Self: Sized,
@@ -162,8 +63,6 @@ pub trait Action: Any + Send {
         None
     }
 
-    /// The documentation for this action, if any. When using the derive macro for actions
-    /// this will be automatically generated from the doc comments on the action struct.
     fn documentation() -> Option<&'static str>
     where
         Self: Sized,
@@ -181,27 +80,18 @@ impl std::fmt::Debug for dyn Action {
 }
 
 impl dyn Action {
-    /// Type-erase Action type.
     pub fn as_any(&self) -> &dyn Any {
         self as &dyn Any
     }
 }
 
-/// Error type for `Keystroke::parse`. This is used instead of `anyhow::Error` so that Zed can use
-/// markdown to display it.
 #[derive(Debug)]
 pub enum ActionBuildError {
-    /// Indicates that an action with this name has not been registered.
     NotFound {
-        /// Name of the action that was not found.
         name: String,
     },
-    /// Indicates that an error occurred while building the action, typically a JSON deserialization
-    /// error.
     BuildError {
-        /// Name of the action that was attempting to be built.
         name: String,
-        /// Error that occurred while building the action.
         error: anyhow::Error,
     },
 }
@@ -233,10 +123,10 @@ type ActionBuilder = fn(json: serde_json::Value) -> anyhow::Result<Box<dyn Actio
 pub(crate) struct ActionRegistry {
     by_name: HashMap<&'static str, ActionData>,
     names_by_type_id: HashMap<TypeId, &'static str>,
-    all_names: Vec<&'static str>, // So we can return a static slice.
-    deprecated_aliases: HashMap<&'static str, &'static str>, // deprecated name -> preferred name
-    deprecation_messages: HashMap<&'static str, &'static str>, // action name -> deprecation message
-    documentation: HashMap<&'static str, &'static str>, // action name -> documentation
+    all_names: Vec<&'static str>,
+    deprecated_aliases: HashMap<&'static str, &'static str>,
+    deprecation_messages: HashMap<&'static str, &'static str>,
+    documentation: HashMap<&'static str, &'static str>,
 }
 
 impl Default for ActionRegistry {
@@ -261,13 +151,9 @@ struct ActionData {
     pub json_schema: fn(&mut schemars::SchemaGenerator) -> Option<schemars::Schema>,
 }
 
-/// This type must be public so that our macros can build it in other crates.
-/// But this is an implementation detail and should not be used directly.
 #[doc(hidden)]
 pub struct MacroActionBuilder(pub fn() -> MacroActionData);
 
-/// This type must be public so that our macros can build it in other crates.
-/// But this is an implementation detail and should not be used directly.
 #[doc(hidden)]
 pub struct MacroActionData {
     pub name: &'static str,
@@ -282,7 +168,6 @@ pub struct MacroActionData {
 inventory::collect!(MacroActionBuilder);
 
 impl ActionRegistry {
-    /// Load all registered actions into the registry.
     pub(crate) fn load_actions(&mut self) {
         for builder in inventory::iter::<MacroActionBuilder> {
             let action = builder.0();
@@ -345,7 +230,6 @@ impl ActionRegistry {
         }
     }
 
-    /// Construct an action based on its name and optional JSON parameters sourced from the keymap.
     pub fn build_action_type(&self, type_id: &TypeId) -> Result<Box<dyn Action>> {
         let name = self
             .names_by_type_id
@@ -355,7 +239,6 @@ impl ActionRegistry {
         Ok(self.build_action(name, None)?)
     }
 
-    /// Construct an action based on its name and optional JSON parameters sourced from the keymap.
     pub fn build_action(
         &self,
         name: &str,
@@ -384,7 +267,6 @@ impl ActionRegistry {
         &self,
         generator: &mut schemars::SchemaGenerator,
     ) -> Vec<(&'static str, Option<schemars::Schema>)> {
-        // Use the order from all_names so that the resulting schema has sensible order.
         self.all_names
             .iter()
             .map(|name| {
@@ -410,10 +292,6 @@ impl ActionRegistry {
     }
 }
 
-/// Generate a list of all the registered actions.
-/// Useful for transforming the list of available actions into a
-/// format suited for static analysis such as in validating keymaps, or
-/// generating documentation.
 pub fn generate_list_of_all_registered_actions() -> impl Iterator<Item = MacroActionData> {
     inventory::iter::<MacroActionBuilder>
         .into_iter()
@@ -427,13 +305,12 @@ mod no_action {
     actions!(
         zed,
         [
-            /// Action with special handling which unbinds the keybinding this is associated with,
-            /// if it is the highest precedence match.
+            #[doc = " Action with special handling which unbinds the keybinding this is associated with,"]
+            #[doc = " if it is the highest precedence match."]
             NoAction
         ]
     );
 
-    /// Returns whether or not this action represents a removed key binding.
     pub fn is_no_action(action: &dyn gpui::Action) -> bool {
         action.as_any().type_id() == (NoAction {}).type_id()
     }

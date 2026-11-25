@@ -16,51 +16,6 @@ use std::{
 };
 use util::ResultExt;
 
-/// An [`Element`] that renders text.
-///
-/// In general, [`Text`] objects should be created via the [`text`] macro:
-/// ```rust
-/// # use gpui::*;
-/// # fn render() -> impl IntoElement {
-/// div().child(text!("hello"))
-/// # }
-/// ```
-/// ## IDs and Accessibility
-///
-/// [`Text`] elements have an ID. This ID is primarily used to produce nodes in
-/// the accessibility tree, which allows the text to be visible to screen
-/// readers and other assistive technologies.
-///
-/// This ID is stable across frames. If the same text, with the same ID, is
-/// present in two consecutive frames, no updates are reported to the screen
-/// reader. If the text changes, but the ID stays the same, then the screen
-/// reader will be notified that a text node's content has changed. **However**,
-/// if the ID changes, then the screen reader will be notified that a node has
-/// been removed, and a new node has been added.
-///
-/// When using the [`text`] macro, each invocation of the macro will get a
-/// unique ID, derived from its position in the source code (filename, line, and
-/// column). For example:
-/// ```rust
-/// # use gpui::*;
-/// let x = text!("hello");
-/// let y = text!("hello");
-/// // not equal, because different `text!` invocations produced them
-/// assert_ne!(x.id(), y.id());
-///
-/// fn make_text(s: &str) -> Text { text!(s) }
-/// let x = make_text("hello");
-/// let y = make_text("hello");
-/// // equal, because the same `text!` invocation produced them
-/// assert_eq!(x.id(), y.id());
-/// ```
-/// When the contents of an invocation of [`text`] do not change, this
-/// distinction is less relevant (with the caveat that you still need to take
-/// care to ensure that duplicate IDs do not appear).
-///
-/// However, when a [`text`] invocation's argument *does* change, you should
-/// consider whether this change should be reported as a node "updating its
-/// contents", or an old node being destroyed and a new node being created.
 #[derive(Debug, Clone)]
 pub struct Text {
     id: Option<ElementId>,
@@ -68,42 +23,26 @@ pub struct Text {
 }
 
 impl Text {
-    /// Create a new [`Text`] element with a specific ID.
-    ///
-    /// If you want a unique ID to be assigned automatically, use the [`text`]
-    /// macro. The docs for [`Text`] have more detail about choosing IDs.
     #[inline]
     pub const fn new(id: ElementId, text: SharedString) -> Self {
         Self { id: Some(id), text }
     }
 
-    /// Create a new [`Text`] element that is inaccessible to screen readers.
-    ///
-    /// In order for text to be accessible to screen readers, it must have an ID
-    /// provided. If you want text to be accessible, either use [`text`] to have
-    /// an ID automatically assigned, or use [`Text::new`] to manually assign an
-    /// ID.
-    ///
-    /// This function is intended for use inside custom UI components, where
-    /// accessible properties may be set on parent containers.
     #[inline]
     pub const fn new_inaccessible(text: SharedString) -> Self {
         Self { id: None, text }
     }
 
-    /// The ID of this [`Text`] element.
     #[inline]
     pub const fn id(&self) -> Option<&ElementId> {
         self.id.as_ref()
     }
 
-    /// Produce a new [`Text`] with the given `id`.
     pub fn with_id(mut self, id: impl Into<ElementId>) -> Self {
         self.id = Some(id.into());
         self
     }
 
-    /// The text that this [`Text`] element will display.
     #[inline]
     pub const fn text(&self) -> &SharedString {
         &self.text
@@ -123,9 +62,6 @@ impl DerefMut for Text {
     }
 }
 
-/// Trivial hash function for the location information produced by the [`text`]
-/// macro. Not covered by semver guarantees. Performance is not particularly
-/// significant because it's only used on small strings in const contexts.
 #[doc(hidden)]
 pub const fn __hash_text_macro_location_unstable_do_not_use(s: &'static str) -> u64 {
     const BASIS: u64 = 0xcbf29ce484222325;
@@ -142,18 +78,6 @@ pub const fn __hash_text_macro_location_unstable_do_not_use(s: &'static str) -> 
     hash
 }
 
-/// Create a new [`Text`] element.
-///
-/// ```rust
-/// # use gpui::*;
-/// let a = text!("hello");
-/// let b = text!(id = "farewell-message", "hello");
-///
-/// ```
-///
-/// Text created with this macro is *accessible*. The macro generates an ID
-/// based on the source location. See the docs for [`Text`] for a more in-depth
-/// explanation of the significance of the ID of a [`Text`] element.
 #[macro_export]
 macro_rules! text {
     (id = $id:expr, $text:expr) => {{ $crate::Text::new($id.into(), $text.into()) }};
@@ -373,11 +297,6 @@ impl IntoElement for SharedString {
     }
 }
 
-/// Renders text with runs of different styles.
-///
-/// Callers are responsible for setting the correct style for each run.
-/// For text with a uniform style, you can usually avoid calling this constructor
-/// and just pass text directly.
 pub struct StyledText {
     text: SharedString,
     runs: Option<Vec<TextRun>>,
@@ -386,7 +305,6 @@ pub struct StyledText {
 }
 
 impl StyledText {
-    /// Construct a new styled text element from the given string.
     pub fn new(text: impl Into<SharedString>) -> Self {
         StyledText {
             text: text.into(),
@@ -396,13 +314,10 @@ impl StyledText {
         }
     }
 
-    /// Get the layout for this element. This can be used to map indices to pixels and vice versa.
     pub fn layout(&self) -> &TextLayout {
         &self.layout
     }
 
-    /// Set the styling attributes for the given text, as well as
-    /// as any ranges of text that have had their style customized.
     pub fn with_default_highlights(
         mut self,
         default_style: &TextStyle,
@@ -416,8 +331,6 @@ impl StyledText {
         self.with_runs(runs)
     }
 
-    /// Set the styling attributes for the given text, as well as
-    /// as any ranges of text that have had their style customized.
     pub fn with_highlights(
         mut self,
         highlights: impl IntoIterator<Item = (Range<usize>, HighlightStyle)>,
@@ -465,7 +378,6 @@ impl StyledText {
         runs
     }
 
-    /// Set the text runs for this piece of text.
     pub fn with_runs(mut self, runs: Vec<TextRun>) -> Self {
         let mut text = &**self.text;
         for run in &runs {
@@ -540,7 +452,6 @@ impl IntoElement for StyledText {
     }
 }
 
-/// The Layout for TextElement. This can be used to map indices to pixels and vice versa.
 #[derive(Default, Clone)]
 pub struct TextLayout(Rc<RefCell<Option<TextLayoutInner>>>);
 
@@ -604,8 +515,6 @@ impl TextLayout {
                         (None, "".into())
                     };
 
-                // Flex layout often measures at an unbounded width first; truncated text must
-                // be measured again once a definite width arrives.
                 if let Some(text_layout) = element_state.0.borrow().as_ref()
                     && text_layout.size.is_some()
                     && (wrap_width.is_none() || wrap_width == text_layout.wrap_width)
@@ -614,7 +523,6 @@ impl TextLayout {
                     return text_layout.size.unwrap();
                 }
 
-                // Truncation shortens the runs, so each measurement starts from the full runs.
                 let mut runs = runs.clone();
                 let mut line_wrapper = cx.text_system().line_wrapper(text_style.font(), font_size);
                 let text = if let Some(truncate_width) = truncate_width {
@@ -635,8 +543,8 @@ impl TextLayout {
                         text,
                         font_size,
                         &runs,
-                        wrap_width,            // Wrap if we know the width.
-                        text_style.line_clamp, // Limit the number of lines if line_clamp is set.
+                        wrap_width,
+                        text_style.line_clamp,
                     )
                     .log_err()
                 else {
@@ -720,7 +628,6 @@ impl TextLayout {
         }
     }
 
-    /// Get the byte index into the input of the pixel position.
     pub fn index_for_position(&self, mut position: Point<Pixels>) -> Result<usize, usize> {
         let element_state = self.0.borrow();
         let element_state = element_state
@@ -754,7 +661,6 @@ impl TextLayout {
         Err(line_start_ix.saturating_sub(1))
     }
 
-    /// Get the pixel position for the given byte index.
     pub fn position_for_index(&self, index: usize) -> Option<Point<Pixels>> {
         let element_state = self.0.borrow();
         let element_state = element_state
@@ -785,7 +691,6 @@ impl TextLayout {
         None
     }
 
-    /// Retrieve the layout for the line containing the given byte index.
     pub fn line_layout_for_index(&self, index: usize) -> Option<Arc<WrappedLineLayout>> {
         let element_state = self.0.borrow();
         let element_state = element_state
@@ -815,22 +720,18 @@ impl TextLayout {
         None
     }
 
-    /// The bounds of this layout.
     pub fn bounds(&self) -> Bounds<Pixels> {
         self.0.borrow().as_ref().unwrap().bounds.unwrap()
     }
 
-    /// The line height for this layout.
     pub fn line_height(&self) -> Pixels {
         self.0.borrow().as_ref().unwrap().line_height
     }
 
-    /// The UTF-8 length of the underlying text.
     pub fn len(&self) -> usize {
         self.0.borrow().as_ref().unwrap().len
     }
 
-    /// The text for this layout.
     pub fn text(&self) -> String {
         self.0
             .borrow()
@@ -843,7 +744,6 @@ impl TextLayout {
             .join("\n")
     }
 
-    /// The text for this layout (with soft-wraps as newlines)
     pub fn wrapped_text(&self) -> String {
         let mut lines = Vec::new();
         for wrapped in self.0.borrow().as_ref().unwrap().lines.iter() {
@@ -863,7 +763,6 @@ impl TextLayout {
     }
 }
 
-/// A text element that can be interacted with.
 pub struct InteractiveText {
     element_id: ElementId,
     text: StyledText,
@@ -888,9 +787,7 @@ pub struct InteractiveTextState {
     active_tooltip: Rc<RefCell<Option<ActiveTooltip>>>,
 }
 
-/// InteractiveTest is a wrapper around StyledText that adds mouse interactions.
 impl InteractiveText {
-    /// Creates a new InteractiveText from the given text.
     pub fn new(id: impl Into<ElementId>, text: StyledText) -> Self {
         Self {
             element_id: id.into(),
@@ -903,8 +800,6 @@ impl InteractiveText {
         }
     }
 
-    /// on_click is called when the user clicks on one of the given ranges, passing the index of
-    /// the clicked range.
     pub fn on_click(
         mut self,
         ranges: Vec<Range<usize>>,
@@ -922,8 +817,6 @@ impl InteractiveText {
         self
     }
 
-    /// on_hover is called when the mouse moves over a character within the text, passing the
-    /// index of the hovered character, or None if the mouse leaves the text.
     pub fn on_hover(
         mut self,
         listener: impl Fn(Option<usize>, MouseMoveEvent, &mut Window, &mut App) + 'static,
@@ -932,7 +825,6 @@ impl InteractiveText {
         self
     }
 
-    /// tooltip lets you specify a tooltip for a given character index in the string.
     pub fn tooltip(
         mut self,
         builder: impl Fn(usize, &mut Window, &mut App) -> Option<AnyView> + 'static,
@@ -992,7 +884,6 @@ impl Element for InteractiveText {
                         self.tooltip_id =
                             set_tooltip_on_window(&interactive_state.active_tooltip, window);
                     } else {
-                        // If there is no longer a tooltip builder, remove the active tooltip.
                         interactive_state.active_tooltip.take();
                     }
                 }
@@ -1108,7 +999,6 @@ impl Element for InteractiveText {
                         }
                     });
 
-                    // Use bounds instead of testing hitbox since this is called during prepaint.
                     let check_is_hovered_during_prepaint = Rc::new({
                         let source_bounds = hitbox.bounds;
                         let text_layout = text_layout.clone();
@@ -1173,12 +1063,10 @@ mod tests {
 
     #[test]
     fn text_macro_id() {
-        // one call to `text!` = one id
         fn make_text_stable_id(happy: bool) -> Text {
             text!(if happy { "happy" } else { "sad" })
         }
 
-        // two calls to `text!` = two ids
         fn make_text_unstable_id(happy: bool) -> Text {
             if happy { text!("happy") } else { text!("sad") }
         }

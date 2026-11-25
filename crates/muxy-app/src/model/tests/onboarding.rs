@@ -1,6 +1,3 @@
-//! The welcome tour: when it opens, what ends it, and the extensions and phone
-//! it sets up.
-
 use std::path::Path;
 use std::time::Duration;
 
@@ -168,8 +165,6 @@ fn moves_begun(view: &Entity<AppModel>, cx: &VisualTestContext) -> usize {
     view.read_with(cx, |model, _| model.window_moves_begun)
 }
 
-/// Clicks Next and then Back, leaving focus on a Back button that the first
-/// step doesn't have.
 fn lose_focus_to_a_button_that_is_gone(view: &Entity<AppModel>, cx: &mut VisualTestContext) {
     let next = cx.debug_bounds("onboarding-next").expect("next");
     cx.simulate_click(next.center(), Modifiers::default());
@@ -351,6 +346,8 @@ fn details(name: &str) -> Result<ExtensionDetails, String> {
         download_url: None,
         size: None,
         sha256: None,
+        about: crate::extensions::marketplace::About::default(),
+        screenshots: 0,
     })
 }
 
@@ -399,7 +396,6 @@ fn pump_until(cx: &mut VisualTestContext, mut done: impl FnMut(&mut VisualTestCo
     panic!("the tour's extension work did not finish");
 }
 
-/// The tour on its extensions step, with its offers loaded from a stub.
 fn at_extensions<'a>(
     cx: &'a mut TestAppContext,
     download: fn(&ExtensionDetails, &Path) -> Result<tempfile::TempDir, String>,
@@ -584,7 +580,6 @@ fn offer() -> PairingOffer {
     }
 }
 
-/// The tour on its mobile step, with device access read as `state`.
 fn at_mobile(
     cx: &mut TestAppContext,
     state: RemoteAccessState,

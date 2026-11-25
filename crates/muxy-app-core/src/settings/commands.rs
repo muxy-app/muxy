@@ -119,7 +119,7 @@ impl Settings {
             ])
         })()
         .map_err(|error| Error::new("commands", error))?;
-        super::appearance::replace_sections(path, values)
+        super::document::replace_sections(path, values)
             .map_err(|error| Error::new("commands", error))
     }
 }

@@ -2,19 +2,15 @@ mod binary;
 
 use std::collections::BTreeMap;
 
-/// Catalogs nest a few levels; deeper input is rejected before it can
-/// exhaust the stack.
 const MAX_DEPTH: usize = 16;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Value {
     String(String),
     Dictionary(BTreeMap<String, Value>),
-    /// Numbers, dates, data, booleans, and arrays: never a translation.
     Other,
 }
 
-/// Reads a property list whose root is a dictionary, as a `.strings` file's is.
 pub(super) fn dictionary(bytes: &[u8]) -> Result<BTreeMap<String, Value>, String> {
     if bytes.starts_with(b"bplist") {
         return match binary::parse(bytes)? {
@@ -115,8 +111,6 @@ fn xml_value(node: roxmltree::Node<'_, '_>, depth: usize) -> Result<Value, Strin
     }
 }
 
-/// The old-style (`OpenStep`) format of `.strings` files: `"key" = "value";` entries,
-/// optionally inside braces, with C comments.
 struct OldStyle<'a> {
     chars: std::iter::Peekable<std::str::Chars<'a>>,
 }
@@ -290,7 +284,6 @@ impl<'a> OldStyle<'a> {
         }
     }
 
-    /// The value of up to `limit` digits in `radix`, and how many were read.
     fn digits(&mut self, radix: u32, limit: u32) -> (u32, u32) {
         let mut value = 0;
         let mut count = 0;

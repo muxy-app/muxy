@@ -8,7 +8,7 @@ use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, Window, div, px,
 };
 use muxy_app_core::settings::{
-    CellHeight, NewPaneDirectory, PaddingColor, TerminalColor, TerminalSettings,
+    CellHeight, NewPaneDirectory, PaddingColor, PaneSettings, TerminalColor, TerminalSettings,
 };
 use muxy_ui::controls;
 use muxy_ui::l10n::tr_key;
@@ -22,6 +22,7 @@ pub(super) const SECTIONS: &[&str] = &[
     tr_key!("Selection"),
     tr_key!("Scrolling"),
     tr_key!("Input"),
+    tr_key!("Insert Path"),
     tr_key!("Key bindings"),
     tr_key!("Migration"),
     tr_key!("Reset"),
@@ -71,28 +72,38 @@ pub(super) fn owns(id: &str) -> bool {
 }
 
 pub(super) fn fields() -> impl Iterator<Item = &'static str> {
-    std::iter::once("font-feature").chain(COLORS).chain(PALETTE)
+    ["font-feature", "selection-word-chars"]
+        .into_iter()
+        .chain(COLORS)
+        .chain(PALETTE)
 }
 
 pub(super) fn field_values(
     terminal: &TerminalSettings,
 ) -> impl Iterator<Item = (&'static str, String)> + '_ {
-    std::iter::once(("font-feature", terminal.font.feature_list()))
-        .chain(
-            COLORS
-                .into_iter()
-                .map(|id| (id, color(terminal, id).map_or_else(String::new, color_text))),
+    [
+        ("font-feature", terminal.font.feature_list()),
+        (
+            "selection-word-chars",
+            terminal.options.selection_word_chars.clone(),
+        ),
+    ]
+    .into_iter()
+    .chain(
+        COLORS
+            .into_iter()
+            .map(|id| (id, color(terminal, id).map_or_else(String::new, color_text))),
+    )
+    .chain(PALETTE.into_iter().zip(0_u8..).map(|(id, index)| {
+        (
+            id,
+            terminal
+                .options
+                .palette
+                .get(&index)
+                .map_or_else(String::new, |rgb| format!("#{rgb:06x}")),
         )
-        .chain(PALETTE.into_iter().zip(0_u8..).map(|(id, index)| {
-            (
-                id,
-                terminal
-                    .options
-                    .palette
-                    .get(&index)
-                    .map_or_else(String::new, |rgb| format!("#{rgb:06x}")),
-            )
-        }))
+    }))
 }
 
 fn color(terminal: &TerminalSettings, id: &str) -> Option<TerminalColor> {
@@ -131,7 +142,6 @@ fn swatch(pane: &SettingsView, color: Option<TerminalColor>) -> AnyElement {
         .into_any_element()
 }
 
-/// A button whose `name` says which row it acts on, when `label` alone doesn't.
 pub(super) fn change_button(
     pane: &SettingsView,
     id: &str,
@@ -464,6 +474,9 @@ pub(super) fn rows(
                 }),
                 cx,
             )
+        } else if id == "insert-path-recents" {
+            let recents = pane.snapshot.settings.panes.insert_path_recents;
+            pane.toggle(id, recents, Change::InsertPathRecents(!recents), cx)
         } else if let Some(value) = toggle {
             pane.toggle(id, value, Change::Terminal(id, (!value).to_string()), cx)
         } else {
@@ -480,7 +493,7 @@ pub(super) fn rows(
                 "font-family-bold" => style_font(pane, FontSlot::Bold, cx),
                 "font-family-italic" => style_font(pane, FontSlot::Italic, cx),
                 "font-family-bold-italic" => style_font(pane, FontSlot::BoldItalic, cx),
-                "font-feature" => pane.field(id),
+                "font-feature" | "selection-word-chars" => pane.field(id),
                 "font-thicken-strength" => slider(
                     pane,
                     id,
@@ -621,8 +634,7 @@ pub(super) fn rows(
                         .named(&super::control_name(id))
                         .enabled(
                             *terminal != TerminalSettings::default()
-                                || pane.snapshot.settings.panes.new_pane_directory
-                                    != NewPaneDirectory::default(),
+                                || pane.snapshot.settings.panes != PaneSettings::default(),
                         ),
                     cx.listener(|pane, _, _, cx| {
                         pane.recording = None;

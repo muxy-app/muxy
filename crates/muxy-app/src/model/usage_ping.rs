@@ -6,9 +6,6 @@ use muxy_core::release::Version;
 use super::AppModel;
 
 impl AppModel {
-    /// Sends the anonymous daily ping from installed releases, checking every
-    /// hour so a Muxy left open for days still counts each day. The setting is
-    /// read before each check, so turning it off stops the next one.
     pub(super) fn start_usage_ping(&self, cx: &mut Context<Self>) {
         if cfg!(test)
             || Version::current().is_none()

@@ -1,13 +1,8 @@
-//! Colors come from the host terminal's palette, so the interface follows its
-//! theme, light or dark.
-
 use muxy_app_core::activity::ActivityIndicator;
 use ratatui::style::{Color, Modifier, Style};
 
 pub(crate) const ACCENT: Color = Color::Blue;
-/// Text drawn on an accent background.
 const CONTRAST: Color = Color::Black;
-/// Separators and the borders of unfocused panes.
 const LINE: Color = Color::DarkGray;
 
 pub(crate) fn text() -> Style {
@@ -34,7 +29,6 @@ pub(crate) fn line() -> Style {
     Style::new().fg(LINE)
 }
 
-/// A highlighted label, such as the active tab or a mode name.
 pub(crate) fn pill() -> Style {
     Style::new()
         .fg(CONTRAST)
@@ -68,7 +62,6 @@ pub(crate) fn connected(online: bool) -> Style {
     Style::new().fg(if online { Color::Green } else { Color::Yellow })
 }
 
-/// The dot that shows what the agents behind a pane, tab, or project are doing.
 pub(crate) fn activity(indicator: ActivityIndicator) -> Option<(&'static str, Style)> {
     let (symbol, color) = match indicator {
         ActivityIndicator::None => return None,
@@ -89,7 +82,6 @@ pub(crate) fn activity_label(indicator: ActivityIndicator) -> &'static str {
     }
 }
 
-/// A project's color, from its `#rrggbb` setting.
 pub(crate) fn project(color: &str) -> Style {
     let channel = |range: std::ops::Range<usize>| {
         color

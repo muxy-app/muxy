@@ -31,8 +31,6 @@ impl Received {
     }
 }
 
-/// Answers one request with `reply`, and hands back what it received.
-/// An HTTP reply with `head`'s status line and headers, and `body`.
 fn reply(head: &str, body: &str) -> String {
     format!(
         "HTTP/1.1 {head}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",

@@ -1,4 +1,4 @@
-use gpui::{AnyElement, AppContext, Context, Focusable, IntoElement, Window, point};
+use gpui::{AnyElement, AppContext, Context, Focusable, IntoElement, Window};
 use muxy_app_core::{Project, ProjectId, ProjectStatus};
 use muxy_protocol::ProgressState;
 use muxy_ui::icon::Icon;
@@ -255,11 +255,7 @@ impl AppModel {
                 self.focus_active(window, cx);
             }
             Some(RENAME) => {
-                let size = window.viewport_size();
-                let position = point(
-                    size.width / 2.0 - self.metrics.scaled(120.0),
-                    size.height / 3.0,
-                );
+                let position = self.editor_position(window);
                 self.open_project_editor(id, Field::Name, position, window, cx);
             }
             Some(REMOVE) if available => {

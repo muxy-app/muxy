@@ -44,6 +44,9 @@ sequenceDiagram
 - Frames carry only the visible rows that changed. A resize sends the whole
   screen.
 - History is never pushed. Apps page through it and search it on request.
+  A page, and the history an attach starts with, also list the images
+  placed on those rows, as stills, with each placement's row counted from
+  the first of them. Older servers list none.
 - Image pixels go out once. The desktop app asks the server to stream
   images: a screen carries the pixels of an image's frame on show the first
   time it lists that frame, and later screens list it without them. The
@@ -55,11 +58,28 @@ sequenceDiagram
   shows. The app reads the other frames of an animation, and any it lost,
   on request, and plays animations itself. Moving an image or playing an
   animation sends no pixels.
+- Inline pixels are capped at 8 MiB a screen, so the server shrinks larger
+  images for them. A desktop app on the same computer asks the server to
+  share images instead: it gets images at full size, up to 128 MiB a screen,
+  and each new frame's pixels sit in a shared memory region that the screen
+  names. The app reads and removes the region, and the server frees it when
+  the screen is acknowledged. A region the app could not read is read again
+  on request, at the inline size. Older servers answer "unsupported", and
+  the app falls back to streaming.
 - Apps that draw no images, and older desktop builds, ask the server to leave
   pixels out and read the frames they draw on request. An app that asks for
   neither, such as an older build still, gets the pixels of the frame on show
   with every screen that changes an image. Saved screens always carry their
   pixels.
+
+## Mouse
+
+Mouse events name the cell under the pointer. When the program asks for
+pixel reports (mode 1016), the server says so in the input modes, and the app
+adds the pointer's position in device pixels from the top left of the grid.
+It then reports movement within a cell too. Older servers ignore the
+position, and older apps never send it, so the server falls back to the
+middle of the cell.
 
 ## Flow control
 

@@ -1,7 +1,3 @@
-//! The app's one proxy. It lives in `proxy.toml`, apart from `settings.toml`,
-//! because it can hold a password: only this user can read it, and backups
-//! leave it out.
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
@@ -12,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::settings::{Error, Result};
 
-/// Hosts a new proxy reaches directly.
 pub const DEFAULT_PROXY_BYPASS: &str = "localhost, 127.0.0.1, ::1";
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -31,15 +26,11 @@ pub struct ProxySettings {
     pub port: u16,
     pub username: String,
     pub password: String,
-    /// Hosts reached directly, as a `no_proxy` list.
     pub bypass: String,
-    /// New terminals on this computer, the app's own requests, and ssh to
-    /// other computers all use the proxy.
     pub global: bool,
 }
 
 impl ProxySettings {
-    /// No file means no proxy.
     pub fn load(path: &Path) -> Result<Option<Self>> {
         let source = match fs::read_to_string(path) {
             Ok(source) => source,
@@ -112,7 +103,6 @@ impl ProxySettings {
         Ok(())
     }
 
-    /// As programs read it from `http_proxy` and the like.
     pub fn url(&self) -> String {
         self.url_with_scheme(match self.kind {
             ProxyKind::Http => "http",
@@ -120,8 +110,6 @@ impl ProxySettings {
         })
     }
 
-    /// Like [`Self::url`], but a SOCKS proxy also looks up host names, so
-    /// names this computer can't resolve still work.
     pub fn url_with_remote_names(&self) -> String {
         self.url_with_scheme(match self.kind {
             ProxyKind::Http => "http",
@@ -142,7 +130,6 @@ impl ProxySettings {
         )
     }
 
-    /// An IPv6 address needs brackets before its port.
     pub fn bracketed_host(&self) -> String {
         if self.host.contains(':') {
             format!("[{}]", self.host)
@@ -151,7 +138,6 @@ impl ProxySettings {
         }
     }
 
-    /// The hosts reached directly, one per entry.
     pub fn bypass_hosts(&self) -> Vec<&str> {
         self.bypass
             .split([',', ' ', '\t', '\n'])
@@ -177,8 +163,6 @@ impl ProxySettings {
         })
     }
 
-    /// Variables that send a terminal's programs through the proxy. Both
-    /// spellings, since programs disagree on which one they read.
     pub fn environment(&self) -> BTreeMap<String, String> {
         let url = self.url();
         let mut environment = BTreeMap::new();
@@ -215,7 +199,6 @@ fn subnet_contains(entry: &str, address: IpAddr) -> bool {
         .is_some_and(|shift| (address ^ network).checked_shr(shift).unwrap_or(0) == 0)
 }
 
-/// Keeps only unreserved URL characters as they are.
 fn percent_encode(value: &str) -> String {
     value
         .bytes()
@@ -231,8 +214,6 @@ fn percent_encode(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
-
     use super::*;
 
     fn proxy() -> ProxySettings {
@@ -421,11 +402,15 @@ mod tests {
             ..proxy()
         };
         saved.save(&path)?;
-        let mode = fs::metadata(&path)
-            .map_err(|error| Error::new("test", error))?
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path)
+                .map_err(|error| Error::new("test", error))?
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
         assert_eq!(ProxySettings::load(&path)?, Some(saved));
         ProxySettings::remove(&path)?;
         ProxySettings::remove(&path)?;

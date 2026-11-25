@@ -1,7 +1,3 @@
-//! The tokens this computer signs in with on servers it paired with. They
-//! live in `paired-servers.toml`, apart from `settings.toml`: only this user
-//! can read it, and backups leave it out.
-
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -36,7 +32,6 @@ impl std::fmt::Debug for Token {
 }
 
 impl PairingTokens {
-    /// No file means no tokens.
     pub fn load(path: &Path) -> Result<Self> {
         let context = || path.display().to_string();
         let source = match fs::read_to_string(path) {
@@ -63,7 +58,6 @@ impl PairingTokens {
             .and_then(|token| hex::decode(&token.token))
     }
 
-    /// Saves `server`'s token, replacing the one it had.
     pub fn set(path: &Path, server: ServerId, token: &[u8; 32]) -> Result<()> {
         Self::edit(path, |tokens| {
             tokens.retain(|stored| stored.id != server);
@@ -80,8 +74,6 @@ impl PairingTokens {
         })
     }
 
-    /// Changes the tokens as the file holds them now, while no other
-    /// process can, so a token another app saved meanwhile is kept.
     fn edit(path: &Path, change: impl FnOnce(&mut Vec<Token>)) -> Result<()> {
         let context = || path.display().to_string();
         let _lock =
@@ -101,8 +93,6 @@ impl PairingTokens {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
-
     use super::*;
 
     #[test]
@@ -114,11 +104,15 @@ mod tests {
         PairingTokens::set(&path, studio, &[1; 32])?;
         PairingTokens::set(&path, laptop, &[2; 32])?;
         PairingTokens::set(&path, studio, &[3; 32])?;
-        let mode = fs::metadata(&path)
-            .map_err(|error| Error::new("test", error))?
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path)
+                .map_err(|error| Error::new("test", error))?
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
         let tokens = PairingTokens::load(&path)?;
         assert_eq!(tokens.token(studio), Some([3; 32]));
         assert_eq!(tokens.token(laptop), Some([2; 32]));

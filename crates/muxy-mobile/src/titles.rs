@@ -1,7 +1,3 @@
-//! What each session is called, worked out the way the desktop app does: the
-//! name a renamed tab gave it, else the title its program set, else the
-//! running program's name, else its folder.
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -11,14 +7,11 @@ use muxy_protocol::{ForegroundProcess, MetadataEvent, ServerPath, SessionId, Ses
 #[derive(Default)]
 pub(crate) struct Titles {
     state: Mutex<HashMap<SessionId, Known>>,
-    /// The server sends every session's metadata, so an attached terminal's
-    /// own updates add nothing.
     watching: AtomicBool,
 }
 
 struct Known {
     name: Option<String>,
-    /// The folder the session list gave, until metadata arrives.
     directory: ServerPath,
     metadata: Option<SessionMetadata>,
 }
@@ -54,7 +47,6 @@ impl Titles {
         self.watching.store(true, Ordering::Release);
     }
 
-    /// Records the name a session list gave `session` and returns its title.
     pub(crate) fn listed(
         &self,
         session: SessionId,
@@ -68,14 +60,10 @@ impl Titles {
         known.title()
     }
 
-    /// Applies metadata the server sent for any session; returns the new
-    /// title when it changed.
     pub(crate) fn metadata(&self, session: SessionId, metadata: SessionMetadata) -> Option<String> {
         self.update(session, |known| known.metadata = Some(metadata))
     }
 
-    /// Applies what an attach reported, unless the server sends every
-    /// session's metadata anyway.
     pub(crate) fn attached(
         &self,
         session: SessionId,
@@ -96,8 +84,6 @@ impl Titles {
         )
     }
 
-    /// Applies an attached terminal's metadata event, unless the server sends
-    /// every session's metadata anyway.
     pub(crate) fn event(&self, session: SessionId, event: &MetadataEvent) -> Option<String> {
         if self.watching.load(Ordering::Acquire) {
             return None;
@@ -121,6 +107,15 @@ impl Titles {
                 _ => {}
             }
         })
+    }
+
+    pub(crate) fn process(&self, session: SessionId) -> Option<ForegroundProcess> {
+        self.lock()
+            .get(&session)?
+            .metadata
+            .as_ref()?
+            .process
+            .clone()
     }
 
     pub(crate) fn ended(&self, session: SessionId) {

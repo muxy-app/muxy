@@ -1,8 +1,3 @@
-//! GitHub lookups and pull-request actions, through the GitHub CLI.
-//!
-//! Lookups that need the network are remembered briefly, failures included,
-//! so refreshes don't ask GitHub every time.
-
 mod cli;
 mod parse;
 mod pull_requests;
@@ -14,13 +9,10 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// Repository identity and default branch rarely change.
 const SETTLED: Duration = Duration::from_secs(300);
 const PULL_REQUEST: Duration = Duration::from_secs(30);
 
-/// A repository and the remote URLs its answers depend on.
 type RemoteKey = (PathBuf, Vec<u8>);
-/// A repository and the branch and commit its pull request belongs to.
 type BranchKey = (PathBuf, String, String);
 
 #[derive(Debug)]
@@ -32,8 +24,7 @@ pub(super) struct Github {
 }
 
 impl Github {
-    /// Runs `executable` in place of the installed GitHub CLI.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn with_cli(executable: PathBuf) -> Self {
         Self {
             cli: cli::Cli {
@@ -55,8 +46,6 @@ impl Default for Github {
     }
 }
 
-/// What remote lookups need from the repository. Read under the repository
-/// lock; the lookups themselves run without it.
 pub(super) struct Remote {
     urls: Vec<u8>,
     current: Option<CurrentBranch>,
@@ -66,7 +55,6 @@ pub(super) struct Remote {
 struct CurrentBranch {
     branch: String,
     head: String,
-    /// The pull request a checkout from Muxy recorded for the branch.
     configured_number: Option<u64>,
 }
 
@@ -146,7 +134,6 @@ impl Github {
         Some(branch.to_owned())
     }
 
-    /// The current branch's open pull request.
     pub(super) fn pull_request(
         &self,
         repository: &Path,
@@ -176,7 +163,6 @@ impl Github {
             .get(key, fresh, || self.current(repository, current, identity))
     }
 
-    /// Forgets the repository's pull requests after Muxy changed it.
     pub(super) fn forget_pull_requests(&self, repository: &Path) {
         self.pull_requests.forget(|(path, ..)| path == repository);
     }

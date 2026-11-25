@@ -1,9 +1,3 @@
-//! A parser for the compound text encoding used by the X Input Method protocol.
-//!
-//! This is intended to be used as a building block for higher level libraries. See the [`xim`] crate for an example.
-//!
-//! [xim]: https://crates.io/crates/xim
-
 #![no_std]
 #![allow(clippy::uninlined_format_args)]
 #![forbid(unsafe_code, future_incompatible)]
@@ -23,7 +17,6 @@ use std::io::{self, Write};
 const UTF8_START: &[u8] = &[0x1B, 0x25, 0x47];
 const UTF8_END: &[u8] = &[0x1B, 0x25, 0x40];
 
-/// Wrapper for reduce allocation
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct CText<'s> {
@@ -65,7 +58,6 @@ impl<'s> CText<'s> {
     }
 }
 
-/// Encoding utf8 to COMPOUND_TEXT with utf8 escape
 pub fn utf8_to_compound_text(text: &str) -> Vec<u8> {
     let mut ret = Vec::with_capacity(text.len() + 6);
     ret.extend_from_slice(UTF8_START);
@@ -125,7 +117,6 @@ pub fn compound_text_to_utf8(bytes: &[u8]) -> Result<String, DecodeError> {
     for chunk in split {
         let mut iter = chunk.iter();
         match (iter.next(), iter.next()) {
-            // UTF-8
             (Some(0x25), Some(0x47)) => {
                 let left = iter.as_slice().to_vec();
                 match String::from_utf8(left) {
@@ -133,19 +124,13 @@ pub fn compound_text_to_utf8(bytes: &[u8]) -> Result<String, DecodeError> {
                     Err(e) => return Err(DecodeError::from(e)),
                 };
             }
-            // UTF-8 End
             (Some(0x25), Some(0x40)) => {}
-            // ISO-2022 return to ASCII (ESC ( B) or JIS X 0201 Roman (ESC ( J).
-            // Mixed CJK+ASCII commits (e.g. Sogou date phrases) insert these between
-            // charset segments; without handling them, "(B" / "(J" leaks into UTF-8.
             (Some(0x28), Some(0x42)) | (Some(0x28), Some(0x4a)) => {
                 let left = iter.as_slice();
                 let out = encoding_rs::mem::decode_latin1(left);
                 result.push_str(&out);
             }
-            // 94N
             (Some(0x24), Some(0x28)) => match iter.next() {
-                // JP
                 Some(0x42) => {
                     let left = iter.as_slice();
                     let mut decoder = encoding_rs::ISO_2022_JP.new_decoder_without_bom_handling();
@@ -156,107 +141,89 @@ pub fn compound_text_to_utf8(bytes: &[u8]) -> Result<String, DecodeError> {
                     result.push_str(&out);
                 }
 
-                // CN (GB2312)
                 Some(0x41) => {
                     let left: Vec<u8> = iter.map(|&b| b + 0x80).collect();
                     let (out, _) = encoding_rs::GBK.decode_without_bom_handling(&left);
                     result.push_str(&out);
                 }
 
-                // KR (KS C 5601)
                 Some(0x43) => {
                     let left: Vec<u8> = iter.map(|&b| b + 0x80).collect();
                     let (out, _) = encoding_rs::EUC_KR.decode_with_bom_removal(&left);
                     result.push_str(&out);
                 }
-                // Invalid encode
                 _ => return Err(DecodeError::InvalidEncoding),
             },
-            // ISO-8859-1
             (Some(0x2d), Some(0x41)) => {
                 let left = iter.as_slice();
                 let out = encoding_rs::mem::decode_latin1(left);
                 result.push_str(&out);
             }
-            // ISO-8859-2
             (Some(0x2d), Some(0x42)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_2.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-3
             (Some(0x2d), Some(0x43)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_3.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-4
             (Some(0x2d), Some(0x44)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_4.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-7
             (Some(0x2d), Some(0x46)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_7.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-6
             (Some(0x2d), Some(0x47)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_6.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-8
             (Some(0x2d), Some(0x48)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_8.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-5
             (Some(0x2d), Some(0x4c)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_5.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-9
             (Some(0x2d), Some(0x4d)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::WINDOWS_1254.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-10
             (Some(0x2d), Some(0x56)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_10.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-13
             (Some(0x2d), Some(0x59)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_13.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-14
             (Some(0x2d), Some(0x5f)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_14.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-15
             (Some(0x2d), Some(0x62)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_15.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // ISO-8859-16
             (Some(0x2d), Some(0x66)) => {
                 let left = iter.as_slice();
                 let (out, _) = encoding_rs::ISO_8859_16.decode_without_bom_handling(left);
                 result.push_str(&out);
             }
-            // defaults to ISO-8859-1
             _ => {
                 let out = encoding_rs::mem::decode_latin1(chunk);
                 result.push_str(&out);
@@ -307,16 +274,15 @@ mod tests {
 
     #[test]
     fn gb2312_cn_mixed_ascii_digits() {
-        // "2026年07月16日" as COMPOUND_TEXT with ESC ( B between GB2312 and ASCII.
         const UTF8: &str = "2026年07月16日";
         #[rustfmt::skip]
         const COMP: &[u8] = &[
             b'2', b'0', b'2', b'6',
-            0x1b, 0x24, 0x28, 0x41, 0x44, 0x6a, // 年
+            0x1b, 0x24, 0x28, 0x41, 0x44, 0x6a,
             0x1b, 0x28, 0x42, b'0', b'7',
-            0x1b, 0x24, 0x28, 0x41, 0x54, 0x42, // 月
+            0x1b, 0x24, 0x28, 0x41, 0x54, 0x42,
             0x1b, 0x28, 0x42, b'1', b'6',
-            0x1b, 0x24, 0x28, 0x41, 0x48, 0x55, // 日
+            0x1b, 0x24, 0x28, 0x41, 0x48, 0x55,
         ];
         assert_eq!(crate::compound_text_to_utf8(COMP).unwrap(), UTF8);
     }

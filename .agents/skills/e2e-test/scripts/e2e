@@ -1,0 +1,603 @@
+#!/bin/bash
+# Host-side driver for Muxy E2E runs in SwiftVM guests. Run `e2e help` for usage.
+set -euo pipefail
+
+SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(git -C "$SCRIPTS" rev-parse --show-toplevel)"
+PLATFORMS="macos wayland x11 windows"
+CPUS=6
+MEMORY_GB=12
+
+template_for() {
+  case "$1" in
+    macos) echo muxy-macos ;;
+    wayland) echo muxy-ubuntu-wayland ;;
+    x11) echo muxy-ubuntu-x11 ;;
+    windows) echo muxy-windows-11 ;;
+    *) die "unknown platform '$1' (use: $PLATFORMS)" ;;
+  esac
+}
+
+# Muxy's default shortcuts per action: "<action> <macOS keys> <Linux and Windows keys>".
+ACTIONS="
+new-tab cmd+t ctrl+shift+t
+split-right cmd+d ctrl+shift+d
+split-down cmd+shift+d ctrl+shift+alt+d
+focus-left cmd+alt+Left alt+Left
+focus-right cmd+alt+Right alt+Right
+zoom cmd+shift+Return ctrl+shift+Return
+close-pane cmd+w ctrl+shift+w
+close-window cmd+w ctrl+shift+w
+tab-1 cmd+1 alt+1
+next-tab ctrl+Tab ctrl+Tab
+existing-terminals cmd+alt+t ctrl+shift+alt+t
+add-project cmd+o ctrl+shift+o
+next-project ctrl+] ctrl+]
+previous-project ctrl+[ ctrl+[
+sidebar cmd+b ctrl+shift+b
+palette cmd+shift+p ctrl+shift+p
+theme-picker cmd+shift+k ctrl+alt+k
+settings cmd+, ctrl+,
+agents-panel cmd+alt+a ctrl+shift+alt+a
+toggle-floats cmd+alt+f ctrl+shift+alt+f
+quit cmd+q ctrl+shift+q
+copy cmd+c ctrl+shift+c
+paste cmd+v ctrl+shift+v
+select-all cmd+a ctrl+a
+find cmd+f ctrl+shift+f
+insert-path cmd+ctrl+i ctrl+alt+i
+previous-prompt cmd+Up ctrl+shift+Up
+scroll-page-up cmd+PageUp shift+PageUp
+font-bigger cmd+= ctrl+=
+font-smaller cmd+- ctrl+-
+composer cmd+i ctrl+shift+i
+composer-send cmd+Return ctrl+Return
+address-bar cmd+l ctrl+l
+browser-back cmd+[ alt+Left
+switch-project cmd+alt+p ctrl+alt+p
+rename-tab cmd+shift+r ctrl+alt+r
+move-tab-left cmd+alt+shift+Left ctrl+shift+PageUp
+move-tab-right cmd+alt+shift+Right ctrl+shift+PageDown
+resize-left cmd+ctrl+shift+Left alt+shift+Left
+resize-right cmd+ctrl+shift+Right alt+shift+Right
+float-pane cmd+alt+shift+f ctrl+alt+f
+dock-float cmd+alt+shift+d ctrl+alt+u
+agent-sessions cmd+alt+s ctrl+shift+alt+s
+apply-layout cmd+alt+l ctrl+shift+alt+l
+select-to-line-start cmd+shift+Left shift+Home
+rebound-new-tab ctrl+alt+j ctrl+alt+j
+"
+
+key_for() {
+  local action="$1" platform="$2" line
+  line="$(awk -v a="$action" '$1 == a' <<<"$ACTIONS")"
+  [ -n "$line" ] || die "unknown action '$action'; run 'e2e actions <vm>'"
+  if [ "$platform" = macos ]; then awk '{print $2}' <<<"$line"; else awk '{print $3}' <<<"$line"; fi
+}
+
+die() { echo "e2e: $*" >&2; exit 1; }
+note() { echo "e2e: $*" >&2; }
+
+# VM names are muxy-e2e-<run>-<platform>; artifacts live in target/e2e/<run>/<platform>.
+vm_name() { echo "muxy-e2e-$1-$2"; }
+platform_of() { echo "${1##*-}"; }
+run_of() { local rest="${1#muxy-e2e-}"; echo "${rest%-*}"; }
+artifacts_of() {
+  case "$1" in muxy-e2e-*-*) ;; *) die "'$1' is not an e2e VM name (muxy-e2e-<run>-<platform>)" ;; esac
+  echo "$ROOT/target/e2e/$(run_of "$1")/$(platform_of "$1")"
+}
+
+log_action() {
+  local dir; dir="$(artifacts_of "$1")"; shift
+  mkdir -p "$dir"
+  printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >> "$dir/actions.log"
+}
+
+# The Windows template's account is muxy, and exec runs a program without a shell.
+WINDOWS_HOME='C:\Users\muxy'
+# windows_script <vm> <seconds> <script> [arguments]: runs one of the helpers up copies into the guest.
+windows_script() {
+  swiftvm exec "$1" --timeout "$2" -- powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WINDOWS_HOME\\.local\\bin\\$3" "${@:4}"
+}
+
+guest() {
+  if [ "$(platform_of "$1")" = windows ]; then
+    windows_script "$1" 600 muxy-e2e.ps1 "${@:2}"
+  else
+    swiftvm exec "$1" -- bash -c 'exec "$HOME/.local/bin/muxy-e2e" "$@"' muxy-e2e "${@:2}"
+  fi
+}
+
+# SwiftVM's control drives every guest's desktop from outside it, the same on every system.
+control() {
+  local vm="$1"
+  shift
+  swiftvm control "$vm" "$@" < /dev/null
+}
+
+# Presses key combos one after the other.
+ad_keys() {
+  local vm="$1"
+  shift
+  control "$vm" key "$@" >/dev/null || die "pressing $* failed in $vm"
+}
+
+# Screenshot pixels per control unit: 2 on a Retina guest, about 1.22 on a smaller display. It
+# changes when a guest restarts at another size, so it is read each time.
+display_scale() {
+  control "$1" look --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["results"][0]["look"]["scale"])'
+}
+
+to_points() { python3 -c 'import sys; print(round(float(sys.argv[1]) / float(sys.argv[2])))' "$1" "$2"; }
+
+retry_exec() {
+  local vm="$1" attempt probe=(true)
+  [ "$(platform_of "$vm")" = windows ] && probe=(cmd.exe /d /c exit 0)
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if swiftvm exec "$vm" -- "${probe[@]}" >/dev/null 2>&1; then return 0; fi
+    sleep 6
+    swiftvm wait "$vm" --timeout 120 >/dev/null 2>&1 || true
+  done
+  return 1
+}
+
+wait_desktop() {
+  local vm="$1" platform="$2" attempt
+  for attempt in $(seq 1 30); do
+    if [ "$platform" = macos ]; then
+      [ "$(swiftvm exec "$vm" -- stat -f %Su /dev/console 2>/dev/null)" = muxy ] && return 0
+    elif [ "$platform" = windows ]; then
+      # exec runs as whoever is signed in at the screen, so it answers only once muxy is.
+      swiftvm exec "$vm" -- tasklist.exe /fi "imagename eq explorer.exe" /fo csv /nh 2>/dev/null | grep -q explorer.exe && return 0
+    else
+      swiftvm exec "$vm" -- bash -c 'for s in $(loginctl list-sessions --no-legend | awk "\$3==\"muxy\"{print \$1}"); do loginctl show-session "$s" -p Type -p Active; done' 2>/dev/null \
+        | tr '\n' ' ' | grep -q "Type=$platform Active=yes" && return 0
+    fi
+    sleep 4
+  done
+  return 1
+}
+
+# The guest tools start in the session a little after login.
+wait_agent_desktop() {
+  local vm="$1" log="$2" attempt
+  for attempt in $(seq 1 30); do
+    control "$vm" look > "$log" 2>&1 && return 0
+    sleep 4
+  done
+  return 1
+}
+
+cmd_preflight() {
+  command -v swiftvm >/dev/null || die "swiftvm is not installed"
+  local templates platform missing=0
+  templates="$(swiftvm templates)"
+  for platform in $PLATFORMS; do
+    if grep -q "^$(template_for "$platform") " <<<"$templates"; then
+      echo "template $platform: $(template_for "$platform") OK"
+    else
+      echo "template $platform: $(template_for "$platform") MISSING"; missing=1
+    fi
+  done
+  echo "running e2e VMs:"; swiftvm list | grep '^muxy-e2e-' || echo "  none"
+  df -h "$HOME" | tail -1 | awk '{print "host disk free: " $4}'
+  [ "$missing" = 0 ] || die "a template is missing; see references/templates.md"
+  python3 -I "$SCRIPTS/dhcp-leases.py" check 3 \
+    || die "ENV: the host DHCP pool for SwiftVM is full, so new VMs get no network; run 'e2e dhcp-prune' (asks for your password)"
+}
+
+# bootpd never gives an expired lease to a new MAC, and every e2e VM has a new one,
+# so the vmnet /24 fills after ~250 VMs. Drop the expired leases and restart bootpd.
+cmd_dhcp_prune() {
+  local pruned
+  pruned="$(mktemp -t muxy-dhcp-leases)"
+  python3 -I "$SCRIPTS/dhcp-leases.py" prune "$pruned"
+  note "replacing /var/db/dhcpd_leases (backup: /var/db/dhcpd_leases.bak); sudo asks for your password"
+  sudo cp -p /var/db/dhcpd_leases /var/db/dhcpd_leases.bak
+  sudo cp "$pruned" /var/db/dhcpd_leases
+  sudo launchctl kickstart -k system/com.apple.bootpd 2>/dev/null || sudo pkill -x bootpd || true
+  rm -f "$pruned"
+  python3 -I "$SCRIPTS/dhcp-leases.py" check 3
+}
+
+# A guest without an IPv4 lease can still resolve names over IPv6, so check a real fetch.
+wait_network() {
+  if [ "$(platform_of "$1")" = windows ]; then
+    swiftvm exec "$1" -- powershell.exe -NoProfile -Command \
+      'for ($i = 0; $i -lt 18; $i++) { try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 https://github.com | Out-Null; exit 0 } catch { Start-Sleep 5 } }; exit 1'
+    return
+  fi
+  swiftvm exec "$1" -- bash -c \
+    'for i in $(seq 1 18); do curl -sS -m 5 -o /dev/null https://github.com 2>/dev/null && exit 0; sleep 5; done; exit 1'
+}
+
+cmd_prepare() {
+  local run="${1:-$(date +r%m%d%H%M)}" source="${2:-$ROOT}" dir
+  case "$run" in *[!0-9a-z]*) die "run id may only contain lowercase letters and digits" ;; esac
+  source="$(git -C "$source" rev-parse --show-toplevel)" || die "$2 is not a Git checkout"
+  dir="$ROOT/target/e2e/$run"
+  mkdir -p "$dir"
+  python3 "$SCRIPTS/export-source.py" "$source" "$dir/source.tar" > "$dir/source.txt"
+  {
+    echo "source: $source"
+    echo "commit: $(git -C "$source" rev-parse HEAD)"
+    echo "branch: $(git -C "$source" rev-parse --abbrev-ref HEAD)"
+    echo "dirty files: $(git -C "$source" status --porcelain | wc -l | tr -d ' ')"
+  } >> "$dir/source.txt"
+  cat "$dir/source.txt" >&2
+  echo "$run"
+}
+
+cmd_up() {
+  local platform="$1" run="$2" vm dir template
+  template="$(template_for "$platform")"
+  vm="$(vm_name "$run" "$platform")"
+  dir="$(artifacts_of "$vm")"
+  [ -f "$ROOT/target/e2e/$run/source.tar" ] || die "run $run has no source.tar; run 'e2e prepare' first"
+  mkdir -p "$dir/shots" "$dir/logs"
+  if swiftvm list | grep -q "^$vm "; then
+    note "$vm already exists; starting it"
+    swiftvm start "$vm" >/dev/null 2>&1 || true
+  else
+    note "creating $vm from $template"
+    swiftvm create --template "$template" --name "$vm" --cpus "$CPUS" --memory "$MEMORY_GB" > "$dir/logs/create.log" 2>&1 \
+      || die "ENV: creating $vm failed; see $dir/logs/create.log"
+  fi
+  swiftvm wait "$vm" --timeout 300 >/dev/null || die "ENV: guest tools never answered in $vm"
+  retry_exec "$vm" || die "ENV: exec keeps failing in $vm"
+  wait_desktop "$vm" "$platform" || die "ENV: no active $platform desktop session for muxy in $vm"
+  wait_agent_desktop "$vm" "$dir/logs/agent-desktop.txt" \
+    || die "ENV: swiftvm control can't see the desktop of $vm; see $dir/logs/agent-desktop.txt"
+  display_scale "$vm" >/dev/null
+  if ! wait_network "$vm"; then
+    python3 -I "$SCRIPTS/dhcp-leases.py" check 1 >&2 \
+      || die "ENV: $vm has no network because the host DHCP pool is full; run 'e2e dhcp-prune', then 'e2e up $platform $run' again"
+    die "ENV: $vm can't reach github.com, which the build needs"
+  fi
+  note "desktop ready; importing source"
+  if [ "$platform" = windows ]; then
+    up_windows "$vm" "$run" "$dir"
+  else
+    up_unix "$vm" "$run" "$dir"
+  fi
+  guest "$vm" info > "$dir/env.txt"
+  cat "$dir/env.txt"
+  log_action "$vm" "up $platform from $template"
+  echo "VM=$vm"
+  echo "ARTIFACTS=$dir"
+}
+
+up_unix() {
+  local vm="$1" run="$2" dir="$3" helper
+  swiftvm cp "$ROOT/target/e2e/$run/source.tar" "$vm:/tmp/muxy-source.tar"
+  swiftvm exec "$vm" -- bash -s /tmp/muxy-source.tar < "$SCRIPTS/guest/import-source.sh" > "$dir/logs/import.log" 2>&1 \
+    || die "ENV: source import failed; see $dir/logs/import.log"
+  swiftvm exec "$vm" -- mkdir -p .local/bin
+  for helper in muxy-e2e muxy-vm-build muxy-vm-run; do
+    swiftvm cp "$SCRIPTS/guest/$helper" "$vm:.local/bin/$helper"
+  done
+  swiftvm exec "$vm" -- chmod +x .local/bin/muxy-e2e .local/bin/muxy-vm-build .local/bin/muxy-vm-run
+  note "building (a warm template takes 1-3 minutes)"
+  if ! swiftvm exec "$vm" --timeout 7200 -- bash .local/bin/muxy-vm-build > "$dir/logs/build.log" 2>&1; then
+    tail -40 "$dir/logs/build.log" >&2
+    die "BUILD: build failed; see $dir/logs/build.log"
+  fi
+}
+
+up_windows() {
+  local vm="$1" run="$2" dir="$3" helper
+  swiftvm exec "$vm" -- powershell.exe -NoProfile -Command 'New-Item -ItemType Directory -Force -Path "$HOME\.local\bin" | Out-Null'
+  for helper in muxy-e2e.ps1 muxy-vm-build.ps1 muxy-vm-run.ps1 import-source.ps1; do
+    swiftvm cp "$SCRIPTS/guest/$helper" "$vm:$WINDOWS_HOME\\.local\\bin\\$helper"
+  done
+  swiftvm cp "$ROOT/target/e2e/$run/source.tar" "$vm:$WINDOWS_HOME\muxy-source.tar"
+  # Windows can't move the source folder while a program from an earlier attempt still uses it.
+  guest "$vm" stop-all >/dev/null 2>&1 || true
+  # PowerShell can exit 0 when it can't run a script, so each step also checks its last line.
+  windows_script "$vm" 1800 import-source.ps1 -Archive "$WINDOWS_HOME\muxy-source.tar" > "$dir/logs/import.log" 2>&1 \
+    && grep -q '^Source ready' "$dir/logs/import.log" \
+    || die "ENV: source import failed; see $dir/logs/import.log"
+  note "building (a warm template takes 1-3 minutes)"
+  if ! windows_script "$vm" 7200 muxy-vm-build.ps1 > "$dir/logs/build.log" 2>&1 \
+    || ! grep -q '^muxy-server: {' "$dir/logs/build.log"; then
+    tail -40 "$dir/logs/build.log" >&2
+    die "BUILD: build failed; see $dir/logs/build.log"
+  fi
+}
+
+cmd_shot() {
+  local vm="$1" name="${2:-shot}" dir count file size
+  dir="$(artifacts_of "$vm")/shots"
+  mkdir -p "$dir"
+  count="$(find "$dir" -name '*.png' | wc -l | tr -d ' ')"
+  file="$dir/$(printf '%03d' $((count + 1)))-${name//[^A-Za-z0-9_.-]/-}.png"
+  control "$vm" screenshot "$file" >/dev/null || die "screenshot failed in $vm"
+  size="$(sips -g pixelWidth -g pixelHeight "$file" | awk '/pixelWidth/{w=$2} /pixelHeight/{h=$2} END{print w "x" h}')"
+  log_action "$vm" "shot $file ($size)"
+  echo "$file $size"
+}
+
+cmd_type() {
+  local vm="$1" text="$2"
+  LC_ALL=C grep -q '[^ -~]' <<<"$text" && die "type: only US-keyboard ASCII can be typed; produce other characters with python3 chr()"
+  log_action "$vm" "type $text"
+  control "$vm" type "$text" >/dev/null || die "typing failed in $vm"
+  sleep 0.3
+}
+
+cmd_key() {
+  local vm="$1"; shift
+  log_action "$vm" "key $*"
+  local keys=() key
+  for key in "$@"; do keys+=("$(tr '[:upper:]' '[:lower:]' <<<"$key")"); done
+  ad_keys "$vm" "${keys[@]}"
+  sleep 0.5
+}
+
+cmd_press() {
+  local vm="$1" action="$2" key
+  key="$(key_for "$action" "$(platform_of "$vm")")"
+  log_action "$vm" "press $action ($key)"
+  ad_keys "$vm" "$(tr '[:upper:]' '[:lower:]' <<<"$key")"
+  echo "pressed $action: $key"
+  sleep 0.5
+}
+
+# Coordinates are screenshot pixels; control takes the units its look reports.
+cmd_click() {
+  local kind="$1" vm="$2" x="$3" y="$4" scale
+  log_action "$vm" "$kind $x $y"
+  scale="$(display_scale "$vm")"
+  local args=("$(to_points "$x" "$scale")" "$(to_points "$y" "$scale")")
+  case "$kind" in right-click) args+=(--right) ;; double-click) args+=(--double) ;; esac
+  control "$vm" click "${args[@]}" >/dev/null || die "$kind failed in $vm"
+  sleep 0.5
+}
+
+# Finds a control by its exact accessible name in what control sees. control has no stable
+# IDs, so steps name controls the way a screen reader reads them. A window publishes its tree
+# a frame after a client first reads it, so a miss looks once more. Three dots stand for the
+# ellipsis in a name, since steps are plain ASCII. A role narrows the match (case doesn't
+# matter), and nth picks one of several in the order look lists them (tree order).
+# Prints the element's number from that look and its center. Fails if it isn't there, or if
+# several controls match and nth doesn't say which. On Wayland the accessibility tree has no
+# places, so a caller that needs one passes --ocr: control then places controls from the pixels,
+# and its own OCR text lines (role "ocr") are left out of the match.
+find_element() {
+  local vm="$1" target="$2" role="${3:-}" nth="${4:-}" ocr="${5:-}" out attempt number scope status
+  for attempt in 1 2 3; do
+    for scope in "--app muxy-app" "--all"; do
+      # shellcheck disable=SC2086
+      out="$(control "$vm" look $scope $ocr --json 2>&1)" || true
+      status=0
+      number="$(python3 -c '
+import json, sys
+target = sys.argv[2].replace("...", "…")
+# Platforms spell some roles differently: a switch is "toggle" on Linux and "checkbox" on macOS,
+# and a tab is "tab" on Linux and "radio" on macOS.
+same = {"checkbox": "toggle", "switch": "toggle", "toggle button": "toggle",
+        "radio": "tab", "radio button": "tab", "page tab": "tab"}
+role = same.get(sys.argv[3].lower(), sys.argv[3].lower())
+nth = int(sys.argv[4]) if sys.argv[4] else 0
+try:
+    reply = json.loads(sys.argv[1])
+except ValueError:
+    sys.exit(1)
+ocr = sys.argv[5] == "--ocr"
+elements = [e for r in reply.get("results", []) for e in (r.get("look") or {}).get("elements", [])]
+found = [e for e in elements if e.get("name") == target and e.get("role") not in ("window", "ocr")
+         and (not role or same.get((e.get("role") or "").lower(), (e.get("role") or "").lower()) == role)]
+if ocr:
+    # When control cannot tie the pixels to the control (a dimmed or highlighted row, or a
+    # name shown twice), fall back to the OCR line that reads exactly the name, in screen order.
+    lines = sorted((e for e in elements if e.get("role") == "ocr" and e.get("frame")
+                    and (e.get("name") or "").strip() == target),
+                   key=lambda e: (e["frame"][1], e["frame"][0]))
+    if lines and not any(e.get("frame") for e in found):
+        found = lines
+if not found:
+    sys.exit(1)
+if nth:
+    if nth > len(found):
+        print("only %d control(s) match, not %d" % (len(found), nth))
+        sys.exit(2)
+    pick = found[nth - 1]
+elif len(found) > 1:
+    listed = "; ".join("%s at %s" % (e.get("role"), e.get("frame")) for e in found)
+    print("%d controls match: %s. Add --role <role> or --nth <n>" % (len(found), listed))
+    sys.exit(2)
+else:
+    pick = found[0]
+frame = pick.get("frame") or [0, 0, 0, 0]
+print(pick["number"], round(frame[0] + frame[2] / 2), round(frame[1] + frame[3] / 2))' "$out" "$target" "$role" "$nth" "$ocr")" || status=$?
+      [ "$status" = 0 ] && { printf '%s' "$number"; return 0; }
+      [ "$status" = 2 ] && die "'$target'${role:+ (role $role)}: $number"
+    done
+    sleep 2
+  done
+  die "'$target'${role:+ (role $role)} isn't in what control sees. Last reply: $(printf '%s' "$out" | cut -c1-300)"
+}
+
+# A right click finds the row by its name and right-clicks it with the pointer. Muxy also
+# publishes a hidden "Actions for <name>" button for each row's menu, but it has no size,
+# so swiftvm control leaves it out of what it sees.
+
+# Clicks a control by its accessible name, without pixels.
+cmd_click_element() {
+  local vm="$1" target="$2" role="" nth="" right="" found number x y
+  shift 2
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --right) right=--right ;;
+      --role) [ $# -ge 2 ] || die "--role needs a role, e.g. button"; role="$2"; shift ;;
+      --nth) case "${2:-}" in [1-9]|[1-9][0-9]) nth="$2" ;; *) die "--nth needs a number from 1" ;; esac; shift ;;
+      *) die "usage: e2e click-element <vm> <name> [--right] [--role <role>] [--nth <n>]" ;;
+    esac
+    shift
+  done
+  found="$(find_element "$vm" "$target" "$role" "$nth")" || exit 1
+  read -r number x y <<<"$found"
+  # A right click needs a place, and Wayland's tree has none: place the control from the pixels.
+  if [ -n "$right" ] && [ "$x" = 0 ] && [ "$y" = 0 ]; then
+    found="$(find_element "$vm" "$target" "$role" "$nth" --ocr)" || exit 1
+    read -r number x y <<<"$found"
+    [ "$x" != 0 ] || [ "$y" != 0 ] || die "'$target' has no place on screen, even from the pixels"
+  fi
+  log_action "$vm" "click-element $target${right:+ --right}${role:+ --role $role}${nth:+ --nth $nth} ($found)"
+  if [ "$(platform_of "$vm")" = x11 ]; then
+    # On X11 the accessibility tree reports controls 20 screen pixels down and right of where
+    # they are drawn, and control clicks at the reported place. Correct it, in control's units.
+    local offset; offset="$(python3 -c 'import sys; print(round(20 / float(sys.argv[1])))' "$(display_scale "$vm")")"
+    control "$vm" click "$((x - offset))" "$((y - offset))" $right >/dev/null || die "clicking '$target' failed in $vm"
+  elif [ -n "$right" ]; then
+    control "$vm" click "$x" "$y" --right >/dev/null || die "right-clicking '$target' failed in $vm"
+  else
+    control "$vm" click "$number" >/dev/null || die "clicking '$target' failed in $vm"
+  fi
+  sleep 0.5
+}
+
+cmd_move() {
+  local vm="$1" x="$2" y="$3" scale
+  log_action "$vm" "move $x $y"
+  scale="$(display_scale "$vm")"
+  control "$vm" move "$(to_points "$x" "$scale")" "$(to_points "$y" "$scale")" >/dev/null || die "move failed in $vm"
+  sleep 1.5
+}
+
+cmd_drag() {
+  local vm="$1" x="$2" y="$3" to_x="$4" to_y="$5" scale
+  log_action "$vm" "drag $x $y $to_x $to_y"
+  scale="$(display_scale "$vm")"
+  control "$vm" drag "$(to_points "$x" "$scale")" "$(to_points "$y" "$scale")" \
+    --to "$(to_points "$to_x" "$scale")" "$(to_points "$to_y" "$scale")" >/dev/null || die "drag failed in $vm"
+  sleep 1
+}
+
+cmd_scroll() {
+  local vm="$1" x="$2" y="$3" direction="$4" notches="${5:-3}" scale
+  case "$direction" in up|down) ;; *) die "usage: e2e scroll <vm> <x> <y> up|down [notches]" ;; esac
+  log_action "$vm" "scroll $x $y $direction $notches"
+  scale="$(display_scale "$vm")"
+  control "$vm" scroll "$(to_points "$x" "$scale")" "$(to_points "$y" "$scale")" "$direction" "$notches" >/dev/null || die "scroll failed in $vm"
+  sleep 0.5
+}
+
+cmd_desktop() {
+  local vm="$1"; shift
+  log_action "$vm" "desktop $*"
+  swiftvm control "$vm" "$@"
+}
+
+cmd_banners() {
+  [ "$(platform_of "$1")" = macos ] || { echo "no banners to clear on $(platform_of "$1")"; return 0; }
+  log_action "$1" "clear notification banners"
+  note "swiftvm control has no command to clear banners; they stay"
+}
+
+cmd_actions() {
+  local platform; platform="$(platform_of "$1")"
+  awk -v p="$platform" 'NF { print $1 ": " (p == "macos" ? $2 : $3) }' <<<"$ACTIONS"
+}
+
+cmd_logs() {
+  local vm="$1" dir
+  dir="$(artifacts_of "$vm")/logs"
+  mkdir -p "$dir"
+  guest "$vm" logs > "$dir/guest-logs-$(date +%H%M%S).txt" 2>&1 || true
+  echo "$dir"
+}
+
+cmd_down() {
+  local vm="$1" delete="${2:-}"
+  swiftvm list | grep -q "^$vm " || die "no VM named $vm"
+  cmd_logs "$vm" >/dev/null || true
+  guest "$vm" stop-all >/dev/null 2>&1 || true
+  swiftvm stop "$vm" >/dev/null 2>&1 || swiftvm force-stop "$vm" >/dev/null
+  log_action "$vm" "down $delete"
+  if [ "$delete" = --delete ]; then
+    swiftvm delete "$vm" >/dev/null
+    echo "$vm stopped and moved to the Trash"
+  else
+    echo "$vm stopped and kept for inspection"
+  fi
+}
+
+run_vms() {
+  swiftvm list | awk -v prefix="muxy-e2e-$1-" 'index($1, prefix) == 1 { print $1 }'
+}
+
+cmd_vms() {
+  local prefix="muxy-e2e-${1:-}"
+  swiftvm list | awk -v prefix="$prefix" 'NR == 1 || index($1, prefix) == 1'
+}
+
+cmd_clean() {
+  local run="$1" vm left
+  case "$run" in ""|*[!0-9a-z]*) die "usage: e2e clean <run>" ;; esac
+  for vm in $(run_vms "$run"); do
+    cmd_down "$vm" --delete
+  done
+  left="$(run_vms "$run")"
+  [ -z "$left" ] || die "still present: $left"
+  echo "run $run: no VMs left"
+}
+
+usage() {
+  cat <<'EOF'
+Usage: e2e <command> [arguments]
+
+  preflight                      Check swiftvm, the templates, leftover e2e VMs and the host DHCP pool
+  dhcp-prune                     Drop expired leases from the host DHCP pool (sudo); preflight says when
+  prepare [run] [checkout]       Export a working tree (default: this one) for a run; prints the run id
+  up <platform> <run>            Clone, boot, import, build; platform is macos, wayland, x11 or windows
+  g <vm> <command> [args]        Run the guest helper (muxy-e2e) in the VM; `g <vm> help` lists commands
+  shot <vm> <name>               Save a guest screenshot; prints its path and real pixel size
+  press <vm> <action>            Press Muxy's shortcut for an action on the VM's platform, e.g. new-tab
+  actions <vm>                   List the actions and the keys they press on the VM's platform
+  key <vm> <key>...              Press literal keys in the guest, e.g. Return, Escape, ctrl+c
+  desktop <vm> <command> [args]  Run Agent Desktop in the guest, e.g. list-windows --app muxy-app
+  banners <vm>                   macOS: dismiss notification banners covering the window
+  type <vm> <text>               Type ASCII text in the guest
+  click-element <vm> <name> [--right] [--role <role>] [--nth <n>]
+                                 Click a control by its exact name
+  click|right-click|double-click <vm> <x> <y>
+                                 Mouse at screenshot pixel coordinates
+  scroll <vm> <x> <y> up|down [notches]
+  logs <vm>                      Copy guest app/server logs into the artifacts
+  down <vm> [--delete]           Collect logs and stop the VM; --delete moves it to the Trash
+  vms [run]                      List e2e VMs, or only one run's
+  clean <run>                    Collect logs, stop and delete every VM of a run, then confirm none is left
+  artifacts <vm>                 Print the VM's artifact folder
+EOF
+}
+
+command="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$command" in
+  preflight) cmd_preflight ;;
+  dhcp-prune) cmd_dhcp_prune ;;
+  prepare) cmd_prepare "$@" ;;
+  up) [ $# -eq 2 ] || die "usage: e2e up <platform> <run>"; cmd_up "$@" ;;
+  g) [ $# -ge 2 ] || die "usage: e2e g <vm> <command>"; log_action "$1" "g ${*:2}"; guest "$@" ;;
+  shot) cmd_shot "$@" ;;
+  press) [ $# -eq 2 ] || die "usage: e2e press <vm> <action>"; cmd_press "$@" ;;
+  actions) cmd_actions "$1" ;;
+  desktop) [ $# -ge 2 ] || die "usage: e2e desktop <vm> <agent-desktop command>"; cmd_desktop "$@" ;;
+  banners) [ $# -eq 1 ] || die "usage: e2e banners <vm>"; cmd_banners "$1" ;;
+  key) [ $# -ge 2 ] || die "usage: e2e key <vm> <key>..."; cmd_key "$@" ;;
+  type) [ $# -eq 2 ] || die "usage: e2e type <vm> '<text>'"; cmd_type "$@" ;;
+  click-element) [ $# -ge 2 ] || die "usage: e2e click-element <vm> <name> [--right] [--role <role>] [--nth <n>]"; cmd_click_element "$@" ;;
+  click|right-click|double-click) [ $# -eq 3 ] || die "usage: e2e $command <vm> <x> <y>"; cmd_click "$command" "$@" ;;
+  move) [ $# -eq 3 ] || die "usage: e2e move <vm> <x> <y>"; cmd_move "$@" ;;
+  drag) [ $# -eq 5 ] || die "usage: e2e drag <vm> <x> <y> <to-x> <to-y>"; cmd_drag "$@" ;;
+  inspect-shot) [ $# -eq 1 ] || die "usage: e2e inspect-shot <png>"; swift "$ROOT/target/e2e/desktopcleanups/inspect.swift" "$1" ;;
+  scroll) [ $# -ge 4 ] || die "usage: e2e scroll <vm> <x> <y> up|down [notches]"; cmd_scroll "$@" ;;
+  logs) cmd_logs "$@" ;;
+  down) cmd_down "$@" ;;
+  vms) cmd_vms "${1:-}" ;;
+  clean) cmd_clean "${1:-}" ;;
+  artifacts) artifacts_of "$1" ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

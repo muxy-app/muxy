@@ -46,31 +46,12 @@ pub fn create_font_descriptor_with_data(data: CFData) -> Result<CTFontDescriptor
 }
 
 extern "C" {
-    /*
-     * CTFontManager.h
-     */
 
-    // Incomplete function bindings are mostly related to CoreText font matching, which
-    // we implement in a platform-independent manner using FontMatcher.
 
-    //pub fn CTFontManagerCompareFontFamilyNames
     pub fn CTFontManagerCopyAvailableFontURLs() -> CFArrayRef;
     pub fn CTFontManagerCopyAvailableFontFamilyNames() -> CFArrayRef;
     pub fn CTFontManagerCopyAvailablePostScriptNames() -> CFArrayRef;
     pub fn CTFontManagerCreateFontDescriptorsFromURL(fileURL: CFURLRef) -> CFArrayRef;
     pub fn CTFontManagerCreateFontDescriptorFromData(data: CFDataRef) -> CTFontDescriptorRef;
-    //pub fn CTFontManagerCreateFontRequestRunLoopSource
-    //pub fn CTFontManagerEnableFontDescriptors
-    //pub fn CTFontManagerGetAutoActivationSetting
-    //pub fn CTFontManagerGetScopeForURL
-    //pub fn CTFontManagerGetAutoActivationSetting
-    //pub fn CTFontManagerGetScopeForURL
     pub fn CTFontManagerIsSupportedFont(fontURL: CFURLRef) -> bool;
-    //pub fn CTFontManagerRegisterFontsForURL
-    //pub fn CTFontManagerRegisterFontsForURLs
-    //pub fn CTFontManagerRegisterGraphicsFont
-    //pub fn CTFontManagerSetAutoActivationSetting
-    //pub fn CTFontManagerUnregisterFontsForURL
-    //pub fn CTFontManagerUnregisterFontsForURLs
-    //pub fn CTFontManagerUnregisterGraphicsFont
 }

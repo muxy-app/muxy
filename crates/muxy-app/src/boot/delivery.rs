@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use muxy_app_core::PaneId;
-use muxy_protocol::{ChannelId, SessionId};
+use muxy_protocol::{ChannelId, ExitReason, SessionId};
 
 use super::{ClientEvent, CloseCheckId, Update, Work};
 
@@ -15,7 +15,6 @@ enum Disconnect {
     Delivered,
 }
 
-/// Who waits for an attach that is under way.
 enum Waiting {
     Pane { pane: PaneId, created: bool },
     CloseCheck(CloseCheckId),
@@ -26,16 +25,13 @@ pub(super) struct Delivery {
     pub(super) pending: usize,
     flushing: bool,
     waiting: HashMap<u64, Waiting>,
-    /// Sessions whose terminal arrived while requests were running.
     attached: HashSet<SessionId>,
-    /// Terminals that arrived for nobody, to detach.
     strays: Vec<ChannelId>,
     deferred: Vec<ClientEvent>,
     disconnect: Disconnect,
 }
 
 impl Delivery {
-    /// Notes who waits for the terminal this request attaches, if it attaches one.
     pub(super) fn start(&mut self, work: &Work) {
         match work {
             Work::Attach {
@@ -89,7 +85,11 @@ impl Delivery {
             return Err("too many events arrived before request completion");
         }
         let updates = match &event {
-            ClientEvent::SessionEnded { session, .. } => vec![Update::CloseSessionPanes(*session)],
+            ClientEvent::SessionEnded { session, reason }
+                if *reason != ExitReason::ServerStopped =>
+            {
+                vec![Update::CloseSessionPanes(*session)]
+            }
             _ => Vec::new(),
         };
         self.deferred.push(event);
@@ -147,7 +147,6 @@ impl Delivery {
         }
     }
 
-    /// Whether requests run or attached terminals are still on their way.
     fn busy(&self) -> bool {
         self.pending > 0 || !self.waiting.is_empty()
     }
@@ -183,7 +182,6 @@ impl Delivery {
         updates
     }
 
-    /// Delivers what waited, once it may go.
     fn release(&mut self, updates: &mut Vec<Update>, failed: Option<SessionId>) {
         for event in std::mem::take(&mut self.deferred) {
             if self.ready(&event)

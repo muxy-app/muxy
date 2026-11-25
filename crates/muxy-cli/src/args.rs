@@ -10,7 +10,6 @@ use crate::manage::help;
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Command {
     Help,
-    /// One command's usage, which needs no server.
     Usage(&'static str),
     DetailedUsage(String),
     Completion(crate::completion::Shell),
@@ -20,49 +19,27 @@ pub(crate) enum Command {
     Interactive,
     Manage(Box<crate::manage::args::Invocation>),
     Mobile(Mobile),
-    /// Joins stdin and stdout to the server, for clients on other computers.
     Stdio(Start),
     Open(PathBuf),
-    /// Drives a browser tab in the desktop app on this computer.
     Browser(Box<crate::browser::Invocation>),
-    /// Manages extensions in the desktop app on this computer.
     Extension(Box<crate::extension::Invocation>),
-    /// Reads or changes the desktop app's settings on this computer.
+    ExtensionDev(crate::extension::dev::Dev),
     Config(crate::config::Invocation),
-    /// Installs the agent skill into agent folders and these folders.
     InstallSkills(Vec<PathBuf>),
-    /// A program status report for this computer's terminal.
     Status(String),
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Mobile {
     Status,
-    Enable {
-        port: Option<u16>,
-    },
+    Enable { port: Option<u16> },
     Disable,
-    Pair {
-        addresses: Vec<String>,
-    },
-    Revoke {
-        device: String,
-    },
-    /// Turns push notifications to paired phones on or off.
-    Push {
-        on: bool,
-    },
-    /// Forgets one phone's push registration and key.
-    ResetPush {
-        device: String,
-    },
+    Pair { addresses: Vec<String> },
+    Revoke { device: String },
+    Push { on: bool },
+    ResetPush { device: String },
 }
 
-/// Reads the command, and the other computer whose server it uses when it
-/// starts with `--host DESTINATION`. Help, version and build info describe
-/// this computer's Muxy, a bridge must never reach on to another computer,
-/// and browser tabs, extensions and app settings live in this computer's
-/// desktop app, so none of them takes `--host`.
 pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Command)> {
     match arguments {
         [flag, destination, rest @ ..] if flag == "--host" => {
@@ -84,6 +61,7 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
                     | Command::Open(_)
                     | Command::Browser(_)
                     | Command::Extension(_)
+                    | Command::ExtensionDev(_)
                     | Command::Config(_)
                     | Command::InstallSkills(_)
                     | Command::Status(_),
@@ -201,8 +179,6 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
     }
 }
 
-/// Whether `--help` or `-h` stands where `muxy status` reads its state or an
-/// option, not where it reads an option's value.
 fn asks_help(arguments: &[OsString]) -> bool {
     arguments
         .iter()

@@ -102,7 +102,7 @@ Commands:
   read <tab-id> [--json]            Title, URL and page text
   close <tab-id>
   reload|back|forward <tab-id>
-  screenshot <tab-id>               Print the page as a base64 PNG
+  screenshot <tab-id> [--out FILE]  Print the page as a base64 PNG, or save it
   eval <tab-id> <javascript>        Print the result as JSON
   click|hover|scroll-into-view|check|uncheck <tab-id> <selector>
   fill <tab-id> <selector> <text>
@@ -154,14 +154,27 @@ Commands:
   validate <name|folder> [--json]   Check what publishing needs
   publish <name> [--json]           Open a pull request to the extension store
 
+Developing and testing:
+  dev <folder> [--once]             Load, enable, then build and reload on change
+  pages <name> [--json]             The extension's open pages and their IDs
+  open <name> panel:<id>|tab:<type>|modal:<entry> [--data JSON]
+                                    Open a page, wait for it, print its ID
+  run <name> <command>              Run one of its commands
+  emit <name> <event> [json]        Send it an event its manifest lists
+  page <action> <page-id> [...]     Drive a page with the browser actions:
+                                    read, screenshot [--out FILE], eval,
+                                    click, type, fill, press, snapshot, wait,
+                                    find, get-text and the rest
+
 Extension commands talk to the Muxy desktop app on this computer, not to the
 server, so they don't take --host. They start the app if it isn't running.
 Publish asks for approval in the app and needs the GitHub CLI, signed in.
 Use -- before a name or folder that starts with a dash.
 MUXY_CLI_TIMEOUT sets how many seconds the app has to answer (default 10).
-Load, reload, enable, disable, unload and validate get 30 more, and publish 15
-minutes more.
+Load, reload, enable, disable, unload, validate and open get 30 more, and
+publish 15 minutes more.
 Piped list columns: name, version, state, source, folder (tab-separated).
+Pages columns: page-id, kind, id, instance, loaded, visible, title.
 Terminals show a table. Run muxy help extension <command> for specific usage.";
 pub(crate) const CONFIG: &str = "Read and change this computer's desktop app settings.
 
@@ -256,6 +269,7 @@ Commands:
   end [id] --yes                   End the process, keeping saved output
   discard [id] --yes               End the process and delete saved output
   show [id] [--background]         Show it in a desktop app tab without raising the app
+  link [id] [--split DIRECTION]    Print a link that opens it in the desktop app
 
 Create prints the new session ID and types COMMAND into it, then Return.
 COMMAND words are joined with spaces without shell quoting; quote the whole
@@ -265,6 +279,8 @@ Show opens the session in a new tab of its project in the desktop app on this
 computer, or selects the tab that already shows it, without bringing a running
 app to the front; it starts the app if needed and doesn't take --host.
 --background adds the tab without switching the window to it.
+Link prints a link that raises the desktop app and selects the tab showing the
+session, or opens one; --split right or down splits the selected pane instead.
 Inside a Muxy terminal, the ID defaults to that terminal and the project to its
 project. Wait prints the first visible line containing TEXT, or how the session
 ended; it fails after the timeout (default 30000ms, maximum 3600000ms).

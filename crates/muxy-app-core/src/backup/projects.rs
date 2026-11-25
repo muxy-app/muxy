@@ -1,19 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::path::PathBuf;
 
 use muxy_protocol::{ProjectDescriptor, ProjectMutation, ProjectPatch};
-use serde_json::Value;
-use unicode_segmentation::UnicodeSegmentation;
 
-use super::{ImportReport, Result};
+use super::Result;
 use crate::{
-    AppState, Axis, Color, Layout, PROJECT_COLORS, Pane, PaneContent, PaneId, Project, ProjectId,
-    ProjectStatus, ServerId, Tab, TabId, Workspace,
+    AppState, Layout, PaneContent, PaneId, Project, ProjectId, ServerId, TabId, Workspace,
 };
 
 impl AppState {
-    /// Backups hold this computer's projects only, for now: exports leave
-    /// remote projects out, and restoring never creates or replaces them.
     #[must_use]
     pub fn configuration_backup(&self) -> Self {
         let mut state = self.clone();
@@ -93,7 +87,7 @@ impl AppState {
             }
             if let Some(existing) = current.local_projects().find(|candidate| {
                 !candidate.home
-                    && candidate.directory == project.directory
+                    && muxy_core::paths::path_eq(&candidate.directory, &project.directory)
                     && !claimed.contains(&candidate.id)
             }) {
                 ids.insert(project.id, existing.id);
@@ -112,7 +106,13 @@ impl AppState {
         let mut restored = self.configuration_backup();
         let mut ids = self.match_restore_projects(current);
         for project in &restored.projects {
-            ids.entry(project.id).or_insert(project.id);
+            ids.entry(project.id).or_insert_with(|| {
+                if current.project(project.id).is_some() {
+                    ProjectId::new()
+                } else {
+                    project.id
+                }
+            });
         }
         restored.window.current_project = ids[&restored.window.current_project];
         let selected = restored.window.selected_tab.clone();
@@ -243,10 +243,6 @@ impl AppState {
         Ok(restored)
     }
 
-    /// Adds an import to `current` and keeps everything `current` has.
-    /// Matching projects keep their details and tabs, and take the imported
-    /// tabs only when they have none. Projects whose folder is gone are left
-    /// out. Workspaces with the same ID or name gain the imported members.
     pub fn merge_configuration(&self, current: &Self) -> Result<Self> {
         let imported = self.configuration_backup();
         let mut ids = imported.match_restore_projects(current);
@@ -276,7 +272,13 @@ impl AppState {
             };
             let mut project = project.clone();
             project.parent_id = parent;
-            ids.insert(project.id, project.id);
+            let id = if merged.project(project.id).is_some() {
+                ProjectId::new()
+            } else {
+                project.id
+            };
+            ids.insert(project.id, id);
+            project.id = id;
             creates.push(project.descriptor());
             merged.projects.push(project);
         }
@@ -308,7 +310,6 @@ impl AppState {
         Ok(merged)
     }
 
-    /// Asks this computer's server to create `projects`, parents first.
     fn queue_creates(&mut self, projects: &[ProjectDescriptor]) -> Result<()> {
         for project in projects
             .iter()
@@ -343,8 +344,6 @@ pub fn remap_settings(source: &str, imported: &AppState, restored: &AppState) ->
     ))
 }
 
-/// Moves what `settings` keeps per project onto the projects `imported`
-/// landed on in `restored`.
 #[must_use]
 pub fn remap_project_settings(
     mut settings: crate::settings::Settings,
@@ -381,7 +380,6 @@ pub fn remap_project_settings(
     settings
 }
 
-/// A project's own entry wins over one moved onto it.
 fn remap_keys<K: Ord, V>(entries: BTreeMap<K, V>, remap: impl Fn(&K) -> K) -> BTreeMap<K, V> {
     let (kept, moved): (Vec<_>, Vec<_>) =
         entries.into_iter().partition(|(key, _)| remap(key) == *key);
@@ -390,443 +388,4 @@ fn remap_keys<K: Ord, V>(entries: BTreeMap<K, V>, remap: impl Fn(&K) -> K) -> BT
         .map(|(key, value)| (remap(&key), value))
         .chain(kept)
         .collect()
-}
-
-/// 1.x never lists its built-in Home in `projects.json`, but its layouts and
-/// worktrees still use this ID.
-const LEGACY_HOME: ProjectId = ProjectId::from_u128(1);
-
-/// Converts what 1.x saved. Anything 2.x can't use is left out and reported,
-/// so one stale project, icon, or layout never loses the rest.
-pub fn import_projects(
-    projects: &[u8],
-    workspaces: Option<&[u8]>,
-    groups: Option<&[u8]>,
-    assets: &BTreeMap<String, Vec<u8>>,
-    settings: &mut crate::settings::Settings,
-) -> Result<(AppState, ImportReport)> {
-    let mut values: Vec<Value> = serde_json::from_slice(projects)?;
-    values.sort_by_key(|value| value["sortOrder"].as_i64().unwrap_or(0));
-    let mut state = AppState::bootstrap()?;
-    let mut report = ImportReport::default();
-    let mut ids = BTreeMap::from([(LEGACY_HOME, state.home().id)]);
-    for value in values {
-        let name = value["name"].as_str().unwrap_or("unknown");
-        let Ok(id) = value["id"]
-            .as_str()
-            .unwrap_or_default()
-            .parse::<ProjectId>()
-        else {
-            report
-                .attention
-                .push(format!("Project {name} (invalid ID)"));
-            continue;
-        };
-        if id == LEGACY_HOME {
-            continue;
-        }
-        if !value["remoteWorkspaceID"].is_null() || !value["remoteDeviceID"].is_null() {
-            report.attention.push(format!("Remote project {name}"));
-            continue;
-        }
-        if ids.contains_key(&id) {
-            report
-                .skipped
-                .push(format!("Project {name} (duplicate ID)"));
-            continue;
-        }
-        let project = match legacy_project(id, &value, assets, &mut report) {
-            Ok(project) => project,
-            Err(reason) => {
-                report.attention.push(format!("Project {name} ({reason})"));
-                continue;
-            }
-        };
-        ids.insert(id, id);
-        state.projects.push(project);
-        import_project_settings(id, &value, settings);
-        report.imported += 1;
-    }
-    import_worktrees(&mut state, assets, &mut ids, &mut report);
-    for workspace in legacy_list(workspaces, "workspaces.json", &mut report) {
-        if let Err(error) = import_layout_snapshot(&mut state, &workspace, &ids, &mut report) {
-            report.attention.push(format!("Layout ({error})"));
-        }
-    }
-    let mut groups = legacy_list(groups, "project-groups.json", &mut report);
-    groups.sort_by_key(|group| group["sortOrder"].as_i64().unwrap_or(0));
-    for group in groups {
-        let name = group["name"].as_str().unwrap_or_default().trim();
-        if group["type"].as_str().is_some_and(|kind| kind != "local") {
-            report.attention.push(format!("Remote workspace {name}"));
-            continue;
-        }
-        let Ok(id) = group["id"].as_str().unwrap_or_default().parse() else {
-            report
-                .attention
-                .push(format!("Workspace {name} (invalid ID)"));
-            continue;
-        };
-        if name.is_empty() {
-            report.attention.push("Workspace without a name".into());
-            continue;
-        }
-        state.workspaces.push(Workspace {
-            id,
-            name: name.into(),
-            projects: group["projectIDs"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|id| id.as_str()?.parse::<ProjectId>().ok())
-                .filter_map(|id| ids.get(&id).copied())
-                .filter(|id| *id != state.home().id)
-                .collect(),
-        });
-        report.imported += 1;
-    }
-    state.ensure_home()?;
-    state.validate()?;
-    Ok((state, report))
-}
-
-fn legacy_list(source: Option<&[u8]>, file: &str, report: &mut ImportReport) -> Vec<Value> {
-    source.map_or_else(Vec::new, |source| {
-        serde_json::from_slice(source).unwrap_or_else(|_| {
-            report.attention.push(format!("{file} (unreadable)"));
-            Vec::new()
-        })
-    })
-}
-
-fn legacy_project(
-    id: ProjectId,
-    value: &Value,
-    assets: &BTreeMap<String, Vec<u8>>,
-    report: &mut ImportReport,
-) -> Result<Project> {
-    let name = value["name"].as_str().ok_or("missing name")?;
-    let directory = PathBuf::from(value["path"].as_str().ok_or("missing folder")?);
-    if !directory.is_dir() {
-        return Err("folder not found".into());
-    }
-    let mut project = Project {
-        id,
-        home: false,
-        name: name.into(),
-        directory,
-        created_at: None,
-        icon: None,
-        logo: None,
-        color: value["iconColor"]
-            .as_str()
-            .and_then(legacy_color)
-            .unwrap_or_default(),
-        server_id: ServerId::local(),
-        kind: None,
-        parent_id: None,
-        tabs: Vec::new(),
-        groups: None,
-        status: ProjectStatus::Available,
-    };
-    project
-        .descriptor()
-        .validate()
-        .map_err(|_| "invalid name or folder")?;
-    if let Some(icon) = value["icon"].as_str()
-        && !keep_if_valid(&mut project, |project| {
-            project.icon = Some(legacy_icon(icon));
-        })
-    {
-        report.attention.push(format!("Icon of {name}"));
-    }
-    if let Some(logo) = value["logo"]
-        .as_str()
-        .and_then(|file| assets.get(&format!("logos/{file}")))
-        && !keep_if_valid(&mut project, |project| {
-            project.logo = Some(logo.clone().into());
-        })
-    {
-        report.attention.push(format!("Logo of {name}"));
-    }
-    Ok(project)
-}
-
-fn keep_if_valid(project: &mut Project, change: impl FnOnce(&mut Project)) -> bool {
-    let mut candidate = project.clone();
-    change(&mut candidate);
-    let valid = candidate.descriptor().validate().is_ok();
-    if valid {
-        *project = candidate;
-    }
-    valid
-}
-
-/// 1.x saved bare SF Symbol names, which 2.x tags with `sf:`.
-fn legacy_icon(icon: &str) -> String {
-    if icon.graphemes(true).count() == 1 || icon.starts_with("sf:") {
-        icon.into()
-    } else {
-        format!("sf:{icon}")
-    }
-}
-
-/// 1.x saved palette names, such as `indigo`, or hex colors.
-fn legacy_color(value: &str) -> Option<Color> {
-    value.parse().ok().or_else(|| {
-        PROJECT_COLORS
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case(value))
-            .and_then(|(_, hex)| hex.parse().ok())
-    })
-}
-
-/// A preference this profile already has for the project wins.
-fn import_project_settings(id: ProjectId, value: &Value, settings: &mut crate::settings::Settings) {
-    if let Some(prompt) = value["pullRequestPrompt"].as_str() {
-        settings
-            .ai
-            .project_pr_prompts
-            .entry(id.to_string())
-            .or_insert_with(|| prompt.into());
-    }
-    let location = crate::settings::WorktreeLocation {
-        path_template: value["preferredWorktreePathTemplate"]
-            .as_str()
-            .unwrap_or_default()
-            .into(),
-        parent_path: value["preferredWorktreeParentPath"]
-            .as_str()
-            .unwrap_or_default()
-            .into(),
-    };
-    if !location.is_default() && location.validate().is_ok() {
-        settings.worktrees.projects.entry(id).or_insert(location);
-    }
-}
-
-fn import_worktrees(
-    state: &mut AppState,
-    assets: &BTreeMap<String, Vec<u8>>,
-    ids: &mut BTreeMap<ProjectId, ProjectId>,
-    report: &mut ImportReport,
-) {
-    for (file, bytes) in assets {
-        let Some(old) = file
-            .strip_prefix("worktrees/")
-            .and_then(|name| name.strip_suffix(".json"))
-            .and_then(|id| id.parse::<ProjectId>().ok())
-        else {
-            continue;
-        };
-        let Some(parent) = ids.get(&old).and_then(|id| state.project(*id)).cloned() else {
-            continue;
-        };
-        let Ok(values) = serde_json::from_slice::<Vec<Value>>(bytes) else {
-            report.attention.push(format!("{file} (unreadable)"));
-            continue;
-        };
-        for value in values {
-            let name = value["name"].as_str().unwrap_or("unknown");
-            let Ok(id) = value["id"]
-                .as_str()
-                .unwrap_or_default()
-                .parse::<ProjectId>()
-            else {
-                report
-                    .attention
-                    .push(format!("Worktree {name} (invalid ID)"));
-                continue;
-            };
-            if value["isPrimary"].as_bool() == Some(true) {
-                ids.insert(id, parent.id);
-                continue;
-            }
-            if parent.home {
-                report.attention.push(format!("Worktree {name} of Home"));
-                continue;
-            }
-            if ids.contains_key(&id) {
-                report
-                    .skipped
-                    .push(format!("Worktree {name} (duplicate ID)"));
-                continue;
-            }
-            match legacy_worktree(id, &value, &parent) {
-                Ok(worktree) => {
-                    ids.insert(id, id);
-                    state.projects.push(worktree);
-                    report.imported += 1;
-                }
-                Err(reason) => report.attention.push(format!("Worktree {name} ({reason})")),
-            }
-        }
-    }
-}
-
-fn legacy_worktree(id: ProjectId, value: &Value, parent: &Project) -> Result<Project> {
-    let directory = PathBuf::from(value["path"].as_str().ok_or("missing folder")?);
-    if !directory.join(".git").is_file() {
-        return Err("worktree folder not found".into());
-    }
-    let worktree = Project {
-        id,
-        home: false,
-        name: value["name"].as_str().ok_or("missing name")?.into(),
-        directory,
-        created_at: None,
-        icon: None,
-        logo: None,
-        color: parent.color.clone(),
-        server_id: ServerId::local(),
-        kind: Some(crate::ProjectKind::Worktree),
-        parent_id: Some(parent.id),
-        tabs: Vec::new(),
-        groups: None,
-        status: ProjectStatus::Available,
-    };
-    worktree
-        .descriptor()
-        .validate()
-        .map_err(|_| "invalid name or folder")?;
-    Ok(worktree)
-}
-
-fn import_layout_snapshot(
-    state: &mut AppState,
-    workspace: &Value,
-    ids: &BTreeMap<ProjectId, ProjectId>,
-    report: &mut ImportReport,
-) -> Result<()> {
-    let old: ProjectId = workspace["projectID"]
-        .as_str()
-        .ok_or("Missing project ID")?
-        .parse()?;
-    let Some(&parent) = ids.get(&old) else {
-        return Ok(());
-    };
-    let project = if workspace["worktreeID"].is_null() {
-        parent
-    } else {
-        let worktree: ProjectId = workspace["worktreeID"]
-            .as_str()
-            .ok_or("Missing worktree ID")?
-            .parse()?;
-        let Some(&project) = ids.get(&worktree) else {
-            report
-                .skipped
-                .push("Layout for an unavailable worktree".into());
-            return Ok(());
-        };
-        project
-    };
-    let mut roots = Vec::new();
-    collect_roots(&workspace["root"], &mut roots, report, 0)?;
-    let order = workspace["topLevelTabOrder"].as_array();
-    roots.sort_by_key(|tab| {
-        order
-            .and_then(|order| order.iter().position(|id| id == &tab["id"]))
-            .unwrap_or(usize::MAX)
-    });
-    let mut tabs = Vec::new();
-    for root in roots {
-        let mut tab = Tab::terminal();
-        tab.panes.clear();
-        let Some(layout) = import_layout(&workspace["root"], &root["id"], &mut tab.panes, 0)?
-        else {
-            continue;
-        };
-        tab.layout = layout;
-        tab.custom_title = root["customTitle"].as_str().map(Into::into);
-        tab.sanitize_titles();
-        tab.color = root["colorID"].as_str().and_then(legacy_color);
-        tab.pinned = root["isPinned"].as_bool().unwrap_or(false);
-        tabs.push(tab);
-    }
-    report.imported += tabs.len();
-    let project = state.project_mut(project)?;
-    project.tabs.extend(tabs);
-    project.tabs.sort_by_key(|tab| !tab.pinned);
-    Ok(())
-}
-
-/// 1.x restores any tab that is not a web view as a terminal.
-fn is_terminal(tab: &Value) -> bool {
-    !matches!(tab["kind"].as_str(), Some("extensionWebView" | "browser"))
-}
-
-fn collect_roots(
-    node: &Value,
-    roots: &mut Vec<Value>,
-    report: &mut ImportReport,
-    depth: usize,
-) -> Result<()> {
-    if depth > 32 {
-        return Err("1.x layout exceeds 32 levels".into());
-    }
-    match node["type"].as_str() {
-        Some("tabArea") => {
-            for tab in node["tabArea"]["tabs"].as_array().ok_or("Missing tabs")? {
-                if !is_terminal(tab) {
-                    report.skipped.push(format!(
-                        "Unsupported {} tab",
-                        tab["kind"].as_str().unwrap_or("unknown")
-                    ));
-                } else if tab["parentTabID"].is_null() {
-                    roots.push(tab.clone());
-                }
-            }
-        }
-        Some("split") => {
-            collect_roots(&node["split"]["first"], roots, report, depth + 1)?;
-            collect_roots(&node["split"]["second"], roots, report, depth + 1)?;
-        }
-        _ => return Err("Invalid 1.x layout node".into()),
-    }
-    Ok(())
-}
-
-fn import_layout(
-    node: &Value,
-    root: &Value,
-    panes: &mut Vec<Pane>,
-    depth: usize,
-) -> Result<Option<Layout>> {
-    if depth > 32 || panes.len() >= 256 {
-        return Err("1.x layout is too large".into());
-    }
-    if node["type"].as_str() == Some("tabArea") {
-        let tab = node["tabArea"]["tabs"].as_array().and_then(|tabs| {
-            tabs.iter()
-                .find(|tab| is_terminal(tab) && (&tab["id"] == root || &tab["parentTabID"] == root))
-        });
-        return Ok(tab.map(|tab| {
-            let id = PaneId::new();
-            panes.push(Pane {
-                id,
-                title: tab["paneTitle"].as_str().unwrap_or("Terminal").into(),
-                content: PaneContent::Terminal { session: None },
-                proxy: false,
-            });
-            Layout::Leaf(id)
-        }));
-    }
-    let branch = &node["split"];
-    let first = import_layout(&branch["first"], root, panes, depth + 1)?;
-    let second = import_layout(&branch["second"], root, panes, depth + 1)?;
-    Ok(match (first, second) {
-        (Some(first), Some(second)) => Some(Layout::Split {
-            axis: if branch["direction"].as_str() == Some("vertical") {
-                Axis::Vertical
-            } else {
-                Axis::Horizontal
-            },
-            ratio: serde_json::from_value::<f32>(branch["ratio"].clone())
-                .unwrap_or(0.5)
-                .clamp(0.15, 0.85),
-            first: Box::new(first),
-            second: Box::new(second),
-        }),
-        (first, second) => first.or(second),
-    })
 }

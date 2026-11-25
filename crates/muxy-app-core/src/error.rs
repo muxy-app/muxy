@@ -8,9 +8,7 @@ use crate::{PaneId, ProjectId, ServerId, TabId};
 #[derive(Debug)]
 pub enum AppError {
     HomeDirectoryUnavailable,
-    /// A different Muxy server now answers for this entry; its saved state is kept.
     ServerChanged(ServerId),
-    /// The Muxy server answering for `server` is already listed as `existing`.
     DuplicateServer {
         server: ServerId,
         existing: ServerId,

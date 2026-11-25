@@ -2,19 +2,12 @@ use crate::SharedString;
 use anyhow::{Context as _, Result};
 use std::fmt;
 
-/// A datastructure for resolving whether an action should be dispatched
-/// at this point in the element tree. Contains a set of identifiers
-/// and/or key value pairs representing the current context for the
-/// keymap.
 #[derive(Clone, Default, Eq, PartialEq, Hash)]
 pub struct KeyContext(Vec<ContextEntry>);
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-/// An entry in a KeyContext
 pub struct ContextEntry {
-    /// The key (or name if no value)
     pub key: SharedString,
-    /// The value
     pub value: Option<SharedString>,
 }
 
@@ -27,7 +20,6 @@ impl<'a> TryFrom<&'a str> for KeyContext {
 }
 
 impl KeyContext {
-    /// Initialize a new [`KeyContext`] that contains an `os` key set to either `macos`, `linux`, `windows` or `unknown`.
     pub fn new_with_defaults() -> Self {
         let mut context = Self::default();
         #[cfg(target_os = "macos")]
@@ -46,22 +38,15 @@ impl KeyContext {
         context
     }
 
-    /// Returns the primary context entry (usually the name of the component)
     pub fn primary(&self) -> Option<&ContextEntry> {
         self.0.iter().find(|p| p.value.is_none())
     }
 
-    /// Returns everything except the primary context entry.
     pub fn secondary(&self) -> impl Iterator<Item = &ContextEntry> {
         let primary = self.primary();
         self.0.iter().filter(move |&p| Some(p) != primary)
     }
 
-    /// Parse a key context from a string.
-    /// The key context format is very simple:
-    /// - either a single identifier, such as `StatusBar`
-    /// - or a key value pair, such as `mode = visible`
-    /// - separated by whitespace, such as `StatusBar mode = visible`
     pub fn parse(source: &str) -> Result<Self> {
         let mut context = Self::default();
         let source = skip_whitespace(source);
@@ -94,17 +79,14 @@ impl KeyContext {
         Self::parse_expr(source, context)
     }
 
-    /// Check if this context is empty.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    /// Clear this context.
     pub fn clear(&mut self) {
         self.0.clear();
     }
 
-    /// Extend this context with another context.
     pub fn extend(&mut self, other: &Self) {
         for entry in &other.0 {
             if !self.contains(&entry.key) {
@@ -113,7 +95,6 @@ impl KeyContext {
         }
     }
 
-    /// Add an identifier to this context, if it's not already in this context.
     pub fn add<I: Into<SharedString>>(&mut self, identifier: I) {
         let key = identifier.into();
 
@@ -122,7 +103,6 @@ impl KeyContext {
         }
     }
 
-    /// Set a key value pair in this context, if it's not already set.
     pub fn set<S1: Into<SharedString>, S2: Into<SharedString>>(&mut self, key: S1, value: S2) {
         let key = key.into();
         if !self.contains(&key) {
@@ -133,12 +113,10 @@ impl KeyContext {
         }
     }
 
-    /// Check if this context contains a given identifier or key.
     pub fn contains(&self, key: &str) -> bool {
         self.0.iter().any(|entry| entry.key.as_ref() == key)
     }
 
-    /// Get the associated value for a given identifier or key.
     pub fn get(&self, key: &str) -> Option<&SharedString> {
         self.0
             .iter()
@@ -165,31 +143,20 @@ impl fmt::Debug for KeyContext {
     }
 }
 
-/// A datastructure for resolving whether an action should be dispatched
-/// Representing a small language for describing which contexts correspond
-/// to which actions.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum KeyBindingContextPredicate {
-    /// A predicate that will match a given identifier.
     Identifier(SharedString),
-    /// A predicate that will match a given key-value pair.
     Equal(SharedString, SharedString),
-    /// A predicate that will match a given key-value pair not being present.
     NotEqual(SharedString, SharedString),
-    /// A predicate that will match a given predicate appearing below another predicate.
-    /// in the element tree
     Descendant(
         Box<KeyBindingContextPredicate>,
         Box<KeyBindingContextPredicate>,
     ),
-    /// Predicate that will invert another predicate.
     Not(Box<KeyBindingContextPredicate>),
-    /// A predicate that will match if both of its children match.
     And(
         Box<KeyBindingContextPredicate>,
         Box<KeyBindingContextPredicate>,
     ),
-    /// A predicate that will match if either of its children match.
     Or(
         Box<KeyBindingContextPredicate>,
         Box<KeyBindingContextPredicate>,
@@ -211,34 +178,6 @@ impl fmt::Display for KeyBindingContextPredicate {
 }
 
 impl KeyBindingContextPredicate {
-    /// Parse a string in the same format as the keymap's context field.
-    ///
-    /// A basic equivalence check against a set of identifiers can performed by
-    /// simply writing a string:
-    ///
-    /// `StatusBar` -> A predicate that will match a context with the identifier `StatusBar`
-    ///
-    /// You can also specify a key-value pair:
-    ///
-    /// `mode == visible` -> A predicate that will match a context with the key `mode`
-    ///                      with the value `visible`
-    ///
-    /// And a logical operations combining these two checks:
-    ///
-    /// `StatusBar && mode == visible` -> A predicate that will match a context with the
-    ///                                   identifier `StatusBar` and the key `mode`
-    ///                                   with the value `visible`
-    ///
-    ///
-    /// There is also a special child `>` operator that will match a predicate that is
-    /// below another predicate:
-    ///
-    /// `StatusBar > mode == visible` -> A predicate that will match a context identifier `StatusBar`
-    ///                                  and a child context that has the key `mode` with the
-    ///                                  value `visible`
-    ///
-    /// This syntax supports `!=`, `||` and `&&` as logical operators.
-    /// You can also preface an operation or check with a `!` to negate it.
     pub fn parse(source: &str) -> Result<Self> {
         let source = skip_whitespace(source);
         let (predicate, rest) = Self::parse_expr(source, 0)?;
@@ -249,7 +188,6 @@ impl KeyBindingContextPredicate {
         }
     }
 
-    /// Find the deepest depth at which the predicate matches.
     pub fn depth_of(&self, contexts: &[KeyContext]) -> Option<usize> {
         for depth in (0..=contexts.len()).rev() {
             let context_slice = &contexts[0..depth];
@@ -260,13 +198,11 @@ impl KeyBindingContextPredicate {
         None
     }
 
-    /// Eval a predicate against a set of contexts, arranged from lowest to highest.
     #[allow(unused)]
     pub(crate) fn eval(&self, contexts: &[KeyContext]) -> bool {
         self.eval_inner(contexts, contexts)
     }
 
-    /// Eval a predicate against a set of contexts, arranged from lowest to highest.
     pub fn eval_inner(&self, contexts: &[KeyContext], all_contexts: &[KeyContext]) -> bool {
         let Some(context) = contexts.last() else {
             return false;
@@ -289,15 +225,8 @@ impl KeyBindingContextPredicate {
                 }
                 true
             }
-            // Workspace > Pane > Editor
-            //
-            // Pane > (Pane > Editor) // should match?
-            // (Pane > Pane) > Editor // should not match?
-            // Pane > !Workspace <-- should match?
-            // !Workspace        <-- shouldn't match?
             Self::Descendant(parent, child) => {
                 for i in 0..contexts.len() - 1 {
-                    // [Workspace >  Pane], [Editor]
                     if parent.eval_inner(&contexts[..=i], all_contexts) {
                         if !child.eval_inner(&contexts[i + 1..], &contexts[i + 1..]) {
                             return false;
@@ -316,8 +245,6 @@ impl KeyBindingContextPredicate {
         }
     }
 
-    /// Returns whether or not this predicate matches all possible contexts matched by
-    /// the other predicate.
     pub fn is_superset(&self, other: &Self) -> bool {
         if self == other {
             return true;
@@ -477,7 +404,7 @@ mod tests {
             actions!(
                 test_only,
                 [
-                    H, I, J, K, L, M, N, // Don't wrap, test the trailing comma
+                    H, I, J, K, L, M, N,
                 ]
             );
         }
@@ -499,7 +426,6 @@ mod tests {
 
     #[test]
     fn test_parse_identifiers() {
-        // Identifiers
         assert_eq!(
             KeyBindingContextPredicate::parse("abc12").unwrap(),
             Identifier("abc12".into())
@@ -720,19 +646,16 @@ mod tests {
         assert!(double_not.eval(slice::from_ref(&editor_context)));
         assert!(!double_not.eval(slice::from_ref(&workspace_context)));
 
-        // Test complex descendant cases
         let workspace_context = KeyContext::try_from("Workspace").unwrap();
         let pane_context = KeyContext::try_from("Pane").unwrap();
         let editor_context = KeyContext::try_from("Editor").unwrap();
 
-        // Workspace > Pane > Editor
         let workspace_pane_editor = vec![
             workspace_context.clone(),
             pane_context.clone(),
             editor_context.clone(),
         ];
 
-        // Pane > (Pane > Editor) - should not match
         let pane_pane_editor = KeyBindingContextPredicate::parse("Pane > (Pane > Editor)").unwrap();
         assert!(!pane_pane_editor.eval(&workspace_pane_editor));
 
@@ -740,17 +663,14 @@ mod tests {
             KeyBindingContextPredicate::parse("Workspace > Pane > Editor").unwrap();
         assert!(workspace_pane_editor_predicate.eval(&workspace_pane_editor));
 
-        // (Pane > Pane) > Editor - should not match
         let pane_pane_then_editor =
             KeyBindingContextPredicate::parse("(Pane > Pane) > Editor").unwrap();
         assert!(!pane_pane_then_editor.eval(&workspace_pane_editor));
 
-        // Pane > !Workspace - should match
         let pane_not_workspace = KeyBindingContextPredicate::parse("Pane > !Workspace").unwrap();
         assert!(pane_not_workspace.eval(&[pane_context.clone(), editor_context.clone()]));
         assert!(!pane_not_workspace.eval(&[pane_context.clone(), workspace_context.clone()]));
 
-        // !Workspace - shouldn't match when Workspace is in the context
         let not_workspace = KeyBindingContextPredicate::parse("!Workspace").unwrap();
         assert!(!not_workspace.eval(slice::from_ref(&workspace_context)));
         assert!(not_workspace.eval(slice::from_ref(&pane_context)));

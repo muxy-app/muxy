@@ -43,7 +43,6 @@ impl CTFontCollection {
         unsafe {
             let font_descriptors = CTFontCollectionCreateMatchingFontDescriptors(self.0);
             if font_descriptors.is_null() {
-                // This returns null if there are no matching font descriptors.
                 None
             } else {
                 Some(CFArray::wrap_under_create_rule(font_descriptors))
@@ -96,8 +95,6 @@ pub fn create_for_family(family: &str) -> Option<CTFontCollection> {
             return None;
         }
         let matched_descs = CFArray::wrap_under_create_rule(matched_descs);
-        // I suppose one doesn't even need the CTFontCollection object at this point.
-        // But we stick descriptors into and out of it just to provide a nice wrapper API.
         Some(new_from_descriptors(&matched_descs))
     }
 }
@@ -111,25 +108,15 @@ pub fn get_postscript_names() -> CFArray<CFString> {
 }
 
 extern "C" {
-    /*
-     * CTFontCollection.h
-     */
 
     static kCTFontCollectionRemoveDuplicatesOption: CFStringRef;
 
-    //fn CTFontCollectionCreateCopyWithFontDescriptors(original: CTFontCollectionRef,
-    //                                                 descriptors: CFArrayRef,
-    //                                                 options: CFDictionaryRef) -> CTFontCollectionRef;
     fn CTFontCollectionCreateFromAvailableFonts(options: CFDictionaryRef) -> CTFontCollectionRef;
-    // this stupid function doesn't actually do any wildcard expansion;
-    // it just chooses the best match. Use
-    // CTFontDescriptorCreateMatchingDescriptors instead.
     fn CTFontCollectionCreateMatchingFontDescriptors(collection: CTFontCollectionRef)
         -> CFArrayRef;
     fn CTFontCollectionCreateWithFontDescriptors(
         descriptors: CFArrayRef,
         options: CFDictionaryRef,
     ) -> CTFontCollectionRef;
-    //fn CTFontCollectionCreateMatchingFontDescriptorsSortedWithCallback;
     fn CTFontCollectionGetTypeID() -> CFTypeID;
 }

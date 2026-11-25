@@ -25,7 +25,8 @@ server and path where they show outside the sidebar.
 
 Terminals another client shows on this computer's server, such as another
 desktop, the terminal UI, or a phone, open here too, as tabs in their project
-that don't take focus. Terminals nobody shows, such as detached ones, and
+that don't take focus. Terminals nobody shows, such as detached ones or ones
+made with `muxy session create`, and
 those other clients show on another computer's server stay in **Existing
 Terminals**. Closing or detaching such a tab here leaves the terminal running
 in the clients still showing it, and the app doesn't open it here again.
@@ -145,12 +146,20 @@ windows are on screen.
   never opens a tab by itself, except for terminals another client shows on
   this computer's server, which open as tabs. Until the [welcome tour](#welcome-tour) is finished
   or skipped, it opens over them.
+- When a terminal's session is gone because the server stopped, as after
+  restarting the computer, its pane keeps its place and starts a new shell in
+  the folder it was last in. The program that ran there doesn't start again.
 - The terminal UI opens one shell in Home the first time, then restores its
   layout.
 - `muxy <folder>`, or on macOS dropping a folder on the Dock icon or using
   **Open With**, opens the folder in the desktop app. It selects the folder's
   project on this computer or adds one, then opens a new terminal tab there. Without the desktop
   app, or over SSH, `muxy <folder>` opens in the terminal UI.
+- A session link from `muxy session link` raises the desktop app and selects the
+  tab that shows the terminal. Without one, it opens the terminal in a new tab
+  of its project, or beside the selected pane of that project when the link
+  asks for a split. A link that starts the app waits until the tabs are
+  restored.
 - **Existing Terminals** lists a project's terminals that this app isn't
   showing, and which app owns each one. Opening one adds it to your layout.
   On this computer's server, the ones other clients show open as tabs by
@@ -208,6 +217,7 @@ A setup failure keeps the new worktree; a teardown failure stops removal.
 | A remote server drops | Its section shows it offline and it reconnects on its own, waiting longer each time, until a login or host key needs you. Its projects never show as failed while offline. |
 | A project's folder is gone | The project shows as failed, also on a remote server. |
 | A terminal ends | Its panes close in every app, including hidden tabs. |
+| The server stops, or the computer restarts | Tabs and splits stay, each showing its last screen. Once the server is back, every terminal pane starts a new shell in the folder it was last in. |
 | You quit or detach | Terminals keep running. On macOS, only while Muxy is on under Background App Activity; otherwise macOS ends them and the next launch shows how to turn it on. |
 | **End All Sessions and Quit** | Every terminal on this computer ends and its panes close. Other panes stay. |
 
@@ -236,6 +246,12 @@ proxy icon. Terminals get the proxy as `http_proxy`, `https_proxy`,
   bindings are set in Settings → Terminal, and the Quick Terminal
   shortcut has its own setting. Normal keystrokes in a terminal always go to
   the terminal.
+- **Settings → Terminal → Selection → Word selection characters** controls which
+  extra characters stay with letters and numbers when double-clicking or dragging
+  by words in the desktop app. The default `/.-_~:@?&=%+#` keeps common paths and
+  URLs together. Whitespace always separates words. To restore selection of only
+  letters and numbers, clear the field. In `terminal.toml`, this is
+  `selection_word_chars` under `[options]`.
 - **Settings → Appearance → App language** picks the interface language. English
   is built in; other languages come from language-pack extensions, the same ones
   made for Muxy 1.x. Untranslated text stays English, and while the chosen pack is
@@ -281,7 +297,7 @@ ends.
 - **Web views.** Extension pages as tabs, docked panels, popovers, or dialogs.
   They stay alive while hidden. Extension panels belong to a project: switching
   projects closes them, and switching back reopens them.
-- **Extensions.** Add tabs, panels, a sidebar, toolbar and status bar items,
+- **Extensions.** Add tabs, panels, a sidebar, toolbar, rail, and status bar items,
   shortcuts, and background scripts. They are managed in Settings → Extensions,
   declare their permissions, and ask before sensitive actions. A coding agent
   can [build, change, and publish them](../extensions/agents.md). Most extensions

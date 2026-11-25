@@ -44,7 +44,6 @@ pub fn read_content(_cx: &gpui::App) -> Result<Content, String> {
     Ok(Content::Text)
 }
 
-/// Whether a `Lease` can hand images to a terminal program and restore the clipboard.
 pub const IMAGE_SUBMISSION: muxy_core::capability::Capability =
     muxy_core::capability::Capability::Supported;
 

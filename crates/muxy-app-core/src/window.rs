@@ -15,7 +15,6 @@ pub struct WindowState {
     pub bounds: Option<WindowBounds>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<WorkspaceId>,
-    /// Floating tabs are hidden for now, their terminals still running.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) floats_hidden: bool,
 }

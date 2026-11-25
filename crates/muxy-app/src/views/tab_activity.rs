@@ -23,7 +23,6 @@ use gpui::InteractiveElement;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Status {
     None,
-    /// Muxy is creating or removing a worktree; the key describes it.
     Busy(&'static str),
     Progress(TerminalProgress),
     Blocked,
@@ -31,7 +30,6 @@ pub(super) enum Status {
     Completed,
 }
 
-/// Sessions are numbered per server, so they are looked up on `server`.
 fn resolve(
     server: ServerId,
     sessions: &[SessionId],
@@ -93,7 +91,6 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
     )
 }
 
-/// What the tab row of an agent's pane shows for that agent.
 pub(super) fn agent_status(agent: &RunningAgent, model: &AppModel) -> Status {
     resolve(
         agent.server,
@@ -113,7 +110,6 @@ pub(super) fn project_status(id: ProjectId, model: &AppModel) -> Status {
             .state
             .project(id)
             .is_some_and(|project| model.has_worktrees(project));
-    // The worktree list shows its own rows' work.
     if worktrees_shown {
         return Status::None;
     }
@@ -136,8 +132,6 @@ pub(super) fn worktree_status(id: ProjectId, model: &AppModel) -> Status {
 pub(super) const CREATING: &str = tr_key!("Creating worktree");
 const REMOVING: &str = tr_key!("Removing worktree");
 
-/// Worktrees `id` is creating, or the removal of `id` or, with
-/// `include_children`, of one of its worktrees.
 fn worktree_work(id: ProjectId, include_children: bool, model: &AppModel) -> Option<Status> {
     let removing = model.worktree_removing(id)
         || include_children
@@ -205,13 +199,10 @@ pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElem
     decorated("tab", tab.id, tab_status(tab, model), fallback, size, model)
 }
 
-/// An element whose hover swaps the spinners in it for a control. Native macOS
-/// spinners paint above the app's own opacity, so they hide themselves there.
 #[derive(Clone, Default)]
 pub(super) struct HoverZone(Rc<Cell<Option<Bounds<Pixels>>>>);
 
 impl HoverZone {
-    /// Records the zone's bounds; a child of the element the zone covers.
     pub(super) fn track(&self) -> AnyElement {
         let bounds = self.0.clone();
         canvas(move |zone, _, _| bounds.set(Some(zone)), |_, (), _, _| {})
@@ -228,8 +219,6 @@ impl HoverZone {
     }
 }
 
-/// A pane's own icon: the agent running in it, with that agent's completion,
-/// or `fallback` when no agent runs there. Its tab already spins for its work.
 pub(super) fn pane_glyph(
     pane: &Pane,
     model: &AppModel,
@@ -266,8 +255,6 @@ pub(super) fn pane_glyph(
     )
 }
 
-/// `icon` with a spinner in its place while work is in progress, and a dot
-/// when it is blocked or done.
 fn decorated(
     kind: &str,
     id: impl std::fmt::Display,
@@ -331,14 +318,11 @@ struct Native {
 
 #[cfg(target_os = "macos")]
 impl Spinners {
-    /// Hides every spinner, for when native views can't be placed reliably.
     pub(crate) fn set_blocked(&self, blocked: bool) {
         self.0.borrow_mut().blocked = blocked;
     }
 
-    /// Shows each spinner unless it is clipped, blocked, or under `covers`:
-    /// app content painted above native views, such as a menu.
-    pub(crate) fn present(&self, covers: &[(Option<gpui::EntityId>, Bounds<Pixels>)]) {
+    pub(crate) fn present(&self, covers: &[(Option<gpui::EntityId>, muxy_ui::webview::Cover)]) {
         let mut registry = self.0.borrow_mut();
         let blocked = registry.blocked;
         registry.natives.retain(|native| {
@@ -350,7 +334,9 @@ impl Spinners {
                 && native.bounds.get().is_some_and(|bounds| {
                     let owner = native.owner.get();
                     !covers.iter().any(|(cover_owner, cover)| {
-                        (owner.is_none() || *cover_owner != owner) && cover.intersects(&bounds)
+                        !cover.pointer_only
+                            && (owner.is_none() || *cover_owner != owner)
+                            && cover.bounds.intersects(&bounds)
                     })
                 });
             native.visible.set(visible);
@@ -405,7 +391,6 @@ impl Spinners {
                                 && mask.contains(&bounds.bottom_right())
                                 && !zone.as_ref().is_some_and(|zone| zone.hovered(window)),
                         );
-                        // `present` decides visibility once everything above is laid out.
                         if let Some(spinner) = &native.spinner {
                             spinner.show(
                                 bounds,
@@ -441,7 +426,7 @@ impl Spinners {
         clippy::unused_self,
         reason = "GPUI clips its own overlays; only AppKit needs this hook"
     )]
-    pub(crate) fn present(&self, _covers: &[(Option<gpui::EntityId>, Bounds<Pixels>)]) {}
+    pub(crate) fn present(&self, _covers: &[(Option<gpui::EntityId>, muxy_ui::webview::Cover)]) {}
 
     pub(super) fn glyph_in(
         &self,
@@ -528,7 +513,6 @@ impl Spinners {
     }
 }
 
-/// An indeterminate spinner in the accent color.
 pub(super) fn spinner(id: impl Into<String>, size: Pixels, model: &AppModel) -> AnyElement {
     model.spinners.glyph(id.into(), size, model.theme.accent)
 }
@@ -553,8 +537,6 @@ pub(super) fn status_glyph(
     status_glyph_in(id, status, size, None, None, model)
 }
 
-/// A status glyph whose spinner stays visible over content `owner` paints, and
-/// hides while `zone` is hovered.
 pub(super) fn status_glyph_in(
     id: String,
     status: Status,

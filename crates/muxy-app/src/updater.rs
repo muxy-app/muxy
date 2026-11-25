@@ -31,7 +31,6 @@ pub(crate) const RELEASES: &str = "https://github.com/muxy-app/muxy/releases/dow
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 const MAX_DOWNLOAD: u64 = 2 * 1024 * 1024 * 1024;
 
-/// Betas share a rolling feed; each stable release carries its own, and the latest one wins.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn feed(channel: Channel) -> &'static str {
     match channel {

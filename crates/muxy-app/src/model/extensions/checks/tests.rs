@@ -68,6 +68,89 @@ fn newer(names: &[String]) -> BTreeMap<String, String> {
     ])
 }
 
+fn show_extensions(model: &Entity<AppModel>, cx: &mut VisualTestContext) {
+    cx.update(|window, cx| {
+        model.update(cx, |model, cx| model.show_settings(window, cx));
+    });
+    let settings = model.read_with(cx, |model, _| {
+        model.settings_tab.as_ref().unwrap().view.clone()
+    });
+    settings.update(cx, SettingsView::show_extensions);
+    idle(model, cx);
+    cx.run_until_parked();
+}
+
+fn click_check(cx: &mut VisualTestContext) {
+    let button = cx
+        .debug_bounds("extension-check-updates")
+        .expect("check for extension updates");
+    cx.simulate_click(button.center(), gpui::Modifiers::none());
+}
+
+#[gpui::test]
+fn manual_checks_refresh_available_updates_without_installing(cx: &mut TestAppContext) {
+    let (_root, model, cx) = open_model(None, cx);
+    show_extensions(&model, cx);
+    model.update(cx, |model, _| {
+        model.extensions.checks.resolve = Some(|names| Ok(newer(names)));
+    });
+
+    click_check(cx);
+    idle(&model, cx);
+
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.extension_update_check(), &UpdateCheck::Complete);
+        assert_eq!(model.extension_update_version("reader"), Some("2.0.0"));
+        assert_eq!(model.extension_update_count(), 1);
+        assert!(
+            model
+                .extensions
+                .registry
+                .extensions
+                .values()
+                .all(|extension| extension.version == "1.0.0")
+        );
+        assert_eq!(model.extensions.registry.active().count(), 0);
+        assert!(model.extensions.installs.active.is_none());
+        assert!(model.extensions.installs.finished.is_none());
+    });
+}
+
+#[gpui::test]
+fn a_failed_manual_check_can_retry_and_clear_stale_updates(cx: &mut TestAppContext) {
+    let (_root, model, cx) = open_model(Some(|names| Ok(newer(names))), cx);
+    show_extensions(&model, cx);
+    model.update(cx, |model, _| {
+        model.extensions.checks.resolve = Some(|_| Err("offline".into()));
+    });
+
+    click_check(cx);
+    idle(&model, cx);
+    model.read_with(cx, |model, _| {
+        assert_eq!(
+            model.extension_update_check(),
+            &UpdateCheck::Failed("offline".into())
+        );
+        assert_eq!(model.extension_update_version("reader"), Some("2.0.0"));
+    });
+
+    model.update(cx, |model, _| {
+        model.extensions.checks.resolve = Some(|names| {
+            Ok(names
+                .iter()
+                .map(|name| (name.clone(), "1.0.0".into()))
+                .collect())
+        });
+    });
+    cx.run_until_parked();
+    click_check(cx);
+    idle(&model, cx);
+    model.read_with(cx, |model, _| {
+        assert_eq!(model.extension_update_check(), &UpdateCheck::Complete);
+        assert_eq!(model.extension_update_count(), 0);
+    });
+}
+
 #[gpui::test]
 fn startup_checks_disabled_packages_after_loading_and_excludes_developer_folders(
     cx: &mut TestAppContext,
@@ -206,6 +289,7 @@ fn overlapping_checks_coalesce_and_late_results_ignore_removed_or_updated_packag
             cx,
         );
         model.check_extension_updates_with(|_| panic!("duplicate request"), cx);
+        assert_eq!(model.extension_update_check(), &UpdateCheck::Checking);
     });
     package(&root.path().join("extensions/reader"), "reader", "2.0.0");
     std::fs::remove_dir_all(root.path().join("extensions/editor")).unwrap();
@@ -220,6 +304,7 @@ fn overlapping_checks_coalesce_and_late_results_ignore_removed_or_updated_packag
     idle(&model, cx);
     model.read_with(cx, |model, _| {
         assert!(model.extensions.checks.available.is_empty());
+        assert_eq!(model.extension_update_check(), &UpdateCheck::Complete);
     });
 
     std::fs::remove_dir_all(root.path().join("extensions/reader")).unwrap();
@@ -232,6 +317,7 @@ fn overlapping_checks_coalesce_and_late_results_ignore_removed_or_updated_packag
     model.update(cx, |model, cx| {
         model.check_extension_updates_with(|_| panic!("no marketplace packages"), cx);
         assert!(model.extensions.checks.task.is_none());
+        assert_eq!(model.extension_update_check(), &UpdateCheck::Complete);
     });
 }
 

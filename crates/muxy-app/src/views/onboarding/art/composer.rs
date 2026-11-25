@@ -1,7 +1,3 @@
-//! The composer opens over two terminals, a long prompt gets written with an
-//! image attached, and it goes to both splits at once. The keys shown are the
-//! user's own.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{Div, FontWeight, ParentElement, Styled, div};
 use muxy_core::shortcuts::ShortcutId;
@@ -95,7 +91,6 @@ fn tab_bar(frame: &Frame) -> Div {
         )
 }
 
-/// A terminal that gets the prompt once it's sent, like every split beside it.
 fn pane(frame: &Frame, x: f32, program: &'static str, local: f32) -> Div {
     let arrived = progress(local, SEND_AT + 0.35, 0.2);
     let ending = 1.0 - progress(local, PERIOD - 0.6, 0.45);
@@ -189,7 +184,6 @@ fn composer(frame: &Frame, shown: f32, local: f32) -> Div {
         .child(footer(frame, local))
 }
 
-/// The attached image, shown as the token it is sent as.
 fn attachment(frame: &Frame, local: f32) -> Div {
     let attached = rise(local, ATTACH_AT, 0.25);
     div()

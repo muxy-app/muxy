@@ -8,6 +8,9 @@ use std::time::Duration;
 use std::time::Instant;
 
 mod process;
+#[cfg(windows)]
+#[allow(unsafe_code, reason = "Shell calls that open and reveal files")]
+mod shell;
 
 use muxy_app_core::opener::{FileLocation, OpenContext, OpenRequest, Registry, Target};
 use muxy_core::worker::WorkerPool;
@@ -19,23 +22,26 @@ mod tests;
 
 const FINDER: &str = "com.apple.finder";
 
-/// The label key of the file manager, among the openers in Settings.
 pub(crate) const FILE_MANAGER: &str = if cfg!(target_os = "macos") {
     "Finder"
 } else {
     muxy_ui::l10n::tr_key!("File manager")
 };
 
-/// The menu item that shows a path in the file manager.
 pub(crate) fn reveal_label() -> gpui::SharedString {
+    muxy_ui::l10n::translate(reveal_key())
+}
+
+pub(crate) fn reveal_key() -> &'static str {
     if cfg!(target_os = "macos") {
-        tr!("Reveal in Finder")
+        muxy_ui::l10n::tr_key!("Reveal in Finder")
+    } else if cfg!(windows) {
+        muxy_ui::l10n::tr_key!("Show in File Explorer")
     } else {
-        tr!("Show in File Manager")
+        muxy_ui::l10n::tr_key!("Show in File Manager")
     }
 }
 
-/// The action that picks a folder in the system's own dialog.
 pub(crate) fn browse_label() -> gpui::SharedString {
     if cfg!(target_os = "macos") {
         tr!("Finder…")
@@ -66,17 +72,24 @@ pub(crate) fn resolve(text: &str, context: &OpenContext) -> Option<Target> {
         if context.server != muxy_app_core::ServerId::local() {
             return None;
         }
-        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let home = muxy_core::paths::home_dir().ok();
         Target::file(text, &context.directory, home.as_deref(), Path::exists)
     })
+}
+
+pub(crate) fn project_file(path: &Path, project: &Path) -> Option<String> {
+    let path = path.canonicalize().ok()?;
+    if !path.is_file() {
+        return None;
+    }
+    let project = project.canonicalize().ok()?;
+    path.strip_prefix(project).ok()?.to_str().map(str::to_owned)
 }
 
 #[derive(Clone, Copy, Debug)]
 enum Handler {
     Browser,
     Finder,
-    System,
-    Editor,
 }
 
 fn registry() -> &'static Registry<Handler> {
@@ -89,29 +102,12 @@ fn registry() -> &'static Registry<Handler> {
             |r| matches!(&r.target, Target::Url(url) if Target::web_url(url).is_some()),
             Handler::Browser,
         );
-        for (id, title, handler) in [
-            (
-                "system.finder",
-                if cfg!(target_os = "macos") {
-                    "Finder"
-                } else {
-                    "File Manager"
-                },
-                Handler::Finder,
-            ),
-            ("system.application", "Default Application", Handler::System),
-            ("system.editor", "Project Editor", Handler::Editor),
-        ] {
-            registry.register(
-                id,
-                title,
-                |r| {
-                    r.context.server == muxy_app_core::ServerId::local()
-                        && matches!(r.target, Target::File(_))
-                },
-                handler,
-            );
-        }
+        registry.register(
+            "system.finder",
+            FILE_MANAGER,
+            |r| r.context.server.is_local() && matches!(r.target, Target::File(_)),
+            Handler::Finder,
+        );
         registry
     })
 }
@@ -120,18 +116,17 @@ pub(crate) fn open(
     request: &OpenRequest,
     settings: &muxy_app_core::settings::OpenerSettings,
 ) -> io::Result<()> {
-    open_with(request, settings, editors, launch)
+    open_with(request, settings, launch)
 }
 
-fn open_with<'a>(
+fn open_with(
     request: &OpenRequest,
     settings: &muxy_app_core::settings::OpenerSettings,
-    editors: impl FnOnce() -> &'a [Editor],
     mut launch: impl FnMut(&Launch) -> io::Result<()>,
 ) -> io::Result<()> {
     let (preferred, fallback) = match request.target {
-        Target::Url(_) => (&settings.url, "system.browser"),
-        Target::File(_) => (&settings.file, "system.editor"),
+        Target::Url(_) => (settings.url.as_str(), "system.browser"),
+        Target::File(_) => ("system.finder", "system.finder"),
     };
     let handler = registry()
         .resolve(request, preferred, fallback)
@@ -140,24 +135,6 @@ fn open_with<'a>(
     match (&request.target, handler) {
         (Target::Url(url), Handler::Browser) => launch(&Launch::system([OsString::from(url)])),
         (Target::File(file), Handler::Finder) => launch(&finder(&file.path)),
-        (Target::File(file), Handler::System) => {
-            launch(&Launch::system([file.path.clone().into_os_string()]))
-        }
-        (Target::File(file), Handler::Editor) => {
-            let selected = settings.project_target.as_deref();
-            if selected == Some(FINDER) {
-                return launch(&finder(&file.path));
-            }
-            let editors = editors();
-            let editor = selected
-                .and_then(|id| editors.iter().find(|editor| editor.bundle == id))
-                .or_else(|| editors.first());
-            let command = editor.map_or_else(
-                || finder(&file.path),
-                |editor| editor.command(file, &request.context.project_directory),
-            );
-            launch(&command).or_else(|_| launch(&finder(&file.path)))
-        }
         _ => Err(io::Error::other(
             tr!("Opener does not support this resource").to_string(),
         )),
@@ -168,8 +145,6 @@ fn open_with<'a>(
 struct Launch {
     program: PathBuf,
     args: Vec<OsString>,
-    /// A file to select in its folder, where a file manager offers that. The
-    /// program runs when none does.
     #[cfg(not(target_os = "macos"))]
     select: Option<PathBuf>,
 }
@@ -179,6 +154,8 @@ impl Launch {
         Self::program(
             if cfg!(target_os = "macos") {
                 "/usr/bin/open"
+            } else if cfg!(windows) {
+                ""
             } else {
                 "xdg-open"
             },
@@ -186,6 +163,7 @@ impl Launch {
         )
     }
 
+    #[cfg(not(windows))]
     fn text_editor(path: &Path) -> Self {
         let mut args = Vec::new();
         if cfg!(target_os = "macos") {
@@ -206,11 +184,22 @@ impl Launch {
 }
 
 fn launch(launch: &Launch) -> io::Result<()> {
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     if let Some(file) = &launch.select
         && muxy_ui::file_manager::select(file).is_ok()
     {
         return Ok(());
+    }
+    #[cfg(windows)]
+    if let Some(file) = &launch.select {
+        return shell::select(file);
+    }
+    #[cfg(windows)]
+    if launch.program.as_os_str().is_empty() {
+        return launch
+            .args
+            .iter()
+            .try_for_each(|target| shell::open(target));
     }
     process::launch(
         Command::new(&launch.program).args(&launch.args),
@@ -219,7 +208,6 @@ fn launch(launch: &Launch) -> io::Result<()> {
     .map_err(|error| missing(&launch.program, error))
 }
 
-/// Names the program when it is what could not be found.
 fn missing(program: &Path, error: io::Error) -> io::Error {
     if error.kind() != io::ErrorKind::NotFound {
         return error;
@@ -234,7 +222,6 @@ fn missing(program: &Path, error: io::Error) -> io::Error {
     )
 }
 
-/// Opens `url` with the system's handler for it, or with the app at `app`.
 #[cfg(target_os = "macos")]
 pub(crate) fn open_url(url: &str, app: Option<&Path>) -> io::Result<()> {
     let mut args = Vec::new();
@@ -243,6 +230,18 @@ pub(crate) fn open_url(url: &str, app: Option<&Path>) -> io::Result<()> {
     }
     args.push(OsString::from(url));
     launch(&Launch::system(args))
+}
+
+#[cfg(windows)]
+pub(crate) fn open_url(url: &str, app: Option<&Path>) -> io::Result<()> {
+    match app {
+        Some(app) => Command::new(app)
+            .arg(url)
+            .spawn()
+            .map(drop)
+            .map_err(|error| missing(app, error)),
+        None => launch(&Launch::system([url.into()])),
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -262,7 +261,6 @@ pub(crate) struct WebBrowser {
     pub path: PathBuf,
 }
 
-/// The browsers installed on this computer, by name.
 pub(crate) fn web_browsers() -> &'static [WebBrowser] {
     static BROWSERS: OnceLock<Vec<WebBrowser>> = OnceLock::new();
     BROWSERS.get_or_init(|| {
@@ -273,19 +271,24 @@ pub(crate) fn web_browsers() -> &'static [WebBrowser] {
     })
 }
 
-/// Opens a file with this computer's default app for its type.
 pub(crate) fn open_with_default_app(path: &Path) -> io::Result<()> {
     launch(&Launch::system([path.as_os_str().to_owned()]))
 }
 
-/// Opens a text file in this computer's text editor.
+#[cfg(not(windows))]
 pub(crate) fn open_in_text_editor(path: &Path) -> io::Result<()> {
     launch(&Launch::text_editor(path))
 }
 
-/// Shows a path in the file manager: a file selected in its folder, or a
-/// folder opened. A path that doesn't exist yet shows its nearest existing
-/// folder.
+#[cfg(windows)]
+pub(crate) fn open_in_text_editor(path: &Path) -> io::Result<()> {
+    Command::new("notepad.exe")
+        .arg(path)
+        .spawn()
+        .map(drop)
+        .map_err(|error| missing(Path::new("notepad.exe"), error))
+}
+
 pub(crate) fn reveal(path: &Path) -> io::Result<()> {
     let existing = path.ancestors().find(|path| path.exists()).unwrap_or(path);
     launch(&finder(existing))
@@ -312,7 +315,6 @@ struct Editor {
     rank: usize,
 }
 
-/// An app that opens project folders: the file manager or an editor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProjectApp {
     pub id: String,
@@ -332,7 +334,6 @@ impl ProjectApp {
     }
 }
 
-/// The file manager, then the installed editors from most to least preferred.
 #[cfg(not(test))]
 pub(crate) fn project_apps() -> Vec<ProjectApp> {
     project_apps_from(editors())
@@ -357,8 +358,6 @@ fn project_apps_from(editors: &[Editor]) -> Vec<ProjectApp> {
         .collect()
 }
 
-/// The app the project button opens: the chosen one while it is installed,
-/// otherwise the most preferred editor, otherwise the file manager.
 pub(crate) fn default_project_app<'a, T: AsRef<ProjectApp>>(
     apps: &'a [T],
     chosen: Option<&str>,
@@ -369,7 +368,6 @@ pub(crate) fn default_project_app<'a, T: AsRef<ProjectApp>>(
         .or_else(|| apps.first())
 }
 
-/// Opens the project folder `directory` with the app whose id is `app`.
 pub(crate) fn open_project(directory: &Path, app: &str) -> io::Result<()> {
     open_project_with(directory, app, editors(), launch)
 }
@@ -448,6 +446,7 @@ fn location_argument(file: &FileLocation) -> OsString {
     target
 }
 
+#[cfg(target_os = "macos")]
 fn executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.metadata()
@@ -459,8 +458,8 @@ fn editors() -> &'static [Editor] {
     static EDITORS: OnceLock<Vec<Editor>> = OnceLock::new();
     EDITORS.get_or_init(|| {
         let mut roots = vec![PathBuf::from("/Applications")];
-        if let Some(home) = std::env::var_os("HOME") {
-            roots.push(PathBuf::from(home).join("Applications"));
+        if let Ok(home) = muxy_core::paths::home_dir() {
+            roots.push(home.join("Applications"));
         }
         let mut found = Vec::new();
         let mut remaining = 4096;
@@ -619,10 +618,7 @@ fn editors() -> &'static [Editor] {
         .into_iter()
         .enumerate()
         .filter_map(|(rank, (bundle, command, name))| {
-            let path = directories
-                .iter()
-                .map(|directory| directory.join(command))
-                .find(|path| executable(path))?;
+            let path = muxy_core::executable::find_program(&directories, command)?;
             Some(Editor {
                 bundle: bundle.into(),
                 name: name.into(),

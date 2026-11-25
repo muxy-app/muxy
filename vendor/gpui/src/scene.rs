@@ -1,4 +1,3 @@
-// todo("windows"): remove
 #![cfg_attr(windows, allow(dead_code))]
 
 use schemars::JsonSchema;
@@ -22,6 +21,7 @@ pub(crate) type DrawOrder = u32;
 
 #[derive(Default)]
 pub(crate) struct Scene {
+    pub(crate) synchronize_native_layers: bool,
     pub(crate) paint_operations: Vec<PaintOperation>,
     primitive_bounds: BoundsTree<ScaledPixels>,
     layer_stack: Vec<DrawOrder>,
@@ -36,6 +36,7 @@ pub(crate) struct Scene {
 
 impl Scene {
     pub fn clear(&mut self) {
+        self.synchronize_native_layers = false;
         self.paint_operations.clear();
         self.primitive_bounds.clear();
         self.layer_stack.clear();
@@ -471,7 +472,7 @@ impl From<Quad> for Primitive {
 #[repr(C)]
 pub(crate) struct Underline {
     pub order: DrawOrder,
-    pub pad: u32, // align to 8 bytes
+    pub pad: u32,
     pub bounds: Bounds<ScaledPixels>,
     pub content_mask: ContentMask<ScaledPixels>,
     pub color: Hsla,
@@ -502,32 +503,27 @@ impl From<Shadow> for Primitive {
     }
 }
 
-/// The style of a border.
+#[doc = " The style of a border."]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[repr(C)]
 pub enum BorderStyle {
-    /// A solid border.
+    #[doc = " A solid border."]
     #[default]
     Solid = 0,
-    /// A dashed border.
+    #[doc = " A dashed border."]
     Dashed = 1,
 }
 
-/// A data type representing a 2 dimensional transformation that can be applied to an element.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct TransformationMatrix {
-    /// 2x2 matrix containing rotation and scale,
-    /// stored row-major
     pub rotation_scale: [[f32; 2]; 2],
-    /// translation vector
     pub translation: [f32; 2],
 }
 
 impl Eq for TransformationMatrix {}
 
 impl TransformationMatrix {
-    /// The unit matrix, has no effect.
     pub fn unit() -> Self {
         Self {
             rotation_scale: [[1.0, 0.0], [0.0, 1.0]],
@@ -535,7 +531,6 @@ impl TransformationMatrix {
         }
     }
 
-    /// Move the origin by a given point
     pub fn translate(mut self, point: Point<ScaledPixels>) -> Self {
         self.compose(Self {
             rotation_scale: [[1.0, 0.0], [0.0, 1.0]],
@@ -543,7 +538,6 @@ impl TransformationMatrix {
         })
     }
 
-    /// Clockwise rotation in radians around the origin
     pub fn rotate(self, angle: Radians) -> Self {
         self.compose(Self {
             rotation_scale: [
@@ -554,7 +548,6 @@ impl TransformationMatrix {
         })
     }
 
-    /// Scale around the origin
     pub fn scale(self, size: Size<f32>) -> Self {
         self.compose(Self {
             rotation_scale: [[size.width, 0.0], [0.0, size.height]],
@@ -562,15 +555,11 @@ impl TransformationMatrix {
         })
     }
 
-    /// Perform matrix multiplication with another transformation
-    /// to produce a new transformation that is the result of
-    /// applying both transformations: first, `other`, then `self`.
     #[inline]
     pub fn compose(self, other: TransformationMatrix) -> TransformationMatrix {
         if other == Self::unit() {
             return self;
         }
-        // Perform matrix multiplication
         TransformationMatrix {
             rotation_scale: [
                 [
@@ -597,7 +586,6 @@ impl TransformationMatrix {
         }
     }
 
-    /// Apply transformation to a point, mainly useful for debugging
     pub fn apply(&self, point: Point<Pixels>) -> Point<Pixels> {
         let input = [point.x.0, point.y.0];
         let mut output = self.translation;
@@ -620,7 +608,7 @@ impl Default for TransformationMatrix {
 #[repr(C)]
 pub(crate) struct MonochromeSprite {
     pub order: DrawOrder,
-    pub pad: u32, // align to 8 bytes
+    pub pad: u32,
     pub bounds: Bounds<ScaledPixels>,
     pub content_mask: ContentMask<ScaledPixels>,
     pub color: Hsla,
@@ -638,7 +626,7 @@ impl From<MonochromeSprite> for Primitive {
 #[repr(C)]
 pub(crate) struct PolychromeSprite {
     pub order: DrawOrder,
-    pub pad: u32, // align to 8 bytes
+    pub pad: u32,
     pub grayscale: bool,
     pub opacity: f32,
     pub bounds: Bounds<ScaledPixels>,
@@ -671,7 +659,6 @@ impl From<PaintSurface> for Primitive {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct PathId(pub(crate) usize);
 
-/// A line made up of a series of vertices and control points.
 #[derive(Clone, Debug)]
 pub struct Path<P: Clone + Debug + Default + PartialEq> {
     pub(crate) id: PathId,
@@ -686,7 +673,6 @@ pub struct Path<P: Clone + Debug + Default + PartialEq> {
 }
 
 impl Path<Pixels> {
-    /// Create a new path with the given starting point.
     pub fn new(start: Point<Pixels>) -> Self {
         Self {
             id: PathId(0),
@@ -704,7 +690,6 @@ impl Path<Pixels> {
         }
     }
 
-    /// Scale this path by the given factor.
     pub fn scale(&self, factor: f32) -> Path<ScaledPixels> {
         Path {
             id: self.id,
@@ -723,14 +708,12 @@ impl Path<Pixels> {
         }
     }
 
-    /// Move the start, current point to the given point.
     pub fn move_to(&mut self, to: Point<Pixels>) {
         self.contour_count += 1;
         self.start = to;
         self.current = to;
     }
 
-    /// Draw a straight line from the current point to the given point.
     pub fn line_to(&mut self, to: Point<Pixels>) {
         self.contour_count += 1;
         if self.contour_count > 1 {
@@ -742,7 +725,6 @@ impl Path<Pixels> {
         self.current = to;
     }
 
-    /// Draw a curve from the current point to the given point, using the given control point.
     pub fn curve_to(&mut self, to: Point<Pixels>, ctrl: Point<Pixels>) {
         self.contour_count += 1;
         if self.contour_count > 1 {
@@ -759,7 +741,6 @@ impl Path<Pixels> {
         self.current = to;
     }
 
-    /// Push a triangle to the Path.
     pub fn push_triangle(
         &mut self,
         xy: (Point<Pixels>, Point<Pixels>, Point<Pixels>),

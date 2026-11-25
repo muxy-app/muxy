@@ -1,5 +1,3 @@
-//! What the Git calls return, converted from the protocol's types.
-
 use muxy_protocol as protocol;
 
 use crate::records::{server_path, text};
@@ -26,16 +24,16 @@ pub struct GitBranch {
     pub default: bool,
 }
 
-/// A changed file. `staged` is what the next commit takes; `unstaged` is the
-/// rest, and holds untracked and conflicted files.
+#[doc = " A changed file. `staged` is what the next commit takes; `unstaged` is the"]
+#[doc = " rest, and holds untracked and conflicted files."]
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct GitFile {
     pub path: String,
-    /// The path before a rename or copy.
+    #[doc = " The path before a rename or copy."]
     pub original_path: Option<String>,
     pub staged: Option<GitChangeKind>,
     pub unstaged: Option<GitChangeKind>,
-    /// Lines added and removed, staged and unstaged together.
+    #[doc = " Lines added and removed, staged and unstaged together."]
     pub added: Option<u64>,
     pub removed: Option<u64>,
 }
@@ -47,12 +45,12 @@ pub enum GitChangeKind {
     Deleted,
     Renamed,
     Copied,
-    /// Became a symbolic link, or stopped being one.
+    #[doc = " Became a symbolic link, or stopped being one."]
     TypeChanged,
     Untracked,
-    /// A merge left conflicts to resolve.
+    #[doc = " A merge left conflicts to resolve."]
     Conflicted,
-    /// A change this SDK doesn't know.
+    #[doc = " A change this SDK doesn't know."]
     Other,
 }
 
@@ -67,11 +65,11 @@ pub struct GitWorktree {
     pub bare: bool,
     pub detached: bool,
     pub prunable: bool,
-    /// The worktree's project, if it has one.
+    #[doc = " The worktree's project, if it has one."]
     pub registered: Option<String>,
 }
 
-/// Binds a removal to the worktree as it was inspected; pass it back unchanged.
+#[doc = " Binds a removal to the worktree as it was inspected; pass it back unchanged."]
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct WorktreeRemoval {
     pub directory: String,
@@ -110,7 +108,7 @@ pub struct GitPreviewFile {
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum GitBaseSwitch {
     Updated,
-    /// Another worktree has the base branch checked out, so nothing changed.
+    #[doc = " Another worktree has the base branch checked out, so nothing changed."]
     CheckedOutElsewhere {
         directory: String,
     },
@@ -159,7 +157,7 @@ pub struct GitDiff {
     pub additions: u64,
     pub deletions: u64,
     pub truncated: bool,
-    /// Git compared the file as binary, so there are no rows.
+    #[doc = " Git compared the file as binary, so there are no rows."]
     pub binary: bool,
 }
 
@@ -204,7 +202,7 @@ pub enum GitRefKind {
     RemoteBranch,
     Tag,
     Head,
-    /// A kind of reference added in a newer server.
+    #[doc = " A kind of reference added in a newer server."]
     Other,
 }
 
@@ -325,7 +323,6 @@ impl From<protocol::GitFile> for GitFile {
     }
 }
 
-/// Reads one of Git's short status letters, where a space means unchanged.
 fn change(letter: u8) -> Option<GitChangeKind> {
     Some(match letter {
         b' ' => return None,

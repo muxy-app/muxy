@@ -14,7 +14,6 @@ const SEMIBOLD: f32 = 0.3;
 #[cfg(target_os = "macos")]
 const APPKIT_SYMBOL_CORRECTION: f32 = 0.97;
 
-/// How much of each pixel a glyph covers, before it is tinted.
 #[derive(Debug)]
 pub(super) struct Mask {
     pub width: u32,
@@ -117,7 +116,6 @@ pub fn tinted_symbol_weight(
     })
 }
 
-/// A template SVG tinted with `color`; `key` must change whenever the bytes do.
 pub fn tinted_svg(
     key: &SharedString,
     bytes: &[u8],
@@ -140,7 +138,12 @@ pub fn tinted_svg(
         cache
             .borrow_mut()
             .entry(key)
-            .or_insert_with(|| rasterize_svg(bytes, f32::from(size), scale, cx).map(Arc::new))
+            .or_insert_with(|| {
+                super::svg::within_budget(bytes)
+                    .then(|| rasterize_svg(bytes, f32::from(size), scale, cx))
+                    .flatten()
+                    .map(Arc::new)
+            })
             .clone()
     })?;
     let image = TINTED
@@ -162,9 +165,6 @@ fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, _cx: &App) -> Option
     sfsymbol::rasterize_svg(bytes, point_size, scale)
 }
 
-/// Rasterizes an SVG into an alpha mask that fits a `point_size` square. The
-/// SVG is drawn as an image inside a document of that size, which fits it to
-/// the square and keeps it from reading any other file.
 #[cfg(not(target_os = "macos"))]
 #[allow(
     clippy::cast_possible_truncation,
@@ -172,7 +172,6 @@ fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, _cx: &App) -> Option
     reason = "The validated side is a small positive number of pixels."
 )]
 fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, cx: &App) -> Option<Mask> {
-    use std::fmt::Write as _;
     if !point_size.is_finite()
         || point_size <= 0.0
         || point_size > 256.0
@@ -181,17 +180,10 @@ fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, cx: &App) -> Option<
     {
         return None;
     }
-    // Compressed SVG is not text, and is refused before it is expanded.
     std::str::from_utf8(bytes).ok()?;
     let side = (point_size * scale).round().max(1.0) as u32;
-    let mut document = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{side}" height="{side}"><image width="{side}" height="{side}" href="data:image/svg+xml,"#
-    );
-    for byte in bytes {
-        let _ = write!(document, "%{byte:02X}");
-    }
-    document.push_str(r#""/></svg>"#);
-    let image = gpui::Image::from_bytes(gpui::ImageFormat::Svg, document.into_bytes())
+    let document = super::svg::fitted_document(bytes, side);
+    let image = gpui::Image::from_bytes(gpui::ImageFormat::Svg, document)
         .to_image_data(cx.svg_renderer())
         .ok()?;
     let alpha: Vec<u8> = image
@@ -199,7 +191,6 @@ fn rasterize_svg(bytes: &[u8], point_size: f32, scale: f32, cx: &App) -> Option<
         .chunks_exact(4)
         .map(|pixel| pixel[3])
         .collect();
-    // An SVG that could not be read draws nothing.
     (alpha.len() == (side * side) as usize && alpha.iter().any(|alpha| *alpha != 0)).then_some(
         Mask {
             width: side,
@@ -243,7 +234,6 @@ fn channel(value: f32) -> u8 {
 mod tests {
     use gpui::{SharedString, TestAppContext, black, px};
 
-    /// The rows of a 16 pixel square glyph that have ink in them.
     fn inked_rows(name: &str, svg: &str, cx: &mut TestAppContext) -> Option<Vec<usize>> {
         cx.update(|cx| {
             let key = SharedString::from(name.to_owned());
@@ -288,7 +278,6 @@ mod tests {
             r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><image width="1" height="1" href="{}"/></svg>"#,
             other.display()
         );
-        // The renderer follows the reference when the SVG is the document.
         let followed = cx.update(|cx| {
             gpui::Image::from_bytes(gpui::ImageFormat::Svg, svg.clone().into_bytes())
                 .to_image_data(cx.svg_renderer())

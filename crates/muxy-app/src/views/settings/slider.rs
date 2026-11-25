@@ -1,7 +1,3 @@
-//! Number settings as sliders. Dragging moves the knob and its value at once,
-//! from the view's own state, and saves once on release. Terminal settings
-//! also preview in the terminals while dragging.
-
 use gpui::{
     AnyElement, Bounds, Context, InteractiveElement, IntoElement, ParentElement, Pixels, Point,
     Styled, div,
@@ -11,20 +7,13 @@ use muxy_ui::controls;
 use super::{SettingsEvent, SettingsView};
 use crate::model::preferences::Change;
 
-/// Wide enough for the longest value a slider shows, such as `-50%` or `16384`,
-/// so the slider never moves while its value changes.
 const VALUE_WIDTH: f32 = 52.0;
-/// The number field that shows a value too precise to pick by dragging.
 const FIELD_WIDTH: f32 = 72.0;
 
-/// How a slider's value becomes a change.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Commit {
-    /// A terminal preference, previewed while dragging.
     Terminal,
-    /// The text field of the same id.
     Field,
-    /// One number of the Quick Terminal's settings.
     Quick,
 }
 
@@ -56,7 +45,6 @@ impl Slider {
         }
     }
 
-    /// The step nearest `value`, or an end of the range when it is nearer.
     fn snap(&self, value: f32) -> f32 {
         if self.max - value < self.step / 2.0 {
             return self.max;
@@ -76,7 +64,6 @@ impl Slider {
         }
     }
 
-    /// The value as its setting is written.
     fn text(&self, value: f32) -> String {
         let number = self.number(value);
         if self.commit == Commit::Terminal && self.id.starts_with("adjust-") {
@@ -86,7 +73,6 @@ impl Slider {
         }
     }
 
-    /// The value as the slider shows it.
     fn label(&self, value: f32) -> String {
         format!("{}{}", self.number(value), self.suffix)
     }
@@ -99,7 +85,6 @@ pub(super) struct Drag {
 }
 
 impl SettingsView {
-    /// A slider at `value`, with the value beside it in a fixed width.
     pub(super) fn slider(&self, spec: Slider, value: f32, cx: &mut Context<Self>) -> AnyElement {
         let value = self.dragged(spec.id).unwrap_or(value);
         let label = div()
@@ -109,8 +94,6 @@ impl SettingsView {
         self.slider_with(spec, value, label.into_any_element(), cx)
     }
 
-    /// A slider for a range too wide to pick every value by dragging, with
-    /// its text field beside it to type one.
     pub(super) fn slider_field(
         &self,
         spec: Slider,
@@ -182,7 +165,6 @@ impl SettingsView {
             .into_any_element()
     }
 
-    /// The slider being dragged, whose field shows its value until release.
     pub(super) fn dragging(&self) -> Option<&'static str> {
         self.slider.as_ref().map(|drag| drag.slider.id)
     }

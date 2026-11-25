@@ -1,19 +1,15 @@
-//! Commit exactly what the user reviewed: changes are previewed through a
-//! temporary index and committed only while the working tree still matches.
-
-use super::{Result, command, diff, error, read, run, text, validate_branch};
+use super::{
+    Result, command, diff, error, parse, read, run, same_canonical, text, validate_branch,
+};
 use muxy_protocol::{
     GitBaseSwitch, GitChangesPreview, GitPreviewFile, GitPushDestination, ServerPath,
 };
 use std::collections::HashSet;
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const FILE_LIMIT: usize = 4096;
 
-/// Previews every change, or with `staged` only what the index holds.
 pub(super) fn preview(
     repository: &Path,
     line_limit: Option<u32>,
@@ -23,7 +19,7 @@ pub(super) fn preview(
     if summary.conflicted > 0 {
         return Err(error("Resolve merge conflicts before committing"));
     }
-    let untracked: HashSet<Vec<u8>> = read::files(&read::status(repository)?)?
+    let untracked: HashSet<Vec<u8>> = parse::files(&read::status(repository)?)?
         .into_iter()
         .filter(muxy_protocol::GitFile::untracked)
         .map(|file| file.path.0)
@@ -135,8 +131,6 @@ fn commit_index(repository: &Path, message: &str, expected_tree: &str) -> Result
     run(repository, &["commit", "-m", message.trim()]).map(|_| ())
 }
 
-/// Pull request checkouts push to their pull request head. Other branches push
-/// to a same-named upstream, or to the same name on origin.
 pub(super) fn destination(repository: &Path, branch: &str) -> Result<Option<GitPushDestination>> {
     let upstream = upstream(repository, branch);
     if is_pull_request_checkout(repository, branch) {
@@ -186,14 +180,13 @@ pub(super) fn publish(
 pub(super) fn switch_to_base(repository: &Path, base: &str) -> Result<GitBaseSwitch> {
     validate_branch(repository, base)?;
     if read::summary(repository)?.branch.as_deref() != Some(base) {
-        let here = repository.canonicalize().map_err(error)?;
+        let here = muxy_core::files::canonicalize(repository).map_err(error)?;
         let elsewhere = read::worktrees(repository)?.into_iter().find(|worktree| {
             worktree.branch.as_deref() == Some(base)
-                && worktree
-                    .directory
-                    .as_path()
-                    .canonicalize()
-                    .is_ok_and(|directory| directory != here)
+                && super::path(&worktree.directory)
+                    .and_then(|directory| muxy_core::files::canonicalize(&directory).map_err(error))
+                    .is_ok()
+                && !same_canonical(&worktree.directory, &here)
         });
         if let Some(worktree) = elsewhere {
             return Ok(GitBaseSwitch::CheckedOutElsewhere(worktree.directory));
@@ -306,8 +299,6 @@ impl TemporaryIndex {
         Ok(temporary)
     }
 
-    /// Puts this copy back as the repository index. Taking Git's index lock
-    /// first means a concurrent Git command is never overwritten.
     fn restore(&self, repository: &Path) -> Result<()> {
         let index = git_path(repository, "index")?;
         let lock = lock_path(&index);
@@ -344,10 +335,7 @@ fn lock_path(path: &Path) -> PathBuf {
 }
 
 fn git_path(repository: &Path, name: &str) -> Result<PathBuf> {
-    let bytes = run(repository, &["rev-parse", "--git-path", name])?;
-    let path = PathBuf::from(OsStr::from_bytes(
-        bytes.strip_suffix(b"\n").unwrap_or(&bytes),
-    ));
+    let path = super::git_path(&run(repository, &["rev-parse", "--git-path", name])?)?;
     Ok(if path.is_absolute() {
         path
     } else {

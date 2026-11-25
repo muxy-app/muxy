@@ -1,6 +1,3 @@
-//! The form that pairs with another computer from the link its Settings →
-//! Servers shows, and renames or regroups a paired server.
-
 use gpui::{
     AnyElement, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, Subscription, Window, div,
@@ -17,7 +14,6 @@ use super::remote_servers::{field, input, modal, title};
 use crate::model::{AppModel, PairingForm};
 
 pub(crate) struct PairForm {
-    /// `None` pairs a new computer.
     server: Option<ServerId>,
     link: Entity<TextInput>,
     name: Entity<TextInput>,
@@ -43,8 +39,6 @@ impl PairForm {
 }
 
 impl AppModel {
-    /// Opens the pairing form, or with `server` the form that renames,
-    /// regroups, or pairs again with a paired server.
     pub(crate) fn open_pair_form(&mut self, server: Option<ServerId>, cx: &mut Context<Self>) {
         let entry = server.and_then(|id| self.settings.server(id).cloned());
         let link = input(
@@ -128,7 +122,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// How pairing or saving went. With the form closed, a notice says so.
     pub(crate) fn finish_pair_form(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
         let open = matches!(self.overlay, Some(Overlay::PairForm(_)));
         match result {

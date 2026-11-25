@@ -317,6 +317,8 @@ fn closing_tab_checks_every_hidden_pane_and_cancel_keeps_all(cx: &mut TestAppCon
     });
 }
 
+const REPORTED: &str = if cfg!(windows) { r"C:\Temp" } else { "/tmp" };
+
 #[gpui::test]
 fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
     cx: &mut TestAppContext,
@@ -324,12 +326,12 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
     for (setting, reported, inherit) in [
         (
             muxy_app_core::settings::NewPaneDirectory::Project,
-            b"/tmp".as_slice(),
+            REPORTED.as_bytes(),
             false,
         ),
         (
             muxy_app_core::settings::NewPaneDirectory::Current,
-            b"/tmp".as_slice(),
+            REPORTED.as_bytes(),
             true,
         ),
         (
@@ -387,7 +389,7 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
             assert_eq!(
                 directory,
                 if inherit {
-                    PathBuf::from("/tmp")
+                    PathBuf::from(REPORTED)
                 } else {
                     model.state.current_project().directory.clone()
                 }
@@ -700,9 +702,15 @@ fn a_pane_header_shows_its_folder_unless_the_title_already_does(cx: &mut TestApp
         cx.debug_bounds(format!("pane-title-{pane}-zsh").leak())
             .is_some()
     );
-    assert!(directory("~/muxy/crates", cx));
+    let separator = std::path::MAIN_SEPARATOR;
+    assert!(directory(&format!("~{separator}muxy{separator}crates"), cx));
 
-    for (title, folder) in [("~/muxy", "muxy"), ("dev@host: ~/api", "api")] {
+    let titles = [
+        (format!("~{separator}muxy"), "muxy"),
+        (format!("dev@host: ~{separator}api"), "api"),
+    ];
+    for (title, folder) in &titles {
+        let title = title.as_str();
         report(MetadataEvent::Title(title.into()), cx);
         report(
             MetadataEvent::Directory(format!("{home}/{folder}").into()),
@@ -712,7 +720,7 @@ fn a_pane_header_shows_its_folder_unless_the_title_already_does(cx: &mut TestApp
             cx.debug_bounds(format!("pane-title-{pane}-{title}").leak())
                 .is_some()
         );
-        assert!(!directory(&format!("~/{folder}"), cx), "{title}");
+        assert!(!directory(&format!("~{separator}{folder}"), cx), "{title}");
     }
 }
 
@@ -897,6 +905,14 @@ fn attach_reporting(
     );
 }
 
+fn absolute(name: &str) -> Vec<u8> {
+    if cfg!(windows) {
+        format!("C:\\{name}").into_bytes()
+    } else {
+        format!("/{name}").into_bytes()
+    }
+}
+
 fn starts_in(model: &AppModel, pane: PaneId) -> Vec<u8> {
     model
         .state
@@ -911,9 +927,10 @@ fn new_tabs_start_in_the_focused_panes_directory_only_when_configured_and_in_its
 ) {
     use muxy_app_core::settings::NewPaneDirectory;
     let other_folder = tempfile::tempdir().expect("folder");
+    let tmp = absolute("tmp");
     for (setting, reported, inherit) in [
-        (NewPaneDirectory::Project, b"/tmp".as_slice(), false),
-        (NewPaneDirectory::Current, b"/tmp".as_slice(), true),
+        (NewPaneDirectory::Project, tmp.as_slice(), false),
+        (NewPaneDirectory::Current, tmp.as_slice(), true),
         (NewPaneDirectory::Current, b"".as_slice(), false),
     ] {
         let mut state = AppState::bootstrap().expect("state");
@@ -931,7 +948,7 @@ fn new_tabs_start_in_the_focused_panes_directory_only_when_configured_and_in_its
         let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
         view.update(cx, |model, cx| {
             model.servers.local.connection = ConnectionState::Ready;
-            let expected: &[u8] = if inherit { b"/tmp" } else { b"/fallback" };
+            let expected: &[u8] = if inherit { &tmp } else { b"/fallback" };
 
             attach_reporting(model, original, reported, cx);
             model.new_tab(cx);
@@ -980,11 +997,11 @@ fn a_new_tab_from_a_tab_window_starts_in_that_windows_pane_directory(cx: &mut Te
     view.update(cx, |model, cx| {
         model.servers.local.connection = ConnectionState::Ready;
         for (pane, session, directory) in [
-            (main, 100, b"/main".as_slice()),
-            (pane, 101, b"/detached".as_slice()),
+            (main, 100, absolute("main")),
+            (pane, 101, absolute("detached")),
         ] {
             let mut data = attachment();
-            data.directory = muxy_protocol::ServerPath(directory.to_vec());
+            data.directory = muxy_protocol::ServerPath(directory);
             model.receive(
                 (
                     ServerId::local(),
@@ -1005,6 +1022,30 @@ fn a_new_tab_from_a_tab_window_starts_in_that_windows_pane_directory(cx: &mut Te
         model.new_tab(cx);
         let opened = model.state.window().active_pane.expect("new tab");
         assert_ne!(opened, main);
-        assert_eq!(starts_in(model, opened), b"/detached");
+        assert_eq!(starts_in(model, opened), absolute("detached"));
     });
+}
+
+#[gpui::test]
+fn a_pane_header_meets_its_terminal_at_every_interface_size(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::InterfaceSize;
+    for size in [
+        InterfaceSize::Regular,
+        InterfaceSize::Large,
+        InterfaceSize::ExtraLarge,
+        InterfaceSize::Huge,
+    ] {
+        let mut state = AppState::bootstrap().expect("state");
+        state.open_terminal_tab(state.home().id).expect("tab");
+        let pane = state.home().tabs[0].panes[0].id;
+        let (mut boot, _) = stub_boot(state);
+        boot.settings.appearance.interface_size = size;
+        let (_, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        cx.run_until_parked();
+        let header = cx
+            .debug_bounds(format!("pane-header-{pane}").leak())
+            .expect("header");
+        let terminal = cx.debug_bounds("terminal-pane").expect("terminal");
+        assert_eq!(header.bottom(), terminal.top(), "{size:?}");
+    }
 }

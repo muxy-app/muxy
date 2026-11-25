@@ -21,9 +21,6 @@ pub(crate) struct LayoutDragState {
     pub(crate) preview: Option<Preview>,
 }
 
-/// Where each shown tab's panes were laid out in the last frame of the
-/// window showing it, with the scale factor. Each window clears its own on
-/// every render.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct TabGeometry(Rc<RefCell<Vec<Placement>>>);
 
@@ -63,8 +60,6 @@ impl TabGeometry {
             .find(|entry| entry.tab == tab)
     }
 
-    /// The tab whose panes are under `position` in `window`: the one drawn
-    /// last, on top, where a floating tab covers another.
     pub(crate) fn at(&self, window: WindowId, position: Point<Pixels>) -> Option<Placement> {
         self.0
             .borrow()
@@ -76,7 +71,6 @@ impl TabGeometry {
 }
 
 struct PaneDrag {
-    /// The window the drag started in, and what it is to the model.
     window: WindowId,
     surface: Surface,
     project: ProjectId,
@@ -84,7 +78,6 @@ struct PaneDrag {
     pane: PaneId,
     origin: Point<Pixels>,
     active: bool,
-    /// Started from the pane header's handle rather than with Command held.
     handle: bool,
     layout: Layout,
     geometry: (Bounds<Pixels>, f32),
@@ -115,7 +108,6 @@ impl LayoutDragState {
     }
 }
 
-/// Where `pane` is laid out in `layout`, drawn over `placement`'s bounds.
 pub(crate) fn pane_bounds(
     layout: &Layout,
     placement: Placement,
@@ -268,7 +260,6 @@ impl AppModel {
         self.start_pane_drag(pane, event.position, false, window, cx);
     }
 
-    /// Starts moving `pane` from its header's handle, without Command held.
     pub(crate) fn begin_pane_handle_drag(
         &mut self,
         pane: PaneId,
@@ -439,7 +430,6 @@ impl AppModel {
         }
     }
 
-    /// Whether a pane drag started in `window`, which follows the pointer.
     fn drags_pane_in(&self, window: &Window) -> bool {
         self.layout_drag
             .pane
@@ -505,7 +495,6 @@ pub(crate) fn track_pointer(cx: &Context<AppModel>) -> AnyElement {
     .into_any_element()
 }
 
-/// Paints the drop preview of a pane or tab drag over `window`.
 pub(crate) fn overlay(model: &AppModel, window: &Window) -> AnyElement {
     let here = window.window_handle().window_id();
     let main = here == model.window.window_id();
@@ -535,7 +524,7 @@ pub(crate) fn overlay(model: &AppModel, window: &Window) -> AnyElement {
     canvas(
         move |_, _, _| {
             if let Some(bounds) = preview().filter(|_| main) {
-                occlusions.borrow_mut().push((None, bounds));
+                occlusions.borrow_mut().push((None, bounds.into()));
             }
         },
         move |_, (), window, _| {

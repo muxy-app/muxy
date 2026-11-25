@@ -1,27 +1,28 @@
-//! A minimal paired device: pair from a `muxy://pair` link, then reconnect,
-//! list projects, and type into a new shell in the server's Home project.
+#[path = "support/printable.rs"]
+mod support;
 
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::io::{self, BufRead, Write};
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
+use std::io::{self, BufRead, IsTerminal, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::thread;
 
 use muxy_client::{Client, ClientEvent, RemoteEndpoint, RunGrid};
 use muxy_protocol::{DeviceCredential, DeviceKind, PairingInvite, Size};
+use support::printable;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 type Saved = (Vec<String>, u16, [u8; 32], DeviceCredential);
 const SIZE: Size = Size { cols: 80, rows: 24 };
+const CREDENTIAL: &str = "credential.json";
 
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            let _ = writeln!(io::stderr(), "remote: {error}");
+            let _ = writeln!(io::stderr(), "remote: {}", printable(&error.to_string()));
             ExitCode::FAILURE
         }
     }
@@ -30,41 +31,67 @@ fn main() -> ExitCode {
 fn run() -> Result {
     let args: Vec<String> = env::args().skip(1).collect();
     match args.as_slice() {
-        [mode, link, file] if mode == "pair" => pair(link, Path::new(file)),
-        [mode, file] if mode == "connect" => connect(Path::new(file)),
-        _ => Err("usage: remote pair <link> <credential-file> | connect <credential-file>".into()),
+        [mode, folder] if mode == "pair" => pair(Path::new(folder)),
+        [mode, folder] if mode == "connect" => connect(Path::new(folder)),
+        _ => Err("usage: remote pair <folder> < link | connect <folder>".into()),
     }
 }
 
-fn pair(link: &str, file: &Path) -> Result {
+fn pair(folder: &Path) -> Result {
+    let file = credential_file(folder)?;
+    let link = read_link()?;
     let invite =
-        PairingInvite::parse_link(link).map_err(|code| format!("invalid link: {code:?}"))?;
-    // The file will hold the device token: create it private before pairing.
-    let mut output = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(file)?;
-    let (_client, paired) = match Client::pair(&invite, "Example device", DeviceKind::Phone) {
-        Ok(paired) => paired,
-        Err(error) => {
-            let _ = fs::remove_file(file);
-            return Err(error.into());
-        }
-    };
+        PairingInvite::parse_link(&link).map_err(|code| format!("invalid link: {code:?}"))?;
+    let (_client, paired) = Client::pair(&invite, "Example device", DeviceKind::Phone)?;
     let saved: Saved = (
         invite.hosts,
         invite.port,
         invite.fingerprint,
         paired.credential,
     );
+    let mut output = muxy_core::files::private_file()
+        .write(true)
+        .create_new(true)
+        .open(&file)?;
     output.write_all(&serde_json::to_vec(&saved)?)?;
-    writeln!(io::stdout(), "paired with {}", paired.name)?;
+    writeln!(io::stdout(), "paired with {}", printable(&paired.name))?;
     Ok(())
 }
 
-fn connect(file: &Path) -> Result {
-    let (hosts, port, fingerprint, credential): Saved = serde_json::from_slice(&fs::read(file)?)?;
+fn credential_file(folder: &Path) -> Result<PathBuf> {
+    match fs::read_dir(folder) {
+        Ok(mut entries) => {
+            if entries.next().is_some() {
+                return Err(
+                    format!("{} is not empty: choose a new folder", folder.display()).into(),
+                );
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    muxy_core::files::private_dir(folder)?;
+    Ok(folder.join(CREDENTIAL))
+}
+
+fn read_link() -> Result<String> {
+    let stdin = io::stdin();
+    if stdin.is_terminal() {
+        write!(io::stderr(), "Pairing link: ")?;
+        io::stderr().flush()?;
+    }
+    let mut link = String::new();
+    stdin.lock().read_line(&mut link)?;
+    let link = link.trim();
+    if link.is_empty() {
+        return Err("no pairing link on standard input".into());
+    }
+    Ok(link.to_owned())
+}
+
+fn connect(folder: &Path) -> Result {
+    let (hosts, port, fingerprint, credential): Saved =
+        serde_json::from_slice(&fs::read(folder.join(CREDENTIAL))?)?;
     let endpoint = RemoteEndpoint {
         hosts,
         port,
@@ -124,8 +151,8 @@ fn connect(file: &Path) -> Result {
 fn redraw(grid: &RunGrid) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     stdout.write_all(b"\x1b[2J\x1b[H")?;
-    for index in 0..grid.rows.len() {
-        writeln!(stdout, "{}", grid.row_text(index))?;
+    for index in 0..grid.rows.len().min(usize::from(grid.size.rows)) {
+        writeln!(stdout, "{}", printable(&grid.row_text(index)))?;
     }
     stdout.flush()
 }

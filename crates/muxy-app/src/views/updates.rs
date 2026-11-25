@@ -10,7 +10,6 @@ use muxy_ui::tr;
 use super::overlays::{Mark, OverlayView, Placement};
 use crate::model::{AppModel, UpdateAction};
 
-/// The update popover above the status bar's update button.
 pub(crate) struct UpdatesPopover;
 
 impl OverlayView for UpdatesPopover {

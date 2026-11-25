@@ -1,24 +1,15 @@
-//! Every app setting by its dotted key, as `settings.toml` and `terminal.toml`
-//! spell it: `appearance.dark_theme`, or `terminal.font_size` for the terminal
-//! file. Keys are read from the files' own formats, so a new setting needs no
-//! change here.
-
 use std::path::PathBuf;
 
 use super::{Error, Result, Settings, TerminalSettings};
 
-/// The first key segment that names `terminal.toml` instead of `settings.toml`.
 pub const TERMINAL: &str = "terminal";
-/// Remote servers belong to Settings → Devices, which also connects them.
 const READ_ONLY: &[&str] = &["servers"];
 
-/// The settings files of one profile folder.
 #[derive(Clone, Debug)]
 pub struct Profile {
     directory: PathBuf,
 }
 
-/// Where a key lives: `settings.toml`, or `terminal.toml` without its prefix.
 enum Scope {
     App(Vec<String>),
     Terminal(Vec<String>),
@@ -39,8 +30,6 @@ impl Profile {
         self.directory.join("terminal.toml")
     }
 
-    /// Every setting the app uses, defaults included, as one table with the
-    /// terminal's under [`TERMINAL`].
     pub fn effective(&self) -> Result<toml::Table> {
         let settings = Settings::load(&self.settings_path())?;
         let terminal = TerminalSettings::load_native(&self.terminal_path())?;
@@ -52,14 +41,12 @@ impl Profile {
         Ok(table)
     }
 
-    /// Each setting's key and value, tables flattened to their leaves.
     pub fn list(&self) -> Result<Vec<(String, toml::Value)>> {
         let mut entries = Vec::new();
         flatten(&mut Vec::new(), &self.effective()?, &mut entries);
         Ok(entries)
     }
 
-    /// The value at `key`, which may be a whole table.
     pub fn get(&self, key: &str) -> Result<toml::Value> {
         let segments = parse_key(key)?;
         let effective = toml::Value::Table(self.effective()?);
@@ -68,8 +55,6 @@ impl Profile {
             .ok_or_else(|| unknown(key))
     }
 
-    /// Sets `key` to `raw`, read as a TOML value or else as text, and saves
-    /// it only if the app would still start with it.
     pub fn set(&self, key: &str, raw: &str) -> Result<toml::Value> {
         let segments = parse_key(key)?;
         refuse_read_only(key, &segments)?;
@@ -92,7 +77,6 @@ impl Profile {
         Ok(self.get(key).unwrap_or(value))
     }
 
-    /// Returns `key` to its default by removing it from its file.
     pub fn unset(&self, key: &str) -> Result<()> {
         let segments = parse_key(key)?;
         refuse_read_only(key, &segments)?;
@@ -128,7 +112,7 @@ impl Profile {
         terminal: &TerminalSettings,
         change: impl FnOnce(&mut toml::Table) -> std::result::Result<T, String>,
     ) -> Result<T> {
-        super::appearance::edit_document(&self.settings_path(), |document| {
+        super::document::edit_document(&self.settings_path(), |document| {
             let changed = change(document)?;
             let settings: Settings = toml::Value::Table(document.clone()).try_into()?;
             settings.validate()?;
@@ -164,8 +148,6 @@ impl Profile {
     }
 }
 
-/// Splits `key` at dots, keeping a dot inside double quotes:
-/// `keymap."command.build"`.
 pub fn parse_key(key: &str) -> Result<Vec<String>> {
     let mut segments = Vec::new();
     let mut segment = String::new();
@@ -194,7 +176,6 @@ pub fn parse_key(key: &str) -> Result<Vec<String>> {
     Ok(segments)
 }
 
-/// Writes `segments` back as a key that [`parse_key`] reads.
 pub fn render_key(segments: &[String]) -> String {
     segments
         .iter()
@@ -213,7 +194,6 @@ pub fn render_key(segments: &[String]) -> String {
         .join(".")
 }
 
-/// How a value prints for a person: text without quotes, the rest as TOML.
 pub fn display(value: &toml::Value) -> String {
     match value {
         toml::Value::String(text) => text.clone(),
@@ -266,9 +246,6 @@ fn to_table(value: &impl serde::Serialize, file: &str) -> Result<toml::Table> {
     }
 }
 
-/// Text that isn't a TOML value is taken as text, so `Solarized Dark` needs no
-/// quotes. A whole number for a decimal setting is taken as decimal, and any
-/// value for a text setting as its text.
 fn parse_value(raw: &str, current: Option<&toml::Value>) -> toml::Value {
     let parsed = toml::from_str::<toml::Table>(&format!("value = {raw}"))
         .ok()
@@ -312,7 +289,6 @@ fn insert(table: &mut toml::Table, segments: &[String], value: toml::Value) -> R
     Ok(())
 }
 
-/// Removes the key, then any table it leaves empty. Whether it was there.
 fn remove(table: &mut toml::Table, segments: &[String]) -> bool {
     let Some((first, rest)) = segments.split_first() else {
         return false;
@@ -330,9 +306,6 @@ fn remove(table: &mut toml::Table, segments: &[String]) -> bool {
     removed
 }
 
-/// A key the format ignores, or one whose value it drops, disappears when the
-/// settings are written back, so that is how an unknown key shows. An empty
-/// list or table disappears too where the format leaves empty ones out.
 fn check_kept(
     segments: &[String],
     saved: &toml::Table,

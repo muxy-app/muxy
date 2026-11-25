@@ -1,5 +1,3 @@
-//! A browser pane: the toolbar, the find bar, and the page in a native view.
-
 mod pages;
 #[cfg(test)]
 mod tests;
@@ -25,25 +23,17 @@ use muxy_ui::text_input::{InputEvent, InputStyle, SEARCH_CONTEXT, TextInput};
 use muxy_ui::theme::{Metrics, Theme};
 
 const SUGGESTIONS: u32 = 8;
-/// How soon after a click into the page a link to another app may open it.
 const EXTERNAL_LINK_CLICK: std::time::Duration = std::time::Duration::from_secs(2);
 
 pub(crate) enum BrowserViewEvent {
     Shortcut(gpui::Keystroke),
     Escape,
-    /// The page's address changed; the pane saves it.
     Navigated(Option<String>),
-    /// The page's title changed.
     TitleChanged,
-    /// The page asked for a new window.
     OpenTab(String),
-    /// The page called `window.close()`.
     Close,
-    /// A link the system opens, such as `mailto:`.
     External(String),
-    /// The user clicked the pane around the page.
     Focus,
-    /// The user clicked into the page itself.
     PageClicked,
     Copied,
     Favicon(String),
@@ -57,7 +47,6 @@ pub(crate) enum Menu {
     Page,
 }
 
-/// What the page last reported.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Page {
     pub url: String,
@@ -67,7 +56,6 @@ pub(crate) struct Page {
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub error: Option<LoadError>,
-    /// How many loads have started, so a wait can tell one began.
     pub loads: u64,
 }
 
@@ -87,6 +75,7 @@ struct Suggestion {
 struct Suggestions {
     entries: Vec<Suggestion>,
     selected: Option<usize>,
+    scroll: gpui::ScrollHandle,
     open: bool,
 }
 
@@ -112,8 +101,7 @@ pub(crate) struct BrowserView {
     pub(crate) zoom: f64,
     pub(crate) engine: SearchEngine,
     address: Entity<TextInput>,
-    /// The address field's width when last drawn, for its suggestions.
-    address_width: Rc<Cell<Pixels>>,
+    address_bounds: Rc<Cell<gpui::Bounds<Pixels>>>,
     history: Option<History>,
     suggestions: Suggestions,
     find: Option<FindBar>,
@@ -125,9 +113,7 @@ pub(crate) struct BrowserView {
     menu: Option<muxy_ui::webview::OptionMenu>,
     theme: Theme,
     metrics: Metrics,
-    /// The address field takes focus once the pane is shown focused.
     focus_address: bool,
-    /// The address field has focus, so page addresses don't replace its text.
     editing: bool,
     selecting_element: bool,
     selection_generation: u64,
@@ -164,8 +150,6 @@ impl BrowserView {
         let url = setup.url.unwrap_or_default().to_owned();
         Ok(cx.new(|cx| {
             cx.on_release(|view: &mut Self, cx| {
-                // Something else may still hold the native browser for a
-                // moment; it must not stay on screen where it was last placed.
                 view.native.set_visible(false);
                 view.clear_snapshot(cx);
             })
@@ -197,7 +181,7 @@ impl BrowserView {
                 zoom: 1.0,
                 engine: setup.engine,
                 address,
-                address_width: Rc::default(),
+                address_bounds: Rc::default(),
                 history,
                 suggestions: Suggestions::default(),
                 find: None,
@@ -219,7 +203,6 @@ impl BrowserView {
         }))
     }
 
-    /// Listens to the address field in `window`, where the view shows now.
     pub(crate) fn follow_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.subscriptions = address_subscriptions(&self.address, window, cx);
         if let Some(input) = self.find.as_ref().map(|find| find.input.clone()) {
@@ -230,7 +213,6 @@ impl BrowserView {
         }
     }
 
-    /// The title a tab shows for this page.
     pub(crate) fn title(&self) -> Option<&str> {
         browser::display_title(&self.page.title, Some(&self.page.url))
     }
@@ -368,7 +350,6 @@ impl BrowserView {
         }
     }
 
-    /// Loads what was typed in the address bar: an address or a search.
     pub(crate) fn submit(&mut self, input: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(url) = browser::resolve_input(input, self.engine) else {
             return;
@@ -603,10 +584,10 @@ impl BrowserView {
             })
             .collect();
         self.suggestions.selected = None;
+        self.suggestions.scroll.scroll_to_item(0);
         cx.notify();
     }
 
-    /// Moves the highlighted suggestion; past either end, none is.
     fn move_suggestion(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
         if !self.suggestions.open || self.suggestions.entries.is_empty() {
             return false;
@@ -618,6 +599,9 @@ impl BrowserView {
             (Some(index), true) => (index + 1 < count).then_some(index + 1),
             (Some(index), false) => index.checked_sub(1),
         };
+        self.suggestions
+            .scroll
+            .scroll_to_item(self.suggestions.selected.unwrap_or(0));
         cx.notify();
         true
     }
@@ -725,7 +709,6 @@ impl BrowserView {
         }
     }
 
-    /// Shows or hides the page as the pane is shown, covered, or focused.
     pub(crate) fn present(
         &mut self,
         visible: bool,
@@ -769,7 +752,6 @@ impl BrowserView {
         }
     }
 
-    /// Answers the page's open `<select>`, with `None` to close it unchanged.
     fn choose(&mut self, option: Option<usize>, cx: &mut Context<Self>) {
         if self.menu.take().is_some() {
             self.native.choose(option);
@@ -839,7 +821,6 @@ impl BrowserView {
                 .is_some_and(|find| find.input.focus_handle(cx).is_focused(window))
     }
 
-    /// Whether the native page is what the content area shows.
     fn shows_page(&self) -> bool {
         self.page.error.is_none() && !self.is_blank()
     }
@@ -907,7 +888,6 @@ fn element_clipboard_text(selection: &serde_json::Value) -> Option<String> {
     Some(copied)
 }
 
-/// What the address bar shows for `url`: nothing for the start page.
 fn display_address(url: &str) -> String {
     if browser::is_blank(url) {
         String::new()
@@ -982,6 +962,11 @@ impl Render for BrowserView {
                 )
                 .absolute()
                 .size_full(),
+            )
+            .children(
+                self.menu
+                    .as_ref()
+                    .map(|menu| self.option_menu(menu, cx).into_any_element()),
             );
         div()
             .track_focus(&self.focus)
@@ -1016,18 +1001,11 @@ impl Render for BrowserView {
             )
             .child(toolbar::render(self, window, cx))
             .children(toolbar::find_bar(self, cx))
-            .child(
-                content.children(
-                    self.menu
-                        .as_ref()
-                        .map(|menu| self.option_menu(menu, cx).into_any_element()),
-                ),
-            )
+            .child(content)
+            .children(toolbar::suggestions(self, cx))
     }
 }
 
-/// What a browser pane shows when it has no page: why, and where to change
-/// that.
 pub(crate) fn placeholder(
     reason: &str,
     disabled: bool,

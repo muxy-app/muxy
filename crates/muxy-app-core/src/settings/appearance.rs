@@ -1,9 +1,7 @@
-use std::fs;
+use super::document::{edit_document, read_document, save_section};
 use std::io;
 use std::path::Path;
-use std::time::Duration;
 
-use muxy_core::file_lock::{self, FileLock};
 use serde::{Deserialize, Serialize};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -73,15 +71,19 @@ pub enum AgentsPanelIcon {
     Project,
 }
 
-/// How much room each row of the agents panel takes.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentsPanelDensity {
-    /// Two lines per agent: its title, then its agent and status.
     #[default]
     Normal,
-    /// One short line per agent, with its icon as its only mark.
     Compact,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionsLayout {
+    Grid,
+    List,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -116,11 +118,13 @@ pub struct Appearance {
     pub sidebar_vibrancy_level: u8,
     pub sidebar_expanded_width: Option<f32>,
     pub sidebar_collapsed_style: SidebarCollapsedStyle,
+    pub sidebar_auto_hide: bool,
     pub status_bar_visible: bool,
-    /// Each pane shows a header with its icon, title and actions.
+    pub rail_enabled: bool,
+    pub rail_expanded: bool,
     pub pane_headers: bool,
+    pub open_in_app_button: bool,
     pub tips_visible: bool,
-    /// The welcome tour was finished or skipped.
     pub onboarding_completed: bool,
     pub auto_expand_worktrees: bool,
     pub worktree_show_unread: bool,
@@ -129,21 +133,15 @@ pub struct Appearance {
     pub project_recent: Vec<crate::ProjectId>,
     pub hidden_worktrees: std::collections::BTreeSet<crate::ProjectId>,
     pub tab_focused_expanded: std::collections::BTreeMap<crate::ProjectId, bool>,
-    /// Servers whose sidebar group was expanded or collapsed by hand; the
-    /// others follow `server_expanded`'s default.
     pub sidebar_servers_expanded: std::collections::BTreeMap<crate::ServerId, bool>,
-    /// The sidebar lists other computers' servers under this computer's.
     pub sidebar_remote_servers: bool,
     pub remember_projects_without_tabs: bool,
-    /// Kept only while `remember_projects_without_tabs` is on.
     pub projects_without_tabs_shown: bool,
     #[serde(rename = "tab_focused_focus")]
     pub sidebar_focus: bool,
     #[serde(rename = "tab_focused_project_order")]
     pub sidebar_project_order: ProjectOrder,
-    /// The extension whose sidebar replaces the built-in one; empty for built-in.
     pub extension_sidebar: String,
-    /// The app language as `<extension>:<localization>`; empty for English.
     pub language: String,
     pub agents_panel_visible: bool,
     pub agents_panel_detached: bool,
@@ -165,6 +163,8 @@ pub struct Appearance {
     pub agent_sessions_width: Option<f32>,
     pub agent_sessions_height: Option<f32>,
     pub agent_sessions_providers: Vec<muxy_protocol::AgentProvider>,
+    pub extensions_installed_layout: ExtensionsLayout,
+    pub extensions_browse_layout: ExtensionsLayout,
 }
 
 impl Default for Appearance {
@@ -179,8 +179,12 @@ impl Default for Appearance {
             sidebar_vibrancy_level: 50,
             sidebar_expanded_width: None,
             sidebar_collapsed_style: SidebarCollapsedStyle::default(),
+            sidebar_auto_hide: false,
             status_bar_visible: true,
+            rail_enabled: true,
+            rail_expanded: false,
             pane_headers: true,
+            open_in_app_button: true,
             tips_visible: true,
             onboarding_completed: false,
             auto_expand_worktrees: false,
@@ -221,21 +225,18 @@ impl Default for Appearance {
                 .into_iter()
                 .filter(|provider| crate::agent_sessions::supported(*provider))
                 .collect(),
+            extensions_installed_layout: ExtensionsLayout::List,
+            extensions_browse_layout: ExtensionsLayout::Grid,
         }
     }
 }
 
 impl Appearance {
-    /// Whether agents panel rows can wear their project's color: beside
-    /// agent icons only, since a project icon already wears it, and not in
-    /// compact rows, whose icon is their only mark.
     pub fn agents_panel_colors_apply(&self) -> bool {
         self.agents_panel_icon == AgentsPanelIcon::Agent
             && self.agents_panel_density == AgentsPanelDensity::Normal
     }
 
-    /// Whether the sidebar lists `server`'s projects under its heading: this
-    /// computer's until collapsed, another computer's once expanded.
     pub fn server_expanded(&self, server: crate::ServerId) -> bool {
         self.sidebar_servers_expanded
             .get(&server)
@@ -328,193 +329,10 @@ impl Appearance {
     }
 }
 
-pub(crate) fn save_section(path: &Path, section: &str, values: &impl Serialize) -> Result<()> {
-    let values = toml::Value::try_from(values)?;
-    let values = values
-        .as_table()
-        .ok_or_else(|| io::Error::other(format!("{section} must be a table")))?;
-    edit_document(path, |document| {
-        let target = document
-            .entry(section)
-            .or_insert_with(|| toml::Value::Table(toml::Table::new()));
-        target
-            .as_table_mut()
-            .ok_or_else(|| io::Error::other(format!("{section} must be a table")))?
-            .extend(values.clone());
-        Ok(())
-    })
-}
-
-/// Sets or removes each key of `section.table`, keeping everything else.
-pub(crate) fn save_entries(
-    path: &Path,
-    section: &str,
-    table: &str,
-    entries: Vec<(&str, Option<toml::Value>)>,
-) -> Result<toml::Value> {
-    edit_document(path, |document| {
-        let values = document
-            .entry(section)
-            .or_insert_with(|| toml::Value::Table(toml::Table::new()));
-        let values = values
-            .as_table_mut()
-            .ok_or_else(|| io::Error::other(format!("{section} must be a table")))?;
-        let target = values
-            .entry(table)
-            .or_insert_with(|| toml::Value::Table(toml::Table::new()));
-        if !target.is_table() {
-            *target = toml::Value::Table(toml::Table::new());
-        }
-        if let Some(target) = target.as_table_mut() {
-            for (key, value) in entries {
-                match value {
-                    Some(value) => {
-                        target.insert(key.into(), value);
-                    }
-                    None => {
-                        target.remove(key);
-                    }
-                }
-            }
-        }
-        Ok(toml::Value::Table(values.clone()))
-    })
-}
-
-pub(crate) fn replace_section(path: &Path, section: &str, values: &impl Serialize) -> Result<()> {
-    replace_sections(path, [(section, toml::Value::try_from(values)?)])
-}
-
-pub(super) fn replace_sections<'a>(
-    path: &Path,
-    sections: impl IntoIterator<Item = (&'a str, toml::Value)>,
-) -> Result<()> {
-    edit_document(path, |document| {
-        for (section, value) in sections {
-            document.insert(section.into(), value);
-        }
-        Ok(())
-    })
-}
-
-/// Reads the document, lets `change` edit it and writes it back, all while
-/// holding the file's lock, so concurrent saves of other sections are kept.
-pub(super) fn edit_document<T>(
-    path: &Path,
-    change: impl FnOnce(&mut toml::Table) -> Result<T>,
-) -> Result<T> {
-    let _lock = lock(path)?;
-    let mut document = read_document(path)?;
-    let changed = change(&mut document)?;
-    atomic_write(path, &toml::to_string_pretty(&document)?)?;
-    Ok(changed)
-}
-
-/// Locks `<file>.lock` beside `path` for one read-change-write of the file.
-pub(super) fn lock(path: &Path) -> Result<FileLock> {
-    const TIMEOUT: Duration = Duration::from_secs(2);
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::other("settings path has no parent"))?;
-    fs::create_dir_all(parent)?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| io::Error::other("settings path has no file name"))?
-        .to_string_lossy();
-    let lock = file_lock::acquire(&path.with_file_name(format!("{name}.lock")), TIMEOUT).map_err(
-        file_lock::busy(format!(
-            "{name} is still being saved by another change; try again"
-        )),
-    )?;
-    Ok(lock)
-}
-
-pub(crate) fn atomic_write(path: &Path, source: &str) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::other("settings path has no parent"))?;
-    fs::create_dir_all(parent)?;
-    muxy_core::fs::write_atomic(path, source.as_bytes(), 0o644).map_err(io::Error::from)?;
-    Ok(())
-}
-
-pub(super) fn read_document(path: &Path) -> Result<toml::Table> {
-    match fs::read_to_string(path) {
-        Ok(source) => source.parse().map_err(Into::into),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(toml::Table::new()),
-        Err(error) => Err(error.into()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn concurrent_saves_of_different_sections_all_land() -> Result<()> {
-        let directory = tempfile::tempdir()?;
-        let path = directory.path().join("settings.toml");
-        let sections: Vec<String> = (0..8).map(|index| format!("section_{index}")).collect();
-        std::thread::scope(|scope| {
-            let saves: Vec<_> = sections
-                .iter()
-                .map(|section| {
-                    let path = &path;
-                    scope.spawn(move || -> Result<()> {
-                        for round in 0..20 {
-                            let mut values = toml::Table::new();
-                            values.insert("round".into(), round.into());
-                            save_section(path, section, &values)?;
-                        }
-                        Ok(())
-                    })
-                })
-                .collect();
-            saves
-                .into_iter()
-                .try_for_each(|save| save.join().map_err(|_| io::Error::other("save panicked"))?)
-        })?;
-        let document = read_document(&path)?;
-        for section in &sections {
-            assert_eq!(
-                document[section]["round"].as_integer(),
-                Some(19),
-                "{section}"
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn a_held_lock_fails_the_save_after_the_timeout_and_keeps_the_file() -> Result<()> {
-        let directory = tempfile::tempdir()?;
-        let settings = directory.path().join("settings.toml");
-        let terminal = directory.path().join("terminal.toml");
-        save_section(&settings, "window", &toml::Table::new())?;
-        crate::settings::TerminalSettings::load_native(&terminal)?;
-        let sources = [fs::read(&settings)?, fs::read(&terminal)?];
-        let _settings_lock = lock(&settings)?;
-        let _terminal_lock = lock(&terminal)?;
-
-        let started = std::time::Instant::now();
-        let error = save_section(&settings, "panes", &toml::Table::new())
-            .err()
-            .ok_or("the save should time out")?;
-        assert!(started.elapsed() >= Duration::from_secs(2));
-        assert_eq!(
-            error.to_string(),
-            "settings.toml is still being saved by another change; try again"
-        );
-        let error = crate::settings::TerminalSettings::edit_native(&terminal, |_| Ok(()))
-            .err()
-            .ok_or("the save should time out")?;
-        assert_eq!(
-            error.to_string(),
-            "terminal.toml: terminal.toml is still being saved by another change; try again"
-        );
-        assert_eq!([fs::read(&settings)?, fs::read(&terminal)?], sources);
-        Ok(())
-    }
+    use std::fs;
 
     #[test]
     fn worktree_visibility_defaults_and_independent_saved_choices() -> Result<()> {

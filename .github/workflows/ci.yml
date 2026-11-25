@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main, linux, linux-platform, 'linux/**']
+    branches: [main]
   pull_request:
   workflow_call:
 
@@ -65,6 +65,7 @@ jobs:
         with:
           path: .zig-cache
           key: zig-macos-15-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          restore-keys: zig-macos-15-0.17.0-
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.part }}
@@ -89,15 +90,7 @@ jobs:
   linux:
     needs: scope
     if: ${{ !cancelled() && needs.scope.outputs.scope != 'desktop' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-          - runner: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -115,12 +108,13 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .zig-cache
-          key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          key: zig-ubuntu-22.04-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          restore-keys: zig-ubuntu-22.04-0.17.0-
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: python3 scripts/check-headless.py --target "${{ matrix.target }}"
+      - run: python3 scripts/check-headless.py --target x86_64-unknown-linux-gnu
       - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
@@ -133,14 +127,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
         part: [lint, test]
-        include:
-          - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       SCOPE: ${{ needs.scope.outputs.scope || 'full' }}
@@ -164,13 +152,16 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .zig-cache
-          key: zig-${{ matrix.runner }}-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          key: zig-ubuntu-24.04-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          restore-keys: zig-ubuntu-24.04-0.17.0-
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.part }}
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: python3 scripts/check-desktop-linux.py --target "${{ matrix.target }}" --part "${{ matrix.part }}" --scope "$SCOPE"
+      - run: >-
+          python3 scripts/check-desktop-linux.py --target x86_64-unknown-linux-gnu
+          --part "${{ matrix.part }}" --scope "$SCOPE"
       - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
@@ -179,7 +170,63 @@ jobs:
       - if: matrix.part == 'test' && !cancelled()
         uses: actions/upload-artifact@v4
         with:
-          name: cargo-timings-${{ matrix.target }}
+          name: cargo-timings-linux
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: ignore
+          retention-days: 7
+
+  windows:
+    needs: scope
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [lint, test]
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      SCOPE: ${{ needs.scope.outputs.scope || 'full' }}
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld.exe
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - run: Set-MpPreference -DisableRealtimeMonitoring $true
+      - run: |
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          components: rustfmt, clippy
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+          use-cache: false
+      - id: zig-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .zig-cache
+          key: zig-windows-latest-0.17.0-${{ hashFiles('vendor/libghostty-vt-sys/**') }}
+          restore-keys: zig-windows-latest-0.17.0-
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.part }}
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: >-
+          python scripts/check-windows.py --target x86_64-pc-windows-msvc
+          --part "${{ matrix.part }}" --scope "$env:SCOPE"
+      - if: github.ref == 'refs/heads/main' && steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zig-cache.outputs.cache-primary-key }}
+      - if: matrix.part == 'test' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-timings-windows
           path: target/cargo-timings/cargo-timing.html
           if-no-files-found: ignore
           retention-days: 7

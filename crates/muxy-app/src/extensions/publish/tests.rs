@@ -202,7 +202,6 @@ fn a_published_version_must_be_bumped() {
     assert_eq!(same.problems.len(), 1);
 }
 
-/// Stands in for `gh` and `git`, recording what ran.
 #[derive(Default)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -219,6 +218,7 @@ struct FakeTools {
     has_identity: bool,
     published: Option<&'static str>,
     offline: bool,
+    lookup_fails: bool,
     added: RefCell<Vec<String>>,
     ignored: Option<&'static str>,
     email_only: bool,
@@ -256,6 +256,7 @@ impl Tools for FakeTools {
                 })
             }
             ["pr", "create", ..] => Ok("Creating…\nhttps://github.com/pr/1".into()),
+            ["ls-remote", ..] if self.lookup_fails => Err("git failed: could not read".into()),
             ["ls-remote", _, _, reference] => Ok(self
                 .taken_branches
                 .iter()
@@ -289,7 +290,7 @@ impl Tools for FakeTools {
                 })
             }
             ["config", ..] => Err("git failed: unset".into()),
-            [.., "push", _, _] | [.., "push", "--force", _, _] => {
+            [.., "push", _, _, _] => {
                 let mut failing = self.pushes_failing.borrow_mut();
                 if *failing > 0 {
                     *failing -= 1;
@@ -356,6 +357,7 @@ fn what_gets_sent_is_what_was_there_when_the_user_was_asked() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn staging_refuses_what_changed_since_it_was_listed() {
     let linked_files = |change: &str| {
@@ -380,6 +382,7 @@ fn staging_refuses_what_changed_since_it_was_listed() {
     assert!(stage(&link, &files).is_err(), "a linked folder is refused");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_link_doesnt_count_as_a_required_file_and_pipes_are_never_sent() {
     let folder = tempfile::tempdir().unwrap();
@@ -469,8 +472,14 @@ fn publishing_forks_commits_pushes_and_opens_a_pull_request_in_order() {
     let positions: Vec<_> = order.iter().map(|text| position(&calls, text)).collect();
     assert!(positions.is_sorted(), "{calls:#?}");
     assert!(
-        !calls.iter().any(|call| call.contains("--force")),
+        !calls.iter().any(|call| call.contains("push --force ")),
         "{calls:#?}"
+    );
+    assert!(
+        calls
+            .iter()
+            .any(|call| call.contains("push --force-with-lease=refs/heads/hello-1.2.0: https://")),
+        "a new branch is pushed only while the fork still lacks it: {calls:#?}"
     );
 }
 
@@ -603,7 +612,50 @@ fn a_branch_the_user_pushed_by_hand_is_never_overwritten() {
             .calls
             .borrow()
             .iter()
-            .any(|call| call.contains("--force"))
+            .any(|call| call.contains("push --force "))
+    );
+}
+
+#[test]
+fn a_failed_branch_lookup_pushes_only_if_the_branch_is_still_absent() {
+    let tools = FakeTools {
+        lookup_fails: true,
+        ..FakeTools::default()
+    };
+    publish_with(&tools).unwrap();
+    let calls = tools.calls.borrow();
+    let push = calls
+        .iter()
+        .find(|call| call.contains(" push "))
+        .expect("the package is pushed");
+    assert!(
+        push.contains("--force-with-lease=refs/heads/") && !push.contains("--force "),
+        "{push}"
+    );
+}
+
+#[test]
+fn screenshots_beyond_the_limit_are_not_read() {
+    let folder = tempfile::tempdir().unwrap();
+    ready_package(folder.path());
+    let package = folder.path().join("package.json");
+    let mut value: Value = serde_json::from_str(&fs::read_to_string(&package).unwrap()).unwrap();
+    value["muxy"]["marketplace"]["screenshots"] = json!(vec!["missing.png"; 7]);
+    fs::write(&package, value.to_string()).unwrap();
+    let problems = check(folder.path()).problems.join(" ");
+    assert!(problems.contains("at most 6"), "{problems}");
+    assert!(!problems.contains("wasn't found"), "{problems}");
+
+    value["muxy"]["marketplace"]["screenshots"] = json!(vec!["missing.png"; 3]);
+    fs::write(&package, value.to_string()).unwrap();
+    let problems = check(folder.path()).problems;
+    assert_eq!(
+        problems
+            .iter()
+            .filter(|problem| problem.contains("wasn't found"))
+            .count(),
+        1,
+        "each file is checked once: {problems:?}"
     );
 }
 

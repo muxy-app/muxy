@@ -74,8 +74,6 @@ pub(crate) enum Project {
     Delete(String),
 }
 
-/// Session commands. A missing session or project means the terminal this
-/// command runs in.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Session {
     Inspect(Option<SessionId>),
@@ -92,15 +90,17 @@ pub(crate) enum Session {
         project: Option<String>,
         directory: Option<PathBuf>,
         size: Size,
-        /// Typed into the new terminal, followed by Return.
         command: Option<String>,
     },
     End(Option<SessionId>),
     Discard(Option<SessionId>),
     Show {
         session: Option<SessionId>,
-        /// Adds the tab without switching the window to it.
         background: bool,
+    },
+    Link {
+        session: Option<SessionId>,
+        split: Option<muxy_app_core::Direction>,
     },
     Send {
         session: Option<SessionId>,
@@ -136,7 +136,6 @@ pub(crate) enum Session {
     },
 }
 
-/// What `session wait` waits for.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Until {
     Text { text: String, ignore_case: bool },
@@ -264,7 +263,6 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Invocation> {
     })
 }
 
-/// The options that take a value, and the flags, of `group verb`.
 fn options(group: &str, verb: &str) -> (&'static [&'static str], &'static [&'static str]) {
     match (group, verb) {
         ("project", "add") => (&["--name"], &["--create", "--reuse"]),
@@ -275,6 +273,7 @@ fn options(group: &str, verb: &str) -> (&'static [&'static str], &'static [&'sta
         ("session", "list") => (&["--project"], &["--all", "--quiet", "-q"]),
         ("session", "send") => (&[], &["--stdin"]),
         ("session", "show") => (&[], &["--background"]),
+        ("session", "link") => (&["--split"], &[]),
         ("session", "create") => (&["--directory", "--cols", "--rows"], &[]),
         ("session", "read-screen") => (&["--lines"], &["--saved"]),
         ("session", "history") => (&["--before", "--limit"], &["--saved"]),
@@ -369,10 +368,9 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
     let arguments = match verb {
         "send" if o.flag("--stdin") => 0,
         "send" | "search" | "rename" => 1,
-        "end" | "discard" | "show" | "read-screen" | "history" | "wait" | "inspect" => 0,
+        "end" | "discard" | "show" | "link" | "read-screen" | "history" | "wait" | "inspect" => 0,
         _ => return Err(invalid(help::SESSION)),
     };
-    // The session ID comes first and may be left out inside a Muxy terminal.
     let given = o
         .words
         .len()
@@ -405,6 +403,15 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
         "show" => Ok(Session::Show {
             session,
             background: o.flag("--background"),
+        }),
+        "link" => Ok(Session::Link {
+            session,
+            split: match o.value("--split")? {
+                None => None,
+                Some("right") => Some(muxy_app_core::Direction::Right),
+                Some("down") => Some(muxy_app_core::Direction::Down),
+                Some(_) => return Err(invalid("--split must be right or down")),
+            },
         }),
         "send" if o.flag("--stdin") => Ok(Session::SendStdin(session)),
         "send" => Ok(Session::Send {
@@ -445,7 +452,6 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
     }
 }
 
-/// `session create [project] [options] [-- COMMAND...]`.
 fn create_session(o: &Options<'_>) -> io::Result<Session> {
     let (project, command) = o.words.split_at(o.literal.unwrap_or(o.words.len()));
     if project.len() > 1 {
@@ -600,7 +606,6 @@ struct Options<'a> {
     words: Vec<&'a OsStr>,
     values: BTreeMap<&'a str, &'a OsStr>,
     flags: BTreeSet<&'a str>,
-    /// How many words came before `--`, if it was given.
     literal: Option<usize>,
 }
 impl<'a> Options<'a> {
@@ -728,6 +733,9 @@ mod tests {
             vec!["session", "send", "1", "two", "three"],
             vec!["session", "show", "1", "2"],
             vec!["session", "show", "tab"],
+            vec!["session", "link", "1", "2"],
+            vec!["session", "link", "--split", "left"],
+            vec!["session", "link", "--split"],
             vec!["session", "create", "--background"],
             vec!["session", "list", "--background"],
             vec!["session", "wait", "1"],
@@ -779,6 +787,20 @@ mod tests {
             Action::Session(Session::Show {
                 session: None,
                 background: true
+            })
+        );
+        assert_eq!(
+            action(&["session", "link"])?,
+            Action::Session(Session::Link {
+                session: None,
+                split: None
+            })
+        );
+        assert_eq!(
+            action(&["session", "link", "5", "--split", "down"])?,
+            Action::Session(Session::Link {
+                session: id,
+                split: Some(muxy_app_core::Direction::Down)
             })
         );
         assert_eq!(

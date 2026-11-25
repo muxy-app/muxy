@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
+use muxy_protocol::shared_memory::Region;
 use muxy_protocol::{
     AttachSnapshot, ChannelId, ClientKind, DeviceId, DeviceKind, ErrorCode, ExitReason,
     ForegroundProcess, Message, MetadataEvent, OperationId, ReplyBody, RequestId, ScreenFrame,
-    SessionClient, SessionId, Size, TerminalColors, Topic,
+    SessionClient, SessionId, SharedPixels, Size, TerminalColors, Topic,
 };
 
 use crate::notifier::Notifier;
@@ -27,26 +28,21 @@ struct Inner {
     state: ConnectionState,
     outbox: Outbox,
     attachments: HashMap<ChannelId, Attachment>,
-    /// The app that shares `references` with its other connections.
     owner: Option<OperationId>,
     references: SharedReferences,
     open_sessions: HashSet<SessionId>,
     created: HashSet<SessionId>,
-    /// When this connection started showing each session, to order viewers.
     positions: HashMap<SessionId, u64>,
-    /// Who shows which session changed; announced once the lock is released.
     positions_changed: bool,
     closed: bool,
 }
 
-/// The server's end of one app connection.
 pub(crate) struct Connection {
     inner: Mutex<Inner>,
     ready: Condvar,
     notifier: Arc<Notifier>,
 }
 
-/// The locked connection; announces who-shows-what changes after unlocking.
 struct Locked<'a> {
     inner: Option<MutexGuard<'a, Inner>>,
     notifier: &'a Notifier,
@@ -121,20 +117,16 @@ impl Connection {
         inner.state.client
     }
 
-    /// The app this open connection shares its references with.
     pub(crate) fn owner(&self) -> Option<OperationId> {
         let inner = self.lock();
         inner.owner.filter(|_| !inner.closed)
     }
 
-    /// The references this open connection uses.
     pub(crate) fn shared_references(&self) -> Option<SharedReferences> {
         let inner = self.lock();
         (!inner.closed).then(|| inner.references.clone())
     }
 
-    /// Switches to `references`, and lets go of what they no longer hold.
-    /// `reported` is the sessions this connection's app has open.
     pub(crate) fn use_references(
         &self,
         owner: Option<OperationId>,
@@ -196,13 +188,44 @@ impl Connection {
         self.lock().state.images = ImageDelivery::Stream;
     }
 
-    /// Leaves image pixels out of a live screen read with its history, for
-    /// an app that reads them itself.
+    pub(super) fn share_images(&self) {
+        self.lock().state.images = ImageDelivery::Share;
+    }
+
+    pub(super) fn shares_images(&self) -> bool {
+        self.lock().state.images == ImageDelivery::Share
+    }
+
+    pub(super) fn share_pixels(&self, channel: ChannelId, message: &mut Message) {
+        if !self.shares_images() {
+            return;
+        }
+        let (channel, seq, graphics) = match message {
+            Message::Frame(frame) => (channel, Some(frame.seq), frame.graphics.as_mut()),
+            Message::Reply {
+                body: ReplyBody::Attached { snapshot, .. },
+                ..
+            } => (snapshot.channel, None, Some(&mut snapshot.graphics)),
+            _ => return,
+        };
+        let Some(graphics) = graphics else {
+            return;
+        };
+        let regions = share(graphics);
+        if !regions.is_empty() {
+            self.lock().outbox.hold(channel, seq, regions);
+        }
+    }
+
     pub(super) fn defer_page(&self, page: &mut muxy_protocol::HistoryPage) {
-        if self.lock().state.images == ImageDelivery::Defer
-            && let Some(screen) = &mut page.screen
-        {
+        if self.lock().state.images != ImageDelivery::Defer {
+            return;
+        }
+        if let Some(screen) = &mut page.screen {
             screen.graphics.defer_pixels();
+        }
+        if let Some(graphics) = &mut page.graphics {
+            graphics.defer_pixels();
         }
     }
 
@@ -252,7 +275,6 @@ impl Connection {
         self.ready.notify_one();
     }
 
-    /// Tells the client to refetch a topic it reads.
     pub(crate) fn changed(&self, topic: Topic, revision: u64) {
         let mut inner = self.lock();
         if !inner.closed && inner.state.watches.includes(topic) {
@@ -282,9 +304,6 @@ impl Connection {
         inner.apply_colors(|attached| attached == session);
     }
 
-    /// Queues a control message. A session's progress and metadata reach
-    /// only connections that reference the session, and its metadata also
-    /// those that watch every session's.
     pub(crate) fn push_control(&self, message: Message) {
         let mut inner = self.lock();
         let watched =
@@ -322,7 +341,6 @@ impl Connection {
             handle.send(SessionCommand::SetColors(colors.clone()))?;
         }
         if let Err(undelivered) = handle.try_send(command) {
-            // Its sink reports back to this connection when dropped, which takes the lock.
             drop(inner);
             drop(undelivered);
             return Err(ServerError::unknown_session(session));
@@ -352,12 +370,18 @@ impl Connection {
         let mut inner = self.lock();
         if inner.state.images == ImageDelivery::Defer {
             snapshot.graphics.defer_pixels();
+            if let Some(graphics) = &mut snapshot.history_graphics {
+                graphics.defer_pixels();
+            }
         }
         let Some(attachment) = inner.attachments.get_mut(&channel) else {
             return false;
         };
         if let Some(id) = attachment.waiting.take() {
-            if inner.state.images == ImageDelivery::Stream {
+            if matches!(
+                inner.state.images,
+                ImageDelivery::Stream | ImageDelivery::Share
+            ) {
                 inner.outbox.send_once(channel, &mut snapshot.graphics);
             }
             inner.outbox.push_control(Message::Reply {
@@ -494,7 +518,6 @@ impl Connection {
         }
     }
 
-    /// The next message to write; `None` once closed and drained of control messages.
     pub(super) fn next(&self) -> Option<(ChannelId, Message)> {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
@@ -515,7 +538,6 @@ impl Connection {
         }
     }
 
-    /// Takes the control messages waiting to be written.
     #[cfg(test)]
     pub(crate) fn take_control(&self) -> Vec<Message> {
         self.lock().outbox.take_control()
@@ -547,7 +569,29 @@ impl Connection {
     }
 }
 
-/// The session whose progress or metadata a message carries.
+fn share(graphics: &mut muxy_protocol::Graphics) -> Vec<Region> {
+    graphics
+        .images
+        .iter_mut()
+        .filter(|image| !image.rgba.is_empty())
+        .filter_map(|image| {
+            let pixels = std::mem::take(&mut image.rgba);
+            match Region::create(&pixels) {
+                Ok(region) => {
+                    image.shared = Some(SharedPixels {
+                        name: region.name().to_owned(),
+                    });
+                    Some(region)
+                }
+                Err(error) => {
+                    log::warn!("could not share image {} in memory: {error}", image.id);
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
 fn session_state(message: &Message) -> Option<SessionId> {
     match message {
         Message::Progress { session, .. } | Message::SessionMetadata { session, .. } => {
@@ -558,7 +602,6 @@ fn session_state(message: &Message) -> Option<SessionId> {
 }
 
 impl Inner {
-    /// Leaves image pixels out of `frame` for an app that reads them itself.
     fn defer(&self, frame: &mut ScreenFrame) {
         if self.state.images == ImageDelivery::Defer
             && let Some(graphics) = &mut frame.graphics
@@ -567,7 +610,6 @@ impl Inner {
         }
     }
 
-    /// Sends each matching attached session the colors it should use now.
     fn apply_colors(&self, matches: impl Fn(SessionId) -> bool) {
         for attachment in self.attachments.values() {
             let session = attachment.handle.id();

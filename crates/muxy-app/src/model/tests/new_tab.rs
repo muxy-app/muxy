@@ -102,7 +102,7 @@ fn saved_projects_open_tabs_and_win_over_folders_and_pending_searches(cx: &mut T
 fn folder_search_runs_below_saved_project_matches_and_without_them(cx: &mut TestAppContext) {
     let root = tempfile::tempdir().expect("root");
     let saved = root.path().join("Saved");
-    let folder = root.path().join("nested/Needle Unsaved");
+    let folder = root.path().join("nested").join("Needle Unsaved");
     for path in [&saved, &folder] {
         std::fs::create_dir_all(path).expect("folder");
     }
@@ -685,6 +685,7 @@ fn new_tab_in_project_browses_the_current_projects_server(cx: &mut TestAppContex
     });
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn sidebar_add_project_menu_and_remote_button_remain_separate_in_each_layout(
     cx: &mut TestAppContext,

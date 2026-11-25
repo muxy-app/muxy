@@ -1,6 +1,3 @@
-//! Extension scripts. Each runs in its own `JavaScriptCore` context on its own
-//! thread: the system framework on macOS, `WebKitGTK`'s library on Linux.
-
 use std::sync::mpsc;
 
 #[derive(Debug)]

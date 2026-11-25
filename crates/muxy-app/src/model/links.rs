@@ -1,8 +1,7 @@
 use gpui::Context;
 use muxy_app_core::{
     Direction, PaneId, Project, ProjectStatus, Tab,
-    extensions::FileOpener,
-    opener::{OpenContext, OpenRequest, Target},
+    opener::{FileHandler, FileResolution, OpenContext, OpenRequest, Target, resolve_file},
 };
 
 use muxy_ui::tr;
@@ -44,42 +43,149 @@ impl AppModel {
             self.open_url_in_browser(url.clone(), cx);
             return;
         }
-        if let Target::File(file) = &target
-            && let Ok(relative) = file.path.strip_prefix(&context.project_directory)
-            && let Some(relative) = relative.to_str()
-            && let Some((owner, opener)) = self.chosen_file_opener(relative)
-        {
-            let mut data = serde_json::json!({
-                "filePath": relative,
-                "source": "terminal",
-                "replaceable": false,
-            });
-            if let Some(line) = file.line {
-                data["line"] = line.into();
+        let request = OpenRequest { target, context };
+        let Target::File(file) = &request.target else {
+            self.open_system_link(request, cx);
+            return;
+        };
+        let remote = (!request.context.server.is_local())
+            .then(|| self.remote_files(request.context.server, cx).ok())
+            .flatten();
+        let (file, context) = (file.clone(), request.context.clone());
+        let result = crate::opener::submit(move || {
+            if context.server.is_local() {
+                crate::opener::project_file(&file.path, &context.project_directory)
+            } else {
+                remote.and_then(|files| {
+                    files.project_file(context.project, &file.path, &context.project_directory)
+                })
             }
-            if let Some(column) = file.column {
-                data["column"] = column.into();
+        });
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                self.fail(
+                    tr!("Could not open link: %@", error.to_string()).to_string(),
+                    cx,
+                );
+                return;
             }
-            let descriptor = muxy_app_core::webview::WebviewDescriptor {
-                owner,
-                kind: opener.tab_type,
-                data,
-            };
-            if let Err(error) = self.open_webview_tab(descriptor, opener.singleton, cx) {
-                self.fail(tr!("Could not open file: %@", &error).to_string(), cx);
+        };
+        cx.spawn(async move |model, cx| {
+            if let Ok(relative) = result.recv().await {
+                let _ = model.update(cx, |model, cx| {
+                    model.route_terminal_file(request, relative, cx);
+                });
             }
+        })
+        .detach();
+    }
+
+    pub(crate) fn route_terminal_file(
+        &mut self,
+        request: OpenRequest,
+        relative: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.file_request_valid(&request) {
             return;
         }
-        if let Target::File(file) = &target
-            && !context.server.is_local()
+        let Some(relative) = relative else {
+            self.open_system_link(request, cx);
+            return;
+        };
+        let handlers = self.extension_file_openers();
+        match resolve_file(&relative, &handlers, &self.settings.openers) {
+            FileResolution::System => self.open_system_link(request, cx),
+            FileResolution::Handler(id) => self.open_file_with(&request, &relative, &id, cx),
+            FileResolution::Choose(ids) => {
+                let handlers = handlers
+                    .into_iter()
+                    .filter(|handler| ids.contains(&handler.id))
+                    .collect();
+                self.open_file_chooser(request, relative, handlers, cx);
+            }
+        }
+    }
+
+    pub(crate) fn file_request_valid(&self, request: &OpenRequest) -> bool {
+        self.state
+            .pane_project(request.context.pane)
+            .is_some_and(|project| {
+                project.id == request.context.project
+                    && project.server_id == request.context.server
+                    && project.directory == request.context.project_directory
+            })
+    }
+
+    pub(crate) fn open_file_with(
+        &mut self,
+        request: &OpenRequest,
+        relative: &str,
+        id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.file_request_valid(request) {
+            return;
+        }
+        if id == "system.finder" {
+            self.open_system_link(request.clone(), cx);
+            return;
+        }
+        let Some((owner, id)) = id.split_once(':') else {
+            return;
+        };
+        let Some(opener) = self
+            .extensions
+            .registry
+            .enabled(owner)
+            .and_then(|extension| {
+                extension
+                    .manifest
+                    .file_openers
+                    .iter()
+                    .find(|opener| opener.id == id)
+            })
+            .cloned()
+        else {
+            self.route_terminal_file(request.clone(), Some(relative.to_owned()), cx);
+            return;
+        };
+        let Target::File(file) = &request.target else {
+            return;
+        };
+        let mut data = serde_json::json!({
+            "filePath": relative,
+            "source": "terminal",
+            "replaceable": false,
+        });
+        if let Some(line) = file.line {
+            data["line"] = line.into();
+        }
+        if let Some(column) = file.column {
+            data["column"] = column.into();
+        }
+        let descriptor = muxy_app_core::webview::WebviewDescriptor {
+            owner: owner.to_owned(),
+            kind: opener.tab_type,
+            data,
+        };
+        if let Err(error) =
+            self.open_webview_tab_in(request.context.project, descriptor, opener.singleton, cx)
         {
-            self.remote_link_menu(pane, context.server, file, cx);
+            self.fail(tr!("Could not open file: %@", &error).to_string(), cx);
+        }
+    }
+
+    fn open_system_link(&mut self, request: OpenRequest, cx: &mut Context<Self>) {
+        if let Target::File(file) = &request.target
+            && !request.context.server.is_local()
+        {
+            self.remote_link_menu(request.context.pane, request.context.server, file, cx);
             return;
         }
         let settings = self.settings.openers.clone();
-        let result = crate::opener::submit(move || {
-            crate::opener::open(&OpenRequest { target, context }, &settings)
-        });
+        let result = crate::opener::submit(move || crate::opener::open(&request, &settings));
         match result {
             Ok(result) => cx
                 .spawn(async move |model, cx| {
@@ -100,42 +206,27 @@ impl AppModel {
         }
     }
 
-    /// The extension opener picked under Open files with, when it is enabled
-    /// and handles `relative`. As on main, extensions never open files unasked.
-    pub(super) fn chosen_file_opener(&self, relative: &str) -> Option<(String, FileOpener)> {
-        let (owner, id) = self.settings.openers.file.split_once(':')?;
-        let opener = self
-            .extensions
-            .registry
-            .enabled(owner)?
-            .manifest
-            .file_openers
-            .iter()
-            .find(|opener| opener.id == id && opener.matches(relative))?;
-        Some((owner.to_owned(), opener.clone()))
-    }
-
-    /// Enabled extensions' file openers as `(setting value, label)`.
-    pub(crate) fn extension_file_openers(&self) -> Vec<(String, String)> {
+    pub(crate) fn extension_file_openers(&self) -> Vec<FileHandler> {
         self.extensions
             .registry
             .active()
             .flat_map(|extension| {
-                extension.manifest.file_openers.iter().map(|opener| {
-                    (
-                        format!("{}:{}", extension.name, opener.id),
-                        opener.title.as_ref().map_or_else(
+                extension
+                    .manifest
+                    .file_openers
+                    .iter()
+                    .map(|opener| FileHandler {
+                        id: format!("{}:{}", extension.name, opener.id),
+                        title: opener.title.as_ref().map_or_else(
                             || extension.name.clone(),
                             |title| format!("{} ({title})", extension.name),
                         ),
-                    )
-                })
+                        patterns: opener.registered_patterns().to_vec(),
+                    })
             })
             .collect()
     }
 
-    /// Menu items that move pane `id` out of `tab`: into a new tab, a new
-    /// window, or another project.
     fn pane_move_items(&self, id: PaneId, project: &Project, tab: &Tab) -> Vec<Item> {
         let missing = project.status() == ProjectStatus::Missing;
         let alone = tab.panes.len() < 2;
@@ -177,8 +268,6 @@ impl AppModel {
         items
     }
 
-    /// Menu items that float pane `id`, or choose which projects the
-    /// floating tab it is in shows over.
     fn float_items(&self, id: PaneId, project: &Project, tab: &Tab) -> Vec<Item> {
         let Some(window) = tab.window.as_ref().filter(|window| window.is_floating()) else {
             let mut float = Item::action(tr!("Float Pane"), Command::FloatPane(id));

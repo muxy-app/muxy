@@ -1,23 +1,14 @@
+mod source;
+
+pub use source::{
+    MAX_DECODED_IMAGE_PIXELS, MAX_ENCODED_IMAGE_BYTES, PreparedImageSource, normalize_png,
+    prepare_image_source,
+};
+
 use super::storage::{PrivateDirectory, ensure_private_directory};
-use image::{DynamicImage, ImageFormat};
 use std::collections::HashSet;
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug)]
-pub struct PreparedImageSource {
-    contents: Vec<u8>,
-    extension: &'static str,
-}
-
-impl PreparedImageSource {
-    pub fn contents(&self) -> &[u8] {
-        &self.contents
-    }
-}
-
-pub const MAX_ENCODED_IMAGE_BYTES: usize = 25 * 1024 * 1024;
-pub const MAX_DECODED_IMAGE_PIXELS: u64 = 64_000_000;
 const ALLOWED_EXTENSIONS: [&str; 5] = ["png", "jpg", "gif", "tiff", "webp"];
 
 #[derive(Debug)]
@@ -124,69 +115,6 @@ fn invalid_filename() -> std::io::Error {
     )
 }
 
-pub fn prepare_image_source(contents: Vec<u8>) -> std::io::Result<PreparedImageSource> {
-    let (format, extension) = source_format(&contents)?;
-    decode_image(&contents, format)?;
-    Ok(PreparedImageSource {
-        contents,
-        extension,
-    })
-}
-
-pub fn normalize_png(contents: &[u8]) -> std::io::Result<Vec<u8>> {
-    let (format, _) = source_format(contents)?;
-    let image = decode_image(contents, format)?;
-    let mut normalized = Vec::new();
-    image
-        .write_to(&mut Cursor::new(&mut normalized), ImageFormat::Png)
-        .map_err(std::io::Error::other)?;
-    Ok(normalized)
-}
-
-fn source_format(contents: &[u8]) -> std::io::Result<(ImageFormat, &'static str)> {
-    if contents.is_empty() || contents.len() > MAX_ENCODED_IMAGE_BYTES {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Composer image source size is invalid",
-        ));
-    }
-    let format = image::guess_format(contents).map_err(std::io::Error::other)?;
-    let extension = match format {
-        ImageFormat::Png => "png",
-        ImageFormat::Jpeg => "jpg",
-        ImageFormat::Gif => "gif",
-        ImageFormat::Tiff => "tiff",
-        ImageFormat::WebP => "webp",
-        _ => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "unsupported Composer image format",
-            ));
-        }
-    };
-    Ok((format, extension))
-}
-
-fn decode_image(contents: &[u8], format: ImageFormat) -> std::io::Result<DynamicImage> {
-    let reader = image::ImageReader::with_format(Cursor::new(contents), format);
-    let (width, height) = reader.into_dimensions().map_err(std::io::Error::other)?;
-    validate_dimensions(width, height)?;
-    image::ImageReader::with_format(Cursor::new(contents), format)
-        .decode()
-        .map_err(std::io::Error::other)
-}
-
-fn validate_dimensions(width: u32, height: u32) -> std::io::Result<()> {
-    let pixels = u64::from(width).saturating_mul(u64::from(height));
-    if pixels == 0 || pixels > MAX_DECODED_IMAGE_PIXELS {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Composer image dimensions are invalid",
-        ));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -196,6 +124,11 @@ mod tests {
 
     fn encoded(format: ImageFormat) -> Vec<u8> {
         let image = DynamicImage::ImageRgba8(ImageBuffer::from_pixel(2, 2, Rgba([1, 2, 3, 255])));
+        let image = if format == ImageFormat::Jpeg {
+            DynamicImage::ImageRgb8(image.to_rgb8())
+        } else {
+            image
+        };
         let mut bytes = Vec::new();
         image
             .write_to(&mut Cursor::new(&mut bytes), format)
@@ -205,6 +138,72 @@ mod tests {
 
     fn png() -> Vec<u8> {
         encoded(ImageFormat::Png)
+    }
+
+    #[test]
+    fn prepared_sources_preserve_formats_and_normalize_without_changing_pixels() {
+        let profile = tempfile::tempdir().unwrap();
+        let storage = ImageStorage::open(profile.path()).unwrap();
+        for (format, extension) in [
+            (ImageFormat::Png, "png"),
+            (ImageFormat::Jpeg, "jpg"),
+            (ImageFormat::Gif, "gif"),
+            (ImageFormat::Tiff, "tiff"),
+            (ImageFormat::WebP, "webp"),
+        ] {
+            let bytes = encoded(format);
+            let source = prepare_image_source(bytes.clone()).unwrap();
+            assert_eq!(source.contents(), bytes);
+            let filename = storage.write_prepared(&source).unwrap();
+            assert_eq!(Path::new(&filename).extension().unwrap(), extension);
+            assert_eq!(storage.read(&filename).unwrap(), bytes);
+            let normalized = storage.normalize_png(&filename).unwrap();
+            assert_eq!(image::guess_format(&normalized).unwrap(), ImageFormat::Png);
+            assert_eq!(
+                image::load_from_memory(&normalized).unwrap().to_rgba8(),
+                image::load_from_memory(&bytes).unwrap().to_rgba8(),
+                "{format:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_sources_are_rejected_before_publishing_an_image() {
+        let profile = tempfile::tempdir().unwrap();
+        let storage = ImageStorage::open(profile.path()).unwrap();
+        let mut oversized = png();
+        oversized.resize(MAX_ENCODED_IMAGE_BYTES + 1, 0);
+        for (bytes, kind) in [
+            (Vec::new(), std::io::ErrorKind::InvalidData),
+            (oversized, std::io::ErrorKind::InvalidData),
+            (b"BM".to_vec(), std::io::ErrorKind::InvalidData),
+            (png()[..16].to_vec(), std::io::ErrorKind::Other),
+        ] {
+            assert_eq!(
+                prepare_image_source(bytes.clone()).unwrap_err().kind(),
+                kind
+            );
+            assert_eq!(normalize_png(&bytes).unwrap_err().kind(), kind);
+            assert_eq!(storage.write_source(&bytes).unwrap_err().kind(), kind);
+        }
+        assert_eq!(
+            std::fs::read_dir(storage.directory_path()).unwrap().count(),
+            0
+        );
+    }
+
+    #[test]
+    fn oversized_decoded_images_are_rejected_before_decoding_pixels() {
+        let mut bytes = encoded(ImageFormat::Gif);
+        bytes[6..8].copy_from_slice(&8001_u16.to_le_bytes());
+        bytes[8..10].copy_from_slice(&8000_u16.to_le_bytes());
+        for error in [
+            prepare_image_source(bytes.clone()).unwrap_err(),
+            normalize_png(&bytes).unwrap_err(),
+        ] {
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+            assert_eq!(error.to_string(), "Composer image dimensions are invalid");
+        }
     }
 
     #[test]
@@ -223,23 +222,44 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
-    fn composer_image_sweep_ignores_symlinks_and_removes_only_regular_orphans() {
-        use std::os::unix::fs::symlink;
-
+    fn composer_images_never_follow_symlinks_and_sweep_only_regular_orphans() {
         let profile = tempfile::tempdir().unwrap();
         let storage = ImageStorage::open(profile.path()).unwrap();
         let retained = storage.write_source(&png()).unwrap();
         let orphan = storage.write_source(&png()).unwrap();
         let outside = profile.path().join("outside.png");
         std::fs::write(&outside, b"outside").unwrap();
-        let linked = storage.directory_path().join("linked.png");
-        symlink(&outside, &linked).unwrap();
+        let linked_name = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE.png";
+        let linked = storage.directory_path().join(linked_name);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &linked).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&outside, &linked).unwrap();
+        assert!(storage.read(linked_name).is_err());
+        assert!(!storage.remove(linked_name).unwrap());
         let removed = storage.sweep(&HashSet::from([retained.clone()])).unwrap();
         assert_eq!(removed, vec![orphan]);
         assert!(storage.read(&retained).is_ok());
         assert_eq!(std::fs::read(outside).unwrap(), b"outside");
         assert!(linked.symlink_metadata().unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn a_published_image_name_is_never_replaced() {
+        let profile = tempfile::tempdir().unwrap();
+        let storage = ImageStorage::open(profile.path()).unwrap();
+        let name = storage.write_source(&png()).unwrap();
+        let error = storage
+            .directory
+            .write_new_atomic(&name, b"other")
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(storage.read(&name).unwrap(), png());
+        let leftovers = std::fs::read_dir(storage.directory_path())
+            .unwrap()
+            .filter(|entry| entry.as_ref().unwrap().file_name() != name.as_str())
+            .count();
+        assert_eq!(leftovers, 0);
     }
 }

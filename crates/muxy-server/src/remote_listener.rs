@@ -14,7 +14,6 @@ use crate::run::Connections;
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 const ERROR_REPORT_INTERVAL: Duration = Duration::from_secs(60);
 
-/// Owns the network listener for paired devices; the registry decides when it runs.
 pub(crate) struct RemoteListener {
     connections: Connections,
     address: Ipv4Addr,
@@ -43,7 +42,6 @@ impl RemoteListener {
         let _ = self.registry.set(Arc::downgrade(registry));
     }
 
-    /// Replaces any running listener; `None` also ends every network connection.
     pub(crate) fn apply(&self, listening: Option<(u16, TlsIdentity)>) -> ListenerStatus {
         let mut running = self.lock();
         stop(&mut running);
@@ -81,7 +79,6 @@ impl RemoteListener {
         }
     }
 
-    /// Stops listening for good; later changes are refused while the server exits.
     pub(crate) fn shutdown(&self) {
         let mut running = self.lock();
         running.shut_down = true;
@@ -120,7 +117,6 @@ fn accept(listener: &TlsListener, registry: &Weak<Registry>, connections: &Conne
         let Some(registry) = registry.upgrade() else {
             return;
         };
-        // Too many unauthenticated peers: dropping the stream refuses this one.
         let Some(admission) = registry.admit_remote() else {
             continue;
         };
@@ -132,7 +128,6 @@ fn accept(listener: &TlsListener, registry: &Weak<Registry>, connections: &Conne
     }
 }
 
-/// Loopback in tests keeps developer runs off the network and the firewall prompt.
 fn bind_address() -> io::Result<Ipv4Addr> {
     match std::env::var_os("MUXY_REMOTE_BIND") {
         None => Ok(Ipv4Addr::UNSPECIFIED),

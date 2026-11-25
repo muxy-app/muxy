@@ -1,18 +1,12 @@
-//! Terminals other clients start on this computer's server, such as a phone
-//! or the terminal UI, open here as background tabs in their project.
-
 use std::collections::{BTreeSet, HashSet};
 
 use gpui::Context;
 use muxy_app_core::{AppError, ProjectId, ProjectStatus, ServerId};
-use muxy_protocol::{ProjectSession, SessionId, SessionStatus};
+use muxy_protocol::{ClientKind, ProjectSession, SessionId, SessionStatus};
 
 use super::{AppModel, Quitting};
 
 impl AppModel {
-    /// This computer's listed projects whose terminals other clients show,
-    /// once its server has shown, on this connection, that its projects are
-    /// the ones the app knows.
     pub(crate) fn adoptable_projects(&self) -> Vec<ProjectId> {
         let server = ServerId::local();
         if !self.adopting(server) {
@@ -40,9 +34,6 @@ impl AppModel {
             })
     }
 
-    /// Opens, as background tabs, the terminals of `project` that another
-    /// client shows and this app neither shows nor stopped showing. Terminals
-    /// nobody shows stay in Existing Terminals.
     pub(crate) fn adopt_sessions(
         &mut self,
         project: ProjectId,
@@ -58,7 +49,9 @@ impl AppModel {
         let others: Vec<_> = sessions
             .iter()
             .filter(|session| {
-                session.owner.is_some()
+                session
+                    .owner
+                    .is_some_and(|owner| owner.kind != ClientKind::Cli)
                     && !session.attached
                     && session.info.project == project
                     && matches!(
@@ -93,9 +86,6 @@ impl AppModel {
         }
     }
 
-    /// Forgets the dismissed sessions that no longer run on `server`, from
-    /// the list its connection reported, once its catalog showed it is the
-    /// server the app knew.
     pub(super) fn prune_dismissed(&mut self, server: ServerId, cx: &mut Context<Self>) {
         let Some(live) = self
             .servers
@@ -110,9 +100,6 @@ impl AppModel {
         }
     }
 
-    /// Remembers the sessions on this computer's server that this app
-    /// stopped showing since it last looked, so they aren't opened here
-    /// again. The first look only notes what is shown.
     pub(super) fn note_shown_sessions(
         &mut self,
         server: ServerId,
@@ -137,8 +124,6 @@ impl AppModel {
         }
     }
 
-    /// A session on this computer's server left running when its pane went
-    /// away before it attached.
     pub(super) fn dismiss_session(
         &mut self,
         server: ServerId,

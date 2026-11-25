@@ -8,8 +8,8 @@ use super::records::{
 use crate::MobileError;
 use crate::records::server_path;
 
-/// Git in one project's repository. Every call talks to the server; make them
-/// on a queue of their own, because a push or pull can take minutes.
+#[doc = " Git in one project's repository. Every call talks to the server; make them"]
+#[doc = " on a queue of their own, because a push or pull can take minutes."]
 #[derive(Debug, uniffi::Object)]
 pub struct GitRepository {
     pub(super) client: Client,
@@ -24,13 +24,13 @@ impl GitRepository {
 
 #[uniffi::export]
 impl GitRepository {
-    /// `None` when the project's folder has no repository.
+    #[doc = " `None` when the project's folder has no repository."]
     pub fn summary(&self) -> Result<Option<GitSummary>, MobileError> {
         Ok(self.client.git_summary(self.project)?.map(Into::into))
     }
 
-    /// The branch and its changes, and, when asked, its pull request, which
-    /// takes longer because it asks GitHub.
+    #[doc = " The branch and its changes, and, when asked, its pull request, which"]
+    #[doc = " takes longer because it asks GitHub."]
     pub fn status(&self, include_pull_request: bool) -> Result<GitStatus, MobileError> {
         Ok(self
             .client
@@ -46,7 +46,7 @@ impl GitRepository {
         Ok(collect(self.client.git_branches(self.project)?))
     }
 
-    /// The branch names on `origin`, read over the network.
+    #[doc = " The branch names on `origin`, read over the network."]
     pub fn remote_branches(&self) -> Result<Vec<String>, MobileError> {
         Ok(self.client.git_remote_branches(self.project)?)
     }
@@ -55,7 +55,7 @@ impl GitRepository {
         Ok(self.client.git_repo_info(self.project)?.into())
     }
 
-    /// Commits, newest first. `max_count` is at most 1000.
+    #[doc = " Commits, newest first. `max_count` is at most 1000."]
     pub fn log(&self, max_count: u32, skip: u32) -> Result<Vec<GitCommit>, MobileError> {
         Ok(collect(self.client.git_log(
             self.project,
@@ -64,8 +64,8 @@ impl GitRepository {
         )?))
     }
 
-    /// One file's changes as rows to draw, from the index when `staged`.
-    /// `line_limit` shortens a long diff and sets `truncated`.
+    #[doc = " One file's changes as rows to draw, from the index when `staged`."]
+    #[doc = " `line_limit` shortens a long diff and sets `truncated`."]
     pub fn diff(
         &self,
         path: String,
@@ -78,8 +78,8 @@ impl GitRepository {
             .into())
     }
 
-    /// Git's diff text for one file, or for every tracked change when `path`
-    /// is `None`.
+    #[doc = " Git's diff text for one file, or for every tracked change when `path`"]
+    #[doc = " is `None`."]
     pub fn raw_diff(
         &self,
         path: Option<String>,
@@ -92,7 +92,7 @@ impl GitRepository {
             .into())
     }
 
-    /// The commits on this branch compared with `origin/<base>`.
+    #[doc = " The commits on this branch compared with `origin/<base>`."]
     pub fn branch_diff(
         &self,
         base: String,
@@ -104,7 +104,7 @@ impl GitRepository {
             .into())
     }
 
-    /// Every change as `commit_all` would commit it, without staging anything.
+    #[doc = " Every change as `commit_all` would commit it, without staging anything."]
     pub fn changes_preview(
         &self,
         line_limit: Option<u32>,
@@ -115,30 +115,30 @@ impl GitRepository {
             .into())
     }
 
-    /// Stages the files, or every change when `paths` is empty.
+    #[doc = " Stages the files, or every change when `paths` is empty."]
     pub fn stage(&self, paths: Vec<String>) -> Result<(), MobileError> {
         Ok(self.client.git_stage(self.project, server_paths(paths))?)
     }
 
-    /// Unstages the files, or everything when `paths` is empty.
+    #[doc = " Unstages the files, or everything when `paths` is empty."]
     pub fn unstage(&self, paths: Vec<String>) -> Result<(), MobileError> {
         Ok(self.client.git_unstage(self.project, server_paths(paths))?)
     }
 
-    /// Throws away the files' unstaged changes and deletes the untracked ones.
-    /// Unstage or resolve a file before discarding it. Does nothing when
-    /// `paths` is empty.
+    #[doc = " Throws away the files' unstaged changes and deletes the untracked ones."]
+    #[doc = " Unstage or resolve a file before discarding it. Does nothing when"]
+    #[doc = " `paths` is empty."]
     pub fn discard(&self, paths: Vec<String>) -> Result<(), MobileError> {
         Ok(self.client.git_discard(self.project, server_paths(paths))?)
     }
 
-    /// Returns the new commit's hash. `stage_all` stages every change first.
+    #[doc = " Returns the new commit's hash. `stage_all` stages every change first."]
     pub fn commit(&self, message: String, stage_all: bool) -> Result<String, MobileError> {
         Ok(self.client.git_commit(self.project, message, stage_all)?)
     }
 
-    /// Stages every change and commits only while it still matches the
-    /// `changes_preview` that `expected_tree` came from.
+    #[doc = " Stages every change and commits only while it still matches the"]
+    #[doc = " `changes_preview` that `expected_tree` came from."]
     pub fn commit_all(
         &self,
         message: String,
@@ -150,13 +150,13 @@ impl GitRepository {
             .git_commit_all(self.project, message, expected_head, expected_tree)?)
     }
 
-    /// Creates a repository in the project's folder; call `watch` again after it.
+    #[doc = " Creates a repository in the project's folder; call `watch` again after it."]
     pub fn init_repository(&self) -> Result<(), MobileError> {
         Ok(self.client.git_init(self.project)?)
     }
 
-    /// Sends `GitChanged` when this repository changes. A connection watches
-    /// one repository, so this replaces the previous watch.
+    #[doc = " Sends `GitChanged` when this repository changes. A connection watches"]
+    #[doc = " one repository, so this replaces the previous watch."]
     pub fn watch(&self) -> Result<(), MobileError> {
         Ok(self.client.git_watch(self.project)?)
     }
@@ -165,12 +165,12 @@ impl GitRepository {
         Ok(self.client.git_switch_branch(self.project, name)?)
     }
 
-    /// Creates the branch at the current commit and switches to it.
+    #[doc = " Creates the branch at the current commit and switches to it."]
     pub fn create_branch(&self, name: String) -> Result<(), MobileError> {
         Ok(self.client.git_create_branch(self.project, name)?)
     }
 
-    /// `force` also deletes a branch whose commits aren't merged.
+    #[doc = " `force` also deletes a branch whose commits aren't merged."]
     pub fn delete_branch(&self, name: String, force: bool) -> Result<(), MobileError> {
         Ok(self
             .client
@@ -181,7 +181,7 @@ impl GitRepository {
         Ok(self.client.git_delete_remote_branch(self.project, name)?)
     }
 
-    /// Checks out a commit without a branch.
+    #[doc = " Checks out a commit without a branch."]
     pub fn checkout_commit(&self, hash: String) -> Result<(), MobileError> {
         Ok(self.client.git_checkout(self.project, hash)?)
     }
@@ -190,7 +190,7 @@ impl GitRepository {
         Ok(self.client.git_cherry_pick(self.project, hash)?)
     }
 
-    /// Undoes the commit's changes in the working tree, without committing.
+    #[doc = " Undoes the commit's changes in the working tree, without committing."]
     pub fn revert(&self, hash: String) -> Result<(), MobileError> {
         Ok(self.client.git_revert(self.project, hash)?)
     }
@@ -199,8 +199,8 @@ impl GitRepository {
         Ok(self.client.git_create_tag(self.project, name, hash)?)
     }
 
-    /// Pushes the current branch. A branch without an upstream, or any branch
-    /// when `set_upstream`, goes to `origin` and tracks it.
+    #[doc = " Pushes the current branch. A branch without an upstream, or any branch"]
+    #[doc = " when `set_upstream`, goes to `origin` and tracks it."]
     pub fn push(&self, set_upstream: bool) -> Result<(), MobileError> {
         Ok(self.client.git_push(self.project, set_upstream)?)
     }
@@ -209,7 +209,7 @@ impl GitRepository {
         Ok(self.client.git_pull(self.project)?)
     }
 
-    /// Pushes `branch` where `changes_preview` said it would go.
+    #[doc = " Pushes `branch` where `changes_preview` said it would go."]
     pub fn publish_branch(
         &self,
         branch: String,
@@ -220,7 +220,7 @@ impl GitRepository {
             .git_publish_branch(self.project, branch, destination.into())?)
     }
 
-    /// Switches to a merged pull request's base branch and fast-forwards it.
+    #[doc = " Switches to a merged pull request's base branch and fast-forwards it."]
     pub fn switch_to_base(&self, branch: String) -> Result<GitBaseSwitch, MobileError> {
         Ok(self.client.git_switch_to_base(self.project, branch)?.into())
     }

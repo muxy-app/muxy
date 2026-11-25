@@ -8,24 +8,28 @@ pub mod api;
 pub mod workspace;
 pub use audit::{AUDIT_LOG, AuditEntry, AuditLog, timestamp};
 pub use manifest::{
-    Action, BarItem, Command, Extension, FileOpener, HomeView, Icon, Localization, Manifest,
-    PERMISSIONS, Panel, PanelControl, PanelMode, PanelPosition, Popover, RemoteMethod, Setting,
-    SettingKind, Side, Sidebar, StatusBarItem, TabType, local_event,
+    Action, BarItem, Command, Extension, FileOpener, HomeView, Icon, Listing, Localization,
+    Manifest, PERMISSIONS, Panel, PanelControl, PanelMode, PanelPosition, Popover, RemoteMethod,
+    Setting, SettingKind, Side, Sidebar, StatusBarItem, TabType, local_event,
 };
 pub use permissions::{
-    Choice, Consent, Gate, Grants, Request, Rule, event_permission, required_permission,
+    Choice, Consent, Gate, Grants, Request, Rule, TRUSTED, event_permission, required_permission,
 };
 pub use storage::{Settings, Storage};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-/// Installed packages and explicit developer folders for this app profile.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Unpacked {
+    pub name: String,
+    pub new_source: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Registry {
     pub extensions: BTreeMap<String, Extension>,
     pub errors: Vec<String>,
-    /// Errors reading the saved preferences, which no reload can change.
     preference_errors: Vec<String>,
     enabled: BTreeSet<String>,
     unpacked: BTreeMap<String, PathBuf>,
@@ -68,8 +72,6 @@ impl Registry {
         }
     }
 
-    /// A preferences file that was just written no longer has the error it was
-    /// read with.
     fn forget_preference_error(&mut self, name: &str) {
         let prefix = format!("{name}:");
         self.preference_errors
@@ -127,8 +129,6 @@ impl Registry {
         Extension::load(path)
     }
 
-    /// Reads one extension again. A folder that no longer loads is an error
-    /// and leaves the loaded copy, and every other extension, as they were.
     pub fn reload_one(&mut self, id: &str) -> Result<(), String> {
         let folder = match self.unpacked.get(id) {
             Some(folder) => folder.clone(),
@@ -150,7 +150,16 @@ impl Registry {
         Ok(())
     }
 
-    pub fn load_unpacked(&mut self, path: &Path) -> Result<String, String> {
+    pub fn unpacked_target(&self, path: &Path) -> Result<Unpacked, String> {
+        let (extension, folder) = self.checked_unpacked(path)?;
+        let new_source = self.unpacked.get(&extension.name) != Some(&folder);
+        Ok(Unpacked {
+            name: extension.name,
+            new_source,
+        })
+    }
+
+    fn checked_unpacked(&self, path: &Path) -> Result<(Extension, PathBuf), String> {
         let extension = Self::unpacked_extension(path)?;
         if self.extensions.contains_key(&extension.name) {
             return Err("an extension with this name is already loaded".into());
@@ -165,25 +174,34 @@ impl Registry {
                 "this folder is already loaded as '{loaded}'; unload it first"
             ));
         }
+        Ok((extension, folder))
+    }
+
+    pub fn load_unpacked(&mut self, path: &Path) -> Result<Unpacked, String> {
+        let (extension, folder) = self.checked_unpacked(path)?;
+        let name = extension.name.clone();
+        let new_source = self.unpacked.get(&name) != Some(&folder);
+        if new_source && self.enabled.contains(&name) {
+            let mut active = self.enabled.clone();
+            active.remove(&name);
+            self.save_enabled(active)?;
+        }
         let mut folders = self.unpacked.clone();
-        folders.insert(extension.name.clone(), folder);
+        folders.insert(name.clone(), folder);
         storage::write(
             &self.profile.join("extension-folders.json"),
             &serde_json::json!(folders),
         )?;
         self.unpacked = folders;
         self.forget_preference_error("extension-folders.json");
-        let name = extension.name.clone();
         self.extensions.insert(name.clone(), extension);
-        Ok(name)
+        Ok(Unpacked { name, new_source })
     }
 
     pub fn is_unpacked(&self, id: &str) -> bool {
         self.unpacked.contains_key(id)
     }
 
-    /// The folder an unpacked extension was loaded from: the source, where
-    /// `Extension::directory` is its build output.
     pub fn source_folder(&self, id: &str) -> Option<&Path> {
         self.unpacked.get(id).map(PathBuf::as_path)
     }
@@ -211,6 +229,10 @@ impl Registry {
         } else {
             active.remove(id);
         }
+        self.save_enabled(active)
+    }
+
+    fn save_enabled(&mut self, active: BTreeSet<String>) -> Result<(), String> {
         storage::write(
             &self.profile.join("extension-enabled.json"),
             &serde_json::json!(active),
@@ -220,7 +242,6 @@ impl Registry {
         Ok(())
     }
 
-    /// Forget developer folders without deleting their contents.
     pub fn remove(&mut self, id: &str) -> Result<(), String> {
         self.set_enabled(id, false)?;
         if let Some(folder) = self.unpacked.get(id).cloned() {

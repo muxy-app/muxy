@@ -1,6 +1,3 @@
-# Based on Hermes Agent's modern CLI layout (hermes_cli/cli_modern_layout.py,
-# cli_tui_mixin.py), with English labels, and its Ink TUI (ui-tui), whose window
-# title starts with ⚠, ⏳ or ✓ in every language. Terminal evidence only.
 id = "hermes"
 version = "2026.11.04.1"
 

@@ -25,7 +25,7 @@ fn start(pane: &mut TerminalPane, clicks: usize, cx: &mut Context<TerminalPane>)
             anchor: point,
             head: point,
         },
-        2 => Selection::word(point, grid),
+        2 => Selection::word(point, grid, &pane.terminal.options.selection_word_chars),
         _ => Selection::row(point, grid),
     };
     pane.selecting = Some((anchor, clicks));
@@ -85,6 +85,7 @@ fn selection_autoscroll_pages_history_and_extends_after_reply(cx: &mut TestAppCo
                 total_rows: 20,
                 prompts: Vec::new(),
                 screen: None,
+                graphics: None,
             }),
             cx,
         );

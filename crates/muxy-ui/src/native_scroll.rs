@@ -159,8 +159,6 @@ impl NativeScrollView {
         })
     }
 
-    /// Moves the scroll bar into `window`, for a pane now drawn there. It
-    /// keeps its position and shows once synced in that window.
     pub fn move_to_window(&mut self, window: &gpui::Window) -> Result<(), String> {
         let parent = crate::appkit::ns_window(window)?
             .contentView()
@@ -241,13 +239,9 @@ impl Drop for NativeScrollView {
     }
 }
 
-/// Shows native and web view scroll bars only while scrolling, even when macOS
-/// is set to always show them or a mouse is connected. macOS reads this once,
-/// so call it before the app starts.
 pub fn use_overlay_scrollers() {
     let defaults = NSUserDefaults::standardUserDefaults();
     let domain = unsafe { NSArgumentDomain };
-    // Documented to return nil for a missing domain; the typed binding would panic.
     let current: Option<Retained<NSDictionary<NSString, AnyObject>>> =
         unsafe { msg_send![&*defaults, volatileDomainForName: domain] };
     let arguments = current.map_or_else(NSMutableDictionary::new, |current| {

@@ -57,13 +57,13 @@ muxy help session send  # help for one subcommand
 | `muxy <folder>` | Opens a new terminal in the folder's project in the desktop app, adding the project if needed. Over SSH, or without the desktop app, opens it in the terminal UI. |
 | `muxy server start\|status\|stop` | Starts, inspects, or stops the server. `stop` refuses while terminals run; add `--force` to end them. |
 | `muxy project list\|inspect\|add\|rename\|set-color\|set-icon\|delete` | Manages projects. Deleting ends its terminals but keeps files on disk. |
-| `muxy session list\|inspect\|rename\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard\|show` | Creates and names terminals, inspects live or saved sessions, sends input, reads output, waits for text or exit, and shows a terminal in the desktop app. |
+| `muxy session list\|inspect\|rename\|create\|send\|send-keys\|read-screen\|history\|search\|wait\|end\|discard\|show\|link` | Creates and names terminals, inspects live or saved sessions, sends input, reads output, waits for text or exit, shows a terminal in the desktop app, and prints a [link](#session-links) that opens it. |
 | `muxy worktree list\|create\|checkout-pr\|register\|remove` | Manages Git worktree projects, including checking out pull requests. |
 | `muxy settings get\|set` | Reads or changes [server settings](server.md#settings). |
 | `muxy config list\|get\|set\|unset\|reload` | Reads or changes the desktop app's settings on this computer and applies them to the running app. See [App settings](#app-settings). |
 | `muxy activity list\|ack` | Reads or clears [AI agent](ai-agents.md) activity. |
 | `muxy browser open\|list\|read\|click\|…` | Drives browser tabs in the desktop app on this computer. See [Browser control](#browser-control). |
-| `muxy extension list\|status\|logs\|load\|enable\|disable\|reload\|unload\|validate\|publish` | Manages extensions in the desktop app on this computer. See [Extension commands](#extension-commands). |
+| `muxy extension list\|status\|logs\|load\|enable\|disable\|reload\|unload\|validate\|publish\|dev\|pages\|open\|run\|emit\|page` | Manages, develops, and tests extensions in the desktop app on this computer. See [Extension commands](#extension-commands). |
 | `muxy status <state> [--app APP] [--msg TEXT]` | Tells the terminal what a script is doing (OSC 7501): `idle`, `working`, `done`, `blocked`, `error`, or `clear`. Needs no server. |
 | `muxy exec <project> -- <program> [args]` | Runs a program in the project folder, without a shell. |
 | `muxy git`, `muxy files` | Run raw server Git and file actions as JSON. Advanced; the JSON shape follows the protocol and may change. |
@@ -118,6 +118,30 @@ them too.
 | `muxy extension unload <name>` | Forgets an unpacked folder and keeps its files. It doesn't work on marketplace extensions. |
 | `muxy extension validate <name\|folder> [--json]` | Checks what publishing needs, including the GitHub CLI, and exits nonzero if something is missing. |
 | `muxy extension publish <name> [--json]` | Opens a [pull request to the store](../extensions/contributing.md#publish-from-muxy), after you approve it in the app. |
+
+### Developing and testing
+
+| Command | What it does |
+| --- | --- |
+| `muxy extension dev <folder> [--once]` | Loads and turns on an unpacked folder, then builds it (`npm run build`, or the package manager its lock file names) and reloads it whenever its files change. Each round prints `ready` or `failed` with the log lines it added. `--once` does one round and exits nonzero if it failed. |
+| `muxy extension pages <name> [--json]` | Lists the extension's open pages: page ID, kind, ID, panel instance, whether it loaded, whether it shows, and its title. |
+| `muxy extension open <name> panel:<id>\|tab:<type>\|modal:<entry> [--data JSON]` | Opens a panel, tab, or modal page, waits for it to load, and prints its page ID. |
+| `muxy extension run <name> <command>` | Runs one of the extension's commands, as the command palette does. |
+| `muxy extension emit <name> <event> [payload]` | Sends the extension an event its manifest lists, with a JSON object payload, to test how it reacts. |
+| `muxy extension page <action> <page-id> …` | Drives a page with the [browser](#browser-control) page actions: `read`, `screenshot [--out FILE]`, `eval`, `click`, `type`, `fill`, `press`, `select`, `hover`, `scroll-into-view`, `check`, `uncheck`, `is`, `wait`, `wait-for`, `get-text`, `get-html`, `get-value`, `get-attribute`, `get-count`, `find`, `snapshot`, and `storage get\|set\|clear`. |
+
+```bash
+muxy extension dev extensions/hello --once
+page=$(muxy extension open hello panel:hello)
+muxy extension page snapshot "$page"
+muxy extension page click "$page" "#hi"
+muxy extension page wait "$page" --text "Sent"
+muxy extension page screenshot "$page" --out hello.png
+```
+
+A call that needs the user to answer a [runtime prompt](../extensions/permissions.md#runtime-prompts)
+waits for them: the extension's log says so, and `status` counts the prompts
+still waiting. Nothing here answers them or changes what an extension may do.
 
 ## App settings
 
@@ -196,6 +220,32 @@ contain no control characters. Existing session commands continue to target
 numeric IDs; renaming does not change the ID. Older servers without session
 naming report that the operation is unsupported.
 
+## Session links
+
+`muxy session link` prints a link that opens a terminal in the desktop app. Inside
+a Muxy terminal it defaults to that terminal, so an agent can hand its own
+terminal to a dashboard or another app.
+
+```bash
+muxy session link                   # muxy://session/42?server=…
+muxy session link 42 --split right  # muxy://session/42?server=…&split=right
+```
+
+Opening the link raises the desktop app on this computer, starting it if needed,
+and selects the project, worktree, and tab that show the terminal. If no tab
+shows it, Muxy opens it in a new tab of its project. With `--split right` or
+`--split down`, it splits the selected pane of that project instead.
+
+- The link is `muxy://session/<id>`, with `server=<MUXY_SERVER_ID>` and
+  `split=right|down` as options. Without `server`, it means this computer's
+  server.
+- Muxy Beta links start with `muxy-beta://`, so each link opens the app whose
+  server owns the terminal.
+- A terminal on a [remote server](remote-servers.md) opens too, once the app has
+  connected to that server before. `--host` prints links for that server.
+- A link to an ended terminal, or to a server the app doesn't know, shows an
+  error and changes nothing.
+
 ## Browser control
 
 ```bash
@@ -205,7 +255,7 @@ muxy browser fill "$tab" "#email" "me@example.com"
 muxy browser click "$tab" "button[type=submit]"
 muxy browser wait "$tab" --text "Welcome"
 muxy browser read "$tab"
-muxy browser screenshot "$tab" | base64 -D > page.png
+muxy browser screenshot "$tab" --out page.png
 muxy browser close "$tab"
 ```
 

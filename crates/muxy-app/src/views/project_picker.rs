@@ -10,6 +10,7 @@ use gpui::{
     AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
     IntoElement, Render, Subscription,
 };
+use muxy_app_core::session_link::SessionLink;
 use muxy_app_core::{ProjectStatus, ServerId, settings::Keymap};
 use muxy_core::shortcuts::{ShortcutId, ShortcutSettings};
 use muxy_ui::command_palette::Registry;
@@ -75,9 +76,7 @@ pub(crate) struct ProjectPicker {
     search: SearchService,
     targets: Registry<Target>,
     shortcuts: [Option<String>; 2],
-    /// Another computer's folders, instead of this one's.
     remote: Option<RemoteFolders>,
-    /// Why the folder couldn't be listed, when the server said.
     listing_error: Option<String>,
     picker: Entity<Picker>,
     generation: usize,
@@ -219,8 +218,6 @@ impl ProjectPicker {
         project_picker
     }
 
-    /// Names this computer in the field, so its folders aren't taken for
-    /// another computer's.
     pub(crate) fn name_computer(&self, computer: &str, cx: &mut Context<Self>) {
         let text = placeholder(self.purpose, None, Some(computer));
         self.picker
@@ -301,9 +298,9 @@ impl ProjectPicker {
                                 SEARCH_RESULT_LIMIT,
                                 &cancelled,
                             );
-                            snapshot
-                                .results
-                                .retain(|result| Path::new(&result.path).is_dir());
+                            snapshot.results.retain(|result| {
+                                Path::new(&path_service::to_native(&result.path)).is_dir()
+                            });
                             snapshot
                         })
                         .await;
@@ -320,7 +317,6 @@ impl ProjectPicker {
         }
     }
 
-    /// Lists a folder here, or through another computer's server.
     fn list_directory(&self, directory: String, generation: usize, cx: &mut Context<Self>) {
         let remote = self.remote.clone();
         cx.spawn(async move |picker, cx| {
@@ -484,8 +480,6 @@ impl ProjectPicker {
         );
     }
 
-    /// Saved projects matching the query: while searching folders, or by name
-    /// on another computer, where typing is otherwise a path.
     fn target_items(&self) -> Vec<PickerItem> {
         let query = self.session.search_query();
         let named = self.session.input_mode() == InputMode::FolderSearch
@@ -657,8 +651,6 @@ impl ProjectPicker {
         });
     }
 
-    /// Why `path` on another computer can't be added, when the listing of
-    /// its parent already shows it isn't there. Otherwise the server checks.
     fn missing_remote_folder(&self, path: &str) -> Option<String> {
         self.remote.as_ref()?;
         let parent = path_service::parent_path(path);
@@ -701,7 +693,6 @@ impl Drop for ProjectPicker {
 }
 
 impl AppModel {
-    /// Add Project's folders on the current project's server.
     pub(crate) fn open_project_picker(
         &mut self,
         window: &mut gpui::Window,
@@ -711,7 +702,6 @@ impl AppModel {
         self.toggle_project_picker(server, Purpose::AddProject, window, cx);
     }
 
-    /// Add Project's folders on `server`.
     pub(crate) fn open_project_picker_on(
         &mut self,
         server: ServerId,
@@ -721,9 +711,6 @@ impl AppModel {
         self.toggle_project_picker(server, Purpose::AddProject, window, cx);
     }
 
-    /// New Tab in Project: every server's projects, then folders on the
-    /// current project's server, or on this computer while that server isn't
-    /// connected, so the projects never wait for it.
     pub(crate) fn open_new_tab_picker(
         &mut self,
         window: &mut gpui::Window,
@@ -846,8 +833,6 @@ impl AppModel {
         self.show_project_picker(server, picker, cx);
     }
 
-    /// The folders of the projects the sidebar lists on `server`, besides
-    /// another computer's Home, which is where its picker starts.
     fn project_paths(&self, server: ServerId) -> Vec<String> {
         self.state
             .projects()
@@ -857,7 +842,7 @@ impl AppModel {
                     && self.project_listed(project)
                     && !project.is_remote_home()
             })
-            .map(|project| project.directory.to_string_lossy().into_owned())
+            .map(|project| path_service::from_native(&project.directory.to_string_lossy()))
             .collect()
     }
 
@@ -899,7 +884,7 @@ impl AppModel {
                     } => {
                         model.open_terminal_at(
                             ServerId::local(),
-                            Path::new(&path_service::standardize(path)),
+                            Path::new(&path_service::to_native(&path_service::standardize(path))),
                             cx,
                         );
                     }
@@ -911,7 +896,10 @@ impl AppModel {
                         model.confirm_project_path(path, *create_if_missing, cx);
                     }
                     PickerEvent::ChooseFolder { directory } => {
-                        model.choose_project_folder(PathBuf::from(directory), cx);
+                        model.choose_project_folder(
+                            PathBuf::from(path_service::to_native(directory)),
+                            cx,
+                        );
                     }
                     PickerEvent::Dismiss => model.dismiss_overlay(cx),
                 }),
@@ -1068,7 +1056,6 @@ impl AppModel {
         );
     }
 
-    /// Adds a folder on another computer; its server checks that it exists.
     fn open_remote_project_path(&mut self, server: ServerId, path: &str, cx: &mut Context<Self>) {
         let path = path_service::standardize(path);
         let existing = self.project_at(server, &path);
@@ -1122,7 +1109,7 @@ impl AppModel {
         create_if_missing: bool,
         cx: &mut Context<Self>,
     ) {
-        let path = PathBuf::from(path_service::standardize(path));
+        let path = PathBuf::from(path_service::to_native(&path_service::standardize(path)));
         if !path.exists() && create_if_missing {
             let message = tr!(
                 "Muxy will create \"%@\" and add it as a project.",
@@ -1175,15 +1162,20 @@ impl AppModel {
         );
     }
 
-    pub(crate) fn open_folders_from(
-        folders: async_channel::Receiver<Vec<String>>,
+    pub(crate) fn open_urls_from(
+        opened: async_channel::Receiver<Vec<String>>,
         cx: &mut Context<Self>,
     ) {
         cx.spawn(async move |this, cx| {
-            while let Ok(urls) = folders.recv().await {
+            while let Ok(urls) = opened.recv().await {
                 if this
                     .update(cx, |model, cx| {
                         model.raise_window(cx);
+                        if let Some(link) =
+                            urls.iter().rev().find_map(|url| SessionLink::parse(url))
+                        {
+                            model.open_session_link(link, cx);
+                        }
                         model
                             .pending_folders
                             .extend(urls.iter().filter_map(|url| folder_from_url(url)));
@@ -1209,7 +1201,7 @@ impl AppModel {
     }
 
     fn open_folder(&mut self, folder: PathBuf, cx: &mut Context<Self>) {
-        let canonical = folder.canonicalize().ok();
+        let canonical = muxy_core::files::canonicalize(&folder).ok();
         let existing = self
             .state
             .projects()
@@ -1217,7 +1209,7 @@ impl AppModel {
             .find(|project| {
                 project.server_id.is_local()
                     && canonical.is_some()
-                    && project.directory.canonicalize().ok() == canonical
+                    && muxy_core::files::canonicalize(&project.directory).ok() == canonical
             })
             .map(|project| project.id);
         match existing {
@@ -1248,13 +1240,20 @@ impl AppModel {
     }
 
     fn project_at(&self, server: ServerId, path: &str) -> Option<muxy_app_core::ProjectId> {
-        let path = path_service::standardize(path);
+        let key = |path: &str| {
+            let path = path_service::standardize(&path_service::from_native(path));
+            if cfg!(windows) && server == ServerId::local() {
+                path.to_lowercase()
+            } else {
+                path
+            }
+        };
+        let path = key(path);
         self.state
             .projects()
             .iter()
             .find(|project| {
-                project.server_id == server
-                    && path_service::standardize(&project.directory.to_string_lossy()) == path
+                project.server_id == server && key(&project.directory.to_string_lossy()) == path
             })
             .map(|project| project.id)
     }
@@ -1370,8 +1369,6 @@ async fn folder_prompt(
     std::future::ready(Ok(CHOSEN_FOLDER.take())).await
 }
 
-/// What the field asks for: a path on another computer, or a search here,
-/// naming this computer while other computers' pickers name theirs.
 fn placeholder(purpose: Purpose, remote: Option<&str>, computer: Option<&str>) -> String {
     match (remote, computer, purpose) {
         (Some(remote), ..) => tr!("Enter a path on %@…", remote),
@@ -1388,16 +1385,11 @@ fn placeholder(purpose: Purpose, remote: Option<&str>, computer: Option<&str>) -
 }
 
 pub(crate) fn display_path(path: &Path) -> String {
-    if let Some(home) = std::env::home_dir()
-        && let Ok(relative) = path.strip_prefix(home)
-    {
-        if relative.as_os_str().is_empty() {
-            "~".into()
-        } else {
-            format!("~/{}", relative.display())
-        }
-    } else {
-        path.to_string_lossy().into_owned()
+    match muxy_core::paths::home_dir() {
+        Ok(home) => muxy_core::paths::shorten_home(path, &home)
+            .to_string_lossy()
+            .into_owned(),
+        Err(_) => path.to_string_lossy().into_owned(),
     }
 }
 

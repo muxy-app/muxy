@@ -3,22 +3,19 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use muxy_protocol::{
-    FileChanges, FilesAction, FilesReply, FilesRequest, Message, ProjectId, ServerPath,
-};
+use muxy_protocol::{FileChanges, FilesAction, FilesReply, FilesRequest, Message, ProjectId};
 use notify::EventKind;
 
 use crate::watch::{DebouncedWatch, MAX_DELAY, Subscribers, Subscription, Timing};
 use crate::{Registry, connection::Connection};
 
-use super::{Result, error, root::Root};
+use super::{Result, error, is_git, path, root::Root, wire_path};
 
 const TIMING: Timing = Timing {
     quiet: Duration::from_millis(300),
     max_delay: MAX_DELAY,
 };
 
-/// The projects one connection watches.
 #[derive(Default)]
 pub(crate) struct Subscriptions {
     watches: HashMap<ProjectId, Subscription>,
@@ -42,7 +39,7 @@ impl Subscriptions {
             return Err(error("Too many file subscriptions"));
         }
         let project = registry.catalog.project(request.project)?;
-        let root = Root::open(project.directory.as_path())?;
+        let root = Root::open(&path(&project.directory)?)?;
         let project = project.id;
         let subscription = registry
             .files
@@ -77,10 +74,12 @@ fn watch(root: &Path, project: ProjectId, subscribers: Subscribers) -> Result<De
                         let Ok(relative) = path.strip_prefix(&directory) else {
                             continue;
                         };
-                        if relative.components().any(|part| part.as_os_str() == ".git") {
+                        if relative.components().any(|part| is_git(part.as_os_str())) {
                             continue;
                         }
-                        let path = ServerPath::from(relative);
+                        let Ok(path) = wire_path(relative) else {
+                            continue;
+                        };
                         if path.0.len() > muxy_protocol::MAX_PATH {
                             pending.merge(&FileChanges {
                                 paths: Vec::new(),

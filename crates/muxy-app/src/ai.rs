@@ -1,6 +1,3 @@
-//! Headless AI providers. Callers own their prompts and any resulting actions.
-
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,16 +24,14 @@ pub(crate) struct Provider {
     environment: &'static [(&'static str, &'static str)],
     interactive: &'static [&'static str],
     initial_prompt: InitialPrompt,
+    model_flag: Option<&'static str>,
+    prompt_tail: usize,
 }
 
-/// How an interactive session of a provider takes its first prompt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum InitialPrompt {
-    /// As the last argument.
     Argument,
-    /// After this flag.
     Flag(&'static str),
-    /// It has no documented way, so the user types it.
     Typed,
 }
 
@@ -57,6 +52,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &[],
         initial_prompt: InitialPrompt::Argument,
+        model_flag: Some("--model"),
+        prompt_tail: 0,
     },
     Provider {
         id: "codex",
@@ -65,6 +62,7 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         arguments: &[
             "exec",
             "--ephemeral",
+            "--skip-git-repo-check",
             "--sandbox",
             "read-only",
             "--color",
@@ -73,6 +71,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &[],
         initial_prompt: InitialPrompt::Argument,
+        model_flag: Some("--model"),
+        prompt_tail: 0,
     },
     Provider {
         id: "opencode",
@@ -82,6 +82,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[("OPENCODE_PERMISSION", r#"{"*":"deny"}"#)],
         interactive: &[],
         initial_prompt: InitialPrompt::Flag("--prompt"),
+        model_flag: Some("--model"),
+        prompt_tail: 0,
     },
     Provider {
         id: "copilot",
@@ -91,6 +93,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &[],
         initial_prompt: InitialPrompt::Flag("-i"),
+        model_flag: Some("--model"),
+        prompt_tail: 1,
     },
     Provider {
         id: "cursor",
@@ -100,6 +104,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &[],
         initial_prompt: InitialPrompt::Argument,
+        model_flag: Some("--model"),
+        prompt_tail: 0,
     },
     Provider {
         id: "droid",
@@ -109,6 +115,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &[],
         initial_prompt: InitialPrompt::Argument,
+        model_flag: Some("--model"),
+        prompt_tail: 0,
     },
     Provider {
         id: "grok",
@@ -129,6 +137,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &[],
         initial_prompt: InitialPrompt::Typed,
+        model_flag: Some("--model"),
+        prompt_tail: 1,
     },
     Provider {
         id: "kiro",
@@ -138,6 +148,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &["chat"],
         initial_prompt: InitialPrompt::Typed,
+        model_flag: Some("--model"),
+        prompt_tail: 0,
     },
     Provider {
         id: "pi",
@@ -147,6 +159,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &[],
         initial_prompt: InitialPrompt::Typed,
+        model_flag: Some("--model"),
+        prompt_tail: 0,
     },
     Provider {
         id: "xal",
@@ -156,6 +170,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &[],
         initial_prompt: InitialPrompt::Typed,
+        model_flag: None,
+        prompt_tail: 0,
     },
     Provider {
         id: "antigravity",
@@ -165,6 +181,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &[],
         initial_prompt: InitialPrompt::Typed,
+        model_flag: Some("--model"),
+        prompt_tail: 0,
     },
     Provider {
         id: "omp",
@@ -174,6 +192,8 @@ pub(crate) const PROVIDERS: &[Provider] = &[
         environment: &[],
         interactive: &[],
         initial_prompt: InitialPrompt::Typed,
+        model_flag: Some("--model"),
+        prompt_tail: 0,
     },
 ];
 
@@ -188,7 +208,6 @@ pub(crate) fn provider(id: &str) -> Option<Provider> {
     PROVIDERS.iter().copied().find(|provider| provider.id == id)
 }
 
-/// Stops a provider run from another thread.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Cancellation(Arc<AtomicBool>);
 
@@ -207,8 +226,7 @@ impl Provider {
         let mut directories: Vec<PathBuf> = std::env::var_os("PATH")
             .map(|path| std::env::split_paths(&path).collect())
             .unwrap_or_default();
-        if let Some(home) = std::env::var_os("HOME") {
-            let home = PathBuf::from(home);
+        if let Ok(home) = muxy_core::paths::home_dir() {
             for relative in [
                 ".local/bin",
                 ".npm-global/bin",
@@ -220,7 +238,10 @@ impl Provider {
                 directories.push(home.join(relative));
             }
         }
+        #[cfg(unix)]
         directories.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].map(PathBuf::from));
+        #[cfg(windows)]
+        directories.extend(std::env::var_os("APPDATA").map(|data| PathBuf::from(data).join("npm")));
         if let Some(login) = LOGIN_PATH.get() {
             directories.extend(login.iter().cloned());
         }
@@ -228,7 +249,12 @@ impl Provider {
         directories
     }
 
-    #[cfg(not(test))]
+    #[cfg(all(windows, not(test)))]
+    pub(crate) fn discover() -> Vec<Self> {
+        Self::installed()
+    }
+
+    #[cfg(all(unix, not(test)))]
     pub(crate) fn discover() -> Vec<Self> {
         LOGIN_PATH.get_or_init(|| {
             let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
@@ -276,15 +302,23 @@ impl Provider {
         executable_in(self.executable, search)
     }
 
-    /// What starts an interactive session, after the executable.
     pub(crate) fn interactive(self) -> (&'static [&'static str], InitialPrompt) {
         (self.interactive, self.initial_prompt)
     }
 
-    /// Runs the provider inside the project, where it reads the project's own instructions.
     pub(crate) fn generate(
         self,
         prompt: &str,
+        directory: &Path,
+        cancellation: &Cancellation,
+    ) -> Result<String, String> {
+        self.generate_with_model(prompt, None, directory, cancellation)
+    }
+
+    pub(crate) fn generate_with_model(
+        self,
+        prompt: &str,
+        model: Option<&str>,
         directory: &Path,
         cancellation: &Cancellation,
     ) -> Result<String, String> {
@@ -297,14 +331,13 @@ impl Provider {
         let executable = self
             .executable_path()
             .ok_or_else(|| tr!("%@ CLI is not installed", self.name).to_string())?;
+        let arguments = self.arguments_for(prompt, model)?;
+        #[cfg(windows)]
+        if let Some(reason) = command_line_problem(&executable, prompt, self.name) {
+            return Err(reason);
+        }
         let mut command = Command::new(executable);
-        command
-            .args(self.arguments)
-            .arg(if prompt.starts_with('-') {
-                format!(" {prompt}")
-            } else {
-                prompt.to_owned()
-            });
+        command.args(arguments);
         command
             .current_dir(directory)
             .env("MUXY_PANE_ID", "")
@@ -320,37 +353,112 @@ impl Provider {
         let output = String::from_utf8(stdout)
             .map_err(|_| tr!("%@ returned invalid UTF-8", self.name).to_string())?;
         if output.trim().is_empty() {
-            return Err(tr!(
-                "%@ returned an empty response: %@",
-                self.name,
-                String::from_utf8_lossy(&stderr).trim()
-            )
-            .to_string());
+            let detail = String::from_utf8_lossy(&stderr);
+            let detail = detail.trim();
+            return Err(if detail.is_empty() {
+                tr!("%@ returned an empty response", self.name).to_string()
+            } else {
+                tr!("%@ returned an empty response: %@", self.name, detail).to_string()
+            });
         }
         Ok(output)
     }
+
+    pub(crate) fn arguments_for(
+        self,
+        prompt: &str,
+        model: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        let mut arguments: Vec<String> = self
+            .arguments
+            .iter()
+            .map(|word| (*word).to_owned())
+            .collect();
+        let model = model.unwrap_or("").trim();
+        if !model.is_empty() {
+            if model.starts_with('-')
+                || model.len() > 256
+                || model
+                    .chars()
+                    .any(|character| character.is_control() || character.is_whitespace())
+            {
+                return Err(tr!(
+                    "Invalid model \"%@\". Model names cannot start with \"-\" or contain spaces.",
+                    model
+                )
+                .to_string());
+            }
+            let flag = self.model_flag.ok_or_else(|| {
+                tr!(
+                    "%@ has no confirmed model flag. Clear the model to use its default.",
+                    self.name
+                )
+                .to_string()
+            })?;
+            let at = arguments.len() - self.prompt_tail;
+            arguments.insert(at, flag.to_owned());
+            arguments.insert(at + 1, model.to_owned());
+        }
+        arguments.push(if prompt.starts_with('-') {
+            format!(" {prompt}")
+        } else {
+            prompt.to_owned()
+        });
+        Ok(arguments)
+    }
+}
+
+pub(crate) fn prompt_provider(
+    installed: &[Provider],
+    configured: &str,
+) -> Result<Provider, String> {
+    let configured = configured.trim();
+    if configured.is_empty() {
+        return installed
+            .first()
+            .copied()
+            .ok_or_else(|| tr!("No agent CLI is installed").to_string());
+    }
+    let provider =
+        provider(configured).ok_or_else(|| tr!("Unknown CLI \"%@\".", configured).to_string())?;
+    if installed.iter().any(|item| item.id == provider.id) {
+        Ok(provider)
+    } else {
+        Err(tr!("%@ CLI is not installed", provider.name).to_string())
+    }
+}
+
+#[cfg(windows)]
+fn command_line_problem(executable: &Path, prompt: &str, name: &str) -> Option<String> {
+    let batch = executable.extension().is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+    });
+    let limit = if batch { 7_500 } else { 32_000 };
+    if batch && prompt.contains(['\r', '\n']) {
+        return Some(
+            tr!(
+                "%@ is installed with a command launcher, which Windows can't hand a prompt of several lines to.",
+                name
+            )
+            .to_string(),
+        );
+    }
+    (prompt.encode_utf16().count() > limit)
+        .then(|| tr!("The prompt is too long for Windows to hand to %@.", name).to_string())
 }
 
 fn executable_in(name: &str, search: &[PathBuf]) -> Option<PathBuf> {
-    search.iter().map(|dir| dir.join(name)).find(|path| {
-        path.metadata()
-            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
-    })
+    muxy_core::executable::find_program(search, name)
 }
 
-/// A program installed on this computer, including in the usual folders that
-/// an app opened from the Finder doesn't have on its `PATH`.
 pub(crate) fn find_program(name: &str) -> Option<PathBuf> {
     executable_in(name, &Provider::search_path())
 }
 
-/// A program as the user's own login shell finds it.
 pub(crate) fn find_in_login_shell(name: &str) -> Option<PathBuf> {
     executable_in(name, LOGIN_PATH.get()?)
 }
 
-/// Runs a developer tool without a terminal, so it fails instead of waiting
-/// for an answer nobody can type, and returns what it printed.
 pub(crate) fn run_tool(
     program: &str,
     arguments: &[&str],
@@ -375,7 +483,6 @@ pub(crate) fn run_tool(
     Ok(String::from_utf8_lossy(&stdout).trim().to_owned())
 }
 
-/// Kills every provider that is still running, such as when the app quits.
 #[cfg(not(test))]
 pub(crate) fn terminate_all() {
     for group in RUNNING_GROUPS
@@ -412,7 +519,6 @@ impl Failure {
     }
 }
 
-/// A running provider's process group, listed so quitting the app can kill it.
 struct Registered(Group);
 
 impl Registered {
@@ -434,13 +540,15 @@ impl Drop for Registered {
     }
 }
 
-/// Runs a provider and kills any helpers it leaves behind.
 fn capture(
     mut command: Command,
     timeout: Duration,
     limit: usize,
     cancellation: &Cancellation,
 ) -> Result<(Vec<u8>, Vec<u8>), Failure> {
+    if cancellation.is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
     let cancelled = || cancellation.is_cancelled();
     let limits = Limits {
         cancelled: Some(&cancelled),
@@ -497,5 +605,134 @@ pub(crate) fn run<T: Send + 'static>(
             .recv()
             .await
             .unwrap_or_else(|_| Err(tr!("AI worker stopped").to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PROVIDERS, prompt_provider, provider};
+
+    #[test]
+    fn one_shot_arguments_keep_each_providers_flags_and_then_the_prompt() {
+        for item in PROVIDERS {
+            let prompt = "fix the login bug";
+            let arguments = item.arguments_for(prompt, None).expect("arguments");
+            let mut expected: Vec<String> = item
+                .arguments
+                .iter()
+                .map(|word| (*word).to_owned())
+                .collect();
+            expected.push(prompt.to_owned());
+            assert_eq!(arguments, expected);
+        }
+    }
+
+    #[test]
+    fn a_model_is_inserted_before_a_prompt_flag() {
+        let copilot = provider("copilot").expect("copilot");
+        let arguments = copilot
+            .arguments_for("hello", Some("gpt-5.4"))
+            .expect("arguments");
+        assert_eq!(words(&arguments, 4), ["--model", "gpt-5.4", "-p", "hello"]);
+        let grok = provider("grok").expect("grok");
+        let arguments = grok
+            .arguments_for("hello", Some("grok-3"))
+            .expect("arguments");
+        assert_eq!(words(&arguments, 4), ["--model", "grok-3", "-p", "hello"]);
+        let codex = provider("codex").expect("codex");
+        let arguments = codex
+            .arguments_for("hello", Some("gpt-5.4"))
+            .expect("arguments");
+        let exec = arguments
+            .iter()
+            .position(|word| word == "exec")
+            .expect("exec");
+        let model = arguments
+            .iter()
+            .position(|word| word == "--model")
+            .expect("model");
+        assert!(arguments.iter().any(|word| word == "--skip-git-repo-check"));
+        assert!(exec < model);
+        assert_eq!(words(&arguments, 3), ["--model", "gpt-5.4", "hello"]);
+    }
+
+    fn words(arguments: &[String], count: usize) -> Vec<&str> {
+        arguments[arguments.len() - count..]
+            .iter()
+            .map(String::as_str)
+            .collect()
+    }
+
+    #[test]
+    fn a_prompt_that_starts_with_a_dash_is_passed_as_text() {
+        let claude = provider("claude").expect("claude");
+        let arguments = claude.arguments_for("-n", None).expect("arguments");
+        assert_eq!(arguments.last().map(String::as_str), Some(" -n"));
+    }
+
+    #[test]
+    fn invalid_model_names_are_rejected_before_launching_a_cli() {
+        let codex = provider("codex").expect("codex");
+        assert!(codex.arguments_for("hello", Some("gpt-6-luna")).is_ok());
+        assert!(codex.arguments_for("hello", Some("openai/gpt-5.4")).is_ok());
+        assert!(
+            codex
+                .arguments_for("hello", Some("--dangerously-bypass-approvals-and-sandbox"))
+                .is_err()
+        );
+        assert!(codex.arguments_for("hello", Some("-s")).is_err());
+        assert!(codex.arguments_for("hello", Some("gpt 6")).is_err());
+        assert!(codex.arguments_for("hello", Some("gpt-6\n--flag")).is_err());
+        assert!(codex.arguments_for("hello", Some("gpt-6\0")).is_err());
+        assert!(
+            codex
+                .arguments_for("hello", Some(&"a".repeat(257)))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn xal_keeps_its_default_model_until_one_is_requested() {
+        let xal = provider("xal").expect("xal");
+        assert!(xal.arguments_for("hello", Some("   ")).is_ok());
+        let error = xal.arguments_for("hello", Some("big")).expect_err("model");
+        assert!(error.contains("no confirmed model flag"));
+    }
+
+    #[test]
+    fn automatic_uses_the_first_installed_cli_and_an_explicit_missing_cli_does_not_fall_through() {
+        let installed = [
+            provider("omp").expect("omp"),
+            provider("codex").expect("codex"),
+        ];
+        assert_eq!(prompt_provider(&installed, "").expect("auto").id, "omp");
+        let installed = [
+            provider("codex").expect("codex"),
+            provider("omp").expect("omp"),
+        ];
+        assert_eq!(prompt_provider(&installed, "  ").expect("auto").id, "codex");
+        assert_eq!(
+            prompt_provider(&installed, "omp").expect("chosen").id,
+            "omp"
+        );
+        assert!(prompt_provider(&installed, "claude").is_err());
+        assert!(prompt_provider(&installed, "nope").is_err());
+        assert!(prompt_provider(&[], "").is_err());
+    }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn prompts_windows_cannot_pass_are_refused_with_a_reason() {
+        let shim = Path::new(r"C:\npm\codex.CMD");
+        let program = Path::new(r"C:\bin\codex.exe");
+        assert!(command_line_problem(shim, "one line", "Codex").is_none());
+        assert!(command_line_problem(shim, "two\nlines", "Codex").is_some());
+        assert!(command_line_problem(program, "two\nlines", "Codex").is_none());
+        assert!(command_line_problem(program, &"x".repeat(40_000), "Codex").is_some());
     }
 }

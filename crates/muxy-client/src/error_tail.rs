@@ -6,11 +6,8 @@ use std::time::Duration;
 
 use crate::bridge::BridgeExit;
 
-/// How much of a bridge's error output is kept for messages.
 const KEPT: usize = 8 * 1024;
 
-/// The end of a bridge's error output and how it exited, to explain a
-/// connection that failed before the bridge was ready.
 #[derive(Debug, Default)]
 pub struct ErrorTail {
     state: Mutex<TailState>,
@@ -25,8 +22,6 @@ struct TailState {
 }
 
 impl ErrorTail {
-    /// Drains `stderr` on a thread for the child's whole life, so the child
-    /// never blocks on a full pipe.
     pub(crate) fn drain(stderr: Option<impl Read + Send + 'static>) -> io::Result<Arc<Self>> {
         let tail = Arc::new(Self::default());
         let filling = Arc::clone(&tail);
@@ -54,7 +49,6 @@ impl ErrorTail {
         self.finish(None);
     }
 
-    /// Adds error output, keeping only its end.
     pub fn push(&self, bytes: &[u8]) {
         let mut state = self.lock();
         state.bytes.extend(bytes);
@@ -62,8 +56,6 @@ impl ErrorTail {
         state.bytes.drain(..excess);
     }
 
-    /// The output ended, with the exit status if one is known. Only the
-    /// first call counts.
     pub fn finish(&self, status: Option<i32>) {
         let mut state = self.lock();
         if !state.ended {
@@ -74,7 +66,6 @@ impl ErrorTail {
         self.ended.notify_all();
     }
 
-    /// Waits up to `timeout` for the output to end, then tells how it ended.
     pub fn wait(&self, timeout: Duration) -> BridgeExit {
         let (mut state, _) = self
             .ended

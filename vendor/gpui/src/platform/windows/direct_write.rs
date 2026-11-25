@@ -71,12 +71,8 @@ struct FontIdentifier {
 
 impl DirectWriteComponent {
     pub fn new(directx_devices: &DirectXDevices) -> Result<Self> {
-        // todo: ideally this would not be a large unsafe block but smaller isolated ones for easier auditing
         unsafe {
             let factory: IDWriteFactory5 = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
-            // The `IDWriteInMemoryFontFileLoader` here is supported starting from
-            // Windows 10 Creators Update, which consequently requires the entire
-            // `DirectWriteTextSystem` to run on `win10 1703`+.
             let in_memory_loader = factory.CreateInMemoryFontFileLoader()?;
             factory.RegisterFontFileLoader(&in_memory_loader)?;
             let builder = factory.CreateFontSetBuilder()?;
@@ -198,7 +194,8 @@ impl DirectWriteTextSystem {
                 .factory
                 .CreateFontCollectionFromFontSet(&custom_font_set)?
         };
-        let system_ui_font_name = get_system_ui_font_name();
+        let system_ui_font_name =
+            available_system_ui_font(&system_font_collection, get_system_ui_font_name());
 
         Ok(Self(RwLock::new(DirectWriteState {
             components,
@@ -509,7 +506,6 @@ impl DirectWriteState {
         features: &FontFeatures,
         fallbacks: Option<&FontFallbacks>,
     ) -> Option<FontId> {
-        // try to find target font in custom font collection first
         unsafe {
             self.get_font_id_from_font_collection(
                 family_name,
@@ -733,7 +729,6 @@ impl DirectWriteState {
         unsafe {
             font.font_face.GetRecommendedRenderingMode(
                 params.font_size.0,
-                // Using 96 as scale is applied by the transform
                 96.0,
                 96.0,
                 Some(&transform),
@@ -889,7 +884,6 @@ impl DirectWriteState {
             bidiLevel: 0,
         };
 
-        // todo: support formats other than COLR
         let color_enumerator = unsafe {
             self.components.factory.TranslateColorGlyphRun(
                 Vector2::new(baseline_origin_x, baseline_origin_y),
@@ -1139,7 +1133,6 @@ impl DirectWriteState {
             };
         }
 
-        // Convert from premultiplied to straight alpha
         for chunk in rasterized.chunks_exact_mut(4) {
             let b = chunk[0] as f32;
             let g = chunk[1] as f32;
@@ -1223,8 +1216,6 @@ impl DirectWriteState {
                 log::error!(
                     "Failed to recreate GPU state for DirectWrite after multiple attempts."
                 );
-                // Do something here?
-                // At this point, the device loss is considered unrecoverable.
             },
         );
     }
@@ -1245,7 +1236,6 @@ struct GlyphLayerTexture {
     run_color: Rgba,
     bounds: Bounds<i32>,
     texture_view: ID3D11ShaderResourceView,
-    // holding on to the texture to not RAII drop it
     _texture: ID3D11Texture2D,
 }
 
@@ -1375,12 +1365,11 @@ impl Iterator for ClusterAnalyzer<'_> {
 
     fn next(&mut self) -> Option<(usize, usize)> {
         if self.utf16_idx >= self.cluster_map.len() {
-            return None; // No more clusters
+            return None;
         }
         let start_utf16_idx = self.utf16_idx;
         let current_glyph = self.cluster_map[start_utf16_idx] as usize;
 
-        // Find the end of current cluster (where glyph index changes)
         let mut end_utf16_idx = start_utf16_idx + 1;
         while end_utf16_idx < self.cluster_map.len()
             && self.cluster_map[end_utf16_idx] as usize == current_glyph
@@ -1390,7 +1379,6 @@ impl Iterator for ClusterAnalyzer<'_> {
 
         let utf16_len = end_utf16_idx - start_utf16_idx;
 
-        // Calculate glyph count for this cluster
         let next_glyph = if end_utf16_idx < self.cluster_map.len() {
             self.cluster_map[end_utf16_idx] as usize
         } else {
@@ -1399,7 +1387,6 @@ impl Iterator for ClusterAnalyzer<'_> {
 
         let glyph_count = next_glyph - current_glyph;
 
-        // Update state for next call
         self.utf16_idx = end_utf16_idx;
         self.glyph_idx = next_glyph;
 
@@ -1464,8 +1451,6 @@ impl IDWriteTextRenderer_Impl for TextRenderer_Impl {
             &mut *(clientdrawingcontext as *const RendererContext as *mut RendererContext)
         };
         let font_face = glyphrun.fontFace.as_ref().unwrap();
-        // This `cast()` action here should never fail since we are running on Win10+, and
-        // `IDWriteFontFace3` requires Win10
         let font_face = &font_face.cast::<IDWriteFontFace3>().unwrap();
         let Some((font_identifier, font_struct, color_font)) =
             get_font_identifier_and_font_struct(font_face, &self.locale)
@@ -1721,7 +1706,6 @@ fn get_postscript_name(font_face: &IDWriteFontFace3, locale: &str) -> Result<Str
     get_name(info.unwrap(), locale)
 }
 
-// https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ne-dwrite-dwrite_font_feature_tag
 fn apply_font_features(
     direct_write_features: &IDWriteTypography,
     features: &FontFeatures,
@@ -1731,8 +1715,6 @@ fn apply_font_features(
         return Ok(());
     }
 
-    // All of these features are enabled by default by DirectWrite.
-    // If you want to (and can) peek into the source of DirectWrite
     let mut feature_liga = make_direct_write_feature("liga", 1);
     let mut feature_clig = make_direct_write_feature("clig", 1);
     let mut feature_calt = make_direct_write_feature("calt", 1);
@@ -1828,8 +1810,6 @@ fn get_system_ui_font_name() -> SharedString {
         .log_err()
         .is_none()
         {
-            // https://learn.microsoft.com/en-us/windows/win32/uxguide/vis-fonts
-            // Segoe UI is the Windows font intended for user interface text strings.
             "Segoe UI".into()
         } else {
             let font_name = String::from_utf16_lossy(&info.lfFaceName);
@@ -1840,8 +1820,23 @@ fn get_system_ui_font_name() -> SharedString {
     }
 }
 
-// One would think that with newer DirectWrite method: IDWriteFontFace4::GetGlyphImageFormats
-// but that doesn't seem to work for some glyphs, say ❤
+fn available_system_ui_font(
+    collection: &IDWriteFontCollection1,
+    name: SharedString,
+) -> SharedString {
+    let mut index = 0;
+    let mut exists = BOOL(0);
+    let found = unsafe {
+        collection.FindFamilyName(&HSTRING::from(name.as_ref()), &mut index, &mut exists)
+    };
+    if found.is_ok() && exists.as_bool() {
+        name
+    } else {
+        log::warn!("{name} is not an installed font family; using Segoe UI.");
+        "Segoe UI".into()
+    }
+}
+
 fn is_color_glyph(
     font_face: &IDWriteFontFace3,
     glyph_id: GlyphId,
@@ -1903,7 +1898,6 @@ mod tests {
         assert_eq!(next, Some((1, 1)));
         let next = analyzer.next();
         assert_eq!(next, None);
-        // 👨‍👩‍👧‍👦👩‍💻
         let cluster_map = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 4, 4];
         let mut analyzer = ClusterAnalyzer::new(&cluster_map, 5);
         let next = analyzer.next();
@@ -1912,7 +1906,6 @@ mod tests {
         assert_eq!(next, Some((5, 1)));
         let next = analyzer.next();
         assert_eq!(next, None);
-        // 👩‍💻
         let cluster_map = [0, 0, 0, 0, 0];
         let mut analyzer = ClusterAnalyzer::new(&cluster_map, 1);
         let next = analyzer.next();

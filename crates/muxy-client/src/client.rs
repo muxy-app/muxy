@@ -62,7 +62,7 @@ impl Client {
         if timeout.is_zero() {
             return Err(ClientError::Timeout);
         }
-        Self::from_stream_with_timeout(muxy_protocol::transport::connect(socket)?, timeout)
+        Self::from_stream_with_timeout(crate::local::connect(socket)?, timeout)
     }
 
     pub fn from_stream(stream: Box<dyn ByteStream>) -> Result<Self, ClientError> {
@@ -182,17 +182,14 @@ impl Client {
         &self.shared.server
     }
 
-    /// What the connected server offers; older servers lack newer features.
     pub fn features(&self) -> &[Feature] {
         &self.shared.features
     }
 
-    /// Whether the connected server offers `feature`; older servers lack newer features.
     pub fn supports(&self, feature: Feature) -> bool {
         self.shared.features.contains(&feature)
     }
 
-    /// Atomically refuses to stop if a terminal is running or being created.
     pub fn stop_server_if_idle(&self) -> Result<bool, ClientError> {
         match self.request(RequestBody::StopServerIfIdle)? {
             ReplyBody::ServerStopping => Ok(true),
@@ -225,7 +222,6 @@ impl Client {
         }
     }
 
-    /// Creates an ad-hoc session in this server's Home project.
     pub fn create_session(&self, directory: &Path, size: Size) -> Result<SessionInfo, ClientError> {
         let home = self.catalog_page(None, None)?.home;
         self.create_project_session(home, muxy_protocol::OperationId::new(), directory, size)
@@ -248,10 +244,6 @@ impl Client {
         )
     }
 
-    /// Starts the shell with `environment` too, such as a proxy, and gives
-    /// the session its own `colors` from the start. Servers without
-    /// `Feature::SESSION_ENVIRONMENT` ignore the environment, and servers
-    /// from before `SetSessionColors` ignore the colors.
     pub fn create_project_session_with_environment(
         &self,
         project: muxy_protocol::ProjectId,
@@ -289,12 +281,10 @@ impl Client {
         }
     }
 
-    /// Registers sessions used by open panes, including panes without an output subscription.
     pub fn sync_session_references(&self, sessions: Vec<SessionId>) -> Result<(), ClientError> {
         self.sync_layout_references(None, 0, sessions)
     }
 
-    /// Publishes a revision of a shared layout, or this connection's independent references.
     pub fn sync_layout_references(
         &self,
         owner: Option<muxy_protocol::OperationId>,
@@ -311,7 +301,6 @@ impl Client {
         }
     }
 
-    /// Closes the final local reference; the same operation must be reused after a lost reply.
     pub fn close_session(
         &self,
         session: SessionId,
@@ -323,8 +312,6 @@ impl Client {
         }
     }
 
-    /// Gives a live or saved session to another project. Requires
-    /// `Feature::SESSION_MOVE`; older servers reply `ErrorCode::Unsupported`.
     pub fn move_session(
         &self,
         session: SessionId,
@@ -343,14 +330,10 @@ impl Client {
         }
     }
 
-    /// Attaches and returns the channel. The terminal arrives on the event
-    /// stream as `ClientEvent::Attached` with `tag`, before any of its frames.
-    /// After an error the event may still arrive; detach what nobody waits for.
     pub fn attach(&self, tag: u64, id: SessionId, size: Size) -> Result<ChannelId, ClientError> {
         self.attach_request(tag, id, RequestBody::Attach { session: id, size })
     }
 
-    /// Like `attach`, without resizing a session other clients show.
     pub fn attach_without_resize(&self, tag: u64, id: SessionId) -> Result<ChannelId, ClientError> {
         self.attach_request(tag, id, RequestBody::AttachWithoutResize(id))
     }
@@ -414,10 +397,6 @@ impl Client {
         }
     }
 
-    /// Asks the server to leave image pixels out of the screens it sends from
-    /// now on. The app then reads the frames it draws with
-    /// [`Self::image_frames`]. Servers from before this answer `Unsupported`
-    /// and keep sending pixels.
     pub fn defer_images(&self) -> Result<(), ClientError> {
         match self.request(RequestBody::DeferImages)? {
             ReplyBody::ImagesDeferred => Ok(()),
@@ -425,11 +404,6 @@ impl Client {
         }
     }
 
-    /// Asks the server to send each image's pixels on show once per channel,
-    /// with the screen that first lists them, so images that change quickly
-    /// arrive without a request each. The app reads other frames, and any it
-    /// lost, with [`Self::image_frames`]. Servers from before this answer
-    /// `Unsupported`.
     pub fn stream_images(&self) -> Result<(), ClientError> {
         match self.request(RequestBody::StreamImages)? {
             ReplyBody::ImagesStreamed => Ok(()),
@@ -437,10 +411,13 @@ impl Client {
         }
     }
 
-    /// The pixels of frames of an image on the channel's screen, by their
-    /// keys: those the server still has and one reply holds, in the order
-    /// asked. A still image answers with the pixels it has now, whose key
-    /// may be newer than the one asked for.
+    pub fn share_images(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::ShareImages)? {
+            ReplyBody::ImagesShared => Ok(()),
+            other => Err(ClientError::UnexpectedReply(Box::new(other))),
+        }
+    }
+
     pub fn image_frames(
         &self,
         channel: ChannelId,
@@ -499,7 +476,6 @@ impl Client {
         }
     }
 
-    /// Sets color defaults for this connection and its attached sessions.
     pub fn set_terminal_colors(&self, colors: TerminalColors) -> Result<(), ClientError> {
         match self.request(RequestBody::SetTerminalColors(colors))? {
             ReplyBody::TerminalColorsSet => Ok(()),
@@ -507,8 +483,6 @@ impl Client {
         }
     }
 
-    /// Gives one session its own colors on this connection, or with `None`
-    /// returns it to the connection's. Servers from before this answer `Unsupported`.
     pub fn set_session_colors(
         &self,
         session: SessionId,
@@ -520,9 +494,6 @@ impl Client {
         }
     }
 
-    /// Names a session for every client, or with `None` removes its name.
-    /// With `replacing`, only while its name is still that one. Servers from
-    /// before this answer `Unsupported`.
     pub fn set_session_name(
         &self,
         session: SessionId,
@@ -539,9 +510,6 @@ impl Client {
         }
     }
 
-    /// Asks for every session's metadata now and as it changes, delivered as
-    /// [`crate::ClientEvent::SessionMetadata`]. Servers from before this
-    /// answer `Unsupported`.
     pub fn watch_session_metadata(&self) -> Result<(), ClientError> {
         match self.request(RequestBody::WatchSessionMetadata)? {
             ReplyBody::SessionMetadataWatched => Ok(()),
@@ -561,7 +529,6 @@ impl Client {
         self.send(channel, &Message::Input(bytes.to_vec()))
     }
 
-    /// Requires `Feature::TERMINAL_INPUT`; raw input remains available for older servers.
     pub fn send_terminal_input(
         &self,
         channel: ChannelId,
@@ -597,7 +564,6 @@ impl Client {
         self.send(channel, &Message::Mouse(event))
     }
 
-    /// Close this connection and cancel outstanding requests for every client clone.
     pub fn disconnect(&self) {
         self.shared.pending.close();
         self.shared.cancellation.cancel();

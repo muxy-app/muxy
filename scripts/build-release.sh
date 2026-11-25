@@ -76,7 +76,6 @@ for BINARY in muxy-app muxy muxy-server; do
         echo "Error: $BINARY does not contain exactly $ARCH" >&2
         exit 1
     fi
-    # A release must not depend on Homebrew or Cargo build-directory dylibs.
     otool -L "$EXECUTABLE" > "$STAGING/artifacts/$BINARY-dependencies.txt"
     while IFS= read -r LIBRARY; do
         case "$LIBRARY" in
@@ -111,7 +110,6 @@ if [[ "$SIGN_IDENTITY" == - ]]; then
 else
     SIGN_ARGS+=(--options runtime --timestamp)
 fi
-# Sign every executable before sealing the bundle.
 for BINARY in muxy muxy-server muxy-app; do
     if [[ "$BINARY" == muxy-app ]]; then
         codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT/packaging/macos/Muxy.entitlements" "$APP/Contents/MacOS/$BINARY"
@@ -125,7 +123,6 @@ for BINARY in muxy muxy-server; do
     python3 "$ROOT/scripts/release.py" check-build "$VERSION" "$APP/Contents/MacOS/$BINARY"
 done
 
-# Copy the sealed executables without stripping or signing them again.
 mkdir "$STAGING/cli"
 cp "$APP/Contents/MacOS/muxy" "$APP/Contents/MacOS/muxy-server" "$APP/Contents/Resources/LICENSE" "$STAGING/cli/"
 CLI_ARCHIVE="$STAGING/artifacts/muxy-${VERSION}-macos-${ARCH}.zip"
@@ -133,7 +130,6 @@ CLI_ARCHIVE="$STAGING/artifacts/muxy-${VERSION}-macos-${ARCH}.zip"
 
 ln -s /Applications "$STAGING/dmg/Applications"
 DMG="$STAGING/artifacts/Muxy-${VERSION}-${ARCH}.dmg"
-# CI runners intermittently fail with "hdiutil: create failed - Resource busy".
 for ATTEMPT in 1 2 3 4 5; do
     rm -f "$DMG"
     if hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING/dmg" -format UDZO -fs HFS+ "$DMG"; then

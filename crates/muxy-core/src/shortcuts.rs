@@ -1,5 +1,3 @@
-//! Shared shortcut catalog and configuration interface. No UI or app dependencies.
-
 use crate::capability::Feature;
 
 pub const WORKSPACE_CLIPBOARD_CONTEXT: &str =
@@ -14,12 +12,10 @@ pub struct Shortcut {
 }
 
 impl Shortcut {
-    /// The name Settings shows, also the key of its translation.
     pub fn label(&self) -> String {
         self.id.replace(['_', '.'], " ")
     }
 
-    /// What Settings shows under the name, where the name alone is unclear.
     pub fn description(&self) -> Option<&'static str> {
         match self.id {
             "close_pane" => Some(crate::tr_key!(
@@ -28,11 +24,25 @@ impl Shortcut {
             "close_tab" => Some(crate::tr_key!(
                 "Closes the whole tab, including every split pane inside it."
             )),
+            "remote_servers" => Some(crate::tr_key!(
+                "Opens the list of servers in the command palette."
+            )),
+            "select_all" => Some(crate::tr_key!(
+                "Selects everything in the focused terminal."
+            )),
+            "insert_path" => Some(crate::tr_key!(
+                "Browses the focused terminal's folder and types the path you pick at the cursor."
+            )),
+            "toggle_project_focus" => Some(crate::tr_key!(
+                "Shows only the current project in the sidebar, or every project again."
+            )),
+            "browser.open_externally" => Some(crate::tr_key!(
+                "Opens the browser tab's page in the default browser."
+            )),
             _ => None,
         }
     }
 
-    /// The feature whose backend the shortcut's command needs.
     pub fn feature(&self) -> Option<Feature> {
         FEATURES
             .iter()
@@ -41,8 +51,9 @@ impl Shortcut {
     }
 }
 
-const FEATURES: [(ShortcutId, Feature); 4] = [
+const FEATURES: [(ShortcutId, Feature); 5] = [
     (ShortcutId::InstallCommandLineTool, Feature::CommandLineTool),
+    (ShortcutId::CheckForUpdates, Feature::Updates),
     (ShortcutId::HideApp, Feature::AppHiding),
     (ShortcutId::HideOthers, Feature::AppHiding),
     (ShortcutId::ShowAll, Feature::AppHiding),
@@ -208,6 +219,7 @@ pub enum ShortcutId {
     ComposerSubmit,
     ComposerInsert,
     ComposerClose,
+    EnhancePrompt,
     NewBrowserTab,
     BrowserFocusAddress,
     BrowserReload,
@@ -220,6 +232,56 @@ pub enum ShortcutId {
     BrowserInspect,
     FormNextControl,
     FormPreviousControl,
+    MoveTabToNewWindow,
+    MovePaneToNewTab,
+    MovePaneToNewWindow,
+    FloatPane,
+    DockFloatingTerminal,
+    ShowFloatingTerminalInAllProjects,
+    ShowFloatingTerminalInItsProject,
+    CheckForUpdates,
+    ShowWelcomeTour,
+    CreateExtension,
+    ManageExtensions,
+    ShowTip,
+    SwitchProject,
+    SwitchWorkspace,
+    ShowServers,
+    ReloadConfiguration,
+    ToggleStatusBar,
+    OpenKeyboardShortcuts,
+    RenameTab,
+    ResetTabTitle,
+    ToggleTabPin,
+    CloseOtherTabs,
+    CloseTabsToTheLeft,
+    CloseTabsToTheRight,
+    NewTabToTheLeft,
+    NewTabToTheRight,
+    MoveTabLeft,
+    MoveTabRight,
+    MoveTabToMainWindow,
+    RenameProject,
+    RemoveProject,
+    CopyProjectPath,
+    RevealProject,
+    ApplyLayout,
+    ToggleProjectFocus,
+    ToggleWorktrees,
+    OpenProjectInDefaultApp,
+    NewWorkspace,
+    ResizePaneLeft,
+    ResizePaneRight,
+    ResizePaneUp,
+    ResizePaneDown,
+    FocusNextPane,
+    FocusPreviousPane,
+    ClearScreen,
+    SelectAll,
+    ScrollToTop,
+    ResetFontSize,
+    BrowserOpenExternally,
+    InsertPath,
 }
 
 impl ShortcutId {
@@ -588,9 +650,9 @@ pub const ALL: &[Shortcut] = &[
     },
     Shortcut {
         id: "toggle_agent_sessions",
-        keys: &[],
+        keys: platform_keys!(&["cmd-alt-s"], &["ctrl-shift-alt-s"]),
         contexts: &[Some("WorkspaceTabs")],
-        key_contexts: &[],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
     },
     Shortcut {
         id: "toggle_floating_terminals",
@@ -1363,6 +1425,12 @@ pub const ALL: &[Shortcut] = &[
         key_contexts: &[&[Some("Composer && !Picker")]],
     },
     Shortcut {
+        id: "enhance_prompt",
+        keys: platform_keys!(&["cmd-alt-e"], &["ctrl-alt-e"]),
+        contexts: &[Some("WorkspaceTabs"), Some("Composer")],
+        key_contexts: &[&[Some("WorkspaceTabs"), Some("Composer")]],
+    },
+    Shortcut {
         id: "new_browser_tab",
         keys: platform_keys!(&["cmd-alt-b"], &["ctrl-alt-b"]),
         contexts: &[Some("WorkspaceTabs")],
@@ -1434,4 +1502,352 @@ pub const ALL: &[Shortcut] = &[
         contexts: &[Some("Form")],
         key_contexts: &[&[Some("Form")]],
     },
+    Shortcut {
+        id: "move_tab_to_new_window",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "move_pane_to_new_tab",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "move_pane_to_new_window",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "float_pane",
+        keys: platform_keys!(&["cmd-alt-shift-f"], &["ctrl-alt-f"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "dock_floating_terminal",
+        keys: platform_keys!(&["cmd-alt-shift-d"], &["ctrl-alt-u"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "show_floating_terminal_in_all_projects",
+        keys: platform_keys!(&["cmd-alt-shift-a"], &["ctrl-alt-a"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "show_floating_terminal_in_its_project",
+        keys: platform_keys!(&["cmd-alt-shift-o"], &["ctrl-alt-o"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "check_for_updates",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "show_welcome_tour",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "create_extension",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "manage_extensions",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "show_tip",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "switch_project",
+        keys: platform_keys!(&["cmd-alt-p"], &["ctrl-alt-p"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "switch_workspace",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "remote_servers",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "reload_configuration",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "toggle_status_bar",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "open_keyboard_shortcuts",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "rename_tab",
+        keys: platform_keys!(&["cmd-shift-r"], &["ctrl-alt-r"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "reset_tab_title",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "toggle_tab_pin",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "close_other_tabs",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "close_tabs_to_the_left",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "close_tabs_to_the_right",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "new_tab_to_the_left",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "new_tab_to_the_right",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "move_tab_left",
+        keys: platform_keys!(&["cmd-alt-shift-left"], &["ctrl-shift-pageup"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "move_tab_right",
+        keys: platform_keys!(&["cmd-alt-shift-right"], &["ctrl-shift-pagedown"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "move_tab_to_main_window",
+        keys: platform_keys!(&["cmd-alt-shift-m"], &["ctrl-alt-m"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "rename_project",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "remove_project",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "copy_project_path",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "reveal_project",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "apply_layout",
+        keys: platform_keys!(&["cmd-alt-l"], &["ctrl-shift-alt-l"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "toggle_project_focus",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "toggle_worktrees",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "open_project_in_default_app",
+        keys: platform_keys!(&["cmd-alt-o"], &["ctrl-shift-alt-o"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "new_workspace",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "resize_pane_left",
+        keys: platform_keys!(&["cmd-ctrl-shift-left"], &["alt-shift-left"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "resize_pane_right",
+        keys: platform_keys!(&["cmd-ctrl-shift-right"], &["alt-shift-right"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "resize_pane_up",
+        keys: platform_keys!(&["cmd-ctrl-shift-up"], &["alt-shift-up"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "resize_pane_down",
+        keys: platform_keys!(&["cmd-ctrl-shift-down"], &["alt-shift-down"]),
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[&[Some("WorkspaceTabs")]],
+    },
+    Shortcut {
+        id: "focus_next_pane",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "focus_previous_pane",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "clear_screen",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "select_all",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "scroll_to_top",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "reset_font_size",
+        keys: &[],
+        contexts: &[Some("WorkspaceTabs")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "browser.open_externally",
+        keys: &[],
+        contexts: &[Some("Browser")],
+        key_contexts: &[],
+    },
+    Shortcut {
+        id: "insert_path",
+        keys: platform_keys!(&["cmd-ctrl-i"], &["ctrl-alt-i"]),
+        contexts: &[Some("WorkspaceTabs"), Some("QuickTerminal")],
+        key_contexts: &[&[Some("WorkspaceTabs"), Some("QuickTerminal")]],
+    },
 ];
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    const RESERVED: [&str; 18] = [
+        "alt-f4",
+        "alt-tab",
+        "alt-shift-tab",
+        "alt-escape",
+        "alt-space",
+        "ctrl-escape",
+        "ctrl-shift-escape",
+        "ctrl-alt-delete",
+        "cmd-alt-b",
+        "cmd-alt-d",
+        "cmd-alt-g",
+        "cmd-alt-k",
+        "cmd-alt-m",
+        "cmd-alt-r",
+        "cmd-alt-t",
+        "cmd-alt-up",
+        "cmd-alt-down",
+        "cmd-alt-enter",
+    ];
+
+    fn modifiers_and_key(keys: &str) -> BTreeSet<&str> {
+        keys.split('-').collect()
+    }
+
+    #[test]
+    fn defaults_leave_combinations_the_desktop_reserves_to_it() {
+        let reserved: Vec<_> = RESERVED
+            .iter()
+            .map(|keys| modifiers_and_key(keys))
+            .collect();
+        for shortcut in ALL {
+            for keys in shortcut.keys {
+                assert!(
+                    !reserved.contains(&modifiers_and_key(keys)),
+                    "{} uses {keys}",
+                    shortcut.id
+                );
+            }
+        }
+    }
+}

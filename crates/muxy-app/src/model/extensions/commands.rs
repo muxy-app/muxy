@@ -10,18 +10,15 @@ use muxy_ui::tr;
 use super::AppModel;
 use crate::views::command_palette::Handler;
 
-/// An extension command with a default shortcut, as Settings → Keyboard lists it.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ExtensionShortcut {
-    /// The keymap id, `extension.<extension>.<command>`.
     pub(crate) id: String,
     pub(crate) extension: String,
     pub(crate) title: String,
-    /// The shortcut in effect, if any.
     pub(crate) chord: Option<KeyChord>,
 }
 
-/// Runs an extension command, or fires `command.<id>` for a runtime shortcut.
+#[doc = " Runs an extension command, or fires `command.<id>` for a runtime shortcut."]
 #[derive(Clone, PartialEq, gpui::Action)]
 #[action(namespace = muxy, no_json)]
 pub(crate) struct RunCommand {
@@ -29,9 +26,19 @@ pub(crate) struct RunCommand {
     pub command: String,
 }
 
+impl RunCommand {
+    pub(crate) fn key(owner: &str, command: &str, cx: &gpui::App) -> Option<gpui::SharedString> {
+        muxy_ui::shortcuts::key_for(
+            &Self {
+                owner: owner.into(),
+                command: command.into(),
+            },
+            cx,
+        )
+    }
+}
+
 impl AppModel {
-    /// Key bindings for extension commands: manifest defaults (or the user's
-    /// rebinding) first, then runtime shortcuts; the first claim on a key wins.
     pub(super) fn extension_bindings(&self) -> Vec<(RunCommand, KeyChord)> {
         let mut used: std::collections::HashSet<String> = muxy_core::shortcuts::ALL
             .iter()
@@ -87,8 +94,6 @@ impl AppModel {
         bindings
     }
 
-    /// Enabled extensions' commands that have a default shortcut, as main lists
-    /// them in Settings.
     pub(crate) fn extension_shortcuts(&self) -> Vec<ExtensionShortcut> {
         let bindings = self.extension_bindings();
         self.extensions
@@ -115,8 +120,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Why `chord` can't go to the extension command `id`: a built-in or
-    /// another extension command already uses it.
     pub(in crate::model) fn extension_shortcut_conflict(
         &self,
         id: &str,
@@ -187,8 +190,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Palette entries for extension commands. Popover commands need an item
-    /// to anchor to, so main leaves them out of the palette.
     pub(crate) fn register_extension_commands(&self, registry: &mut Registry<Handler>) {
         let bindings = self.extension_bindings();
         for extension in self.extensions.registry.active() {
@@ -233,7 +234,6 @@ impl AppModel {
     }
 }
 
-/// The backends an extension command's action reaches. It does nothing unless one can run.
 fn action_features(action: &Action) -> &'static [Feature] {
     match action {
         Action::Event => &[Feature::ExtensionScripts, Feature::ExtensionWebviews],
@@ -246,7 +246,6 @@ fn action_features(action: &Action) -> &'static [Feature] {
 }
 
 impl AppModel {
-    /// Why an extension command's action cannot run here, when no backend it reaches can.
     pub(super) fn extension_action_reason(
         &self,
         action: &Action,

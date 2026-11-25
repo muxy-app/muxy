@@ -76,7 +76,7 @@ pub enum SessionCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AttachmentEvent {
     Snapshot {
-        snapshot: AttachSnapshot,
+        snapshot: Box<AttachSnapshot>,
         process: Option<ForegroundProcess>,
     },
     Metadata(MetadataEvent),
@@ -85,7 +85,6 @@ pub enum AttachmentEvent {
     Ended(ExitReason),
 }
 
-/// Where a session delivers one attachment's events.
 pub struct AttachmentSink(Target);
 
 enum Target {
@@ -98,7 +97,13 @@ impl AttachmentSink {
         Self(Target::Outbox(sink))
     }
 
-    /// Returns false once nobody receives this attachment's events.
+    pub(crate) fn shares_images(&self) -> bool {
+        match &self.0 {
+            Target::Channel(_) => false,
+            Target::Outbox(outbox) => outbox.shares_images(),
+        }
+    }
+
     pub(crate) fn send(&mut self, event: AttachmentEvent) -> bool {
         match &mut self.0 {
             Target::Channel(sender) => sender.send(event).is_ok(),
@@ -122,11 +127,6 @@ impl fmt::Debug for AttachmentSink {
     }
 }
 
-/// A session's progress and metadata as connections last heard them, and
-/// the project it belongs to now.
-///
-/// Changes are pushed while the lock is held, so a connection that starts
-/// referencing the session never receives an older value after a newer one.
 #[derive(Debug)]
 pub(crate) struct Published {
     session: SessionId,
@@ -171,6 +171,11 @@ impl Published {
         }
     }
 
+    #[cfg(windows)]
+    fn metadata(&self) -> SessionMetadata {
+        self.lock().1.clone()
+    }
+
     pub(crate) fn set_metadata(&self, metadata: SessionMetadata) {
         let mut state = self.lock();
         if state.1 != metadata {
@@ -182,7 +187,6 @@ impl Published {
         }
     }
 
-    /// Queues the current state for a connection that just started referencing the session.
     pub(crate) fn introduce(&self, connection: &Connection) {
         let state = self.lock();
         connection.push_control(Message::SessionMetadata {
@@ -222,7 +226,6 @@ impl SessionHandle {
         }
     }
 
-    /// Queues this session's progress and metadata for a connection that just referenced it.
     pub(crate) fn introduce(&self, connection: &Connection) {
         self.published.introduce(connection);
     }
@@ -238,7 +241,11 @@ impl SessionHandle {
         }
     }
 
-    /// Records that the session belongs to another project now.
+    #[cfg(windows)]
+    pub(crate) fn metadata(&self) -> SessionMetadata {
+        self.published.metadata()
+    }
+
     pub(crate) fn move_to(&self, project: ProjectId) {
         self.published.set_project(project);
     }
@@ -248,12 +255,10 @@ impl SessionHandle {
             .map_err(|_| ServerError::unknown_session(self.info.id))
     }
 
-    /// Hands an undelivered command back, so the caller decides where its sink drops.
     pub(crate) fn try_send(&self, command: SessionCommand) -> Result<(), SendError<OwnerEvent>> {
         self.commands.send(OwnerEvent::Command(command))
     }
 
-    /// A handle whose commands arrive on the returned receiver instead of a session thread.
     #[cfg(test)]
     pub(crate) fn fake() -> (Self, std::sync::mpsc::Receiver<OwnerEvent>) {
         let info = SessionInfo {

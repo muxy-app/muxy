@@ -11,6 +11,20 @@ pub(crate) struct Display {
     width: usize,
 }
 
+fn stdout_width() -> Option<usize> {
+    #[cfg(unix)]
+    let columns = rustix::termios::tcgetwinsize(io::stdout())
+        .ok()
+        .map(|size| size.ws_col);
+    #[cfg(windows)]
+    let columns = io::stdout()
+        .is_terminal()
+        .then(ratatui::crossterm::terminal::size)
+        .and_then(Result::ok)
+        .map(|(columns, _)| columns);
+    columns.map(usize::from).filter(|width| *width > 0)
+}
+
 impl Display {
     pub(crate) fn stdout() -> Self {
         let terminal = io::stdout().is_terminal();
@@ -19,11 +33,7 @@ impl Display {
             color: terminal
                 && std::env::var_os("NO_COLOR").is_none_or(|value| value.is_empty())
                 && std::env::var_os("TERM").is_none_or(|value| value != "dumb"),
-            width: rustix::termios::tcgetwinsize(io::stdout())
-                .ok()
-                .map(|size| usize::from(size.ws_col))
-                .filter(|width| *width > 0)
-                .unwrap_or(80),
+            width: stdout_width().unwrap_or(80),
         }
     }
 
@@ -137,15 +147,23 @@ pub(crate) fn cell(value: &Value) -> String {
 }
 
 fn escape(text: &str) -> String {
-    text.chars()
-        .flat_map(|character| {
-            if character.is_control() {
-                character.escape_default().collect::<Vec<_>>()
-            } else {
-                vec![character]
-            }
-        })
-        .collect()
+    escape_except(text, &[])
+}
+
+pub(crate) fn terminal_text(text: &str) -> String {
+    escape_except(text, &['\n', '\t'])
+}
+
+fn escape_except(text: &str, kept: &[char]) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        if character.is_control() && !kept.contains(&character) {
+            escaped.extend(character.escape_default());
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 pub(crate) fn help(text: &str) -> io::Result<()> {
@@ -199,6 +217,16 @@ mod tests {
         assert_eq!(text, "name  build\\n\\u{1b}[2J\\tjob\n");
         assert!(!text.contains('\u{1b}'));
         assert_eq!(cell(&json!("it's a build")), "it's a build");
+    }
+
+    #[test]
+    fn terminal_text_keeps_lines_and_tabs_but_escapes_other_controls() {
+        let text = "title\u{1b}]52;c;aGk=\u{7}\r\nnext\tcolumn\u{9b}2J";
+        assert_eq!(
+            terminal_text(text),
+            "title\\u{1b}]52;c;aGk=\\u{7}\\r\nnext\tcolumn\\u{9b}2J"
+        );
+        assert_eq!(terminal_text("plain 界 text"), "plain 界 text");
     }
 
     #[test]

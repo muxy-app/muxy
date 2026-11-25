@@ -1,0 +1,23 @@
+#!/bin/bash
+# Run inside a prepared SwiftVM guest, as the muxy desktop account.
+set -euo pipefail
+source_dir="${1:-$HOME/src/muxy}"
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+export MUXY_ZIG="$HOME/.local/zig-0.17.0/zig"
+export PATH="$source_dir/scripts/zig:$PATH"
+export LIBGHOSTTY_VT_SYS_OPTIMIZE=ReleaseFast
+export CARGO_TARGET_DIR="$HOME/.cache/muxy-vm/target"
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-6}"
+export CARGO_PROFILE_DEV_DEBUG=1
+export CARGO_INCREMENTAL=0
+if [ "$(uname -s)" = Darwin ]; then
+  export MUXY_ZIG=/opt/homebrew/opt/zig/bin/zig
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+  export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+  export MACOSX_DEPLOYMENT_TARGET=14.0
+fi
+cd "$source_dir"
+cargo build --locked -p muxy-app -p muxy-cli -p muxy-server
+for binary in muxy-app muxy muxy-server; do
+  "$CARGO_TARGET_DIR/debug/$binary" --build-info
+done

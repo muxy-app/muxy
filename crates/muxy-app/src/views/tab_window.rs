@@ -1,6 +1,3 @@
-//! A tab in a window of its own: its splits under a titlebar with the
-//! system's window controls, the tab's title, and a way back.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement, MouseButton,
@@ -8,6 +5,7 @@ use gpui::{
     WeakEntity, Window, div, px, relative,
 };
 use muxy_app_core::{Tab, TabWindowId};
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
 
@@ -137,8 +135,6 @@ impl AppModel {
         content.into_any_element()
     }
 
-    /// Readies a tab window to draw: its title and traffic lights, its pages,
-    /// the drop zones it records, and the keyboard when asked.
     fn prepare_tab_window(
         &mut self,
         id: TabWindowId,
@@ -218,6 +214,7 @@ fn titlebar(
                     "tab-window-return",
                     Icon::AppWindow,
                     &tr!("Move to Main Window"),
+                    Some(ShortcutId::MoveTabToMainWindow),
                     model,
                     cx.listener(move |model, _, _, cx| model.return_tab_window(id, None, cx)),
                 )),
@@ -238,8 +235,6 @@ fn titlebar(
     bar.into_any_element()
 }
 
-/// The system's window buttons at the top right, over the pane header
-/// there, where the system draws none.
 fn window_controls(
     id: TabWindowId,
     model: &AppModel,
@@ -273,7 +268,6 @@ fn window_controls(
     }
 }
 
-/// The tab's color, title and project.
 pub(crate) fn title(tab: &Tab, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let project = model
@@ -323,6 +317,7 @@ pub(crate) fn button(
     id: &'static str,
     icon: Icon,
     label: &SharedString,
+    shortcut: Option<ShortcutId>,
     model: &AppModel,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
@@ -348,7 +343,7 @@ pub(crate) fn button(
                 m.icon_md(),
                 model.theme.fg_muted,
             )),
-        label.to_string(),
+        shortcut.map_or_else(|| label.clone(), |id| model.tooltip(label.clone(), id)),
         model,
     )
     .into_any_element()

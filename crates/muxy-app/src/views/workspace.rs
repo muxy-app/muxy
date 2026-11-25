@@ -63,6 +63,7 @@ actions!(
         ToggleThemePicker,
         ToggleCommandPalette,
         ToggleComposer,
+        EnhancePrompt,
         NavigateBack,
         NavigateForward,
         Quit,
@@ -80,6 +81,7 @@ actions!(
         Find,
         FindNext,
         FindPrevious,
+        InsertPath,
         PreviousPrompt,
         NextPrompt,
         SelectCommandOutput,
@@ -92,7 +94,46 @@ actions!(
         BrowserZoomOut,
         BrowserZoomReset,
         BrowserCopyUrl,
-        BrowserInspect
+        BrowserInspect,
+        BrowserOpenExternally,
+        CreateExtension,
+        ManageExtensions,
+        ShowTip,
+        SwitchProject,
+        SwitchWorkspace,
+        ShowServers,
+        ToggleStatusBar,
+        OpenKeyboardShortcuts,
+        RenameTab,
+        ResetTabTitle,
+        ToggleTabPin,
+        CloseOtherTabs,
+        CloseTabsToTheLeft,
+        CloseTabsToTheRight,
+        NewTabToTheLeft,
+        NewTabToTheRight,
+        MoveTabLeft,
+        MoveTabRight,
+        MoveTabToMainWindow,
+        RenameProject,
+        RemoveProject,
+        CopyProjectPath,
+        RevealProject,
+        ApplyLayout,
+        ToggleProjectFocus,
+        ToggleWorktrees,
+        OpenProjectInDefaultApp,
+        NewWorkspace,
+        ResizePaneLeft,
+        ResizePaneRight,
+        ResizePaneUp,
+        ResizePaneDown,
+        FocusNextPane,
+        FocusPreviousPane,
+        ClearScreen,
+        SelectAllInTerminal,
+        ScrollToTop,
+        ResetFontSize
     ]
 );
 
@@ -200,6 +241,19 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.appearance.sidebar_auto_hide {
+            self.flip_sidebar(window, cx);
+            return;
+        }
+        if !self.sidebar_auto_hides() {
+            self.appearance.sidebar_expanded = true;
+            self.save_appearance(cx);
+        }
+        self.dismiss_overlay(cx);
+        self.toggle_sidebar_peek(cx);
+    }
+
+    fn flip_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.appearance.sidebar_expanded = !self.appearance.sidebar_expanded;
         self.save_appearance(cx);
         self.dismiss_overlay(cx);
@@ -283,9 +337,6 @@ pub(crate) fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
             }
         }))
         .on_action(cx.listener(titlebar::begin_window_move))
-        .on_action(
-            cx.listener(|model, _: &ReloadConfiguration, _, cx| model.reload_configuration(cx)),
-        )
 }
 
 impl AppModel {
@@ -350,7 +401,6 @@ impl AppModel {
         match self.focus_owner.take(overlay) {
             Some(Next::Element(focus)) => focus.focus(window),
             Some(Next::ActivePane) => self.focus_active(window, cx),
-            // With no pane, the workspace keeps the keyboard for its shortcuts.
             None if !overlay && self.active_pane().is_none() && window.focused(cx).is_none() => {
                 self.focus_active(window, cx);
             }
@@ -363,9 +413,13 @@ impl AppModel {
         } else if modal {
             self.cancel_titlebar_drag(cx);
         }
-        if !self.appearance.sidebar_expanded || modal {
+        if !self.sidebar_docks_expanded() || modal {
             self.finish_sidebar_resize(cx);
         }
+        if !self.sidebar_auto_hides() {
+            self.reset_sidebar_peek();
+        }
+        self.note_window_hover(window.is_window_hovered(), cx);
         let pending = self.tab_drag.pending();
         self.tab_drag
             .cancel_unavailable(self.state.current_project(), false);
@@ -380,7 +434,7 @@ impl AppModel {
         self.move_drag
             .zones
             .clear(here, super::move_drag::Owner::Strip);
-        if self.sidebar_width() <= 0.0 || self.extension_sidebar_active() {
+        if self.sidebar_panel_width() <= 0.0 || self.extension_sidebar_active() {
             self.move_drag
                 .zones
                 .clear(here, super::move_drag::Owner::Sidebar);
@@ -421,7 +475,7 @@ impl AppModel {
         let floats = super::floating_tab::cards(self, window, cx);
         self.sync_float_focus(window, cx);
         let (actions, actions_width) = titlebar::actions(self, window, cx);
-        #[cfg(target_os = "linux")]
+        #[cfg(not(target_os = "macos"))]
         self.fit_sidebar_to_window(window, actions_width, cx);
         let theme = &self.theme;
         let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused
@@ -437,6 +491,7 @@ impl AppModel {
         let content = super::agents_panel::right_panel_content(content, self, window, cx);
         let content = super::agent_sessions::panel_content(content, self, window, cx);
         let content = self.composer_content(content, window, cx);
+        let content = super::rail::content(content, self, cx);
         let workspace = action_handlers(cx)
             .capture_any_mouse_down(cx.listener(|model, _, _, cx| {
                 model.enter_main_unless_overlay(cx);
@@ -488,13 +543,14 @@ impl AppModel {
             )
             .child(sidebar_divider(self, sidebar_width, window))
             .child(titlebar::navigation(self, sidebar_width, window, cx))
-            .when(self.appearance.sidebar_expanded, |body| {
+            .when(self.sidebar_docks_expanded(), |body| {
                 body.child(sidebar::resize_handle(self, cx))
             })
             .when(self.sidebar_resize.is_some(), |body| {
                 body.child(div().absolute().inset_0().cursor_ew_resize().occlude())
             })
             .child(super::floating::layer(self, floats, window, cx))
+            .children(sidebar::island(self, window, cx))
             .child(super::splits::drag::track_pointer(cx))
             .child(super::splits::drag::overlay(self, window))
             .child(super::move_drag::overlay(self, window))
@@ -528,8 +584,6 @@ impl AppModel {
     }
 }
 
-/// The line between the sidebar and the content. It starts below the
-/// navigation buttons where they reach past the sidebar.
 fn sidebar_divider(model: &AppModel, sidebar_width: f32, window: &Window) -> gpui::Div {
     let top = if sidebar_width >= titlebar::navigation_width(model, window) {
         0.0

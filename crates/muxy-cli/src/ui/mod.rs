@@ -1,6 +1,3 @@
-//! What the terminal UI draws, and the screen state that isn't part of the
-//! shared layout: modes, dialogs, the sidebar, the mouse, and selection.
-
 mod bar;
 pub(crate) mod layout;
 pub(crate) mod menu;
@@ -29,19 +26,14 @@ use crate::state::{Pane, State, Tab};
 use crate::worker::{Closing, Shared};
 use layout::{Chrome, Divider};
 
-/// How long a message stays in the tab bar, unless the server is offline.
 const MESSAGE_TIME: Duration = Duration::from_secs(8);
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum Mode {
-    /// Keys go to the focused terminal.
     #[default]
     Normal,
-    /// Ctrl-B was pressed; the next key is a command.
     Prefix,
-    /// Keys scroll the focused pane's history.
     Scroll,
-    /// Arrow keys resize the focused pane.
     Resize,
 }
 
@@ -54,18 +46,15 @@ pub(crate) enum Overlay {
         selected: usize,
     },
     Sessions(usize),
-    /// The first line shown.
     Help(usize),
     Confirm(Closing),
     Menu(menu::Menu),
-    /// Naming the tab that holds `pane`.
     Rename {
         pane: PaneId,
         text: String,
     },
 }
 
-/// Something on screen the mouse can act on.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Target {
     Project(ProjectId),
@@ -76,19 +65,14 @@ pub(crate) enum Target {
     ShowSidebar,
     Help,
     TabBar,
-    /// A tab, named by the pane focused in it when drawn.
     Tab(PaneId),
     NewTab,
-    /// The count of this project's terminals that no tab shows.
     Existing,
-    /// A pane, including its frame.
     Pane(PaneId),
-    /// Where a pane's terminal is drawn.
     Content(PaneId),
     Divider(Divider),
     Item(usize),
     Panel,
-    /// Outside a dialog.
     Backdrop,
     Confirm(bool),
 }
@@ -99,17 +83,13 @@ pub(crate) struct Ui {
     pub overlay: Overlay,
     pub sidebar_shown: bool,
     pub sidebar_width: u16,
-    /// Whether the mouse acts on this UI; off, the terminal selects text.
     pub mouse: bool,
     pub sidebar_scroll: usize,
-    /// The project last scrolled into view in the sidebar.
     revealed: Option<ProjectId>,
     pub chrome: Chrome,
-    /// What can be clicked, in drawing order: later entries are on top.
     pub hits: Vec<(Rect, Target)>,
     pub selection: Option<Selection>,
     pub hover: Option<Position>,
-    /// The message last shown and when it appeared.
     message: Option<(u64, Instant)>,
 }
 
@@ -133,12 +113,10 @@ impl Default for Ui {
 }
 
 impl Ui {
-    /// The sidebar's width, or `None` while it is hidden.
     pub(crate) fn sidebar(&self) -> Option<u16> {
         self.sidebar_shown.then_some(self.sidebar_width)
     }
 
-    /// The topmost target under a cell, as last drawn.
     pub(crate) fn target(&self, column: u16, row: u16) -> Option<Target> {
         let position = Position::new(column, row);
         self.hits
@@ -148,7 +126,6 @@ impl Ui {
             .map(|(_, target)| *target)
     }
 
-    /// The topmost target under a cell, as if the open dialog weren't there.
     pub(crate) fn target_beneath_dialog(&self, column: u16, row: u16) -> Option<Target> {
         let position = Position::new(column, row);
         let end = self
@@ -163,7 +140,6 @@ impl Ui {
             .map(|(_, target)| *target)
     }
 
-    /// Where `target` was last drawn.
     pub(crate) fn area(&self, target: Target) -> Option<Rect> {
         self.hits
             .iter()
@@ -176,7 +152,6 @@ impl Ui {
         self.hover.is_some_and(|position| area.contains(position))
     }
 
-    /// The worker's latest message, for a while after it appears.
     fn message(&mut self, shared: &Shared) -> Option<String> {
         if shared.message.is_empty() {
             self.message = None;
@@ -222,7 +197,6 @@ pub(crate) fn clean(text: &str) -> String {
         .collect()
 }
 
-/// `text` cut to `width` columns, ending in `…` if anything was cut.
 pub(crate) fn truncate(text: &str, width: usize) -> String {
     if Span::raw(text).width() <= width {
         return text.to_owned();
@@ -244,8 +218,6 @@ pub(crate) fn truncate(text: &str, width: usize) -> String {
     kept
 }
 
-/// A terminal's title: the one its program set, else the program, else its
-/// folder.
 fn title_of(shared: &Shared, id: PaneId, pane: &Pane) -> String {
     let metadata = pane
         .session

@@ -1,6 +1,3 @@
-//! `JavaScriptCore` from `WebKitGTK`, bound once an extension is there to need
-//! it, so the app starts on a desktop without the library.
-
 #![allow(
     non_snake_case,
     non_upper_case_globals,
@@ -14,7 +11,6 @@ use libloading::Library;
 
 use crate::tr;
 
-/// The library `WebKitGTK` 4.1 links itself, so pages and scripts share one engine.
 const LIBRARY: &str = "libjavascriptcoregtk-4.1.so.0";
 
 #[repr(C)]
@@ -54,7 +50,6 @@ pub(super) type JSObjectCallAsFunctionCallback = Option<
 pub(super) const kJSPropertyAttributeReadOnly: c_uint = 1 << 1;
 pub(super) const kJSPropertyAttributeDontDelete: c_uint = 1 << 3;
 
-/// Declares the functions bound from the library, and a caller for each.
 macro_rules! functions {
     ($(fn $name:ident($($argument:ident: $kind:ty),*) $(-> $result:ty)?;)*) => {
         struct Api {
@@ -64,8 +59,6 @@ macro_rules! functions {
 
         impl Api {
             fn bind(library: Library) -> Result<Self, libloading::Error> {
-                // SAFETY: Each symbol is the C function of that name, whose
-                // signature is declared here as the library's headers give it.
                 unsafe {
                     $(let $name = *library.get(concat!(stringify!($name), "\0").as_bytes())?;)*
                     Ok(Self {
@@ -77,12 +70,7 @@ macro_rules! functions {
         }
 
         $(
-            /// # Safety
-            ///
-            /// [`load`] has succeeded, and the arguments are what the C
-            /// function of this name requires.
             pub(super) unsafe fn $name($($argument: $kind),*) $(-> $result)? {
-                // SAFETY: Upheld by the caller.
                 unsafe { (api().$name)($($argument),*) }
             }
         )*
@@ -133,13 +121,53 @@ functions! {
     ) -> JSStringRef;
 }
 
+pub(super) type JSShouldTerminateCallback =
+    Option<unsafe extern "C" fn(JSContextRef, *mut std::ffi::c_void) -> bool>;
+
+type JSContextGroupRef = *const std::ffi::c_void;
+
+struct Watchdog {
+    group: unsafe extern "C" fn(JSContextRef) -> JSContextGroupRef,
+    set_limit: unsafe extern "C" fn(
+        JSContextGroupRef,
+        c_double,
+        JSShouldTerminateCallback,
+        *mut std::ffi::c_void,
+    ),
+    _library: Library,
+}
+
+static WATCHDOG: OnceLock<Option<Watchdog>> = OnceLock::new();
+
+pub(super) unsafe fn set_execution_time_limit(
+    context: JSContextRef,
+    limit: f64,
+    callback: JSShouldTerminateCallback,
+    data: *mut std::ffi::c_void,
+) -> bool {
+    let watchdog = WATCHDOG.get_or_init(|| unsafe {
+        let library = Library::new(LIBRARY).ok()?;
+        let group = *library.get(b"JSContextGetGroup\0").ok()?;
+        let set_limit = *library.get(b"JSContextGroupSetExecutionTimeLimit\0").ok()?;
+        Some(Watchdog {
+            group,
+            set_limit,
+            _library: library,
+        })
+    });
+    let Some(watchdog) = watchdog else {
+        return false;
+    };
+    unsafe {
+        (watchdog.set_limit)((watchdog.group)(context), limit, callback, data);
+    }
+    true
+}
+
 static API: OnceLock<Result<Api, String>> = OnceLock::new();
 
-/// Binds the library on first use. A desktop without it gets the reason.
 pub(super) fn load() -> Result<(), String> {
     API.get_or_init(|| {
-        // SAFETY: Loading runs the library's initializers, which only set up
-        // the engine's own state.
         unsafe { Library::new(LIBRARY) }
             .and_then(Api::bind)
             .map_err(|error| {

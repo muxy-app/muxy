@@ -1,15 +1,22 @@
-//! Running a child process with a time limit and bounded output, and waiting
-//! for one to exit. The exit and the pipes wake the same wait, so nothing
-//! sleeps on a timer.
-
+#[cfg(unix)]
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io;
+#[cfg(unix)]
+use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
-use std::process::{Child, Command, ExitStatus, Stdio};
+#[cfg(unix)]
+use std::process::Stdio;
+use std::process::{Child, Command, ExitStatus};
+#[cfg(unix)]
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
+#[cfg(unix)]
 use rustix::process::{Pid, Signal};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -20,22 +27,23 @@ use linux as platform;
 mod macos;
 #[cfg(target_vendor = "apple")]
 use macos as platform;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows;
+#[cfg(windows)]
+use windows as platform;
 
 pub use platform::ExitWatch;
+#[cfg(windows)]
+pub use platform::{Group, Running};
 
-/// How long output is still read after the command exits, while helpers it
-/// started keep its pipes open.
 const DRAIN: Duration = Duration::from_millis(250);
-/// Nothing wakes the wait when a command is cancelled, so it looks this often.
 const CANCEL_CHECK: Duration = Duration::from_millis(25);
 const CHUNK: usize = 16 * 1024;
 
-/// How much of an output stream is kept.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Cap {
-    /// Keeps this many bytes and stops the command once it writes more.
     StopAt(usize),
-    /// Keeps this many bytes and discards the rest while the command runs on.
     TruncateAt(usize),
 }
 
@@ -47,20 +55,13 @@ impl Cap {
     }
 }
 
-/// What a command may do before it is stopped.
 pub struct Limits<'a> {
     pub timeout: Duration,
     pub stdout: Cap,
     pub stderr: Cap,
-    /// Written to a piped stdin, which then closes. `None` reads `/dev/null`.
     pub stdin: Option<&'a [u8]>,
-    /// Stops the command once it returns true.
     pub cancelled: Option<&'a dyn Fn() -> bool>,
-    /// How long a command being stopped gets between TERM and KILL. Zero
-    /// sends KILL at once.
     pub term_grace: Duration,
-    /// Kills whatever the command left running in its process group once it
-    /// exits, instead of waiting for those to close its output.
     pub kill_leftovers: bool,
 }
 
@@ -80,8 +81,6 @@ impl std::fmt::Debug for Limits<'_> {
 }
 
 impl Limits<'_> {
-    /// Stops the command after `timeout`, or once stdout or stderr passes
-    /// `cap` bytes.
     pub fn new(timeout: Duration, cap: usize) -> Self {
         Self {
             timeout,
@@ -95,11 +94,9 @@ impl Limits<'_> {
     }
 }
 
-/// The part of an output stream that was kept.
 #[derive(Debug, Default)]
 pub struct Captured {
     pub bytes: Vec<u8>,
-    /// The stream wrote more than its cap.
     pub truncated: bool,
 }
 
@@ -112,13 +109,10 @@ pub struct Output {
     pub cancelled: bool,
 }
 
-/// Runs `command` in its own process group with piped output, until it exits
-/// or a limit stops it.
 pub fn run(command: &mut Command, limits: Limits<'_>) -> io::Result<Output> {
     Running::start(command, limits)?.wait()
 }
 
-/// Waits up to `timeout` for `child` to exit, and reaps it if it did.
 pub fn wait_timeout(child: &mut Child, timeout: Duration) -> io::Result<Option<ExitStatus>> {
     if let Some(status) = child.try_wait()? {
         return Ok(Some(status));
@@ -127,8 +121,7 @@ pub fn wait_timeout(child: &mut Child, timeout: Duration) -> io::Result<Option<E
     child.try_wait()
 }
 
-/// A command started by [`Running::start`]. Dropping it before
-/// [`Running::wait`] kills its process group.
+#[cfg(unix)]
 #[derive(Debug)]
 pub struct Running<'a> {
     child: Child,
@@ -137,6 +130,7 @@ pub struct Running<'a> {
     started: Instant,
 }
 
+#[cfg(unix)]
 impl<'a> Running<'a> {
     pub fn start(command: &mut Command, limits: Limits<'a>) -> io::Result<Self> {
         let child = command
@@ -161,8 +155,6 @@ impl<'a> Running<'a> {
         self.group.clone()
     }
 
-    /// Feeds stdin and collects output until the command exits and its
-    /// output closes, or a limit stops it.
     pub fn wait(mut self) -> io::Result<Output> {
         let limits = &self.limits;
         let mut stdout = Pipe::new(self.child.stdout.take(), limits.stdout)?;
@@ -175,7 +167,6 @@ impl<'a> Running<'a> {
         let mut exited = None;
         loop {
             let now = Instant::now();
-            // Leftovers killed at the exit leave nothing to stop.
             let running = exited.is_none() || !limits.kill_leftovers;
             if running && !stop.begun() {
                 if limits.cancelled.is_some_and(|cancelled| cancelled()) {
@@ -243,6 +234,7 @@ impl<'a> Running<'a> {
     }
 }
 
+#[cfg(unix)]
 impl Drop for Running<'_> {
     fn drop(&mut self) {
         self.group.kill();
@@ -251,17 +243,16 @@ impl Drop for Running<'_> {
     }
 }
 
-/// A started command's process group. Signals reach it only until its leader
-/// is reaped, after which its ID may belong to another process.
+#[cfg(unix)]
 #[derive(Clone, Debug)]
 pub struct Group(Arc<Mutex<Option<Pid>>>);
 
+#[cfg(unix)]
 impl Group {
     fn of(child: &Child) -> Self {
         Self(Arc::new(Mutex::new(Some(Pid::from_child(child)))))
     }
 
-    /// Kills every process in the group.
     pub fn kill(&self) {
         self.signal(Signal::KILL);
     }
@@ -272,7 +263,6 @@ impl Group {
         }
     }
 
-    /// Called just before the leader is reaped.
     fn release(&self) {
         *self.lock() = None;
     }
@@ -282,13 +272,14 @@ impl Group {
     }
 }
 
+#[cfg(unix)]
 impl PartialEq for Group {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }
 
-/// Why and since when a command is being stopped.
+#[cfg(unix)]
 #[derive(Default)]
 struct Stop {
     since: Option<Instant>,
@@ -297,6 +288,7 @@ struct Stop {
     cancelled: bool,
 }
 
+#[cfg(unix)]
 impl Stop {
     fn begun(&self) -> bool {
         self.since.is_some()
@@ -327,8 +319,6 @@ impl Stop {
         }
     }
 
-    /// A stopped command's group still gets KILL when the run ends before
-    /// its grace period does.
     fn kill_now(&mut self, group: &Group) {
         if self.begun() && !self.killed {
             group.signal(Signal::KILL);
@@ -337,7 +327,7 @@ impl Stop {
     }
 }
 
-/// The descriptors still worth waiting on, and whether the exit still is.
+#[cfg(unix)]
 struct Watch<'a> {
     exit: bool,
     stdout: Option<BorrowedFd<'a>>,
@@ -345,6 +335,7 @@ struct Watch<'a> {
     stdin: Option<BorrowedFd<'a>>,
 }
 
+#[cfg(unix)]
 fn watch<'a>(
     exited: Option<Instant>,
     stdout: &'a Pipe,
@@ -359,6 +350,7 @@ fn watch<'a>(
     }
 }
 
+#[cfg(unix)]
 #[derive(Default)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -371,13 +363,14 @@ struct Ready {
     stdin: bool,
 }
 
-/// An output stream, closed once it ends.
+#[cfg(unix)]
 struct Pipe {
     file: Option<File>,
     cap: Cap,
     captured: Captured,
 }
 
+#[cfg(unix)]
 impl Pipe {
     fn new(pipe: Option<impl Into<OwnedFd>>, cap: Cap) -> io::Result<Self> {
         let file = pipe.map(|pipe| File::from(pipe.into()));
@@ -395,8 +388,6 @@ impl Pipe {
         self.file.is_none()
     }
 
-    /// Reads what is ready. Returns whether the stream passed a cap that
-    /// stops the command.
     fn read(&mut self) -> io::Result<bool> {
         let Some(file) = &mut self.file else {
             return Ok(false);
@@ -421,13 +412,13 @@ impl Pipe {
     }
 }
 
-/// The bytes still to write to stdin. It closes once they are written, or
-/// once the command stops reading.
+#[cfg(unix)]
 struct Input<'a> {
     file: Option<File>,
     bytes: &'a [u8],
 }
 
+#[cfg(unix)]
 impl<'a> Input<'a> {
     fn new(pipe: Option<impl Into<OwnedFd>>, bytes: &'a [u8]) -> io::Result<Self> {
         let file = pipe
@@ -462,5 +453,5 @@ impl<'a> Input<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;

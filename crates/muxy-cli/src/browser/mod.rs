@@ -1,24 +1,15 @@
-//! `muxy browser`: drives the built-in browser tabs of the desktop app on
-//! this computer. Each command is one request to the app over its socket.
-
-mod args;
+pub(crate) mod args;
 
 use std::error::Error;
 use std::io::{self, Write};
 use std::path::Path;
-use std::thread;
-use std::time::{Duration, Instant};
 
-use muxy_app_core::browser::api::{self, CallError, Request};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
+use crate::app::call_app;
 use args::Output;
 pub(crate) use args::{Invocation, parse};
 
-/// How long the app has to answer, unless `MUXY_CLI_TIMEOUT` says otherwise.
-const REPLY_TIME: Duration = Duration::from_secs(10);
-/// How long a desktop app that `open` started has to begin listening.
-const APP_START_TIME: Duration = Duration::from_secs(20);
 const INVALID_REPLY: &str = "invalid reply from Muxy";
 
 pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
@@ -29,72 +20,25 @@ pub(crate) fn run(invocation: Invocation) -> Result<(), Box<dyn Error>> {
         starts_app,
         invocation.extra_time,
     )?;
-    print(invocation.output, reply)
+    print(invocation.output, invocation.out.as_deref(), reply)
 }
 
-pub(crate) fn call_app(
-    verb: &str,
-    args: Map<String, Value>,
-    starts_app: bool,
-    extra_time: Duration,
-) -> Result<Value, Box<dyn Error>> {
-    let socket = api::socket_path(&muxy_core::dirs::muxy_dir()?);
-    let timeout = reply_time()? + extra_time;
-    let request = Request::new(verb, args);
-    let reply = match api::call(&socket, &request, timeout) {
-        Err(CallError::NotRunning) if starts_app && start_app() => {
-            call_once_listening(&socket, &request, timeout)
-        }
-        reply => reply,
-    }?;
-    Ok(reply)
-}
-
-/// Starts the desktop app as `muxy <folder>` does, but never over SSH,
-/// where it would open away from the user.
-fn start_app() -> bool {
-    !crate::terminal::over_ssh() && crate::open::desktop_app(None)
-}
-
-/// Sends `request` once the app that was just started listens.
-fn call_once_listening(
-    socket: &Path,
-    request: &Request,
-    timeout: Duration,
-) -> Result<Value, CallError> {
-    let deadline = Instant::now() + APP_START_TIME;
-    loop {
-        match api::call(socket, request, timeout) {
-            Err(CallError::NotRunning) if Instant::now() < deadline => {
-                thread::sleep(Duration::from_millis(100));
-            }
-            reply => return reply,
-        }
-    }
-}
-
-fn reply_time() -> Result<Duration, Box<dyn Error>> {
-    let Some(seconds) = std::env::var_os("MUXY_CLI_TIMEOUT").filter(|value| !value.is_empty())
-    else {
-        return Ok(REPLY_TIME);
-    };
-    seconds
-        .to_str()
-        .and_then(|seconds| seconds.parse().ok())
-        .filter(|seconds| *seconds > 0)
-        .map(Duration::from_secs)
-        .ok_or_else(|| "MUXY_CLI_TIMEOUT must be a whole number of seconds".into())
-}
-
-fn print(output: Output, reply: Value) -> Result<(), Box<dyn Error>> {
+fn print(output: Output, out: Option<&Path>, reply: Value) -> Result<(), Box<dyn Error>> {
     let mut stdout = io::stdout().lock();
     match output {
         Output::Ok => writeln!(stdout, "ok")?,
         Output::Json => writeln!(stdout, "{reply}")?,
-        Output::Text => match reply {
-            Value::String(text) => writeln!(stdout, "{text}")?,
-            other => writeln!(stdout, "{other}")?,
-        },
+        Output::Text => {
+            let text = match reply {
+                Value::String(text) => text,
+                other => other.to_string(),
+            };
+            if crate::output::Display::stdout().terminal {
+                writeln!(stdout, "{}", crate::output::terminal_text(&text))?;
+            } else {
+                writeln!(stdout, "{text}")?;
+            }
+        }
         Output::Tabs => {
             let display = crate::output::Display::stdout();
             let columns = ["tabId", "title", "url", "profile", "active"];
@@ -127,22 +71,34 @@ fn print(output: Output, reply: Value) -> Result<(), Box<dyn Error>> {
                 }
             }
         }
-        Output::Page => writeln!(
-            stdout,
-            "{}\n{}\n{}",
-            text(&reply["title"]),
-            text(&reply["url"]),
-            text(&reply["text"])
-        )?,
-        Output::Screenshot => writeln!(stdout, "{}", reply["png"].as_str().ok_or(INVALID_REPLY)?)?,
+        Output::Page => write!(stdout, "{}", page(&reply))?,
+        Output::Screenshot => {
+            let png = reply["png"].as_str().ok_or(INVALID_REPLY)?;
+            match out {
+                Some(file) => {
+                    let bytes = muxy_core::base64::decode(png).ok_or(INVALID_REPLY)?;
+                    std::fs::write(file, bytes)?;
+                    writeln!(stdout, "{}", file.display())?;
+                }
+                None => writeln!(stdout, "{png}")?,
+            }
+        }
     }
     Ok(())
 }
 
-/// A list field kept on its line: tabs and line breaks become spaces.
+fn page(reply: &Value) -> String {
+    format!(
+        "{}\n{}\n{}\n",
+        crate::output::cell(&Value::String(text(&reply["title"]).to_owned())),
+        crate::output::cell(&Value::String(text(&reply["url"]).to_owned())),
+        crate::output::terminal_text(text(&reply["text"])),
+    )
+}
+
 fn cell(value: &Value) -> String {
     match value {
-        Value::String(text) => text.replace(['\t', '\n', '\r'], " "),
+        Value::String(text) => crate::output::terminal_text(&text.replace(['\t', '\n', '\r'], " ")),
         Value::Null => String::new(),
         other => other.to_string(),
     }
@@ -150,4 +106,30 @@ fn cell(value: &Value) -> String {
 
 fn text(value: &Value) -> &str {
     value.as_str().unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn page_reads_show_page_controlled_escapes_instead_of_sending_them() {
+        let reply = json!({
+            "title": "\u{1b}]52;c;aGk=\u{7}Title\nfake line",
+            "url": "https://example.com/\u{1b}[2J",
+            "text": "first line\n\tindented\u{1b}[31m red",
+        });
+        let output = page(&reply);
+        assert!(!output.contains('\u{1b}'), "{output:?}");
+        assert!(!output.contains('\u{7}'), "{output:?}");
+        assert_eq!(
+            output,
+            "\\u{1b}]52;c;aGk=\\u{7}Title\\nfake line\nhttps://example.com/\\u{1b}[2J\n\
+             first line\n\tindented\\u{1b}[31m red\n"
+        );
+        assert_eq!(page(&json!({})), "\n\n\n");
+        assert_eq!(cell(&json!("a\tb\u{1b}c")), "a b\\u{1b}c");
+    }
 }

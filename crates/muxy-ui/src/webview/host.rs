@@ -1,8 +1,3 @@
-//! A native page shown over GPUI. The page sits in a container view that
-//! follows its pane, hides the parts app content covers, and shares the
-//! keyboard with Muxy's shortcuts. Extension pages and browser pages both
-//! live in one.
-
 use std::cell::{Cell, RefCell};
 use std::ptr;
 use std::rc::Rc;
@@ -16,16 +11,15 @@ use objc2_app_kit::{
     NSApplication, NSAutoresizingMaskOptions, NSCursor, NSEvent, NSEventMask, NSEventModifierFlags,
     NSEventType, NSImage, NSMenu, NSView, NSWindowOrderingMode,
 };
-use objc2_core_graphics::CGMutablePath;
+use objc2_core_graphics::{CGColor, CGMutablePath, CGPath};
 use objc2_foundation::{
     NSComparisonResult, NSError, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
 };
-use objc2_quartz_core::CAShapeLayer;
+use objc2_quartz_core::{CALayer, CAShapeLayer, CATransaction};
 use objc2_web_kit::WKWebView;
 
-use super::Snapshot;
+use super::{Cover, Snapshot};
 
-/// What the page hands back to Muxy: keys it keeps, and clicks.
 #[derive(Debug)]
 pub(crate) enum Signal {
     Escape,
@@ -33,12 +27,10 @@ pub(crate) enum Signal {
     Clicked,
 }
 
-/// How Muxy shows the page, as the key monitor sees it.
 #[derive(Debug, Default)]
 struct Focus {
     focused: Cell<bool>,
     clicked: Cell<bool>,
-    /// When the user last clicked into the page.
     last_click: Cell<Option<std::time::Instant>>,
     modal: Cell<bool>,
     shortcuts: RefCell<Rc<Vec<gpui::Keystroke>>>,
@@ -46,18 +38,22 @@ struct Focus {
 
 #[derive(Debug, Default)]
 struct HitTestRegions {
-    occluded: RefCell<Vec<NSRect>>,
+    mask: RefCell<Option<Retained<CAShapeLayer>>>,
+    pointer_exclusions: RefCell<Vec<NSRect>>,
     passthrough_all: Cell<bool>,
-    /// Where the page takes clicks, from its top left corner. `None` takes
-    /// them everywhere.
     interactive: RefCell<Option<Vec<NSRect>>>,
 }
 
 impl HitTestRegions {
     fn excludes(&self, point: NSPoint, page: NSPoint) -> bool {
         self.passthrough_all.get()
+            || self.mask.borrow().as_ref().is_some_and(|mask| {
+                mask.path().is_none_or(|path| !unsafe {
+                    CGPath::contains_point(Some(&path), ptr::null(), point, false)
+                })
+            })
             || self
-                .occluded
+                .pointer_exclusions
                 .borrow()
                 .iter()
                 .any(|rect| contains_point(*rect, point))
@@ -91,8 +87,6 @@ fn contains_point(rect: NSRect, point: NSPoint) -> bool {
 }
 
 define_class!(
-    /// Holds the page. Clicks on the parts app content covers pass through
-    /// to Muxy, and its layer mask hides them.
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
     #[name = "MuxyPageContainer"]
@@ -109,10 +103,6 @@ define_class!(
             else { unsafe { msg_send![super(self), hitTest: point] } }
         }
 
-        // WebKit runs a key's command up the page's responders to learn
-        // whether anything wanted it. GPUI's view takes every command, so
-        // keys the page left alone would never reach the Edit menu. They
-        // go on to the window instead.
         #[unsafe(method(doCommandBySelector:))]
         fn do_command_by_selector(&self, selector: Sel) {
             if let Some(window) = self.window() {
@@ -120,17 +110,12 @@ define_class!(
             }
         }
 
-        // Typing the page left alone comes back here, and must not reach
-        // whatever Muxy last focused.
         #[unsafe(method(keyDown:))]
         fn key_down(&self, _: &NSEvent) {}
     }
 );
 
 define_class!(
-    /// Covers the resize grips drawn over a page, in the parent's flipped
-    /// coordinates. It takes the grips' clicks and hands them to the parent,
-    /// and its cursor rects keep WebKit from changing the cursor there.
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
     #[name = "MuxyWebviewGrips"]
@@ -161,8 +146,6 @@ define_class!(
             }
         }
 
-        // A view that leaves a click unhandled passes it to the page below,
-        // so each one is handed to the parent explicitly.
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) { self.forward(|parent| parent.mouseDown(event)); }
         #[unsafe(method(mouseDragged:))]
@@ -194,20 +177,19 @@ impl GripOverlay {
     }
 }
 
-/// Native view state as last applied. Every frame syncs the view, and each
-/// new layer mask costs a view-sized bitmap, so only changes are applied.
 #[derive(Debug, Default)]
 struct Applied {
     frame: Option<NSRect>,
     radius: Option<f64>,
     mask: Option<Mask>,
+    shadows: Vec<Retained<CALayer>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 struct Mask {
     bounds: Bounds<Pixels>,
     clip: Bounds<Pixels>,
-    occlusions: Vec<Bounds<Pixels>>,
+    occlusions: Vec<Cover>,
 }
 
 #[derive(Debug)]
@@ -221,12 +203,11 @@ pub(crate) struct Host {
     visible: Cell<bool>,
     bounds: Cell<Bounds<Pixels>>,
     clip: Cell<Bounds<Pixels>>,
-    occlusions: RefCell<Vec<Bounds<Pixels>>>,
+    occlusions: RefCell<Vec<Cover>>,
     applied: RefCell<Applied>,
 }
 
 impl Host {
-    /// An empty, hidden container in `parent`, GPUI's view.
     pub(crate) fn new(parent: Retained<NSView>, mtm: MainThreadMarker) -> Self {
         let allocated = Container::alloc(mtm).set_ivars(HitTestRegions::default());
         let container: Retained<Container> =
@@ -258,14 +239,10 @@ impl Host {
         }
     }
 
-    /// The view a page is added to.
     pub(crate) fn container(&self) -> &NSView {
         &self.container
     }
 
-    /// Starts routing keys for `page`, a view inside the container. Keys Muxy
-    /// keeps, and clicks into the page, go to `on_signal`, which reports
-    /// whether it took them.
     pub(crate) fn attach(
         &mut self,
         page: Retained<WKWebView>,
@@ -285,10 +262,6 @@ impl Host {
         *self.focus.shortcuts.borrow_mut() = shortcuts;
     }
 
-    /// Whether Muxy shows this page focused. Keys reach the page only while it
-    /// is, or after a click into it until Muxy catches up. A page that takes
-    /// the native focus itself, as when its script focuses an element, doesn't
-    /// get them.
     pub(crate) fn set_focused(&self, focused: bool) {
         self.focus.focused.set(focused);
         if focused {
@@ -296,7 +269,6 @@ impl Host {
         }
     }
 
-    /// Whether the user clicked into the page within `elapsed`.
     pub(crate) fn clicked_within(&self, elapsed: std::time::Duration) -> bool {
         self.focus
             .last_click
@@ -304,9 +276,10 @@ impl Host {
             .is_some_and(|clicked| clicked.elapsed() <= elapsed)
     }
 
-    /// Sends clicks on the resize grips drawn over the page, in window
-    /// coordinates, to Muxy and shows each grip's cursor there. The page's
-    /// pixels don't change. Call after [`Self::occlude`].
+    pub(crate) fn take_click(&self) -> bool {
+        super::rules::take_click(&self.focus.last_click)
+    }
+
     pub(crate) fn set_grips(&self, grips: &[(Bounds<Pixels>, CursorStyle)]) {
         let frame = self.parent().bounds();
         let regions: Vec<_> = visible_grips(self.bounds.get(), &self.occlusions.borrow(), grips)
@@ -329,8 +302,6 @@ impl Host {
         self.container.ivars().passthrough_all.set(enabled);
     }
 
-    /// Where the page takes clicks, from its top left corner; elsewhere
-    /// they reach what is under it. `None` takes them everywhere.
     pub(crate) fn set_hit_regions(&self, regions: Option<&[Bounds<Pixels>]>) {
         let regions = regions.map(|regions| {
             regions
@@ -352,11 +323,6 @@ impl Host {
         *self.container.ivars().interactive.borrow_mut() = regions;
     }
 
-    /// Puts these pages above every other native view in the window, the
-    /// last one in front. Views already in place are left alone, so calling
-    /// this every frame costs nothing, and the front page moves only when
-    /// something else covers it: raising a page that was just clicked moves
-    /// the pages that go under it instead, so the click isn't interrupted.
     pub(crate) fn order_front(hosts: &[&Self]) {
         let mut remaining = hosts.to_vec();
         while let Some(first) = remaining.first() {
@@ -372,7 +338,6 @@ impl Host {
         }
     }
 
-    /// [`Self::order_front`] for pages that share one parent.
     fn order_front_in_parent(hosts: &[&Self]) {
         let Some(front) = hosts.last() else {
             return;
@@ -416,10 +381,6 @@ impl Host {
         self.parent.borrow().clone()
     }
 
-    /// Moves the page into `parent`, another window's GPUI view, keeping it
-    /// loaded. It stays hidden there until the next [`Self::sync`] and
-    /// [`Self::set_visible`] place it in that window, and the keyboard
-    /// returns to it with the next [`Self::focus`] or key Muxy routes to it.
     pub(crate) fn move_to(&self, parent: Retained<NSView>) {
         if ptr::eq(
             Retained::as_ptr(&self.parent.borrow()),
@@ -444,10 +405,13 @@ impl Host {
             window.invalidateCursorRectsForView(&self.grips);
         }
         *self.parent.borrow_mut() = parent;
-        *self.applied.borrow_mut() = Applied::default();
+        let mut applied = self.applied.borrow_mut();
+        for shadow in applied.shadows.drain(..) {
+            shadow.removeFromSuperlayer();
+        }
+        *applied = Applied::default();
     }
 
-    /// The parent's subviews, back to front, as they are now.
     fn subview_order(&self) -> Vec<*const NSView> {
         let subviews = self.parent().subviews();
         (0..subviews.count())
@@ -463,8 +427,6 @@ impl Host {
         Retained::as_ptr(&self.grips).cast()
     }
 
-    /// Moves the page and its grips next to `relative`, or to the front,
-    /// keeping the keyboard on the page if it had it.
     fn place(&self, ordering: NSWindowOrderingMode, relative: Option<&NSView>) {
         let focused = self.page.as_ref().is_some_and(|page| {
             self.container.window().is_some_and(|window| {
@@ -507,20 +469,23 @@ impl Host {
         self.apply_mask();
     }
 
-    pub(crate) fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
+    pub(crate) fn occlude(&self, occlusions: &[Cover], window: &mut gpui::Window) {
         if *self.occlusions.borrow() != occlusions {
             *self.occlusions.borrow_mut() = occlusions.to_vec();
+            if self.visible.get() {
+                window.synchronize_native_layers();
+            }
         }
         self.apply_mask();
     }
 
-    /// Adds `bounds` to what covers the page, for app content drawn after
-    /// the frame's occlusions were applied, such as a dropdown.
     pub(crate) fn occlude_also(&self, bounds: Bounds<Pixels>) {
-        let mut occlusions = self.occlusions.borrow().clone();
-        if !occlusions.contains(&bounds) {
-            occlusions.push(bounds);
-            self.occlude(&occlusions);
+        let mut occlusions = self.occlusions.borrow_mut();
+        let cover = Cover::from(bounds);
+        if !occlusions.contains(&cover) {
+            occlusions.push(cover);
+            drop(occlusions);
+            self.apply_mask();
         }
     }
 
@@ -528,38 +493,82 @@ impl Host {
         let bounds = self.bounds.get();
         let clip = bounds.intersect(&self.clip.get());
         let occlusions = self.occlusions.borrow();
-        let mask = Mask {
+        let mut applied = self.applied.borrow_mut();
+        if applied.mask.as_ref().is_some_and(|mask| {
+            mask.bounds == bounds && mask.clip == clip && mask.occlusions == *occlusions
+        }) {
+            return;
+        }
+        let Some(layer) = self.container.layer() else {
+            return;
+        };
+        applied.mask = Some(Mask {
             bounds,
             clip,
             occlusions: occlusions.clone(),
-        };
-        if self.applied.borrow().mask.as_ref() == Some(&mask) {
-            return;
-        }
-        self.applied.borrow_mut().mask = Some(mask);
-        let (regions, excluded) = composition_regions(bounds, clip, &occlusions);
-        *self.container.ivars().occluded.borrow_mut() = excluded
-            .into_iter()
-            .map(|region| self.local_rect(region))
+        });
+        let mut cuts = occlusions
+            .iter()
+            .filter(|cover| !cover.pointer_only && clip.intersects(&cover.bounds))
+            .peekable();
+        let mask = (clip != bounds || cuts.peek().is_some()).then(|| {
+            let cuts = cuts.map(|cover| (self.local_rect(cover.bounds), f64::from(cover.radius)));
+            let mask = visible_mask(self.local_rect(clip), cuts);
+            mask.setContentsScale(layer.contentsScale());
+            mask
+        });
+        let actions_disabled = CATransaction::disableActions();
+        CATransaction::setDisableActions(true);
+        unsafe { layer.setMask(mask.as_deref().map(AsRef::as_ref)) };
+        let regions = self.container.ivars();
+        *regions.mask.borrow_mut() = mask;
+        *regions.pointer_exclusions.borrow_mut() = occlusions
+            .iter()
+            .filter(|cover| cover.pointer_only && clip.intersects(&cover.bounds))
+            .map(|cover| self.local_rect(cover.bounds))
             .collect();
-        if let Some(layer) = self.container.layer() {
-            if occlusions.is_empty() && clip == bounds {
-                unsafe {
-                    layer.setMask(None);
+        self.sync_shadows(&layer, &mut applied.shadows, clip, &occlusions);
+        CATransaction::setDisableActions(actions_disabled);
+    }
+
+    fn sync_shadows(
+        &self,
+        layer: &CALayer,
+        layers: &mut Vec<Retained<CALayer>>,
+        clip: Bounds<Pixels>,
+        covers: &[Cover],
+    ) {
+        let mut count = 0;
+        for cover in covers {
+            for shadow in &cover.shadows {
+                let shape = (cover.bounds + shadow.offset).dilate(shadow.spread_radius);
+                if !clip.intersects(&shape.dilate(shadow.blur_radius * 3.0)) {
+                    continue;
                 }
-                return;
-            }
-            let path = CGMutablePath::new();
-            for region in regions {
-                unsafe {
-                    CGMutablePath::add_rect(Some(&path), ptr::null(), self.local_rect(region));
+                if count == layers.len() {
+                    let shadow_layer = CALayer::new();
+                    shadow_layer.setZPosition(1.0);
+                    shadow_layer.setShadowOffset(NSSize::ZERO);
+                    layer.addSublayer(&shadow_layer);
+                    layers.push(shadow_layer);
                 }
+                let shadow_layer = &layers[count];
+                shadow_layer.setFrame(layer.bounds());
+                let radius = f64::from(cover.radius);
+                let path = unsafe {
+                    CGPath::with_rounded_rect(self.local_rect(shape), radius, radius, ptr::null())
+                };
+                shadow_layer.setShadowPath(Some(&path));
+                let color: gpui::Rgba = shadow.color.into();
+                let rgb = CGColor::new_srgb(color.r.into(), color.g.into(), color.b.into(), 1.0);
+                shadow_layer.setShadowColor(Some(&rgb));
+                shadow_layer.setShadowOpacity(color.a);
+                shadow_layer.setShadowRadius(f64::from(shadow.blur_radius));
+                count += 1;
             }
-            let mask = CAShapeLayer::new();
-            mask.setPath(Some(&path));
-            unsafe {
-                layer.setMask(Some(&mask));
-            }
+        }
+        for layer in layers.drain(count..) {
+            layer.removeFromSuperlayer();
         }
     }
 
@@ -588,7 +597,6 @@ impl Host {
         if self.visible.replace(visible) == visible && self.container.isHidden() != visible {
             return;
         }
-        // Hiding the focused page would leave the keyboard with the window.
         if !visible {
             self.blur();
         }
@@ -618,7 +626,6 @@ impl Host {
         }
     }
 
-    /// Takes a picture of the page as shown, at the display's scale.
     pub(crate) fn snapshot(&self, done: impl Fn(Snapshot) + 'static) {
         let Some(page) = &self.page else {
             return;
@@ -670,10 +677,9 @@ fn pixel_dimension(points: Pixels, scale: f64) -> Option<u32> {
     (pixels.is_finite() && (1.0..=16384.0).contains(&pixels)).then(|| pixels.round() as u32)
 }
 
-/// The parts of the grips over a page at `bounds` that nothing covers.
 fn visible_grips(
     bounds: Bounds<Pixels>,
-    occlusions: &[Bounds<Pixels>],
+    occlusions: &[Cover],
     grips: &[(Bounds<Pixels>, CursorStyle)],
 ) -> Vec<(Bounds<Pixels>, CursorStyle)> {
     grips
@@ -685,7 +691,7 @@ fn visible_grips(
                 .fold(vec![*grip], |regions, occlusion| {
                     regions
                         .into_iter()
-                        .flat_map(|region| subtract(region, *occlusion))
+                        .flat_map(|region| subtract(region, occlusion.bounds))
                         .collect()
                 })
                 .into_iter()
@@ -694,7 +700,6 @@ fn visible_grips(
         .collect()
 }
 
-/// `bounds` in a flipped view that fills the parent.
 fn flipped_rect(bounds: Bounds<Pixels>) -> NSRect {
     NSRect::new(
         NSPoint::new(
@@ -708,30 +713,28 @@ fn flipped_rect(bounds: Bounds<Pixels>) -> NSRect {
     )
 }
 
-fn composition_regions(
-    bounds: Bounds<Pixels>,
-    clip: Bounds<Pixels>,
-    occlusions: &[Bounds<Pixels>],
-) -> (Vec<Bounds<Pixels>>, Vec<Bounds<Pixels>>) {
-    let clip = bounds.intersect(&clip);
-    let mut regions = if clip.size.width > gpui::px(0.0) && clip.size.height > gpui::px(0.0) {
-        vec![clip]
-    } else {
-        Vec::new()
-    };
-    let mut excluded = subtract(bounds, clip);
-    for occlusion in occlusions {
-        let clipped = bounds.intersect(occlusion);
-        if clipped.size.width <= gpui::px(0.0) || clipped.size.height <= gpui::px(0.0) {
-            continue;
-        }
-        excluded.push(clipped);
-        regions = regions
-            .into_iter()
-            .flat_map(|region| subtract(region, *occlusion))
-            .collect();
+fn visible_mask(
+    clip: NSRect,
+    covers: impl Iterator<Item = (NSRect, f64)>,
+) -> Retained<CAShapeLayer> {
+    let mask = CAShapeLayer::new();
+    if clip.size.width <= 0.0 || clip.size.height <= 0.0 {
+        return mask;
     }
-    (regions, excluded)
+    let page = unsafe { CGPath::with_rect(clip, ptr::null()) };
+    let cuts = CGMutablePath::new();
+    for (rect, radius) in covers {
+        if radius == 0.0 {
+            unsafe { CGMutablePath::add_rect(Some(&cuts), ptr::null(), rect) };
+        } else {
+            unsafe {
+                CGMutablePath::add_rounded_rect(Some(&cuts), ptr::null(), rect, radius, radius);
+            }
+        }
+    }
+    let visible = CGPath::new_copy_by_subtracting_path(Some(&page), Some(&cuts), false);
+    mask.setPath(visible.as_deref());
+    mask
 }
 
 fn subtract(region: Bounds<Pixels>, cut: Bounds<Pixels>) -> Vec<Bounds<Pixels>> {
@@ -763,8 +766,6 @@ fn subtract(region: Bounds<Pixels>, cut: Bounds<Pixels>) -> Vec<Bounds<Pixels>> 
     .collect()
 }
 
-/// What GPUI reads from a key event, without its text: a kept shortcut no
-/// binding takes must not type through `dispatch_keystroke`.
 fn keystroke(event: &NSEvent) -> Option<gpui::Keystroke> {
     let event = ptr::from_ref(event).cast_mut().cast();
     gpui::keystroke_from_native_event(event).map(|keystroke| gpui::Keystroke {
@@ -789,7 +790,6 @@ fn monitor(
             event_ref.r#type(),
             NSEventType::LeftMouseDown | NSEventType::RightMouseDown | NSEventType::OtherMouseDown
         ) {
-            // Muxy hears of a click from the page itself, which can be late.
             let clicked = container
                 .window()
                 .filter(|window| event_ref.window(container.mtm()).as_ref() == Some(window))
@@ -818,8 +818,6 @@ fn monitor(
                     .is_some_and(|responder| responder.isDescendantOf(&container))
             })
         };
-        // Keys follow Muxy's focus: pages take the native focus on their own,
-        // even from each other, and a click on Muxy never takes it back.
         let focused = focus.focused.get() || focus.clicked.get();
         let holds_focus = page_responder().is_some();
         if holds_focus && !focused {
@@ -875,8 +873,6 @@ fn monitor(
     }
 }
 
-/// Lets the web engine handle a command key, even in a page whose class
-/// declines key equivalents, so the page's own shortcuts see it.
 fn page_key_equivalent(page: &WKWebView, event: &NSEvent) -> bool {
     let handled: Bool =
         unsafe { msg_send![super(page, WKWebView::class()), performKeyEquivalent: event] };
@@ -927,9 +923,6 @@ fn route_key_event(
         on_signal(Signal::Escape);
         return true;
     }
-    // Routing can redraw Muxy before it returns, as when WebKit hands a key
-    // back to GPUI, and a redraw sets new shortcuts. So the list is cloned out
-    // and never borrowed across a call back into Muxy.
     let shortcuts = focus.shortcuts.borrow().clone();
     let kept = shortcuts
         .iter()
@@ -937,9 +930,6 @@ fn route_key_event(
     if kept {
         return on_signal(Signal::Shortcut(keystroke));
     }
-    // The page sees a command key first, as in Safari, so editors keep
-    // their own select all and undo. WebKit sends back keys the page
-    // leaves alone, and those then reach the Edit menu.
     if keystroke.modifiers.platform {
         page_key_equivalent() || menu_key_equivalent()
     } else {
@@ -951,6 +941,41 @@ fn route_key_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_live_page_keeps_its_rounded_cutouts_and_respects_overlapping_covers() {
+        let rect = |x, y, w, h| NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+        let page = rect(0.0, 0.0, 100.0, 80.0);
+        let covers = [
+            (rect(-20.0, -10.0, 90.0, 70.0), 16.0),
+            (rect(50.0, 10.0, 55.0, 25.0), 0.0),
+        ];
+        let regions = HitTestRegions::default();
+        *regions.mask.borrow_mut() = Some(visible_mask(page, covers.into_iter()));
+        let hits_page = |x, y| {
+            let point = NSPoint::new(x, y);
+            !regions.excludes(point, point)
+        };
+        assert!(hits_page(69.0, 59.0), "page at the rounded corner");
+        assert!(!hits_page(64.0, 54.0), "inside the sidebar curve");
+        assert!(!hits_page(60.0, 24.0), "where the two covers overlap");
+        assert!(!hits_page(85.0, 22.0), "inside only the second cover");
+        assert!(hits_page(85.0, 50.0), "uncovered page");
+        assert!(!hits_page(105.0, 50.0), "outside the content clip");
+        *regions.mask.borrow_mut() = Some(visible_mask(page, std::iter::empty()));
+        assert!(hits_page(60.0, 24.0), "page restored when the covers leave");
+        assert!(!hits_page(105.0, 50.0), "the content clip still applies");
+        assert!(hits_page(2.0, 40.0));
+        regions
+            .pointer_exclusions
+            .borrow_mut()
+            .push(rect(0.0, 0.0, 8.0, 80.0));
+        assert!(
+            !hits_page(2.0, 40.0),
+            "the edge can receive input over the visible page"
+        );
+        assert!(hits_page(9.0, 40.0));
+    }
 
     #[test]
     fn command_shortcuts_try_webkit_before_native_menu() {

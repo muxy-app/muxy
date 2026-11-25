@@ -27,18 +27,15 @@ impl TerminalSettings {
         }
     }
 
-    /// Changes the settings as the file holds them now and saves them, all
-    /// while holding the file's lock. A missing file starts from `ghostty.conf`
-    /// or the defaults; a broken one is never overwritten.
     pub fn edit_native(path: &Path, edit: impl FnOnce(&mut Self) -> Result<()>) -> Result<Self> {
-        let _lock = crate::settings::appearance::lock(path)
+        let _lock = crate::settings::document::lock(path)
             .map_err(|error| Error::new("terminal.toml", error))?;
         let mut settings = match Self::read_native(path)? {
             Some(settings) => settings,
             None => Self::migrated(path)?,
         };
         edit(&mut settings)?;
-        crate::settings::appearance::atomic_write(path, &settings.native_source()?)
+        crate::settings::document::atomic_write(path, &settings.native_source()?)
             .map_err(|error| Error::new("terminal.toml", error))?;
         Ok(settings)
     }
@@ -145,6 +142,17 @@ impl TerminalSettings {
     }
 
     fn validate_native(&self) -> Result<()> {
+        if self
+            .options
+            .selection_word_chars
+            .chars()
+            .any(char::is_control)
+        {
+            return Err(Error::new(
+                "selection-word-chars",
+                "enter characters without control characters",
+            ));
+        }
         bounded("font size", self.font_size, 1.0, 256.0)?;
         for adjustment in [
             self.cell_height,
@@ -283,6 +291,7 @@ impl TerminalSettings {
             | "cursor-color"
             | "cursor-text"
             | "selection-foreground"
+            | "selection-word-chars"
             | "selection-background" => {
                 next.options.read(id, value)?;
             }

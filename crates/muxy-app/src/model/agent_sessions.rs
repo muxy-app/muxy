@@ -323,7 +323,7 @@ impl AppModel {
         let opened = self.open_terminal(
             super::tabs::OpenTerminal {
                 project: self.state.current_project().id,
-                title: Some(&session.title),
+                title: None,
                 command: Some(&command),
                 directory: None,
             },

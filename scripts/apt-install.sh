@@ -1,7 +1,4 @@
 #!/bin/bash
-# Installs apt packages on a CI runner. The runners' Ubuntu mirror sometimes
-# stalls mid-download, so a stalled connection is dropped and retried, and the
-# whole install is tried again a few times before giving up.
 set -euo pipefail
 
 if [[ $# -eq 0 ]]; then

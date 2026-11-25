@@ -1,10 +1,3 @@
-//! The tour's moving pictures, one scene per step on a flat backdrop. A scene is
-//! a pure function of the time, drawn fresh each frame by this view alone, so
-//! the animation never re-renders what the app has cached.
-//!
-//! Text and boxes land on whole pixels, so anything drifting slowly would
-//! visibly step. Things here move quickly into place and then hold still.
-
 mod agents;
 mod composer;
 mod extensions;
@@ -34,7 +27,6 @@ use crate::model::AppModel;
 use crate::model::onboarding::Step;
 use crate::views::shortcut_hints::key_glyph;
 
-/// How large each module of a store's QR code is drawn, big enough to scan from a screen.
 pub(crate) const STORE_QR_MODULE: f32 = 3.0;
 
 const SCENE_FADE: f32 = 0.35;
@@ -45,7 +37,6 @@ pub(crate) struct ArtView {
     clock: BackgroundExecutor,
     shown: Instant,
     step: Step,
-    /// The scene fading out: when it appeared, and how visible it had become.
     outgoing: Option<(Step, Instant, f32)>,
 }
 
@@ -134,7 +125,6 @@ impl Render for ArtView {
     }
 }
 
-/// How visible a scene is, `time` seconds after appearing.
 fn entrance(time: f32) -> f32 {
     timeline::ease_out(progress(time, 0.0, SCENE_FADE))
 }
@@ -153,7 +143,6 @@ fn scene(step: Step, frame: &Frame) -> Div {
     }
 }
 
-/// The moment that shows a scene best, for when motion is turned down.
 fn still_time(step: Step) -> f32 {
     match step {
         Step::Welcome => welcome::STILL,
@@ -186,7 +175,6 @@ fn description(step: Step) -> gpui::SharedString {
     }
 }
 
-/// Muxy's two chevrons, each sliding into place as its reveal reaches 1.
 fn logo(frame: &Frame, x: f32, y: f32, side: f32, reveals: [f32; 2]) -> AnyElement {
     const LEFT: [(f32, f32); 6] = [
         (220.44, 186.07),
@@ -248,7 +236,6 @@ fn logo(frame: &Frame, x: f32, y: f32, side: f32, reveals: [f32; 2]) -> AnyEleme
     .into_any_element()
 }
 
-/// The keys of the shortcut the user's keymap gives `id`, in press order.
 pub(crate) fn key_caps(id: ShortcutId, model: &AppModel) -> Vec<String> {
     model
         .settings
@@ -258,7 +245,6 @@ pub(crate) fn key_caps(id: ShortcutId, model: &AppModel) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The shortcut as one piece of text, for a sentence.
 pub(crate) fn chord_text(id: ShortcutId, model: &AppModel) -> gpui::SharedString {
     let separator = if cfg!(target_os = "macos") { "" } else { "+" };
     key_caps(id, model).join(separator).into()

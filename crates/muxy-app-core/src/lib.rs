@@ -1,9 +1,5 @@
-//! Headless client state, configuration, and persistence.
-//!
-//! Workspaces, cached project views, tabs, panes, and window state live here;
-//! server execution and UI toolkit code do not.
-
 pub mod agent_sessions;
+mod agent_skills;
 pub mod backup;
 pub mod browser;
 pub mod closing;
@@ -25,6 +21,7 @@ pub mod project_selector;
 pub mod qr;
 pub mod restore;
 mod servers;
+pub mod session_link;
 mod set_aside;
 mod settings_tab;
 mod state;

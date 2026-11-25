@@ -47,17 +47,12 @@ impl CTRun {
 
     pub fn glyphs(&self) -> Cow<'_, [CGGlyph]> {
         unsafe {
-            // CTRunGetGlyphsPtr can return null under some not understood circumstances.
-            // If it does the Apple documentation tells us to allocate our own buffer and call
-            // CTRunGetGlyphs
             let count = CTRunGetGlyphCount(self.0);
             let glyphs_ptr = CTRunGetGlyphsPtr(self.0);
             if !glyphs_ptr.is_null() {
                 Cow::from(slice::from_raw_parts(glyphs_ptr, count as usize))
             } else {
                 let mut vec = Vec::with_capacity(count as usize);
-                // "If the length of the range is set to 0, then the copy operation will continue
-                // from the start index of the range to the end of the run"
                 CTRunGetGlyphs(self.0, CFRange::init(0, 0), vec.as_mut_ptr());
                 vec.set_len(count as usize);
                 Cow::from(vec)
@@ -67,17 +62,12 @@ impl CTRun {
 
     pub fn positions(&self) -> Cow<'_, [CGPoint]> {
         unsafe {
-            // CTRunGetPositionsPtr can return null under some not understood circumstances.
-            // If it does the Apple documentation tells us to allocate our own buffer and call
-            // CTRunGetPositions
             let count = CTRunGetGlyphCount(self.0);
             let positions_ptr = CTRunGetPositionsPtr(self.0);
             if !positions_ptr.is_null() {
                 Cow::from(slice::from_raw_parts(positions_ptr, count as usize))
             } else {
                 let mut vec = Vec::with_capacity(count as usize);
-                // "If the length of the range is set to 0, then the copy operation will continue
-                // from the start index of the range to the end of the run"
                 CTRunGetPositions(self.0, CFRange::init(0, 0), vec.as_mut_ptr());
                 vec.set_len(count as usize);
                 Cow::from(vec)
@@ -90,8 +80,6 @@ impl CTRun {
         let mut descent = 0.0;
         let mut leading = 0.0;
         unsafe {
-            // The portion of the run to calculate the typographic bounds for. By setting this to 0,
-            // CoreText will measure the bounds from start to end, see https://developer.apple.com/documentation/coretext/1510569-ctrungettypographicbounds?language=objc.
             let range = CFRange {
                 location: 0,
                 length: 0,
@@ -115,17 +103,12 @@ impl CTRun {
 
     pub fn string_indices(&self) -> Cow<'_, [CFIndex]> {
         unsafe {
-            // CTRunGetStringIndicesPtr can return null under some not understood circumstances.
-            // If it does the Apple documentation tells us to allocate our own buffer and call
-            // CTRunGetStringIndices
             let count = CTRunGetGlyphCount(self.0);
             let indices_ptr = CTRunGetStringIndicesPtr(self.0);
             if !indices_ptr.is_null() {
                 Cow::from(slice::from_raw_parts(indices_ptr, count as usize))
             } else {
                 let mut vec = Vec::with_capacity(count as usize);
-                // "If the length of the range is set to 0, then the copy operation will continue
-                // from the start index of the range to the end of the run"
                 CTRunGetStringIndices(self.0, CFRange::init(0, 0), vec.as_mut_ptr());
                 vec.set_len(count as usize);
                 Cow::from(vec)

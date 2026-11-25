@@ -6,45 +6,32 @@ use serde::{Deserialize, Deserializer, Serialize};
 use super::{Error, Result, Settings};
 use crate::ServerId;
 
-/// Another computer whose Muxy server this app reaches over SSH, or over the
-/// network after pairing with it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServerEntry {
-    /// Any UUID spelling is read, such as `uuidgen` output.
     #[serde(deserialize_with = "any_uuid")]
     pub id: ServerId,
     pub name: String,
-    /// An SSH destination: a `~/.ssh/config` alias, `user@host`, or
-    /// `ssh://user@host:port`. It is fully checked when connecting.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ssh: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_command: Option<String>,
-    /// The private key to log in with, instead of ssh's own choice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity_file: Option<String>,
-    /// Logs in with a password, which the app asks for and never saves.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub password_login: bool,
-    /// The group the app lists it under; `None` leaves it ungrouped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
-    /// Reached over the network as a paired computer instead of over SSH.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paired: Option<PairedServer>,
 }
 
-/// Where a paired server listens and the certificate it must present. Its
-/// token for this computer is kept apart, in `paired-servers.toml`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PairedServer {
     pub hosts: Vec<String>,
     pub port: u16,
-    /// SHA-256 of its TLS certificate, in hex.
     pub fingerprint: String,
-    /// This computer's ID there.
     pub device: muxy_protocol::DeviceId,
 }
 
@@ -53,7 +40,6 @@ impl PairedServer {
         muxy_core::hex::decode(&self.fingerprint)
     }
 
-    /// Whether it presents `fingerprint`, however its hex is spelled.
     pub fn has_certificate(&self, fingerprint: &[u8; 32]) -> bool {
         self.fingerprint().as_ref() == Some(fingerprint)
     }
@@ -97,8 +83,6 @@ impl ServerEntry {
         }
     }
 
-    /// How the user knows where it is: its SSH destination or command, or
-    /// the first address it was paired at.
     pub fn destination(&self) -> &str {
         match (&self.paired, &self.ssh_command) {
             (Some(paired), _) => paired.hosts.first().map_or("", String::as_str),
@@ -192,7 +176,6 @@ impl Settings {
         Ok(())
     }
 
-    /// Replaces the entry that has `server`'s ID.
     pub fn update_server(&mut self, server: ServerEntry, path: &Path) -> Result<()> {
         self.servers = edit_servers(path, |servers| {
             let entry = servers
@@ -213,9 +196,6 @@ impl Settings {
         Ok(())
     }
 
-    /// Moves the listed servers into `group`, or out of theirs, in their
-    /// order, before `before` or at the end. Servers no longer listed are
-    /// skipped.
     pub fn place_servers(
         &mut self,
         ids: &[ServerId],
@@ -240,8 +220,6 @@ impl Settings {
         Ok(())
     }
 
-    /// Puts each listed server in `group`, or none, where it is. Servers no
-    /// longer listed are skipped.
     pub fn set_servers_group(
         &mut self,
         ids: &[ServerId],
@@ -257,7 +235,6 @@ impl Settings {
         Ok(())
     }
 
-    /// Every group a server is in, in the order they are listed.
     pub fn server_groups(&self) -> Vec<&str> {
         let mut groups = Vec::new();
         for group in self
@@ -294,16 +271,13 @@ fn validate(servers: &[ServerEntry]) -> Result<()> {
     Ok(())
 }
 
-/// Changes the list as the file holds it now, so entries edited by hand
-/// since loading are kept. An empty list is left out, so `[[servers]]` can be
-/// added by hand.
 fn edit_servers(
     path: &Path,
     change: impl FnOnce(&mut Vec<ServerEntry>) -> Result<()>,
 ) -> Result<Vec<ServerEntry>> {
-    let _lock = super::appearance::lock(path).map_err(|error| Error::new("servers", error))?;
+    let _lock = super::document::lock(path).map_err(|error| Error::new("servers", error))?;
     let mut document =
-        super::appearance::read_document(path).map_err(|error| Error::new("servers", error))?;
+        super::document::read_document(path).map_err(|error| Error::new("servers", error))?;
     let mut servers: Vec<ServerEntry> = document
         .remove("servers")
         .map(toml::Value::try_into)
@@ -318,6 +292,6 @@ fn edit_servers(
         document.insert("servers".into(), value);
     }
     let source = toml::to_string_pretty(&document).map_err(|error| Error::new("servers", error))?;
-    super::appearance::atomic_write(path, &source).map_err(|error| Error::new("servers", error))?;
+    super::document::atomic_write(path, &source).map_err(|error| Error::new("servers", error))?;
     Ok(servers)
 }

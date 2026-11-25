@@ -108,8 +108,6 @@ impl PlatformInput {
         unsafe {
             let event_type = native_event.eventType();
 
-            // Filter out event types that aren't in the NSEventType enum.
-            // See https://github.com/servo/cocoa-rs/issues/155#issuecomment-323482792 for details.
             match event_type as u64 {
                 0 | 21 | 32 | 33 | 35 | 36 | 37 => {
                     return None;
@@ -144,7 +142,6 @@ impl PlatformInput {
                         2 => MouseButton::Middle,
                         3 => MouseButton::Navigate(NavigationDirection::Back),
                         4 => MouseButton::Navigate(NavigationDirection::Forward),
-                        // Other mouse buttons aren't tracked currently
                         _ => return None,
                     };
                     window_height.map(|window_height| {
@@ -152,7 +149,6 @@ impl PlatformInput {
                             button,
                             position: point(
                                 px(native_event.locationInWindow().x as f32),
-                                // MacOS screen coordinates are relative to bottom left
                                 window_height - px(native_event.locationInWindow().y as f32),
                             ),
                             modifiers: read_modifiers(native_event),
@@ -170,7 +166,6 @@ impl PlatformInput {
                         2 => MouseButton::Middle,
                         3 => MouseButton::Navigate(NavigationDirection::Back),
                         4 => MouseButton::Navigate(NavigationDirection::Forward),
-                        // Other mouse buttons aren't tracked currently
                         _ => return None,
                     };
 
@@ -186,7 +181,6 @@ impl PlatformInput {
                         })
                     })
                 }
-                // Some mice (like Logitech MX Master) send navigation buttons as swipe events
                 NSEventType::NSEventTypeSwipe => {
                     let navigation_direction = match native_event.phase() {
                         NSEventPhase::NSEventPhaseEnded => match native_event.deltaX() {
@@ -252,7 +246,6 @@ impl PlatformInput {
                         2 => MouseButton::Middle,
                         3 => MouseButton::Navigate(NavigationDirection::Back),
                         4 => MouseButton::Navigate(NavigationDirection::Forward),
-                        // Other mouse buttons aren't tracked currently
                         _ => return None,
                     };
 
@@ -294,8 +287,6 @@ impl PlatformInput {
     }
 }
 
-/// Reads the keystroke GPUI sees for a native `NSEvent`, resolved against the current keyboard
-/// layout. Returns `None` unless the event is a key down or key up.
 pub fn keystroke_from_native_event(native_event: *mut c_void) -> Option<Keystroke> {
     let native_event = native_event as id;
     if native_event == nil {
@@ -356,7 +347,6 @@ unsafe fn parse_keystroke(native_event: id) -> Keystroke {
             Some(NSHomeFunctionKey) => "home".to_string(),
             Some(NSEndFunctionKey) => "end".to_string(),
             Some(NSDeleteFunctionKey) => "delete".to_string(),
-            // Observed Insert==NSHelpFunctionKey not NSInsertFunctionKey.
             Some(NSHelpFunctionKey) => "insert".to_string(),
             Some(NSF1FunctionKey) => "f1".to_string(),
             Some(NSF2FunctionKey) => "f2".to_string(),
@@ -394,36 +384,20 @@ unsafe fn parse_keystroke(native_event: id) -> Keystroke {
             Some(NSF34FunctionKey) => "f34".to_string(),
             Some(NSF35FunctionKey) => "f35".to_string(),
             _ => {
-                // Cases to test when modifying this:
-                //
-                //           qwerty key | none | cmd   | cmd-shift
-                // * Armenian         s | ս    | cmd-s | cmd-shift-s  (layout is non-ASCII, so we use cmd layout)
-                // * Dvorak+QWERTY    s | o    | cmd-s | cmd-shift-s  (layout switches on cmd)
-                // * Ukrainian+QWERTY s | с    | cmd-s | cmd-shift-s  (macOS reports cmd-s instead of cmd-S)
-                // * Czech            7 | ý    | cmd-ý | cmd-7        (layout has shifted numbers)
-                // * Norwegian        7 | 7    | cmd-7 | cmd-/        (macOS reports cmd-shift-7 instead of cmd-/)
-                // * Russian          7 | 7    | cmd-7 | cmd-&        (shift-7 is . but when cmd is down, should use cmd layout)
-                // * German QWERTZ    ; | ö    | cmd-ö | cmd-Ö        (Zed's shift special case only applies to a-z)
-                //
                 let mut chars_ignoring_modifiers =
                     chars_for_modified_key(native_event.keyCode(), NO_MOD);
                 let mut chars_with_shift =
                     chars_for_modified_key(native_event.keyCode(), SHIFT_MOD);
                 let always_use_cmd_layout = always_use_command_layout();
 
-                // Handle Dvorak+QWERTY / Russian / Armenian
                 if command || always_use_cmd_layout {
                     let chars_with_cmd = chars_for_modified_key(native_event.keyCode(), CMD_MOD);
                     let chars_with_both =
                         chars_for_modified_key(native_event.keyCode(), CMD_MOD | SHIFT_MOD);
 
-                    // We don't do this in the case that the shifted command key generates
-                    // the same character as the unshifted command key (Norwegian, e.g.)
                     if chars_with_both != chars_with_cmd {
                         chars_with_shift = chars_with_both;
 
-                    // Handle edge-case where cmd-shift-s reports cmd-s instead of
-                    // cmd-shift-s (Ukrainian, etc.)
                     } else if chars_with_cmd.to_ascii_uppercase() != chars_with_cmd {
                         chars_with_shift = chars_with_cmd.to_ascii_uppercase();
                     }
@@ -485,10 +459,7 @@ const SHIFT_MOD: u32 = 2;
 const OPTION_MOD: u32 = 8;
 
 fn chars_for_modified_key(code: CGKeyCode, modifiers: u32) -> String {
-    // Values from: https://github.com/phracker/MacOSX-SDKs/blob/master/MacOSX10.6.sdk/System/Library/Frameworks/Carbon.framework/Versions/A/Frameworks/HIToolbox.framework/Versions/A/Headers/Events.h#L126
-    // shifted >> 8 for UCKeyTranslate
     const CG_SPACE_KEY: u16 = 49;
-    // https://github.com/phracker/MacOSX-SDKs/blob/master/MacOSX10.6.sdk/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/CarbonCore.framework/Versions/A/Headers/UnicodeUtilities.h#L278
     #[allow(non_upper_case_globals)]
     const kUCKeyActionDown: u16 = 0;
     #[allow(non_upper_case_globals)]

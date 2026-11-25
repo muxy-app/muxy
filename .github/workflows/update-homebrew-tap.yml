@@ -1,7 +1,5 @@
 name: Update Homebrew Tap
 
-# Points the `muxy` cask (desktop app) and `muxy-cli` formula (CLI and
-# server) of muxy-app/homebrew-tap at a published stable release.
 on:
   workflow_call:
     inputs:

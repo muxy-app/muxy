@@ -25,7 +25,11 @@ impl Fixture {
         let published = Arc::new(crate::session::Published::new(&info, notifier.clone()));
         let terminal = Terminal::new(size, 1024 * 1024)?;
         let pty = Pty::spawn(SpawnRequest {
-            program: "/bin/cat".into(),
+            program: if cfg!(windows) {
+                crate::test_support::shell()
+            } else {
+                "/bin/cat".into()
+            },
             args: Vec::new(),
             cwd: directory,
             env: Vec::new(),
@@ -37,7 +41,11 @@ impl Fixture {
         let owner = Owner {
             metadata: Metadata::new(info.directory.clone()),
             info,
-            pty,
+            shell: Shell {
+                pty,
+                #[cfg(windows)]
+                job: crate::platform::windows::Job::killed_on_drop()?,
+            },
             terminal,
             published,
             activity: Arc::new(crate::activity::Activity::new(notifier)),
@@ -57,6 +65,7 @@ impl Fixture {
                 Attachment {
                     sink: sink.into(),
                     seq: 1,
+                    shares: false,
                 },
             )]),
             output_pending: false,
@@ -68,6 +77,7 @@ impl Fixture {
             cursor_blinking: true,
             links: Vec::new(),
             graphics: muxy_protocol::Graphics::default(),
+            full_graphics: muxy_protocol::Graphics::default(),
             prompts: Vec::new(),
             frame_state: None,
             next_tick: None,
@@ -99,8 +109,8 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = self.owner.pty.kill();
-        let _ = self.owner.pty.wait();
+        let _ = self.owner.shell.pty.kill();
+        let _ = self.owner.shell.pty.wait();
     }
 }
 
@@ -215,5 +225,116 @@ fn ordinary_output_keeps_a_frame_budget_and_stops_ticking_when_idle() -> Result<
     assert!(!fixture.owner.has_pending_work());
     assert!(fixture.owner.next_tick.is_none());
     assert!(fixture.frames().is_empty());
+    Ok(())
+}
+
+#[test]
+fn attachments_that_share_images_get_them_whole_and_others_get_them_fitted() -> Result<(), Fault> {
+    let mut fixture = Fixture::new()?;
+    let (sharing, shared_frames) = mpsc::channel();
+    fixture.owner.attachments.insert(
+        AttachmentId(2),
+        Attachment {
+            sink: sharing.into(),
+            seq: 1,
+            shares: true,
+        },
+    );
+    fixture
+        .owner
+        .terminal
+        .set_cell_size(muxy_protocol::CellSize {
+            width: 16,
+            height: 34,
+        })?;
+    let (width, height) = (2400_u32, 1600_u32);
+    let pixels = vec![90_u8; (width * height * 4) as usize];
+    let encoded = muxy_core::base64::encode(&pixels);
+    let chunks: Vec<&[u8]> = encoded.as_bytes().chunks(4096).collect();
+    for (index, chunk) in chunks.iter().enumerate() {
+        let keys = if index == 0 {
+            format!("a=T,f=32,s={width},v={height},C=1,")
+        } else {
+            String::new()
+        };
+        let more = u8::from(index + 1 < chunks.len());
+        fixture
+            .owner
+            .terminal
+            .feed(format!("\x1b_G{keys}q=2,m={more};").as_bytes());
+        fixture.owner.terminal.feed(chunk);
+        fixture.owner.terminal.feed(b"\x1b\\");
+    }
+    fixture.owner.broadcast_frame(None)?;
+    let fitted = fixture.frames().pop().and_then(|frame| frame.graphics);
+    let fitted = fitted.ok_or("no fitted images")?;
+    assert!(fitted.images[0].width < width);
+    assert!(fitted.images[0].rgba.len() <= muxy_protocol::MAX_GRAPHICS_BYTES);
+    let whole = shared_frames.try_iter().find_map(|event| match event {
+        AttachmentEvent::Frame(frame) => frame.graphics,
+        _ => None,
+    });
+    let whole = whole.ok_or("no whole images")?;
+    assert_eq!(
+        (whole.images[0].width, whole.images[0].height),
+        (width, height)
+    );
+    assert_eq!(whole.images[0].rgba.len(), pixels.len());
+    assert_eq!(whole.images[0].generation, fitted.images[0].generation);
+
+    fixture.owner.broadcast_frame(None)?;
+    assert!(
+        fixture
+            .frames()
+            .iter()
+            .all(|frame| frame.graphics.is_none())
+    );
+    assert!(shared_frames.try_iter().all(|event| match event {
+        AttachmentEvent::Frame(frame) => frame.graphics.is_none(),
+        _ => true,
+    }));
+
+    fixture.owner.detach(AttachmentId(2));
+    assert!(fixture.owner.full_graphics.images.is_empty());
+    let relisted = fixture.owner.terminal.full_graphics()?;
+    assert_ne!(
+        relisted.images[0].rgba.as_ptr(),
+        whole.images[0].rgba.as_ptr()
+    );
+    Ok(())
+}
+
+#[test]
+fn an_app_that_attaches_is_told_when_images_go_back_to_what_was_last_sent() -> Result<(), Fault> {
+    let mut fixture = Fixture::new()?;
+    fixture.owner.attachments.clear();
+    fixture
+        .owner
+        .terminal
+        .feed(b"\x1b_Ga=T,i=4,f=32,s=1,v=1,c=2,r=1,q=2;/wAA/w==\x1b\\");
+    let (sink, events) = mpsc::channel();
+    fixture.owner.attach(
+        AttachmentId(3),
+        ChannelId(3),
+        fixture.owner.size,
+        sink.into(),
+    )?;
+    let attached = events.try_iter().find_map(|event| match event {
+        AttachmentEvent::Snapshot { snapshot, .. } => Some(snapshot.graphics),
+        _ => None,
+    });
+    assert_eq!(attached.ok_or("no snapshot")?.images.len(), 1);
+    fixture.owner.terminal.feed(b"\x1b_Ga=d,q=2\x1b\\");
+    fixture.owner.broadcast_frame(None)?;
+    let cleared = events.try_iter().find_map(|event| match event {
+        AttachmentEvent::Frame(frame) => frame.graphics,
+        _ => None,
+    });
+    assert!(
+        cleared
+            .ok_or("the cleared images were not sent")?
+            .images
+            .is_empty()
+    );
     Ok(())
 }

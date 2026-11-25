@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use muxy_protocol::{
     ChannelId, HistoryCursor, HistoryPage, MAX_LINK_SPANS, Message, ProjectId, ReplyBody,
     RequestId, Size,
@@ -180,7 +182,7 @@ fn dense_history_pages_and_attachments_preserve_all_links() -> Result {
         Message::Reply {
             id: RequestId(1),
             body: ReplyBody::Attached {
-                snapshot: Box::new(snapshot),
+                snapshot,
                 process: None,
             },
         }

@@ -1,34 +1,24 @@
-//! Remote servers: other computers' servers, which the sidebar's Remote
-//! section adds, edits, tests, and forgets. Their entries live in
-//! `settings.toml`; passwords are only ever in memory.
-
 use gpui::{AnyWindowHandle, Context};
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::ServerEntry;
 use muxy_client::SshTarget;
+use muxy_core::capability::Feature;
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
 use super::{AppModel, ConnectionState, Quitting, ServerStatus};
 
-/// One remote server as the Servers section lists it.
 #[derive(Clone, Debug)]
 pub(crate) struct RemoteServer {
     pub(crate) entry: ServerEntry,
-    /// It logs in with a password that hasn't been typed this session.
     pub(crate) needs_password: bool,
     pub(crate) status: ServerStatus,
-    /// Why it isn't connected, when it failed.
     pub(crate) error: Option<String>,
-    /// Muxy isn't installed there.
     pub(crate) missing: bool,
-    /// Muxy there can't talk to this app.
     pub(crate) incompatible: bool,
     pub(crate) install: Option<Install>,
 }
 
-/// What waits for a remote server to be ready, if that happens soon after the
-/// user asked.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PendingRemote {
     pub(crate) server: ServerId,
@@ -39,7 +29,6 @@ pub(crate) struct PendingRemote {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RemoteIntent {
     Folders(crate::views::project_picker::Purpose),
-    /// A terminal tab opens in its Home.
     HomeTab,
 }
 
@@ -53,27 +42,21 @@ impl PendingRemote {
     }
 }
 
-/// Installing Muxy on a remote server.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Install {
     Running,
     Failed(String),
 }
 
-/// This app's version when it is a published release, which remote servers
-/// can install. Local builds have none.
 pub(crate) fn released_version() -> Option<&'static str> {
     let version = env!("CARGO_PKG_VERSION");
     (!cfg!(debug_assertions) && version != "2.0.0-beta-0").then_some(version)
 }
 
-/// Runs this release's installer there, which downloads it from GitHub,
-/// checks it, and puts `muxy` and `muxy-server` in `~/.local/bin`.
 pub(super) fn install_command(version: &str) -> String {
     crate::remote_install::Source::Release(version.into()).command()
 }
 
-/// The command that replaces Muxy on another computer with this release.
 pub(crate) fn update_command(version: &str) -> String {
     format!(
         "curl -fsSL {}/v{version}/install-muxy.sh | sh -s -- --version {version} --replace",
@@ -81,12 +64,8 @@ pub(crate) fn update_command(version: &str) -> String {
     )
 }
 
-/// Prints the version of Muxy installed there, found as the bridge finds it.
 const VERSION_COMMAND: &str = "sh -c 'export PATH=\"$PATH:$HOME/.local/bin\"; exec muxy --version'";
 
-/// Why Muxy on another computer can't talk to this app, and how to fix it.
-/// `there` is the version installed there, when it could be read. When it is
-/// this app's own, the server still running there is an older one.
 pub(crate) fn incompatible_guidance(name: &str, there: Option<&str>) -> String {
     let here = env!("CARGO_PKG_VERSION");
     if there == Some(here) {
@@ -116,22 +95,16 @@ pub(crate) fn incompatible_guidance(name: &str, there: Option<&str>) -> String {
     .to_string()
 }
 
-/// What the server form submits.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ServerFields {
     pub(crate) name: String,
-    /// A host or `~/.ssh/config` alias, or a whole destination when the user
-    /// and port fields are empty.
     pub(crate) host: String,
     pub(crate) ssh_command: Option<String>,
     pub(crate) user: String,
     pub(crate) port: String,
     pub(crate) identity_file: String,
     pub(crate) password_login: bool,
-    /// Kept in memory until Muxy quits, so connecting doesn't ask; empty
-    /// asks when connecting.
     pub(crate) password: String,
-    /// Empty leaves it ungrouped.
     pub(crate) group: String,
 }
 
@@ -148,7 +121,6 @@ impl ServerFields {
             .unwrap_or_else(|_| self.host.trim().to_owned())
     }
 
-    /// The settings entry for this form: the server `id`, or a new one.
     fn entry(&self, id: Option<ServerId>) -> Result<ServerEntry, String> {
         let destination = self.destination()?;
         let name = match self.name.trim() {
@@ -173,7 +145,6 @@ impl ServerFields {
     }
 }
 
-/// Servers under their groups, in the listed order, then the ungrouped.
 pub(crate) fn by_group<'a, T>(
     servers: &'a [T],
     entry: impl Fn(&'a T) -> &'a ServerEntry,
@@ -190,13 +161,10 @@ pub(crate) fn by_group<'a, T>(
     groups
 }
 
-/// A typed group name, or none when it is blank.
 fn group_name(typed: &str) -> Option<String> {
     Some(typed.trim().to_owned()).filter(|group| !group.is_empty())
 }
 
-/// An SSH destination from the editor's host, user, and port. With no user
-/// and port, the host may itself be `user@host` or `ssh://user@host:port`.
 pub(crate) fn join_destination(host: &str, user: &str, port: &str) -> Result<String, String> {
     let (host, user, port) = (host.trim(), user.trim(), port.trim());
     let invalid =
@@ -237,7 +205,6 @@ pub(crate) fn join_destination(host: &str, user: &str, port: &str) -> Result<Str
     Ok(destination)
 }
 
-/// The editor's host, user, and port for a destination.
 pub(crate) fn split_destination(destination: &str) -> (String, String, String) {
     let Some(rest) = destination.strip_prefix("ssh://") else {
         return match destination.split_once('@') {
@@ -255,7 +222,6 @@ pub(crate) fn split_destination(destination: &str) -> (String, String, String) {
     (host.into(), user.into(), port.into())
 }
 
-/// A Test Connection in Settings.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ConnectionTest {
     Testing,
@@ -263,7 +229,6 @@ pub(crate) enum ConnectionTest {
     Installing,
     NotInstalled(String),
     InstallFailed(String),
-    /// It connected; this is the server's Muxy version.
     Succeeded(String),
     Failed(String),
 }
@@ -292,7 +257,6 @@ impl AppModel {
             .collect()
     }
 
-    /// The last Test Connection, if it tried `destination`.
     pub(crate) fn server_probe(&self, destination: &str) -> Option<&ConnectionTest> {
         self.server_probe
             .as_ref()
@@ -300,10 +264,6 @@ impl AppModel {
             .map(|(_, probe)| probe)
     }
 
-    /// Adds a remote server, or edits the one with `id`, and connects it. A
-    /// typed password stays in memory, never in `settings.toml`. It is kept
-    /// first: if it can't be, nothing is saved, so saving again can't add the
-    /// server twice.
     pub(crate) fn save_remote_server(
         &mut self,
         id: Option<ServerId>,
@@ -313,6 +273,7 @@ impl AppModel {
         if self.quitting != Quitting::Idle {
             return Err(tr!("Muxy is quitting").to_string());
         }
+        self.capabilities.check(Feature::SshRemotes)?;
         if id.is_some_and(|id| self.settings.server(id).is_none()) {
             return Err(tr!("This remote server is no longer listed").to_string());
         }
@@ -345,11 +306,6 @@ impl AppModel {
         Ok(server)
     }
 
-    /// Matches the running servers to the list in settings, which also takes
-    /// in hand edits made since launch. A new server gets a worker and stays
-    /// disconnected; one reached in a new way gets a new worker and connects
-    /// again if it was connected. One no longer listed stops, and its
-    /// projects stay hidden until it returns.
     pub(super) fn sync_servers(&mut self, cx: &mut Context<Self>) {
         let listed = self.settings.servers.clone();
         let unlisted: Vec<_> = self
@@ -396,10 +352,6 @@ impl AppModel {
         self.connect_server(server, cx);
     }
 
-    /// Runs a Test Connection off the UI thread with what the form holds,
-    /// before it is saved. It starts that computer's server if needed, as
-    /// connecting would, and then hangs up. A typed password is answered
-    /// only while the test runs.
     pub(crate) fn test_remote_server(
         &mut self,
         id: Option<ServerId>,
@@ -449,7 +401,11 @@ impl AppModel {
     ) {
         self.clear_server_probe();
         let generation = self.server_probe_generation;
-        let entry = match form.entry(id) {
+        let entry = match self
+            .capabilities
+            .check(Feature::SshRemotes)
+            .and_then(|()| form.entry(id))
+        {
             Ok(entry) => entry,
             Err(error) => {
                 let tried = form.probe_key();
@@ -512,8 +468,6 @@ impl AppModel {
         .detach();
     }
 
-    /// How a Test Connection reaches `entry`: with the typed password, else
-    /// the one typed this session, and the one-off token to forget after.
     fn test_target(
         &mut self,
         id: Option<ServerId>,
@@ -549,7 +503,6 @@ impl AppModel {
         Ok((target.with_askpass(askpass), Some(token)))
     }
 
-    /// Asks once, then forgets every server in `servers`.
     pub(crate) fn confirm_forget_servers(
         &mut self,
         servers: Vec<ServerId>,
@@ -590,8 +543,6 @@ impl AppModel {
         );
     }
 
-    /// Removes remote servers from settings in one write, and their projects
-    /// and layouts from this app. Nothing on those computers changes.
     pub(crate) fn forget_remote_servers(
         &mut self,
         servers: &[ServerId],
@@ -626,7 +577,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Moves remote servers to the end of `group`, or of the ungrouped.
     pub(crate) fn move_remote_servers(
         &mut self,
         servers: &[ServerId],
@@ -655,7 +605,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Renames a group, or ungroups its servers, where they are listed.
     pub(crate) fn regroup_remote_servers(
         &mut self,
         servers: &[ServerId],
@@ -674,7 +623,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Asks, then deletes a group; its servers stay, ungrouped.
     pub(crate) fn confirm_delete_server_group(
         &mut self,
         servers: Vec<ServerId>,
@@ -695,9 +643,6 @@ impl AppModel {
         );
     }
 
-    /// Hangs up on the remote servers that are connected or connecting.
-    /// They stay disconnected, with their terminals running there, until
-    /// Connect or until one of their projects is opened.
     pub(crate) fn disconnect_remote_servers(
         &mut self,
         servers: &[ServerId],
@@ -767,8 +712,6 @@ impl AppModel {
         );
     }
 
-    /// Installs release `version` on a remote server over its SSH login,
-    /// then connects. It runs off the UI thread; downloading takes a while.
     pub(crate) fn install_server(
         &mut self,
         server: ServerId,
@@ -813,8 +756,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Explains a version mismatch on the server's own status, then reads
-    /// the version installed there to name it. The app never updates it.
     pub(super) fn explain_incompatible(&mut self, server: ServerId, cx: &mut Context<Self>) {
         let name = self.server_label(server);
         let Some(runtime) = self.servers.get_mut(server) else {
@@ -850,7 +791,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Copies the command that updates Muxy on an incompatible server.
     pub(crate) fn copy_update_command(&mut self, cx: &mut Context<Self>) {
         if let Some(version) = released_version() {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(update_command(version)));
@@ -858,7 +798,6 @@ impl AppModel {
         }
     }
 
-    /// Connects, or connects again: a fresh SSH login and server check.
     pub(crate) fn reconnect_remote_server(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if self.connection(server) != ConnectionState::Disconnected {
             self.disconnect(server, cx);
@@ -866,8 +805,6 @@ impl AppModel {
         self.connect_remote_server(server, cx);
     }
 
-    /// Connects, or connects again, each of `servers`. Only the first one
-    /// whose password isn't known yet asks for it.
     pub(crate) fn reconnect_remote_servers(
         &mut self,
         servers: &[ServerId],
@@ -888,9 +825,6 @@ impl AppModel {
         }
     }
 
-    /// Opens a terminal tab in another computer's Home. A server whose Home
-    /// isn't known yet connects first, asking for its password if needed, and
-    /// the tab opens once its catalog arrives.
     pub(crate) fn new_remote_home_tab(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if self.server_name(server).is_none() {
             return;
@@ -906,8 +840,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Does what waited for `server` to be ready. It is dropped once the user
-    /// moved on: something else is open, or the wait was long.
     pub(crate) fn resume_remote(&mut self, server: ServerId, cx: &mut Context<Self>) {
         const PATIENCE: std::time::Duration = std::time::Duration::from_secs(60);
         let Some(pending) = self
@@ -933,7 +865,6 @@ impl AppModel {
         }
     }
 
-    /// Keeps a typed password until Muxy quits, then connects with it.
     pub(crate) fn remember_password(
         &mut self,
         server: ServerId,
@@ -958,19 +889,16 @@ impl AppModel {
         }
     }
 
-    /// Whether a password prompt or form may open now.
     pub(crate) fn accepts_prompts(&self) -> bool {
         !self.quitting() && !self.dialogs.is_open()
     }
 
-    /// The server refused the last login, so its password was wrong.
     pub(crate) fn server_failed_login(&self, server: ServerId) -> bool {
         self.servers.get(server).is_some_and(|runtime| {
             runtime.failure == Some(muxy_client::RemoteReason::AuthenticationFailed)
         })
     }
 
-    /// What the status bar and Settings show for a server.
     pub(crate) fn status_of(&self, server: ServerId) -> ServerStatus {
         if server.is_local() {
             if self.updates.replacing() {

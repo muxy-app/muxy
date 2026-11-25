@@ -37,9 +37,9 @@ pub struct TerminalHistory {
     pub rows: Vec<Row>,
     pub prompts: Vec<u16>,
     pub links: Vec<crate::LinkRow>,
+    pub graphics: Option<crate::Graphics>,
 }
 
-/// A copy of a terminal that can move to another thread and become an archive there.
 #[derive(Debug)]
 pub struct TerminalSnapshot {
     bytes: Vec<u8>,
@@ -48,17 +48,13 @@ pub struct TerminalSnapshot {
 }
 
 impl TerminalSnapshot {
-    /// Renders the copy, so converting history never blocks the live terminal.
     pub fn archive(&self) -> Result<TerminalArchive, TerminalError> {
         let failed = |error| TerminalError::wrap(TerminalStep::Snapshot, error);
         let mut decoder = libghostty_vt::snapshot::Decoder::new_buf(&self.bytes).map_err(failed)?;
-        // A snapshot doesn't carry the image limit of the terminal that wrote
-        // it, and an image over the decoder's own limit is dropped.
         decoder
             .set_kitty_image_storage_limit(crate::graphics::STORAGE_LIMIT as u64)
             .map_err(failed)?;
         let mut decoder = decoder.ready().map_err(failed)?;
-        // Restored pages are counted uncompressed, so the live budget would drop older rows.
         decoder
             .terminal_mut()
             .set_scrollback_max_bytes(None)
@@ -77,7 +73,6 @@ impl TerminalSnapshot {
         let graphics = terminal.graphics()?;
         let rows = terminal.screen()?;
         let cursor = terminal.cursor()?;
-        // The primary screen keeps its history while a program uses the alternate one.
         terminal.engine.vt_write(b"\x1b[?47l");
         Ok(TerminalArchive {
             graphics,
@@ -110,10 +105,12 @@ pub struct Terminal {
     mouse_encoder: mouse::Encoder<'static>,
     mouse_event: mouse::Event<'static>,
     held_buttons: Vec<MouseButton>,
+    last_motion: Vec<u8>,
     keyboard: crate::input::Keyboard,
     graphics_cache: crate::graphics::Cache,
     inline_images: crate::graphics::Interceptor,
     cell: crate::CellSize,
+    color_scheme_reporting: bool,
 }
 
 impl Terminal {
@@ -220,6 +217,7 @@ impl Terminal {
         progress: Rc<RefCell<crate::progress::Progress>>,
     ) -> Result<Self, TerminalError> {
         let create = |error| TerminalError::wrap(TerminalStep::Create, error);
+        let color_scheme_reporting = engine.mode(Mode::COLOR_SCHEME_REPORT).unwrap_or(false);
         Ok(Self {
             engine,
             render: RenderState::new().map_err(create)?,
@@ -239,15 +237,17 @@ impl Terminal {
             history_count: 0,
             mouse_encoder: {
                 let mut encoder = mouse::Encoder::new().map_err(create)?;
-                encoder.set_size(mouse_size(size));
+                encoder.set_size(mouse_size(size, crate::CellSize::default()));
                 encoder
             },
             mouse_event: mouse::Event::new().map_err(create)?,
             held_buttons: Vec::new(),
+            last_motion: Vec::new(),
             keyboard: crate::input::Keyboard::new().map_err(create)?,
             graphics_cache: crate::graphics::Cache::new().map_err(create)?,
             inline_images: crate::graphics::Interceptor::default(),
             cell: crate::CellSize::default(),
+            color_scheme_reporting,
         })
     }
 
@@ -301,14 +301,7 @@ impl Terminal {
                 .mode(Mode::COLOR_SCHEME_REPORT)
                 .map_err(colors)?
         {
-            let [r, g, b] = defaults.background;
-            let mut report = [0; 16];
-            let len = color_scheme(RgbColor { r, g, b })
-                .encode_report(&mut report)
-                .map_err(colors)?;
-            self.pty_output
-                .borrow_mut()
-                .extend_from_slice(&report[..len]);
+            self.push_color_scheme_report()?;
         }
         Ok(())
     }
@@ -357,9 +350,32 @@ impl Terminal {
             }
             Piece::Iterm(file) => crate::graphics::show_iterm(engine, *cell, file),
         });
+        self.report_color_scheme_if_enabled();
     }
 
-    /// Clear the primary screen and history; queue a shell redraw only at a semantic prompt.
+    fn report_color_scheme_if_enabled(&mut self) {
+        let reporting = self.engine.mode(Mode::COLOR_SCHEME_REPORT).unwrap_or(false);
+        if reporting && !self.color_scheme_reporting && self.push_color_scheme_report().is_ok() {
+            self.color_scheme_reporting = true;
+        } else if !reporting {
+            self.color_scheme_reporting = false;
+        }
+    }
+
+    fn push_color_scheme_report(&mut self) -> Result<(), TerminalError> {
+        let colors = |error| TerminalError::wrap(TerminalStep::Colors, error);
+        let scheme = match self.engine.default_bg_color().map_err(colors)? {
+            Some(background) => color_scheme(background),
+            None => ColorScheme::Dark,
+        };
+        let mut report = [0; 16];
+        let len = scheme.encode_report(&mut report).map_err(colors)?;
+        self.pty_output
+            .borrow_mut()
+            .extend_from_slice(&report[..len]);
+        Ok(())
+    }
+
     pub fn clear_screen(&mut self) -> Result<bool, TerminalError> {
         if self
             .engine
@@ -379,18 +395,14 @@ impl Terminal {
         Ok(true)
     }
 
-    /// The status the running program reported itself (OSC 7501), if any.
     pub fn program_status(&self) -> Option<crate::ProgramStatus> {
         self.progress.borrow().program().cloned()
     }
 
-    /// How many program status reports have changed the status, so callers
-    /// can tell which program sent the latest one.
     pub fn program_reports(&self) -> u64 {
         self.progress.borrow().program_reports()
     }
 
-    /// Ends the status of a program that has exited, keeping finished work.
     pub fn end_program_status(&mut self) {
         self.progress.borrow_mut().end_program();
     }
@@ -432,21 +444,35 @@ impl Terminal {
             .map_err(|error| TerminalError::wrap(TerminalStep::Resize, error))?;
         self.redraw_all = true;
         self.size = size;
-        self.mouse_encoder.set_size(mouse_size(size));
+        self.mouse_encoder.set_size(mouse_size(size, self.cell));
         self.mouse_encoder.reset();
+        self.last_motion.clear();
         self.history_generation = self.history_generation.wrapping_add(1);
         self.history_anchor = None;
         Ok(())
     }
 
     pub fn graphics(&mut self) -> Result<crate::Graphics, TerminalError> {
+        self.graphics_at(crate::graphics::Resolution::Fitted)
+    }
+
+    pub fn full_graphics(&mut self) -> Result<crate::Graphics, TerminalError> {
+        self.graphics_at(crate::graphics::Resolution::Full)
+    }
+
+    pub fn release_full_graphics(&mut self) {
+        self.graphics_cache.release_full();
+    }
+
+    fn graphics_at(
+        &mut self,
+        resolution: crate::graphics::Resolution,
+    ) -> Result<crate::Graphics, TerminalError> {
         self.graphics_cache
-            .snapshot(&self.engine, &mut self.render, self.cell)
+            .snapshot(&self.engine, &mut self.render, self.cell, resolution)
             .map_err(|error| TerminalError::wrap(TerminalStep::Render, error))
     }
 
-    /// The pixels of frames of an image in the last `graphics`, by their
-    /// keys: as many as one reply holds, in the order asked.
     pub fn image_frames(
         &self,
         image: u32,
@@ -459,6 +485,9 @@ impl Terminal {
 
     pub fn set_cell_size(&mut self, cell: crate::CellSize) -> Result<(), TerminalError> {
         self.cell = cell;
+        self.mouse_encoder.set_size(mouse_size(self.size, cell));
+        self.mouse_encoder.reset();
+        self.last_motion.clear();
         self.engine
             .resize(
                 self.size.cols,
@@ -523,6 +552,7 @@ impl Terminal {
             alternate_scroll: self.engine.mode(Mode::ALT_SCROLL).map_err(query)?
                 && self.engine.active_screen().map_err(query)? == Screen::Alternate,
             focus_events: self.engine.mode(Mode::FOCUS_EVENT).map_err(query)?,
+            mouse_pixels: self.engine.mode(Mode::SGR_PIXELS_MOUSE).map_err(query)?,
         })
     }
 
@@ -549,6 +579,7 @@ impl Terminal {
         let modes = self.input_modes()?;
         if !modes.mouse_tracking {
             self.held_buttons.clear();
+            self.last_motion.clear();
             self.mouse_encoder.reset();
             if modes.alternate_scroll
                 && event.action == MouseAction::Scroll
@@ -602,14 +633,23 @@ impl Terminal {
             .set_action(action)
             .set_button(button)
             .set_mods(mouse_modifiers(event.modifiers))
-            .set_position(mouse::Position {
-                x: f32::from(event.column.min(self.size.cols.saturating_sub(1))) + 0.5,
-                y: f32::from(event.row.min(self.size.rows.saturating_sub(1))) + 0.5,
-            });
+            .set_position(mouse_position(
+                event,
+                self.size,
+                self.cell,
+                modes.mouse_pixels,
+            ));
         let mut bytes = Vec::new();
         self.mouse_encoder
             .encode_to_vec(&self.mouse_event, &mut bytes)
             .map_err(|error| TerminalError::wrap(TerminalStep::Input, error))?;
+        if event.action != MouseAction::Motion {
+            self.last_motion.clear();
+        } else if bytes == self.last_motion {
+            return Ok(Vec::new());
+        } else {
+            self.last_motion.clone_from(&bytes);
+        }
         Ok(bytes)
     }
 
@@ -617,7 +657,6 @@ impl Terminal {
         self.screen_with_prompts().map(|(rows, _)| rows)
     }
 
-    /// A bounded live-screen tail for server-side activity detection, independent of viewport history.
     pub fn detection_text(&mut self) -> Result<String, TerminalError> {
         let query = |error| TerminalError::wrap(TerminalStep::Render, error);
         let snapshot = self.render.update(&self.engine).map_err(query)?;
@@ -721,7 +760,6 @@ impl Terminal {
         Ok(changed)
     }
 
-    /// Full viewport hyperlinks from the most recent `take_changed_rows` call.
     pub fn screen_links(&self) -> Vec<crate::LinkRow> {
         self.links
             .iter()
@@ -756,7 +794,6 @@ impl Terminal {
             .map_err(|error| TerminalError::wrap(TerminalStep::History, error))
     }
 
-    /// Returns `None` while output stops inside an escape sequence or character.
     pub fn snapshot(&mut self) -> Result<Option<TerminalSnapshot>, TerminalError> {
         let failed = |error| TerminalError::wrap(TerminalStep::Snapshot, error);
         if !self.engine.is_vt_ground().map_err(failed)? {
@@ -818,7 +855,7 @@ impl Terminal {
         &mut self,
         range: Range<usize>,
     ) -> Result<(Vec<Row>, Vec<u16>), TerminalError> {
-        self.history_with_metadata(range, None)
+        self.history_with_metadata(range, None, None)
     }
 
     pub fn history_with_links(
@@ -826,11 +863,23 @@ impl Terminal {
         range: Range<usize>,
     ) -> Result<TerminalHistory, TerminalError> {
         let mut links = Vec::new();
-        let (rows, prompts) = self.history_with_metadata(range, Some(&mut links))?;
+        let mut placed = Vec::new();
+        let (rows, prompts) =
+            self.history_with_metadata(range, Some(&mut links), Some(&mut placed))?;
+        let graphics = if placed.is_empty() {
+            None
+        } else {
+            Some(
+                crate::graphics::Cache::history(&self.engine, placed, self.cell)
+                    .map_err(|error| TerminalError::wrap(TerminalStep::History, error))?,
+            )
+            .filter(|graphics| !graphics.placements.is_empty())
+        };
         Ok(TerminalHistory {
             rows,
             prompts,
             links,
+            graphics,
         })
     }
 
@@ -838,6 +887,7 @@ impl Terminal {
         &mut self,
         range: Range<usize>,
         links: Option<&mut Vec<crate::LinkRow>>,
+        placed: Option<&mut Vec<crate::graphics::Found>>,
     ) -> Result<(Vec<Row>, Vec<u16>), TerminalError> {
         let end = range.end.min(self.history_rows()?);
         if range.start >= end {
@@ -856,12 +906,20 @@ impl Terminal {
             let mut prompts = Vec::new();
             let mut history_links = Vec::new();
             let mut link_count = 0;
+            let mut viewed = Vec::new();
             'viewports: for start in (range.start..end)
                 .step_by(usize::from(self.size.rows))
                 .rev()
             {
                 self.engine.scroll_viewport(ScrollViewport::Row(start));
                 let (screen, screen_prompts) = self.screen_with_prompts()?;
+                if placed.is_some() {
+                    let found = self
+                        .graphics_cache
+                        .placed(&self.engine, &mut self.render)
+                        .map_err(query)?;
+                    viewed.push((start, found));
+                }
                 for row in screen.into_iter().take(end - start).rev() {
                     if links.is_some() {
                         let mut cached = crate::links::CachedRow::default();
@@ -889,6 +947,15 @@ impl Terminal {
                 }
             }
             history.reverse();
+            if let Some(placed) = placed {
+                let first = end - history.len();
+                placed.extend(crate::graphics::page_placements(
+                    viewed,
+                    first,
+                    history.len(),
+                    self.cell,
+                ));
+            }
             for (index, row) in history.iter_mut().enumerate() {
                 row.index = u16::try_from(index).unwrap_or(u16::MAX);
             }
@@ -930,16 +997,38 @@ impl Terminal {
     }
 }
 
-fn mouse_size(size: Size) -> mouse::EncoderSize {
+fn mouse_size(size: Size, cell: crate::CellSize) -> mouse::EncoderSize {
     mouse::EncoderSize {
-        screen_width: u32::from(size.cols),
-        screen_height: u32::from(size.rows),
-        cell_width: 1,
-        cell_height: 1,
+        screen_width: u32::from(size.cols) * u32::from(cell.width.max(1)),
+        screen_height: u32::from(size.rows) * u32::from(cell.height.max(1)),
+        cell_width: u32::from(cell.width.max(1)),
+        cell_height: u32::from(cell.height.max(1)),
         padding_top: 0,
         padding_bottom: 0,
         padding_left: 0,
         padding_right: 0,
+    }
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn mouse_position(
+    event: &MouseEvent,
+    size: Size,
+    cell: crate::CellSize,
+    pixels: bool,
+) -> mouse::Position {
+    let pixel = event.pixel.filter(|_| pixels);
+    let axis = |pixel: Option<u32>, index: u16, count: u16, cell: u16| {
+        let cell = u32::from(cell.max(1));
+        let end = u32::from(count.max(1)) * cell - 1;
+        pixel.map_or_else(
+            || (u32::from(index.min(count.saturating_sub(1))) * cell) as f32 + cell as f32 / 2.0,
+            |pixel| pixel.min(end) as f32,
+        )
+    };
+    mouse::Position {
+        x: axis(pixel.map(|[x, _]| x), event.column, size.cols, cell.width),
+        y: axis(pixel.map(|[_, y]| y), event.row, size.rows, cell.height),
     }
 }
 
@@ -978,7 +1067,6 @@ fn row_runs(
         };
         text.clear();
         cell.graphemes_utf8(text)?;
-        // Like Ghostty, a Kitty image placeholder is drawn as a blank under its image.
         if text.is_empty() || text.starts_with(crate::graphics::PLACEHOLDER) {
             text.clear();
             text.push(' ');

@@ -17,7 +17,6 @@ enum Call {
     Send(String, Outgoing),
 }
 
-/// Answers each kind of call from its script, then with success.
 #[derive(Default)]
 struct FakeRelay {
     calls: Mutex<Vec<Call>>,
@@ -136,7 +135,6 @@ fn eventually(mut done: impl FnMut() -> bool) -> bool {
     false
 }
 
-/// Long enough for an event's grace period and a first delivery.
 fn settle() {
     thread::sleep(TIMING.grace * 4);
 }
@@ -163,7 +161,6 @@ impl Fixture {
             .map(|record| record.status)
     }
 
-    /// An agent in `session` starts waiting for the user; the event's id.
     fn blocked(&self, session_id: u64) -> u64 {
         self.registry.activity.update(
             AgentActivity {
@@ -575,13 +572,12 @@ fn backoff_doubles_to_a_limit_and_follows_the_relay() {
 #[test]
 fn a_paired_phone_registers_over_its_connection_and_a_local_client_may_not()
 -> Result<(), Box<dyn std::error::Error>> {
-    use std::os::unix::net::UnixStream;
-
+    use muxy_protocol::transport::{LocalStream, socket_pair};
     use muxy_protocol::wire::{Decoder, Encoder};
     use muxy_protocol::{CONTROL, DeviceCredential, Message, ReplyBody, RequestBody, RequestId};
 
     let fixture = fixture(1);
-    let request = |encoder: &mut Encoder<UnixStream>, id, body| {
+    let request = |encoder: &mut Encoder<LocalStream>, id, body| {
         encoder.send(
             CONTROL,
             &Message::Request {
@@ -590,14 +586,14 @@ fn a_paired_phone_registers_over_its_connection_and_a_local_client_may_not()
             },
         )
     };
-    let reply = |decoder: &mut Decoder<UnixStream>| loop {
+    let reply = |decoder: &mut Decoder<LocalStream>| loop {
         match decoder.next() {
             Ok((CONTROL, Message::Reply { body, .. })) => return Some(body),
             Ok(_) => {}
             Err(_) => return None,
         }
     };
-    let hello = |encoder: &mut Encoder<UnixStream>, decoder: &mut Decoder<UnixStream>| {
+    let hello = |encoder: &mut Encoder<LocalStream>, decoder: &mut Decoder<LocalStream>| {
         let sent = encoder.send(
             CONTROL,
             &Message::Hello {
@@ -607,7 +603,7 @@ fn a_paired_phone_registers_over_its_connection_and_a_local_client_may_not()
         sent.is_ok() && matches!(decoder.next(), Ok((CONTROL, Message::HelloReply { .. })))
     };
 
-    let (phone, server) = UnixStream::pair()?;
+    let (phone, server) = socket_pair()?;
     phone.set_read_timeout(Some(Duration::from_secs(10)))?;
     let Some(admission) = fixture.registry.admit_remote() else {
         panic!("no admission");
@@ -643,7 +639,7 @@ fn a_paired_phone_registers_over_its_connection_and_a_local_client_may_not()
     assert_eq!(reply(&mut decoder), Some(ReplyBody::PushUnregistered));
     assert_eq!(fixture.status(0), None);
 
-    let (desktop, server) = UnixStream::pair()?;
+    let (desktop, server) = socket_pair()?;
     desktop.set_read_timeout(Some(Duration::from_secs(10)))?;
     let serving = Arc::clone(&fixture.registry);
     thread::spawn(move || crate::connection::serve(Box::new(server), serving));

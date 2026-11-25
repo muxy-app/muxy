@@ -7,10 +7,9 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, CursorStyle, DispatchPhase, HitboxBehavior, Hsla,
-    InteractiveElement, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement,
-    Pixels, Point, Role, SharedString, StatefulInteractiveElement, Styled, Window, canvas, div,
-    point, px, relative,
+    AnyElement, Bounds, Context, CursorStyle, DispatchPhase, InteractiveElement, IntoElement,
+    MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Role, SharedString,
+    StatefulInteractiveElement, Styled, Window, canvas, div, point, px, relative,
 };
 use muxy_app_core::{Axis, Branch, GroupId, Layout, PaneContent, ProjectId, Tab, TabGroup, TabId};
 use muxy_ui::tr;
@@ -21,7 +20,6 @@ use crate::model::AppModel;
 #[derive(Clone, Default)]
 pub(crate) struct SplitResizeState(Rc<RefCell<Option<SplitResize>>>);
 
-/// What a divider splits: a tab's panes, or a project's tab groups.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SplitOwner {
     Tab(TabId),
@@ -71,12 +69,6 @@ impl SplitResizeState {
     pub(crate) fn end(&self) -> bool {
         self.0.borrow_mut().take().is_some()
     }
-    fn resizing(&self, owner: SplitOwner, path: &[Branch]) -> bool {
-        self.0
-            .borrow()
-            .as_ref()
-            .is_some_and(|resize| resize.owner == owner && resize.path == path)
-    }
     fn cursor(&self) -> Option<CursorStyle> {
         self.0
             .borrow()
@@ -101,8 +93,9 @@ pub(crate) fn render(
     let project = model.state.current_project();
     let content = match project.groups() {
         Some(groups) => {
-            let width =
-                f32::from(super::titlebar::content_size(window).width) - model.sidebar_width();
+            let width = f32::from(super::titlebar::content_size(window).width)
+                - model.sidebar_width()
+                - super::rail::width(model);
             let widths: HashMap<_, _> = groups
                 .layout()
                 .rects()
@@ -128,7 +121,6 @@ pub(crate) fn render(
     )
 }
 
-/// A tab window's panes.
 pub(crate) fn tab_window_body(
     tab: &Tab,
     model: &AppModel,
@@ -142,7 +134,6 @@ pub(crate) fn tab_window_body(
         .into_any_element()
 }
 
-/// Follows the pointer while a divider is dragged.
 fn resize_tracker(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let state = model.split_resize.clone();
     let weak = cx.weak_entity();
@@ -191,7 +182,6 @@ fn resize_tracker(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     .into_any_element()
 }
 
-/// A tab's panes, recording where they are laid out for pane and tab drops.
 fn tab_content(tab: &Tab, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let id = tab.id;
     let content = match tab.zoomed {
@@ -374,7 +364,6 @@ fn node(
     )
 }
 
-/// Lays out two children along `axis` with a draggable divider between them.
 fn split(
     owner: SplitOwner,
     path: Vec<Branch>,
@@ -385,11 +374,7 @@ fn split(
 ) -> AnyElement {
     let bounds = Rc::new(Cell::new(Bounds::default()));
     let measured = bounds.clone();
-    let divider = Rc::new(Cell::new(Bounds::default()));
-    let measured_divider = divider.clone();
     let state = model.split_resize.clone();
-    let resizing = state.resizing(owner, &path);
-    let hoverable = !state.active();
     let (id, selector) = match owner {
         SplitOwner::Tab(tab) => (
             format!("split-{tab}-{path:?}"),
@@ -407,7 +392,6 @@ fn split(
         .absolute()
         .block_mouse_except_scroll()
         .cursor(resize_cursor(axis))
-        .child(highlight(divider, resizing, hoverable, model.theme.accent))
         .when(!model.webviews.panes.is_empty(), |hit| {
             hit.child(model.webview_grip(None, resize_cursor(axis)))
         })
@@ -423,7 +407,6 @@ fn split(
             window.refresh();
             cx.stop_propagation();
         });
-    // Centered on the 1px divider, which starts at `(extent - 1) * ratio`.
     let offset = px(-ratio) - (grip - px(1.0)) * 0.5;
     let hit = match axis {
         Axis::Horizontal => hit
@@ -451,7 +434,6 @@ fn split(
                     measured.set(bounds);
                     let [first_bounds, divider, second_bounds] =
                         split_bounds(bounds, axis, ratio, window.scale_factor());
-                    measured_divider.set(divider);
                     first.layout_as_root(first_bounds.size.into(), window, cx);
                     first.prepaint_at(first_bounds.origin, window, cx);
                     second.layout_as_root(second_bounds.size.into(), window, cx);
@@ -468,34 +450,6 @@ fn split(
         )
         .child(hit)
         .into_any_element()
-}
-
-/// Paints `divider` in the accent color while it is dragged, or while the
-/// pointer is over this element and `hoverable`.
-fn highlight(
-    divider: Rc<Cell<Bounds<Pixels>>>,
-    resizing: bool,
-    hoverable: bool,
-    accent: Hsla,
-) -> AnyElement {
-    canvas(
-        |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
-        move |_, hitbox, window, _| {
-            let hovered = hitbox.is_hovered(window);
-            if resizing || (hoverable && hovered) {
-                window.paint_quad(gpui::fill(divider.get(), accent));
-            }
-            let view = window.current_view();
-            window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
-                if phase == DispatchPhase::Capture && hitbox.is_hovered(window) != hovered {
-                    cx.notify(view);
-                }
-            });
-        },
-    )
-    .absolute()
-    .size_full()
-    .into_any_element()
 }
 
 fn split_bounds(
@@ -533,8 +487,6 @@ fn split_bounds(
     ]
 }
 
-/// What a pane's region is called: the kind of thing it shows and, when it says
-/// more than that, its title.
 fn pane_name(content: &PaneContent, title: &str) -> SharedString {
     let kind = match content {
         PaneContent::Terminal { .. } => tr!("Terminal"),
@@ -557,11 +509,8 @@ fn pane_state(focused: bool, zoomed: bool) -> Option<SharedString> {
     ])
 }
 
-/// How much of a pane that isn't focused is covered by its background.
 const UNFOCUSED_DIM: f32 = 0.35;
 
-/// A named region around what a pane shows, so a client can tell the panes of a
-/// split apart.
 fn pane_element(
     id: muxy_app_core::PaneId,
     tab: &Tab,
@@ -726,8 +675,6 @@ fn pane_content(id: muxy_app_core::PaneId, model: &AppModel, cx: &Context<AppMod
         .into_any_element()
 }
 
-/// A terminal of another computer's server that has nothing to show yet: the
-/// server isn't connected, and Connect connects it.
 fn offline_notice(
     id: muxy_app_core::PaneId,
     server: muxy_app_core::ServerId,

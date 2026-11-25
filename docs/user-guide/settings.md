@@ -12,17 +12,17 @@ On macOS, choose **About Muxy** (or **About Muxy Beta**) from the app menu to op
 
 | Section | What's in it |
 | --- | --- |
-| General | Closing behavior, the app that opens files, window size, worktree locations, the anonymous daily ping |
+| General | Closing behavior, file types, defaults, and opener rules, window size, worktree locations, the anonymous daily ping |
 | Quick Terminal | Global shortcut, pinning, size, transparency |
 | Composer | Clearing, image submission, font |
-| Appearance | Language, light and dark themes, interface size, sidebar, status bar, pane headers, tips |
+| Appearance | Language, light and dark themes, interface size, sidebar, status bar, rail, pane headers, the Open in App button, tips |
 | Keyboard | Every shortcut. See [Keyboard shortcuts](keyboard-shortcuts.md) |
 | Commands | Your own commands, each run in a new tab, with optional shortcuts |
 | Terminal | Fonts, spacing, transparency, vibrancy, colors, cursor, padding, selection, scrolling, Option keys, key bindings |
 | Browser | The [built-in browser](../features/browser.md): terminal links, search engine, home page, profiles, import |
 | Servers | This computer's [server](../features/server.md#settings): connect, restart and stop, shell, history, and shell integration; the [phones](../features/mobile.md) and computers paired as clients; and [remote servers](../features/remote-servers.md) |
 | Extensions | Installed extensions and the marketplace |
-| AI | Tools and prompts for [Git](../features/git.md) actions |
+| AI | Tools and prompts for [Git](../features/git.md) actions, and for rewriting the Rich Input |
 | Backup & Restore | Export, restore, and import from 1.x |
 | About | App name, version, channel, Check for Updates |
 
@@ -76,6 +76,9 @@ Use **Settings → Terminal** for:
 - Whether both, neither, left, or right Option keys act as Alt.
 - Whether new tabs and panes start in the focused pane's working directory
   (**Keep working directory**, off by default) or in the project folder.
+- Whether [Insert Path](../features/terminal.md#insert-a-path) lists the paths
+  you chose most recently first (**Show recently used paths**, on by default).
+  Turning it off also stops remembering them.
 - Key bindings the terminal handles while focused: record a key, then pick an
   action such as sending text. They win over app shortcuts. You can also turn
   off the built-in terminal bindings.
@@ -148,6 +151,24 @@ appearance.
 Custom themes in the profile's `themes/` folder show up too. The chosen theme
 colors the app and its terminals.
 
+## Sidebar
+
+`Cmd+B` expands and collapses the sidebar. **Collapsed sidebar style** in
+**Settings → Appearance** picks what a collapsed sidebar leaves: **Icons**, a
+narrow column of project icons in Project Focused or of an extension sidebar,
+or **Hidden**.
+
+Turn on **Auto-hide sidebar** to give the window its full width. The sidebar
+then stays out of sight until the pointer rests near the window's left edge,
+below the title bar. It slides in as a floating panel over your tabs, expanded
+or as icons as you left it, and slides away once the pointer leaves it. It
+stays while one of its menus is open or you drag something.
+
+With auto-hide on, `Cmd+B` shows or hides the floating sidebar instead of
+resizing it. A sidebar shown this way stays until you press `Cmd+B` again,
+click outside it, or pass the pointer over it and leave. A collapsed sidebar set
+to Hidden never floats, and `Cmd+B` expands it into the floating panel.
+
 ## Backup and restore
 
 - **Export…** saves a `.muxy` file with your settings, `terminal.toml`, themes,
@@ -172,10 +193,62 @@ and extensions.
 
 **Settings → Extensions → Browse** installs extensions from the marketplace.
 New extensions start disabled; review their permissions and turn them on.
-Updates are manual: use **Update all**, or update one from its page. Building
-your own? Choose **Create Extension…** to
+On **Installed**, use **Check for updates** to check marketplace extensions.
+Updates are manual: use **Update all**, which appears when updates are
+available, or update one from its page.
+Building your own? Choose **Create Extension…** to
 [have an agent build it](../extensions/agents.md), or see
 [Extensions](../extensions/overview.md).
 
+Extensions can put icons on the rail, a column on the right edge of the
+window. Open and close it with the rail button at the end of the top bar. Turn
+off **Settings → Appearance → Show rail** to hide the rail and its button and
+show those icons in the top bar instead.
+
 Language packs are extensions too. Pick a language in **Settings → Appearance →
 App language**, or choose **Browse language extensions…**.
+
+## File types and openers
+
+Under **General → Files**, inspect the types registered by enabled extensions.
+An extension opens matching project files from terminal links. If more than one
+matches, choose an opener or turn on **Always use for this type** in the chooser
+before selecting it. No match means Finder on macOS or the system file manager
+on Linux. URLs keep their browser settings. Remote paths use remote-file
+handling when no extension matches.
+
+Use **File type rules → Add Rule** for custom types and defaults. Patterns such
+as `*.md`, `*.tar.gz`, `.env`, and `Dockerfile` match filenames at any depth;
+`docs/*.txt` matches a project-relative path. Matching ignores case. Choose an
+extension, **Always ask**, or the file manager. Assigning an extension also
+registers that custom pattern for it. Rules run from top to bottom; use **Move
+Up** and **Move Down** to change priority. **Edit** changes a pattern or opener,
+and **Remove** restores automatic matching for that rule.
+
+**Always show the file opener** shows the chooser even for one matching
+extension or a saved default. Unsupported files still go to the file manager.
+Disabled or removed extensions are not candidates; their saved rules become
+active again if they return. The old global `openers.file` setting is accepted
+for compatibility and ignored. The topbar project-app choice only affects
+explicit clicks on that control.
+
+These preferences are stored in `settings.toml`:
+
+```toml
+[openers]
+always_ask = false
+
+[[openers.file_rules]]
+pattern = "*.md"
+opener = "preview:markdown"
+
+[[openers.file_rules]]
+pattern = "Dockerfile"
+opener = "ask"
+
+[[openers.file_rules]]
+pattern = "*.pdf"
+opener = "system.finder"
+```
+
+An extension opener ID is `<extension package name>:<file opener id>`.

@@ -9,7 +9,9 @@ use gpui::{Bounds, CursorStyle, Pixels, Rgba, Window};
 use muxy_core::worker::WorkerPool;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2::{
+    AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel,
+};
 use objc2_app_kit::NSColor;
 use objc2_foundation::{
     NSData, NSDictionary, NSError, NSJSONReadingOptions, NSJSONSerialization, NSJSONWritingOptions,
@@ -275,7 +277,6 @@ impl NativeWebview {
         source: Source,
         script: &str,
         background: Rgba,
-        transparent_background: bool,
     ) -> Result<(Self, Receiver<Event>), String> {
         let url = source.entry_url().map_err(|error| error.to_string())?;
         let mtm = MainThreadMarker::new().ok_or("webview must be created on the main thread")?;
@@ -306,6 +307,7 @@ impl NativeWebview {
             );
         }
         install_script(&controller, script, mtm);
+        disable_peer_connections(&configuration);
         let view = unsafe {
             WKWebView::initWithFrame_configuration(
                 WKWebView::alloc(mtm),
@@ -320,12 +322,10 @@ impl NativeWebview {
         view.setWantsLayer(true);
         unsafe {
             view.setUnderPageBackgroundColor(Some(&background_color(background)));
-            if transparent_background {
-                view.setValue_forKey(
-                    Some(&NSNumber::new_bool(false)),
-                    &NSString::from_str("drawsBackground"),
-                );
-            }
+            view.setValue_forKey(
+                Some(&NSNumber::new_bool(false)),
+                &NSString::from_str("drawsBackground"),
+            );
         }
         let mut host = Host::new(parent, mtm);
         host.container().addSubview(&view);
@@ -353,17 +353,14 @@ impl NativeWebview {
         self.host.set_shortcuts(modal, shortcuts);
     }
 
-    /// Whether Muxy shows this page focused. Keys reach the page only while it
-    /// is, or after a click into it until Muxy catches up. A page that takes
-    /// the native focus itself, as when its script focuses an element, doesn't
-    /// get them.
     pub(super) fn set_focused(&self, focused: bool) {
         self.host.set_focused(focused);
     }
 
-    /// Sends clicks on the resize grips drawn over the page, in window
-    /// coordinates, to Muxy and shows each grip's cursor there. The page's
-    /// pixels don't change. Call after [`Self::occlude`].
+    pub(super) fn take_click(&self) -> bool {
+        self.host.take_click()
+    }
+
     pub(super) fn set_grips(&self, grips: &[(Bounds<Pixels>, CursorStyle)]) {
         self.host.set_grips(grips);
     }
@@ -463,8 +460,8 @@ impl NativeWebview {
         self.host.sync(bounds, clip, radius);
     }
 
-    pub(super) fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
-        self.host.occlude(occlusions);
+    pub(super) fn occlude(&self, occlusions: &[super::Cover], window: &mut Window) {
+        self.host.occlude(occlusions, window);
     }
 
     pub(super) fn occlude_also(&self, bounds: Bounds<Pixels>) {
@@ -519,6 +516,17 @@ impl NativeWebview {
     pub(super) fn choose(&self, _option: Option<usize>) {}
 }
 
+fn disable_peer_connections(configuration: &WKWebViewConfiguration) {
+    unsafe {
+        let preferences: Retained<AnyObject> = msg_send![configuration, preferences];
+        let setter = sel!(_setPeerConnectionEnabled:);
+        let responds: bool = msg_send![&preferences, respondsToSelector: setter];
+        if responds {
+            let _: () = msg_send![&preferences, _setPeerConnectionEnabled: false];
+        }
+    }
+}
+
 fn install_script(controller: &WKUserContentController, source: &str, mtm: MainThreadMarker) {
     unsafe {
         controller.removeAllUserScripts();
@@ -556,8 +564,6 @@ impl Drop for NativeWebview {
     }
 }
 
-/// The color the engine draws past the page's edges: clear for a page that lets
-/// what is behind it show through, and otherwise the opaque theme color.
 fn background_color(background: Rgba) -> Retained<NSColor> {
     NSColor::colorWithSRGBRed_green_blue_alpha(
         f64::from(background.r),
@@ -577,11 +583,13 @@ fn asset_response(
             &*NSString::from_str("Content-Type"),
             &*NSString::from_str("Content-Length"),
             &*NSString::from_str("Cache-Control"),
+            &*NSString::from_str("Content-Security-Policy"),
         ],
         &[
             &*NSString::from_str(content_type),
             &*NSString::from_str(&length.to_string()),
             &*NSString::from_str("no-store"),
+            &*NSString::from_str(rules::CONTENT_SECURITY_POLICY),
         ],
     );
     objc2_foundation::NSHTTPURLResponse::initWithURL_statusCode_HTTPVersion_headerFields(

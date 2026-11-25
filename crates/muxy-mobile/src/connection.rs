@@ -15,7 +15,7 @@ use crate::terminal::Terminal;
 use crate::terminals::{Delivery, Terminals};
 use crate::titles::Titles;
 
-/// Receives connection events on an SDK thread; hop to the main thread before touching UI.
+#[doc = " Receives connection events on an SDK thread; hop to the main thread before touching UI."]
 #[uniffi::export(with_foreign)]
 pub trait ConnectionListener: Send + Sync {
     fn on_event(&self, event: ConnectionEvent);
@@ -23,15 +23,15 @@ pub trait ConnectionListener: Send + Sync {
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum ConnectionEvent {
-    /// The terminal's screen changed; read it again.
+    #[doc = " The terminal's screen changed; read it again."]
     ScreenChanged {
         session_id: u64,
     },
-    /// The terminal's title, directory, history size, or mouse modes changed.
+    #[doc = " The terminal's title, directory, history size, or mouse modes changed."]
     MetadataChanged {
         session_id: u64,
     },
-    /// What to call the session changed, for its tab whether or not it is attached.
+    #[doc = " What to call the session changed, for its tab whether or not it is attached."]
     TitleChanged {
         session_id: u64,
         title: String,
@@ -39,35 +39,34 @@ pub enum ConnectionEvent {
     SessionEnded {
         session_id: u64,
     },
-    /// Projects changed; read them again.
+    #[doc = " Projects changed; read them again."]
     CatalogChanged,
-    /// Sessions were created, ended, or attached; read them again.
+    #[doc = " Sessions were created, ended, or attached; read them again."]
     SessionsChanged,
-    /// Agent activity changed; read it again.
+    #[doc = " Agent activity changed; read it again."]
     ActivityChanged,
-    /// The repository that `GitRepository::watch` watches changed.
+    #[doc = " The repository that `GitRepository::watch` watches changed."]
     GitChanged {
         project_id: String,
     },
-    /// Files changed in a project that `ProjectFiles::watch` watches. `paths`
-    /// are relative to the project's folder; empty means anything may have changed.
+    #[doc = " Files changed in a project that `ProjectFiles::watch` watches. `paths`"]
+    #[doc = " are relative to the project's folder; empty means anything may have changed."]
     FilesChanged {
         project_id: String,
         paths: Vec<String>,
     },
-    /// The server is restarting for an update; connect again shortly.
+    #[doc = " The server is restarting for an update; connect again shortly."]
     ServerRestarting,
-    /// The connection closed; connect again, then attach again.
+    #[doc = " The connection closed; connect again, then attach again."]
     Disconnected,
 }
 
-/// A live connection to one server, paired or reached over SSH.
+#[doc = " A live connection to one server, paired or reached over SSH."]
 #[derive(uniffi::Object)]
 pub struct Connection {
     client: Client,
     terminals: Arc<Terminals>,
     titles: Arc<Titles>,
-    /// Paired rather than over SSH, so the server knows the phone.
     paired: bool,
 }
 
@@ -88,7 +87,7 @@ impl Drop for Connection {
 
 #[uniffi::export]
 impl Connection {
-    /// Connects with a saved pairing, trying each of the server's addresses.
+    #[doc = " Connects with a saved pairing, trying each of the server's addresses."]
     #[uniffi::constructor]
     pub fn connect(
         credential: ServerCredential,
@@ -117,9 +116,9 @@ impl Connection {
         Self::start(Client::connect_remote(&endpoint, device)?, listener, true)
     }
 
-    /// Connects through an SSH exec channel that the app opened to run
-    /// `bridge_command()`. `host` names the computer in errors. The server
-    /// sees a local client, which older servers keep calling a CLI.
+    #[doc = " Connects through an SSH exec channel that the app opened to run"]
+    #[doc = " `bridge_command()`. `host` names the computer in errors. The server"]
+    #[doc = " sees a local client, which older servers keep calling a CLI."]
     #[uniffi::constructor]
     pub fn connect_channel(
         channel: Arc<BridgeChannel>,
@@ -138,7 +137,7 @@ impl Connection {
         self.client.server_info().build.version.clone()
     }
 
-    /// The server's stable id, the same as `serverId` from pairing with it.
+    #[doc = " The server's stable id, the same as `serverId` from pairing with it."]
     pub fn server_id(&self) -> Result<String, MobileError> {
         Ok(self.client.catalog_page(None, None)?.server.to_string())
     }
@@ -153,7 +152,7 @@ impl Connection {
             .collect())
     }
 
-    /// Every session of a project, including ended ones whose content is kept.
+    #[doc = " Every session of a project, including ended ones whose content is kept."]
     pub fn sessions(&self, project_id: String) -> Result<Vec<Session>, MobileError> {
         let project = project(&project_id)?;
         Ok(self
@@ -170,7 +169,7 @@ impl Connection {
             .collect())
     }
 
-    /// Starts a shell in the project's directory.
+    #[doc = " Starts a shell in the project's directory."]
     pub fn create_session(
         &self,
         project_id: String,
@@ -200,9 +199,9 @@ impl Connection {
         })
     }
 
-    /// The session with this id, under the project it belongs to now, for
-    /// opening a notification's pane. `None` when it is no longer running. A
-    /// session that moves between the two reads is looked up again.
+    #[doc = " The session with this id, under the project it belongs to now, for"]
+    #[doc = " opening a notification's pane. `None` when it is no longer running. A"]
+    #[doc = " session that moves between the two reads is looked up again."]
     pub fn find_session(&self, session_id: u64) -> Result<Option<Session>, MobileError> {
         let id = session(session_id)?;
         let running = |listed: &muxy_protocol::ProjectSession| {
@@ -232,8 +231,8 @@ impl Connection {
         Ok(None)
     }
 
-    /// Whether this server takes `registerPush`: a paired connection to a
-    /// server new enough. Doesn't talk to the server.
+    #[doc = " Whether this server takes `registerPush`: a paired connection to a"]
+    #[doc = " server new enough. Doesn't talk to the server."]
     pub fn supports_push_notifications(&self) -> bool {
         self.paired
             && self
@@ -241,9 +240,9 @@ impl Connection {
                 .supports(muxy_protocol::Feature::PUSH_NOTIFICATIONS)
     }
 
-    /// Gives this phone's push token to the server, on every connect while
-    /// notifications are on and whenever the token changes. Keep the
-    /// returned key for this server. Can take up to 20 seconds.
+    #[doc = " Gives this phone's push token to the server, on every connect while"]
+    #[doc = " notifications are on and whenever the token changes. Keep the"]
+    #[doc = " returned key for this server. Can take up to 20 seconds."]
     pub fn register_push(
         &self,
         platform: PushPlatform,
@@ -260,18 +259,18 @@ impl Connection {
         Ok(self.client.register_push(token)?.into())
     }
 
-    /// Stops this server's notifications to the phone; the server forgets its key.
+    #[doc = " Stops this server's notifications to the phone; the server forgets its key."]
     pub fn unregister_push(&self) -> Result<(), MobileError> {
         self.require_pairing()?;
         Ok(self.client.unregister_push()?)
     }
 
-    /// Ends the session for every client; its panes close everywhere.
+    #[doc = " Ends the session for every client; its panes close everywhere."]
     pub fn end_session(&self, session_id: u64) -> Result<(), MobileError> {
         Ok(self.client.end_session(session(session_id)?)?)
     }
 
-    /// Attaches without resizing a session other clients already show.
+    #[doc = " Attaches without resizing a session other clients already show."]
     pub fn attach(
         &self,
         session_id: u64,
@@ -289,10 +288,12 @@ impl Connection {
             return Err(error.into());
         }
         let view = attached.recv().map_err(|_| MobileError::Disconnected)?;
+        view.lock().claim_if_shown(size);
         Ok(Arc::new(Terminal {
             client: self.client.clone(),
             view,
             terminals: Arc::clone(&self.terminals),
+            titles: Arc::clone(&self.titles),
         }))
     }
 
@@ -300,18 +301,18 @@ impl Connection {
         Ok(self.client.activity()?.into())
     }
 
-    /// Marks events as seen on every client.
+    #[doc = " Marks events as seen on every client."]
     pub fn acknowledge_activity(&self, event_ids: Vec<u64>) -> Result<(), MobileError> {
         Ok(self.client.acknowledge_activity(event_ids)?)
     }
 
-    /// Git in the project's repository. Doesn't talk to the server.
+    #[doc = " Git in the project's repository. Doesn't talk to the server."]
     pub fn git(&self, project_id: String) -> Result<Arc<GitRepository>, MobileError> {
         let project = project(&project_id)?;
         Ok(Arc::new(GitRepository::new(self.client.clone(), project)))
     }
 
-    /// The project's folder. Doesn't talk to the server.
+    #[doc = " The project's folder. Doesn't talk to the server."]
     pub fn files(&self, project_id: String) -> Result<Arc<ProjectFiles>, MobileError> {
         let project = project(&project_id)?;
         Ok(Arc::new(ProjectFiles::new(self.client.clone(), project)))
@@ -352,8 +353,6 @@ impl Connection {
             .map_err(|error| MobileError::Unreachable {
                 reason: error.to_string(),
             })?;
-        // Phones draw no images, so they never read their pixels. An older
-        // server refuses and keeps sending them.
         let _ = client.defer_images();
         if client.watch_session_metadata().is_ok() {
             titles.watching();
@@ -391,14 +390,12 @@ fn session(id: u64) -> Result<SessionId, MobileError> {
     })
 }
 
-/// What the event thread applies events to.
 struct Pump {
     client: Client,
     terminals: Arc<Terminals>,
     titles: Arc<Titles>,
 }
 
-/// Applies frames and acknowledges them, then tells the app what to read again.
 fn deliver(pump: &Pump, events: &Receiver<ClientEvent>, listener: &dyn ConnectionListener) {
     let Pump {
         client,

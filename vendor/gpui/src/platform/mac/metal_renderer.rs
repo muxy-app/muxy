@@ -27,15 +27,12 @@ use parking_lot::Mutex;
 
 use std::{cell::Cell, ffi::c_void, mem, ptr, sync::Arc};
 
-// Exported to metal
 pub(crate) type PointF = crate::Point<f32>;
 
 #[cfg(not(feature = "runtime_shaders"))]
 const SHADERS_METALLIB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/shaders.metallib"));
 #[cfg(feature = "runtime_shaders")]
 const SHADERS_SOURCE_FILE: &str = include_str!(concat!(env!("OUT_DIR"), "/stitched_shaders.metal"));
-// Use 4x MSAA, all devices support it.
-// https://developer.apple.com/documentation/metal/mtldevice/1433355-supportstexturesamplecount
 const PATH_SAMPLE_COUNT: u32 = 4;
 const MIN_INSTANCE_BUFFER_SIZE: usize = 2 * 1024 * 1024;
 const MAX_INSTANCE_BUFFER_SIZE: usize = 256 * 1024 * 1024;
@@ -137,9 +134,6 @@ pub struct PathRasterizationVertex {
 
 impl MetalRenderer {
     fn new() -> Self {
-        // Prefer low‐power integrated GPUs on Intel Mac. On Apple
-        // Silicon, there is only ever one GPU, so this is equivalent to
-        // `metal::Device::system_default()`.
         let mut devices = metal::Device::all();
         devices.sort_by_key(|device| (device.is_removable(), device.is_low_power()));
         let Some(device) = devices.pop() else {
@@ -185,8 +179,6 @@ impl MetalRenderer {
             to_float2_bits(point(1., 0.)),
             to_float2_bits(point(1., 1.)),
         ];
-        // Apple GPUs render a multisample pass entirely in tile memory, so its
-        // texture needs no backing store.
         let is_apple_gpu = device.supports_family(metal::MTLGPUFamily::Apple1);
 
         let unit_vertices = device.new_buffer_with_data(
@@ -362,11 +354,9 @@ impl MetalRenderer {
     }
 
     pub fn update_transparency(&self, _transparent: bool) {
-        // todo(mac)?
     }
 
     pub fn destroy(&self) {
-        // nothing to do
     }
 
     pub fn draw(&mut self, scene: &Scene) {
@@ -377,6 +367,11 @@ impl MetalRenderer {
             return;
         };
         let layer = self.layer.clone();
+        let present_with_transaction =
+            self.presents_with_transaction || scene.synchronize_native_layers;
+        if layer.presents_with_transaction() != present_with_transaction {
+            layer.set_presents_with_transaction(present_with_transaction);
+        }
         let viewport_size = layer.drawable_size();
         let viewport_size: Size<DevicePixels> = size(
             (viewport_size.width.ceil() as i32).into(),
@@ -409,7 +404,7 @@ impl MetalRenderer {
                 let block = block.copy();
                 command_buffer.add_completed_handler(&block);
 
-                if self.presents_with_transaction {
+                if present_with_transaction {
                     command_buffer.commit();
                     command_buffer.wait_until_scheduled();
                     drawable.present();
@@ -783,13 +778,6 @@ impl MetalRenderer {
             Some(intermediate_texture),
         );
 
-        // When copying paths from the intermediate texture to the drawable,
-        // each pixel must only be copied once, in case of transparent paths.
-        //
-        // If all paths have the same draw order, then their bounds are all
-        // disjoint, so we can copy each path's bounds individually. If this
-        // batch combines different draw orders, we perform a single copy
-        // for a minimal spanning rect.
         let sprites;
         if paths.last().unwrap().order == first_path.order {
             sprites = paths
@@ -1121,7 +1109,6 @@ impl MetalRenderer {
                 mem::size_of_val(&texture_size) as u64,
                 &texture_size as *const Size<DevicePixels> as *const _,
             );
-            // let y_texture = y_texture.get_texture().unwrap().
             command_encoder.set_fragment_texture(SurfaceInputIndex::YTexture as u64, unsafe {
                 let texture = CVMetalTextureGetTexture(y_texture.as_concrete_TypeRef());
                 Some(metal::TextureRef::from_ptr(texture as *mut _))
@@ -1358,7 +1345,6 @@ fn write_path_vertices(
     }
 }
 
-// Align to multiples of 256 make Metal happy.
 fn align_offset(offset: &mut usize) {
     *offset = (*offset).div_ceil(256) * 256;
 }
@@ -1609,8 +1595,6 @@ mod tests {
             metal::MTLRegion::new_2d(0, 0, 1, 1),
             0,
         );
-        // Half coverage over a half-transparent backdrop leaves a quarter of
-        // the content behind the window visible: alpha 0.75, not opaque.
         assert!((190..=192).contains(&pixel[3]), "alpha {}", pixel[3]);
     }
 

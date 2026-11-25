@@ -1,3 +1,4 @@
+pub(crate) mod automation;
 pub(crate) mod input;
 pub(crate) mod modal;
 pub(crate) mod panel;
@@ -27,7 +28,6 @@ pub(crate) struct Request {
 
 pub(crate) enum SurfaceEvent {
     Request(Request),
-    /// The page started showing another document.
     Navigated,
     Escape,
     Shortcut(gpui::Keystroke),
@@ -48,7 +48,7 @@ pub(crate) enum SurfaceKind {
 }
 
 impl SurfaceKind {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Tab => "tab",
             Self::Panel => "panel",
@@ -64,10 +64,7 @@ pub(crate) struct Page {
     pub instance: String,
     pub data: Value,
     pub kind: SurfaceKind,
-    /// The name of a panel opened as one of several copies.
     pub panel_instance: Option<String>,
-    /// Whether nothing is drawn behind the page, so what is under it shows
-    /// where the page is transparent.
     pub transparent: bool,
 }
 
@@ -83,11 +80,8 @@ impl Presentation {
         self.visible && !self.blocked && !failed
     }
 
-    /// A page the app draws is its snapshots. One the system shows keeps a
-    /// snapshot under it for when it is hidden, except where the page lets
-    /// what is behind it show through.
-    fn show_snapshot(&self, see_through: bool, failed: bool) -> bool {
-        NativeWebview::DRAWN_BY_APP || !see_through || !self.native_visible(failed)
+    fn show_snapshot(&self, failed: bool) -> bool {
+        NativeWebview::DRAWN_BY_APP || !self.native_visible(failed)
     }
 
     fn update_focus(&mut self, visible: bool, blocked: bool, focused: bool) -> Option<bool> {
@@ -113,8 +107,6 @@ pub(crate) struct Webview {
     theme: Value,
     background: gpui::Rgba,
     transparent: bool,
-    /// Whether the page takes the pointer only over its hit regions, so a
-    /// click elsewhere on it must not take the keyboard.
     pass_through: bool,
     panel_instance: Option<String>,
     presentation: Presentation,
@@ -125,10 +117,11 @@ pub(crate) struct Webview {
     metrics: Metrics,
     cursor: gpui::CursorStyle,
     pointer: Rc<input::PointerState>,
-    /// The `<select>` a page the app draws has open.
     menu: Option<OptionMenu>,
     closes: CloseRequests,
     close_results: HashMap<u64, async_channel::Sender<bool>>,
+    loaded: bool,
+    automation: automation::Automation,
     _events: Task<()>,
 }
 
@@ -161,13 +154,7 @@ impl Webview {
             &theme_values,
         );
         let background = page_background(&theme, transparent);
-        let (native, events) = NativeWebview::new(
-            window,
-            source.clone(),
-            &script,
-            background,
-            transparent || matches!(kind, SurfaceKind::Modal | SurfaceKind::Popover),
-        )?;
+        let (native, events) = NativeWebview::new(window, source.clone(), &script, background)?;
         Ok(cx.new(move |cx| {
             cx.on_release(|view: &mut Self, cx| view.clear_snapshot(cx))
                 .detach();
@@ -204,6 +191,8 @@ impl Webview {
                 menu: None,
                 closes: CloseRequests::default(),
                 close_results: HashMap::new(),
+                loaded: false,
+                automation: automation::Automation::default(),
                 _events: events,
             }
         }))
@@ -222,6 +211,57 @@ impl Webview {
             .reply(request.id, request.generation, &response.to_string());
     }
 
+    fn handle_message(&mut self, id: u64, generation: u64, json: &str, cx: &mut Context<Self>) {
+        if generation != self.native.generation() {
+            return;
+        }
+        let body: Value = serde_json::from_str(json).unwrap_or(Value::Null);
+        let request = Request {
+            id,
+            generation,
+            body,
+        };
+        match request.body["verb"].as_str() {
+            Some(automation::RESULT_VERB) => {
+                let token = request.body["requestID"].as_str().unwrap_or_default();
+                let result = if self.automation.finish(token, &request.body["args"]) {
+                    Ok(Value::Null)
+                } else {
+                    Err("no script is waiting for this result".into())
+                };
+                self.reply(&request, result);
+            }
+            Some("lifecycle.ackBeforeClose") => {
+                if let Some(id) = request.body["args"]["callID"]
+                    .as_str()
+                    .and_then(|id| id.parse().ok())
+                {
+                    self.closes.acknowledge(id);
+                }
+                self.reply(&request, Ok(Value::Null));
+            }
+            Some("lifecycle.resolveBeforeClose") => {
+                if let Some(id) = request.body["args"]["callID"]
+                    .as_str()
+                    .and_then(|id| id.parse().ok())
+                    && self.closes.resolve(id)
+                {
+                    self.resolve_close(
+                        id,
+                        request.body["args"]["prevent"].as_bool().unwrap_or(false),
+                    );
+                }
+                self.reply(&request, Ok(Value::Null));
+            }
+            Some(_)
+                if request.body["requestID"].is_string() && request.body["args"].is_object() =>
+            {
+                cx.emit(SurfaceEvent::Request(request));
+            }
+            _ => self.reply(&request, Err("invalid webview message".into())),
+        }
+    }
+
     fn handle(&mut self, event: Event, cx: &mut Context<Self>) {
         match event {
             Event::Asset { id, result } => self.native.complete_asset(id, result),
@@ -229,55 +269,18 @@ impl Webview {
                 id,
                 generation,
                 json,
-            } => {
-                if generation != self.native.generation() {
-                    return;
-                }
-                let body: Value = serde_json::from_str(&json).unwrap_or(Value::Null);
-                let request = Request {
-                    id,
-                    generation,
-                    body,
-                };
-                match request.body["verb"].as_str() {
-                    Some("lifecycle.ackBeforeClose") => {
-                        if let Some(id) = request.body["args"]["callID"]
-                            .as_str()
-                            .and_then(|id| id.parse().ok())
-                        {
-                            self.closes.acknowledge(id);
-                        }
-                        self.reply(&request, Ok(Value::Null));
-                    }
-                    Some("lifecycle.resolveBeforeClose") => {
-                        if let Some(id) = request.body["args"]["callID"]
-                            .as_str()
-                            .and_then(|id| id.parse().ok())
-                            && self.closes.resolve(id)
-                        {
-                            self.resolve_close(
-                                id,
-                                request.body["args"]["prevent"].as_bool().unwrap_or(false),
-                            );
-                        }
-                        self.reply(&request, Ok(Value::Null));
-                    }
-                    Some(_)
-                        if request.body["requestID"].is_string()
-                            && request.body["args"].is_object() =>
-                    {
-                        cx.emit(SurfaceEvent::Request(request));
-                    }
-                    _ => self.reply(&request, Err("invalid webview message".into())),
-                }
-            }
+            } => self.handle_message(id, generation, &json, cx),
             Event::Navigated => {
                 self.fail_closes();
+                self.loaded = false;
+                self.automation
+                    .fail_scripts("the page loaded another document before answering");
                 self.error = None;
                 self.clear_snapshot(cx);
                 cx.emit(SurfaceEvent::Navigated);
             }
             Event::Loaded => {
+                self.loaded = true;
                 self.push_state();
                 if self.presentation.native_visible(false) {
                     self.native.snapshot();
@@ -285,6 +288,8 @@ impl Webview {
             }
             Event::Failed(error) => {
                 self.fail_closes();
+                self.automation.fail_captures(&error);
+                self.automation.fail_scripts(&error);
                 self.error = Some(error);
                 self.native.set_visible(false);
             }
@@ -301,9 +306,10 @@ impl Webview {
                 generation,
                 image,
             } => {
-                // Asked even when the snapshot will not be shown: a backend
-                // that paces its snapshots sends the next one after this.
                 let current = self.native.accept_snapshot(id, generation);
+                if current && self.automation.wants_capture() {
+                    self.automation.deliver(&image);
+                }
                 if current
                     && self.error.is_none()
                     && let Some(image) = render_snapshot(image)
@@ -316,6 +322,56 @@ impl Webview {
             }
         }
         cx.notify();
+    }
+
+    pub(crate) fn run_page_script(
+        &mut self,
+        body: &str,
+    ) -> (String, async_channel::Receiver<automation::Outcome>) {
+        let (script, token, result) = self.automation.start(body);
+        self.native.evaluate(&script);
+        (token, result)
+    }
+
+    pub(crate) fn forget_page_script(&mut self, token: &str) {
+        self.automation.forget(token);
+    }
+
+    pub(crate) fn capture(
+        &mut self,
+    ) -> (
+        u64,
+        async_channel::Receiver<Result<automation::Picture, String>>,
+    ) {
+        let (id, picture) = self.automation.capture();
+        match &self.error {
+            Some(error) => {
+                let error = error.clone();
+                self.automation.fail_captures(&error);
+            }
+            None => self.native.snapshot(),
+        }
+        (id, picture)
+    }
+
+    pub(crate) fn forget_capture(&mut self, id: u64) {
+        self.automation.forget_capture(id);
+    }
+
+    pub(crate) fn loaded(&self) -> bool {
+        self.loaded && self.error.is_none()
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub(crate) fn shown(&self) -> bool {
+        self.presentation.visible
+    }
+
+    pub(crate) fn panel_instance(&self) -> Option<&str> {
+        self.panel_instance.as_deref()
     }
 
     fn clear_snapshot(&mut self, cx: &mut gpui::App) {
@@ -347,7 +403,6 @@ impl Webview {
         self.update_content(self.data.clone(), theme, metrics, cx);
     }
 
-    /// The page's current `muxy.data`.
     pub(crate) fn data(&self) -> &Value {
         &self.data
     }
@@ -476,7 +531,6 @@ impl Webview {
         receiver
     }
 
-    /// Passes a key to a page the app draws.
     fn key(&mut self, keystroke: &gpui::Keystroke, pressed: bool, cx: &mut Context<Self>) {
         self.native.key(keystroke, pressed, || {
             cx.read_from_clipboard().and_then(|item| item.text())
@@ -484,7 +538,6 @@ impl Webview {
         cx.stop_propagation();
     }
 
-    /// Answers the page's open `<select>`, with `None` to close it unchanged.
     fn choose(&mut self, option: Option<usize>, cx: &mut Context<Self>) {
         if self.menu.take().is_some() {
             self.native.choose(option);
@@ -563,15 +616,28 @@ impl Webview {
 }
 
 fn render_snapshot(snapshot: muxy_ui::webview::Snapshot) -> Option<gpui::RenderImage> {
-    let pixels = image::RgbaImage::from_raw(snapshot.width, snapshot.height, snapshot.bgra)?;
+    let mut bgra = snapshot.bgra;
+    unpremultiply(&mut bgra);
+    let pixels = image::RgbaImage::from_raw(snapshot.width, snapshot.height, bgra)?;
     Some(gpui::RenderImage::new([image::Frame::new(pixels)]))
+}
+
+pub(crate) fn unpremultiply(pixels: &mut [u8]) {
+    for pixel in pixels.chunks_exact_mut(4) {
+        let alpha = u32::from(pixel[3]);
+        for channel in &mut pixel[..3] {
+            *channel = if alpha == 0 {
+                0
+            } else {
+                u8::try_from((u32::from(*channel) * 255 + alpha / 2) / alpha).unwrap_or(u8::MAX)
+            };
+        }
+    }
 }
 
 impl Drop for Webview {
     fn drop(&mut self) {
         self.fail_closes();
-        // Something else may still hold the native page for a moment; it
-        // must not stay on screen where it was last placed.
         self.native.set_visible(false);
     }
 }
@@ -618,13 +684,7 @@ impl Render for Webview {
             .children(
                 self.snapshot
                     .clone()
-                    .filter(|_| {
-                        self.presentation.show_snapshot(
-                            self.transparent
-                                || matches!(self.kind, SurfaceKind::Modal | SurfaceKind::Popover),
-                            failed,
-                        )
-                    })
+                    .filter(|_| self.presentation.show_snapshot(failed))
                     .map(|image| img(image).absolute().size_full().rounded(corners)),
             )
             .children(
@@ -748,4 +808,40 @@ pub(crate) fn placeholder(
                 .child(tr!("Tab type: %@", kind)),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+
+    #[test]
+    fn a_shown_page_has_no_snapshot_under_it_unless_the_app_draws_it() {
+        let shown = Presentation {
+            visible: true,
+            ..Presentation::default()
+        };
+        assert_eq!(shown.show_snapshot(false), NativeWebview::DRAWN_BY_APP);
+        assert!(shown.show_snapshot(true));
+        let blocked = Presentation {
+            visible: true,
+            blocked: true,
+            ..Presentation::default()
+        };
+        assert!(blocked.show_snapshot(false));
+        assert!(Presentation::default().show_snapshot(false));
+    }
+
+    #[test]
+    fn snapshots_are_drawn_with_straight_alpha() {
+        let mut pixels = vec![
+            64, 32, 128, 128, 10, 20, 30, 0, 255, 255, 255, 255, 200, 0, 0, 100,
+        ];
+        unpremultiply(&mut pixels);
+        assert_eq!(
+            pixels,
+            vec![
+                128, 64, 255, 128, 0, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 100
+            ]
+        );
+    }
 }

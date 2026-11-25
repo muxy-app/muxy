@@ -2,12 +2,11 @@ use super::worktrees::pruning_fixture;
 use super::*;
 use muxy_app_core::settings::{AppLayout, Appearance};
 
-/// Projects `with_tab`, `current`, and `idle`, where only `with_tab` has a tab.
 fn three_projects() -> (AppState, [ProjectId; 3], TabId) {
     let mut state = AppState::bootstrap().expect("state");
     let ids = [(); 3].map(|()| {
         state
-            .add_project(ServerId::local(), std::env::temp_dir())
+            .add_project(ServerId::local(), crate::test_support::project_directory())
             .expect("project")
     });
     let tab = state.open_terminal_tab(ids[0]).expect("tab");
@@ -128,6 +127,21 @@ fn projects_are_not_indented_under_their_servers_heading(cx: &mut TestAppContext
     let metrics = view.read_with(cx, |model, _| model.metrics);
     assert_eq!(heading.left() + metrics.spacing4(), title.left());
     assert_eq!(heading.right(), chevron.right());
+}
+
+#[gpui::test]
+fn project_names_are_as_large_as_their_tab_titles(cx: &mut TestAppContext) {
+    let (state, [with_tab, ..], tab) = three_projects();
+    let (view, cx) = open(state, AppLayout::TabFocused, cx);
+    view.update(cx, |model, cx| {
+        model.appearance.tab_focused_expanded.insert(with_tab, true);
+        cx.notify();
+    });
+    cx.run_until_parked();
+
+    let title = row(cx, format!("tab-project-title-{with_tab}")).expect("project title");
+    let tab_title = row(cx, format!("sidebar-tab-title-{tab}")).expect("tab title");
+    assert_eq!(title.size.height, tab_title.size.height);
 }
 
 #[gpui::test]
@@ -327,12 +341,11 @@ fn collapsed_project_tiles_fill_their_squares(cx: &mut TestAppContext) {
     let sidebar = cx.debug_bounds("workspace-sidebar").expect("sidebar");
     assert_eq!(sidebar.size.width, metrics.sidebar_collapsed_width());
     let square = metrics.scaled(34.0);
-    for selector in [
-        "project-row-0",
-        "sidebar-extensions",
-        "remote-servers-section",
-        "settings-button",
-    ] {
+    let remote = (!cfg!(windows)).then_some("remote-servers-section");
+    for selector in ["project-row-0", "sidebar-extensions", "settings-button"]
+        .into_iter()
+        .chain(remote)
+    {
         let bounds = cx.debug_bounds(selector).expect(selector);
         assert_eq!(bounds.size, size(square, square), "{selector}");
     }

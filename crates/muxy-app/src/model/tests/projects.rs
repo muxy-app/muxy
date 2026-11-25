@@ -243,7 +243,7 @@ fn one_x_projects_join_the_running_app_and_keep_what_is_there(cx: &mut TestAppCo
 pub(super) fn two_projects() -> (AppState, ProjectId, ProjectId, PaneId, PaneId) {
     let mut state = AppState::bootstrap().expect("state");
     let first = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("first project");
     state.open_terminal_tab(first).expect("first tab");
     let first_pane = state.current_project().tabs[0].panes[0].id;
@@ -524,8 +524,12 @@ fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppC
     let (boot, _requests) = stub_boot(state);
     let (folders, opened) = async_channel::unbounded();
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |_, cx| AppModel::open_folders_from(opened, cx));
-    let url = |name: &str| format!("file://{}/{name}/", root.display()).replace(' ', "%20");
+    view.update(cx, |_, cx| AppModel::open_urls_from(opened, cx));
+    let url = |name: &str| {
+        reqwest::Url::from_directory_path(root.join(name))
+            .expect("url")
+            .to_string()
+    };
     folders.try_send(vec![url("Alpha")]).expect("send");
     cx.run_until_parked();
     view.update(cx, |model, cx| {
@@ -537,8 +541,10 @@ fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppC
     });
     folders
         .try_send(vec![
-            format!("file://{}/notes.txt", root.display()),
-            format!("file://{}/Missing/", root.display()),
+            reqwest::Url::from_file_path(root.join("notes.txt"))
+                .expect("url")
+                .to_string(),
+            url("Missing"),
             "https://example.com/".into(),
             url("Beta Gamma"),
         ])
@@ -553,7 +559,10 @@ fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppC
         assert_eq!(model.state.current_project().tabs.len(), 1);
         assert!(model.error.is_none());
     });
+    #[cfg(unix)]
     std::os::unix::fs::symlink(root.join("Alpha"), root.join("Alias")).expect("symlink");
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(root.join("Alpha"), root.join("Alias")).expect("symlink");
     for name in ["Alias", "Beta Gamma"] {
         folders.try_send(vec![url(name)]).expect("send");
         cx.run_until_parked();
@@ -568,7 +577,7 @@ fn opened_folders_get_a_terminal_in_their_project_or_a_new_one(cx: &mut TestAppC
     std::fs::remove_dir_all(root).expect("cleanup");
 }
 
-/// On another computer, as macOS file systems refuse such names here.
+#[cfg(unix)]
 #[gpui::test]
 fn a_project_whose_folder_name_is_not_text_opens_like_any_other(cx: &mut TestAppContext) {
     use std::os::unix::ffi::OsStringExt;
@@ -600,9 +609,13 @@ fn folders_opened_at_launch_find_projects_added_while_the_app_was_closed(cx: &mu
     let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
     let (folders, opened) = async_channel::unbounded();
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    view.update(cx, |_, cx| AppModel::open_folders_from(opened, cx));
+    view.update(cx, |_, cx| AppModel::open_urls_from(opened, cx));
     folders
-        .try_send(vec![format!("file://{}/Shared/", root.display())])
+        .try_send(vec![
+            reqwest::Url::from_directory_path(root.join("Shared"))
+                .expect("url")
+                .to_string(),
+        ])
         .expect("send");
     cx.run_until_parked();
     view.update(cx, |model, cx| {
@@ -647,7 +660,7 @@ fn folders_arriving_after_connection_failure_open_with_saved_projects(cx: &mut T
     let (folders, opened) = async_channel::unbounded();
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        AppModel::open_folders_from(opened, cx);
+        AppModel::open_urls_from(opened, cx);
         let generation = model.servers.local.generation;
         model.receive(
             local(generation, Update::ConnectFailed("offline".into(), None)),
@@ -768,7 +781,7 @@ fn add_project_restores_a_recently_removed_project_with_a_terminal(cx: &mut Test
     view.read_with(cx, |model, _| {
         let project = model.state.current_project();
         assert_eq!(project.name, "Removed");
-        assert_eq!(project.directory, std::env::temp_dir());
+        assert_eq!(project.directory, crate::test_support::project_directory());
         assert_eq!(project.tabs.len(), 1);
         assert_eq!(model.state.removed_projects().len(), 1);
         assert!(model.overlay.is_none());

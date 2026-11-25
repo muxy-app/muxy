@@ -1,9 +1,12 @@
-//! Resource targets and opener selection shared by app surfaces.
-
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::{PaneId, ProjectId, ServerId};
+
+mod files;
+pub use files::{
+    FileHandler, FileResolution, FileRule, file_pattern, matches_pattern, resolve_file,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OpenContext {
@@ -49,10 +52,6 @@ impl Target {
         Some(Self::Url(text.into()))
     }
 
-    /// Resolve a file candidate against `directory`, where `~` means `home`.
-    /// The caller supplies the lookup, on this disk or through another
-    /// computer's server, so UI code can run it on a bounded worker, never in
-    /// rendering or hit testing.
     pub fn file(
         text: &str,
         directory: &Path,
@@ -89,6 +88,9 @@ impl Target {
         } else {
             directory.join(path)
         };
+        if reaches_another_computer(&path, directory) {
+            return None;
+        }
         if exists(&path) {
             return Some(Self::File(FileLocation {
                 path,
@@ -114,14 +116,43 @@ impl Target {
     }
 }
 
+fn reaches_another_computer(path: &Path, directory: &Path) -> bool {
+    use std::ffi::OsStr;
+    use std::path::{Component, Prefix};
+    fn prefix(path: &Path) -> Option<Prefix<'_>> {
+        match path.components().next() {
+            Some(Component::Prefix(prefix)) => Some(prefix.kind()),
+            _ => None,
+        }
+    }
+    fn share(prefix: Option<Prefix<'_>>) -> Option<(&OsStr, &OsStr)> {
+        match prefix {
+            Some(Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share)) => {
+                Some((server, share))
+            }
+            _ => None,
+        }
+    }
+    match prefix(path) {
+        None | Some(Prefix::Disk(_) | Prefix::VerbatimDisk(_)) => false,
+        Some(Prefix::DeviceNS(_) | Prefix::Verbatim(_)) => true,
+        found => {
+            let ours = share(prefix(directory));
+            !share(found).is_some_and(|(server, name)| {
+                ours.is_some_and(|(other, other_name)| {
+                    other.eq_ignore_ascii_case(server) && other_name.eq_ignore_ascii_case(name)
+                })
+            })
+        }
+    }
+}
+
 fn position(text: &str) -> Option<u32> {
     (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
         .then(|| text.parse::<u32>().ok().filter(|value| *value > 0))
         .flatten()
 }
 
-/// A `START-END` line range, as tools print for `path:56-60`; it opens at
-/// the first line.
 fn line_range(text: &str) -> Option<u32> {
     let (start, end) = text.split_once('-')?;
     let start = position(start)?;
@@ -129,7 +160,6 @@ fn line_range(text: &str) -> Option<u32> {
 }
 
 fn decode_path(text: &str) -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStringExt;
     let mut bytes = Vec::with_capacity(text.len());
     let mut source = text.bytes();
     while let Some(byte) = source.next() {
@@ -145,7 +175,19 @@ fn decode_path(text: &str) -> Option<PathBuf> {
         }
         bytes.push(byte);
     }
-    Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+    }
+    #[cfg(windows)]
+    {
+        let path = String::from_utf8(bytes).ok()?;
+        Some(PathBuf::from(match path.as_bytes() {
+            [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => &path[1..],
+            _ => &path,
+        }))
+    }
 }
 
 type Supports = Box<dyn Fn(&OpenRequest) -> bool + Send + Sync>;

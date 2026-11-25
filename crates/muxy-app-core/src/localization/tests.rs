@@ -47,6 +47,10 @@ const STRINGSDICT: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </dict>
 </plist>"#;
 
+fn budget() -> u64 {
+    MAX_PACK_CATALOG_BYTES
+}
+
 fn strings(entries: &[(&str, &str)]) -> BTreeMap<String, Value> {
     entries
         .iter()
@@ -187,7 +191,7 @@ fn binary_bundles_load_strings_and_plural_rules_like_xml_bundles() {
         include_bytes!("fixtures/Localizable.stringsdict"),
     )
     .unwrap();
-    assert_eq!(validate_bundle(&bundle, "ru"), Ok(()));
+    assert_eq!(validate_bundle(&bundle, "ru", &mut budget()), Ok(()));
     let language = load(&Provider {
         extension: "pack".into(),
         id: "ru".into(),
@@ -216,7 +220,7 @@ fn binary_bundles_load_strings_and_plural_rules_like_xml_bundles() {
     )
     .unwrap();
     assert!(
-        validate_bundle(&bundle, "ru")
+        validate_bundle(&bundle, "ru", &mut budget())
             .unwrap_err()
             .contains("executable")
     );
@@ -328,8 +332,12 @@ fn bundles_are_checked_like_main() {
             ),
         ],
     );
-    assert_eq!(validate_bundle(&bundle, "de"), Ok(()));
-    assert!(validate_bundle(&bundle, "fr").unwrap_err().contains("'fr'"));
+    assert_eq!(validate_bundle(&bundle, "de", &mut budget()), Ok(()));
+    assert!(
+        validate_bundle(&bundle, "fr", &mut budget())
+            .unwrap_err()
+            .contains("'fr'")
+    );
 
     let executable = INFO.replace(
         "<dict>",
@@ -337,13 +345,13 @@ fn bundles_are_checked_like_main() {
     );
     fs::write(bundle.join("Info.plist"), executable).unwrap();
     assert!(
-        validate_bundle(&bundle, "de")
+        validate_bundle(&bundle, "de", &mut budget())
             .unwrap_err()
             .contains("executable")
     );
     fs::remove_file(bundle.join("Info.plist")).unwrap();
     assert!(
-        validate_bundle(&bundle, "de")
+        validate_bundle(&bundle, "de", &mut budget())
             .unwrap_err()
             .contains("Info.plist")
     );
@@ -355,7 +363,7 @@ fn bundles_are_checked_like_main() {
     )
     .unwrap();
     assert!(
-        validate_bundle(&bundle, "de")
+        validate_bundle(&bundle, "de", &mut budget())
             .unwrap_err()
             .contains("'%lld changes'")
     );
@@ -365,7 +373,7 @@ fn bundles_are_checked_like_main() {
     )
     .unwrap();
     assert!(
-        validate_bundle(&bundle, "de")
+        validate_bundle(&bundle, "de", &mut budget())
             .unwrap_err()
             .contains("4 MiB")
     );
@@ -375,6 +383,56 @@ fn bundles_are_checked_like_main() {
         let outside = root.path().join("outside.strings");
         fs::write(&outside, "\"A\" = \"B\";").unwrap();
         std::os::unix::fs::symlink(&outside, bundle.join("de.lproj/Localizable.strings")).unwrap();
-        assert!(validate_bundle(&bundle, "de").is_err());
+        assert!(validate_bundle(&bundle, "de", &mut budget()).is_err());
     }
+}
+
+#[test]
+fn plural_rules_that_share_references_are_checked_once() {
+    use std::fmt::Write as _;
+    let mut entry = String::from("<key>NSStringLocalizedFormatKey</key><string>%#@r0@</string>");
+    for rule in 0..8 {
+        let variant = if rule == 7 {
+            "x".to_owned()
+        } else {
+            format!("%#@r{}@ ", rule + 1).repeat(4)
+        };
+        write!(
+            entry,
+            "<key>r{rule}</key><dict>\
+             <key>NSStringFormatSpecTypeKey</key><string>NSStringPluralRuleType</string>"
+        )
+        .unwrap();
+        for category in ["zero", "one", "two", "few", "many", "other"] {
+            write!(entry, "<key>{category}</key><string>{variant}</string>").unwrap();
+        }
+        entry.push_str("</dict>");
+    }
+    let plist =
+        format!("<plist version=\"1.0\"><dict><key>Count</key><dict>{entry}</dict></dict></plist>");
+    let catalog = dictionary(plist.as_bytes()).unwrap();
+    let started = std::time::Instant::now();
+    assert_eq!(catalog::incompatible_key(&catalog), None);
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}
+
+#[test]
+fn one_pack_shares_a_total_catalog_budget() {
+    let root = tempfile::tempdir().unwrap();
+    let bundle = root.path().join("German.bundle");
+    write(
+        &bundle,
+        &[
+            ("Info.plist", INFO),
+            ("de.lproj/Localizable.strings", "\"A\" = \"B\";"),
+        ],
+    );
+    let mut budget = 12;
+    assert_eq!(validate_bundle(&bundle, "de", &mut budget), Ok(()));
+    assert_eq!(budget, 2);
+    assert!(
+        validate_bundle(&bundle, "de", &mut budget)
+            .unwrap_err()
+            .contains("64 MiB in total")
+    );
 }

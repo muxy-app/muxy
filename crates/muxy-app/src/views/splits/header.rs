@@ -11,8 +11,6 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 
-/// What a header button does: something to the pane itself, or a command that
-/// acts on the active pane once the pane is made active.
 #[derive(Clone, Copy)]
 enum Perform {
     Pane(fn(&mut AppModel, PaneId, &mut Context<AppModel>)),
@@ -41,7 +39,6 @@ struct Action {
     perform: Perform,
 }
 
-/// The background a pane's header and dimming take, and the text on it.
 pub(super) fn colors(pane: PaneId, model: &AppModel, cx: &App) -> (Hsla, Hsla) {
     model.terminal(&pane).map_or_else(
         || (model.theme.bg, model.theme.fg),
@@ -49,8 +46,6 @@ pub(super) fn colors(pane: PaneId, model: &AppModel, cx: &App) -> (Hsla, Hsla) {
     )
 }
 
-/// The bar above a pane: what it shows, its title and, while the pane is
-/// active or under the pointer, its actions.
 pub(super) fn header(
     pane: &Pane,
     tab: &Tab,
@@ -66,6 +61,7 @@ pub(super) fn header(
         .terminal(&id)
         .is_some_and(|terminal| terminal.view.read(cx).bell_flashing);
     let zoomed = tab.zoomed == Some(id);
+    let movable = tab.zoomed.is_none();
     let actions = actions(pane, tab, model);
     let count = u16::try_from(actions.len()).unwrap_or(u16::MAX);
     let edges = model.header_edges(id, tab);
@@ -119,6 +115,8 @@ pub(super) fn header(
                     );
                     window.prevent_default();
                     cx.stop_propagation();
+                } else if movable && edges.carries.is_none() {
+                    model.begin_pane_handle_drag(id, event, window, cx);
                 }
             }),
         )
@@ -155,9 +153,6 @@ pub(super) fn header(
         .into_any_element()
 }
 
-/// The pane's icon, title and, for a terminal, its folder. While the pane can
-/// be moved, they turn into a handle under the pointer: the icon becomes a
-/// move icon and dragging moves the pane, as dragging with Command held does.
 fn handle(
     pane: &Pane,
     tab: &Tab,
@@ -255,7 +250,6 @@ fn handle(
         .into_any_element()
 }
 
-/// The folder a terminal works in, unless its title already shows it.
 fn directory(pane: &Pane, title: &str, model: &AppModel, cx: &App) -> Option<String> {
     model
         .terminal(&pane.id)?
@@ -265,8 +259,6 @@ fn directory(pane: &Pane, title: &str, model: &AppModel, cx: &App) -> Option<Str
         .filter(|directory| !title.ends_with(directory.as_str()))
 }
 
-/// A terminal names its shell rather than its folder, which the project
-/// already shows, once it reports one; until then, its usual title.
 fn title(pane: &Pane, model: &AppModel, cx: &App) -> String {
     model
         .terminal(&pane.id)
@@ -296,6 +288,10 @@ fn glyph(pane: &Pane, bell: bool, foreground: Hsla, model: &AppModel, cx: &App) 
     )
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "The pane header's available controls"
+)]
 fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
     let mut actions = vec![
         Action {
@@ -318,7 +314,7 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             name: "float",
             icon: Icon::Overlap,
             label: tr!("Float Pane"),
-            shortcut: None,
+            shortcut: Some(ShortcutId::FloatPane),
             perform: Perform::Pane(|model, pane, cx| {
                 model.float_pane(pane, muxy_app_core::FloatScope::Project, cx);
             }),
@@ -343,8 +339,19 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             } else {
                 tr!("Show in All Projects")
             },
-            shortcut: None,
+            shortcut: Some(if everywhere {
+                ShortcutId::ShowFloatingTerminalInItsProject
+            } else {
+                ShortcutId::ShowFloatingTerminalInAllProjects
+            }),
             perform: Perform::Pane(AppModel::toggle_pane_float_scope),
+        });
+        actions.push(Action {
+            name: "minimize",
+            icon: Icon::Minimize,
+            label: tr!("Minimize"),
+            shortcut: None,
+            perform: Perform::Pane(AppModel::minimize_pane_float),
         });
     }
     if tab.detached() {
@@ -356,7 +363,11 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             } else {
                 tr!("Move to Main Window")
             },
-            shortcut: None,
+            shortcut: Some(if tab.floating() {
+                ShortcutId::DockFloatingTerminal
+            } else {
+                ShortcutId::MoveTabToMainWindow
+            }),
             perform: Perform::Pane(AppModel::return_pane_window),
         });
     }
@@ -397,13 +408,10 @@ fn button(
     cx: &Context<AppModel>,
 ) -> AnyElement {
     let m = model.metrics;
-    let tooltip = action
-        .shortcut
-        .and_then(|shortcut| model.settings.keymap.chord(shortcut))
-        .map_or_else(
-            || action.label.to_string(),
-            |chord| format!("{} ({chord})", action.label),
-        );
+    let tooltip = action.shortcut.map_or_else(
+        || action.label.clone(),
+        |shortcut| model.tooltip(action.label.clone(), shortcut),
+    );
     let name = action.name;
     let perform = action.perform;
     let hover = foreground.opacity(0.12);

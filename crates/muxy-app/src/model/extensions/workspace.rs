@@ -1,7 +1,4 @@
-//! Workspace verbs (`tabs`, `panes`, `projects`, `worktrees`, `workspaces`,
-//! `agents`) with main's reply shapes and error messages.
-
-use std::path::{Component, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use gpui::Context;
 use muxy_app_core::{
@@ -12,14 +9,9 @@ use serde_json::{Value, json};
 
 use super::{AppModel, Call};
 
-/// Expands `~` and resolves `.`/`..` lexically, like `standardizedFileURL`.
 pub(super) fn standardized(path: &str) -> PathBuf {
-    let expanded = match (path.strip_prefix('~'), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
-            PathBuf::from(home).join(rest.trim_start_matches('/'))
-        }
-        _ => PathBuf::from(path),
-    };
+    let expanded =
+        muxy_core::paths::expand_tilde(Path::new(path)).unwrap_or_else(|_| PathBuf::from(path));
     let mut normalized = PathBuf::new();
     for part in expanded.components() {
         match part {
@@ -31,6 +23,15 @@ pub(super) fn standardized(path: &str) -> PathBuf {
         }
     }
     normalized
+}
+
+pub(super) fn parse_color(color: &str) -> Result<muxy_app_core::Color, String> {
+    muxy_app_core::PROJECT_COLORS
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(color))
+        .map_or(color, |(_, hex)| *hex)
+        .parse()
+        .map_err(|_| format!("unknown color '{color}'"))
 }
 
 fn key_bytes(key: &str) -> Result<&'static [u8], String> {
@@ -65,7 +66,6 @@ fn screen_text(grid: &muxy_client::RunGrid, lines: usize) -> String {
 }
 
 impl AppModel {
-    /// Resolves main's project selector: an ID, a case-insensitive name, or a path.
     pub(super) fn find_project(&self, identifier: &str) -> Option<&Project> {
         let path = standardized(identifier);
         let matches = |project: &&Project| {
@@ -82,7 +82,6 @@ impl AppModel {
             .or_else(|| projects.iter().find(matches))
     }
 
-    /// `projects.list`: top-level projects, Home included.
     pub(super) fn project_list(&self) -> Vec<Value> {
         let root = super::events::root_of(self.state.current_project());
         self.state
@@ -108,7 +107,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Resolves main's workspace selector: an ID or a case-insensitive name.
     pub(super) fn find_workspace(&self, identifier: &str) -> Option<&Workspace> {
         let id = identifier.parse::<WorkspaceId>().ok();
         self.state.workspaces().iter().find(|workspace| {
@@ -132,7 +130,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Membership belongs to top-level projects; a worktree resolves to its parent.
     fn member_project(&self, identifier: &str, action: &str) -> Result<ProjectId, String> {
         let project = self
             .find_project(identifier)
@@ -204,12 +201,7 @@ impl AppModel {
                 let id = self.mutable_project(text("identifier")?)?;
                 let color = match call.args["color"].as_str() {
                     None => muxy_app_core::Color::default(),
-                    Some(color) => muxy_app_core::PROJECT_COLORS
-                        .iter()
-                        .find(|(name, _)| name.eq_ignore_ascii_case(color))
-                        .map_or(color, |(_, hex)| *hex)
-                        .parse()
-                        .map_err(|_| format!("unknown color '{color}'"))?,
+                    Some(color) => parse_color(color)?,
                 };
                 self.apply_project_edit(|state| state.set_project_color(id, color), cx)
             }
@@ -234,7 +226,6 @@ impl AppModel {
         }
     }
 
-    /// `projects.attach`/`detach` and `workspaces.*`.
     pub(super) fn workspaces_call(
         &mut self,
         call: &Call,
@@ -326,8 +317,6 @@ impl AppModel {
         }
     }
 
-    /// Like main, a project created for `workspace` joins only that workspace
-    /// and the sidebar follows it; `active` is the filter from before opening.
     pub(super) fn file_created_project(
         &mut self,
         project: ProjectId,
@@ -373,8 +362,6 @@ impl AppModel {
         }
     }
 
-    /// `projects.add` and `projects.create`: reuse a project already opened at
-    /// the path, otherwise add and activate a new one.
     pub(super) fn add_extension_project(
         &mut self,
         path: &str,
@@ -439,8 +426,12 @@ impl AppModel {
         let project = self.state.current_project();
         match call.verb.as_str() {
             "tabs.list" => Ok(Value::Array(
-                project
-                    .tabs
+                if call.args["project"].is_string() {
+                    self.state.project(call.project).unwrap_or(project)
+                } else {
+                    project
+                }
+                .tabs
                     .iter()
                     .enumerate()
                     .map(|(index, tab)| {
@@ -458,6 +449,11 @@ impl AppModel {
                             "kind": kind,
                             "title": self.webview_title(tab, cx),
                             "isActive": Some(tab.id) == self.active_tab(),
+                            "isPinned": tab.pinned,
+                            "color": tab.color.as_ref().map(muxy_app_core::Color::as_str),
+                            "customTitle": tab.custom_title,
+                            "isDetached": tab.detached(),
+                            "paneIDs": tab.panes.iter().map(|pane| pane.id.to_string()).collect::<Vec<_>>(),
                         })
                     })
                     .collect(),
@@ -497,10 +493,6 @@ impl AppModel {
                 self.select_tab(tab, cx);
                 Ok(Value::Null)
             }
-            "tabs.new" => {
-                self.new_tab(cx);
-                Ok(json!(self.active_tab().map(|tab| tab.to_string())))
-            }
             "tabs.next" | "tabs.previous" => {
                 self.cycle_tab(call.verb == "tabs.next", cx);
                 Ok(Value::Null)
@@ -511,7 +503,6 @@ impl AppModel {
         }
     }
 
-    /// Validation main performs before asking for consent to open a tab.
     pub(super) fn extension_split_tab(
         &mut self,
         args: &Value,
@@ -677,7 +668,6 @@ impl AppModel {
         Ok((pane, tab))
     }
 
-    /// Consent for pane verbs comes after main's pane ID check.
     pub(super) fn check_pane_request(args: &Value) -> Result<(), String> {
         args["paneID"]
             .as_str()
@@ -708,6 +698,10 @@ impl AppModel {
                             "title": tab.custom_title.clone().unwrap_or_else(|| pane.title.clone()),
                             "workingDirectory": directory.display().to_string(),
                             "isFocused": Some(pane.id) == active,
+                            "tabID": tab.id.to_string(),
+                            "projectID": super::events::root_of(project).to_string(),
+                            "worktreeID": project.id.to_string(),
+                            "isZoomed": tab.zoomed == Some(pane.id),
                         })
                     })
                     .collect(),

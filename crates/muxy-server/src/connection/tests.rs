@@ -42,7 +42,6 @@ fn a_phone_that_connects_first_never_receives_desktop_notifications() {
 #[test]
 fn a_catalog_change_reaches_a_watching_connection_which_is_otherwise_quiet()
 -> Result<(), Box<dyn std::error::Error>> {
-    use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
     use muxy_protocol::wire::{Decoder, Encoder, WireError};
@@ -50,7 +49,7 @@ fn a_catalog_change_reaches_a_watching_connection_which_is_otherwise_quiet()
 
     let (sender, _requests) = mpsc::channel();
     let registry = Arc::new(Registry::new(ServerSettings::default(), sender));
-    let (client, server) = UnixStream::pair()?;
+    let (client, server) = muxy_protocol::transport::socket_pair()?;
     let serving = Arc::clone(&registry);
     let connection = std::thread::spawn(move || super::serve(Box::new(server), serving));
     client.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -139,7 +138,7 @@ fn every_session_ended_reaches_connections_before_they_close_at_shutdown()
     let (sender, _requests) = mpsc::channel();
     let registry = Registry::new(
         ServerSettings {
-            default_shell: Some("/bin/sh".into()),
+            default_shell: Some(crate::test_support::shell()),
             ..ServerSettings::default()
         },
         sender,
@@ -150,7 +149,7 @@ fn every_session_ended_reaches_connections_before_they_close_at_shutdown()
     let mut sessions: Vec<_> = (0..8)
         .map(|_| {
             registry
-                .create(std::path::Path::new("/tmp"), size)
+                .create(&crate::test_support::folder(), size)
                 .map(|info| info.id)
         })
         .collect::<Result<_, _>>()?;
@@ -179,7 +178,7 @@ fn connections_of_one_owner_share_its_references_until_the_last_one_closes()
     let (sender, _requests) = mpsc::channel();
     let registry = Registry::new(
         ServerSettings {
-            default_shell: Some("/bin/sh".into()),
+            default_shell: Some(crate::test_support::shell()),
             ..ServerSettings::default()
         },
         sender,
@@ -198,7 +197,7 @@ fn connections_of_one_owner_share_its_references_until_the_last_one_closes()
     };
     let session = registry
         .create(
-            std::path::Path::new("/tmp"),
+            &crate::test_support::folder(),
             muxy_protocol::Size { cols: 80, rows: 24 },
         )?
         .id;
@@ -235,7 +234,6 @@ fn connections_of_one_owner_share_its_references_until_the_last_one_closes()
 #[test]
 fn local_apps_learn_which_saved_files_the_server_could_not_read()
 -> Result<(), Box<dyn std::error::Error>> {
-    use std::os::unix::net::UnixStream;
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -255,7 +253,7 @@ fn local_apps_learn_which_saved_files_the_server_could_not_read()
         Registry::persistent(ServerSettings::default(), sender, &sessions)?
             .with_remote_access(crate::RemoteAccess::open(directory.join("remote.json"))?),
     );
-    let (client, server) = UnixStream::pair()?;
+    let (client, server) = muxy_protocol::transport::socket_pair()?;
     let serving = Arc::clone(&registry);
     let connection = std::thread::spawn(move || super::serve(Box::new(server), serving));
     client.set_read_timeout(Some(Duration::from_secs(5)))?;
@@ -288,17 +286,16 @@ fn local_apps_learn_which_saved_files_the_server_could_not_read()
 }
 
 type Wire = (
-    muxy_protocol::wire::Encoder<std::os::unix::net::UnixStream>,
-    muxy_protocol::wire::Decoder<std::os::unix::net::UnixStream>,
+    muxy_protocol::wire::Encoder<muxy_protocol::transport::LocalStream>,
+    muxy_protocol::wire::Decoder<muxy_protocol::transport::LocalStream>,
 );
 
 type Serving = std::thread::JoinHandle<Result<(), muxy_protocol::wire::WireError>>;
 
-/// A connection to `registry` that has finished its hello.
 fn greeted(
     registry: &Arc<Registry>,
-    client: &std::os::unix::net::UnixStream,
-    server: std::os::unix::net::UnixStream,
+    client: &muxy_protocol::transport::LocalStream,
+    server: muxy_protocol::transport::LocalStream,
 ) -> Result<(Wire, Serving), Box<dyn std::error::Error>> {
     use muxy_protocol::wire::{Decoder, Encoder};
     use muxy_protocol::{CONTROL, Message};
@@ -321,7 +318,6 @@ fn greeted(
     Ok(((encoder, decoder), connection))
 }
 
-/// Lists `project`'s sessions and returns the first name among them.
 fn listed_name(
     (encoder, decoder): &mut Wire,
     project: muxy_protocol::ProjectId,
@@ -358,8 +354,6 @@ fn listed_name(
 #[test]
 fn a_session_name_reaches_listing_clients_with_a_sessions_change()
 -> Result<(), Box<dyn std::error::Error>> {
-    use std::os::unix::net::UnixStream;
-
     use muxy_protocol::{CONTROL, Message, ReplyBody, RequestBody, RequestId, SessionId, Topic};
 
     let (sender, _requests) = mpsc::channel();
@@ -374,7 +368,7 @@ fn a_session_name_reaches_listing_clients_with_a_sessions_change()
             directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
         },
     )?;
-    let (client, server) = UnixStream::pair()?;
+    let (client, server) = muxy_protocol::transport::socket_pair()?;
     let (mut wire, connection) = greeted(&registry, &client, server)?;
     assert_eq!(listed_name(&mut wire, project, 1)?, None);
 
@@ -423,11 +417,11 @@ fn a_session_name_reaches_listing_clients_with_a_sessions_change()
     Ok(())
 }
 
+#[cfg(unix)]
 #[test]
 fn a_metadata_watcher_hears_titles_of_sessions_it_does_not_show()
 -> Result<(), Box<dyn std::error::Error>> {
     use std::os::unix::fs::PermissionsExt;
-    use std::os::unix::net::UnixStream;
 
     use muxy_protocol::{CONTROL, Message, ReplyBody, RequestBody, RequestId};
 
@@ -452,7 +446,7 @@ fn a_metadata_watcher_hears_titles_of_sessions_it_does_not_show()
         sender,
     ));
     let info = registry.create(&directory, muxy_protocol::Size { cols: 80, rows: 24 })?;
-    let (client, server) = UnixStream::pair()?;
+    let (client, server) = muxy_protocol::transport::socket_pair()?;
     let ((mut encoder, mut decoder), connection) = greeted(&registry, &client, server)?;
     encoder.send(
         CONTROL,

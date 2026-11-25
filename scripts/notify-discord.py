@@ -54,7 +54,6 @@ def announce(tag, repository, webhook):
     body = payload(tag, published_notes(tag, repository), repository, datetime.now(timezone.utc))
     request = urllib.request.Request(
         webhook, data=json.dumps(body).encode(), method="POST",
-        # Discord rejects requests without a bot-style user agent.
         headers={"Content-Type": "application/json",
                  "User-Agent": f"DiscordBot (https://github.com/{repository}, 1)"},
     )

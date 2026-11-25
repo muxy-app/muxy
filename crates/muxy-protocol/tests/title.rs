@@ -52,9 +52,10 @@ fn a_header_shows_the_folder_within_home_as_a_tilde() {
     };
     assert_eq!(shown("", Some(home)), None);
     assert_eq!(shown("/home/dev", Some(home)).as_deref(), Some("~"));
+    let separator = std::path::MAIN_SEPARATOR;
     assert_eq!(
-        shown("/home/dev/muxy/crates", Some(home)).as_deref(),
-        Some("~/muxy/crates")
+        shown("/home/dev/muxy/crates", Some(home)),
+        Some(format!("~{separator}muxy{separator}crates"))
     );
     assert_eq!(
         shown("/home/developer", Some(home)).as_deref(),
@@ -69,4 +70,19 @@ fn a_header_shows_the_folder_within_home_as_a_tilde() {
         shown("/etc", Some(std::path::Path::new("/"))).as_deref(),
         Some("/etc")
     );
+}
+
+#[test]
+fn a_terminal_without_a_title_is_named_after_its_folder_on_any_server() {
+    let folder = |path: &str| derive("", None, &ServerPath::from(path));
+    assert_eq!(folder("/Users/me/src/muxy"), "muxy");
+    assert_eq!(folder("/Users/me/src/muxy/"), "muxy");
+    assert_eq!(folder(r"C:\Users\Me\src\muxy"), "muxy");
+    assert_eq!(folder(r"C:\Users\Me\src\muxy\"), "muxy");
+    assert_eq!(folder("C:/Users/Me/src"), "src");
+    assert_eq!(folder(r"\\server\share\docs"), "docs");
+    assert_eq!(folder(r"/home/me/a\b"), r"a\b");
+    assert_eq!(folder("/"), "/");
+    assert_eq!(folder(r"C:\"), "C:");
+    assert_eq!(folder(""), "Terminal");
 }

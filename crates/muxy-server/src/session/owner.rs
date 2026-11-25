@@ -18,15 +18,15 @@ use muxy_terminal::pty::{ExitStatus, Pty, PtyEvent};
 use crate::archive::{Archive, bound_history_page, history_range};
 use crate::error::ServerError;
 use crate::search::Search;
-use crate::session::metadata::Metadata;
+use crate::session::metadata::{self, Metadata};
 use crate::session::{
     AttachmentEvent, AttachmentId, AttachmentSink, SessionCommand, SessionHandle,
 };
+use crate::spawn::Shell;
 
 const TICK: Duration = Duration::from_millis(16);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(1);
 const CHECKPOINT: Duration = Duration::from_secs(1);
-/// CAN ends any unfinished escape sequence or character.
 const CANCEL: &[u8] = b"\x18";
 const METADATA_POLL: Duration = Duration::from_millis(100);
 
@@ -73,6 +73,7 @@ enum OutputState {
 struct Attachment {
     sink: AttachmentSink,
     seq: u64,
+    shares: bool,
 }
 
 #[allow(
@@ -81,7 +82,7 @@ struct Attachment {
 )]
 struct Owner {
     info: SessionInfo,
-    pty: Pty,
+    shell: Shell,
     terminal: Terminal,
     metadata: Metadata,
     published: std::sync::Arc<super::Published>,
@@ -91,7 +92,6 @@ struct Owner {
     next_detection: Instant,
     detection_screen: String,
     detection_progress: String,
-    /// The foreground process group when the program status last changed.
     program_group: Option<u32>,
     program_reports: u64,
     seen_reports: u64,
@@ -108,6 +108,7 @@ struct Owner {
     cursor_blinking: bool,
     links: Vec<muxy_protocol::LinkRow>,
     graphics: muxy_protocol::Graphics,
+    full_graphics: muxy_protocol::Graphics,
     prompts: Vec<u16>,
     frame_state: Option<(muxy_protocol::Cursor, muxy_protocol::Modes)>,
     next_tick: Option<Instant>,
@@ -125,7 +126,7 @@ struct Owner {
 )]
 pub(crate) fn start(
     info: SessionInfo,
-    mut pty: Pty,
+    mut shell: Shell,
     size: Size,
     history_budget_bytes: usize,
     archive: Archive,
@@ -137,7 +138,9 @@ pub(crate) fn start(
     let id = info.id.get();
     let (sender, receiver) = mpsc::channel();
     let (ready_sender, ready) = mpsc::channel();
-    pty.start_reader(sender.clone())
+    shell
+        .pty
+        .start_reader(sender.clone())
         .map_err(ServerError::spawn_failed)?;
 
     let published = std::sync::Arc::new(super::Published::new(&info, notifier));
@@ -156,17 +159,17 @@ pub(crate) fn start(
                 }) {
                     Ok(terminal) => terminal,
                     Err(error) => {
-                        let _ = pty.kill();
-                        let _ = pty.wait();
+                        let _ = shell.pty.kill();
+                        let _ = shell.pty.wait();
                         let _ = ready_sender.send(Err(ServerError::spawn_failed(error)));
                         return;
                     }
                 };
-            let input = match start_input(&mut pty, failed) {
+            let input = match start_input(&mut shell.pty, failed) {
                 Ok(input) => input,
                 Err(error) => {
-                    let _ = pty.kill();
-                    let _ = pty.wait();
+                    let _ = shell.pty.kill();
+                    let _ = shell.pty.wait();
                     let _ = ready_sender.send(Err(error));
                     return;
                 }
@@ -185,7 +188,7 @@ pub(crate) fn start(
                 program_reports: 0,
                 seen_reports: 0,
                 info: session,
-                pty,
+                shell,
                 terminal,
                 size,
                 events: receiver,
@@ -200,6 +203,7 @@ pub(crate) fn start(
                 cursor_blinking: true,
                 links: Vec::new(),
                 graphics: muxy_protocol::Graphics::default(),
+                full_graphics: muxy_protocol::Graphics::default(),
                 prompts: Vec::new(),
                 frame_state: None,
                 next_tick: None,
@@ -260,8 +264,8 @@ fn start_input(
 impl Owner {
     fn run(mut self) -> ExitReason {
         let reason = self.serve().unwrap_or_else(|_| {
-            let _ = self.pty.kill();
-            self.pty.wait().map_or(ExitReason::Ended, exit_reason)
+            let _ = self.shell.pty.kill();
+            self.shell.pty.wait().map_or(ExitReason::Ended, exit_reason)
         });
         self.drain_output();
         self.update_metadata();
@@ -304,7 +308,7 @@ impl Owner {
                     let _ = reply.send(result);
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::CellSize(cell))) => {
-                    self.pty.set_cell_size(cell)?;
+                    self.shell.pty.set_cell_size(cell)?;
                     self.terminal.set_cell_size(cell)?;
                     self.output_pending = true;
                 }
@@ -350,7 +354,7 @@ impl Owner {
                     let _ = reply.send(self.history_page(before, max_rows));
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::Detach(id))) => {
-                    self.attachments.remove(&id);
+                    self.detach(id);
                 }
                 Wake::Event(OwnerEvent::Command(SessionCommand::ImageFrames {
                     image,
@@ -383,7 +387,7 @@ impl Owner {
                 Wake::Orphaned => return self.terminate(ExitReason::ServerStopped),
             }
             if self.output_state == OutputState::Closed
-                && let Some(status) = self.pty.try_wait()
+                && let Some(status) = self.shell.pty.try_wait()
             {
                 return Ok(exit_reason(status));
             }
@@ -438,7 +442,7 @@ impl Owner {
         self.terminal.feed(bytes);
         if self.terminal.program_reports() != self.program_reports {
             self.program_reports = self.terminal.program_reports();
-            self.program_group = self.pty.foreground_pid();
+            self.program_group = metadata::foreground_group(&self.shell);
         }
         if self.terminal.synchronized_output()? {
             self.synchronized_since.get_or_insert_with(Instant::now);
@@ -488,7 +492,7 @@ impl Owner {
     }
 
     fn resize(&mut self, size: Size) -> Result<(), Fault> {
-        self.pty.resize(size.into())?;
+        self.shell.pty.resize(size.into())?;
         self.terminal.resize(size)?;
         self.size = size;
         self.resize_pending = true;
@@ -509,8 +513,6 @@ impl Owner {
         }
         self.update_metadata();
         self.update_cursor_blinking()?;
-        // Establish one common baseline before adding an attachment. Existing
-        // clients receive pending changes before the new client's snapshot.
         if self.attachments.is_empty() {
             self.terminal.take_changed_rows()?;
             self.links = self.terminal.screen_links();
@@ -525,9 +527,15 @@ impl Owner {
         let screen = history
             .screen
             .ok_or_else(|| io::Error::other("fresh history has no screen"))?;
+        let shares = sink.shares_images();
+        let graphics = if shares {
+            self.terminal.full_graphics()?
+        } else {
+            screen.graphics
+        };
         let snapshot = AttachSnapshot {
             links: history.links,
-            graphics: screen.graphics,
+            graphics: graphics.clone(),
             prompts: history.prompts,
             channel,
             size: self.size,
@@ -539,9 +547,10 @@ impl Owner {
             history: history.rows,
             history_cursor: history.next,
             history_total: history.total_rows,
+            history_graphics: history.graphics,
         };
         if sink.send(AttachmentEvent::Snapshot {
-            snapshot,
+            snapshot: Box::new(snapshot),
             process: self.metadata.process.clone(),
         }) {
             sink.send(AttachmentEvent::Metadata(MetadataEvent::InputModes(
@@ -554,7 +563,19 @@ impl Owner {
                 seq: 0,
                 rows: self.links.clone(),
             }));
-            self.attachments.insert(id, Attachment { sink, seq: 1 });
+            if shares {
+                self.full_graphics = graphics;
+            } else {
+                self.graphics = graphics;
+            }
+            self.attachments.insert(
+                id,
+                Attachment {
+                    sink,
+                    seq: 1,
+                    shares,
+                },
+            );
         }
         Ok(())
     }
@@ -579,6 +600,7 @@ impl Owner {
             rows: history,
             mut prompts,
             mut links,
+            graphics,
         } = self
             .terminal
             .history_with_links(range)
@@ -626,6 +648,7 @@ impl Owner {
                 next,
                 total_rows: total as u64,
                 screen,
+                graphics,
             },
         )
     }
@@ -745,7 +768,7 @@ impl Owner {
                 self.published.set_progress(*progress);
             }
         }
-        let events = self.metadata.update(&self.pty, terminal);
+        let events = self.metadata.update(&self.shell, terminal);
         if events.iter().any(|event| {
             matches!(
                 event,
@@ -811,11 +834,8 @@ impl Owner {
             };
     }
 
-    /// The status the foreground program reported itself (OSC 7501). A report
-    /// the detector hasn't seen counts once after its program has gone, so a
-    /// final `done` still finishes the agent's work.
     fn reported_status(&mut self) -> Option<muxy_terminal::ProgramStatus> {
-        let group = self.pty.foreground_pid();
+        let group = metadata::foreground_group(&self.shell);
         let shell = self.metadata.shell_foreground;
         if shell || group != self.program_group {
             self.terminal.end_program_status();
@@ -843,6 +863,51 @@ impl Owner {
         )
     }
 
+    fn refresh_graphics(&mut self) -> Result<(bool, bool), Fault> {
+        let fitted = if self
+            .attachments
+            .values()
+            .any(|attachment| !attachment.shares)
+        {
+            let graphics = self.terminal.graphics()?;
+            let changed = graphics != self.graphics || self.resize_pending;
+            self.graphics = graphics;
+            changed
+        } else {
+            false
+        };
+        let full = if self
+            .attachments
+            .values()
+            .any(|attachment| attachment.shares)
+        {
+            let graphics = self.terminal.full_graphics()?;
+            let changed = graphics != self.full_graphics || self.resize_pending;
+            self.full_graphics = graphics;
+            changed
+        } else {
+            self.release_full_graphics();
+            false
+        };
+        Ok((fitted, full))
+    }
+
+    fn detach(&mut self, id: AttachmentId) {
+        self.attachments.remove(&id);
+        if !self
+            .attachments
+            .values()
+            .any(|attachment| attachment.shares)
+        {
+            self.release_full_graphics();
+        }
+    }
+
+    fn release_full_graphics(&mut self) {
+        self.full_graphics = muxy_protocol::Graphics::default();
+        self.terminal.release_full_graphics();
+    }
+
     fn broadcast_frame(&mut self, resized: Option<AttachmentId>) -> Result<(), Fault> {
         if self.attachments.is_empty() {
             return Ok(());
@@ -860,12 +925,11 @@ impl Owner {
                     }))
             });
         }
-        let graphics = self.terminal.graphics()?;
-        let graphics_changed = graphics != self.graphics || self.resize_pending;
-        self.graphics = graphics;
+        let (fitted_changed, full_changed) = self.refresh_graphics()?;
+        let graphics_changed = fitted_changed || full_changed;
         let frame = ScreenFrame {
             size: self.size,
-            graphics: graphics_changed.then(|| self.graphics.clone()),
+            graphics: None,
             seq: 0,
             reset: self.resize_pending,
             rows: self.terminal.take_changed_rows()?,
@@ -890,8 +954,14 @@ impl Owner {
         }
         self.frame_state = Some(state);
         self.attachments.retain(|id, attachment| {
+            let graphics = if attachment.shares {
+                full_changed.then(|| self.full_graphics.clone())
+            } else {
+                fitted_changed.then(|| self.graphics.clone())
+            };
             let frame = ScreenFrame {
                 seq: attachment.seq,
+                graphics,
                 ..frame.clone()
             };
             if prompts_changed || frame.reset {
@@ -922,8 +992,8 @@ impl Owner {
     }
 
     fn terminate(&mut self, reason: ExitReason) -> Result<ExitReason, Fault> {
-        self.pty.kill()?;
-        self.pty.wait()?;
+        self.shell.pty.kill()?;
+        self.shell.pty.wait()?;
         Ok(reason)
     }
 
@@ -950,13 +1020,11 @@ impl Owner {
         self.compress_pending = true;
         let mut snapshot = self.terminal.snapshot();
         if reason.is_some() && matches!(snapshot, Ok(None)) {
-            // The program ended inside a sequence; cancel it so its last screen is kept.
             self.terminal.feed(CANCEL);
             snapshot = self.terminal.snapshot();
         }
         let result = match snapshot {
             Ok(Some(snapshot)) => self.archive.save(self.info.id, snapshot, reason),
-            // Output stopped inside a sequence; the output that completes it schedules the save.
             Ok(None) if reason.is_none() => return,
             Ok(None) => Err(io::Error::other("output ended inside a sequence")),
             Err(error) => Err(io::Error::other(error)),

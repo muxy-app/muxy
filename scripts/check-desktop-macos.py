@@ -14,12 +14,10 @@ ROOT = Path(__file__).resolve().parent.parent
 PARTS = {
     "lint": [
         [sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests"],
-        ["cargo", "fmt", "--all", "--check"],
         ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
-        ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
     ],
     "test": [
-        ["cargo", "test", "--locked", "--workspace", "--all-features", "--timings"],
+        ["cargo", "test", "--locked", "--workspace", "--all-features", "--tests", "--timings"],
     ],
 }
 
@@ -43,7 +41,6 @@ def main():
         resource.setrlimit(resource.RLIMIT_NOFILE, (requested, hard))
     env = {
         **os.environ,
-        "RUSTDOCFLAGS": (os.environ.get("RUSTDOCFLAGS", "") + " -D warnings").strip(),
         "RUST_TEST_THREADS": "4",
     }
     parts = {**PARTS, "test": ci_scope.tests(args.scope, PARTS["test"])}

@@ -3,7 +3,6 @@ use std::io::{Read, Write};
 use muxy_protocol::wire::{Decoder, Encoder, WireError};
 use muxy_protocol::{CONTROL, ErrorCode, ErrorReply, FEATURES, Message, SUPPORTED, ServerInfo, V1};
 
-/// Returns whether the client shares a protocol version and may continue.
 pub(super) fn accept(
     decoder: &mut Decoder<impl Read>,
     encoder: &mut Encoder<impl Write>,
@@ -14,8 +13,6 @@ pub(super) fn accept(
     })
 }
 
-/// Unauthenticated network peers are reported at a limited rate instead, and
-/// never learn about this computer's files.
 pub(super) fn accept_remote(
     decoder: &mut Decoder<impl Read>,
     encoder: &mut Encoder<impl Write>,

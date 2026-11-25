@@ -36,8 +36,6 @@ pub fn validate_input(input: &[u8]) -> Result<(), ErrorCode> {
 
 pub const MAX_PATH: usize = 4096;
 
-/// Paths read from a peer. Lenient, so older peers keep working: only an
-/// empty path is rejected.
 pub fn validate_path(path: &ServerPath) -> Result<(), ErrorCode> {
     if path.0.is_empty() {
         Err(ErrorCode::BadPath)
@@ -46,17 +44,14 @@ pub fn validate_path(path: &ServerPath) -> Result<(), ErrorCode> {
     }
 }
 
-/// A place on the server: absolute, without NUL, at most `MAX_PATH` bytes.
 pub fn validate_absolute_path(path: &ServerPath) -> Result<(), ErrorCode> {
-    if path.0.starts_with(b"/") && bounded(path) {
+    if path.is_absolute() && bounded(path) {
         Ok(())
     } else {
         Err(ErrorCode::BadPath)
     }
 }
 
-/// A place inside a folder the request names: relative, without NUL, at most
-/// `MAX_PATH` bytes. Empty names the folder itself.
 pub fn validate_relative_path(path: &ServerPath) -> Result<(), ErrorCode> {
     if !path.0.starts_with(b"/") && bounded(path) {
         Ok(())
@@ -69,8 +64,6 @@ fn bounded(path: &ServerPath) -> bool {
     path.0.len() <= MAX_PATH && !path.0.contains(&0)
 }
 
-/// Variables a program starts with: at most 128, with names a process can
-/// hold, in 64 KiB together.
 pub fn validate_environment(
     environment: &std::collections::BTreeMap<String, String>,
 ) -> Result<(), ErrorCode> {
@@ -217,7 +210,9 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         }
         RequestBody::Git(request) => request.validate(),
         RequestBody::Files(request) => request.validate(),
-        RequestBody::ListFolders(path) => validate_absolute_path(path),
+        RequestBody::ListFolders(path) | RequestBody::ListEntries(path) => {
+            validate_absolute_path(path)
+        }
         RequestBody::Upload(chunk) => chunk.validate(),
         RequestBody::Exec(request) => request.validate(),
         RequestBody::SyncSessionReferences { sessions, .. } => {
@@ -282,6 +277,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
         | RequestBody::ResetPush(_)
         | RequestBody::DeferImages
         | RequestBody::StreamImages
+        | RequestBody::ShareImages
         | RequestBody::ReadRemoteAccess
         | RequestBody::StartPairing
         | RequestBody::CancelPairing
@@ -341,6 +337,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         }
         ReplyBody::Files(reply) => reply.validate(),
         ReplyBody::Folders(names) => crate::validate_folder_names(names),
+        ReplyBody::Entries(entries) => crate::validate_path_entries(entries),
         ReplyBody::Uploaded(path) => crate::validate_uploaded(path.as_ref()),
         ReplyBody::Exec(reply) => reply.validate(),
         ReplyBody::Catalog(page) => page.validate(),
@@ -374,6 +371,9 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         ReplyBody::SessionCreated(session) => validate_path(&session.directory),
         ReplyBody::Attached { snapshot, .. } => {
             snapshot.graphics.validate()?;
+            if let Some(graphics) = &snapshot.history_graphics {
+                validate_page_graphics(graphics, snapshot.history.len())?;
+            }
             validate_size(snapshot.size)?;
             validate_path(&snapshot.directory)?;
             validate_history(
@@ -398,6 +398,9 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
             if let Some(screen) = &page.screen {
                 validate_saved_screen(screen)?;
             }
+            if let Some(graphics) = &page.graphics {
+                validate_page_graphics(graphics, page.rows.len())?;
+            }
             let count = page.rows.len()
                 + page
                     .screen
@@ -419,6 +422,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
         | ReplyBody::PushUnregistered
         | ReplyBody::ImagesDeferred
         | ReplyBody::ImagesStreamed
+        | ReplyBody::ImagesShared
         | ReplyBody::ExecCancelled
         | ReplyBody::ActivityAcknowledged
         | ReplyBody::InputWritten
@@ -475,6 +479,19 @@ fn validate_history(
     } else {
         Ok(())
     }
+}
+
+fn validate_page_graphics(graphics: &crate::Graphics, rows: usize) -> Result<(), ErrorCode> {
+    graphics.validate()?;
+    let rows = i64::try_from(rows).map_err(|_| ErrorCode::BadRequest)?;
+    if graphics
+        .placements
+        .iter()
+        .any(|placement| !placement.covers(graphics.cell, rows))
+    {
+        return Err(ErrorCode::BadRequest);
+    }
+    Ok(())
 }
 
 fn validate_saved_screen(screen: &SavedScreen) -> Result<(), ErrorCode> {

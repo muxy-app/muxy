@@ -1,20 +1,21 @@
-//! The browser's toolbar, address suggestions, and find bar.
-
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AccessibleAction, AnyElement, AppContext, Context, Entity, Focusable, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Role, SharedString,
-    StatefulInteractiveElement, Styled, Window, canvas, deferred, div, img, px, relative,
+    AccessibleAction, AnyElement, AppContext, AvailableSpace, Context, Entity, Focusable,
+    InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Role,
+    SharedString, StatefulInteractiveElement, Styled, Window, canvas, div, img, point, px,
+    relative, size,
 };
 use muxy_ui::accessibility;
 use muxy_ui::browser::NativeBrowser;
 use muxy_ui::components::{IconButton, IconGlyph, Tooltip};
 use muxy_ui::icon::Icon;
+use muxy_ui::shortcuts::key_for;
 use muxy_ui::tr;
 
 use super::{BrowserView, BrowserViewEvent, Menu};
+use crate::views::workspace::{BrowserBack, BrowserForward, BrowserReload, FindNext, FindPrevious};
 
 pub(super) fn render(
     view: &BrowserView,
@@ -74,6 +75,7 @@ pub(super) fn render(
                         tr!("Back"),
                         view.page.can_go_back,
                     )
+                    .shortcut(key_for(&BrowserBack, cx))
                     .on_click(cx.listener(|view, _, _, cx| view.go_back(cx))),
                 )
                 .child(
@@ -83,6 +85,7 @@ pub(super) fn render(
                         tr!("Forward"),
                         view.page.can_go_forward,
                     )
+                    .shortcut(key_for(&BrowserForward, cx))
                     .on_click(cx.listener(|view, _, _, cx| view.go_forward(cx))),
                 )
                 .child(if loading {
@@ -90,6 +93,7 @@ pub(super) fn render(
                         .on_click(cx.listener(|view, _, _, cx| view.stop(cx)))
                 } else {
                     button("browser-reload", Icon::RotateCw, tr!("Reload"), true)
+                        .shortcut(key_for(&BrowserReload, cx))
                         .on_click(cx.listener(|view, _, _, cx| view.reload(cx)))
                 })
                 .child(address)
@@ -164,7 +168,6 @@ fn external_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyElem
     .into_any_element()
 }
 
-/// The profile the page browses with, which a click lets you change.
 fn profile_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyElement {
     let (theme, metrics) = (&view.theme, view.metrics);
     let content = div()
@@ -198,7 +201,6 @@ fn profile_button(view: &BrowserView, cx: &mut Context<BrowserView>) -> AnyEleme
     .into_any_element()
 }
 
-/// The address field, with the page's icon and history suggestions.
 fn address(
     view: &BrowserView,
     editing: bool,
@@ -230,15 +232,11 @@ fn address(
         })
         .child(div().flex_1().min_w(px(0.0)).child(view.address.clone()))
         .child({
-            let width = view.address_width.clone();
-            canvas(
-                move |bounds, _, _| width.set(bounds.size.width),
-                |_, (), _, _| (),
-            )
-            .absolute()
-            .size_full()
+            let anchor = view.address_bounds.clone();
+            canvas(move |bounds, _, _| anchor.set(bounds), |_, (), _, _| ())
+                .absolute()
+                .inset_0()
         })
-        .children(suggestions(view, cx))
         .capture_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, _, cx| {
             let keystroke = &event.keystroke;
             if keystroke.modifiers.number_of_modifiers() == 0
@@ -303,7 +301,6 @@ fn toolbar_button(
                 action(view, event.position, cx);
             }),
         )
-        // The pointer never presses it for a client, so nothing acts on mouse down.
         .on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
             let position = window.mouse_position();
             let _ = owner.update(cx, |view, cx| press(view, position, cx));
@@ -331,15 +328,12 @@ impl Render for BrowserTooltip {
     }
 }
 
-/// History matching the address field, shown under it. The page's native
-/// view is told to stay out of the way.
-fn suggestions(view: &BrowserView, cx: &mut Context<BrowserView>) -> Option<AnyElement> {
+pub(super) fn suggestions(view: &BrowserView, cx: &mut Context<BrowserView>) -> Option<AnyElement> {
     if !view.suggestions.open || view.suggestions.entries.is_empty() {
         return None;
     }
     let theme = &view.theme;
     let metrics = view.metrics;
-    let native = view.native.clone();
     let rows = view
         .suggestions
         .entries
@@ -358,6 +352,7 @@ fn suggestions(view: &BrowserView, cx: &mut Context<BrowserView>) -> Option<AnyE
                 .aria_selected(selected)
                 .flex()
                 .flex_col()
+                .flex_none()
                 .px(metrics.spacing4())
                 .py(metrics.spacing2())
                 .rounded(metrics.radius_sm())
@@ -391,38 +386,55 @@ fn suggestions(view: &BrowserView, cx: &mut Context<BrowserView>) -> Option<AnyE
                         .child(suggestion.url.clone()),
                 )
         });
-    Some(
-        deferred(
-            div()
-                .id("browser-suggestions")
-                .role(Role::Group)
-                .aria_label(tr!("Suggestions"))
-                .debug_selector(|| "browser-suggestions".into())
-                .absolute()
-                .top(metrics.control_medium() + metrics.spacing1())
-                .left_0()
-                .w(view.address_width.get())
-                .flex()
-                .flex_col()
-                .p(metrics.spacing2())
-                .rounded(metrics.radius_md())
-                .border_1()
-                .border_color(theme.border)
-                .bg(theme.raised())
-                .shadow_lg()
-                .children(rows)
-                .child(
-                    canvas(
-                        move |bounds, _, _| native.occlude_also(bounds),
-                        |_, (), _, _| (),
-                    )
-                    .absolute()
-                    .size_full(),
-                ),
-        )
-        .with_priority(1)
-        .into_any_element(),
+    let menu = div()
+        .id("browser-suggestions")
+        .role(Role::Group)
+        .aria_label(tr!("Suggestions"))
+        .debug_selector(|| "browser-suggestions".into())
+        .occlude()
+        .flex()
+        .flex_col()
+        .overflow_y_scroll()
+        .track_scroll(&view.suggestions.scroll)
+        .p(metrics.spacing2())
+        .rounded(metrics.radius_md())
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.raised())
+        .shadow_lg()
+        .children(rows);
+    Some(below_address(view, menu))
+}
+
+fn below_address(view: &BrowserView, menu: gpui::Stateful<gpui::Div>) -> AnyElement {
+    let anchor = view.address_bounds.clone();
+    let gap = view.metrics.spacing1();
+    let native = view.native.clone();
+    canvas(
+        move |pane, window, cx| {
+            let field = anchor.get();
+            let origin = field.bottom_left() + point(px(0.0), gap);
+            let mut menu = menu
+                .w(field.size.width)
+                .max_h((pane.bottom() - origin.y).max(px(0.0)))
+                .into_any_element();
+            let size = menu.layout_as_root(
+                size(field.size.width.into(), AvailableSpace::MinContent),
+                window,
+                cx,
+            );
+            menu.prepaint_at(origin, window, cx);
+            let bounds = gpui::Bounds::new(origin, size).intersect(&window.content_mask().bounds);
+            (menu, bounds)
+        },
+        move |_, (mut menu, bounds), window, cx| {
+            native.occlude_also(bounds);
+            menu.paint(window, cx);
+        },
     )
+    .absolute()
+    .inset_0()
+    .into_any_element()
 }
 
 pub(super) fn find_bar(view: &BrowserView, cx: &mut Context<BrowserView>) -> Option<AnyElement> {
@@ -489,10 +501,12 @@ pub(super) fn find_bar(view: &BrowserView, cx: &mut Context<BrowserView>) -> Opt
                     Icon::ChevronUp,
                     tr!("Previous match"),
                 )
+                .shortcut(key_for(&FindPrevious, cx))
                 .on_click(cx.listener(|view, _, _, cx| view.step_find(true, cx))),
             )
             .child(
                 button("browser-find-next", Icon::ChevronDown, tr!("Next match"))
+                    .shortcut(key_for(&FindNext, cx))
                     .on_click(cx.listener(|view, _, _, cx| view.step_find(false, cx))),
             )
             .child(

@@ -47,7 +47,6 @@ impl ActivityView {
     }
 }
 
-/// Each server numbers its own events, so another computer's carry its server.
 fn notification_id(server: ServerId, id: u64) -> String {
     if server.is_local() {
         id.to_string()
@@ -83,7 +82,6 @@ impl AppModel {
             .map(|runtime| &mut runtime.activity)
     }
 
-    /// The agent the pane's server reports for the pane's session.
     pub(crate) fn pane_agent(&self, pane: PaneId) -> Option<&AgentActivity> {
         let (server, session) = self.state.pane_session(pane)?;
         self.activity(server)?
@@ -103,7 +101,6 @@ impl AppModel {
             .min_by_key(|(pane, _)| Some(pane.id) != self.state.window().active_pane)
     }
 
-    /// The first pane of `server`'s projects that shows `session`.
     pub(super) fn session_pane(
         &self,
         server: ServerId,
@@ -458,16 +455,7 @@ impl AppModel {
             .session_pane(server, event.session)
             .map(|(project, tab, pane)| (project.id, tab, pane))
         {
-            if self.raise_pane_window(pane, cx) {
-                self.dismiss_overlay(cx);
-                return;
-            }
-            self.select_project(project, cx);
-            self.select_tab(tab, cx);
-            self.focus_pane(pane, cx);
-            self.dismiss_overlay(cx);
-            self.focus_owner.request_active_pane();
-            self.raise_window(cx);
+            self.jump_to_pane(project, tab, pane, cx);
         } else if server.is_local() && !self.quick.visible && self.supports(Feature::QuickTerminal)
         {
             self.toggle_quick_terminal(cx);
@@ -483,8 +471,6 @@ impl AppModel {
         }
     }
 
-    /// Navigates to the activity behind each notification the user opens,
-    /// and keeps up with whether notifications can still be shown.
     pub(super) fn follow_notifications(
         events: async_channel::Receiver<muxy_ui::notifications::Event>,
         cx: &mut Context<Self>,
@@ -512,8 +498,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Brings the main window to the front, as far as the desktop lets an
-    /// app do that.
     pub(crate) fn raise_window(&self, cx: &mut Context<Self>) {
         let window = self.window;
         cx.defer(move |cx| {

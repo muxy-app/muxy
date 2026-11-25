@@ -60,7 +60,6 @@ fn supported_providers() -> Vec<AgentProvider> {
         .collect()
 }
 
-/// The provider filter menu below the Agent Sessions panel's filter button.
 pub(crate) struct ProvidersMenu;
 
 impl OverlayView for ProvidersMenu {
@@ -82,7 +81,6 @@ impl OverlayView for ProvidersMenu {
         true
     }
 
-    /// The panel's search field, while the panel is shown.
     fn returns_focus_to(&self, model: &AppModel, cx: &App) -> Option<FocusHandle> {
         if !model.appearance.agent_sessions_visible {
             return None;

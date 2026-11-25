@@ -5,7 +5,7 @@ use xim::{AHashMap, AttributeName, Client, ClientError, ClientHandler, InputStyl
 
 pub enum XimCallbackEvent {
     XimXEvent(x11rb::protocol::Event),
-    XimPreeditEvent(xproto::Window, String),
+    XimPreeditEvent(xproto::Window, String, Option<std::ops::Range<usize>>),
     XimCommitEvent(xproto::Window, String),
 }
 
@@ -110,24 +110,45 @@ impl<C: Client<XEvent = xproto::KeyPressEvent>> ClientHandler<C> for XimHandler 
         _client: &mut C,
         _input_method_id: u16,
         _input_context_id: u16,
-        _caret: i32,
+        caret: i32,
         _chg_first: i32,
         _chg_len: i32,
         _status: xim::PreeditDrawStatus,
         preedit_string: &str,
         _feedbacks: Vec<xim::Feedback>,
     ) -> Result<(), ClientError> {
-        // XIMReverse: 1, XIMPrimary: 8, XIMTertiary: 32: selected text
-        // XIMUnderline: 2, XIMSecondary: 16: underlined text
-        // XIMHighlight: 4: normal text
-        // XIMVisibleToForward: 64, XIMVisibleToBackward: 128, XIMVisibleCenter: 256: text align position
-        // XIMPrimary, XIMHighlight, XIMSecondary, XIMTertiary are not specified,
-        // but interchangeable as above
-        // Currently there's no way to support these.
         self.last_callback_event = Some(XimCallbackEvent::XimPreeditEvent(
             self.window,
             String::from(preedit_string),
+            xim_caret_utf16(preedit_string, caret),
         ));
         Ok(())
+    }
+}
+
+fn xim_caret_utf16(text: &str, caret: i32) -> Option<std::ops::Range<usize>> {
+    if caret < 0 {
+        return None;
+    }
+    let caret = caret as usize;
+    let mut utf16 = 0;
+    for (index, ch) in text.chars().enumerate() {
+        if index == caret {
+            return Some(utf16..utf16);
+        }
+        utf16 += ch.len_utf16();
+    }
+    (text.chars().count() == caret).then_some(utf16..utf16)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::xim_caret_utf16;
+
+    #[test]
+    fn caret_after_a_wide_character_is_one_utf16_unit() {
+        assert_eq!(xim_caret_utf16("你", 1), Some(1..1));
+        assert_eq!(xim_caret_utf16("你", 0), Some(0..0));
+        assert_eq!(xim_caret_utf16("ab你", 3), Some(3..3));
     }
 }

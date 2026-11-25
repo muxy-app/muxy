@@ -33,14 +33,12 @@ where
     }
 
     pub fn insert(&mut self, new_bounds: Bounds<U>) -> u32 {
-        // If the tree is empty, make the root the new leaf.
         if self.root.is_none() {
             let new_node = self.push_leaf(new_bounds, 1);
             self.root = Some(new_node);
             return 1;
         }
 
-        // Search for the best place to add the new leaf based on heuristics.
         let mut max_intersecting_ordering = 0;
         let mut index = self.root.unwrap();
         while let Node::Internal {
@@ -55,10 +53,6 @@ where
             *node_bounds = node_bounds.union(&new_bounds);
             self.stack.push(index);
 
-            // Descend to the best-fit child, based on which one would increase
-            // the surface area the least. This attempts to keep the tree balanced
-            // in terms of surface area. If there is an intersection with the other child,
-            // add its keys to the intersections vector.
             let left_cost = new_bounds.union(self.nodes[left].bounds()).half_perimeter();
             let right_cost = new_bounds
                 .union(self.nodes[right].bounds())
@@ -74,11 +68,8 @@ where
             }
         }
 
-        // We've found a leaf ('index' now refers to a leaf node).
-        // We'll insert a new parent node above the leaf and attach our new leaf to it.
         let sibling = index;
 
-        // Check for collision with the located leaf node
         let Node::Leaf {
             bounds: sibling_bounds,
             order: sibling_ordering,
@@ -95,7 +86,6 @@ where
         let new_node = self.push_leaf(new_bounds, ordering);
         let new_parent = self.push_internal(sibling, new_node);
 
-        // If there was an old parent, we need to update its children indices.
         if let Some(old_parent) = self.stack.last().copied() {
             let Node::Internal { left, right, .. } = &mut self.nodes[old_parent] else {
                 unreachable!();
@@ -107,7 +97,6 @@ where
                 *right = new_parent;
             }
         } else {
-            // If the old parent was the root, the new parent is the new root.
             self.root = Some(new_parent);
         }
 
@@ -267,12 +256,10 @@ mod tests {
             },
         };
 
-        // Insert the bounds into the tree and verify the order is correct
         assert_eq!(tree.insert(bounds1), 1);
         assert_eq!(tree.insert(bounds2), 2);
         assert_eq!(tree.insert(bounds3), 3);
 
-        // Insert non-overlapping bounds and verify they can reuse orders
         let bounds4 = Bounds {
             origin: Point { x: 20.0, y: 20.0 },
             size: Size {
@@ -294,21 +281,19 @@ mod tests {
                 height: 10.0,
             },
         };
-        assert_eq!(tree.insert(bounds4), 1); // bounds4 does not overlap with bounds1, bounds2, or bounds3
-        assert_eq!(tree.insert(bounds5), 1); // bounds5 does not overlap with any other bounds
-        assert_eq!(tree.insert(bounds6), 2); // bounds6 overlaps with bounds4, so it should have a different order
+        assert_eq!(tree.insert(bounds4), 1);
+        assert_eq!(tree.insert(bounds5), 1);
+        assert_eq!(tree.insert(bounds6), 2);
     }
 
     #[test]
     fn test_random_iterations() {
         let max_bounds = 100;
         for seed in 1..=1000 {
-            // let seed = 44;
             let mut tree = BoundsTree::default();
             let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
             let mut expected_quads: Vec<(Bounds<f32>, u32)> = Vec::new();
 
-            // Insert a random number of random AABBs into the tree.
             let num_bounds = rng.random_range(1..=max_bounds);
             for _ in 0..num_bounds {
                 let min_x: f32 = rng.random_range(-100.0..100.0);
@@ -328,7 +313,6 @@ mod tests {
                     + 1;
                 expected_quads.push((bounds, expected_ordering));
 
-                // Insert the AABB into the tree and collect intersections.
                 let actual_ordering = tree.insert(bounds);
                 assert_eq!(actual_ordering, expected_ordering);
             }

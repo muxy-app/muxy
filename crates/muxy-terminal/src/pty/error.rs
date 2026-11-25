@@ -12,6 +12,7 @@ pub enum PtyStep {
     Resize,
     Wait,
     Kill,
+    WatchExit,
 }
 
 impl fmt::Display for PtyStep {
@@ -25,6 +26,7 @@ impl fmt::Display for PtyStep {
             Self::Resize => "resize",
             Self::Wait => "wait",
             Self::Kill => "kill",
+            Self::WatchExit => "watch exit",
         };
         formatter.write_str(name)
     }

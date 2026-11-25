@@ -1,9 +1,7 @@
-//! Settings → Browser: the built-in browser, search, home page, profiles,
-//! and importing from other browsers.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, Window, div};
 use muxy_app_core::browser::SearchEngine;
+use muxy_core::capability::Feature;
 use muxy_ui::controls::{self, Choice, Style};
 use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
@@ -11,7 +9,6 @@ use muxy_ui::tr;
 use super::{Category, SettingsEvent, SettingsView};
 use crate::model::preferences::{BrowserChange, Change};
 
-/// A browser profile as Settings lists it.
 #[derive(Clone, Debug)]
 pub(crate) struct Profile {
     pub id: String,
@@ -23,6 +20,12 @@ pub(super) fn rows(view: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
     let settings = &view.snapshot.settings.browser;
     let mut rows = Vec::new();
     let browser = |change| Change::Browser(change);
+    if let Some(reason) = view.snapshot.capabilities.reason(Feature::BrowserPanes) {
+        if view.matches(Category::Browser, tr_key!("Enable built-in browser")) {
+            rows.push(view.note(&reason, false).into_any_element());
+        }
+        return rows;
+    }
     if view.matches(Category::Browser, tr_key!("Enable built-in browser")) {
         rows.push(view.row(
             "browser-enabled",
@@ -167,7 +170,6 @@ fn profiles(view: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
     .into_any_element()
 }
 
-/// A profile with what can be done to it.
 fn profile_row(
     view: &SettingsView,
     profile: &Profile,
@@ -255,7 +257,6 @@ fn profile_row(
         .into_any_element()
 }
 
-/// A profile's name, and whether it is the default one.
 fn profile_title(view: &SettingsView, profile: &Profile) -> gpui::Div {
     let theme = &view.theme;
     let metrics = view.style().metrics;
@@ -353,7 +354,6 @@ impl SettingsView {
     }
 }
 
-/// Asks before a change that deletes data, and makes it once confirmed.
 fn confirm(
     change: BrowserChange,
     title: &str,

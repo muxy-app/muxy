@@ -47,7 +47,8 @@ localization/
 - Placeholders such as `%@` and `%lld` must match the key's, in type and
   position. Positional forms like `%1$@` may reorder them. A bundle with a
   mismatch is rejected.
-- Each file can be up to 4 MiB. The bundle must not contain executable code.
+- Each file can be up to 4 MiB, and all of an extension's catalogs together up
+  to 64 MiB. The bundle must not contain executable code.
 - Load errors go to the pack's log in **Settings → Extensions**.
 
 Muxy 2 uses new English strings, so packs made for 1.x load but translate only

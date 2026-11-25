@@ -11,10 +11,6 @@
 #![crate_type = "rlib"]
 #![allow(non_snake_case)]
 
-/*!
-Many of these functions will add objects to the autorelease pool.
-If you don't have one this will cause leaks.
-*/
 
 pub mod font;
 pub mod font_collection;

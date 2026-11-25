@@ -76,8 +76,6 @@ fn quick_terminal_disable_queues_cleanup_offline_and_preserves_preferences(
     });
 }
 
-/// Asks to close the Quick Terminal and answers the server's check with
-/// `name` as the foreground process.
 fn close_quick_terminal_running(
     model: &mut AppModel,
     requests: &std::sync::mpsc::Receiver<(u64, Work)>,

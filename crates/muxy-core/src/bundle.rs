@@ -1,7 +1,7 @@
 use crate::file_lock::{self, FileLock};
+use crate::files::{FileId, private_dir, private_file};
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -17,9 +17,6 @@ pub fn lock_replacement(directory: &Path) -> io::Result<FileLock> {
         .map_err(file_lock::busy(REPLACEMENT_BUSY))
 }
 
-/// Waits while an installation or update replaces Muxy in `directory`. Starts
-/// share the lock, so they never wait for each other. A user who can't open or
-/// create the lock can't replace Muxy there either, so starts without it.
 fn wait_for_replacement(directory: &Path) -> io::Result<Option<FileLock>> {
     let file = match File::open(replacement_lock(directory)) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => create_replacement_lock(directory),
@@ -35,16 +32,12 @@ fn wait_for_replacement(directory: &Path) -> io::Result<Option<FileLock>> {
         .map_err(file_lock::busy(REPLACEMENT_BUSY))
 }
 
-/// Opens the replacement lock for this user's installations and updates,
-/// readable by every user who starts Muxy from `directory`.
 fn create_replacement_lock(directory: &Path) -> io::Result<File> {
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o644)
-        .open(replacement_lock(directory))
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o644);
+    options.open(replacement_lock(directory))
 }
 
 fn lacks_access(error: &io::Error) -> bool {
@@ -58,7 +51,6 @@ fn replacement_lock(directory: &Path) -> PathBuf {
     directory.join(".muxy-beta-update.lock")
 }
 
-/// The app bundle whose `Contents/MacOS` holds `executable`.
 pub fn containing(executable: &Path) -> Option<&Path> {
     executable
         .parent()
@@ -71,6 +63,9 @@ pub fn acquire_runtime(
     executable: &Path,
     expected_metadata: &[u8],
 ) -> io::Result<Option<BundleLease>> {
+    if cfg!(windows) {
+        return Ok(None);
+    }
     #[cfg(target_os = "linux")]
     if let Some(root) = linux_root(executable) {
         let directory = executable
@@ -111,7 +106,6 @@ pub fn acquire_runtime(
     Ok(Some(BundleLease { _file: file }))
 }
 
-/// The root of a versioned, user-installed Linux desktop, including its matching helpers.
 #[cfg(target_os = "linux")]
 pub fn linux_root(executable: &Path) -> Option<&Path> {
     let version = executable.parent()?;
@@ -133,27 +127,20 @@ pub fn lock_unused(bundle: &Path) -> io::Result<Option<File>> {
 }
 
 fn identity(bundle: &Path) -> io::Result<String> {
-    let metadata = fs::metadata(bundle)?;
-    Ok(format!("{:x}-{:x}", metadata.dev(), metadata.ino()))
+    FileId::of_path(bundle).map(|id| id.to_string())
 }
 
 fn lease_directory() -> io::Result<PathBuf> {
-    let home =
-        std::env::home_dir().ok_or_else(|| io::Error::other("Home directory unavailable"))?;
-    Ok(home.join("Library/Application Support/Muxy Runtime/leases"))
+    Ok(crate::paths::home_dir()?.join("Library/Application Support/Muxy Runtime/leases"))
 }
 
 fn lease_file(directory: &Path, identity: &str) -> io::Result<File> {
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(directory)?;
-    OpenOptions::new()
+    private_dir(directory)?;
+    private_file()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(0o600)
         .open(directory.join(format!("{identity}.lock")))
 }
 
@@ -170,11 +157,13 @@ mod tests {
         assert_eq!(containing(Path::new("/repo/target/debug/muxy-app")), None);
     }
 
+    #[cfg(unix)]
     fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(mode))
     }
 
+    #[cfg(unix)]
     #[test]
     fn starting_needs_no_access_to_the_replacement_lock() -> io::Result<()> {
         let read_only = tempfile::tempdir()?;
@@ -204,8 +193,12 @@ mod tests {
         let first = wait_for_replacement(directory.path())?;
         let second = wait_for_replacement(directory.path())?;
         assert!(first.is_some() && second.is_some());
-        let mode = fs::metadata(replacement_lock(directory.path()))?.mode() & 0o777;
-        assert_eq!(mode & !0o644, 0, "only the owner may write the lock");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let mode = fs::metadata(replacement_lock(directory.path()))?.mode() & 0o777;
+            assert_eq!(mode & !0o644, 0, "only the owner may write the lock");
+        }
         assert_eq!(
             lock_replacement(directory.path())
                 .err()
@@ -244,7 +237,6 @@ mod tests {
         assert!(matches!(old.try_lock(), Err(fs::TryLockError::WouldBlock)));
         let new = lease_file(root.path(), &identity(&current)?)?;
         new.try_lock()?;
-        // Closing alone keeps the lock while a child spawned by another test still shares the file.
         lease.unlock()?;
         old.try_lock()?;
         Ok(())

@@ -15,7 +15,6 @@ fn listed(id: &str, name: &str) -> Listed {
     }
 }
 
-/// Finder and two editors, with launches reported instead of run.
 fn install(model: &mut AppModel) -> mpsc::Receiver<(PathBuf, String)> {
     let (sender, launches) = mpsc::channel();
     model.project_apps.listed = Some(vec![
@@ -40,7 +39,7 @@ fn launched(launches: &mpsc::Receiver<(PathBuf, String)>) -> (PathBuf, String) {
 fn the_control_opens_the_project_in_the_chosen_app_and_remembers_it(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.open_terminal_tab(project).expect("tab");
     let (boot, _requests) = stub_boot(state);
@@ -73,7 +72,10 @@ fn the_control_opens_the_project_in_the_chosen_app_and_remembers_it(cx: &mut Tes
     cx.simulate_click(primary.center(), Modifiers::default());
     assert_eq!(
         launched(&launches),
-        (std::env::temp_dir(), "dev.zed.Zed".to_owned())
+        (
+            crate::test_support::project_directory(),
+            "dev.zed.Zed".to_owned()
+        )
     );
     view.read_with(cx, |model, _| {
         assert_eq!(
@@ -100,7 +102,10 @@ fn the_control_opens_the_project_in_the_chosen_app_and_remembers_it(cx: &mut Tes
     cx.run_until_parked();
     assert_eq!(
         launched(&launches),
-        (std::env::temp_dir(), "com.apple.dt.Xcode".to_owned())
+        (
+            crate::test_support::project_directory(),
+            "com.apple.dt.Xcode".to_owned()
+        )
     );
     view.read_with(cx, |model, _| {
         assert!(model.overlay.is_none());
@@ -143,7 +148,7 @@ fn projects_on_other_computers_have_no_open_in_ide_control(cx: &mut TestAppConte
 fn a_choice_that_cannot_be_saved_still_opens_and_says_so(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.open_terminal_tab(project).expect("tab");
     let (boot, _requests) = stub_boot(state);
@@ -162,7 +167,10 @@ fn a_choice_that_cannot_be_saved_still_opens_and_says_so(cx: &mut TestAppContext
     });
     assert_eq!(
         launched(&launches),
-        (std::env::temp_dir(), "com.apple.dt.Xcode".to_owned())
+        (
+            crate::test_support::project_directory(),
+            "com.apple.dt.Xcode".to_owned()
+        )
     );
     view.read_with(cx, |model, _| {
         assert_eq!(model.settings.openers.project_target, None);
@@ -181,7 +189,7 @@ fn a_choice_that_cannot_be_saved_still_opens_and_says_so(cx: &mut TestAppContext
 fn a_failed_launch_forgets_editors_that_were_uninstalled(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.open_terminal_tab(project).expect("tab");
     let (boot, _requests) = stub_boot(state);
@@ -190,7 +198,7 @@ fn a_failed_launch_forgets_editors_that_were_uninstalled(cx: &mut TestAppContext
         model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
     });
-    let installed = std::env::temp_dir();
+    let installed = crate::test_support::project_directory();
     let uninstalled = installed.join(format!("muxy-uninstalled-{}.app", ProjectId::new()));
     view.update(cx, |model, cx| {
         let editor = |id: &str, path: &std::path::Path| Listed {
@@ -240,42 +248,46 @@ fn a_failed_launch_forgets_editors_that_were_uninstalled(cx: &mut TestAppContext
     });
 }
 
-/// The Open in IDE control in a window `width` wide whose sidebar is as wide
-/// as it goes, with the tab strip beside it.
-fn cramped(
-    width: f32,
-    cx: &mut TestAppContext,
-) -> (gpui::Bounds<gpui::Pixels>, gpui::Bounds<gpui::Pixels>) {
+#[gpui::test]
+fn hiding_the_control_is_saved_and_keeps_the_shortcut_working(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
     let project = state
-        .add_project(ServerId::local(), std::env::temp_dir())
+        .add_project(ServerId::local(), crate::test_support::project_directory())
         .expect("project");
     state.open_terminal_tab(project).expect("tab");
-    let (mut boot, _requests) = stub_boot(state);
-    boot.settings.appearance.sidebar_expanded = true;
-    boot.settings.appearance.sidebar_expanded_width = Some(480.0);
+    let (boot, _requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
-    cx.simulate_resize(size(px(width), px(600.0)));
-    view.update(cx, |model, cx| {
+    cx.simulate_resize(size(px(1200.0), px(600.0)));
+    let launches = view.update(cx, |model, cx| {
         model.servers.local.connection = ConnectionState::Ready;
         acknowledge_catalog(model, cx);
-        let _ = install(model);
+        let launches = install(model);
         cx.notify();
+        launches
     });
     cx.run_until_parked();
-    (
-        cx.debug_bounds("open-in-ide").expect("control"),
-        cx.debug_bounds("tabs-scroll").expect("tab strip"),
-    )
-}
+    assert!(cx.debug_bounds("open-in-ide").is_some());
 
-#[gpui::test]
-fn the_control_drops_its_name_before_the_tab_strip_runs_out_of_room(cx: &mut TestAppContext) {
-    let (named, _) = cramped(1400.0, cx);
-    let (compact, tabs) = cramped(700.0, cx);
-    assert!(
-        compact.size.width < named.size.width,
-        "{compact:?} {named:?}"
+    view.update(cx, |model, cx| {
+        model.change_preference(
+            crate::model::preferences::Change::OpenInAppButton(false),
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("open-in-ide").is_none());
+    view.update(cx, AppModel::open_project_in_default);
+    assert_eq!(
+        launched(&launches),
+        (
+            crate::test_support::project_directory(),
+            "dev.zed.Zed".to_owned()
+        )
     );
-    assert!(tabs.size.width > px(0.0), "{tabs:?}");
+    view.read_with(cx, |model, _| {
+        let saved =
+            muxy_app_core::settings::Settings::load(&model.configuration_path("settings.toml"))
+                .expect("saved settings");
+        assert!(!saved.appearance.open_in_app_button);
+    });
 }

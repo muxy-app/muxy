@@ -54,13 +54,9 @@ impl WorktreeLocation {
 }
 
 impl WorktreeSettings {
-    /// Reads only the `[worktrees]` table of the settings file at `path`, so a
-    /// section written by a newer app or holding invalid values never blocks
-    /// worktrees.
-    /// A missing file or table gives the defaults.
     pub fn load(path: &Path) -> Result<Self> {
         let context = || format!("{}: worktrees", path.display());
-        let document = super::appearance::read_document(path)
+        let document = super::document::read_document(path)
             .map_err(|error| Error::new(path.display().to_string(), error))?;
         let settings: Self = match document.get("worktrees") {
             Some(table) => table
@@ -80,8 +76,6 @@ impl WorktreeSettings {
             .try_for_each(WorktreeLocation::validate)
     }
 
-    /// Where a new worktree goes. `~` means `home`, the Home of the project's
-    /// computer; `None` is this computer's `$HOME`.
     pub fn directory(
         &self,
         project: &crate::Project,
@@ -100,8 +94,6 @@ impl WorktreeSettings {
         )
     }
 
-    /// [`Self::directory`] for the project named `project_name` in
-    /// `project_directory`.
     pub fn directory_in(
         &self,
         project_name: &str,
@@ -171,15 +163,12 @@ pub fn sanitized_component(value: &str, fallback: &str) -> String {
 }
 
 fn resolve(project: &Path, value: &str, home: Option<&Path>) -> Result<PathBuf> {
-    let path = if value == "~" || value.starts_with("~/") {
+    let path = if let Ok(relative) = Path::new(value).strip_prefix("~") {
         let home = match home {
             Some(home) => home.to_path_buf(),
-            None => PathBuf::from(
-                std::env::var_os("HOME")
-                    .ok_or_else(|| Error::new("worktrees", "HOME is not set"))?,
-            ),
+            None => muxy_core::paths::home_dir().map_err(|error| Error::new("worktrees", error))?,
         };
-        home.join(value.strip_prefix("~/").unwrap_or(""))
+        home.join(relative)
     } else {
         project.join(value)
     };
@@ -203,7 +192,7 @@ fn normalize(path: &Path) -> PathBuf {
 impl Settings {
     pub fn save_worktrees(&self, path: &Path) -> Result<()> {
         self.worktrees.validate()?;
-        super::appearance::save_section(path, "worktrees", &self.worktrees)
+        super::document::save_section(path, "worktrees", &self.worktrees)
             .map_err(|error| Error::new("worktrees", error))
     }
 }

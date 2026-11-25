@@ -1,15 +1,12 @@
-// Adapted from herdr (Apache-2.0); see THIRD_PARTY.md in this directory.
 use super::DetectionInput;
 
 pub(super) fn region<'a>(input: DetectionInput<'a>, spec: &str) -> &'a str {
     let trimmed = spec.trim();
-    // OSC regions source from their dedicated fields, not the screen.
     match trimmed {
         "osc_title" => return input.osc_title,
         "osc_progress" => return input.osc_progress,
         _ => {}
     }
-    // All other regions operate on the screen content as before.
     let content = input.screen;
     match trimmed {
         "whole_recent" => content,

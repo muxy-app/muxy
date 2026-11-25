@@ -1,5 +1,3 @@
-//! Browser profiles: each keeps its own cookies, site data, and history.
-
 use gpui::Context;
 use muxy_ui::browser::polybrowser::{
     self, ExternalProfile, ImportOptions, Profile, ProfileId, ProfileManager,
@@ -10,7 +8,6 @@ use crate::model::AppModel;
 use crate::model::preferences::BrowserChange;
 use crate::views::settings::browser::Profile as SettingsProfile;
 
-/// The profile new tabs use when none is chosen.
 const DEFAULT: &str = "Default";
 
 impl AppModel {
@@ -26,7 +23,6 @@ impl AppModel {
             .ok_or_else(|| "browser profiles are unavailable".into())
     }
 
-    /// The profile named or identified by `wanted`, or the default one.
     pub(crate) fn browser_profile(&mut self, wanted: Option<&str>) -> Result<Profile, String> {
         let Some(wanted) = wanted.filter(|wanted| !wanted.is_empty()) else {
             return self.default_browser_profile();
@@ -76,7 +72,6 @@ impl AppModel {
             .map_err(|error| error.to_string())
     }
 
-    /// Lists profiles and other browsers again, for Settings.
     pub(crate) fn refresh_browser_profiles(&mut self) {
         let _ = self.default_browser_profile();
         self.browsers.profile_list = self
@@ -91,7 +86,6 @@ impl AppModel {
             .unwrap_or_default();
     }
 
-    /// Profiles as Settings shows them: the default first, then by name.
     pub(crate) fn settings_browser_profiles(&self) -> Vec<SettingsProfile> {
         let chosen = &self.settings.browser.default_profile;
         let chosen_listed = self
@@ -117,8 +111,6 @@ impl AppModel {
         profiles
     }
 
-    /// Carries out a profile change from Settings. Changes saved in
-    /// `settings.toml` are left to the caller, which gets `false` for them.
     pub(crate) fn apply_browser_profile_change(
         &mut self,
         change: &BrowserChange,
@@ -179,9 +171,6 @@ impl AppModel {
             .map_err(|error| error.to_string())
     }
 
-    /// Deletes a profile with its cookies, site data, and history. Its tabs
-    /// browse with the default profile from then on, and keep their profile
-    /// if it can't be deleted.
     pub(crate) fn delete_browser_profile(
         &mut self,
         id: &str,
@@ -219,7 +208,7 @@ impl AppModel {
             .detach();
             Ok(())
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(not(target_os = "linux"))]
         self.finish_profile_delete(parsed, cx)
     }
 
@@ -255,8 +244,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Signs the profile out everywhere: its cookies, site data, and history
-    /// go.
     pub(crate) fn clear_browser_profile(
         &mut self,
         id: &str,
@@ -288,14 +275,10 @@ impl AppModel {
         Ok(())
     }
 
-    /// Browsers on this computer whose history, bookmarks, or cookies can be
-    /// imported.
     pub(crate) fn browser_import_sources() -> Vec<ExternalProfile> {
         polybrowser::import::detect()
     }
 
-    /// Brings history and bookmarks, and with `cookies` the sign-ins, from
-    /// another browser into a profile.
     pub(crate) fn import_into_browser_profile(
         &mut self,
         id: &str,
@@ -383,7 +366,6 @@ impl AppModel {
     }
 }
 
-/// What was read from another browser.
 enum Imported {
     History(polybrowser::ImportReport),
     Cookies(Vec<polybrowser::Cookie>),

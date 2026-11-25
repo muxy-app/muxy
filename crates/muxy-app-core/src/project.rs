@@ -62,7 +62,6 @@ impl fmt::Display for Color {
     }
 }
 
-/// The first character of a name, which stands for it on a project's tile.
 pub fn initial(name: &str) -> &str {
     name.graphemes(true).next().unwrap_or("?")
 }
@@ -123,8 +122,6 @@ pub enum ProjectStatus {
     Missing,
 }
 
-/// The shared palette, by name. Names are English keys, translated where
-/// shown.
 pub const PROJECT_COLORS: [(&str, &str); 12] = [
     (tr_key!("Red"), PALETTE[0]),
     (tr_key!("Orange"), PALETTE[1]),
@@ -145,13 +142,10 @@ impl Project {
         self.status
     }
 
-    /// Another computer's Home, which stands for its server.
     pub fn is_remote_home(&self) -> bool {
         self.home && !self.server_id.is_local()
     }
 
-    /// Only this computer's folders can be checked here. Another computer's
-    /// projects keep what their server last said.
     pub(crate) fn refresh_status(&mut self) {
         if !self.server_id.is_local() {
             return;

@@ -157,9 +157,17 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                                     + px(pane.scroll.pixel_remainder(f32::from(cell.height))),
                             );
                         let graphics = grid.graphics.clone();
+                        let live = pane
+                            .scroll
+                            .view
+                            .as_ref()
+                            .and(pane.grid.as_deref())
+                            .map(|live| live.graphics.clone());
                         let now = cx.background_executor().now();
                         let fetch = pane.state == super::pane::PaneState::Live;
-                        let prepared = pane.images.prepare(&graphics, origin, cell, now, fetch);
+                        let prepared =
+                            pane.images
+                                .prepare(&graphics, live.as_ref(), origin, cell, now, fetch);
                         painting.images = prepared.placements;
                         for image in pane.images.retired() {
                             cx.drop_image(image, Some(window));

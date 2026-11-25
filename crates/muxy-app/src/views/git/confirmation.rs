@@ -2,8 +2,6 @@ use gpui::AsyncApp;
 use muxy_ui::dialog::{Parent, Question, ask};
 use muxy_ui::tr;
 
-/// Asks before a Git operation. Reports whether the teardown commands should
-/// run too, or `None` when declined.
 pub(super) async fn prompt(
     parent: &Parent,
     message: &str,

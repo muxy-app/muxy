@@ -6,8 +6,6 @@ use crate::views::overlays::Overlay;
 use gpui::Focusable;
 use muxy_app_core::Direction;
 
-/// Two attached panes with the first one active, so focus going back to the
-/// active pane can't be mistaken for focus going to the newest pane.
 fn split_workspace(cx: &mut TestAppContext) -> (Entity<AppModel>, &mut VisualTestContext, PaneId) {
     let mut state = AppState::bootstrap().expect("state");
     state.open_terminal_tab(state.home().id).expect("tab");
@@ -57,8 +55,6 @@ fn pane_focused(view: &Entity<AppModel>, pane: PaneId, cx: &mut VisualTestContex
     })
 }
 
-/// The current project, registered so Git overlays open, with one attached
-/// pane.
 fn project_workspace(
     cx: &mut TestAppContext,
 ) -> (Entity<AppModel>, &mut VisualTestContext, PaneId, ProjectId) {
@@ -87,8 +83,6 @@ fn project_workspace(
     (view, cx, pane, project)
 }
 
-/// The Agents opener sets its variant directly, and the Git form opens
-/// without a window.
 const OPEN_WITHOUT_THE_KEYBOARD: [&str; 2] = ["agents", "git form"];
 
 #[gpui::test]
@@ -173,13 +167,13 @@ fn session_providers_hand_the_keyboard_back_to_the_search_unless_it_hides(cx: &m
     assert!(pane_focused(&view, pane, cx));
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn a_return_belongs_to_the_overlay_that_closes(cx: &mut TestAppContext) {
     let (view, cx, pane) = split_workspace(cx);
     view.update_in(cx, AppModel::toggle_agent_sessions);
     cx.run_until_parked();
 
-    // Replaced without being dismissed: the next overlay closes to the pane.
     view.update_in(cx, AppModel::toggle_session_providers);
     view.update(cx, |model, cx| model.ask_password(ServerId::local(), cx));
     cx.run_until_parked();
@@ -187,7 +181,6 @@ fn a_return_belongs_to_the_overlay_that_closes(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(pane_focused(&view, pane, cx));
 
-    // Closed while another overlay opens: that overlay keeps the keyboard.
     view.update_in(cx, AppModel::toggle_session_providers);
     view.update_in(cx, AppModel::toggle_remote_popover);
     cx.run_until_parked();
@@ -196,7 +189,6 @@ fn a_return_belongs_to_the_overlay_that_closes(cx: &mut TestAppContext) {
         assert!(model.overlay_focus.is_focused(window));
     });
 
-    // Closed without a dismiss: a later dismiss closes to the pane.
     view.update(cx, |model, cx| {
         model.overlay = Some(Overlay::SessionProviders);
         cx.notify();

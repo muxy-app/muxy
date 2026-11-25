@@ -1,6 +1,3 @@
-//! The app language: the language pack chosen in Settings, or English while
-//! it is unavailable.
-
 use std::sync::Arc;
 
 use gpui::Context;
@@ -10,7 +7,6 @@ use muxy_ui::tr;
 use super::AppModel;
 
 impl AppModel {
-    /// Languages the enabled extensions provide, as `(selection, label)`.
     pub(crate) fn app_languages(&self) -> Vec<(String, String)> {
         localization::providers(&self.extensions.registry)
             .into_iter()
@@ -21,8 +17,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Loads the selected language pack and redraws every window in it.
-    /// Before extensions load the selection is unknown, so English stays.
     pub(crate) fn sync_language(&mut self, cx: &mut Context<Self>) {
         if !self.extensions_loaded() {
             return;

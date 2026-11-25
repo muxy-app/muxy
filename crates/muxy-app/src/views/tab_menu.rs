@@ -10,7 +10,6 @@ pub(crate) enum Action {
     New(TabSide),
     Rename,
     ResetTitle,
-    /// Sets the tab's color to `PROJECT_COLORS[index]`.
     SetColor(usize),
     ResetColor,
     TogglePin,
@@ -21,8 +20,6 @@ pub(crate) enum Action {
     ReturnToMainWindow,
 }
 
-/// The menu that moves a tab or pane into one of `destinations`, or nothing
-/// when there is nowhere to go.
 pub(crate) fn move_to_project(
     destinations: &[(ProjectId, SharedString)],
     command: impl Fn(ProjectId) -> Command,

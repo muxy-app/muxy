@@ -1,14 +1,9 @@
-//! How `muxy browser` and `muxy session show` reach the desktop app: one JSON
-//! request and one JSON reply over a Unix socket in the profile folder that
-//! only this user can open. The client closes its side after the request, so
-//! each side reads to the end.
-
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use muxy_protocol::transport::LocalStream;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -72,10 +67,8 @@ pub fn decode_reply(bytes: &[u8]) -> Result<Value, String> {
 
 #[derive(Debug)]
 pub enum CallError {
-    /// Nothing listens on the socket: the desktop app isn't running.
     NotRunning,
     Io(io::Error),
-    /// The app answered with an error.
     Failed(String),
 }
 
@@ -94,9 +87,8 @@ impl std::fmt::Display for CallError {
 
 impl std::error::Error for CallError {}
 
-/// Sends `request` to the app and waits up to `timeout` for its reply.
 pub fn call(socket: &Path, request: &Request, timeout: Duration) -> Result<Value, CallError> {
-    let mut stream = UnixStream::connect(socket).map_err(|error| match error.kind() {
+    let mut stream = LocalStream::connect(socket).map_err(|error| match error.kind() {
         io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => CallError::NotRunning,
         _ => CallError::Io(error),
     })?;
@@ -139,8 +131,6 @@ mod tests {
         assert!(decode_reply(b"not json").is_err());
     }
 
-    /// Released command-line tools read these replies, so a change here breaks
-    /// them. Compared as JSON: key order follows the build's `serde_json` features.
     #[test]
     fn replies_keep_their_wire_format() {
         let ok = r#"{"ok":true,"value":{"title":"Docs"}}"#;
@@ -153,7 +143,6 @@ mod tests {
         assert_eq!(decode_reply(failed.as_bytes()), Err("nope".to_owned()));
     }
 
-    /// Released command-line tools retry `session show` on this exact text.
     #[test]
     fn not_ready_keeps_its_text() {
         assert_eq!(NOT_READY, "Muxy hasn't loaded that terminal's project yet");

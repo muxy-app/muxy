@@ -53,7 +53,6 @@ pub enum FilesAction {
     Watch,
     #[n(9)]
     Unwatch,
-    /// Reads any file, such as an image, as it is on disk.
     #[n(10)]
     ReadBytes(#[n(0)] ServerPath),
     #[n(11)]
@@ -162,10 +161,27 @@ impl FileChanges {
     }
 }
 
-/// `Folders` names: each one path component, within the listing limits.
 pub fn validate_folder_names(names: &[ServerPath]) -> Result<(), ErrorCode> {
+    validate_names(names.iter())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct PathEntry {
+    #[n(0)]
+    pub name: ServerPath,
+    #[n(1)]
+    pub is_directory: bool,
+}
+
+pub fn validate_path_entries(entries: &[PathEntry]) -> Result<(), ErrorCode> {
+    validate_names(entries.iter().map(|entry| &entry.name))
+}
+
+fn validate_names<'a>(
+    names: impl ExactSizeIterator<Item = &'a ServerPath> + Clone,
+) -> Result<(), ErrorCode> {
     if names.len() > MAX_FILE_ENTRIES
-        || names.iter().map(|name| name.0.len()).sum::<usize>() > MAX_FILE_PATH_BYTES
+        || names.clone().map(|name| name.0.len()).sum::<usize>() > MAX_FILE_PATH_BYTES
     {
         return Err(ErrorCode::BadRequest);
     }
@@ -176,7 +192,7 @@ pub fn validate_folder_names(names: &[ServerPath]) -> Result<(), ErrorCode> {
             && name.0 != b"."
             && name.0 != b".."
     };
-    if names.iter().all(component) {
+    if names.into_iter().all(component) {
         Ok(())
     } else {
         Err(ErrorCode::BadPath)

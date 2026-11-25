@@ -27,7 +27,6 @@ pub(crate) struct WindowsDisplay {
     uuid: Uuid,
 }
 
-// The `HMONITOR` is thread-safe.
 unsafe impl Send for WindowsDisplay {}
 unsafe impl Sync for WindowsDisplay {}
 
@@ -130,7 +129,6 @@ impl WindowsDisplay {
     }
 
     pub fn primary_monitor() -> Option<Self> {
-        // https://devblogs.microsoft.com/oldnewthing/20070809-00/?p=25643
         const POINT_ZERO: POINT = POINT { x: 0, y: 0 };
         let monitor = unsafe { MonitorFromPoint(POINT_ZERO, MONITOR_DEFAULTTOPRIMARY) };
         if monitor.is_invalid() {
@@ -143,7 +141,6 @@ impl WindowsDisplay {
         Some(WindowsDisplay::new_with_handle(monitor))
     }
 
-    /// Check if the center point of given bounds is inside this monitor
     pub fn check_given_bounds(&self, bounds: Bounds<Pixels>) -> bool {
         let center = bounds.center();
         let center = POINT {
@@ -172,7 +169,6 @@ impl WindowsDisplay {
             .collect()
     }
 
-    /// Check if this monitor is still online
     pub fn is_connected(hmonitor: HMONITOR) -> bool {
         available_monitors().iter().contains(&hmonitor)
     }

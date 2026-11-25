@@ -29,7 +29,9 @@ impl FromStr for KeyChord {
         while let Some((component, tail)) = rest.split_once('-') {
             let Some(index) = names.iter().position(|name| {
                 component.eq_ignore_ascii_case(name)
-                    || (*name == "cmd" && component.eq_ignore_ascii_case("super"))
+                    || (*name == "cmd"
+                        && (component.eq_ignore_ascii_case("super")
+                            || component.eq_ignore_ascii_case("win")))
             }) else {
                 break;
             };

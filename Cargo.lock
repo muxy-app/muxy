@@ -1845,7 +1845,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 3.0.4",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -3416,9 +3416,9 @@ dependencies = [
 
 [[package]]
 name = "grid"
-version = "0.18.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12101ecc8225ea6d675bc70263074eab6169079621c2186fe0c66590b2df9681"
+checksum = "b40ca9252762c466af32d0b1002e91e4e1bc5398f77455e55474deb466355ff5"
 
 [[package]]
 name = "gtk"
@@ -4735,6 +4735,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "windows 0.62.2",
  "xim-ctext",
  "zed-reqwest",
  "zip",
@@ -4761,6 +4762,7 @@ dependencies = [
  "toml 1.1.5+spec-1.1.0",
  "unicode-segmentation",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4790,6 +4792,7 @@ dependencies = [
  "serde_json",
  "signal-hook 0.4.4",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4802,6 +4805,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4817,6 +4821,7 @@ dependencies = [
 name = "muxy-protocol"
 version = "2.0.0-beta-0"
 dependencies = [
+ "libc",
  "minicbor",
  "muxy-core",
  "postcard",
@@ -4825,8 +4830,10 @@ dependencies = [
  "rustix 1.1.4",
  "rustls",
  "serde",
+ "uds_windows",
  "unicode-segmentation",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4852,6 +4859,9 @@ dependencies = [
  "signal-hook 0.4.4",
  "toml 1.1.5+spec-1.1.0",
  "ureq",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4864,6 +4874,7 @@ dependencies = [
  "muxy-protocol",
  "portable-pty",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4888,8 +4899,11 @@ dependencies = [
  "objc2-web-kit",
  "polybrowser",
  "raw-window-handle",
+ "roxmltree",
  "serde_json",
  "unicode-segmentation",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
  "x11rb",
  "zbus",
 ]
@@ -8107,9 +8121,9 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.9.0"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a13e5d13f79d558b5d353a98072ca8ca0e99da429467804de959aa8c83c9a004"
+checksum = "41ba83ebaf2954d31d05d67340fd46cebe99da2b7133b0dd68d70c65473a437b"
 dependencies = [
  "arrayvec",
  "grid",

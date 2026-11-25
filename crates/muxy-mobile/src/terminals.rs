@@ -1,11 +1,11 @@
-//! Attached terminals by channel, and the attaches still under way.
-
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use muxy_client::{AttachedTerminal, Attachment};
-use muxy_protocol::{ChannelId, InputModes, MetadataEvent, ScreenFrame, ServerPath, SessionId};
+use muxy_protocol::{
+    ChannelId, InputModes, MetadataEvent, ScreenFrame, ServerPath, SessionId, Size,
+};
 
 #[derive(Default)]
 pub(crate) struct Terminals {
@@ -17,7 +17,6 @@ struct State {
     views: HashMap<ChannelId, Arc<View>>,
     waiting: HashMap<u64, SyncSender<Arc<View>>>,
     next_tag: u64,
-    /// Channels up to this one were attached on this connection.
     last_channel: u32,
 }
 
@@ -32,19 +31,16 @@ pub(crate) struct Content {
     pub(crate) title: String,
     pub(crate) directory: ServerPath,
     pub(crate) input: InputModes,
+    pub(crate) claimed: Option<Size>,
 }
 
 pub(crate) enum Delivery {
-    /// Applied to an attached terminal; acknowledge `seq` to receive the next frame.
     Applied { session: SessionId, seq: u64 },
-    /// For a terminal that has been detached; acknowledge `seq`.
     Closed { seq: u64 },
-    /// For a channel this connection never attached.
     Unknown,
 }
 
 impl Terminals {
-    /// Registers an attach; its view arrives on the receiver once attached.
     pub(crate) fn start_attach(&self) -> (u64, Receiver<Arc<View>>) {
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut state = self.lock();
@@ -58,8 +54,6 @@ impl Terminals {
         self.lock().waiting.remove(&tag);
     }
 
-    /// Installs an attached terminal for whoever waits for `tag`, or returns
-    /// the channel nobody waits for.
     pub(crate) fn attached(
         &self,
         tag: u64,
@@ -82,6 +76,7 @@ impl Terminals {
                 title: attachment.title,
                 directory: attachment.directory,
                 input: InputModes::default(),
+                claimed: None,
             }),
         });
         state.views.insert(channel, Arc::clone(&view));
@@ -109,7 +104,6 @@ impl Terminals {
         }
     }
 
-    /// Returns the session whose `Screen` metadata changed.
     pub(crate) fn metadata(&self, channel: ChannelId, event: MetadataEvent) -> Option<SessionId> {
         let view = self.lock().views.get(&channel).cloned()?;
         view.lock().apply(event).then_some(view.session)
@@ -127,7 +121,6 @@ impl Terminals {
         self.lock().views.retain(|_, view| view.session != session);
     }
 
-    /// Stops every attach under way; nothing more arrives on this connection.
     pub(crate) fn disconnected(&self) {
         self.lock().waiting.clear();
     }
@@ -144,7 +137,28 @@ impl View {
 }
 
 impl Content {
-    /// Returns the sequence number to acknowledge.
+    pub(crate) fn claim(&mut self, size: Size) {
+        self.claimed = Some(size);
+    }
+
+    pub(crate) fn claim_if_shown(&mut self, size: Size) {
+        if self.terminal.grid.size == size {
+            self.claim(size);
+        }
+    }
+
+    pub(crate) fn reclaim(&self) -> Option<(Size, u64)> {
+        self.claimed
+            .filter(|size| *size != self.terminal.grid.size)
+            .map(|size| (size, self.terminal.seq()))
+    }
+
+    pub(crate) fn reclaimed(&mut self, size: Size, seq: u64) {
+        if self.terminal.seq() == seq {
+            self.terminal.grid.resize(size);
+        }
+    }
+
     fn frame(&mut self, frame: &ScreenFrame) -> u64 {
         if self.terminal.grid.size != frame.size {
             self.terminal.grid.resize(frame.size);
@@ -152,14 +166,12 @@ impl Content {
         self.terminal.apply(frame)
     }
 
-    /// Returns whether the change shows in `Screen`.
     fn apply(&mut self, event: MetadataEvent) -> bool {
         match event {
             MetadataEvent::Title(title) => self.title = title,
             MetadataEvent::Directory(directory) => self.directory = directory,
             MetadataEvent::History { total_rows } => self.terminal.grid.history_total = total_rows,
             MetadataEvent::InputModes(input) => {
-                // Focus reporting alone doesn't show.
                 let shown = |modes: InputModes| (modes.mouse_tracking, modes.alternate_scroll);
                 let changed = shown(input) != shown(self.input);
                 self.input = input;
@@ -198,6 +210,7 @@ mod tests {
             history: Vec::new(),
             history_cursor: None,
             history_total: 0,
+            history_graphics: None,
         };
         Attachment {
             terminal: AttachedTerminal::new(channel, RunGrid::from_snapshot(&snapshot)),
@@ -209,10 +222,14 @@ mod tests {
     }
 
     fn resized(size: Size) -> ScreenFrame {
+        resized_at(size, 1)
+    }
+
+    fn resized_at(size: Size, seq: u64) -> ScreenFrame {
         ScreenFrame {
             size,
             graphics: None,
-            seq: 1,
+            seq,
             reset: true,
             rows: (0..size.rows)
                 .map(|index| muxy_protocol::Row {
@@ -245,6 +262,43 @@ mod tests {
             ));
             assert_eq!(view.lock().terminal.grid.size, size);
             assert_eq!(view.lock().terminal.grid.rows.len(), usize::from(size.rows));
+        }
+    }
+
+    #[test]
+    fn the_phone_takes_back_only_a_size_it_set() {
+        let terminals = Terminals::default();
+        let channel = ChannelId(1);
+        let session = SessionId::new(7).unwrap();
+        let (tag, attached) = terminals.start_attach();
+        terminals.attached(tag, session, attachment(channel));
+        let view = attached.try_recv().expect("view");
+        let phone = Size { cols: 4, rows: 1 };
+        let desktop = Size { cols: 20, rows: 4 };
+
+        terminals.frame(channel, resized(desktop));
+        assert_eq!(view.lock().reclaim(), None);
+
+        view.lock().claim_if_shown(phone);
+        assert_eq!(view.lock().reclaim(), None);
+        terminals.frame(channel, resized(phone));
+        view.lock().claim_if_shown(phone);
+        assert_eq!(view.lock().reclaim(), None);
+
+        terminals.frame(channel, resized_at(desktop, 2));
+        assert_eq!(view.lock().reclaim(), Some((phone, 2)));
+        assert_eq!(view.lock().terminal.grid.size, desktop);
+        assert_eq!(view.lock().reclaim(), Some((phone, 2)));
+        view.lock().reclaimed(phone, 2);
+        assert_eq!(view.lock().terminal.grid.size, phone);
+        assert_eq!(view.lock().reclaim(), None);
+
+        for after in [phone, desktop] {
+            terminals.frame(channel, resized_at(desktop, 3));
+            let (size, seq) = view.lock().reclaim().unwrap();
+            terminals.frame(channel, resized_at(after, 4));
+            view.lock().reclaimed(size, seq);
+            assert_eq!(view.lock().terminal.grid.size, after);
         }
     }
 

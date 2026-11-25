@@ -1,5 +1,3 @@
-//! The tab bar of the current project.
-
 use ratatui::{
     Frame,
     layout::Rect,
@@ -14,7 +12,6 @@ use crate::worker::Shared;
 
 const TITLE_WIDTH: usize = 24;
 const NEW_TAB: &str = " + ";
-/// The width of the "Ctrl-B ? help " hint.
 const HINT_WIDTH: u16 = 14;
 
 pub(super) fn draw(frame: &mut Frame<'_>, shared: &Shared, state: &State, ui: &mut Ui, area: Rect) {

@@ -93,6 +93,7 @@ pub(super) fn sample() -> State {
         hook_error: None,
         failed: None,
         reply: None,
+        set_aside: None,
     };
     let receipt = |id: u128, mutation: ProjectMutation, error: Option<ErrorReply>| {
         (
@@ -525,6 +526,60 @@ fn a_saved_session_name_that_is_not_valid_is_dropped() {
     let state = load(&json);
     assert_eq!(state.sessions[&session(21)].name, None);
     assert_eq!(state.sessions[&session(22)].name.as_deref(), Some("kept"));
+}
+
+#[test]
+fn project_deletion_stays_pending_until_child_sessions_are_discarded() {
+    let catalog = Catalog::from_state(sample(), None, std::sync::Arc::default());
+    let parent = ProjectId::from_u128(2);
+    let child = ProjectId::from_u128(3);
+    let delete = ProjectIntent {
+        operation: OperationId::new(),
+        mutation: ProjectMutation::Delete(parent),
+    };
+    assert_eq!(catalog.begin_mutation(&delete), Ok(false));
+    assert_eq!(catalog.begin_mutation(&delete), Ok(false));
+    assert_eq!(catalog.deleting(), vec![parent, child]);
+
+    let patch = ProjectIntent {
+        operation: OperationId::new(),
+        mutation: ProjectMutation::Patch {
+            project: child,
+            patch: ProjectPatch::Name("Changed".into()),
+        },
+    };
+    assert_eq!(
+        catalog.begin_mutation(&patch).unwrap_err().code(),
+        ErrorCode::UnknownProject
+    );
+    let mut sibling = catalog.lock().projects[&child].clone();
+    sibling.id = ProjectId::new();
+    sibling.directory = ServerPath::from(crate::test_support::folder());
+    let create = ProjectIntent {
+        operation: OperationId::new(),
+        mutation: ProjectMutation::Create(sibling.clone()),
+    };
+    assert_eq!(
+        catalog.begin_mutation(&create).unwrap_err().code(),
+        ErrorCode::UnknownProject
+    );
+    assert!(!catalog.lock().projects.contains_key(&sibling.id));
+    assert_eq!(
+        catalog.finish_deletions().unwrap_err().message(),
+        "project still owns session content"
+    );
+    assert!(catalog.lock().projects.contains_key(&parent));
+    assert!(catalog.lock().projects.contains_key(&child));
+    assert_eq!(catalog.begin_mutation(&delete), Ok(false));
+
+    for owned in catalog.owned(child) {
+        catalog.finish_discard(owned).unwrap();
+    }
+    catalog.finish_deletions().unwrap();
+    assert!(!catalog.lock().projects.contains_key(&parent));
+    assert!(!catalog.lock().projects.contains_key(&child));
+    assert!(catalog.deleting().is_empty());
+    assert_eq!(catalog.begin_mutation(&delete), Ok(true));
 }
 
 #[test]

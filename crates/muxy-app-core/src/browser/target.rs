@@ -1,13 +1,12 @@
 use std::path::Path;
 
+use muxy_core::files::canonicalize;
+use muxy_core::paths::path_eq;
+use muxy_protocol::ServerPath;
+
 use crate::project_selector::{Mismatch, pick, same_name};
 use crate::{AppState, Project, ProjectId};
 
-/// The project a browser command acts in: the current one, or the one named
-/// by `--project` and `--worktree`. A worktree is looked for in the named or
-/// current project first, then in every project. Without `--project`, a
-/// worktree name that only differs in case counts only when no worktree
-/// anywhere has the exact name.
 pub fn resolve_target(
     state: &AppState,
     project: Option<&str>,
@@ -93,11 +92,9 @@ fn loosely_names_worktree(project: &Project, text: &str) -> bool {
 }
 
 fn same_directory(directory: &Path, text: &Path) -> bool {
-    text.is_absolute()
-        && (directory == text
-            || text
-                .canonicalize()
-                .is_ok_and(|canonical| canonical == directory))
+    ServerPath::from_path(text).is_ok_and(|path| path.is_absolute())
+        && (path_eq(directory, text)
+            || canonicalize(text).is_ok_and(|canonical| path_eq(&canonical, directory)))
 }
 
 fn id_or_message(

@@ -1,5 +1,3 @@
-//! The layer of panels floating over the window, back to front.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, DispatchPhase, InteractiveElement, IntoElement, MouseButton,
@@ -12,8 +10,6 @@ use muxy_app_core::TabWindowId;
 
 use crate::model::AppModel;
 
-/// `floats` holds the floating tabs' cards, drawn beforehand as their own
-/// surfaces.
 pub(crate) fn layer(
     model: &AppModel,
     mut floats: HashMap<TabWindowId, AnyElement>,
@@ -47,6 +43,7 @@ pub(crate) fn layer(
                 model.detached_webview_panel(id, window, cx)
             }
         }))
+        .children(super::floating_tab::minimized(model, window, cx))
         .when(dragging, |layer| {
             layer.child(
                 div()

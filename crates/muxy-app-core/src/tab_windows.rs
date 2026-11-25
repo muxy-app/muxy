@@ -1,9 +1,3 @@
-//! Tabs and panes move between tabs, projects and windows. A tab can leave the
-//! main window for a window of its own: it stays among its project's tabs, so
-//! its panes, sessions and server keep working, but the main window no longer
-//! lists it until it returns. A tab window can instead float over the main
-//! window, over its own project or over every project.
-
 use muxy_protocol::{SessionId, SessionInfo};
 use serde::{Deserialize, Serialize};
 
@@ -12,25 +6,22 @@ use crate::{
     TabId, TabWindowId, WindowBounds,
 };
 
-/// Which projects a floating tab shows over.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FloatScope {
-    /// Only while its own project is shown.
     #[default]
     Project,
-    /// Whichever project is shown.
     AllProjects,
 }
 
-/// Where a floating tab sits over the main window, and over which projects.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Floating {
-    /// `[x, y, width, height]` in the main window's points, once placed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frame: Option<[f32; 4]>,
     #[serde(default)]
     pub scope: FloatScope,
+    #[serde(default)]
+    pub minimized: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -61,8 +52,6 @@ impl TabWindow {
         self.active_pane
     }
 
-    /// Where the tab floats over the main window, if it does rather than
-    /// showing in a window of its own.
     pub fn floating(&self) -> Option<&Floating> {
         self.floating.as_ref()
     }
@@ -98,7 +87,6 @@ impl TabWindow {
         }
     }
 
-    /// Keeps only what still names one of `layout`'s panes.
     pub(crate) fn retain_in(&mut self, layout: &Layout) {
         self.focus_history.retain(|pane| layout.contains(*pane));
         if self.active_pane.is_some_and(|pane| !layout.contains(pane)) {
@@ -114,8 +102,6 @@ impl TabWindow {
     }
 }
 
-/// A terminal whose tab or pane moved to another project. Its server must
-/// hear of it, so the session keeps belonging to where it shows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SessionMove {
     pub server: ServerId,
@@ -123,8 +109,6 @@ pub struct SessionMove {
     pub project: ProjectId,
 }
 
-/// Where a tab goes among a project's listed tabs: before `before`, or after
-/// the last one.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TabPlace {
     pub project: ProjectId,
@@ -140,12 +124,9 @@ impl TabPlace {
     }
 }
 
-/// Where a pane from another tab lands in a tab's splits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PaneDrop {
-    /// Takes `anchor`'s place, which takes the dropped pane's place.
     Swap(PaneId),
-    /// Beside `anchor`, or the enclosing row or column `level` picks.
     Dock {
         anchor: PaneId,
         edge: Direction,
@@ -162,7 +143,6 @@ impl PaneDrop {
 }
 
 impl Project {
-    /// The tabs the main window lists: those not in a window of their own.
     pub fn listed_tabs(&self) -> impl Iterator<Item = &Tab> {
         self.tabs.iter().filter(|tab| !tab.detached())
     }
@@ -181,14 +161,12 @@ fn is_terminal(pane: &crate::Pane) -> bool {
 }
 
 impl Tab {
-    /// Whether the tab floats over the main window.
     pub fn floating(&self) -> bool {
         self.window.as_ref().is_some_and(TabWindow::is_floating)
     }
 }
 
 impl AppState {
-    /// Every tab in a window of its own, with its project.
     pub fn tab_windows(&self) -> impl Iterator<Item = (&Project, &Tab, &TabWindow)> {
         self.projects.iter().flat_map(|project| {
             project
@@ -202,14 +180,11 @@ impl AppState {
         self.tab_windows().find(|(_, _, window)| window.id == id)
     }
 
-    /// Every tab floating over the main window, with its project.
     pub fn floating_tabs(&self) -> impl Iterator<Item = (&Project, &Tab, &TabWindow)> {
         self.tab_windows()
             .filter(|(_, _, window)| window.is_floating())
     }
 
-    /// Floats `pane` over the main window, as a new tab of its project, or
-    /// with its whole tab when it is the tab's only pane.
     pub fn float_pane(&mut self, pane: PaneId, scope: FloatScope) -> Result<TabWindowId, AppError> {
         let (project, tab) = self.pane_project_id(pane)?;
         let source = self.tab_mut(tab)?;
@@ -225,14 +200,15 @@ impl AppState {
         }
         self.project_mut(project)?.require_available()?;
         let mut window = TabWindow::new(None, Some(pane));
-        window.floating = Some(Floating { frame: None, scope });
+        window.floating = Some(Floating {
+            scope,
+            ..Floating::default()
+        });
         let id = window.id;
         self.split_off(pane, TabPlace::end(project), Some(window))?;
         Ok(id)
     }
 
-    /// Floats `tab` over the main window. A tab in a window of its own
-    /// leaves that window to float.
     pub fn float_tab(&mut self, tab: TabId, scope: FloatScope) -> Result<TabWindowId, AppError> {
         let target = self.tab_mut(tab)?;
         if let Some(window) = target.window.as_ref().filter(|window| window.is_floating()) {
@@ -245,12 +221,14 @@ impl AppState {
         if let Some(window) = &mut self.tab_mut(tab)?.window
             && window.floating.is_none()
         {
-            window.floating = Some(Floating { frame: None, scope });
+            window.floating = Some(Floating {
+                scope,
+                ..Floating::default()
+            });
         }
         Ok(id)
     }
 
-    /// Changes which projects floating tab `window` shows over.
     pub fn set_float_scope(
         &mut self,
         window: TabWindowId,
@@ -260,7 +238,15 @@ impl AppState {
         Ok(())
     }
 
-    /// Records where floating tab `window` sits over the main window.
+    pub fn set_float_minimized(
+        &mut self,
+        window: TabWindowId,
+        minimized: bool,
+    ) -> Result<(), AppError> {
+        self.floating_mut(window)?.minimized = minimized;
+        Ok(())
+    }
+
     pub fn set_float_frame(
         &mut self,
         window: TabWindowId,
@@ -276,7 +262,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Whether floating tabs are hidden for now, keeping their terminals.
     pub fn floats_hidden(&self) -> bool {
         self.window.floats_hidden
     }
@@ -298,15 +283,12 @@ impl AppState {
             .ok_or_else(|| AppError::InvalidState("unknown floating tab".into()))
     }
 
-    /// The window of its own that shows `pane`, if any.
     pub fn pane_window(&self, pane: PaneId) -> Option<TabWindowId> {
         self.tab_windows()
             .find(|(_, tab, _)| tab.layout.contains(pane))
             .map(|(_, _, window)| window.id)
     }
 
-    /// Whether `tab` and `pane` may move into `project`: only within one
-    /// computer, since a terminal can't change servers.
     pub fn can_move_into(&self, source: ProjectId, project: ProjectId) -> bool {
         match (self.project(source), self.project(project)) {
             (Some(source), Some(project)) => source.server_id == project.server_id,
@@ -351,7 +333,6 @@ impl AppState {
         }
     }
 
-    /// Refuses a place before a tab the project doesn't list.
     fn check_place(&self, place: TabPlace) -> Result<(), AppError> {
         if place.before.is_some_and(|before| {
             self.project(place.project).is_none_or(|project| {
@@ -365,8 +346,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Moves `tab` into a window of its own. The main window shows what it
-    /// would after closing the tab. A floating tab stops floating.
     pub fn move_tab_to_window(
         &mut self,
         tab: TabId,
@@ -403,7 +382,6 @@ impl AppState {
         Ok(id)
     }
 
-    /// Moves `pane` into a window of its own, as a new tab of its project.
     pub fn move_pane_to_window(
         &mut self,
         pane: PaneId,
@@ -422,8 +400,6 @@ impl AppState {
         Ok(id)
     }
 
-    /// Brings a tab window's tab back to the main window, at `place`, and
-    /// shows it there.
     pub fn return_tab(
         &mut self,
         window: TabWindowId,
@@ -436,8 +412,6 @@ impl AppState {
         self.move_tab_to(tab, place)
     }
 
-    /// Moves `tab` among `place.project`'s listed tabs and shows it there.
-    /// A tab in a window of its own leaves that window.
     pub fn move_tab_to(
         &mut self,
         tab: TabId,
@@ -484,7 +458,6 @@ impl AppState {
         Ok(sessions)
     }
 
-    /// Moves `pane` out of its tab into a new tab at `place`, and shows it.
     pub fn move_pane_to_new_tab(
         &mut self,
         pane: PaneId,
@@ -500,8 +473,6 @@ impl AppState {
         self.split_off(pane, place, None)
     }
 
-    /// Moves `pane` into the tab showing `drop`'s anchor, beside or in place
-    /// of it, and focuses it.
     pub fn move_pane_to(
         &mut self,
         pane: PaneId,
@@ -597,8 +568,6 @@ impl AppState {
         Ok(sessions)
     }
 
-    /// Refuses a drop that would leave a page in a floating tab: the moved
-    /// pane landing in one, or the pane it swaps with leaving for one.
     fn check_floats_keep_terminals(&self, pane: PaneId, drop: PaneDrop) -> Result<(), AppError> {
         let floating = |id: PaneId| {
             self.pane_tab(id)
@@ -618,7 +587,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Remembers that servers were asked to make `moves`, until they answer.
     pub fn record_session_moves(&mut self, moves: &[SessionMove]) {
         for moved in moves {
             self.session_moves.retain(|pending| {
@@ -628,14 +596,11 @@ impl AppState {
         }
     }
 
-    /// `server` answered the move of `session`, either way.
     pub fn settle_session_move(&mut self, server: ServerId, session: SessionId) {
         self.session_moves
             .retain(|pending| (pending.server, pending.session) != (server, session));
     }
 
-    /// Forgets the moves `server`'s `sessions` show it made: those it lists
-    /// under the project they were moving to.
     pub fn settle_session_moves(&mut self, server: ServerId, sessions: &[SessionInfo]) {
         self.session_moves.retain(|pending| {
             pending.server != server
@@ -645,7 +610,6 @@ impl AppState {
         });
     }
 
-    /// The move of `session` the app is still waiting on `server` for.
     pub fn pending_session_move(
         &self,
         server: ServerId,
@@ -657,7 +621,6 @@ impl AppState {
             .find(|pending| (pending.server, pending.session) == (server, session))
     }
 
-    /// Records where a tab window sits on screen.
     pub fn set_tab_window_bounds(
         &mut self,
         window: TabWindowId,
@@ -676,8 +639,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Takes `pane` out of its tab into a new tab: in `window`, or else
-    /// listed at `place`.
     fn split_off(
         &mut self,
         pane: PaneId,
@@ -719,9 +680,6 @@ impl AppState {
         Ok((id, sessions))
     }
 
-    /// Takes `tab` out of the main window, as if it closed: the window
-    /// selects and focuses what it would then. A tab in its own window isn't
-    /// listed, so nothing changes.
     pub(crate) fn unlist_tab(&mut self, project: ProjectId, tab: TabId) -> Result<(), AppError> {
         let active = self.window.active_pane;
         let history = self.window.focus_history.clone();
@@ -768,8 +726,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Lists `tab` among `place.project`'s tabs, then shows and focuses it
-    /// in the main window.
     fn list_tab(
         &mut self,
         mut tab: Tab,

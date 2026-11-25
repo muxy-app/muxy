@@ -35,7 +35,6 @@ impl ShortcutHints {
     }
 }
 
-/// How one key reads on screen: its symbol, or its name in capitals.
 pub(crate) fn key_glyph(key: &str) -> String {
     match key {
         "enter" => "↩".into(),
@@ -58,6 +57,23 @@ pub(crate) fn key_glyph(key: &str) -> String {
 }
 
 impl AppModel {
+    pub(crate) fn tooltip(
+        &self,
+        name: impl Into<gpui::SharedString>,
+        id: ShortcutId,
+    ) -> gpui::SharedString {
+        let name = name.into();
+        match self.shortcut_label(id) {
+            Some(key) => muxy_ui::shortcuts::with_key(&name, &key),
+            None => name,
+        }
+    }
+
+    pub(crate) fn shortcut_label(&self, id: ShortcutId) -> Option<gpui::SharedString> {
+        let chord = self.settings.keymap.chord(id)?;
+        Some(super::command_palette::chord_label(chord).into())
+    }
+
     pub(crate) fn update_shortcut_hints(&mut self, modifiers: Modifiers, cx: &mut Context<Self>) {
         let hints = &mut self.shortcut_hints;
         if hints.modifiers == modifiers {
@@ -83,7 +99,6 @@ impl AppModel {
         cx.notify();
     }
 
-    // The system can swallow a modifier's release, so no event ever reports it.
     fn recheck_shortcut_hints(&mut self, cx: &mut Context<Self>) -> bool {
         #[cfg(test)]
         let held = self.shortcut_hints.held;

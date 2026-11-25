@@ -1,11 +1,8 @@
-//! Plain records the app reads; converted from the protocol's types.
-
 use muxy_client::RunGrid;
 use muxy_protocol::{
     InputModes, ProjectDescriptor, ProjectKind, ProjectSession, Row, Run, ServerPath,
 };
 
-/// Paths cross the protocol as bytes; names that aren't UTF-8 show replacement characters.
 pub(crate) fn text(path: &ServerPath) -> String {
     String::from_utf8_lossy(&path.0).into_owned()
 }
@@ -14,14 +11,14 @@ pub(crate) fn server_path(path: String) -> ServerPath {
     ServerPath::from(path)
 }
 
-/// Everything the app keeps to reconnect; store it in the Keychain or Keystore.
+#[doc = " Everything the app keeps to reconnect; store it in the Keychain or Keystore."]
 #[derive(Clone, Eq, PartialEq, uniffi::Record)]
 pub struct ServerCredential {
     pub server_id: String,
     pub server_name: String,
     pub hosts: Vec<String>,
     pub port: u16,
-    /// SHA-256 of the server's certificate.
+    #[doc = " SHA-256 of the server's certificate."]
     pub fingerprint: Vec<u8>,
     pub device_id: String,
     pub token: Vec<u8>,
@@ -40,7 +37,7 @@ impl std::fmt::Debug for ServerCredential {
     }
 }
 
-/// What a pairing link points at, for confirming before pairing.
+#[doc = " What a pairing link points at, for confirming before pairing."]
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct PairingLink {
     pub hosts: Vec<String>,
@@ -53,9 +50,9 @@ pub struct Project {
     pub name: String,
     pub directory: String,
     pub color: String,
-    /// An emoji, or an SF Symbol name prefixed with `sf:`.
+    #[doc = " An emoji, or an SF Symbol name prefixed with `sf:`."]
     pub icon: Option<String>,
-    /// A square PNG.
+    #[doc = " A square PNG."]
     pub logo: Option<Vec<u8>>,
     pub parent_id: Option<String>,
     pub is_home: bool,
@@ -92,7 +89,7 @@ pub enum ClientKind {
     Tui,
     Cli,
     Mobile,
-    /// A kind of client added in a newer server.
+    #[doc = " A kind of client added in a newer server."]
     Other,
 }
 
@@ -102,13 +99,13 @@ pub struct Session {
     pub project_id: String,
     pub directory: String,
     pub status: SessionStatus,
-    /// The earliest attached client, if any.
+    #[doc = " The earliest attached client, if any."]
     pub owner: Option<ClientKind>,
-    /// Whether this device is attached.
+    #[doc = " Whether this device is attached."]
     pub attached: bool,
-    /// What to call it, as the desktop app does: a renamed tab's title, else
-    /// the title its program set, else the running program's name, else its
-    /// folder. `TitleChanged` brings changes.
+    #[doc = " What to call it, as the desktop app does: a renamed tab's title, else"]
+    #[doc = " the title its program set, else the running program's name, else its"]
+    #[doc = " folder. `TitleChanged` brings changes."]
     pub title: String,
 }
 
@@ -166,7 +163,7 @@ pub struct ActivityEvent {
     pub session_id: u64,
     pub project_id: String,
     pub provider: String,
-    /// Unix seconds.
+    #[doc = " Unix seconds."]
     pub timestamp: u64,
     pub kind: ActivityKind,
 }
@@ -218,9 +215,9 @@ impl From<muxy_protocol::ActivitySnapshot> for Activity {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum TerminalColor {
-    /// The theme's default foreground or background.
+    #[doc = " The theme's default foreground or background."]
     Default,
-    /// One of the 256 palette entries.
+    #[doc = " One of the 256 palette entries."]
     Indexed {
         index: u8,
     },
@@ -263,7 +260,7 @@ pub struct Style {
     pub underline_color: TerminalColor,
     pub strikethrough: bool,
     pub overline: bool,
-    /// Swap foreground and background when drawing.
+    #[doc = " Swap foreground and background when drawing."]
     pub inverse: bool,
     pub invisible: bool,
 }
@@ -293,7 +290,7 @@ impl From<muxy_protocol::Style> for Style {
     }
 }
 
-/// Text sharing one style; `width` counts terminal cells, which may differ from characters.
+#[doc = " Text sharing one style; `width` counts terminal cells, which may differ from characters."]
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct Span {
     pub text: String,
@@ -350,13 +347,13 @@ pub struct Screen {
     pub cursor: Cursor,
     pub title: String,
     pub directory: String,
-    /// Rows retained above the screen on the server; read them through `Terminal::scrollback`.
+    #[doc = " Rows retained above the screen on the server; read them through `Terminal::scrollback`."]
     pub history_rows: u64,
     pub application_cursor_keys: bool,
     pub bracketed_paste: bool,
-    /// The program reads taps and scrolling as mouse input; see `Terminal::click`.
+    #[doc = " The program reads taps and scrolling as mouse input; see `Terminal::click`."]
     pub mouse_tracking: bool,
-    /// Without mouse tracking, the program reads scrolling as arrow keys; see `Terminal::scroll`.
+    #[doc = " Without mouse tracking, the program reads scrolling as arrow keys; see `Terminal::scroll`."]
     pub alternate_scroll: bool,
 }
 

@@ -1,14 +1,3 @@
-//! [Selection gestures](Gesture) provide a reusable state machine for turning
-//! UI pointer interactions into selection snapshots.
-//!
-//! A caller creates one [`Gesture`] per active gesture stream, reuses typed
-//! gesture event objects for synthetic [press](PressEvent), [drag](DragEvent),
-//! [release](ReleaseEvent), [autoscroll tick](AutoscrollTickEvent),
-//! and [deep-press](DeepPressEvent) events, and applies each event with
-//! their respective `apply` method (e.g. [`PressEvent::apply`]). The returned
-//! [`Selection`] is a snapshot; the embedder decides whether to render it,
-//! format/copy it, or install it as the terminal's active selection.
-
 use std::{mem::MaybeUninit, time::Duration};
 
 use crate::{
@@ -23,36 +12,16 @@ use crate::{
 #[doc(inline)]
 pub use ffi::SelectionGestureGeometry as Geometry;
 
-/// Opaque handle to state for interpreting terminal selection gestures.
-///
-/// The gesture owns only the state required to interpret pointer events.
-/// Calls that use a gesture are not concurrency-safe and must be serialized
-/// with terminal mutations.
-///
-/// # Memory management
-///
-/// When dropped, this type will temporarily **leak** a small amount of memory
-/// belonging to the internal [`TrackedGridRef`](crate::screen::TrackedGridRef)s.
-/// They will instead be reclaimed when the terminal they belong to is dropped.
-/// This memory can be preemptively reclaimed by calling the [`Gesture::reset`]
-/// method if needed.
 #[derive(Debug)]
 pub struct Gesture<'alloc> {
     inner: Object<'alloc, ffi::SelectionGestureImpl>,
 }
 impl<'alloc> Gesture<'alloc> {
-    /// Create a new selection gesture instance.
     pub fn new() -> Result<Self> {
-        // SAFETY: A NULL allocator is always valid
         unsafe { Self::new_inner(std::ptr::null()) }
     }
 
-    /// Create a new selection gesture instance with a custom allocator.
-    ///
-    /// See the [crate-level documentation](crate#memory-management-and-lifetimes)
-    /// regarding custom memory management and lifetimes.
     pub fn new_with_alloc<'ctx: 'alloc>(alloc: &'alloc Allocator<'ctx>) -> Result<Self> {
-        // SAFETY: Borrow checking should forbid invalid allocators
         unsafe { Self::new_inner(alloc.to_raw()) }
     }
 
@@ -80,28 +49,20 @@ impl<'alloc> Gesture<'alloc> {
             )
         };
         from_result(result)?;
-        // SAFETY: Value should be initialized after successful call.
         Ok(unsafe { value.assume_init() })
     }
-    /// Reset any active selection gesture state.
-    ///
-    /// This cancels the active click sequence and releases any tracked terminal
-    /// references owned by the gesture without dropping the gesture object.
     pub fn reset(&mut self, terminal: &Terminal<'_, '_>) {
         unsafe {
             ffi::ghostty_selection_gesture_reset(self.inner.as_raw(), terminal.inner.as_raw());
         }
     }
 
-    /// Get the current click count. 0 means inactive.
     pub fn click_count(&self, terminal: &Terminal<'_, '_>) -> Result<u8> {
         self.get(terminal, ffi::SelectionGestureData::CLICK_COUNT)
     }
-    /// Whether the current/last left-click gesture has dragged.
     pub fn dragged(&self, terminal: &Terminal<'_, '_>) -> Result<bool> {
         self.get(terminal, ffi::SelectionGestureData::DRAGGED)
     }
-    /// Get the current autoscroll request.
     pub fn autoscroll(&self, terminal: &Terminal<'_, '_>) -> Result<Autoscroll> {
         let v = self.get::<ffi::SelectionGestureAutoscroll::Type>(
             terminal,
@@ -109,7 +70,6 @@ impl<'alloc> Gesture<'alloc> {
         )?;
         Autoscroll::try_from(v).map_err(|_| Error::InvalidValue)
     }
-    /// Get the current gesture behavior.
     pub fn behavior(&self, terminal: &Terminal<'_, '_>) -> Result<Behavior> {
         let v = self.get::<ffi::SelectionGestureBehavior::Type>(
             terminal,
@@ -117,9 +77,6 @@ impl<'alloc> Gesture<'alloc> {
         )?;
         Behavior::try_from(v).map_err(|_| Error::InvalidValue)
     }
-    /// Get the current left-click anchor.
-    ///
-    /// Returns `None` if there is no valid active anchor.
     pub fn anchor<'t>(&self, terminal: &'t Terminal<'_, '_>) -> Result<Option<GridRef<'t>>> {
         let mut grid_ref = ffi::sized!(ffi::GridRef);
         let result = unsafe {
@@ -131,23 +88,11 @@ impl<'alloc> Gesture<'alloc> {
             )
         };
         let grid_ref = from_optional_result(result, grid_ref)?;
-        // SAFETY: We trust libghostty to return a GridRef
-        // with the correct lifetime requirements.
         Ok(grid_ref.map(|v| unsafe { GridRef::from_raw(v) }))
     }
 }
 impl Drop for Gesture<'_> {
     fn drop(&mut self) {
-        // NOTE: We can't pass the terminal in here to eagerly reclaim memory
-        // taken up by the tracked grid refs, since that would require taking
-        // a reference to the terminal and hold it within the selection gesture
-        // struct and thereby prevent any mutation.
-        //
-        // However, leaking a bit of memory here is mostly fine since the
-        // memory will eventually be reclaimed by the terminal anyway,
-        // (which in the typical use case will be shortly after freeing
-        // the selection gesture), and memory-conscious embedders can simply
-        // call `reset` to manually reclaim memory if needed.
         unsafe {
             ffi::ghostty_selection_gesture_free(self.inner.as_raw(), std::ptr::null_mut());
         }
@@ -208,8 +153,6 @@ impl Event<'_> {
         };
         let selection = from_optional_result(result, selection)?;
 
-        // SAFETY: We trust that libghostty will give us a
-        // selection object with correct lifetimes.
         Ok(selection.map(|v| unsafe { Selection::from_raw(v) }))
     }
 }
@@ -221,24 +164,16 @@ impl Drop for Event<'_> {
     }
 }
 
-/// Opaque handle to reusable input data for selection gesture press operations.
 #[derive(Debug)]
 pub struct PressEvent<'alloc> {
     base: Event<'alloc>,
 }
 impl<'alloc> PressEvent<'alloc> {
-    /// Create a new selection gesture press event instance.
     pub fn new() -> Result<Self> {
-        // SAFETY: A NULL allocator is always valid
         unsafe { Self::new_inner(std::ptr::null()) }
     }
 
-    /// Create a new selection gesture press event instance with a custom allocator.
-    ///
-    /// See the [crate-level documentation](crate#memory-management-and-lifetimes)
-    /// regarding custom memory management and lifetimes.
     pub fn new_with_alloc<'ctx: 'alloc>(alloc: &'alloc Allocator<'ctx>) -> Result<Self> {
-        // SAFETY: Borrow checking should forbid invalid allocators
         unsafe { Self::new_inner(alloc.to_raw()) }
     }
 
@@ -248,7 +183,6 @@ impl<'alloc> PressEvent<'alloc> {
         })
     }
 
-    /// Set the surface-space pointer position.
     #[inline]
     pub fn set_position(&mut self, x: f64, y: f64) -> Result<&mut Self> {
         let value = ffi::SurfacePosition { x, y };
@@ -257,7 +191,6 @@ impl<'alloc> PressEvent<'alloc> {
         Ok(self)
     }
 
-    /// Set the maximum repeat-click distance in pixels.
     #[inline]
     pub fn set_repeat_distance(&mut self, value: f64) -> Result<&mut Self> {
         self.base
@@ -265,13 +198,6 @@ impl<'alloc> PressEvent<'alloc> {
         Ok(self)
     }
 
-    /// Set the monotonic event time.
-    ///
-    /// If unset, press treats the event as untimed and only single-click behavior
-    /// is available.
-    ///
-    /// Intervals above [`u64::MAX`] nanoseconds in length are clamped to
-    /// that.
     #[inline]
     pub fn set_time(&mut self, value: Duration) -> Result<&mut Self> {
         let nanos = u64::try_from(value.as_nanos()).unwrap_or(u64::MAX);
@@ -280,10 +206,6 @@ impl<'alloc> PressEvent<'alloc> {
         Ok(self)
     }
 
-    /// Set the maximum interval between repeat clicks.
-    ///
-    /// Intervals above [`u64::MAX`] nanoseconds in length are clamped to
-    /// that.
     #[inline]
     pub fn set_repeat_interval(&mut self, value: Duration) -> Result<&mut Self> {
         let nanos = u64::try_from(value.as_nanos()).unwrap_or(u64::MAX);
@@ -292,14 +214,9 @@ impl<'alloc> PressEvent<'alloc> {
         Ok(self)
     }
 
-    /// Set the word-boundary codepoints.
-    ///
-    /// The codepoints are copied into event-owned storage when set.
-    /// If unset, operations that need word boundaries use Ghostty's defaults.
     #[inline]
     pub fn set_word_boundary_codepoints(&mut self, value: &[char]) -> Result<&mut Self> {
         let cp = ffi::Codepoints {
-            // It is safe to cast char -> u32 in a readonly fashion.
             ptr: value.as_ptr().cast(),
             len: value.len(),
         };
@@ -311,9 +228,6 @@ impl<'alloc> PressEvent<'alloc> {
         Ok(self)
     }
 
-    /// Set the selection behavior table.
-    ///
-    /// If unset, press uses the default behavior table: cell, word, line.
     #[inline]
     pub fn set_behaviors(&mut self, value: &Behaviors) -> Result<&mut Self> {
         self.base
@@ -321,7 +235,6 @@ impl<'alloc> PressEvent<'alloc> {
         Ok(self)
     }
 
-    /// Apply a selection gesture press event and return the resulting selection snapshot.
     #[inline]
     pub fn apply<'t>(
         &mut self,
@@ -335,24 +248,16 @@ impl<'alloc> PressEvent<'alloc> {
     }
 }
 
-/// Opaque handle to reusable input data for selection gesture release operations.
 #[derive(Debug)]
 pub struct ReleaseEvent<'alloc> {
     base: Event<'alloc>,
 }
 impl<'alloc> ReleaseEvent<'alloc> {
-    /// Create a new selection gesture release event instance.
     pub fn new() -> Result<Self> {
-        // SAFETY: A NULL allocator is always valid
         unsafe { Self::new_inner(std::ptr::null()) }
     }
 
-    /// Create a new selection gesture release event instance with a custom allocator.
-    ///
-    /// See the [crate-level documentation](crate#memory-management-and-lifetimes)
-    /// regarding custom memory management and lifetimes.
     pub fn new_with_alloc<'ctx: 'alloc>(alloc: &'alloc Allocator<'ctx>) -> Result<Self> {
-        // SAFETY: Borrow checking should forbid invalid allocators
         unsafe { Self::new_inner(alloc.to_raw()) }
     }
 
@@ -362,7 +267,6 @@ impl<'alloc> ReleaseEvent<'alloc> {
         })
     }
 
-    /// Apply a selection gesture release event and return the resulting selection snapshot.
     #[inline]
     pub fn apply<'t>(
         &mut self,
@@ -377,30 +281,21 @@ impl<'alloc> ReleaseEvent<'alloc> {
             None => self.base.unset(ffi::SelectionGestureEventOption::REF)?,
         }
 
-        // A release event always returns None.
         _ = self.base.apply(gesture, terminal)?;
         Ok(())
     }
 }
 
-/// Opaque handle to reusable input data for selection gesture drag operations.
 #[derive(Debug)]
 pub struct DragEvent<'alloc> {
     base: Event<'alloc>,
 }
 impl<'alloc> DragEvent<'alloc> {
-    /// Create a new selection gesture drag event instance.
     pub fn new() -> Result<Self> {
-        // SAFETY: A NULL allocator is always valid
         unsafe { Self::new_inner(std::ptr::null()) }
     }
 
-    /// Create a new selection gesture drag event instance with a custom allocator.
-    ///
-    /// See the [crate-level documentation](crate#memory-management-and-lifetimes)
-    /// regarding custom memory management and lifetimes.
     pub fn new_with_alloc<'ctx: 'alloc>(alloc: &'alloc Allocator<'ctx>) -> Result<Self> {
-        // SAFETY: Borrow checking should forbid invalid allocators
         unsafe { Self::new_inner(alloc.to_raw()) }
     }
 
@@ -410,7 +305,6 @@ impl<'alloc> DragEvent<'alloc> {
         })
     }
 
-    /// Set the surface-space pointer position.
     #[inline]
     pub fn set_position(&mut self, x: f64, y: f64) -> Result<&mut Self> {
         let value = ffi::SurfacePosition { x, y };
@@ -419,7 +313,6 @@ impl<'alloc> DragEvent<'alloc> {
         Ok(self)
     }
 
-    /// Set the whether this drag should produce a rectangular selection.
     #[inline]
     pub fn set_rectangle(&mut self, value: bool) -> Result<&mut Self> {
         self.base
@@ -427,14 +320,9 @@ impl<'alloc> DragEvent<'alloc> {
         Ok(self)
     }
 
-    /// Set the word-boundary codepoints.
-    ///
-    /// The codepoints are copied into event-owned storage when set.
-    /// If unset, operations that need word boundaries use Ghostty's defaults.
     #[inline]
     pub fn set_word_boundary_codepoints(&mut self, value: &[char]) -> Result<&mut Self> {
         let cp = ffi::Codepoints {
-            // It is safe to cast char -> u32 in a readonly fashion.
             ptr: value.as_ptr().cast(),
             len: value.len(),
         };
@@ -446,7 +334,6 @@ impl<'alloc> DragEvent<'alloc> {
         Ok(self)
     }
 
-    /// Apply a selection gesture drag event and return the resulting selection snapshot.
     #[inline]
     pub fn apply<'t>(
         &mut self,
@@ -463,24 +350,16 @@ impl<'alloc> DragEvent<'alloc> {
     }
 }
 
-/// Opaque handle to reusable input data for selection gesture autoscroll tick operations.
 #[derive(Debug)]
 pub struct AutoscrollTickEvent<'alloc> {
     base: Event<'alloc>,
 }
 impl<'alloc> AutoscrollTickEvent<'alloc> {
-    /// Create a new selection gesture autoscroll tick event instance.
     pub fn new() -> Result<Self> {
-        // SAFETY: A NULL allocator is always valid
         unsafe { Self::new_inner(std::ptr::null()) }
     }
 
-    /// Create a new selection gesture autoscroll tick event instance with a custom allocator.
-    ///
-    /// See the [crate-level documentation](crate#memory-management-and-lifetimes)
-    /// regarding custom memory management and lifetimes.
     pub fn new_with_alloc<'ctx: 'alloc>(alloc: &'alloc Allocator<'ctx>) -> Result<Self> {
-        // SAFETY: Borrow checking should forbid invalid allocators
         unsafe { Self::new_inner(alloc.to_raw()) }
     }
 
@@ -492,7 +371,6 @@ impl<'alloc> AutoscrollTickEvent<'alloc> {
         })
     }
 
-    /// Set the surface-space pointer position.
     #[inline]
     pub fn set_position(&mut self, x: f64, y: f64) -> Result<&mut Self> {
         let value = ffi::SurfacePosition { x, y };
@@ -501,7 +379,6 @@ impl<'alloc> AutoscrollTickEvent<'alloc> {
         Ok(self)
     }
 
-    /// Set the whether this drag should produce a rectangular selection.
     #[inline]
     pub fn set_rectangle(&mut self, value: bool) -> Result<&mut Self> {
         self.base
@@ -509,14 +386,9 @@ impl<'alloc> AutoscrollTickEvent<'alloc> {
         Ok(self)
     }
 
-    /// Set the word-boundary codepoints.
-    ///
-    /// The codepoints are copied into event-owned storage when set.
-    /// If unset, operations that need word boundaries use Ghostty's defaults.
     #[inline]
     pub fn set_word_boundary_codepoints(&mut self, value: &[char]) -> Result<&mut Self> {
         let cp = ffi::Codepoints {
-            // It is safe to cast char -> u32 in a readonly fashion.
             ptr: value.as_ptr().cast(),
             len: value.len(),
         };
@@ -528,7 +400,6 @@ impl<'alloc> AutoscrollTickEvent<'alloc> {
         Ok(self)
     }
 
-    /// Apply a selection gesture autoscroll tick event and return the resulting selection snapshot.
     #[inline]
     pub fn apply<'t>(
         &mut self,
@@ -546,24 +417,16 @@ impl<'alloc> AutoscrollTickEvent<'alloc> {
     }
 }
 
-/// Opaque handle to reusable input data for selection gesture deep press operations.
 #[derive(Debug)]
 pub struct DeepPressEvent<'alloc> {
     base: Event<'alloc>,
 }
 impl<'alloc> DeepPressEvent<'alloc> {
-    /// Create a new selection gesture deep press event instance.
     pub fn new() -> Result<Self> {
-        // SAFETY: A NULL allocator is always valid
         unsafe { Self::new_inner(std::ptr::null()) }
     }
 
-    /// Create a new selection gesture deep press event instance with a custom allocator.
-    ///
-    /// See the [crate-level documentation](crate#memory-management-and-lifetimes)
-    /// regarding custom memory management and lifetimes.
     pub fn new_with_alloc<'ctx: 'alloc>(alloc: &'alloc Allocator<'ctx>) -> Result<Self> {
-        // SAFETY: Borrow checking should forbid invalid allocators
         unsafe { Self::new_inner(alloc.to_raw()) }
     }
 
@@ -573,14 +436,9 @@ impl<'alloc> DeepPressEvent<'alloc> {
         })
     }
 
-    /// Set the word-boundary codepoints.
-    ///
-    /// The codepoints are copied into event-owned storage when set.
-    /// If unset, operations that need word boundaries use Ghostty's defaults.
     #[inline]
     pub fn set_word_boundary_codepoints(&mut self, value: &[char]) -> Result<&mut Self> {
         let cp = ffi::Codepoints {
-            // It is safe to cast char -> u32 in a readonly fashion.
             ptr: value.as_ptr().cast(),
             len: value.len(),
         };
@@ -592,7 +450,6 @@ impl<'alloc> DeepPressEvent<'alloc> {
         Ok(self)
     }
 
-    /// Apply a selection gesture deep press event and return the resulting selection snapshot.
     #[inline]
     pub fn apply<'t>(
         &mut self,
@@ -603,59 +460,45 @@ impl<'alloc> DeepPressEvent<'alloc> {
     }
 }
 
-/// Current autoscroll direction for an active selection drag gesture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 #[repr(i32)]
 #[non_exhaustive]
 pub enum Autoscroll {
-    /// No selection autoscroll is requested.
     None,
-    /// Selection dragging should autoscroll the viewport upward.
     Up,
-    /// Selection dragging should autoscroll the viewport downward.
     Down,
 }
 
-/// Selection behavior chosen for a gesture's click sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, int_enum::IntEnum)]
 #[repr(i32)]
 #[non_exhaustive]
 pub enum Behavior {
-    /// Cell-granular drag selection.
     Cell = ffi::SelectionGestureBehavior::CELL,
-    /// Word selection on press and word-granular drag selection.
     Word = ffi::SelectionGestureBehavior::WORD,
-    /// Line selection on press and line-granular drag selection.
     Line = ffi::SelectionGestureBehavior::LINE,
-    /// Semantic command output selection on press and drag.
     Output = ffi::SelectionGestureBehavior::OUTPUT,
 }
 
-/// Selection behaviors for single-, double-, and triple-click gestures.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Behaviors {
     inner: ffi::SelectionGestureBehaviors,
 }
 impl Behaviors {
-    /// Create the default selection behaviors.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set the single click behavior.
     #[must_use]
     pub fn with_single_click_behavior(mut self, behavior: Behavior) -> Self {
         self.inner.single_click = behavior.into();
         self
     }
-    /// Set the double click behavior.
     #[must_use]
     pub fn with_double_click_behavior(mut self, behavior: Behavior) -> Self {
         self.inner.double_click = behavior.into();
         self
     }
-    /// Set the triple click behavior.
     #[must_use]
     pub fn with_triple_click_behavior(mut self, behavior: Behavior) -> Self {
         self.inner.triple_click = behavior.into();

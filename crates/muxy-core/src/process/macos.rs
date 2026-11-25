@@ -1,5 +1,3 @@
-//! Apple platforms wait with one kqueue for the child's exit and its pipes.
-
 use std::io;
 use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::process::Child;
@@ -12,7 +10,6 @@ use rustix::process::{Pid, WaitId, WaitIdOptions};
 
 use super::{Ready, Watch};
 
-/// Learns when a child exits, without reaping it.
 #[derive(Debug)]
 pub struct ExitWatch {
     queue: OwnedFd,
@@ -20,7 +17,6 @@ pub struct ExitWatch {
 }
 
 impl ExitWatch {
-    /// `child` must not have been reaped yet.
     pub fn new(child: &Child) -> io::Result<Self> {
         let pid = Pid::from_child(child);
         let queue = kqueue::kqueue()?;
@@ -29,7 +25,6 @@ impl ExitWatch {
             flags: ProcessEvents::EXIT,
         };
         let exited = match register(&queue, &[event(exit, EventFlags::ADD)]) {
-            // The event only covers an exit after this point.
             Ok(()) => exited_unreaped(pid)?,
             Err(Errno::SRCH) => true,
             Err(error) => return Err(error.into()),
@@ -37,8 +32,6 @@ impl ExitWatch {
         Ok(Self { queue, exited })
     }
 
-    /// Waits up to `timeout`, or for ever with `None`. Returns whether the
-    /// child has exited.
     pub fn wait(&mut self, timeout: Option<Duration>) -> io::Result<bool> {
         let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
         while !self.exited {
@@ -65,7 +58,6 @@ pub(super) struct Events {
 }
 
 impl Events {
-    /// Registers the pipes once. Closing one removes it from the queue.
     pub(super) fn new(child: &Child, watch: &Watch<'_>) -> io::Result<Self> {
         let exit = ExitWatch::new(child)?;
         let raw = |fd: Option<BorrowedFd<'_>>| fd.map(|fd| fd.as_raw_fd());
@@ -133,19 +125,16 @@ fn is_exit(event: &Event) -> bool {
     matches!(event.filter(), EventFilter::Proc { .. })
 }
 
-/// Whether the child has exited, leaving it to be reaped.
 fn exited_unreaped(pid: Pid) -> io::Result<bool> {
     let options = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
     Ok(rustix::process::waitid(WaitId::Pid(pid), options)?.is_some())
 }
 
-/// Adds `changes`. With no room for events, a failed change is the error.
 fn register(queue: &OwnedFd, changes: &[Event]) -> rustix::io::Result<()> {
     let mut none: [Event; 0] = [];
     kevent(queue, changes, &mut none, Some(Duration::ZERO)).map(drop)
 }
 
-/// Waits up to `timeout` for as many events as `events` has room for.
 fn next(
     queue: &OwnedFd,
     events: &mut Vec<Event>,
@@ -164,8 +153,5 @@ fn kevent<B: Buffer<Event>>(
     events: B,
     timeout: Option<Duration>,
 ) -> rustix::io::Result<B::Output> {
-    // SAFETY: events name only the child and the runner's own pipes. Closing
-    // a pipe removes its events from every kqueue, so a reused descriptor
-    // number is never mistaken for it.
     unsafe { kqueue::kevent(queue, changes, events, timeout) }
 }

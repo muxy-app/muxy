@@ -3,30 +3,29 @@ use std::fmt;
 use muxy_client::{ClientError, RemoteReason};
 use muxy_protocol::ErrorCode;
 
-/// Failures the app can act on.
+#[doc = " Failures the app can act on."]
 #[derive(Debug, uniffi::Error)]
 pub enum MobileError {
-    /// The text is not a Muxy pairing link.
+    #[doc = " The text is not a Muxy pairing link."]
     InvalidLink,
-    /// The saved pairing is damaged; pair again.
+    #[doc = " The saved pairing is damaged; pair again."]
     InvalidCredential,
-    /// No address of the server answered; check the network or VPN.
+    #[doc = " No address of the server answered; check the network or VPN."]
     Unreachable {
-        // Not `message`, which every Kotlin exception already defines.
         reason: String,
     },
-    /// The server no longer matches the pairing; pair again rather than trusting it.
+    #[doc = " The server no longer matches the pairing; pair again rather than trusting it."]
     IdentityMismatch,
-    /// The device was revoked or never paired, or mobile access is off.
+    #[doc = " The device was revoked or never paired, or mobile access is off."]
     Unauthorized,
-    /// The app and the server share no protocol version; update one of them.
+    #[doc = " The app and the server share no protocol version; update one of them."]
     IncompatibleVersion,
-    /// The phone and the computer run Muxy versions that disagree on this
-    /// request: the server can't do it, or answered in a form the app can't read.
+    #[doc = " The phone and the computer run Muxy versions that disagree on this"]
+    #[doc = " request: the server can't do it, or answered in a form the app can't read."]
     Unsupported,
     Timeout,
     Disconnected,
-    /// The server refused the request.
+    #[doc = " The server refused the request."]
     Server {
         reason: String,
     },
@@ -59,8 +58,6 @@ impl fmt::Display for MobileError {
 
 impl std::error::Error for MobileError {}
 
-/// Something the app's own code threw while the SDK called it, such as a
-/// write to an SSH channel that broke.
 impl From<uniffi::UnexpectedUniFFICallbackError> for MobileError {
     fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
         Self::Disconnected
@@ -93,7 +90,7 @@ impl From<ClientError> for MobileError {
             ClientError::Invalid(_) | ClientError::UnexpectedReply(_) => Self::Server {
                 reason: error.to_string(),
             },
-            ClientError::Remote { .. } => Self::Unreachable {
+            ClientError::Remote { .. } | ClientError::ServerElsewhere(_) => Self::Unreachable {
                 reason: error.to_string(),
             },
         }

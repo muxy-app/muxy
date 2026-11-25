@@ -1,6 +1,3 @@
-//! A small window that follows the pointer outside the app while a tab or
-//! pane is dragged there, showing where it will go: a window of its own.
-
 use gpui::{
     AnyElement, App, AppContext, Bounds, Context, FontWeight, Hsla, IntoElement, ParentElement,
     Pixels, Point, Render, SharedString, Styled, Window, WindowBackgroundAppearance, WindowBounds,
@@ -11,8 +8,6 @@ use muxy_ui::icon::Icon;
 use muxy_ui::theme::{Metrics, Theme};
 use muxy_ui::tr;
 
-/// Where in the ghost the pointer holds it: just above and left of its
-/// corner, so the chip sits below and right of the pointer.
 pub(super) const GRAB: Point<Pixels> = point(px(-14.0), px(-14.0));
 
 const SIZE: (f32, f32) = (280.0, 64.0);
@@ -72,7 +67,6 @@ pub(super) fn close(handle: WindowHandle<Ghost>, cx: &mut App) {
     });
 }
 
-/// The chip that shows what moves and, under it, where it goes.
 pub(super) fn chip_body(
     label: &SharedString,
     icon: Icon,

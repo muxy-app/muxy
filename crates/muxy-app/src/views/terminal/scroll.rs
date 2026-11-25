@@ -410,14 +410,10 @@ impl Scroll {
         rows * cell_height
     }
 
-    /// Whether the view sits less than a row above the bottom. It shows no
-    /// row of history there, only a copy of the screen that looks live and
-    /// that new output never reaches.
     pub(crate) fn rests_at_bottom(&self) -> bool {
         self.view.is_some() && self.wanted < 1.0
     }
 
-    /// How far above the bottom the view was asked to be.
     pub(crate) fn requested_rows(&self) -> f64 {
         self.wanted + self.elastic
     }
@@ -482,6 +478,7 @@ mod tests {
             next,
             total_rows: 100,
             screen: None,
+            graphics: None,
         }
     }
 
@@ -505,6 +502,7 @@ mod tests {
             history: page(80, 100, None).rows,
             history_cursor: Some(HistoryCursor(42)),
             history_total: 100,
+            history_graphics: None,
         })
     }
 
@@ -536,7 +534,6 @@ mod tests {
         let mut scroll = Scroll::default();
         scroll.prompt(PromptOperation::Previous, 24, &live, 5);
         assert_eq!(scroll.offset, 0.0);
-        // From the live cursor, skipping the current prompt reaches the prior one.
         live.prompts = [5, 24].into();
         scroll.prompt(PromptOperation::Previous, 24, &live, 5);
         assert_eq!(scroll.start(scroll.view.as_ref().unwrap(), 5), 5);

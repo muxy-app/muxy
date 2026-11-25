@@ -5,6 +5,7 @@ use gpui::{
     div, px,
 };
 use muxy_app_core::{Project, ProjectId, ProjectStatus, Tab, TabId, settings::AppLayout};
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::accessibility::OnPress;
 use muxy_ui::components::{ButtonInteraction, IconButton, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
@@ -112,9 +113,6 @@ impl AppModel {
         })
     }
 
-    /// The sidebar's servers with the projects it shows under each, leaving
-    /// out projects without tabs unless they are shown, and how many each
-    /// has without tabs.
     pub(crate) fn tab_sidebar_groups(&self) -> Vec<(super::sidebar::ServerGroup<'_>, usize)> {
         let listed = |project: &&Project| {
             self.appearance.sidebar_focus || self.sidebar_tabs(project).next().is_some()
@@ -283,8 +281,6 @@ fn add_project_button(
         .into_any_element()
 }
 
-/// The projects of `server`'s group that have no tabs, shown or hidden
-/// together with every other group's.
 fn projects_without_tabs_toggle(
     server: muxy_app_core::ServerId,
     count: usize,
@@ -471,14 +467,13 @@ fn project_title(project: &Project, model: &AppModel, cx: &mut Context<AppModel>
             group_label(title, model)
                 .absolute()
                 .inset_0()
-                .text_color(model.theme.fg_muted)
+                .text_color(model.theme.fg)
                 .opacity(0.0)
                 .group_hover(group, |style| style.opacity(1.0)),
         )
         .into_any_element()
 }
 
-/// What a status glyph's tooltip says, for clients that can't hover it.
 pub(super) fn activity_description(status: tab_activity::Status) -> Option<SharedString> {
     use muxy_protocol::ProgressState;
     use tab_activity::Status;
@@ -499,7 +494,6 @@ pub(super) fn activity_description(status: tab_activity::Status) -> Option<Share
     })
 }
 
-/// What a client reads after a tab's title, beyond its selected state.
 pub(super) fn tab_description(
     pinned: bool,
     status: tab_activity::Status,
@@ -512,19 +506,17 @@ pub(super) fn tab_description(
     ])
 }
 
-/// The height of a tab row, shared with the agents panel's rows.
 pub(super) fn row_height(model: &AppModel) -> gpui::Pixels {
     model.metrics.control_small() + model.metrics.spacing2() * 2.0
 }
 
-/// The dim name above a project's rows, shared with the agents panel.
 pub(super) fn group_label(text: impl Into<SharedString>, model: &AppModel) -> gpui::Div {
     div()
         .flex_1()
         .min_w(px(0.0))
         .truncate()
-        .text_size(model.metrics.font_footnote())
-        .text_color(model.theme.fg_dim)
+        .text_size(model.metrics.font_body())
+        .text_color(model.theme.fg_muted)
         .child(text.into())
 }
 
@@ -556,6 +548,11 @@ fn new_tab_button(project: &Project, model: &AppModel, cx: &mut Context<AppModel
             )
             .accessibility_id(format!("project-new-tab-{}", project.name))
             .tooltip(theme)
+            .shortcut(
+                (id == model.state.current_project().id)
+                    .then(|| model.shortcut_label(ShortcutId::NewTab))
+                    .flatten(),
+            )
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
                 model.select_project(id, cx);
@@ -802,10 +799,9 @@ fn tab_row(
             tab,
             status,
             number.and_then(|index| {
-                model.shortcut_hints.label(
-                    muxy_core::shortcuts::ShortcutId::TABS[index],
-                    &model.settings.keymap,
-                )
+                model
+                    .shortcut_hints
+                    .label(ShortcutId::TABS[index], &model.settings.keymap)
             }),
             bell,
             group,

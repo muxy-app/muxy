@@ -11,7 +11,6 @@ mod groups;
 mod pairing;
 mod tab;
 
-/// A stub boot listing `servers`, both in settings and in its settings.toml.
 fn boot_with(servers: Vec<ServerEntry>) -> (Boot, std::sync::mpsc::Receiver<(u64, Work)>, Remotes) {
     let (boot, local, remotes) = remote_boot(AppState::bootstrap().expect("state"), servers);
     let path = boot.state_path.with_file_name("settings.toml");

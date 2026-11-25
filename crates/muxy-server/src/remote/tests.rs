@@ -35,7 +35,6 @@ fn server() -> ServerIdentity {
     ServerIdentity::from_u128(1)
 }
 
-/// Starts pairing, falling back to a fixed offer where the machine has no network.
 fn offer(remote: &RemoteAccess, owner: ClientId) -> [u8; 16] {
     if let Ok(offer) = remote.start_pairing(owner, &[]) {
         return offer.invite.secret;
@@ -185,5 +184,207 @@ fn nothing_is_saved_once_access_is_closed() -> Result<(), ServerError> {
     remote.close();
     assert!(remote.set_push_notifications(false).is_err());
     assert!(remote.push_notifications());
+    Ok(())
+}
+
+fn block_saves(remote: &mut RemoteAccess) -> io::Result<PathBuf> {
+    let directory =
+        std::env::temp_dir().join(format!("muxy-remote-{}", muxy_protocol::OperationId::new()));
+    let path = directory.join("remote.json");
+    std::fs::create_dir_all(&path)?;
+    remote.store = Some(path);
+    Ok(directory)
+}
+
+#[test]
+fn failed_configuration_preserves_identity_listener_and_pairing_offer()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut remote = listening();
+    let directory = block_saves(&mut remote)?;
+    let path = directory.join("remote.json");
+    let before = remote.state(&HashSet::new());
+    let settings = RemoteAccessSettings {
+        enabled: true,
+        port: 7420,
+    };
+    let error = remote
+        .configure(settings)
+        .err()
+        .ok_or("configuration succeeded")?;
+    assert_eq!(error.code(), ErrorCode::PersistenceFailed);
+    assert!(
+        error
+            .message()
+            .starts_with("could not save device access: ")
+    );
+    assert_eq!(remote.state(&HashSet::new()), before);
+    assert!(remote.lock().stored.identity.is_none());
+
+    std::fs::remove_dir(&path)?;
+    remote.configure(settings)?;
+    let identity = remote.lock().stored.identity.clone();
+    assert_eq!(store::load(&path)?.identity, identity);
+    let secret = offer(&remote, ClientId::new());
+    let before = remote.state(&HashSet::new());
+    std::fs::remove_file(&path)?;
+    std::fs::create_dir(&path)?;
+    assert!(
+        remote
+            .configure(RemoteAccessSettings {
+                enabled: false,
+                ..settings
+            })
+            .is_err()
+    );
+    assert_eq!(remote.state(&HashSet::new()), before);
+    assert_eq!(remote.lock().stored.identity, identity);
+    assert_eq!(
+        remote.lock().offer.as_ref().map(|offer| offer.secret),
+        Some(secret)
+    );
+    std::fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[test]
+fn failed_pairing_keeps_the_offer_and_a_retry_saves_the_credential()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut remote = enabled()?;
+    let secret = offer(&remote, ClientId::new());
+    let before = remote.state(&HashSet::new());
+    let directory = block_saves(&mut remote)?;
+    let path = directory.join("remote.json");
+    assert!(remote.pair(&request(secret), server()).is_none());
+    assert_eq!(remote.state(&HashSet::new()), before);
+    assert_eq!(
+        remote.lock().offer.as_ref().map(|offer| offer.secret),
+        Some(secret)
+    );
+
+    std::fs::remove_dir(&path)?;
+    let paired = remote
+        .pair(&request(secret), server())
+        .ok_or("pairing failed")?;
+    let saved = store::load(&path)?;
+    assert_eq!(saved.devices.len(), 1);
+    assert_eq!(saved.devices[0].id, paired.credential.device);
+    assert_eq!(saved.devices[0].token_hash, hash(&paired.credential.token));
+    assert_eq!(
+        remote.authenticate(&paired.credential),
+        Some((paired.credential.device, DeviceKind::Phone))
+    );
+    assert!(remote.pair(&request(secret), server()).is_none());
+    std::fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[test]
+fn failed_device_saves_keep_authorization_and_the_previous_last_seen()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut remote = enabled()?;
+    let secret = offer(&remote, ClientId::new());
+    let paired = remote
+        .pair(&request(secret), server())
+        .ok_or("pairing failed")?;
+    remote.lock().stored.devices[0].last_seen = Some(1);
+    let before = remote.state(&HashSet::new());
+    let directory = block_saves(&mut remote)?;
+    let error = remote
+        .revoke(paired.credential.device)
+        .err()
+        .ok_or("revocation succeeded")?;
+    assert_eq!(error.code(), ErrorCode::PersistenceFailed);
+    assert_eq!(remote.state(&HashSet::new()), before);
+    assert!(remote.authorized(paired.credential.device));
+    assert_eq!(
+        remote.authenticate(&paired.credential),
+        Some((paired.credential.device, DeviceKind::Phone))
+    );
+    assert_eq!(
+        remote.state(&HashSet::new()),
+        RemoteAccessState {
+            revision: before.revision + 1,
+            ..before
+        }
+    );
+
+    let path = directory.join("remote.json");
+    std::fs::remove_dir(&path)?;
+    remote.revoke(paired.credential.device)?;
+    assert!(!remote.authorized(paired.credential.device));
+    assert!(remote.authenticate(&paired.credential).is_none());
+    assert!(store::load(&path)?.devices.is_empty());
+    std::fs::remove_dir_all(directory)?;
+    Ok(())
+}
+
+#[test]
+fn failed_push_saves_keep_registration_secrets_and_retention()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut remote = enabled()?;
+    let secret = offer(&remote, ClientId::new());
+    let paired = remote
+        .pair(&request(secret), server())
+        .ok_or("pairing failed")?;
+    let device = paired.credential.device;
+    let active = PushRecord {
+        token: muxy_protocol::PushToken {
+            platform: muxy_protocol::PushPlatform::Apns,
+            token: "ab".repeat(32),
+            environment: Some(muxy_protocol::PushEnvironment::Sandbox),
+        },
+        key: [3; 32],
+        relay: Some(
+            Credentials::new(
+                "01jc8q4m6x2v7s0t3n5r9k1b2d".into(),
+                "q5XxAbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_A".into(),
+            )
+            .ok_or("invalid test credentials")?,
+        ),
+        status: PushStatus::Active,
+    };
+    assert!(remote.replace_push(device, None, Some(active.clone()))?);
+    let before = remote.state(&HashSet::new());
+    let directory = block_saves(&mut remote)?;
+    let error = remote
+        .set_push_notifications(false)
+        .err()
+        .ok_or("push was disabled")?;
+    assert_eq!(error.code(), ErrorCode::PersistenceFailed);
+    assert_eq!(remote.push_record(device), Some(active.clone()));
+    assert_eq!(remote.state(&HashSet::new()), before);
+    let refused = PushRecord {
+        status: PushStatus::Refused,
+        ..active.clone()
+    };
+    assert!(
+        remote
+            .replace_push(device, Some(&active), Some(refused))
+            .is_err()
+    );
+    assert!(remote.replace_push(device, Some(&active), None).is_err());
+    assert_eq!(remote.push_record(device), Some(active.clone()));
+    assert_eq!(remote.state(&HashSet::new()), before);
+
+    let path = directory.join("remote.json");
+    std::fs::remove_dir(&path)?;
+    let switch = remote.set_push_notifications(false)?;
+    assert_eq!(switch.deleted, active.relay.into_iter().collect::<Vec<_>>());
+    let paused = remote.push_record(device);
+    assert_eq!(store::load(&path)?.devices[0].push, paused);
+    let before = remote.state(&HashSet::new());
+    let until = before.push_kept_until.ok_or("missing retention deadline")?;
+    std::fs::remove_file(&path)?;
+    std::fs::create_dir(&path)?;
+    assert!(remote.expire_paused_push(until).is_err());
+    assert!(remote.set_push_notifications(true).is_err());
+    assert_eq!(remote.push_record(device), paused);
+    assert_eq!(remote.state(&HashSet::new()), before);
+
+    std::fs::remove_dir(&path)?;
+    assert!(remote.expire_paused_push(until)?);
+    assert_eq!(remote.push_record(device), None);
+    assert_eq!(store::load(&path)?.devices[0].push, None);
+    std::fs::remove_dir_all(directory)?;
     Ok(())
 }

@@ -1,8 +1,3 @@
-//! Terminal cell style attributes.
-//!
-//! A style describes the visual attributes of a terminal cell, including
-//! foreground, background, and underline colors, as well as flags for bold,
-//! italic, underline, and other text decorations.
 use std::{ffi::CStr, mem::MaybeUninit, slice};
 
 use crate::{
@@ -10,23 +5,13 @@ use crate::{
     ffi,
 };
 
-/// Style identifier type.
-///
-/// Used to look up the full style from a grid reference.
-/// Obtain this from a cell via [`Cell::style_id`][crate::screen::Cell::style_id].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Id(pub(crate) ffi::StyleId);
 
-/// Terminal cell style attributes.
-///
-/// A style describes the visual attributes of a terminal cell, including
-/// foreground, background, and underline colors, as well as flags for bold,
-/// italic, underline, and other text decorations.
 #[expect(
     clippy::struct_excessive_bools,
     reason = "style attributes should be just a bunch of bools"
 )]
-#[expect(missing_docs, reason = "self-explanatory")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Style {
     pub fg_color: StyleColor,
@@ -44,9 +29,6 @@ pub struct Style {
 }
 
 impl Style {
-    /// Check if a style is the default style.
-    ///
-    /// Returns true if all colors are unset and all flags are off.
     #[must_use]
     pub fn is_default(self) -> bool {
         let raw = ffi::Style::from(self);
@@ -61,41 +43,30 @@ impl Default for Style {
             ffi::ghostty_style_default(style.as_mut_ptr());
         }
 
-        // SAFETY: We trust the function above to initialize everything correctly
         Self::try_from(unsafe { style.assume_init() })
             .expect("ghostty_style_default to init valid Style")
     }
 }
 
-/// A color used in a style attribute.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StyleColor {
-    /// Unset.
     None,
-    /// Palette index.
     Palette(PaletteIndex),
-    /// Direct RGB value.
     Rgb(RgbColor),
 }
 
-/// RGB color value.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct RgbColor {
-    /// Red color component (0-255)
     pub r: u8,
-    /// Green color component (0-255)
     pub g: u8,
-    /// Blue color component (0-255)
     pub b: u8,
 }
 
-/// Palette color index (0-255).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PaletteIndex(pub ffi::ColorPaletteIndex);
 
 impl PaletteIndex {
-    #![expect(missing_docs, reason = "self-explanatory")]
     pub const BLACK: PaletteIndex = PaletteIndex(ffi::COLOR_NAMED_BLACK);
     pub const RED: PaletteIndex = PaletteIndex(ffi::COLOR_NAMED_RED);
     pub const GREEN: PaletteIndex = PaletteIndex(ffi::COLOR_NAMED_GREEN);
@@ -114,11 +85,9 @@ impl PaletteIndex {
     pub const BRIGHT_WHITE: PaletteIndex = PaletteIndex(ffi::COLOR_NAMED_BRIGHT_WHITE);
 }
 
-/// Underline style types.
 #[repr(i32)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, int_enum::IntEnum)]
 #[non_exhaustive]
-#[expect(missing_docs, reason = "self-explanatory")]
 pub enum Underline {
     None = ffi::SgrUnderline::NONE,
     Single = ffi::SgrUnderline::SINGLE,
@@ -128,9 +97,6 @@ pub enum Underline {
     Dashed = ffi::SgrUnderline::DASHED,
 }
 
-//----------------------------------
-// Conversion to and from FFI types
-//----------------------------------
 
 impl TryFrom<ffi::Style> for Style {
     type Error = Error;
@@ -219,11 +185,9 @@ impl From<RgbColor> for ffi::ColorRgb {
     }
 }
 
-/// A 256-color palette.
 #[derive(Clone, Copy, Debug)]
 pub struct Palette(pub [RgbColor; 256]);
 
-// Saves a bit of typing
 pub(crate) type RawPalette = [ffi::ColorRgb; 256];
 
 impl From<RawPalette> for Palette {
@@ -238,10 +202,6 @@ impl From<Palette> for RawPalette {
 }
 
 impl Default for Palette {
-    /// Get Ghostty's built-in default 256-color palette.
-    ///
-    /// Returns Ghostty's base16 defaults, the xterm 6x6x6 color cube, and the
-    /// grayscale ramp.
     fn default() -> Self {
         let mut raw = [ffi::ColorRgb::default(); 256];
         unsafe { ffi::ghostty_color_palette_default(raw.as_mut_ptr()) };
@@ -250,23 +210,15 @@ impl Default for Palette {
 }
 
 impl Palette {
-    /// Get the color at the given palette index.
     #[must_use]
     pub fn get(&self, index: PaletteIndex) -> RgbColor {
         self.0[index.0 as usize]
     }
 
-    /// Set the color at the given palette index.
     pub fn set(&mut self, index: PaletteIndex, color: RgbColor) {
         self.0[index.0 as usize] = color;
     }
 
-    /// Parse a Ghostty palette entry.
-    ///
-    /// Accepts Ghostty palette config syntax: `N=COLOR`. `N` is a palette index
-    /// from 0 to 255 in decimal or in `0x`, `0o`, or `0b`-prefixed form. Spaces and
-    /// tabs around `N` and `COLOR` are ignored. `COLOR` accepts the same syntax as
-    /// [`RgbColor::parse`].
     pub fn parse_palette_entry(value: &str) -> Result<(PaletteIndex, RgbColor)> {
         let mut index = MaybeUninit::uninit();
         let mut rgb = MaybeUninit::uninit();
@@ -285,18 +237,6 @@ impl Palette {
         ))
     }
 
-    /// Generate a 256-color palette from base colors.
-    ///
-    /// The base palette supplies indices 0-15, which are always preserved. If
-    /// `base` is [`None`], Ghostty's default palette is used. If `skip` is
-    /// [`None`], no extra indices are skipped. Set bits in `skip` preserve those
-    /// indices from `base`. The 216-color cube at indices 16-231 is generated with
-    /// trilinear CIELAB interpolation, and the grayscale ramp at indices 232-255 is
-    /// interpolated from the background to the foreground.
-    ///
-    /// For light themes, `harmonious` controls whether the generated palette keeps
-    /// the background-to-foreground orientation. When false, Ghostty swaps the
-    /// light background and dark foreground so the cube and ramp run dark-to-light.
     #[must_use]
     pub fn generate(
         base: Option<&Self>,
@@ -331,27 +271,20 @@ impl Palette {
     }
 }
 
-/// A 256-bit mask of palette indices.
-///
-/// The mask is typically initialized to zero and then populated with
-/// [`PaletteMask::set`].
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PaletteMask(ffi::ColorPaletteMask);
 
 impl PaletteMask {
-    /// Create an empty palette mask.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set a palette index in this mask.
     pub fn set(&mut self, index: PaletteIndex) {
         let index = usize::from(index.0);
         self.0.bits[index / 64] |= 1_u64 << (index % 64);
     }
 
-    /// Return whether a palette index is set in this mask.
     #[must_use]
     pub fn is_set(self, index: PaletteIndex) -> bool {
         let index = usize::from(index.0);
@@ -366,11 +299,6 @@ impl PartialEq for PaletteMask {
 impl Eq for PaletteMask {}
 
 impl RgbColor {
-    /// Parse an X11 color name.
-    ///
-    /// The color name is resolved from Ghostty's embedded rgb.txt table. Leading
-    /// and trailing spaces and tabs are trimmed, and matching is ASCII
-    /// case-insensitive. Hex values are not accepted by this function.
     pub fn parse_x11_color(name: &str) -> Result<Self> {
         let mut out = MaybeUninit::uninit();
         let result = unsafe {
@@ -380,13 +308,6 @@ impl RgbColor {
         Ok(unsafe { out.assume_init() }.into())
     }
 
-    /// Parse a flexible Ghostty color value.
-    ///
-    /// Accepts Ghostty's terminal color syntax: X11 color names, hex colors in 3-,
-    /// 6-, 9-, or 12-digit form (the leading `#` is optional for 3- and 6-digit
-    /// values), and `rgb:<red>/<green>/<blue>` or
-    /// `rgbi:<red>/<green>/<blue>` specifications. Leading and trailing spaces and
-    /// tabs are trimmed.
     pub fn parse(value: &str) -> Result<Self> {
         let mut out = MaybeUninit::uninit();
         let result = unsafe {
@@ -396,31 +317,18 @@ impl RgbColor {
         Ok(unsafe { out.assume_init() }.into())
     }
 
-    /// Calculate W3C relative luminance for an RGB color.
-    ///
-    /// Returns a normalized value from 0.0 for black to 1.0 for white. See
-    /// <https://www.w3.org/TR/WCAG20/#relativeluminancedef>.
     #[must_use]
     pub fn luminance(self) -> f64 {
         let this: ffi::ColorRgb = self.into();
         unsafe { ffi::ghostty_color_luminance(&raw const this) }
     }
 
-    /// Calculate perceived luminance for an RGB color.
-    ///
-    /// Returns a normalized value from 0.0 for black to 1.0 for white. Ghostty
-    /// treats a background color as light when this exceeds 0.5. This is not the
-    /// metric used internally by [`Palette::generate`], which uses CIELAB lightness.
     #[must_use]
     pub fn perceived_luminance(self) -> f64 {
         let this: ffi::ColorRgb = self.into();
         unsafe { ffi::ghostty_color_perceived_luminance(&raw const this) }
     }
 
-    /// Calculate the WCAG contrast ratio between two RGB colors.
-    ///
-    /// The contrast ratio is symmetric and ranges from 1.0 for identical colors to
-    /// 21.0 for black and white.
     #[must_use]
     pub fn contrast(self, other: RgbColor) -> f64 {
         let this: ffi::ColorRgb = self.into();
@@ -429,18 +337,12 @@ impl RgbColor {
     }
 }
 
-/// An entry in Ghostty's X11 color name table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct X11ColorName {
-    /// Null-terminated color name.
     pub name: &'static CStr,
-    /// The RGB value of the color.
     pub color: RgbColor,
 }
 
-/// Ghostty's X11 color name table.
-///
-/// This is a borrowed view of the static table embedded in Ghostty.
 #[derive(Clone, Copy, Debug)]
 pub struct X11ColorNames {
     entries: &'static [ffi::ColorX11Entry],
@@ -452,19 +354,12 @@ impl Default for X11ColorNames {
     }
 }
 
-/// Iterator over Ghostty's X11 color name table.
 #[derive(Clone, Debug)]
 pub struct X11ColorNamesIter {
     entries: slice::Iter<'static, ffi::ColorX11Entry>,
 }
 
 impl X11ColorNames {
-    /// Get Ghostty's X11 color name table.
-    ///
-    /// Entries are in rgb.txt order. Aliases are separate entries, such as
-    /// `"medium spring green"` and `"MediumSpringGreen"`. Names are the exact
-    /// supported spellings from rgb.txt; [`RgbColor::parse_x11_color`] also matches them
-    /// case-insensitively.
     #[must_use]
     pub fn new() -> Self {
         let ptr = unsafe { ffi::ghostty_color_x11_names() };
@@ -473,27 +368,21 @@ impl X11ColorNames {
         Self { entries }
     }
 
-    /// Get the number of X11 color name entries.
-    ///
-    /// The returned count excludes the NULL terminator.
     #[must_use]
     pub fn len(self) -> usize {
         self.entries.len()
     }
 
-    /// Return whether the X11 color name table is empty.
     #[must_use]
     pub fn is_empty(self) -> bool {
         self.entries.is_empty()
     }
 
-    /// Get an X11 color name entry by index.
     #[must_use]
     pub fn get(self, index: usize) -> Option<X11ColorName> {
         self.entries.get(index).map(x11_color_name_from_entry)
     }
 
-    /// Iterate over the X11 color name table.
     #[must_use]
     pub fn iter(self) -> X11ColorNamesIter {
         X11ColorNamesIter {

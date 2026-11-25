@@ -14,7 +14,7 @@ upstream copy, outside this repository, to rebuild the vendored crate. Packaging
 | `core-text` | crates.io 21.0.0 | gpui and font-kit need 21.x, and 21.0.0 leaks font descriptor arrays | `CTFontCollection::get_descriptors` takes ownership under the Create rule ([upstream fix](https://github.com/servo/core-foundation-rs/commit/6f844cf1a1a18e25b70fcdf1bcdc458555bd2eff)). `CTRun` getters spell out their elided `Cow` lifetimes. |
 | `xim-ctext` | crates.io 0.4.1, kept at version 0.3.0 | `zed-xim`, behind gpui's X11 input method, asks for 0.3, which can't decode Chinese, Korean, ISO-8859 or mixed-charset compound text | 0.4.1's decoder ([upstream PR](https://github.com/Riey/xim-rs/pull/50)) under the 0.3.0 version number. Local fix: text before the first escape is decoded as plain text, so commits like `(June)` or `$(echo)` aren't mistaken for escape sequences. Upstream only guards `(B` and `(J` so far. The demo binary is dropped. |
 | `libghostty-vt` | [libghostty-rs `9ede35b8`](https://github.com/uzaaft/libghostty-rs/commit/9ede35b8ea94a55ed3608408d67e102883129f1e), unreleased | Muxy needs a newer Ghostty, and a clear-screen call and access to every frame of an animated image that no release has | `Terminal::clear_screen` wraps the patched Ghostty call. In `kitty::graphics`, `Image::frame`, `frame_count`, `animation_state`, `current_frame` and `loops` wrap the patched Ghostty calls that read every stored frame of an animated image and its playback state. `vt_write_until_ground` uses Ghostty's newer `vt_write_until`. `key::Encoder::encode_to_vec` reserves the full required length when it retries. `snapshot::Decoder::set_kitty_image_storage_limit` sets Ghostty's image limit for a restored terminal, which a snapshot doesn't carry. |
-| `libghostty-vt-sys` | [libghostty-rs `9ede35b8`](https://github.com/uzaaft/libghostty-rs/commit/9ede35b8ea94a55ed3608408d67e102883129f1e), unreleased | Builds the Ghostty that `libghostty-vt` needs | Pins Ghostty `83fb9562`. Applies `patches/clear-screen.patch`, `patches/kitty-image-file.patch` and `patches/kitty-animation-frames.patch` to a private copy of the Ghostty source before building (`patch.rs`). Retries Ghostty and Zig package downloads. Hides the app's Git tags from Ghostty's build. Rejects a pkg-config Ghostty that lacks the clear-screen or the animation-frames patch. Keeps Zig's build outputs in `LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR` when it's set, so CI can reuse them. `src/bindings.rs` is regenerated for that Ghostty. |
+| `libghostty-vt-sys` | [libghostty-rs `9ede35b8`](https://github.com/uzaaft/libghostty-rs/commit/9ede35b8ea94a55ed3608408d67e102883129f1e), unreleased | Builds the Ghostty that `libghostty-vt` needs | Pins Ghostty `83fb9562`. Applies `patches/clear-screen.patch`, `patches/kitty-image-file.patch` and `patches/kitty-animation-frames.patch` to a private copy of the Ghostty source before building (`patch.rs`). Retries Ghostty and Zig package downloads. Hides the app's Git tags from Ghostty's build. Rejects a pkg-config Ghostty that lacks the clear-screen or the animation-frames patch. Keeps Zig's build outputs in `LIBGHOSTTY_VT_SYS_ZIG_CACHE_DIR` when it's set, so CI can reuse them. Zig rebuilds a freshly checked-out Ghostty even when nothing changed, so a static build also keeps its finished install there (`kept_install.rs`), keyed by everything that shapes it, and later builds copy it instead of fetching and building Ghostty. `src/bindings.rs` is regenerated for that Ghostty. |
 
 `Cargo.toml` in both libghostty crates is Cargo's packaged form of upstream's
 manifest, without the `readme` line. Upstream's manifest itself is kept
@@ -56,6 +56,7 @@ Muxy relies on these changes:
 - Keep atlas textures alive until the GPU is done with them.
 - Read copied files from the Linux clipboard.
 - Give X11 windows their raw handles.
+- Return unavailable native handles for simulated test windows.
 - Release the window lock before resigning a spurious key window on macOS.
 - Composite translucent layers with "over" alpha on macOS.
 - Truncate text from its full runs, and measure it again once its width is
@@ -67,3 +68,6 @@ Muxy relies on these changes:
   window on macOS.
 - Hand an app the keystroke gpui would dispatch for a native key event.
 - Hide a pressed element's tooltip until the mouse leaves it.
+- Place an IME composition caret from the Wayland preedit cursor and the X11
+  preedit caret, counted in UTF-16 units of the composing text, and anchor the
+  candidate window to that caret.

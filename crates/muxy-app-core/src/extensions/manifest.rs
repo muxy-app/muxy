@@ -8,8 +8,7 @@ use super::panels::{FrameSpec, PanelChrome, PanelScope, SizeSpec};
 
 const MAX_ICON_BYTES: u64 = 256 * 1024;
 
-/// Every permission an extension can declare. Unknown names fail the load, as on main.
-pub const PERMISSIONS: [&str; 25] = [
+pub const PERMISSIONS: [&str; 37] = [
     "panes:read",
     "panes:write",
     "tabs:read",
@@ -22,6 +21,7 @@ pub const PERMISSIONS: [&str; 25] = [
     "worktrees:read",
     "worktrees:write",
     "agents:read",
+    "agents:write",
     "git:read",
     "git:write",
     "files:read",
@@ -35,9 +35,19 @@ pub const PERMISSIONS: [&str; 25] = [
     "shortcuts:register",
     "remote:serve",
     "gh:read",
+    "ui:write",
+    "commands:read",
+    "commands:run",
+    "composer:write",
+    "layouts:read",
+    "layouts:write",
+    "preferences:read",
+    "preferences:write",
+    "clipboard:read",
+    "clipboard:write",
+    "system:open",
 ];
 
-/// An SF Symbol name or a template SVG bundled with the extension.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Icon {
     Symbol(String),
@@ -45,7 +55,6 @@ pub enum Icon {
 }
 
 impl Icon {
-    /// The lenient runtime form accepted by `topbar.set`, `statusbar.set`, and `tabs.setIcon`.
     pub fn parse(value: &Value) -> Option<Self> {
         match value {
             Value::String(symbol) if !symbol.is_empty() => Some(Self::Symbol(symbol.clone())),
@@ -123,7 +132,6 @@ pub enum PanelMode {
     #[default]
     Floating,
     Pinned,
-    /// Floats freely over the window, beside other panels.
     Detached,
 }
 
@@ -162,13 +170,11 @@ pub struct Panel {
     pub hide_topbar: bool,
     #[serde(default)]
     pub default_data: Value,
-    /// Where a detached panel first opens, and its size.
     pub frame: Option<FrameSpec>,
     pub min_size: Option<SizeSpec>,
     pub max_size: Option<SizeSpec>,
     #[serde(default)]
     pub chrome: PanelChrome,
-    /// Unset, a panel with `chrome: "none"` is transparent and others aren't.
     pub transparent: Option<bool>,
     #[serde(default)]
     pub click_through: bool,
@@ -185,13 +191,10 @@ impl Panel {
         self.hide_topbar || self.hidden_controls.contains(&control)
     }
 
-    /// Whether the user's float/dock choice applies instead of the declared mode.
     pub fn allows_mode_selection(&self) -> bool {
         !self.hides(PanelControl::Pin)
     }
 
-    /// Whether the user's choice to pop the panel out, or dock it, applies
-    /// instead of the declared mode.
     pub fn allows_detach_selection(&self) -> bool {
         !self.hides(PanelControl::Detach)
     }
@@ -261,17 +264,14 @@ pub struct Sidebar {
     pub default_data: Value,
 }
 
-/// What running a palette command does.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Action {
-    /// Fires `command.<id>` to the extension.
     #[default]
     Event,
     OpenTab {
         tab_type: String,
         data: Value,
     },
-    /// `openPanel` is 2.x's non-toggling spelling of `togglePanel`.
     TogglePanel {
         panel: String,
         toggle: bool,
@@ -347,7 +347,6 @@ impl<'de> Deserialize<'de> for Action {
 }
 
 impl Action {
-    /// The manifest permission the action needs before it runs.
     pub fn permission(&self) -> Option<&'static str> {
         match self {
             Self::Event => None,
@@ -375,7 +374,6 @@ fn visible() -> bool {
     true
 }
 
-/// A topbar item or panel header button that runs one of the extension's commands.
 #[derive(Clone, Debug, Deserialize)]
 pub struct BarItem {
     pub id: String,
@@ -425,53 +423,30 @@ pub struct Setting {
     pub default_value: Value,
 }
 
-fn all_files() -> Vec<String> {
-    vec!["*".into()]
-}
-
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileOpener {
     pub id: String,
     pub title: Option<String>,
     pub tab_type: String,
-    #[serde(default = "all_files")]
+    #[serde(default)]
     pub patterns: Vec<String>,
+    #[serde(default)]
+    pub file_types: Option<Vec<String>>,
     #[serde(default = "visible")]
     pub singleton: bool,
 }
 
 impl FileOpener {
-    /// Case-insensitive `*`/`?` glob match against a project-relative path.
-    pub fn matches(&self, relative: &str) -> bool {
-        let path: Vec<char> = relative.to_lowercase().chars().collect();
-        self.patterns.is_empty()
-            || self
-                .patterns
-                .iter()
-                .any(|pattern| glob(&pattern.to_lowercase().chars().collect::<Vec<_>>(), &path))
+    pub fn registered_patterns(&self) -> &[String] {
+        self.file_types.as_deref().unwrap_or(&self.patterns)
     }
-}
 
-fn glob(pattern: &[char], text: &[char]) -> bool {
-    let (mut p, mut t) = (0, 0);
-    let mut resume: Option<(usize, usize)> = None;
-    while t < text.len() {
-        if p < pattern.len() && pattern[p] == '*' {
-            resume = Some((p, t));
-            p += 1;
-        } else if p < pattern.len() && (pattern[p] == '?' || pattern[p] == text[t]) {
-            p += 1;
-            t += 1;
-        } else if let Some((star, matched)) = resume {
-            p = star + 1;
-            t = matched + 1;
-            resume = Some((star, matched + 1));
-        } else {
-            return false;
-        }
+    pub fn matches(&self, relative: &str) -> bool {
+        self.registered_patterns()
+            .iter()
+            .any(|pattern| crate::opener::matches_pattern(pattern, relative))
     }
-    pattern[p..].iter().all(|character| *character == '*')
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -504,9 +479,52 @@ pub struct Manifest {
     pub file_openers: Vec<FileOpener>,
     pub localizations: Vec<Localization>,
     pub topbar_items: Vec<BarItem>,
+    pub rail_items: Vec<BarItem>,
     pub status_bar_items: Vec<StatusBarItem>,
     pub settings: Vec<Setting>,
     pub remote_methods: Vec<RemoteMethod>,
+    #[serde(deserialize_with = "listing")]
+    pub marketplace: Listing,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Listing {
+    pub author: Option<String>,
+    pub categories: Vec<String>,
+    pub icon: Option<String>,
+    pub screenshots: Vec<String>,
+    pub homepage: Option<String>,
+    pub repository: Option<String>,
+}
+
+fn listing<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Listing, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    let text = |key: &str| {
+        value[key]
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+    };
+    let texts = |key: &str| {
+        value[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    Ok(Listing {
+        author: text("author"),
+        categories: texts("categories"),
+        icon: text("icon"),
+        screenshots: texts("screenshots"),
+        homepage: text("homepage"),
+        repository: text("repository"),
+    })
 }
 
 impl Manifest {
@@ -535,7 +553,6 @@ impl Manifest {
 pub struct Extension {
     pub name: String,
     pub version: String,
-    /// The resource root: the package's `dist/` build output when present.
     pub directory: PathBuf,
     pub manifest: Manifest,
 }
@@ -558,7 +575,6 @@ fn language_tag(value: &str) -> bool {
     })
 }
 
-/// Extension-local event names: `extension.` plus up to 190 safe characters.
 pub fn local_event(name: &str) -> bool {
     name.len() > "extension.".len()
         && name.len() <= 200
@@ -586,9 +602,6 @@ fn unique<'a>(kind: &str, ids: impl IntoIterator<Item = &'a str>) -> Result<(), 
     distinct(kind, ids)
 }
 
-/// main decodes optional manifest fields with `decodeIfPresent`, so `null`
-/// means "not set". Free-form JSON (`defaultData`, `data`, `defaultValue`)
-/// is kept as written.
 fn without_nulls(value: &mut Value) {
     match value {
         Value::Object(fields) => {
@@ -605,7 +618,6 @@ fn without_nulls(value: &mut Value) {
 }
 
 impl Extension {
-    /// Loads a package folder, preferring its `dist/` build output like main does.
     pub fn load(package: &Path) -> Result<Self, String> {
         let load = || -> Result<Self, String> {
             let dist = package.join("dist");
@@ -670,7 +682,6 @@ impl Extension {
         Ok(path)
     }
 
-    /// Resolves a file inside the resource root, rejecting traversal and symlink escapes.
     pub fn resource(&self, relative: &str) -> Result<PathBuf, String> {
         let path = self.located(relative)?;
         if path.is_file() {
@@ -684,7 +695,6 @@ impl Extension {
         self.manifest.permissions.contains(permission)
     }
 
-    /// Whether the manifest lets the extension subscribe to an event.
     pub fn allows_event(&self, event: &str) -> bool {
         if event.starts_with("extension.") {
             return local_event(event);
@@ -801,7 +811,12 @@ impl Extension {
                     opener.id, opener.tab_type
                 ));
             }
-            if opener.patterns.iter().any(String::is_empty) {
+            if opener
+                .patterns
+                .iter()
+                .chain(opener.file_types.iter().flatten())
+                .any(String::is_empty)
+            {
                 return Err(format!("file opener '{}' has an empty pattern", opener.id));
             }
         }
@@ -861,6 +876,13 @@ impl Extension {
             check("topbar item", &item.id, &item.command, &item.icon)?;
         }
         unique(
+            "rail item",
+            manifest.rail_items.iter().map(|i| i.id.as_str()),
+        )?;
+        for item in &manifest.rail_items {
+            check("rail item", &item.id, &item.command, &item.icon)?;
+        }
+        unique(
             "status bar item",
             manifest.status_bar_items.iter().map(|i| i.id.as_str()),
         )?;
@@ -883,6 +905,8 @@ impl Extension {
     fn validate_localizations(&self) -> Result<(), String> {
         let localizations = &self.manifest.localizations;
         unique("localization", localizations.iter().map(|l| l.id.as_str()))?;
+        let mut checked = BTreeSet::new();
+        let mut budget = crate::localization::MAX_PACK_CATALOG_BYTES;
         for localization in localizations {
             let id = &localization.id;
             if !identifier(id) {
@@ -902,8 +926,17 @@ impl Extension {
                 .ok()
                 .filter(|path| path.is_dir() && localization.bundle.ends_with(".bundle"))
                 .ok_or_else(|| format!("localization '{id}' bundle was not found"))?;
-            crate::localization::validate_bundle(&bundle, &localization.language)
-                .map_err(|error| format!("localization '{id}' {error}"))?;
+            let catalogs = bundle.canonicalize().map_or_else(
+                |_| bundle.clone(),
+                |root| {
+                    let lproj = root.join(format!("{}.lproj", localization.language));
+                    lproj.canonicalize().unwrap_or(lproj)
+                },
+            );
+            if checked.insert(catalogs) {
+                crate::localization::validate_bundle(&bundle, &localization.language, &mut budget)
+                    .map_err(|error| format!("localization '{id}' {error}"))?;
+            }
         }
         Ok(())
     }

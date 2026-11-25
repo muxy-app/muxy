@@ -372,7 +372,6 @@ impl Item {
         }
     }
 
-    /// A piece of the row, found in tests as `menu-{part}-{label}`.
     fn part(&self, part: &'static str) -> gpui::Div {
         let label = self.label.clone();
         div().debug_selector(move || format!("menu-{part}-{label}"))
@@ -395,7 +394,6 @@ impl Item {
     }
 }
 
-/// Leading columns a panel reserves on every row, so labels line up.
 #[derive(Clone, Copy)]
 struct Columns {
     checkmarks: bool,
@@ -490,7 +488,6 @@ pub(super) fn height(items: &[Item], m: Metrics) -> Pixels {
         + px(2.0)
 }
 
-/// How far row `index` sits below a panel's first row.
 fn row_offset(items: &[Item], index: usize, m: Metrics) -> Pixels {
     let separators = count(
         items
@@ -503,8 +500,6 @@ fn row_offset(items: &[Item], index: usize, m: Metrics) -> Pixels {
         + (separator_height(m) + m.scaled(popover::ROW_GAP)) * separators
 }
 
-/// Places a submenu beside its parent with its first row level with the row
-/// that opened it, flipping to the left when the right side has no room.
 pub(super) fn submenu_origin(
     parent: Bounds<Pixels>,
     row_top: Pixels,

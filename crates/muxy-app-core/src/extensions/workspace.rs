@@ -1,20 +1,15 @@
-//! The folder where agents build extensions: the `muxy-extensions` skill for
-//! each agent, and one folder per extension under `extensions/`, the layout of
-//! the published extensions repository.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-/// Startup and starting an agent can both prepare a workspace, and cleaning up
-/// would delete the other's half-written files.
+use crate::agent_skills::{AGENT_SKILLS, refuse_links_on_the_way, write_if_changed};
+
 static PREPARING: Mutex<()> = Mutex::new(());
 
 pub const SKILL_NAME: &str = "muxy-extensions";
 pub const SKILL: &str = include_str!("../../skills/muxy-extensions/SKILL.md");
 
-const AGENT_SKILLS: [&str; 2] = [".claude/skills", ".agents/skills"];
 const POINTER: &str = include_str!("../../skills/muxy-extensions/POINTER.md");
 const POINTERS: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 const FILES: &[(&str, &str)] = &[
@@ -95,20 +90,20 @@ const FILES: &[(&str, &str)] = &[
         "references/schema/manifest.schema.json",
         include_str!("../../../../docs/extensions/schema/manifest.schema.json"),
     ),
+    (
+        "references/types/muxy.d.ts",
+        include_str!("../../../../docs/extensions/types/muxy.d.ts"),
+    ),
 ];
 
-/// Where one extension of the workspace lives.
 pub fn extension_folder(root: &Path, name: &str) -> PathBuf {
     root.join("extensions").join(name)
 }
 
-/// The skill's instructions, which a prompt can point an agent at from any folder.
 pub fn skill_file(root: &Path) -> PathBuf {
     root.join(AGENT_SKILLS[1]).join(SKILL_NAME).join("SKILL.md")
 }
 
-/// Creates the workspace if needed and brings its skill up to date with this
-/// build. Only Muxy's own skill and pointer files are touched.
 pub fn prepare(root: &Path) -> io::Result<()> {
     let _preparing = PREPARING.lock().unwrap_or_else(PoisonError::into_inner);
     fs::create_dir_all(root.join("extensions"))?;
@@ -127,45 +122,10 @@ pub fn prepare(root: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Updates a workspace the user already has after an app update. One that was
-/// never created stays uncreated until the first extension needs it.
 pub fn refresh(root: &Path) -> io::Result<()> {
     if root.is_dir() { prepare(root) } else { Ok(()) }
 }
 
-/// A folder on the way to a skill file that is a link would put Muxy's files, and
-/// its cleanup, somewhere else. Above the workspace links are fine: `~/.config` is
-/// often one.
-pub(crate) fn refuse_links_on_the_way(folder: &Path, relative: &str) -> io::Result<()> {
-    let mut path = folder.to_owned();
-    for part in Path::new(relative)
-        .parent()
-        .into_iter()
-        .flat_map(Path::components)
-    {
-        path.push(part);
-        if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_symlink()) {
-            return Err(io::Error::other(format!(
-                "{} is a link; Muxy keeps its skill in real folders",
-                path.display()
-            )));
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn write_if_changed(path: &Path, contents: &str) -> io::Result<()> {
-    if fs::read(path).is_ok_and(|current| current == contents.as_bytes()) {
-        return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    muxy_core::fs::write_atomic(path, contents.as_bytes(), 0o644)?;
-    Ok(())
-}
-
-/// Removes what an earlier version of the skill left behind.
 fn remove_others(root: &Path, folder: &Path) -> io::Result<()> {
     for entry in fs::read_dir(folder)? {
         let path = entry?.path();
@@ -190,6 +150,17 @@ fn remove_others(root: &Path, folder: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
 
+    fn link_folder(target: &Path, link: &Path) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link)
+        }
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_dir(target, link)
+        }
+    }
+
     #[test]
     fn prepares_the_skill_for_each_agent_and_a_pointer_for_the_others() -> io::Result<()> {
         let folder = tempfile::tempdir()?;
@@ -205,6 +176,7 @@ mod tests {
                     .join("references/schema/manifest.schema.json")
                     .is_file()
             );
+            assert!(skill.join("references/types/muxy.d.ts").is_file());
         }
         for pointer in POINTERS {
             assert_eq!(fs::read_to_string(root.join(pointer))?, POINTER);
@@ -252,7 +224,7 @@ mod tests {
         let root = folder.path().join("workspace");
         let skills = root.join(AGENT_SKILLS[0]);
         fs::create_dir_all(&skills)?;
-        std::os::unix::fs::symlink(&elsewhere, skills.join(SKILL_NAME))?;
+        link_folder(&elsewhere, &skills.join(SKILL_NAME))?;
         assert!(prepare(&root).is_err());
         assert_eq!(fs::read_to_string(elsewhere.join("mine.txt"))?, "kept");
         assert!(!elsewhere.join("SKILL.md").exists());
@@ -270,7 +242,7 @@ mod tests {
             let root = folder.path().join("workspace");
             let link = root.join(link);
             fs::create_dir_all(link.parent().unwrap_or(&root))?;
-            std::os::unix::fs::symlink(&elsewhere, &link)?;
+            link_folder(&elsewhere, &link)?;
             assert!(prepare(&root).is_err(), "{}", link.display());
             assert_eq!(fs::read_to_string(theirs.join("mine.txt"))?, "kept");
         }
@@ -283,7 +255,7 @@ mod tests {
         let real = folder.path().join("dotfiles");
         fs::create_dir_all(&real)?;
         let config = folder.path().join("config");
-        std::os::unix::fs::symlink(&real, &config)?;
+        link_folder(&real, &config)?;
         let root = config.join("workspace");
         prepare(&root)?;
         assert!(
@@ -303,7 +275,7 @@ mod tests {
         let root = folder.path().join("workspace");
         let skill = root.join(AGENT_SKILLS[0]).join(SKILL_NAME);
         fs::create_dir_all(&skill)?;
-        std::os::unix::fs::symlink(&elsewhere, skill.join("references"))?;
+        link_folder(&elsewhere, &skill.join("references"))?;
         assert!(prepare(&root).is_err());
         assert!(
             fs::read_dir(&elsewhere)?.next().is_none(),

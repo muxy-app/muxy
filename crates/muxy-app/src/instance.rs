@@ -1,74 +1,85 @@
-//! One desktop app per profile. A second launch hands the folders it was
-//! asked to open to the first and exits, which is also how `muxy <folder>`
-//! reaches an app that is already running.
-
-use std::ffi::{OsStr, OsString};
-use std::fs::DirBuilder;
+#[cfg(any(target_os = "linux", windows))]
+use std::ffi::OsString;
 use std::io::{self, Read, Write};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use muxy_app_core::session_link::SessionLink;
+use muxy_protocol::ServerPath;
+use muxy_protocol::transport::{LocalListener, LocalStream};
 use muxy_ui::tr;
 
-/// More than any command line holds; a longer message is not a handoff.
 const LIMIT: u64 = 256 * 1024;
 const ANSWER: Duration = Duration::from_secs(2);
 const DONE: u8 = 1;
 
-/// The folders an app opens, as file URLs. Any list brings its window forward;
-/// an empty one does only that.
-pub(crate) type Folders = async_channel::Sender<Vec<String>>;
+pub(crate) type Opened = async_channel::Sender<Vec<String>>;
 
-/// Holds the profile for as long as this app runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Asked {
+    Folder(PathBuf),
+    Link(String),
+}
+
 #[derive(Debug)]
 pub(crate) struct Instance {
     _lock: muxy_core::file_lock::FileLock,
 }
 
-/// Takes the profile for this app and opens `arguments` in it. `None` when
-/// another app has the profile and opened them instead.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 pub(crate) fn claim(
     arguments: impl Iterator<Item = OsString>,
-    folders: &Folders,
+    opened: &Opened,
 ) -> io::Result<Option<Instance>> {
     let profile = muxy_core::dirs::muxy_dir()?;
-    let asked: Vec<PathBuf> = arguments
-        .filter_map(|argument| std::path::absolute(argument).ok())
-        .collect();
-    claim_in(&profile, &asked, folders, ANSWER)
+    #[cfg(windows)]
+    let arguments =
+        arguments.filter(|argument| argument != muxy_ui::notifications::ACTIVATION_ARGUMENT);
+    let asked: Vec<Asked> = arguments.filter_map(asked).collect();
+    claim_in(&profile, &asked, opened, ANSWER)
+}
+
+#[cfg(any(target_os = "linux", windows))]
+fn asked(argument: OsString) -> Option<Asked> {
+    if let Some(text) = argument.to_str() {
+        if SessionLink::parse(text).is_some() {
+            return Some(Asked::Link(text.to_owned()));
+        }
+        if let Ok(url) = reqwest::Url::parse(text)
+            && url.scheme() == "file"
+        {
+            return url.to_file_path().ok().map(Asked::Folder);
+        }
+    }
+    std::path::absolute(argument).ok().map(Asked::Folder)
 }
 
 fn claim_in(
     profile: &Path,
-    asked: &[PathBuf],
-    folders: &Folders,
+    asked: &[Asked],
+    opened: &Opened,
     patience: Duration,
 ) -> io::Result<Option<Instance>> {
-    DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(profile)?;
+    muxy_core::files::private_dir(profile)?;
     let socket = profile.join("instance.sock");
     match muxy_core::file_lock::try_lock(&profile.join("app.lock")) {
         Ok(lock) => {
-            // Only a crashed app leaves its socket behind while the lock is free.
             match std::fs::remove_file(&socket) {
                 Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
                 _ => {}
             }
-            let listener = UnixListener::bind(&socket)?;
+            let listener = LocalListener::bind(&socket)?;
+            #[cfg(unix)]
             std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))?;
             if !asked.is_empty() {
-                let _ = folders.try_send(urls(asked));
+                let _ = opened.try_send(urls(asked));
             }
-            let folders = folders.clone();
+            let opened = opened.clone();
             std::thread::Builder::new()
                 .name("app-instance".into())
-                .spawn(move || listen(&listener, &folders))?;
+                .spawn(move || listen(&listener, &opened))?;
             Ok(Some(Instance { _lock: lock }))
         }
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -79,20 +90,21 @@ fn claim_in(
     }
 }
 
-/// Sends the folders to the app that has the profile. It may still be
-/// starting, so its socket is tried until `patience` runs out.
-fn hand_over(socket: &Path, asked: &[PathBuf], patience: Duration) -> io::Result<()> {
+fn hand_over(socket: &Path, asked: &[Asked], patience: Duration) -> io::Result<()> {
     let deadline = Instant::now() + patience;
     let mut stream = loop {
-        match UnixStream::connect(socket) {
+        match LocalStream::connect(socket) {
             Ok(stream) => break stream,
             Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
             Err(error) => return Err(unanswered(&error)),
         }
     };
     let mut message = Vec::new();
-    for folder in asked {
-        message.extend_from_slice(folder.as_os_str().as_bytes());
+    for entry in asked.iter().filter_map(|asked| match asked {
+        Asked::Folder(folder) => ServerPath::from_path(folder).ok().map(|folder| folder.0),
+        Asked::Link(link) => Some(link.clone().into_bytes()),
+    }) {
+        message.extend_from_slice(&entry);
         message.push(0);
     }
     let mut done = [0];
@@ -120,17 +132,16 @@ fn unanswered(error: &dyn std::fmt::Display) -> io::Error {
     )
 }
 
-fn listen(listener: &UnixListener, folders: &Folders) {
+fn listen(listener: &LocalListener, opened: &Opened) {
     for stream in listener.incoming() {
         match stream {
-            // A launch that stalls must not keep later ones waiting for long.
-            Ok(stream) => drop(receive(stream, folders)),
+            Ok(stream) => drop(receive(stream, opened)),
             Err(_) => std::thread::sleep(Duration::from_millis(100)),
         }
     }
 }
 
-fn receive(mut stream: UnixStream, folders: &Folders) -> io::Result<()> {
+fn receive(mut stream: LocalStream, opened: &Opened) -> io::Result<()> {
     stream.set_read_timeout(Some(ANSWER))?;
     stream.set_write_timeout(Some(ANSWER))?;
     let mut message = Vec::new();
@@ -141,28 +152,88 @@ fn receive(mut stream: UnixStream, folders: &Folders) -> io::Result<()> {
             "launch message is too long",
         ));
     }
-    let asked: Vec<PathBuf> = message
+    let asked: Vec<Asked> = message
         .split(|byte| *byte == 0)
-        .filter(|path| !path.is_empty())
-        .map(|path| PathBuf::from(OsStr::from_bytes(path)))
+        .filter(|entry| !entry.is_empty())
+        .filter_map(|entry| match std::str::from_utf8(entry) {
+            Ok(text) if SessionLink::parse(text).is_some() => Some(Asked::Link(text.to_owned())),
+            _ => ServerPath(entry.to_vec())
+                .to_path_buf()
+                .ok()
+                .map(Asked::Folder),
+        })
         .collect();
     let closing = |_| io::Error::other("the app is closing");
-    let opened = urls(&asked);
-    if !opened.is_empty() {
-        folders.try_send(opened).map_err(closing)?;
-    }
-    // The desktop does not bring this app forward for a launch that another
-    // one answered, so the launch asks for the window itself.
-    folders.try_send(Vec::new()).map_err(closing)?;
+    opened.try_send(urls(&asked)).map_err(closing)?;
     stream.write_all(&[DONE])
 }
 
-/// Paths as the file URLs the app opens. A URL keeps every byte of a path,
-/// and only an absolute path has one.
-fn urls(paths: &[PathBuf]) -> Vec<String> {
-    paths
+fn urls(asked: &[Asked]) -> Vec<String> {
+    asked
         .iter()
-        .filter_map(|path| reqwest::Url::from_file_path(path).ok())
-        .map(String::from)
+        .filter_map(|asked| match asked {
+            Asked::Folder(path) => reqwest::Url::from_file_path(path).ok().map(String::from),
+            Asked::Link(link) => Some(link.clone()),
+        })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn link(session: u64) -> String {
+        SessionLink {
+            session: muxy_protocol::SessionId::new(session).expect("session"),
+            server: None,
+            split: None,
+        }
+        .to_link()
+    }
+
+    #[test]
+    fn launch_arguments_open_links_file_urls_and_folders() {
+        let folder = crate::test_support::directory();
+        let url = reqwest::Url::from_directory_path(&folder).expect("file URL");
+        assert_eq!(asked(link(7).into()), Some(Asked::Link(link(7))));
+        assert_eq!(
+            asked(url.to_string().into()),
+            Some(Asked::Folder(folder.clone()))
+        );
+        assert_eq!(
+            asked(folder.clone().into_os_string()),
+            Some(Asked::Folder(folder))
+        );
+        assert!(matches!(
+            asked("muxy-other://session/7".into()),
+            Some(Asked::Folder(_))
+        ));
+    }
+
+    #[test]
+    fn a_second_launch_hands_its_links_and_folders_to_the_running_app() {
+        let profile = crate::test_support::directory();
+        let folder = crate::test_support::directory();
+        let (opened, urls) = async_channel::unbounded();
+        let _running = claim_in(&profile, &[], &opened, ANSWER)
+            .expect("first launch")
+            .expect("first launch keeps running");
+        let (unused, _) = async_channel::unbounded();
+        let asked = [Asked::Link(link(7)), Asked::Folder(folder.clone())];
+        assert!(
+            claim_in(&profile, &asked, &unused, ANSWER)
+                .expect("hand over")
+                .is_none()
+        );
+        assert_eq!(
+            urls.recv_blocking().expect("opened"),
+            [
+                link(7),
+                reqwest::Url::from_file_path(&folder)
+                    .expect("file URL")
+                    .to_string()
+            ]
+        );
+        assert!(urls.try_recv().is_err());
+    }
 }

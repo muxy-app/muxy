@@ -1,6 +1,3 @@
-//! Runtime changes to topbar and status-bar items (`topbar.set`,
-//! `statusbar.set`) and runtime shortcuts (`shortcuts.*`).
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,7 +11,6 @@ use serde_json::{Value, json};
 
 use super::{AppModel, Call};
 
-/// A session-only change to one item; unset fields keep the manifest value.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Override {
     pub icon: Option<Icon>,
@@ -25,9 +21,9 @@ pub(crate) struct Override {
 #[derive(Default)]
 pub(crate) struct Items {
     pub(crate) topbar: HashMap<(String, String), Override>,
+    pub(crate) rail: HashMap<(String, String), Override>,
     pub(crate) status: HashMap<(String, String), Override>,
     anchors: RefCell<HashMap<String, PopoverAnchor>>,
-    /// Template SVGs read from extension folders, keyed by resolved path.
     pub(crate) icons: HashMap<PathBuf, Arc<[u8]>>,
 }
 
@@ -35,10 +31,10 @@ impl Items {
     pub(super) fn clear(&mut self, owner: Option<&str>) {
         let keep = |key: &(String, String)| owner.is_some_and(|owner| key.0 != owner);
         self.topbar.retain(|key, _| keep(key));
+        self.rail.retain(|key, _| keep(key));
         self.status.retain(|key, _| keep(key));
     }
 
-    /// The popover anchor an item records its bounds into while it renders.
     pub(crate) fn anchor(&self, key: &str) -> PopoverAnchor {
         self.anchors
             .borrow_mut()
@@ -61,8 +57,6 @@ const MODIFIERS: [(&str, &str); 4] = [
     ("opt", "alt"),
 ];
 
-/// Parses main's combo grammar (`cmd+shift+e`, `opt+left`, …) into a chord and
-/// main's canonical token string. Needs at least one of cmd, ctrl, or opt.
 pub(super) fn parse_combo(combo: &str) -> Option<(KeyChord, String)> {
     let tokens: Vec<String> = combo
         .to_lowercase()
@@ -112,7 +106,6 @@ pub(super) fn parse_combo(combo: &str) -> Option<(KeyChord, String)> {
     Some((chord, token))
 }
 
-/// main's token string for a chord: `cmd`, `shift`, `ctrl`, `opt`, then the key.
 fn chord_token(chord: &KeyChord) -> String {
     let mut rest = chord.as_str();
     let mut used = [false; 4];
@@ -147,7 +140,6 @@ fn title(id: &str) -> String {
 }
 
 impl AppModel {
-    /// Runtime shortcut IDs make `command.<id>` subscribable while registered.
     pub(super) fn runtime_command_event(&self, owner: &str, event: &str) -> bool {
         event.strip_prefix("command.").is_some_and(|id| {
             self.extensions
@@ -275,7 +267,6 @@ impl AppModel {
         }
     }
 
-    /// `topbar.set` / `statusbar.set`: session-only icon, text, and visibility.
     pub(super) fn set_item(
         &mut self,
         call: &Call,
@@ -283,36 +274,46 @@ impl AppModel {
     ) -> Result<Value, String> {
         let status = call.verb == "statusbar.set";
         let id = call.args["id"].as_str().ok_or("missing argument 'id'")?;
-        let declared = self
-            .extensions
-            .registry
-            .enabled(&call.owner)
-            .is_some_and(|extension| {
-                if status {
+        let extension = self.extensions.registry.enabled(&call.owner);
+        let (declared, kind) = match call.verb.as_str() {
+            "statusbar.set" => (
+                extension.is_some_and(|extension| {
                     extension
                         .manifest
                         .status_bar_items
                         .iter()
                         .any(|item| item.id == id)
-                } else {
+                }),
+                "status bar",
+            ),
+            "rail.set" => (
+                extension.is_some_and(|extension| {
+                    extension
+                        .manifest
+                        .rail_items
+                        .iter()
+                        .any(|item| item.id == id)
+                }),
+                "rail",
+            ),
+            _ => (
+                extension.is_some_and(|extension| {
                     extension
                         .manifest
                         .topbar_items
                         .iter()
                         .any(|item| item.id == id)
-                }
-            });
+                }),
+                "topbar",
+            ),
+        };
         if !declared {
-            return Err(if status {
-                format!("unknown status bar item '{id}'")
-            } else {
-                format!("unknown topbar item '{id}'")
-            });
+            return Err(format!("unknown {kind} item '{id}'"));
         }
-        let items = if status {
-            &mut self.extensions.items.status
-        } else {
-            &mut self.extensions.items.topbar
+        let items = match call.verb.as_str() {
+            "statusbar.set" => &mut self.extensions.items.status,
+            "rail.set" => &mut self.extensions.items.rail,
+            _ => &mut self.extensions.items.topbar,
         };
         let entry = items.entry((call.owner.clone(), id.into())).or_default();
         if let Some(icon) = Icon::parse(&call.args["icon"]) {

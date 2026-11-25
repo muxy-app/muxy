@@ -1,6 +1,3 @@
-//! Tab groups show several of a project's tabs side by side, each group with
-//! its own selected tab. A project without groups shows one tab at a time.
-
 use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
@@ -9,8 +6,6 @@ use crate::{
     AppError, AppState, Branch, Direction, GroupId, Layout, Project, ProjectId, Tab, TabId,
 };
 
-/// Always two or more groups. Every tab of the project is in exactly one, in
-/// the project's tab order.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TabGroups {
     layout: Layout<GroupId>,
@@ -71,7 +66,6 @@ impl TabGroups {
         self.groups.iter_mut().find(|group| group.id == id)
     }
 
-    /// Adds `tab` to the group holding `near`, or to the first group.
     pub(crate) fn insert(&mut self, tab: TabId, near: Option<TabId>) {
         let index = near
             .and_then(|near| {
@@ -85,8 +79,6 @@ impl TabGroups {
         }
     }
 
-    /// Takes `tab` out of its group. The group then selects the tab after it,
-    /// or the one before, and disappears once empty.
     pub(crate) fn remove(&mut self, tab: TabId) {
         let Some(index) = self
             .groups
@@ -109,7 +101,6 @@ impl TabGroups {
         }
     }
 
-    /// The group beside `id`, preferring the right, then left, below, above.
     fn neighbor(&self, id: GroupId) -> Option<&TabGroup> {
         self.layout
             .nearest(id)
@@ -124,6 +115,58 @@ impl TabGroups {
             }
             group.selected = tabs.get(&group.selected).copied().unwrap_or(group.selected);
         }
+    }
+
+    fn reconcile(&mut self, order: &[TabId], focused: Option<TabId>) -> Result<(), AppError> {
+        let leaves: HashSet<_> = self.layout.leaves().into_iter().collect();
+        let mut seen = HashSet::new();
+        let mut orphans = Vec::new();
+        for group in &mut self.groups {
+            group
+                .tabs
+                .retain(|tab| order.contains(tab) && seen.insert(*tab));
+            if !leaves.contains(&group.id) {
+                orphans.append(&mut group.tabs);
+            }
+        }
+        let known: HashSet<_> = self.groups.iter().map(|group| group.id).collect();
+        for leaf in leaves.iter().filter(|leaf| !known.contains(leaf)) {
+            self.layout.remove(*leaf);
+        }
+        orphans.extend(order.iter().filter(|tab| !seen.contains(*tab)));
+        let target = focused
+            .and_then(|tab| self.group_of(tab).map(|group| group.id))
+            .filter(|id| leaves.contains(id))
+            .or_else(|| self.layout.leaves().first().copied());
+        if let Some(group) = target.and_then(|id| self.group_mut(id)) {
+            group.tabs.append(&mut orphans);
+        }
+        let empty: Vec<_> = self
+            .groups
+            .iter()
+            .filter(|group| group.tabs.is_empty() || !leaves.contains(&group.id))
+            .map(|group| group.id)
+            .collect();
+        for id in empty {
+            self.groups.retain(|group| group.id != id);
+            self.layout.remove(id);
+        }
+        for group in &mut self.groups {
+            group
+                .tabs
+                .sort_by_key(|tab| order.iter().position(|id| id == tab));
+            if !group.tabs.contains(&group.selected)
+                && let Some(first) = group.tabs.first()
+            {
+                group.selected = *first;
+            }
+            if let Some(focused) = focused
+                && group.tabs.contains(&focused)
+            {
+                group.selected = focused;
+            }
+        }
+        self.validate(order, focused)
     }
 
     pub(crate) fn validate(&self, order: &[TabId], focused: Option<TabId>) -> Result<(), AppError> {
@@ -168,7 +211,6 @@ impl TabGroups {
     }
 }
 
-/// The tab after `tab` in `tabs`, or the one before.
 fn neighbor_in(tabs: &[TabId], tab: TabId) -> Option<TabId> {
     let index = tabs.iter().position(|candidate| *candidate == tab)?;
     tabs.get(index + 1)
@@ -181,7 +223,6 @@ impl Project {
         self.groups.as_ref()
     }
 
-    /// The tabs in `tab`'s group, in order: every tab when there are no groups.
     pub fn group_tabs(&self, tab: TabId) -> Vec<TabId> {
         match self.groups.as_ref().and_then(|groups| groups.group_of(tab)) {
             Some(group) => group.tabs.clone(),
@@ -189,8 +230,6 @@ impl Project {
         }
     }
 
-    /// The tab shown once `tab` closes: its neighbor in the group, or the
-    /// selected tab of the neighboring group when `tab` is the last.
     pub(crate) fn tab_after_close(&self, tab: TabId) -> Option<TabId> {
         let tabs = self.group_tabs(tab);
         neighbor_in(&tabs, tab).or_else(|| {
@@ -201,71 +240,18 @@ impl Project {
         })
     }
 
-    /// Repairs groups after tabs were added, removed, reordered, or selected:
-    /// tabs follow the project's order, unknown tabs go to `focused`'s group,
-    /// empty groups disappear, and `focused` is its group's selected tab.
     pub(crate) fn sync_groups(&mut self, focused: Option<TabId>) {
         let order: Vec<_> = self.listed_tabs().map(|tab| tab.id).collect();
         let Some(groups) = &mut self.groups else {
             return;
         };
-        let leaves: HashSet<_> = groups.layout.leaves().into_iter().collect();
-        let mut seen = HashSet::new();
-        let mut orphans = Vec::new();
-        for group in &mut groups.groups {
-            group
-                .tabs
-                .retain(|tab| order.contains(tab) && seen.insert(*tab));
-            if !leaves.contains(&group.id) {
-                orphans.append(&mut group.tabs);
-            }
-        }
-        let known: HashSet<_> = groups.groups.iter().map(|group| group.id).collect();
-        for leaf in leaves.iter().filter(|leaf| !known.contains(leaf)) {
-            groups.layout.remove(*leaf);
-        }
-        orphans.extend(order.iter().filter(|tab| !seen.contains(*tab)));
-        let target = focused
-            .and_then(|tab| groups.group_of(tab).map(|group| group.id))
-            .filter(|id| leaves.contains(id))
-            .or_else(|| groups.layout.leaves().first().copied());
-        if let Some(group) = target.and_then(|id| groups.group_mut(id)) {
-            group.tabs.append(&mut orphans);
-        }
-        let empty: Vec<_> = groups
-            .groups
-            .iter()
-            .filter(|group| group.tabs.is_empty() || !leaves.contains(&group.id))
-            .map(|group| group.id)
-            .collect();
-        for id in empty {
-            groups.groups.retain(|group| group.id != id);
-            groups.layout.remove(id);
-        }
-        for group in &mut groups.groups {
-            group
-                .tabs
-                .sort_by_key(|tab| order.iter().position(|id| id == tab));
-            if !group.tabs.contains(&group.selected)
-                && let Some(first) = group.tabs.first()
-            {
-                group.selected = *first;
-            }
-            if let Some(focused) = focused
-                && group.tabs.contains(&focused)
-            {
-                group.selected = focused;
-            }
-        }
-        if groups.validate(&order, focused).is_err() {
+        if groups.reconcile(&order, focused).is_err() {
             self.groups = None;
         }
     }
 }
 
 impl AppState {
-    /// The tab each group shows, in layout order: just the selected tab when
-    /// there are no groups.
     pub fn visible_tabs(&self, project: ProjectId) -> Vec<TabId> {
         let Some(project) = self.project(project) else {
             return Vec::new();
@@ -287,8 +273,6 @@ impl AppState {
         }
     }
 
-    /// Moves `tab` into a new group on the `edge` side of the group showing
-    /// `beside`, and focuses it.
     pub fn split_tab(
         &mut self,
         tab: TabId,
@@ -323,8 +307,6 @@ impl AppState {
         self.select_tab(project, tab)
     }
 
-    /// Moves `tab` into the group showing `into`, before `before` or after the
-    /// group's last tab, and focuses it.
     pub fn move_tab_to_group(
         &mut self,
         tab: TabId,
@@ -385,7 +367,6 @@ impl AppState {
         }
     }
 
-    /// Pushes `tab` into `project`, in `near`'s group.
     pub(crate) fn add_tab(
         &mut self,
         project: ProjectId,

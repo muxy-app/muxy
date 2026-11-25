@@ -24,8 +24,6 @@ pub(crate) enum AgentStatus {
 impl AgentStatus {
     pub(crate) const ALL: [Self; 4] = [Self::Blocked, Self::Working, Self::Completed, Self::Idle];
 
-    /// How early a row sorts. Completed and idle agents rank together, so
-    /// opening a finished agent, which reads its finish, doesn't move it.
     pub(crate) fn urgency(self) -> u8 {
         match self {
             Self::Blocked => 0,
@@ -80,9 +78,6 @@ impl Entry {
     }
 }
 
-/// Whether the agent at `index` is the first listed for its project, so a
-/// project heading goes above it when the panel shows headings. Project rows
-/// have no headings.
 pub(crate) fn starts_project_group(entries: &[Entry], index: usize) -> bool {
     let Entry::Agent(agent) = &entries[index] else {
         return false;
@@ -140,7 +135,6 @@ impl AgentsPanel {
 }
 
 impl AppModel {
-    /// The agents in the projects the sidebar lists, on every server.
     pub(crate) fn running_agents(&self) -> Vec<RunningAgent> {
         type Index<'a> = (
             std::collections::HashMap<SessionId, &'a muxy_protocol::AgentActivity>,
@@ -230,8 +224,6 @@ impl AppModel {
         self.agents_panel_entries_from(self.running_agents())
     }
 
-    /// Agents grouped by project in sidebar order, most urgent first within a
-    /// project; or one row per project running agents.
     pub(crate) fn agents_panel_entries_from(&self, mut agents: Vec<RunningAgent>) -> Vec<Entry> {
         let order = self.agents_project_order();
         let rank = |project: &ProjectId| order.get(project).copied().unwrap_or(usize::MAX);
@@ -260,7 +252,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Each project's position in the sidebar, with worktrees after their project.
     fn agents_project_order(&self) -> std::collections::HashMap<ProjectId, usize> {
         let mut parents: Vec<_> = self
             .state
@@ -282,7 +273,7 @@ impl AppModel {
             Placement::Floating
         } else if self.appearance.agents_panel_dock == AgentsPanelDock::Right {
             Placement::Right
-        } else if self.appearance.sidebar_expanded && !self.extension_sidebar_active() {
+        } else if self.sidebar_docks_expanded() && !self.extension_sidebar_active() {
             Placement::Docked
         } else {
             Placement::Popup
@@ -560,7 +551,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Whether the panel puts a heading naming each project above its agents.
     pub(crate) fn agents_panel_headings(&self) -> bool {
         self.appearance.agents_panel_grouped
             && self.appearance.agents_panel_grouping == AgentsPanelGrouping::Agents

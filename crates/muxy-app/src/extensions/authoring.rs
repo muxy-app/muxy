@@ -1,6 +1,3 @@
-//! What an agent needs to work on an extension: the command that starts it,
-//! whether it can reach `muxy`, and the copy a marketplace extension clones to.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -13,7 +10,6 @@ use crate::ai::{InitialPrompt, Provider};
 
 pub(crate) const STORE_REPOSITORY: &str = "muxy-app/extensions";
 
-/// The developer tools that cloning and publishing run, replaceable in tests.
 pub(crate) trait Tools {
     fn installed(&self, program: &str) -> bool;
     fn run(
@@ -22,7 +18,6 @@ pub(crate) trait Tools {
         arguments: &[&str],
         directory: Option<&Path>,
     ) -> Result<String, String>;
-    /// Gives GitHub a moment before the next attempt.
     fn wait(&self) {}
 }
 
@@ -47,30 +42,15 @@ impl Tools for LocalTools {
     }
 }
 
-/// What the user wants an agent to do.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum AgentTask {
     Create,
-    Edit {
-        name: String,
-        folder: PathBuf,
-    },
-    Clone {
-        name: String,
-        /// The installed copy, for when the source can't be downloaded.
-        installed: PathBuf,
-    },
-    Publish {
-        name: String,
-        folder: PathBuf,
-    },
-    /// Change the app's settings, working in its profile folder.
-    Settings {
-        profile: PathBuf,
-    },
+    Edit { name: String, folder: PathBuf },
+    Clone { name: String, installed: PathBuf },
+    Publish { name: String, folder: PathBuf },
+    Settings { profile: PathBuf },
 }
 
-/// Where the agent starts, and what it is told first.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct AgentStart {
     pub(crate) directory: PathBuf,
@@ -79,9 +59,6 @@ pub(crate) struct AgentStart {
 }
 
 impl AgentTask {
-    /// A folder inside the workspace starts at its root, where the agent finds
-    /// the skill by itself. One elsewhere starts where the work is, and the
-    /// prompt names the skill so that nothing has to be added to that folder.
     pub(crate) fn start(&self, root: &Path) -> AgentStart {
         let skill = workspace::skill_file(root);
         let skill = skill.display();
@@ -146,8 +123,6 @@ impl AgentTask {
         }
     }
 
-    /// Readies the folder the agent starts in: its skill, and for a clone the
-    /// copy it works on.
     pub(crate) fn prepare(&self, root: &Path) -> Result<(), String> {
         if let Self::Settings { profile } = self {
             return muxy_app_core::settings::agent::prepare(profile)
@@ -165,10 +140,7 @@ pub(crate) fn clone_name(name: &str) -> String {
     format!("{name}-custom")
 }
 
-/// A word the shell reads literally, in every shell Muxy starts. Backslashes go
-/// outside the quotes too, because fish reads one inside them as an escape.
-/// Control characters can't be quoted, since the line editor acts on them first:
-/// see [`typed_safely`].
+#[cfg(not(windows))]
 pub(crate) fn shell_quote(text: &str) -> String {
     let plain = !text.is_empty()
         && text
@@ -182,6 +154,11 @@ pub(crate) fn shell_quote(text: &str) -> String {
         match character {
             '\'' => quoted.push_str(r"'\''"),
             '\\' => quoted.push_str(r"'\\'"),
+            '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}' => {
+                quoted.push_str("'\"");
+                quoted.push(character);
+                quoted.push_str("\"'");
+            }
             character => quoted.push(character),
         }
     }
@@ -189,9 +166,19 @@ pub(crate) fn shell_quote(text: &str) -> String {
     quoted
 }
 
-/// A line is typed into the shell, so a control character in it, such as from a
-/// folder's name, would act on the line instead of being part of it. A
-/// replacement character means a path wasn't text, so it would name another file.
+#[cfg(not(windows))]
+pub(crate) fn reads_launch_line(shell: &Path) -> bool {
+    let name = shell
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .trim_start_matches('-');
+    matches!(
+        name,
+        "sh" | "bash" | "zsh" | "dash" | "ash" | "ksh" | "ksh93" | "mksh" | "fish"
+    )
+}
+
 pub(crate) fn typed_safely(line: &str) -> Result<(), String> {
     if line.contains(|character: char| character.is_control() || character == '\u{fffd}') {
         return Err(tr!(
@@ -202,9 +189,30 @@ pub(crate) fn typed_safely(line: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The line typed into a new terminal to start `provider`. `muxy_directory`
-/// comes first on its `PATH` when the shell would otherwise find no `muxy`, or
-/// the one of another Muxy build.
+#[cfg(windows)]
+pub(crate) fn shell_quote(text: &str) -> String {
+    let plain = text.starts_with(|character: char| character.is_ascii_alphanumeric())
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_./:\\".contains(&byte));
+    if plain {
+        return text.to_owned();
+    }
+    let mut quoted = String::from("'");
+    for character in text.chars() {
+        if matches!(
+            character,
+            '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}'
+        ) {
+            quoted.push(character);
+        }
+        quoted.push(character);
+    }
+    quoted.push('\'');
+    quoted
+}
+
+#[cfg(not(windows))]
 pub(crate) fn launch_line(
     provider: Provider,
     executable: &Path,
@@ -246,20 +254,58 @@ pub(crate) fn launch_line(
     )
 }
 
-/// Whether an agent will be able to run `muxy` once the terminal opens.
+#[cfg(windows)]
+pub(crate) fn launch_line(
+    provider: Provider,
+    executable: &Path,
+    prompt: &str,
+    muxy_directory: Option<&Path>,
+    profile: Option<&Path>,
+) -> String {
+    let (arguments, initial) = provider.interactive();
+    let mut words = vec!["&".to_owned(), shell_quote(&executable.to_string_lossy())];
+    words.extend(arguments.iter().map(|word| shell_quote(word)));
+    let hint = match initial {
+        InitialPrompt::Argument => {
+            words.push(shell_quote(prompt));
+            None
+        }
+        InitialPrompt::Flag(flag) => {
+            words.push(flag.to_owned());
+            words.push(shell_quote(prompt));
+            None
+        }
+        InitialPrompt::Typed => Some(format!(
+            "Write-Output {}; ",
+            shell_quote(&tr!("Paste this into the agent: %@", prompt))
+        )),
+    };
+    let path = muxy_directory.map_or_else(String::new, |directory| {
+        format!(
+            "$env:Path = {} + ';' + $env:Path; ",
+            shell_quote(&directory.to_string_lossy())
+        )
+    });
+    let profile = profile.map_or_else(String::new, |profile| {
+        format!(
+            "$env:MUXY_DIR = {}; ",
+            shell_quote(&profile.to_string_lossy())
+        )
+    });
+    format!(
+        "{}{profile}{path}{}",
+        hint.unwrap_or_default(),
+        words.join(" ")
+    )
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum CliPlan {
-    /// It can, with this folder first on `PATH` if that is needed.
     Ready(Option<PathBuf>),
-    /// Nothing is installed, so the user is asked first.
     AskToInstall,
-    /// This copy of the app can't install it, for this reason.
     Unavailable(String),
 }
 
-/// `tool` is this build's `muxy`, `installed` any `muxy` on this computer,
-/// `in_shell` the one the user's shell runs, and `unbundled` the one beside a
-/// development build, which is never installed.
 pub(crate) fn plan_cli(
     tool: Result<PathBuf, String>,
     installed: Option<&Path>,
@@ -290,18 +336,13 @@ fn canonical(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_owned())
 }
 
-/// How a marketplace extension became the user's own copy.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum ClonedFrom {
-    /// The copy from an earlier clone, with the user's changes.
     EarlierClone,
     Source,
-    /// Only the installed build output could be copied.
     InstalledBuild,
 }
 
-/// Gives the user their own copy of a marketplace extension in the workspace.
-/// Cloning again returns to the same copy rather than replacing their work.
 pub(crate) fn clone_extension(
     tools: &dyn Tools,
     root: &Path,
@@ -375,8 +416,6 @@ fn clone_source(
     Ok(())
 }
 
-/// Copies a folder's files, leaving out `.git` and links, which could reach
-/// outside it.
 pub(crate) fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
@@ -395,8 +434,6 @@ pub(crate) fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Changes the package's name, keeping the file's layout where possible so the
-/// copy still diffs cleanly against the original.
 fn rename_package(file: &Path, name: &str) -> Result<(), String> {
     let text = fs::read_to_string(file).map_err(|error| error.to_string())?;
     let mut value: Value = serde_json::from_str(&text).map_err(|error| error.to_string())?;
@@ -412,8 +449,6 @@ fn rename_package(file: &Path, name: &str) -> Result<(), String> {
     fs::write(file, renamed).map_err(|error| error.to_string())
 }
 
-/// The text with the top-level name replaced. Other objects can have a `name`
-/// too, so each is tried until only the package's own name has changed.
 fn renamed_in_place(text: &str, value: &Value, name: &str) -> Option<String> {
     let current = serde_json::to_string(value.get("name")?).ok()?;
     let replacement = serde_json::to_string(name).ok()?;
@@ -451,7 +486,6 @@ mod tests {
         }
     }
 
-    /// A Git that "clones" by writing the store's layout where it was told to.
     struct FakeGit {
         calls: RefCell<Vec<String>>,
     }
@@ -492,6 +526,7 @@ mod tests {
         crate::ai::provider(id).unwrap_or_else(|| panic!("no provider {id}"))
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn every_provider_starts_interactively_with_or_without_its_prompt() {
         let executable = Path::new("/bin/agent");
@@ -519,6 +554,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn a_needed_muxy_folder_goes_first_on_path() {
         assert_eq!(
@@ -533,6 +569,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn a_settings_agent_works_on_the_apps_own_profile() {
         assert_eq!(
@@ -547,6 +584,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn prompts_and_paths_stay_one_shell_word() {
         assert_eq!(shell_quote("it's $HOME; rm"), r"'it'\''s $HOME; rm'");
@@ -554,14 +592,21 @@ mod tests {
         assert_eq!(shell_quote("/usr/bin/gh"), "/usr/bin/gh");
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn a_backslash_stays_outside_the_quotes_and_they_reopen_after_it() {
         assert_eq!(shell_quote(r"a\b"), r"'a'\\'b'");
         assert_eq!(shell_quote(r"a\"), r"'a'\\''");
     }
 
-    /// A quoted word has to come back from a real shell as the same text, with
-    /// nothing in it run.
+    #[cfg(not(windows))]
+    #[test]
+    fn curly_single_quotes_go_inside_double_quotes() {
+        assert_eq!(shell_quote("it\u{2019}s; rm"), "'it'\"\u{2019}\"'s; rm'");
+        assert_eq!(shell_quote("\u{2018}"), "''\"\u{2018}\"''");
+    }
+
+    #[cfg(not(windows))]
     #[test]
     fn quoted_text_reaches_real_shells_unchanged_and_runs_nothing() -> io::Result<()> {
         let folder = tempfile::tempdir()?;
@@ -572,11 +617,20 @@ mod tests {
             format!(r"x\';touch {marker};#"),
             format!("it's; touch {marker} $(touch {marker}) `touch {marker}`"),
             format!(r"\\'\';touch {marker}"),
+            format!("it\u{2019}s; touch {marker}; \u{2018}x\u{201b}"),
             r"trailing\".to_owned(),
             "plain".to_owned(),
             String::new(),
         ];
-        for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
+        let fish = [
+            "/usr/bin/fish",
+            "/usr/local/bin/fish",
+            "/opt/homebrew/bin/fish",
+        ];
+        for shell in ["/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash"]
+            .into_iter()
+            .chain(fish)
+        {
             if !Path::new(shell).exists() {
                 continue;
             }
@@ -591,6 +645,83 @@ mod tests {
                     "{shell} ran part of {text:?}"
                 );
             }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn launch_lines_are_typed_only_into_shells_that_read_them() {
+        for shell in [
+            "/bin/sh",
+            "/bin/bash",
+            "-zsh",
+            "/usr/bin/dash",
+            "/opt/homebrew/bin/fish",
+        ] {
+            assert!(reads_launch_line(Path::new(shell)), "{shell}");
+        }
+        for shell in [
+            "/usr/local/bin/pwsh",
+            "/usr/bin/nu",
+            "/bin/tcsh",
+            "/usr/bin/xonsh",
+            "",
+        ] {
+            assert!(!reads_launch_line(Path::new(shell)), "{shell}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn powershell_lines_start_the_agent_with_its_folder_and_profile() {
+        assert_eq!(
+            launch_line(
+                provider("codex"),
+                Path::new(r"C:\Program Files\nodejs\codex.cmd"),
+                "it's here",
+                Some(Path::new(r"C:\Program Files\Muxy")),
+                Some(Path::new(r"C:\Users\me\AppData\Roaming\Muxy 2")),
+            ),
+            r"$env:MUXY_DIR = 'C:\Users\me\AppData\Roaming\Muxy 2'; $env:Path = 'C:\Program Files\Muxy' + ';' + $env:Path; & 'C:\Program Files\nodejs\codex.cmd' 'it''s here'"
+        );
+        assert_eq!(
+            launch_line(
+                provider("kiro"),
+                Path::new(r"C:\bin\kiro.exe"),
+                "hi",
+                None,
+                None
+            ),
+            "Write-Output 'Paste this into the agent: hi'; & C:\\bin\\kiro.exe chat"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn quoted_text_reaches_powershell_unchanged_and_runs_nothing() -> io::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let marker = folder.path().join("ran");
+        let marker = marker.display();
+        let texts = [
+            format!("it's; New-Item '{marker}'; #"),
+            format!("$(New-Item '{marker}') `$x \u{2019}; New-Item '{marker}'"),
+            format!(r"C:\a\b; & New-Item {marker}"),
+            "@splat".to_owned(),
+            "-flag".to_owned(),
+            "plain".to_owned(),
+            String::new(),
+        ];
+        for text in &texts {
+            let output = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command"])
+                .arg(format!(
+                    "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); & {{ [Console]::Out.Write($args[0]) }} {}",
+                    shell_quote(text)
+                ))
+                .output()?;
+            assert_eq!(String::from_utf8_lossy(&output.stdout), *text);
+            assert!(!folder.path().join("ran").exists(), "ran part of {text:?}");
         }
         Ok(())
     }
@@ -652,6 +783,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn work_outside_the_workspace_stays_outside_it() {
         let root = Path::new("/config/muxy/extension-workspace");
@@ -772,6 +904,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(unix)]
     #[test]
     fn copying_skips_links_and_git() -> io::Result<()> {
         let folder = tempfile::tempdir()?;

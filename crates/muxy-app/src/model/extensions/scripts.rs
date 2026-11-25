@@ -16,7 +16,6 @@ pub(super) struct Running {
     pub script: Script,
 }
 
-/// The native picker an extension opened; one at a time app-wide.
 pub(super) struct Picker {
     pub owner: String,
     id: String,
@@ -27,7 +26,6 @@ pub(super) struct Picker {
     waiter: Option<Reply>,
 }
 
-/// Wraps script source in the runtime that provides `muxy`, `console`, and timers.
 pub(super) fn runtime(owner: &str, surface: &str, source: &str) -> String {
     format!(
         "{}({}, {}, {});\n{}",
@@ -189,8 +187,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Runs prepared source on its own `JavaScriptCore` thread. `project` fixes
-    /// the default project for its calls; background scripts use the current one.
     pub(super) fn start_loaded_extension_script(
         &mut self,
         owner: String,
@@ -228,9 +224,6 @@ impl AppModel {
         Ok(id)
     }
 
-    /// Handles one script event. A call belongs to the current epoch and
-    /// connection, so a background script keeps working after a reconnect;
-    /// removing a script from `scripts` is what stops its calls.
     fn script_event(
         &mut self,
         id: u64,

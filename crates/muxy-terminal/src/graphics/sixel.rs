@@ -1,15 +1,7 @@
-//! Decodes a Sixel image into RGBA pixels.
-//!
-//! Pixels use a 1:1 aspect ratio, as modern encoders expect. The palette
-//! starts from the VT340 colors for every image.
-
 use super::{MAX_DECODE_BYTES, MAX_SIDE, Picture};
 
 const REGISTERS: usize = 1024;
-/// Pixel writes allowed per image: twice the most pixels an image may have,
-/// so data that paints the same pixels over and over can't stall the terminal.
 const MAX_PAINTED: u64 = MAX_DECODE_BYTES / 2;
-/// VT340 default colors, in percent.
 const VT340: [[u8; 3]; 16] = [
     [0, 0, 0],
     [20, 20, 80],
@@ -29,11 +21,6 @@ const VT340: [[u8; 3]; 16] = [
     [80, 80, 80],
 ];
 
-/// Decodes the parameters and data between `ESC P` and `ST`.
-///
-/// Unset pixels are transparent when the second parameter is 1; otherwise
-/// they take `background`, as on a VT340. The picture keeps its full size,
-/// which may be over the image budget.
 pub(crate) fn decode(params: &[u8], data: &[u8], background: [u8; 3]) -> Option<Picture> {
     let transparent = params.split(|&b| b == b';').nth(1) == Some(b"1");
     let extent = walk(data, Extent::new(!transparent, true), |_, _, _| {})?;
@@ -69,14 +56,11 @@ pub(crate) fn decode(params: &[u8], data: &[u8], background: [u8; 3]) -> Option<
 
 #[derive(Debug, Default)]
 struct Extent {
-    /// Width and height from the raster attributes.
     raster: [u32; 2],
-    /// One past the rightmost column and lowest row drawn.
     right: u32,
     bottom: u32,
     painted: u64,
     opaque: bool,
-    /// Only measures the image, without drawing it.
     measuring: bool,
 }
 
@@ -89,13 +73,11 @@ impl Extent {
         }
     }
 
-    /// An opaque image without a declared size paints each sixel's whole band.
     fn fills_bands(&self) -> bool {
         self.opaque && self.raster == [0, 0]
     }
 }
 
-/// Runs the sixel commands, calling `draw` for every set pixel.
 fn walk(
     data: &[u8],
     mut extent: Extent,
@@ -196,7 +178,6 @@ fn paint(
     Some(())
 }
 
-/// Reads `;`-separated numbers starting at `i`, up to five; missing ones are 0.
 fn numbers(data: &[u8], mut i: usize) -> ([u32; 5], usize) {
     let mut values = [0_u32; 5];
     let mut index = 0;
@@ -222,7 +203,6 @@ fn percent(value: u32) -> u8 {
     (f64::from(value.min(100)) * 255.0 / 100.0).round() as u8
 }
 
-/// DEC hue puts blue at 0°, red at 120° and green at 240°.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn hls(hue: u32, lightness: u32, saturation: u32) -> [u8; 3] {
     let turn = f64::from((hue % 360 + 240) % 360) / 360.0;
@@ -271,7 +251,6 @@ mod tests {
 
     #[test]
     fn draws_colors_repeats_and_bands() -> Result<(), &'static str> {
-        // Red 2x6 block, then a new band with one green pixel at the top.
         let picture =
             decode(b"0;1;0", b"#1;2;100;0;0#1!2~-#2;2;0;100;0@", [0; 3]).ok_or("decode")?;
         assert_eq!((picture.width, picture.height), (2, 7));
@@ -288,7 +267,6 @@ mod tests {
         assert_eq!((picture.width, picture.height), (4, 3));
         assert_eq!(pixel(&picture, 0, 0), [0, 0, 255, 255]);
         assert_eq!(pixel(&picture, 0, 1), [255, 255, 255, 255]);
-        // Opaque background where nothing was drawn.
         assert_eq!(pixel(&picture, 3, 2), [9, 9, 9, 255]);
         Ok(())
     }

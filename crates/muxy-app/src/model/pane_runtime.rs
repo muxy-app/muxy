@@ -1,6 +1,3 @@
-//! What the app remembers about a pane while no view holds it. A pane with
-//! nothing to remember has no record, so hidden panes cost nothing extra.
-
 use muxy_app_core::{PaneId, ServerId};
 use muxy_client::RunGrid;
 
@@ -85,9 +82,6 @@ impl AppModel {
         self.pane_runtime.retain(|_, runtime| !runtime.is_default());
     }
 
-    /// Keeps a hidden pane's screen, and its scroll position if it showed
-    /// history. A view left less than a row above the bottom is dropped, as
-    /// the pane would have returned to the bottom had it stayed in view.
     pub(super) fn keep_hidden_screen(&mut self, pane: PaneId, grid: RunGrid, scroll: Scroll) {
         self.edit_pane_runtime(pane, |runtime| {
             runtime.snapshot = Some(grid);
@@ -110,8 +104,6 @@ impl AppModel {
         })
     }
 
-    /// A hidden pane attached again and brought a newer screen. New output
-    /// can end its saved scroll position.
     pub(super) fn refresh_hidden_screen(&mut self, pane: PaneId, grid: RunGrid) {
         let scroll_on_output = self.terminal.options.scroll_on_output;
         self.edit_pane_runtime(pane, |runtime| {
@@ -127,7 +119,6 @@ impl AppModel {
         });
     }
 
-    /// Forgets what is only true while connected to `server`.
     pub(super) fn forget_pane_loads(&mut self, server: ServerId) {
         for (pane, runtime) in &mut self.pane_runtime {
             if self.state.pane_server(*pane) == Some(server) {

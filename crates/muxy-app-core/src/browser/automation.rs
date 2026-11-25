@@ -1,14 +1,9 @@
-//! The page side of browser automation. Each verb becomes the body of an
-//! async JavaScript function that runs in the page; what it returns is the
-//! verb's result.
-
 use std::time::Duration;
 
 use serde_json::{Map, Value};
 
 pub type Args = Map<String, Value>;
 
-/// Whether some JavaScript parses as the body of an async function.
 pub type Parses = fn(&str) -> bool;
 
 pub const DEFAULT_WAIT: Duration = Duration::from_millis(5000);
@@ -43,7 +38,6 @@ pub fn flag(args: &Args, key: &str) -> bool {
     args.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
-/// The `timeoutMs` argument, within what a command may wait.
 pub fn timeout(args: &Args, default: Duration) -> Duration {
     args.get("timeoutMs")
         .and_then(Value::as_u64)
@@ -51,8 +45,6 @@ pub fn timeout(args: &Args, default: Duration) -> Duration {
         .min(MAX_WAIT)
 }
 
-/// The script for a verb that runs in the page, or `None` when the app
-/// handles `verb` itself.
 pub fn script(verb: &str, args: &Args, parses: Parses) -> Result<Option<String>, String> {
     let element = |body: &str| -> Result<String, String> {
         Ok(format!(
@@ -136,8 +128,6 @@ pub fn script(verb: &str, args: &Args, parses: Parses) -> Result<Option<String>,
     Ok(Some(body))
 }
 
-/// A check for `wait` and `waitFor` that returns whether the condition
-/// holds. Errors count as not yet.
 pub fn condition(verb: &str, args: &Args, parses: Parses) -> Result<String, String> {
     let check = match verb {
         "waitFor" => format!(
@@ -173,8 +163,6 @@ pub fn condition(verb: &str, args: &Args, parses: Parses) -> Result<String, Stri
     ))
 }
 
-/// A script given on the command line: a single expression whose value is
-/// the result, or a statement list that returns.
 fn function_body(script: &str, parses: Parses) -> String {
     let statements = script.trim();
     let expression = format!("return (\n{}\n);", statements.trim_end_matches(';'));
@@ -193,7 +181,6 @@ fn storage(args: &Args) -> Result<&'static str, String> {
     }
 }
 
-/// `value` as a JavaScript string literal.
 pub fn literal(value: &str) -> String {
     Value::from(value)
         .to_string()

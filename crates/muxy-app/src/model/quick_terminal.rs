@@ -33,7 +33,6 @@ pub(crate) struct QuickTerminalRuntime {
     accessibility: AccessibilityPreferences,
     presentation: PanelPresentation,
     transition: Option<Task<()>>,
-    /// The colors the local server holds for the Quick Terminal session.
     colors: Option<(SessionId, TerminalColors)>,
     _triggers: Task<()>,
     _system: Task<()>,
@@ -41,18 +40,13 @@ pub(crate) struct QuickTerminalRuntime {
     pub(crate) closing: Option<QuickClose>,
 }
 
-/// Where closing the Quick Terminal stands.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum QuickClose {
-    /// Waiting for the server to say what runs in it.
     Checking(CloseCheckId),
-    /// Asking the user, because a program is running.
     Confirming,
 }
 
 impl QuickTerminalRuntime {
-    /// Whether the system asks for as little animation as possible, kept up to
-    /// date as the setting changes.
     pub(crate) fn reduce_motion(&self) -> bool {
         self.accessibility.reduce_motion
     }
@@ -79,7 +73,6 @@ impl QuickTerminalRuntime {
             Box::new(|_| Ok(())),
             Box::new(platform::canonicalize),
         );
-        // Settings owns persistence; a prepared native registration commits only after a successful save.
         let _ = shortcuts.start();
         let triggers = shortcuts.trigger_receiver();
         let trigger_task = cx.spawn(async move |model, cx| {
@@ -182,7 +175,6 @@ impl AppModel {
         }
     }
 
-    /// The Quick Terminal's own theme and palette, or `None` when it uses the app's.
     pub(crate) fn quick_theme(&self) -> Option<(Theme, Palette)> {
         let name = self.settings.quick_terminal.theme(self.dark)?;
         let (theme, palette) = self.themes.resolve(name, self.dark);
@@ -404,6 +396,7 @@ impl AppModel {
                 pane.background_opacity = alpha;
                 pane.palette = palette;
                 pane.update_find_appearance(&model.theme, model.metrics, cx);
+                pane.update_insert_path_appearance(&model.theme, model.metrics, cx);
                 cx.notify();
             });
         }
@@ -416,8 +409,6 @@ impl AppModel {
         });
     }
 
-    /// Gives the Quick Terminal session its own colors on the local server,
-    /// so programs that ask for them see its theme instead of the app's.
     fn sync_quick_colors(&mut self, colors: Option<TerminalColors>, cx: &mut Context<Self>) {
         let session = self
             .state
@@ -441,7 +432,6 @@ impl AppModel {
         }
     }
 
-    /// A new connection to the local server starts with no session colors.
     pub(super) fn forget_quick_colors(&mut self) {
         self.quick.colors = None;
     }
@@ -483,8 +473,6 @@ impl AppModel {
         }
     }
 
-    /// Closes the Quick Terminal because its session is no longer running,
-    /// keeping the session's saved output.
     pub(crate) fn close_ended_quick_terminal(&mut self, cx: &mut Context<Self>) {
         self.hide_quick_terminal(true, cx);
         self.state.close_ended_quick_terminal();
@@ -562,7 +550,6 @@ impl AppModel {
         self.adopt_quick_settings(settings, true, cx)
     }
 
-    /// Runs the Quick Terminal with `settings`, saving them first if `save`.
     pub(crate) fn adopt_quick_settings(
         &mut self,
         settings: muxy_app_core::settings::QuickTerminalSettings,
@@ -597,7 +584,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Why `keymap` can't be used beside `quick`'s global shortcut, if it can't.
     pub(super) fn quick_keymap_conflict(
         keymap: &muxy_app_core::settings::Keymap,
         quick: &muxy_app_core::settings::QuickTerminalSettings,

@@ -1,6 +1,3 @@
-//! Tabs in windows of their own, and moving tabs and panes between tabs,
-//! projects and windows.
-
 use std::collections::{HashMap, HashSet};
 
 use gpui::{
@@ -21,9 +18,6 @@ use crate::views::tab_window::TabWindowView;
 
 pub(crate) mod floating;
 
-/// What a pane header in a tab window makes room for and does: space for
-/// the window's controls at its ends, and moving the window, or the floating
-/// tab, when it sits on its top edge.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct HeaderEdges {
     pub(crate) leading: Pixels,
@@ -32,7 +26,6 @@ pub(crate) struct HeaderEdges {
     pub(crate) floats: Option<TabWindowId>,
 }
 
-/// The window the model works for: the main window, or a tab's own.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum Surface {
     #[default]
@@ -40,39 +33,23 @@ pub(crate) enum Surface {
     Tab(TabWindowId),
 }
 
-/// Smallest size a tab window opens at.
 const MIN_SIZE: (f32, f32) = (420.0, 280.0);
-/// Size of a tab window opened without one to copy.
 const DEFAULT_SIZE: (f32, f32) = (900.0, 600.0);
 
 #[derive(Default)]
 pub(crate) struct TabWindows {
     open: HashMap<TabWindowId, WindowHandle<TabWindowView>>,
     opening: HashSet<TabWindowId>,
-    /// The tab window the user last worked in, while it has the keyboard.
     key: Option<TabWindowId>,
-    /// The window being drawn, which overrides `key` meanwhile.
     scope: Option<Surface>,
-    /// Tab windows whose shown pane should take the keyboard when drawn.
     focus: HashSet<TabWindowId>,
-    /// Where a new window's top-left goes, relative to the pointer, when a
-    /// drop opened it.
     grabs: HashMap<TabWindowId, Point<Pixels>>,
     bounds_save: Option<Task<()>>,
-    /// The window the open menu shows in. Other overlays show in the main
-    /// window.
     pub(crate) overlay: Surface,
-    /// Windows other than the main one that page panes' native views live in.
     pages: HashMap<PaneId, gpui::WindowId>,
-    /// The title each window shows.
     titles: HashMap<TabWindowId, String>,
-    /// Terminals a server was asked to give another project, with the project
-    /// they came from.
     moving: HashMap<(ServerId, SessionId), ProjectId>,
-    /// Moves sent again once after their answer was lost on a live
-    /// connection; a second loss waits for the next connection.
     retried: HashSet<(ServerId, SessionId)>,
-    /// How wide each window's own controls are at its top right.
     controls: HashMap<TabWindowId, f32>,
 }
 
@@ -107,7 +84,6 @@ impl TabWindows {
         self.controls.insert(id, width);
     }
 
-    /// Records `title` for window `id`, returning whether it changed.
     pub(crate) fn retitle(&mut self, id: TabWindowId, title: &str) -> bool {
         if self.titles.get(&id).is_some_and(|known| known == title) {
             return false;
@@ -116,7 +92,6 @@ impl TabWindows {
         true
     }
 
-    /// The tab window the user works in, if not the main window.
     pub(crate) fn key_window(&self) -> Option<TabWindowId> {
         self.key
     }
@@ -141,8 +116,6 @@ impl AppModel {
             .unwrap_or_else(|| self.tab_windows.key.map_or(Surface::Main, Surface::Tab))
     }
 
-    /// Runs `draw` for `surface`, so what it asks about the active tab and
-    /// pane is about that window.
     pub(crate) fn drawing<R>(&mut self, surface: Surface, draw: impl FnOnce(&mut Self) -> R) -> R {
         let previous = self.tab_windows.scope.replace(surface);
         let result = draw(self);
@@ -150,7 +123,6 @@ impl AppModel {
         result
     }
 
-    /// The window `window` is to the model.
     pub(crate) fn surface_of(&self, window: &Window) -> Surface {
         let id = window.window_handle().window_id();
         self.tab_windows
@@ -160,7 +132,6 @@ impl AppModel {
             .map_or(Surface::Main, |(tab_window, _)| Surface::Tab(*tab_window))
     }
 
-    /// The user works in `surface` now.
     pub(crate) fn enter_surface(&mut self, surface: Surface) {
         self.tab_windows.key = match surface {
             Surface::Main => None,
@@ -168,7 +139,6 @@ impl AppModel {
         };
     }
 
-    /// How pane `pane`'s header in `tab` sits among its window's controls.
     pub(crate) fn header_edges(&self, pane: PaneId, tab: &muxy_app_core::Tab) -> HeaderEdges {
         let Some(window) = &tab.window else {
             return HeaderEdges::default();
@@ -212,9 +182,6 @@ impl AppModel {
         }
     }
 
-    /// Whether every pane along a tab window's top edge has a header, which
-    /// then holds the window's controls and moves the window, so the window,
-    /// or the floating tab, needs no titlebar of its own.
     pub(crate) fn headers_on_top(&self, tab: &muxy_app_core::Tab) -> bool {
         self.appearance.pane_headers
             && tab.zoomed.is_none()
@@ -231,7 +198,6 @@ impl AppModel {
                 })
     }
 
-    /// Points each terminal's links at the project it belongs to now.
     fn refresh_open_contexts(&mut self, cx: &mut Context<Self>) {
         let panes: Vec<_> = self.grids.keys().copied().collect();
         for pane in panes {
@@ -242,14 +208,12 @@ impl AppModel {
         }
     }
 
-    /// Brings the tab showing `pane` back to the main window.
     pub(crate) fn return_pane_window(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         if let Some(id) = self.state.pane_window(pane) {
             self.return_tab_window(id, None, cx);
         }
     }
 
-    /// The window that shows `pane`.
     pub(crate) fn window_for_pane(&self, pane: PaneId) -> gpui::AnyWindowHandle {
         self.state
             .pane_window(pane)
@@ -257,13 +221,10 @@ impl AppModel {
             .map_or(self.window, Into::into)
     }
 
-    /// The tab a tab window shows.
     pub(crate) fn window_tab(&self, id: TabWindowId) -> Option<TabId> {
         self.state.tab_window(id).map(|(_, tab, _)| tab.id)
     }
 
-    /// Opens windows for tabs that have one, and closes windows whose tab
-    /// left or closed.
     pub(crate) fn sync_tab_windows(&mut self, cx: &mut Context<Self>) {
         let wanted: HashSet<_> = self
             .state
@@ -307,8 +268,6 @@ impl AppModel {
         }
     }
 
-    /// How tab window `id` opens, and where the pointer holds it if a drop
-    /// opens it, once nothing else opened it meanwhile.
     fn tab_window_options(
         &mut self,
         id: TabWindowId,
@@ -378,7 +337,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// The main window's frame, in the coordinates windows open at.
     fn main_bounds(&self, cx: &mut Context<Self>) -> Option<Bounds<Pixels>> {
         self.window.update(cx, |_, window, _| window.bounds()).ok()
     }
@@ -457,7 +415,6 @@ impl AppModel {
         }));
     }
 
-    /// Forgets a tab window the system closed.
     pub(crate) fn tab_window_closed(&mut self, id: TabWindowId, cx: &mut Context<Self>) {
         let Some(handle) = self.tab_windows.open.remove(&id) else {
             return;
@@ -473,14 +430,12 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Closes a tab window's tab, asking first as closing the tab would.
     pub(crate) fn close_tab_window(&mut self, id: TabWindowId, cx: &mut Context<Self>) {
         if let Some(tab) = self.window_tab(id) {
             self.close_tab(tab, cx);
         }
     }
 
-    /// Brings the window showing `pane` to the front, if it is a tab's own.
     pub(crate) fn raise_pane_window(&mut self, pane: PaneId, cx: &mut Context<Self>) -> bool {
         let Some(id) = self.state.pane_window(pane) else {
             return false;
@@ -505,15 +460,12 @@ impl AppModel {
         true
     }
 
-    /// Brings the main window forward when a tab window asked for something
-    /// that only the main window shows.
     pub(crate) fn show_main_window(&mut self, cx: &mut Context<Self>) {
         if self.surface() != Surface::Main {
             self.raise_main_window(cx);
         }
     }
 
-    /// Brings the main window to the front.
     pub(crate) fn raise_main_window(&mut self, cx: &mut Context<Self>) {
         self.tab_windows.key = None;
         let handle = self.window;
@@ -558,8 +510,6 @@ impl AppModel {
         }
     }
 
-    /// Brings a tab window's tab back to the main window: at `place`, or
-    /// last among its own project's tabs.
     pub(crate) fn return_tab_window(
         &mut self,
         id: TabWindowId,
@@ -636,9 +586,6 @@ impl AppModel {
         }
     }
 
-    /// Asks the server again to give a terminal the project the app shows it
-    /// in, after a move that never reached it; `origin` is where the server
-    /// keeps it.
     pub(crate) fn resend_session_move(
         &mut self,
         moved: SessionMove,
@@ -659,10 +606,6 @@ impl AppModel {
         }
     }
 
-    /// The server answered a move of `session` to another project, or the
-    /// answer was lost. Only a refusal puts the pane back. A lost answer
-    /// keeps the move pending, and the next connection settles it or sends it
-    /// again.
     pub(crate) fn session_moved(
         &mut self,
         server: ServerId,
@@ -714,8 +657,6 @@ impl AppModel {
         );
     }
 
-    /// Puts the panes of `session` back in `origin`, where its server keeps
-    /// it, and forgets the move.
     fn undo_session_move(
         &mut self,
         server: ServerId,
@@ -746,9 +687,6 @@ impl AppModel {
         self.changed(cx);
     }
 
-    /// Whether `pane`'s or `tab`'s terminals may move to `project`: on the
-    /// same computer, and, for running terminals changing project, on a
-    /// connected server that can move them.
     pub(crate) fn move_refusal(&self, moves: &[SessionMove]) -> Option<String> {
         let server = moves.first()?.server;
         if !self.ready(server) {
@@ -763,9 +701,6 @@ impl AppModel {
         })
     }
 
-    /// Applies a move of tabs or panes, then tells servers which terminals
-    /// changed project. Leaves everything as it was if the edit fails, a
-    /// server can't follow, or saving fails.
     fn apply_move<T>(
         &mut self,
         edit: impl FnOnce(&mut AppState) -> Result<(T, Vec<SessionMove>), AppError>,
@@ -893,8 +828,6 @@ fn gpui_bounds(bounds: WindowBounds) -> Option<Bounds<Pixels>> {
         })
 }
 
-/// A new tab window's frame: a little below and right of the main window's
-/// corner, or at the screen's corner.
 fn default_bounds(main: Option<Bounds<Pixels>>) -> Bounds<Pixels> {
     let origin = main.map_or_else(
         || point(px(120.0), px(120.0)),
@@ -903,8 +836,6 @@ fn default_bounds(main: Option<Bounds<Pixels>>) -> Bounds<Pixels> {
     Bounds::new(origin, size(px(DEFAULT_SIZE.0), px(DEFAULT_SIZE.1)))
 }
 
-/// A frame of `size` for a window that a drop opens, saved so a restart
-/// reopens it the same size.
 pub(crate) fn dropped_bounds(size: gpui::Size<Pixels>) -> WindowBounds {
     WindowBounds {
         x: 120.0,
@@ -914,8 +845,6 @@ pub(crate) fn dropped_bounds(size: gpui::Size<Pixels>) -> WindowBounds {
     }
 }
 
-/// Opens tab window `id`, outside any update of the model, which the new
-/// window reads as soon as it draws.
 fn open_tab_window(model: &gpui::WeakEntity<AppModel>, id: TabWindowId, cx: &mut App) {
     let Ok(Some((options, grab))) = model.update(cx, |model, cx| model.tab_window_options(id, cx))
     else {
@@ -944,8 +873,6 @@ fn open_tab_window(model: &gpui::WeakEntity<AppModel>, id: TabWindowId, cx: &mut
     let _ = model.update(cx, |model, cx| model.tab_window_opened(id, opened, cx));
 }
 
-/// Whether the server answered and refused, as opposed to the answer being
-/// lost, which leaves open whether the move happened.
 fn refused(error: &muxy_client::ClientError) -> bool {
     matches!(
         error,

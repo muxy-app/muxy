@@ -167,7 +167,6 @@ impl Palette {
     }
 }
 
-/// Whichever of `candidates` stands out most against `background`.
 pub(crate) fn readable_on(background: u32, candidates: [u32; 2]) -> u32 {
     let luma = |color: u32| {
         let [_, r, g, b] = color.to_be_bytes();

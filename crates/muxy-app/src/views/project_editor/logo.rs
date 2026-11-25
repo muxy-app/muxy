@@ -124,10 +124,6 @@ impl Cropper {
 const MAX_SIDE: u32 = 8192;
 const MAX_DECODED: u64 = 64 * 1024 * 1024;
 
-/// Reads a logo file of at most 20 MB and returns it at most 1024 pixels on
-/// its longer side. Raster images are decoded within `MAX_SIDE` pixels and
-/// `MAX_DECODED` bytes, and anything the image crate doesn't recognise is
-/// tried as an SVG.
 fn load(path: &Path) -> Result<image::RgbaImage, String> {
     const MAX_FILE: u64 = 20 * 1024 * 1024;
     let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
@@ -188,9 +184,6 @@ fn system_fonts() -> Arc<resvg::usvg::fontdb::Database> {
         .clone()
 }
 
-/// Tells whether resvg may decode an image embedded in an SVG logo. resvg
-/// decodes without limits, so a raster image is drawn only when its header
-/// declares a size within the limits `load` applies to other images.
 fn fits_decode_limits(kind: &resvg::usvg::ImageKind) -> bool {
     use resvg::usvg::ImageKind;
     let (ImageKind::JPEG(data)
@@ -216,12 +209,6 @@ fn is_gzip(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0x1f, 0x8b])
 }
 
-/// Draws an SVG at most 1024 pixels on its longer side, like `load` does for
-/// other images. Text is set in the system fonts, which are scanned once, the
-/// first time an SVG asks for a font. Embedded images are drawn when they fit
-/// `fits_decode_limits`, linked images are ignored so a logo can't read other
-/// files, and compressed SVGs, embedded or not, are refused because usvg
-/// inflates them without a limit.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -485,8 +472,6 @@ fn preview(
         .child(corner_mask(radius, background))
 }
 
-// GPUI's content mask clips rectangles. Cover the four corners without
-// decoding or uploading another image as the user drags or zooms.
 fn corner_mask(radius: gpui::Pixels, color: gpui::Hsla) -> impl IntoElement {
     canvas(
         |_, _, _| (),

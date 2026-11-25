@@ -16,7 +16,6 @@ pub(crate) struct Repository {
     pub(crate) pull_request: Option<GitPullRequest>,
     pub(crate) error: Option<String>,
     pub(crate) pending: bool,
-    /// The change Git is making now.
     mutation: Option<GitAction>,
     context: u64,
     pub(super) queued: Option<(GitAction, u64)>,
@@ -25,23 +24,17 @@ pub(crate) struct Repository {
     refresh: VecDeque<GitAction>,
     read_loaded: [bool; 8],
     read_errors: [Option<String>; 8],
-    /// The merged pull request number and base while the local base branch is updated.
     post_merge: Option<(u64, String)>,
     removal: Option<muxy_protocol::WorktreeRemoval>,
     merge_removal: MergeRemoval,
-    /// The question asked before removing this worktree.
     removal_dialog: Option<super::dialogs::DialogId>,
 }
 
-/// Removing a worktree once its pull request merges.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 enum MergeRemoval {
     #[default]
     None,
-    /// The merge is running; removal follows if it succeeds.
     Merging,
-    /// Removal is being prepared, so its confirmation shows even if the
-    /// interaction moved on.
     Inspecting,
 }
 
@@ -69,7 +62,6 @@ impl Repository {
     pub(crate) fn has_loaded(&self, action: &GitAction) -> bool {
         read_slot(action).is_some_and(|slot| self.read_loaded[slot])
     }
-    /// Git answered, and the folder is not a repository.
     pub(crate) fn not_a_repository(&self) -> bool {
         self.loaded && self.summary.is_none() && self.load_error(&GitAction::Summary).is_none()
     }
@@ -79,8 +71,6 @@ impl Repository {
             .as_ref()
             .or_else(|| read_slot(action).and_then(|slot| self.read_errors[slot].as_ref()))
     }
-    /// Forgets the requests sent to a server that went away. Returns the
-    /// removal question to dismiss, if one was asked.
     pub(super) fn disconnect(&mut self) -> Option<super::dialogs::DialogId> {
         self.pending = false;
         self.mutation = None;
@@ -97,7 +87,6 @@ impl Repository {
         self.mutation.is_some() || self.queued.is_some()
     }
 
-    /// The change Git is making, or the one waiting for a read to finish.
     pub(crate) fn mutation(&self) -> Option<&GitAction> {
         self.mutation
             .as_ref()
@@ -123,7 +112,6 @@ pub(crate) struct GitState {
     pub(crate) pull_request_anchor: muxy_ui::popover::PopoverAnchor,
     pub(crate) projects: HashMap<ProjectId, Repository>,
     current: Option<ProjectId>,
-    /// A new worktree to select once its server's catalog lists it.
     pub(crate) select_after_catalog: Option<(muxy_app_core::ServerId, ProjectId, u64)>,
     pub(crate) interaction: u64,
     pub(super) worktrees: super::worktrees::WorktreeSync,
@@ -163,8 +151,6 @@ impl AppModel {
         self.resync_worktrees(project, cx);
     }
 
-    /// Sends `action`, or queues it behind the running read. Returns whether
-    /// it will run.
     pub(crate) fn git_request(
         &mut self,
         project: ProjectId,
@@ -235,7 +221,6 @@ impl AppModel {
         cx.notify();
         sent
     }
-    /// Merges a worktree's pull request, then asks to remove the worktree.
     pub(crate) fn merge_and_remove_worktree(
         &mut self,
         project: ProjectId,
@@ -604,8 +589,6 @@ impl AppModel {
                         _ => None,
                     };
                     repository.error = Some(failed.clone().unwrap_or_else(|| error.to_string()));
-                    // Worktree work goes on while you move elsewhere, so its
-                    // failures are always shown.
                     let shown = request.project == self.state.current_project().id
                         || matches!(
                             request.action,

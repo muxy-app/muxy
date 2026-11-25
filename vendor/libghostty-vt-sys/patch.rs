@@ -38,14 +38,15 @@ fn copy_tree(source: &Path, destination: &Path) {
             continue;
         }
         let target = destination.join(entry.file_name());
-        if entry
-            .file_type()
-            .expect("read Ghostty source type")
-            .is_dir()
-        {
+        let file_type = entry.file_type().expect("read Ghostty source type");
+        if file_type.is_dir() {
             copy_tree(&entry.path(), &target);
-        } else {
+        } else if !file_type.is_symlink() || links_to_file(&entry.path()) {
             fs::copy(entry.path(), target).expect("copy Ghostty source file");
         }
     }
+}
+
+fn links_to_file(path: &Path) -> bool {
+    fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
 }

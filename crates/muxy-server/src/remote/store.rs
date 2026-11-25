@@ -16,23 +16,18 @@ use crate::push::{Credentials, PushKey};
 pub(super) struct Device {
     pub(super) id: DeviceId,
     pub(super) name: String,
-    /// SHA-256 of the device token; the token itself is never stored.
     pub(super) token_hash: [u8; 32],
     pub(super) paired_at: u64,
     pub(super) last_seen: Option<u64>,
-    /// Only kinds this build knows; anything else is kept as a phone.
     pub(super) kind: DeviceKind,
     pub(super) push: Option<PushRecord>,
 }
 
-/// A phone's push registration: its token, the key its notifications are
-/// encrypted with, and its registration at the relay once there is one.
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct PushRecord {
     pub(crate) token: PushToken,
     pub(crate) key: PushKey,
     pub(crate) relay: Option<Credentials>,
-    /// `Active`, `Pending`, or `Refused`.
     pub(crate) status: PushStatus,
 }
 
@@ -53,7 +48,6 @@ pub(super) struct Stored {
     pub(super) identity: Option<TlsIdentity>,
     pub(super) devices: Vec<Device>,
     pub(super) push_notifications: bool,
-    /// Unix seconds when push notifications were switched off.
     pub(super) push_off_since: Option<u64>,
 }
 
@@ -76,7 +70,6 @@ struct Document {
     certificate: Option<String>,
     private_key: Option<String>,
     devices: Vec<DocumentDevice>,
-    /// Missing in files from before push notifications, which start on.
     #[serde(default = "on")]
     push_notifications: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -94,10 +87,8 @@ struct DocumentDevice {
     token_sha256: String,
     paired_at: u64,
     last_seen: Option<u64>,
-    /// Missing in files from before computers could pair.
     #[serde(default)]
     kind: StoredKind,
-    /// Read on its own, so an entry this build can't use loses only itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     push: Option<serde_json::Value>,
 }
@@ -144,8 +135,6 @@ impl DocumentPush {
         })
     }
 
-    /// `None` for an entry this build can't use, which is dropped without
-    /// losing the device.
     fn record(self) -> Option<PushRecord> {
         let token = PushToken {
             platform: match self.platform.as_str() {
@@ -212,7 +201,6 @@ pub(super) fn load(path: &Path) -> io::Result<Stored> {
     read(path)?.map_or_else(|| Ok(Stored::default()), |bytes| parse(path, &bytes))
 }
 
-/// `None` when nothing was saved yet.
 pub(super) fn read(path: &Path) -> io::Result<Option<Vec<u8>>> {
     match fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
@@ -316,7 +304,6 @@ pub(super) fn save(path: &Path, stored: &Stored) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
     use super::*;
@@ -355,7 +342,11 @@ mod tests {
             push_off_since: Some(12),
         };
         save(&path, &stored)?;
-        assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
+        }
         let loaded = load(&path)?;
         assert_eq!(loaded.settings, stored.settings);
         assert_eq!(loaded.identity, stored.identity);

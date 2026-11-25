@@ -1,6 +1,3 @@
-//! Every client talks to one server. The desktop app closes partway through,
-//! and the terminals on the server keep going regardless.
-
 use gpui::{Div, FontWeight, ParentElement, Styled, div};
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
@@ -179,7 +176,6 @@ fn client_card(frame: &Frame, client: &Client, label: gpui::SharedString, quiet:
         .child(text(frame, 10.0, tint(TEXT, 0.88), label))
 }
 
-/// Says the app closed, at full strength beside its faded card.
 fn closed_badge(frame: &Frame, client: &Client, closed: f32) -> Div {
     place(
         frame,
@@ -197,7 +193,6 @@ fn closed_badge(frame: &Frame, client: &Client, closed: f32) -> Div {
     .child(text(frame, 9.5, solid(INK), tr!("Closed")))
 }
 
-/// The server, with its terminals busy whatever the clients are doing.
 fn hub(frame: &Frame) -> Div {
     let sessions = [
         ("claude", 3.1, 0.0),

@@ -6,13 +6,10 @@ use crate::{
     Window, point, px,
 };
 
-/// The state that the anchored element element uses to track its children.
 pub struct AnchoredState {
     child_layout_ids: SmallVec<[LayoutId; 4]>,
 }
 
-/// An anchored element that can be used to display UI that
-/// will avoid overflowing the window bounds.
 pub struct Anchored {
     children: SmallVec<[AnyElement; 2]>,
     anchor_corner: Corner,
@@ -22,8 +19,6 @@ pub struct Anchored {
     offset: Option<Point<Pixels>>,
 }
 
-/// anchored gives you an element that will avoid overflowing the window bounds.
-/// Its children should have no margin to avoid measurement issues.
 pub fn anchored() -> Anchored {
     Anchored {
         children: SmallVec::new(),
@@ -36,41 +31,31 @@ pub fn anchored() -> Anchored {
 }
 
 impl Anchored {
-    /// Sets which corner of the anchored element should be anchored to the current position.
     pub fn anchor(mut self, anchor: Corner) -> Self {
         self.anchor_corner = anchor;
         self
     }
 
-    /// Sets the position in window coordinates
-    /// (otherwise the location the anchored element is rendered is used)
     pub fn position(mut self, anchor: Point<Pixels>) -> Self {
         self.anchor_position = Some(anchor);
         self
     }
 
-    /// Offset the final position by this amount.
-    /// Useful when you want to anchor to an element but offset from it, such as in PopoverMenu.
     pub fn offset(mut self, offset: Point<Pixels>) -> Self {
         self.offset = Some(offset);
         self
     }
 
-    /// Sets the position mode for this anchored element. Local will have this
-    /// interpret its [`Anchored::position`] as relative to the parent element.
-    /// While Window will have it interpret the position as relative to the window.
     pub fn position_mode(mut self, mode: AnchoredPositionMode) -> Self {
         self.position_mode = mode;
         self
     }
 
-    /// Snap to window edge instead of switching anchor corner when an overflow would occur.
     pub fn snap_to_window(mut self) -> Self {
         self.fit_mode = AnchoredFitMode::SnapToWindow;
         self
     }
 
-    /// Snap to window edge and leave some margins.
     pub fn snap_to_window_with_margin(mut self, edges: impl Into<Edges<Pixels>>) -> Self {
         self.fit_mode = AnchoredFitMode::SnapToWindowWithMargin(edges.into());
         self
@@ -188,8 +173,6 @@ impl Element for Anchored {
         }
         .map(|edge| *edge + client_inset);
 
-        // Snap the horizontal edges of the anchored element to the horizontal edges of the window if
-        // its horizontal bounds overflow, aligning to the left if it is wider than the limits.
         if desired.right() > limits.right() {
             desired.origin.x -= desired.right() - limits.right() + edges.right;
         }
@@ -197,8 +180,6 @@ impl Element for Anchored {
             desired.origin.x = limits.origin.x + edges.left;
         }
 
-        // Snap the vertical edges of the anchored element to the vertical edges of the window if
-        // its vertical bounds overflow, aligning to the top if it is taller than the limits.
         if desired.bottom() > limits.bottom() {
             desired.origin.y -= desired.bottom() - limits.bottom() + edges.bottom;
         }
@@ -240,23 +221,16 @@ impl IntoElement for Anchored {
     }
 }
 
-/// Which algorithm to use when fitting the anchored element to be inside the window.
 #[derive(Copy, Clone, PartialEq)]
 pub enum AnchoredFitMode {
-    /// Snap the anchored element to the window edge.
     SnapToWindow,
-    /// Snap to window edge and leave some margins.
     SnapToWindowWithMargin(Edges<Pixels>),
-    /// Switch which corner anchor this anchored element is attached to.
     SwitchAnchor,
 }
 
-/// Which algorithm to use when positioning the anchored element.
 #[derive(Copy, Clone, PartialEq)]
 pub enum AnchoredPositionMode {
-    /// Position the anchored element relative to the window.
     Window,
-    /// Position the anchored element relative to its parent.
     Local,
 }
 

@@ -22,7 +22,11 @@ impl Category {
             ],
             Self::Composer => &[tr_key!("Behavior"), tr_key!("Text")],
             Self::Browser => &[tr_key!("General"), tr_key!("Browsing"), tr_key!("Profiles")],
-            Self::Ai => &[tr_key!("Commit"), tr_key!("Create Pull Request")],
+            Self::Ai => &[
+                tr_key!("Commit"),
+                tr_key!("Create Pull Request"),
+                tr_key!("Prompt Enhancer"),
+            ],
             Self::General => &[
                 tr_key!("Closing terminals"),
                 tr_key!("Files"),
@@ -49,7 +53,7 @@ impl Category {
 }
 
 impl SettingsView {
-    fn select_category(
+    pub(crate) fn select_category(
         &mut self,
         category: Category,
         section: Option<&'static str>,
@@ -157,7 +161,6 @@ impl SettingsView {
                     categories = categories.child(
                         navigation::subitem(
                             self.layout_style(),
-                            // The same section can sit under two open categories.
                             SharedString::from(format!(
                                 "settings-subcategory-{}-{section}",
                                 category.label()

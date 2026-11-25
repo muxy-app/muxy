@@ -52,7 +52,7 @@ impl Source {
                 .map(|entry| PathBuf::from(entry.file_name()))
                 .collect(),
             Self::Remote(client, project) => client
-                .list_directory(*project, ServerPath::from(directory))
+                .list_directory(*project, relative(directory))
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|entry| !entry.is_directory)
@@ -82,7 +82,7 @@ impl Source {
                 (bytes.len() as u64 <= MAX_BYTES).then_some(bytes)
             }
             Self::Remote(client, project) => {
-                let path = ServerPath::from(path);
+                let path = relative(path);
                 let info = client.file_info(*project, path.clone()).ok()?;
                 if info.is_directory || info.size > MAX_BYTES {
                     return None;
@@ -92,6 +92,14 @@ impl Source {
             }
         }
     }
+}
+
+fn relative(path: &Path) -> ServerPath {
+    let parts: Vec<_> = path
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect();
+    ServerPath::from(parts.join("/").as_str())
 }
 
 fn rank(path: &Path) -> Option<(usize, usize)> {

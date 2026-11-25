@@ -1,12 +1,10 @@
-//! Keys an on-screen keyboard or accessory bar can send, encoded as a terminal expects.
-
 use std::path::PathBuf;
 
 use muxy_protocol::Modes;
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum Key {
-    /// Typed text; with Control, only its first character counts.
+    #[doc = " Typed text; with Control, only its first character counts."]
     Character {
         text: String,
     },
@@ -25,7 +23,7 @@ pub enum Key {
     End,
     PageUp,
     PageDown,
-    /// F1 to F12.
+    #[doc = " F1 to F12."]
     Function {
         number: u8,
     },
@@ -121,8 +119,6 @@ fn control_byte(character: char) -> Option<u8> {
     }
 }
 
-/// Pasted text sends line breaks as Return and drops escape characters, so it
-/// can never end a bracketed paste early and run as typed input.
 pub(crate) fn paste(text: &str, bracketed: bool) -> Vec<u8> {
     let text = text
         .replace("\r\n", "\n")
@@ -135,20 +131,22 @@ pub(crate) fn paste(text: &str, bracketed: bool) -> Vec<u8> {
     }
 }
 
-/// Absolute paths quoted for a shell and separated by spaces, as one paste.
-/// `None` when there are none, or one isn't absolute, holds a NUL byte, or is
-/// too long.
-pub(crate) fn paths(paths: &[String], modes: Modes) -> Option<Vec<u8>> {
+pub(crate) fn paths(
+    paths: &[String],
+    quoting: muxy_client::input::PathQuoting,
+    modes: Modes,
+) -> Option<Vec<u8>> {
     if paths.is_empty() {
         return None;
     }
     let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
-    muxy_client::input::paths(&paths, modes)
+    muxy_client::input::quoted_paths(&paths, quoting, modes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use muxy_client::input::PathQuoting;
 
     fn modes(application_cursor_keys: bool) -> Modes {
         Modes {
@@ -204,6 +202,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn pasted_paths_are_quoted_for_a_shell_and_bracketed_when_asked() {
         let uploads = vec![
@@ -211,26 +210,38 @@ mod tests {
             "/tmp/muxy-uploads-501/7/it's here.jpg".to_owned(),
         ];
         assert_eq!(
-            paths(&uploads, modes(false)),
+            paths(&uploads, PathQuoting::Bash, modes(false)),
             Some(
                 b"'/tmp/muxy-uploads-501/7/pasted-image.png' '/tmp/muxy-uploads-501/7/it'\\''s here.jpg'"
                     .to_vec()
             )
+        );
+        assert_eq!(
+            paths(&uploads[1..], PathQuoting::Unknown, modes(false)),
+            None
         );
         let bracketed = Modes {
             bracketed_paste: true,
             ..modes(false)
         };
         assert_eq!(
-            paths(&uploads[..1], bracketed),
+            paths(&uploads[..1], PathQuoting::Unknown, bracketed),
             Some(b"\x1b[200~'/tmp/muxy-uploads-501/7/pasted-image.png'\x1b[201~".to_vec())
         );
     }
 
     #[test]
     fn pasted_paths_must_be_absolute() {
-        assert_eq!(paths(&[], modes(false)), None);
-        assert_eq!(paths(&["relative.png".to_owned()], modes(false)), None);
-        assert_eq!(paths(&["/tmp/a\0b.png".to_owned()], modes(false)), None);
+        for quoting in [PathQuoting::Bash, PathQuoting::Unknown] {
+            assert_eq!(paths(&[], quoting, modes(false)), None);
+            assert_eq!(
+                paths(&["relative.png".to_owned()], quoting, modes(false)),
+                None
+            );
+            assert_eq!(
+                paths(&["/tmp/a\0b.png".to_owned()], quoting, modes(false)),
+                None
+            );
+        }
     }
 }

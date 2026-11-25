@@ -9,9 +9,7 @@ use std::{
 
 pub use util::*;
 
-/// A helper trait for building complex objects with imperative conditionals in a fluent style.
 pub trait FluentBuilder {
-    /// Imperatively modify self with the given closure.
     fn map<U>(self, f: impl FnOnce(Self) -> U) -> U
     where
         Self: Sized,
@@ -19,7 +17,6 @@ pub trait FluentBuilder {
         f(self)
     }
 
-    /// Conditionally modify self with the given closure.
     fn when(self, condition: bool, then: impl FnOnce(Self) -> Self) -> Self
     where
         Self: Sized,
@@ -27,7 +24,6 @@ pub trait FluentBuilder {
         self.map(|this| if condition { then(this) } else { this })
     }
 
-    /// Conditionally modify self with the given closure.
     fn when_else(
         self,
         condition: bool,
@@ -40,7 +36,6 @@ pub trait FluentBuilder {
         self.map(|this| if condition { then(this) } else { else_fn(this) })
     }
 
-    /// Conditionally unwrap and modify self with the given closure, if the given option is Some.
     fn when_some<T>(self, option: Option<T>, then: impl FnOnce(Self, T) -> Self) -> Self
     where
         Self: Sized,
@@ -53,7 +48,6 @@ pub trait FluentBuilder {
             }
         })
     }
-    /// Conditionally unwrap and modify self with the given closure, if the given option is None.
     fn when_none<T>(self, option: &Option<T>, then: impl FnOnce(Self) -> Self) -> Self
     where
         Self: Sized,
@@ -62,10 +56,7 @@ pub trait FluentBuilder {
     }
 }
 
-/// Extensions for Future types that provide additional combinators and utilities.
 pub trait FutureExt {
-    /// Requires a Future to complete before the specified duration has elapsed.
-    /// Similar to tokio::timeout.
     fn with_timeout(self, timeout: Duration, executor: &BackgroundExecutor) -> WithTimeout<Self>
     where
         Self: Sized;
@@ -93,7 +84,6 @@ pub struct WithTimeout<T> {
 
 #[derive(Debug, thiserror::Error)]
 #[error("Timed out before future resolved")]
-/// Error returned by with_timeout when the timeout duration elapsed before the future resolved
 pub struct Timeout;
 
 impl<T: Future> Future for WithTimeout<T> {
@@ -113,8 +103,6 @@ impl<T: Future> Future for WithTimeout<T> {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-/// Uses smol executor to run a given future no longer than the timeout specified.
-/// Note that this won't "rewind" on `cx.executor().advance_clock` call, truly waiting for the timeout to elapse.
 pub async fn smol_timeout<F, T>(timeout: Duration, f: F) -> Result<T, ()>
 where
     F: Future<Output = T>,
@@ -127,8 +115,6 @@ where
     smol::future::FutureExt::race(timer, future).await
 }
 
-/// Increment the given atomic counter if it is not zero.
-/// Return the new value of the counter.
 pub(crate) fn atomic_incr_if_not_zero(counter: &AtomicUsize) -> usize {
     let mut loaded = counter.load(SeqCst);
     loop {

@@ -1,15 +1,11 @@
-//! The `muxy-settings` skill, which an agent started in the profile folder
-//! reads to change the app's settings with `muxy config`.
-
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::extensions::workspace::{refuse_links_on_the_way, write_if_changed};
+use crate::agent_skills::{AGENT_SKILLS, refuse_links_on_the_way, write_if_changed};
 
 pub const SKILL_NAME: &str = "muxy-settings";
 pub const SKILL: &str = include_str!("../../skills/muxy-settings/SKILL.md");
 
-const AGENT_SKILLS: [&str; 2] = [".claude/skills", ".agents/skills"];
 const FILES: &[(&str, &str)] = &[
     ("SKILL.md", SKILL),
     (
@@ -22,7 +18,6 @@ const FILES: &[(&str, &str)] = &[
     ),
 ];
 
-/// The skill's instructions, which a prompt points the agent at.
 pub fn skill_file(profile: &Path) -> PathBuf {
     profile
         .join(AGENT_SKILLS[1])
@@ -30,8 +25,6 @@ pub fn skill_file(profile: &Path) -> PathBuf {
         .join("SKILL.md")
 }
 
-/// Writes the skill for each agent into the profile folder, leaving
-/// everything else there alone.
 pub fn prepare(profile: &Path) -> io::Result<()> {
     for skills in AGENT_SKILLS {
         let folder = profile.join(skills).join(SKILL_NAME);
@@ -66,6 +59,74 @@ mod tests {
             std::fs::read_to_string(profile.path().join("settings.toml"))?,
             "keep = true\n"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn linked_settings_skill_folders_are_refused_without_changing_the_target() -> io::Result<()> {
+        for relative in [
+            ".claude",
+            ".claude/skills",
+            ".claude/skills/muxy-settings",
+            ".claude/skills/muxy-settings/references",
+            ".agents/skills",
+            ".agents/skills/muxy-settings",
+            ".agents/skills/muxy-settings/references",
+        ] {
+            let directory = tempfile::tempdir()?;
+            let profile = directory.path().join("profile");
+            let target = directory.path().join("target");
+            std::fs::create_dir_all(&target)?;
+            for name in ["SKILL.md", "settings.md"] {
+                std::fs::write(target.join(name), "keep this file")?;
+            }
+            let link: PathBuf = profile.join(relative).components().collect();
+            std::fs::create_dir_all(link.parent().unwrap_or(&profile))?;
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&target, &link)?;
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_dir(&target, &link)?;
+
+            let error = prepare(&profile).err().ok_or_else(|| {
+                io::Error::other(format!("accepted linked skill folder {relative}"))
+            })?;
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "{} is a link; Muxy keeps its skill in real folders",
+                    link.display()
+                )
+            );
+            for name in ["SKILL.md", "settings.md"] {
+                assert_eq!(
+                    std::fs::read_to_string(target.join(name))?,
+                    "keep this file"
+                );
+            }
+            assert_eq!(std::fs::read_dir(&target)?.count(), 2);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn preparing_settings_keeps_unchanged_files_and_refreshes_stale_ones() -> io::Result<()> {
+        let profile = tempfile::tempdir()?;
+        prepare(profile.path())?;
+        let skill = skill_file(profile.path());
+        let file = std::fs::OpenOptions::new().write(true).open(&skill)?;
+        file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1))?;
+        drop(file);
+        let modified = std::fs::metadata(&skill)?.modified()?;
+        let reference = skill
+            .parent()
+            .unwrap_or(profile.path())
+            .join("references/settings.md");
+        std::fs::write(&reference, "from an older Muxy")?;
+
+        prepare(profile.path())?;
+
+        assert_eq!(std::fs::metadata(&skill)?.modified()?, modified);
+        assert_eq!(std::fs::read_to_string(reference)?, FILES[1].1);
         Ok(())
     }
 }

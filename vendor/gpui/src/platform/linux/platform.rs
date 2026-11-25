@@ -32,8 +32,6 @@ use crate::{
 #[cfg(any(feature = "wayland", feature = "x11"))]
 pub(crate) const SCROLL_LINES: f32 = 3.0;
 
-// Values match the defaults on GTK.
-// Taken from https://github.com/GNOME/gtk/blob/main/gtk/gtksettings.c#L320
 #[cfg(any(feature = "wayland", feature = "x11"))]
 pub(crate) const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
 pub(crate) const DOUBLE_CLICK_DISTANCE: Pixels = px(5.0);
@@ -181,9 +179,7 @@ impl<P: LinuxClient + 'static> Platform for P {
     fn restart(&self, binary_path: Option<PathBuf>) {
         use std::os::unix::process::CommandExt as _;
 
-        // get the process id of the current process
         let app_pid = std::process::id().to_string();
-        // get the path to the executable
         let app_path = if let Some(path) = binary_path {
             path
         } else {
@@ -198,7 +194,6 @@ impl<P: LinuxClient + 'static> Platform for P {
 
         log::info!("Restarting process, using app path: {:?}", app_path);
 
-        // Script to wait for the current process to exit and then restart the app.
         let script = format!(
             r#"
             while kill -0 {pid} 2>/dev/null; do
@@ -410,7 +405,6 @@ impl<P: LinuxClient + 'static> Platform for P {
     }
 
     fn can_select_mixed_files_and_dirs(&self) -> bool {
-        // org.freedesktop.portal.FileChooser only supports "pick files" and "pick directories".
         false
     }
 
@@ -466,7 +460,6 @@ impl<P: LinuxClient + 'static> Platform for P {
     }
 
     fn app_path(&self) -> Result<PathBuf> {
-        // get the path of the executable of the current process
         let app_path = env::current_exe()?;
         Ok(app_path)
     }
@@ -482,7 +475,6 @@ impl<P: LinuxClient + 'static> Platform for P {
     }
 
     fn set_dock_menu(&self, _menu: Vec<MenuItem>, _keymap: &Keymap) {
-        // todo(linux)
     }
 
     fn path_for_auxiliary_executable(&self, _name: &str) -> Result<PathBuf> {
@@ -535,8 +527,6 @@ impl<P: LinuxClient + 'static> Platform for P {
                     item.unlock().await?;
                     let secret = item.secret().await?;
 
-                    // we lose the zeroizing capabilities at this boundary,
-                    // a current limitation GPUI's credentials api
                     return Ok(Some((username.to_string(), secret.to_vec())));
                 } else {
                     continue;
@@ -685,7 +675,6 @@ pub(super) fn get_xkb_compose_state(cx: &xkb::Context) -> Option<xkb::compose::S
     state
 }
 
-/// The local files a `text/uri-list` names, as a file manager copies them.
 #[cfg(any(feature = "wayland", feature = "x11"))]
 pub(super) fn paths_from_uri_list(list: &[u8]) -> Option<crate::ExternalPaths> {
     let paths: smallvec::SmallVec<[PathBuf; 2]> = String::from_utf8_lossy(list)
@@ -711,8 +700,6 @@ pub(super) const DEFAULT_CURSOR_ICON_NAME: &str = "left_ptr";
 impl CursorStyle {
     #[cfg(any(feature = "wayland", feature = "x11"))]
     pub(super) fn to_icon_names(self) -> &'static [&'static str] {
-        // Based on cursor names from chromium:
-        // https://github.com/chromium/chromium/blob/d3069cf9c973dc3627fa75f64085c6a86c8f41bf/ui/base/cursor/cursor_factory.cc#L113
         match self {
             CursorStyle::Arrow => &[DEFAULT_CURSOR_ICON_NAME],
             CursorStyle::IBeam => &["text", "xterm"],
@@ -899,9 +886,6 @@ impl crate::Keystroke {
                 {
                     if key.is_ascii_graphic() {
                         key_utf8.to_lowercase()
-                    // map ctrl-a to `a`
-                    // ctrl-0..9 may emit control codes like ctrl-[, but
-                    // we don't want to map them to `[`
                     } else if key_utf32 <= 0x1f
                         && !name.chars().next().is_some_and(|c| c.is_ascii_digit())
                     {
@@ -920,15 +904,11 @@ impl crate::Keystroke {
         };
 
         if modifiers.shift {
-            // we only include the shift for upper-case letters by convention,
-            // so don't include for numbers and symbols, but do include for
-            // tab/enter, etc.
             if key.chars().count() == 1 && key.to_lowercase() == key.to_uppercase() {
                 modifiers.shift = false;
             }
         }
 
-        // Ignore control characters (and DEL) for the purposes of key_char
         let key_char =
             (key_utf32 >= 32 && key_utf32 != 127 && !key_utf8.is_empty()).then_some(key_utf8);
 
@@ -939,10 +919,6 @@ impl crate::Keystroke {
         }
     }
 
-    /**
-     * Returns which symbol the dead key represents
-     * <https://developer.mozilla.org/en-US/docs/Web/API/UI_Events/Keyboard_event_key_values#dead_keycodes_for_linux>
-     */
     pub fn underlying_dead_key(keysym: Keysym) -> Option<String> {
         match keysym {
             Keysym::dead_grave => Some("`".to_owned()),

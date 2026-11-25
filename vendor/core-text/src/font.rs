@@ -40,7 +40,6 @@ type CGFontRef = *mut <CGFont as ForeignType>::CType;
 type CGPathRef = *mut <CGPath as ForeignType>::CType;
 
 pub type CTFontUIFontType = u32;
-// kCTFontNoFontType: CTFontUIFontType = -1;
 pub const kCTFontUserFontType: CTFontUIFontType = 0;
 pub const kCTFontUserFixedPitchFontType: CTFontUIFontType = 1;
 pub const kCTFontSystemFontType: CTFontUIFontType = 2;
@@ -70,7 +69,6 @@ pub const kCTFontToolTipFontType: CTFontUIFontType = 25;
 pub const kCTFontControlContentFontType: CTFontUIFontType = 26;
 
 pub type CTFontTableTag = u32;
-// TODO: create bindings for enum with 'chars' values
 
 pub type CTFontTableOptions = u32;
 pub const kCTFontTableOptionsNoOptions: CTFontTableOptions = 0;
@@ -253,9 +251,6 @@ pub fn new_ui_font_for_language(
                 .unwrap_or(std::ptr::null()),
         );
         if font_ref.is_null() {
-            // CTFontCreateUIFontForLanguage can fail, but is unlikely to do so during
-            // normal usage (if you pass a bad ui_type it will). To make things more
-            // convenient, just panic if it fails.
             panic!();
         } else {
             CTFont::wrap_under_create_rule(font_ref)
@@ -264,14 +259,12 @@ pub fn new_ui_font_for_language(
 }
 
 impl CTFont {
-    // Properties
     pub fn symbolic_traits(&self) -> CTFontSymbolicTraits {
         unsafe { CTFontGetSymbolicTraits(self.0) }
     }
 }
 
 impl CTFont {
-    // Creation methods
     pub fn copy_to_CGFont(&self) -> CGFont {
         unsafe {
             let cgfont_ref = CTFontCopyGraphicsFont(self.0, ptr::null_mut());
@@ -315,7 +308,6 @@ impl CTFont {
         }
     }
 
-    // Names
     pub fn get_string_by_name_key(&self, name_key: CTFontNameSpecifier) -> Option<String> {
         unsafe {
             let result = CTFontCopyName(self.as_concrete_TypeRef(), name_key.into());
@@ -361,7 +353,6 @@ impl CTFont {
         unsafe { CTFontTraits::wrap_under_create_rule(CTFontCopyTraits(self.0)) }
     }
 
-    // Font metrics
     pub fn ascent(&self) -> CGFloat {
         unsafe { CTFontGetAscent(self.0) }
     }
@@ -541,7 +532,6 @@ impl CTFont {
     }
 }
 
-// Helper methods
 pub fn debug_font_names(font: &CTFont) {
     fn get_key(font: &CTFont, key: CTFontNameSpecifier) -> String {
         font.get_string_by_name_key(key).unwrap()
@@ -584,7 +574,6 @@ pub fn debug_font_traits(font: &CTFont) {
     let traits = font.all_traits();
     println!("kCTFontWeightTrait: {}", traits.normalized_weight());
     println!("kCTFontWidthTrait: {}", traits.normalized_width());
-    //    println!("kCTFontSlantTrait: {}", traits.normalized_slant());
 }
 
 #[cfg(feature = "mountainlion")]
@@ -603,11 +592,7 @@ pub fn cascade_list_for_languages(
 
 #[cfg_attr(feature = "link", link(name = "CoreText", kind = "framework"))]
 extern "C" {
-    /*
-     * CTFont.h
-     */
 
-    /* Name Specifier Constants */
     static kCTFontCopyrightNameKey: CFStringRef;
     static kCTFontFamilyNameKey: CFStringRef;
     static kCTFontSubFamilyNameKey: CFStringRef;
@@ -629,27 +614,13 @@ extern "C" {
 
     #[cfg(test)]
     static kCTFontVariationAxisIdentifierKey: CFStringRef;
-    //static kCTFontVariationAxisMinimumValueKey: CFStringRef;
     #[cfg(test)]
     static kCTFontVariationAxisMaximumValueKey: CFStringRef;
-    //static kCTFontVariationAxisDefaultValueKey: CFStringRef;
-    //static kCTFontVariationAxisNameKey: CFStringRef;
 
-    //static kCTFontFeatureTypeIdentifierKey: CFStringRef;
-    //static kCTFontFeatureTypeNameKey: CFStringRef;
-    //static kCTFontFeatureTypeExclusiveKey: CFStringRef;
-    //static kCTFontFeatureTypeSelectorsKey: CFStringRef;
-    //static kCTFontFeatureSelectorIdentifierKey: CFStringRef;
-    //static kCTFontFeatureSelectorNameKey: CFStringRef;
-    //static kCTFontFeatureSelectorDefaultKey: CFStringRef;
-    //static kCTFontFeatureSelectorSettingKey: CFStringRef;
 
     static kCTFontURLAttribute: CFStringRef;
 
-    // N.B. Unlike most Cocoa bindings, this extern block is organized according
-    // to the documentation's Functions By Task listing, because there so many functions.
 
-    /* Creating Fonts */
     fn CTFontCreateWithName(
         name: CFStringRef,
         size: CGFloat,
@@ -690,10 +661,7 @@ extern "C" {
         symTraitValue: CTFontSymbolicTraits,
         symTraitMask: CTFontSymbolicTraits,
     ) -> CTFontRef;
-    //fn CTFontCreateCopyWithFamily
-    //fn CTFontCreateForString
 
-    /* Getting Font Data */
     fn CTFontCopyFontDescriptor(font: CTFontRef) -> CTFontDescriptorRef;
     fn CTFontCopyAttribute(font: CTFontRef, attribute: CFStringRef) -> CFTypeRef;
     fn CTFontGetSize(font: CTFontRef) -> CGFloat;
@@ -701,26 +669,14 @@ extern "C" {
     fn CTFontGetSymbolicTraits(font: CTFontRef) -> CTFontSymbolicTraits;
     fn CTFontCopyTraits(font: CTFontRef) -> CFDictionaryRef;
 
-    /* Getting Font Names */
-    //fn CTFontCopyPostScriptName(font: CTFontRef) -> CFStringRef;
-    //fn CTFontCopyFamilyName(font: CTFontRef) -> CFStringRef;
-    //fn CTFontCopyFullName(font: CTFontRef) -> CFStringRef;
-    //fn CTFontCopyDisplayName(font: CTFontRef) -> CFStringRef;
     fn CTFontCopyName(font: CTFontRef, nameKey: CFStringRef) -> CFStringRef;
-    //fn CTFontCopyLocalizedName(font: CTFontRef, nameKey: CFStringRef,
-    //                           language: *CFStringRef) -> CFStringRef;
     #[cfg(feature = "mountainlion")]
     fn CTFontCopyDefaultCascadeListForLanguages(
         font: CTFontRef,
         languagePrefList: CFArrayRef,
     ) -> CFArrayRef;
 
-    /* Working With Encoding */
-    //fn CTFontCopyCharacterSet
-    //fn CTFontGetStringEncoding
-    //fn CTFontCopySupportedLanguages
 
-    /* Getting Font Metrics */
     fn CTFontGetAscent(font: CTFontRef) -> CGFloat;
     fn CTFontGetDescent(font: CTFontRef) -> CGFloat;
     fn CTFontGetLeading(font: CTFontRef) -> CGFloat;
@@ -733,7 +689,6 @@ extern "C" {
     fn CTFontGetCapHeight(font: CTFontRef) -> CGFloat;
     fn CTFontGetXHeight(font: CTFontRef) -> CGFloat;
 
-    /* Getting Glyph Data */
     fn CTFontCreatePathForGlyph(
         font: CTFontRef,
         glyph: CGGlyph,
@@ -762,15 +717,9 @@ extern "C" {
         count: CFIndex,
     );
 
-    /* Working With Font Variations */
     fn CTFontCopyVariationAxes(font: CTFontRef) -> CFArrayRef;
-    //fn CTFontCopyVariation
 
-    /* Getting Font Features */
-    //fn CTFontCopyFeatures
-    //fn CTFontCopyFeatureSettings
 
-    /* Working with Glyphs */
     fn CTFontGetGlyphsForCharacters(
         font: CTFontRef,
         characters: *const UniChar,
@@ -784,9 +733,7 @@ extern "C" {
         count: size_t,
         context: CGContextRef,
     );
-    //fn CTFontGetLigatureCaretPositions
 
-    /* Converting Fonts */
     fn CTFontCopyGraphicsFont(font: CTFontRef, attributes: *mut CTFontDescriptorRef) -> CGFontRef;
     fn CTFontCreateWithGraphicsFont(
         graphicsFont: CGFontRef,
@@ -794,11 +741,7 @@ extern "C" {
         matrix: *const CGAffineTransform,
         attributes: CTFontDescriptorRef,
     ) -> CTFontRef;
-    //fn CTFontGetPlatformFont
-    //fn CTFontCreateWithPlatformFont
-    //fn CTFontCreateWithQuickdrawInstance
 
-    /* Getting Font Table Data */
     fn CTFontCopyAvailableTables(font: CTFontRef, options: CTFontTableOptions) -> CFArrayRef;
     fn CTFontCopyTable(
         font: CTFontRef,
@@ -828,7 +771,6 @@ fn copy_font() {
 fn macos_version() -> (i32, i32, i32) {
     use std::io::Read;
 
-    // This is the same approach that Firefox uses for detecting versions
     let file = "/System/Library/CoreServices/SystemVersion.plist";
     let mut f = std::fs::File::open(file).unwrap();
     let mut system_version_data = Vec::new();
@@ -874,7 +816,6 @@ fn copy_system_font() {
     let small = new_ui_font_for_language(kCTFontSystemDetailFontType, 19., None);
     let big = small.clone_with_font_size(20.);
 
-    // ensure that we end up with different fonts for the different sizes before 10.15
     if macos_version() < (10, 15, 0) {
         assert_ne!(big.url(), small.url());
     } else {
@@ -884,17 +825,14 @@ fn copy_system_font() {
     let ps = small.postscript_name();
     let desc = small.copy_descriptor();
 
-    // check that we can construct a new version by descriptor
     let ctfont = new_from_descriptor(&desc, 20.);
     assert_eq!(big.postscript_name(), ctfont.postscript_name());
 
-    // check that we can construct a new version by attributes
     let attr = desc.attributes();
     let desc_from_attr = font_descriptor::new_from_attributes(&attr);
     let font_from_attr = new_from_descriptor(&desc_from_attr, 19.);
     assert_eq!(font_from_attr.postscript_name(), small.postscript_name());
 
-    // on newer versions of macos we can't construct by name anymore
     if macos_version() < (10, 13, 0) {
         let ui_font_by_name = new_from_name(&small.postscript_name(), 19.).unwrap();
         assert_eq!(ui_font_by_name.postscript_name(), small.postscript_name());
@@ -906,7 +844,6 @@ fn copy_system_font() {
         assert_eq!(ui_font_by_name.postscript_name(), big.postscript_name());
     }
 
-    // but we can still construct the CGFont by name
     let cgfont = CGFont::from_name(&CFString::new(&ps)).unwrap();
     let cgfont = new_from_CGFont(&cgfont, 0.);
     println!("{:?}", cgfont);
@@ -941,7 +878,6 @@ fn copy_system_font() {
     assert_eq!(small.postscript_name(), cgfont.postscript_name());
 }
 
-// Tests what happens when variations have values not inbetween min and max
 #[test]
 fn out_of_range_variations() {
     use crate::*;
@@ -988,7 +924,6 @@ fn out_of_range_variations() {
     let var_attrs = var_desc.attributes();
     dbg!(&var_attrs);
 
-    // Handling of attributes greater than max changed between versions
     let var_attrs = var_attrs.find(variation_attribute);
     if version >= (14, 0, 0) {
         check_attrs(0., var_attrs, axes);
@@ -1009,7 +944,6 @@ fn out_of_range_variations() {
         let var_attrs = var_attrs.unwrap().downcast::<CFDictionary>().unwrap();
         assert!(!var_attrs.is_empty());
         let var_attrs: CFDictionary<CFType, CFType> = unsafe { std::mem::transmute(var_attrs) };
-        // attributes greater than max remain
         for axis in axes.iter() {
             let tag = axis
                 .find(unsafe { kCTFontVariationAxisIdentifierKey })
@@ -1050,7 +984,6 @@ fn equal_descriptor_different_font() {
 
     let sys_font = new_ui_font_for_language(kCTFontSystemDetailFontType, 19., None);
 
-    // but we can still construct the CGFont by name
     let create_vars = |desc| {
         let vals: Vec<(CFNumber, CFNumber)> =
             vec![(CFNumber::from(0x6f70737a), CFNumber::from(17.))];
@@ -1067,20 +1000,17 @@ fn equal_descriptor_different_font() {
         if macos_version() >= (11, 0, 0) {
             assert_eq!(from_font_desc, resized_font_desc);
         } else {
-            // we won't have a name if we're using system font desc
             if from_font_desc
                 .attributes()
                 .find(unsafe { font_descriptor::kCTFontNameAttribute })
                 .is_none()
             {
-                // it's surprising that desc's are the not equal but the attributes are
                 assert_ne!(from_font_desc, resized_font_desc);
                 assert_eq!(
                     from_font_desc.attributes().to_untyped(),
                     resized_font_desc.attributes().to_untyped()
                 );
             } else if macos_version() >= (10, 13, 0) {
-                // this is unsurprising
                 assert_ne!(from_font_desc, resized_font_desc);
                 assert_ne!(
                     from_font_desc.attributes().to_untyped(),
@@ -1104,7 +1034,6 @@ fn equal_descriptor_different_font() {
         (from_font_desc, resized_font_desc)
     };
 
-    // setting the variation works properly if we use system font desc
     let (from_font_desc, resized_font_desc) = create_vars(sys_font.copy_descriptor());
     assert_eq!(from_font_desc, resized_font_desc);
     assert!(resized_font_desc
@@ -1112,7 +1041,6 @@ fn equal_descriptor_different_font() {
         .find(variation_attribute.clone())
         .is_some());
 
-    // but doesn't if we refer to it by name
     let ps = sys_font.postscript_name();
     let cgfont = CGFont::from_name(&CFString::new(&ps)).unwrap();
     let ctfont = new_from_CGFont(&cgfont, 0.);
@@ -1147,14 +1075,13 @@ fn system_font_variation() {
 
     let small = new_ui_font_for_language(kCTFontSystemDetailFontType, 19., None);
 
-    // but we can still construct the CGFont by name
     let ps = small.postscript_name();
     let cgfont = CGFont::from_name(&CFString::new(&ps)).unwrap();
     let cgfont = new_from_CGFont(&cgfont, 0.);
     let desc = cgfont.copy_descriptor();
 
     let vals: Vec<(CFNumber, CFNumber)> =
-        vec![(CFNumber::from(0x6f70737a /* opsz */), CFNumber::from(17.))];
+        vec![(CFNumber::from(0x6f70737a  ), CFNumber::from(17.))];
     let vals_dict = CFDictionary::from_CFType_pairs(&vals);
     let variation_attribute =
         unsafe { CFString::wrap_under_get_rule(font_descriptor::kCTFontVariationAttribute) };
@@ -1165,7 +1092,6 @@ fn system_font_variation() {
     let attrs = ct_var_font_desc.attributes();
     let var_attr = attrs.find(CFString::from_static_string("NSCTFontVariationAttribute"));
     if macos_version() >= (11, 0, 0) {
-        // the variation goes away
         assert!(var_attr.is_none());
     } else {
         assert!(var_attr.is_some());
@@ -1176,7 +1102,6 @@ fn system_font_variation() {
 
 #[test]
 fn ui_font() {
-    // pass some garbagey inputs
     new_ui_font_for_language(
         kCTFontSystemDetailFontType,
         10000009.,

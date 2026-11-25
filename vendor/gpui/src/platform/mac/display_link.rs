@@ -89,13 +89,6 @@ impl DisplayLink {
 impl Drop for DisplayLink {
     fn drop(&mut self) {
         self.stop().log_err();
-        // We see occasional segfaults on the CVDisplayLink thread.
-        //
-        // It seems possible that this happens because CVDisplayLinkRelease releases the CVDisplayLink
-        // on the main thread immediately, but the background thread that CVDisplayLink uses for timers
-        // is still accessing it.
-        //
-        // We might also want to upgrade to CADisplayLink, but that requires dropping old macOS support.
         std::mem::forget(self.display_link.take());
         unsafe {
             dispatch_source_cancel(self.frame_requests);
@@ -106,7 +99,6 @@ impl Drop for DisplayLink {
 mod sys {
     //! Derived from display-link crate under the following license:
     //! <https://github.com/BrainiumLLC/display-link/blob/master/LICENSE-MIT>
-    //! Apple docs: [CVDisplayLink](https://developer.apple.com/documentation/corevideo/cvdisplaylinkoutputcallback?language=objc)
     #![allow(dead_code, non_upper_case_globals)]
 
     use anyhow::Result;
@@ -197,15 +189,10 @@ mod sys {
 
     pub type CVDisplayLinkOutputCallback = unsafe extern "C" fn(
         display_link_out: *mut CVDisplayLink,
-        // A pointer to the current timestamp. This represents the timestamp when the callback is called.
         current_time: *const CVTimeStamp,
-        // A pointer to the output timestamp. This represents the timestamp for when the frame will be displayed.
         output_time: *const CVTimeStamp,
-        // Unused
         flags_in: i64,
-        // Unused
         flags_out: *mut i64,
-        // A pointer to app-defined data.
         display_link_context: *mut c_void,
     ) -> i32;
 
@@ -232,7 +219,6 @@ mod sys {
     }
 
     impl DisplayLink {
-        /// Apple docs: [CVDisplayLinkCreateWithCGDisplay](https://developer.apple.com/documentation/corevideo/1456981-cvdisplaylinkcreatewithcgdisplay?language=objc)
         pub unsafe fn new(
             display_id: CGDirectDisplayID,
             callback: CVDisplayLinkOutputCallback,
@@ -262,7 +248,6 @@ mod sys {
     }
 
     impl DisplayLinkRef {
-        /// Apple docs: [CVDisplayLinkStart](https://developer.apple.com/documentation/corevideo/1457193-cvdisplaylinkstart?language=objc)
         pub unsafe fn start(&mut self) -> Result<()> {
             unsafe {
                 let code = CVDisplayLinkStart(self);
@@ -271,7 +256,6 @@ mod sys {
             }
         }
 
-        /// Apple docs: [CVDisplayLinkStop](https://developer.apple.com/documentation/corevideo/1457281-cvdisplaylinkstop?language=objc)
         pub unsafe fn stop(&mut self) -> Result<()> {
             unsafe {
                 let code = CVDisplayLinkStop(self);

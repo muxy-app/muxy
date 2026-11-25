@@ -2,6 +2,7 @@ mod raster;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod sfsymbol;
+pub mod svg;
 
 pub use raster::tinted_svg;
 #[cfg(target_os = "macos")]
@@ -43,12 +44,14 @@ pub enum Icon {
     LayoutSplit,
     Lightbulb,
     Maximize,
+    Minimize,
     Move,
     Network,
     Palette,
     PanelBottom,
     PanelLeft,
     PanelRight,
+    SidebarRight,
     Pin,
     PinOff,
     Plus,
@@ -135,12 +138,14 @@ impl Icon {
             Self::Keyboard => "keyboard",
             Self::Lightbulb => "lightbulb",
             Self::Maximize => "maximize",
+            Self::Minimize => "window-minimize",
             Self::Move => "move",
             Self::Network => "network",
             Self::Palette => "palette",
             Self::PanelBottom => "panel-bottom",
             Self::PanelLeft => "panel-left",
             Self::PanelRight => "panel-right",
+            Self::SidebarRight => "sidebar-right",
             Self::Pin => "pin",
             Self::PinOff => "pin-off",
             Self::Plus => "plus",
@@ -195,8 +200,6 @@ impl Icon {
         SharedString::from(format!("icons/{name}.svg"))
     }
 
-    /// The bundled icon that stands in for an SF Symbol. A filled symbol is
-    /// drawn as its outline.
     pub fn from_symbol(symbol: &str) -> Option<Self> {
         Some(match symbol.strip_suffix(".fill").unwrap_or(symbol) {
             "house" => Self::House,
@@ -225,6 +228,7 @@ impl Icon {
             "trash" => Self::Trash,
             "xmark" => Self::X,
             "arrow.up.left.and.arrow.down.right" => Self::Maximize,
+            "minus" => Self::Minimize,
             "arrow.down.right.and.arrow.up.left" => Self::Restore,
             "cpu" => Self::Cpu,
             "ladybug" => Self::Bug,
@@ -235,6 +239,7 @@ impl Icon {
             "arrow.up.forward.app" | "arrow.up.right.square" => Self::ExternalLink,
             "person.crop.circle" => Self::CircleUser,
             "sidebar.left" => Self::PanelLeft,
+            "sidebar.right" => Self::SidebarRight,
             "arrow.up.arrow.down" => Self::ArrowUpDown,
             "macwindow.badge.plus" => Self::AppWindow,
             "chevron.down" => Self::ChevronDown,
@@ -319,12 +324,14 @@ impl Icon {
             Self::Keyboard => "keyboard",
             Self::Lightbulb => "lightbulb",
             Self::Maximize => "arrow.up.left.and.arrow.down.right",
+            Self::Minimize => "minus",
             Self::Move => "arrow.up.and.down.and.arrow.left.and.right",
             Self::Network => "network",
             Self::Palette => "paintpalette",
             Self::PanelBottom => "rectangle.bottomhalf.inset.filled",
             Self::PanelLeft => "sidebar.left",
             Self::PanelRight => "rectangle.righthalf.inset.filled",
+            Self::SidebarRight => "sidebar.right",
             Self::Pin => "pin.fill",
             Self::PinOff => "pin.slash",
             Self::Plus => "plus",

@@ -1,2 +1,8 @@
 Muxy/Resources/markdown-assets/** linguist-vendored
 scripts/** linguist-vendored
+
+*.patch text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=lf
+crates/muxy-server/shell/** text eol=lf
+scripts/zig/zig text eol=lf

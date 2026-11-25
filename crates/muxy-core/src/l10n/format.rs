@@ -1,12 +1,7 @@
-//! Apple-style format strings, the placeholder syntax of `Localizable.strings`
-//! keys: `%@`, `%lld`, `%1$@`, `%.1f`, `%%`, and `%#@name@` plural references.
-
 use std::borrow::Cow;
 
 const MAX_FIELD_SIZE: usize = 1024;
 
-/// The argument type a placeholder reads. Length modifiers that read the same
-/// type, such as `%ld` and `%lld`, share a kind.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
     Object,
@@ -24,7 +19,6 @@ pub enum Kind {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Spec<'a> {
-    /// The 1-based `%N$` position, when written.
     pub position: Option<usize>,
     pub flags: &'a str,
     pub width: Option<usize>,
@@ -38,12 +32,9 @@ pub enum Token<'a> {
     Text(&'a str),
     Percent,
     Argument(Spec<'a>),
-    /// A `%#@name@` reference to a plural variable.
     Variable(&'a str),
 }
 
-/// Splits a format into tokens; `None` when a placeholder is malformed or
-/// takes its width or precision from an argument.
 pub fn tokens(format: &str) -> Option<Vec<Token<'_>>> {
     let bytes = format.as_bytes();
     let mut tokens = Vec::new();
@@ -180,7 +171,6 @@ fn kind(length: &str, conversion: char) -> Option<Kind> {
     }
 }
 
-/// A value passed to a translated format.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Arg<'a> {
     Text(Cow<'a, str>),
@@ -222,7 +212,6 @@ numbers!(Int, i64: i8, i16, i32, i64, isize);
 numbers!(UInt, u64: u8, u16, u32, u64, usize);
 numbers!(Float, f64: f32, f64);
 
-/// Writes one placeholder with C `printf` semantics for its flags, width, and precision.
 pub(super) fn write_argument(out: &mut String, spec: &Spec<'_>, arg: Option<&Arg<'_>>) {
     let left = spec.flags.contains('-');
     let integral = "diuxXo".contains(spec.conversion);
@@ -359,7 +348,6 @@ fn float(value: f64, spec: &Spec<'_>) -> String {
     )
 }
 
-/// `1.500000e+03` rather than Rust's `1.5e3`.
 fn exponent(value: f64, precision: usize) -> String {
     let text = format!("{value:.precision$e}");
     let (mantissa, power) = text.split_once('e').unwrap_or((&text, "0"));

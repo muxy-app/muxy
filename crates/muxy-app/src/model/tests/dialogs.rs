@@ -30,8 +30,6 @@ fn dialogs_asked_together_are_shown_one_after_the_other(cx: &mut TestAppContext)
     assert!(view.read_with(cx, |model, _| !model.dialogs.is_open()));
 }
 
-/// Like a portable dialog's handle: dropping it closes the dialog in a later
-/// task.
 struct ShownDialog {
     events: Rc<RefCell<Vec<&'static str>>>,
     cx: gpui::AsyncApp,

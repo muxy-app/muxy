@@ -69,7 +69,6 @@ id = "weak_blocker"
 state = "blocked"
 priority = 600
 region = "whole_recent_without_current_prompt_marker"
-# Sparkles can replace the space after ›. A later response marker makes that prompt stale.
 not = [{ regex = ['(?m)^›[⠁⠂⠄⠈⠐⠠⡀⢀][^\n]*(?:\n(?:[^•■✗✓\n][^\n]*)?)*\z'] }]
 any = [
   { contains = ["[y/n]"] },
@@ -84,10 +83,7 @@ state = "working"
 priority = 500
 region = "before_current_prompt_marker"
 visible_working = true
-# Cheap negative filter before the multiline search.
 contains = ["esc to interrupt"]
-# Animations can hide the bullet, and queued inputs can sit below a dynamic activity label.
-# Require the live timer/control suffix with no later response or interruption marker.
 regex = ['(?m)^(?:[•◦][ \t]+)?[^\s›•◦■✗✓─][^\r\n]* \((?:[0-9]+[hm] )*[0-9]+s • esc to interrupt\)(?: · [^\r\n]*)?(?:\r?\n(?:[^•◦›■✗✓─\r\n][^\r\n]*|•[ \t]+(?:Queued\s+follow-up\s+inputs|Messages\s+to\s+be\s+submitted\s+after\s+next\s+tool\s+call(?:\s+\(press\s+esc\s+to\s+interrupt\s+and\s+send\s+immediately\))?|Messages\s+to\s+be\s+submitted\s+at\s+end\s+of\s+turn)|›[⠁⠂⠄⠈⠐⠠⡀⢀][^\r\n]*)?)*\s*\z']
 
 [[rules]]

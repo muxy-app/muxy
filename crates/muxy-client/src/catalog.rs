@@ -6,18 +6,16 @@ use muxy_protocol::{
     ProjectSessions, ReplyBody, RequestBody, SessionId, SessionStatus,
 };
 
-/// How many times a paged read is tried while the catalog keeps changing
-/// between its pages.
 const PAGED_ATTEMPTS: usize = 8;
-/// The most terminals one listing returns.
 const MAX_LISTED_SESSIONS: usize = 16_384;
+
+#[cfg(test)]
+mod pagination_tests;
 
 fn catalog_changed<T>(result: &Result<T, ClientError>) -> bool {
     matches!(result, Err(ClientError::Server(error)) if error.code == ErrorCode::CatalogChanged)
 }
 
-/// Reads every page again until no page saw the catalog change, a bounded
-/// number of times.
 pub(crate) fn consistent<T>(
     mut read: impl FnMut() -> Result<T, ClientError>,
 ) -> Result<T, ClientError> {
@@ -30,7 +28,6 @@ pub(crate) fn consistent<T>(
     Err(ClientError::Timeout)
 }
 
-/// Like `consistent`, without blocking.
 pub(crate) async fn consistent_async<T, F: Future<Output = Result<T, ClientError>>>(
     mut read: impl FnMut() -> F,
 ) -> Result<T, ClientError> {
@@ -41,6 +38,27 @@ pub(crate) async fn consistent_async<T, F: Future<Output = Result<T, ClientError
         }
     }
     Err(ClientError::Timeout)
+}
+
+pub(crate) fn append_page(
+    result: &mut CatalogPage,
+    page: CatalogPage,
+    after: ProjectId,
+) -> Result<(), ClientError> {
+    if page.server != result.server
+        || page.home != result.home
+        || page.next.is_some_and(|next| next <= after)
+        || page
+            .projects
+            .first()
+            .is_some_and(|project| project.id <= after)
+        || result.projects.len() + page.projects.len() > MAX_PROJECTS
+    {
+        return Err(ClientError::Protocol("invalid catalog pagination".into()));
+    }
+    result.projects.extend(page.projects);
+    result.next = page.next;
+    Ok(())
 }
 
 fn available(session: &ProjectSession) -> bool {
@@ -91,9 +109,6 @@ impl Client {
         }
     }
 
-    /// The folders directly inside `directory`, an absolute path on the
-    /// server's computer. Servers from before this request answer
-    /// `Unsupported`.
     pub fn list_folders(
         &self,
         directory: muxy_protocol::ServerPath,
@@ -104,9 +119,16 @@ impl Client {
         }
     }
 
-    /// Sends `bytes` as a file named `name` for `session` to keep on the
-    /// server's computer, in chunks, and returns its absolute path there.
-    /// Servers from before uploads answer `Unsupported`.
+    pub fn list_entries(
+        &self,
+        directory: muxy_protocol::ServerPath,
+    ) -> Result<Vec<muxy_protocol::PathEntry>, ClientError> {
+        match self.request(RequestBody::ListEntries(directory))? {
+            ReplyBody::Entries(entries) => Ok(entries),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
     pub fn upload(
         &self,
         session: SessionId,
@@ -174,7 +196,6 @@ impl Client {
         }
     }
 
-    /// Every project, from one consistent catalog revision.
     pub fn catalog(&self) -> Result<CatalogPage, ClientError> {
         consistent(|| self.catalog_snapshot())
     }
@@ -183,19 +204,7 @@ impl Client {
         let mut result = self.catalog_page(None, None)?;
         while let Some(after) = result.next {
             let page = self.catalog_page(Some(after), Some(result.revision))?;
-            if page.server != result.server
-                || page.home != result.home
-                || page.next.is_some_and(|next| next <= after)
-                || page
-                    .projects
-                    .first()
-                    .is_some_and(|project| project.id <= after)
-                || result.projects.len() + page.projects.len() > MAX_PROJECTS
-            {
-                return Err(ClientError::Protocol("invalid catalog pagination".into()));
-            }
-            result.projects.extend(page.projects);
-            result.next = page.next;
+            append_page(&mut result, page, after)?;
         }
         Ok(result)
     }
@@ -207,7 +216,6 @@ impl Client {
         }
     }
 
-    /// The project's terminals that are running and shown nowhere.
     pub fn available_project_sessions(
         &self,
         project: ProjectId,
@@ -215,8 +223,6 @@ impl Client {
         self.all_project_sessions(project, available)
     }
 
-    /// Every terminal of the project that `keep` accepts, from one consistent
-    /// listing.
     pub fn all_project_sessions(
         &self,
         project: ProjectId,
@@ -359,5 +365,41 @@ mod tests {
             "{listing:?}"
         );
         assert_eq!(fake.answered().len(), 1);
+    }
+
+    #[test]
+    fn listing_entries_sends_the_folder_and_reports_an_older_server() {
+        let fake = Fake::start();
+        let folder = ServerPath(b"/home/dev".to_vec());
+        let entries = vec![
+            muxy_protocol::PathEntry {
+                name: ServerPath(b"code".to_vec()),
+                is_directory: true,
+            },
+            muxy_protocol::PathEntry {
+                name: ServerPath(b"notes.txt".to_vec()),
+                is_directory: false,
+            },
+        ];
+        let (request, listed) = fake.answer(ReplyBody::Entries(entries.clone()), |client| {
+            client.list_entries(folder.clone())
+        });
+        assert_eq!(request, RequestBody::ListEntries(folder.clone()));
+        assert_eq!(listed.expect("entries"), entries);
+
+        let (_, listed) = fake.answer(ReplyBody::Folders(Vec::new()), |client| {
+            client.list_entries(folder.clone())
+        });
+        assert!(matches!(listed, Err(ClientError::UnexpectedReply(_))));
+
+        let unsupported = ReplyBody::Error(ErrorReply {
+            code: ErrorCode::Unsupported,
+            message: "update".into(),
+        });
+        let (_, listed) = fake.answer(unsupported, |client| client.list_entries(folder));
+        assert!(matches!(
+            listed,
+            Err(ClientError::Server(error)) if error.code == ErrorCode::Unsupported
+        ));
     }
 }

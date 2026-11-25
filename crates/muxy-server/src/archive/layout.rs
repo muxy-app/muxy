@@ -1,9 +1,3 @@
-//! How a saved screen is laid out on disk.
-//!
-//! These types are frozen: a change to them needs a new file magic. Protocol
-//! changes only touch the conversions below. Rows keep the protocol's postcard
-//! layout, which is frozen on the wire as well.
-
 use std::sync::Arc;
 
 use muxy_protocol::{
@@ -69,7 +63,6 @@ struct StoredCursor {
     visible: bool,
 }
 
-/// Unknown shapes keep their protocol number.
 #[derive(Debug, Serialize, Deserialize)]
 enum StoredCursorShape {
     Block,
@@ -79,7 +72,6 @@ enum StoredCursorShape {
     Unrecognized(u32),
 }
 
-/// Unknown reasons keep their protocol number.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(super) enum StoredExitReason {
     Exited(i32),
@@ -151,7 +143,6 @@ impl From<StoredGraphics> for Graphics {
     }
 }
 
-/// A saved screen keeps the frame an animation was showing, as a still image.
 impl From<&GraphicImage> for StoredImage {
     fn from(image: &GraphicImage) -> Self {
         let GraphicImage {
@@ -162,6 +153,7 @@ impl From<&GraphicImage> for StoredImage {
             rgba,
             frames: _,
             playback: _,
+            shared: _,
         } = image;
         Self {
             id: *id,

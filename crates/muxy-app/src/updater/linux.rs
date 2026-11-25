@@ -1,5 +1,3 @@
-//! User-owned, versioned desktop installations. Package-manager files are never replaced.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -118,23 +116,26 @@ impl Installation {
     }
 
     pub(crate) fn cleanup(&self, _socket: &Path) -> Result<()> {
-        run(&mut self.command("prune"))?;
-        Ok(())
+        let pruned = run(&mut self.command("prune"));
+        run(self
+            .command("upgrade-entry")
+            .args(["--version", env!("CARGO_PKG_VERSION")]))?;
+        pruned.map(drop)
     }
 }
 
 impl PreparedUpdate {
     #[cfg(test)]
-    pub(crate) fn fixture() -> Result<Self> {
-        let root = tempfile::tempdir()?.keep();
-        Ok(Self {
+    pub(crate) fn fixture() -> Self {
+        let root = crate::test_support::directory();
+        Self {
             version: "2.0.0-beta.1234".into(),
             build: Some(muxy_protocol::BuildInfo::current()),
             installation: Installation {
                 installer: root.join("install.py"),
                 root,
             },
-        })
+        }
     }
 
     pub(crate) fn compatible_with(&self, server: &muxy_protocol::ServerInfo) -> bool {

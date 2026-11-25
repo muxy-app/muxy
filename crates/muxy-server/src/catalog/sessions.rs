@@ -90,19 +90,15 @@ impl Catalog {
         status: SessionStatus,
     ) -> Result<(), ServerError> {
         self.update(|state| {
-            if let Some(membership) = state.sessions.get_mut(&session) {
-                // A fast process may exit before the spawning thread publishes its handle.
-                if status != SessionStatus::Live || membership.status == SessionStatus::Starting {
-                    membership.status = status;
-                }
+            if let Some(membership) = state.sessions.get_mut(&session)
+                && (status != SessionStatus::Live || membership.status == SessionStatus::Starting)
+            {
+                membership.status = status;
             }
             Ok(())
         })
     }
 
-    /// Names a session for every client. With `replacing`, only while its
-    /// name is still that one. A request that changes nothing only makes sure
-    /// an earlier change is on disk.
     pub(crate) fn set_session_name(
         &self,
         session: SessionId,
@@ -198,7 +194,6 @@ impl Catalog {
         })
     }
 
-    /// Gives a session to another project; `false` when it already belongs there.
     pub(crate) fn move_session(
         &self,
         session: SessionId,
@@ -218,7 +213,6 @@ impl Catalog {
         })
     }
 
-    /// The project `session` belongs to, if the catalog keeps it.
     pub(crate) fn session_project(&self, session: SessionId) -> Option<ProjectId> {
         self.lock()
             .sessions
@@ -226,8 +220,6 @@ impl Catalog {
             .map(|membership| membership.info.project)
     }
 
-    /// Every session the catalog keeps, live or saved, except those being
-    /// discarded.
     pub(crate) fn sessions(&self) -> std::collections::BTreeSet<SessionId> {
         let state = self.lock();
         state

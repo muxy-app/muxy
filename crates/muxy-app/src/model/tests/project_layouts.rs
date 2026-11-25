@@ -60,7 +60,7 @@ fn project_layouts_require_confirmation_and_preserve_other_projects(cx: &mut Tes
     state
         .set_pane_session(first_pane, Some(session))
         .expect("session");
-    state.prepare_creation(first_pane, &std::env::temp_dir());
+    state.prepare_creation(first_pane, &crate::test_support::project_directory());
     let other_tabs = state.project(second).expect("other").tabs.clone();
     let (boot, requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
@@ -172,7 +172,9 @@ fn project_layouts_reject_bad_files_stale_replies_and_failed_saves(cx: &mut Test
     choose(&view, cx, first, request, "tab: nvim");
     assert!(cx.has_pending_prompt());
     let path = view.read_with(cx, |model, _| model.path.clone());
-    view.update(cx, |model, _| model.path = std::env::temp_dir());
+    view.update(cx, |model, _| {
+        model.path = crate::test_support::project_directory();
+    });
     requests.try_iter().for_each(drop);
     cx.simulate_prompt_answer("Apply Layout");
     cx.run_until_parked();

@@ -88,8 +88,6 @@ fn toggled(on: bool) -> Toggled {
     if on { Toggled::True } else { Toggled::False }
 }
 
-/// A box ticked when `checked`. `mixed` shows a dash instead, for a box that
-/// stands for several where only some are ticked.
 pub fn checkbox(
     style: Style,
     id: &str,
@@ -145,14 +143,11 @@ pub fn checkbox(
             )
         })
         .focus(|focus| focus.border_color(theme.accent))
-        // Like a macOS checkbox, a click ticks it without focusing it; Tab
-        // still does.
         .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
         .button_interaction(on_click)
         .into_any_element()
 }
 
-/// How a button reads: the main action, an ordinary one, or one that destroys.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ButtonKind {
     Primary,
@@ -161,7 +156,6 @@ pub enum ButtonKind {
     Danger,
 }
 
-/// What a [`button`] shows and whether it can be pressed.
 #[derive(Clone, Copy, Debug)]
 pub struct Button<'a> {
     kind: ButtonKind,
@@ -194,15 +188,12 @@ impl<'a> Button<'a> {
         }
     }
 
-    /// What accessibility clients read when it isn't the label, such as for a
-    /// button that only shows an icon.
     #[must_use]
     pub fn named(mut self, name: &'a str) -> Self {
         self.name = Some(name);
         self
     }
 
-    /// An SF Symbol shown before the label.
     #[must_use]
     pub fn icon(mut self, symbol: &'static str) -> Self {
         self.icon = Some(symbol);
@@ -216,8 +207,6 @@ impl<'a> Button<'a> {
     }
 }
 
-/// A button that the pointer and the keyboard (Tab, then Space or Return) can
-/// press, dimmed and inert while disabled.
 pub fn button(
     style: Style,
     id: &str,
@@ -504,7 +493,6 @@ pub fn fraction_at(bounds: Bounds<Pixels>, position: Point<Pixels>) -> f32 {
     (f32::from(position.x - bounds.origin.x) / width).clamp(0.0, 1.0)
 }
 
-/// How far a client's step moves a [`slider`], as a fraction of its range.
 const SLIDER_STEP: f32 = 0.05;
 
 pub fn slider(
@@ -664,8 +652,6 @@ pub fn text_field(
         .on_mouse_down_out({
             let input = input.clone();
             move |_, window, cx| {
-                // After the press, so whatever it landed on still sees the keyboard
-                // where it was, and can take it from this field.
                 let focus = input.focus_handle(cx);
                 window.defer(cx, move |window, _| {
                     if focus.is_focused(window) {

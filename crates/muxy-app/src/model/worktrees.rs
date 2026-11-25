@@ -1,5 +1,4 @@
 use std::collections::{HashSet, VecDeque};
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use gpui::Context;
@@ -14,17 +13,14 @@ use muxy_ui::tr;
 
 use super::{AppModel, Work, git::Repository};
 
-/// A worktree the server is creating, shown in the sidebar until it answers.
 pub(crate) struct Creation {
     pub(crate) parent: ProjectId,
     pub(crate) name: String,
     operation: OperationId,
     location: WorktreeLocation,
-    /// The new worktree is selected if this is still the current project.
     from: ProjectId,
 }
 
-/// Whether `action` removes a worktree and its files.
 pub(crate) fn removes_worktree(action: &GitAction) -> bool {
     matches!(
         action,
@@ -35,22 +31,16 @@ pub(crate) fn removes_worktree(action: &GitAction) -> bool {
     )
 }
 
-/// Brings Git worktrees made outside Muxy into each project, one project at a
-/// time so a long sidebar never floods the server.
 #[derive(Default)]
 pub(crate) struct WorktreeSync {
     queue: VecDeque<ProjectId>,
-    /// The project syncing now, with the connection generation it runs on.
     running: Option<(ProjectId, u64)>,
     candidates: HashSet<ProjectId>,
     pending_pruning: HashSet<ProjectId>,
-    /// Git changed while the running project synced, so it syncs once more.
     again: bool,
-    /// New projects keep worktrees hidden unless their repository already has some.
     unchecked: HashSet<ProjectId>,
 }
 
-/// Git's worktrees for a top-level project.
 pub(super) async fn list(
     client: &Client,
     root: ProjectId,
@@ -58,10 +48,6 @@ pub(super) async fn list(
     client.git_worktrees_async(root).await
 }
 
-/// Registers every worktree `root` doesn't show yet. A failure only counts if
-/// the worktree is still unregistered afterwards, since another client may
-/// have registered it meanwhile. `local` says the folders are on this
-/// computer.
 pub(super) async fn register(
     client: &Client,
     root: ProjectId,
@@ -101,8 +87,6 @@ pub(super) async fn register(
         .map_or(Ok(()), |(_, error)| Err(error))
 }
 
-/// A worktree the project at `own` lists under itself: neither the main
-/// checkout nor the project's own folder.
 pub(super) fn listed(worktree: &GitWorktree, own: &Path, local: bool) -> bool {
     !worktree.primary
         && !worktree.bare
@@ -110,17 +94,14 @@ pub(super) fn listed(worktree: &GitWorktree, own: &Path, local: bool) -> bool {
         && resolved(&worktree.directory, local) != own
 }
 
-/// A folder the way Git reports it, with symlinks and letter case resolved
-/// on this computer. Another computer's folders can't be resolved here.
 pub(super) fn resolved(directory: &ServerPath, local: bool) -> PathBuf {
-    let path = directory.as_path();
+    let path = directory.as_path().to_path_buf();
     if !local {
-        return path.to_owned();
+        return path;
     }
-    path.canonicalize().unwrap_or_else(|_| path.to_owned())
+    muxy_core::files::canonicalize(&path).unwrap_or(path)
 }
 
-/// Registers the worktrees `root` doesn't show yet and returns the ones it lists.
 async fn import(
     client: &Client,
     root: ProjectId,
@@ -154,7 +135,7 @@ pub(super) async fn prune_candidates<
     for (project, directory) in candidates {
         if worktrees.iter().any(|worktree| {
             worktree.registered == Some(project)
-                || worktree.directory.0 == directory.as_os_str().as_bytes()
+                || worktree.directory == ServerPath::from(&directory)
         }) || !folder_gone(project, &directory).await
         {
             continue;
@@ -169,8 +150,6 @@ pub(super) async fn prune_candidates<
     eligible
 }
 
-/// Whether a worktree's folder is gone: checked on this disk, or for
-/// another computer's project, by its server.
 fn folder_gone(
     client: &Client,
     local: bool,
@@ -192,8 +171,6 @@ fn folder_gone(
 }
 
 impl AppModel {
-    /// Asks the server to create a worktree under `parent`, closing the form
-    /// once the request is on its way.
     pub(crate) fn create_worktree(
         &mut self,
         parent: ProjectId,
@@ -223,7 +200,6 @@ impl AppModel {
         });
     }
 
-    /// Forgets the creation `request` started, once the server answered it.
     pub(super) fn take_creation(&mut self, request: &GitRequest) -> Option<Creation> {
         let GitAction::Worktree(intent) = &request.action else {
             return None;
@@ -236,8 +212,6 @@ impl AppModel {
         Some(self.git.creations.remove(index))
     }
 
-    /// Keeps the location the worktree was created with and shows the new
-    /// worktree, unless the user moved to another project meanwhile.
     pub(super) fn worktree_created(
         &mut self,
         creation: Creation,
@@ -266,7 +240,6 @@ impl AppModel {
             .is_some_and(removes_worktree)
     }
 
-    /// Removing the worktree you are in moves you to its primary checkout.
     pub(crate) fn leave_worktree(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         if self.state.current_project().id != project {
             return;
@@ -315,19 +288,15 @@ impl AppModel {
         self.save_appearance(cx);
     }
 
-    /// A choice made in the project menu replaces the new-project default.
     pub(crate) fn worktrees_toggled(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         self.git.worktrees.unchecked.remove(&project);
         self.sync_worktrees(project, cx);
     }
 
-    /// Syncs the worktrees of `project`'s top-level project next.
     pub(super) fn sync_worktrees(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         self.request_worktree_sync(project, false, cx);
     }
 
-    /// Like `sync_worktrees`, and syncs again if a sync is already running,
-    /// because Git changed since it started.
     pub(super) fn resync_worktrees(&mut self, project: ProjectId, cx: &mut Context<Self>) {
         self.request_worktree_sync(project, true, cx);
     }
@@ -368,8 +337,6 @@ impl AppModel {
         self.next_worktree_sync(cx);
     }
 
-    /// Syncs one project at a time, on its own server. Projects whose server
-    /// is not connected wait in the queue.
     fn next_worktree_sync(&mut self, cx: &mut Context<Self>) {
         if self
             .git
@@ -447,8 +414,6 @@ impl AppModel {
         }
     }
 
-    /// Syncs again the roots of `server` that had more worktrees to prune
-    /// than its pending edits could hold, once those are confirmed.
     pub(super) fn resume_worktree_pruning(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if !self.state.project_intents(server).is_empty() {
             return;
@@ -477,7 +442,6 @@ impl AppModel {
         .then(|| ServerPath::from(&project.directory))
     }
 
-    /// Takes the worktrees `root` lists, as `import` returns them.
     pub(super) fn worktrees_synced(
         &mut self,
         root: ProjectId,
@@ -512,7 +476,8 @@ impl AppModel {
                             && !registered.contains(&project.id)
                             && project.parent_id == Some(root)
                             && project.tabs.is_empty()
-                            && !directories.contains(project.directory.as_os_str().as_bytes())
+                            && !directories
+                                .contains(ServerPath::from(&project.directory).0.as_slice())
                     })
                     .map(|project| project.id)
                     .collect();

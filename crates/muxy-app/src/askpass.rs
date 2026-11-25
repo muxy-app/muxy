@@ -1,29 +1,20 @@
-//! ssh asks the running app for a remote server's password. The app's own
-//! executable is ssh's `SSH_ASKPASS`; it fetches the answer from the app
-//! through a private socket. Passwords stay in memory and are never saved.
-
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use muxy_app_core::ServerId;
+use muxy_protocol::transport::{LocalListener, LocalStream};
 
-/// Where the app answers. The app runs as askpass when it is set.
 pub(crate) const SOCKET: &str = "MUXY_ASKPASS_SOCKET";
-/// Which password ssh asks for. It is in the environment of the app's ssh
-/// runs, so only processes of this user can read it.
 pub(crate) const TOKEN: &str = "MUXY_ASKPASS_TOKEN";
 
-/// What the socket answers for one token.
 #[derive(Default)]
 pub(crate) struct Answer {
     password: Option<String>,
-    /// The destination's `user@host`. A password prompt that names any other
-    /// login, such as a jump host's, gets nothing.
     login: Option<String>,
     host_key: Option<HostKeyAnswer>,
 }
@@ -36,11 +27,9 @@ struct HostKeyAnswer {
 
 pub(crate) type Answers = Arc<Mutex<HashMap<String, Answer>>>;
 
-/// Passwords typed this session, and the tokens ssh asks with.
 pub(crate) struct Passwords {
     socket: PathBuf,
     listening: bool,
-    /// Each remote server's token, made once per session.
     tokens: HashMap<ServerId, String>,
     answers: Answers,
 }
@@ -55,9 +44,7 @@ impl Passwords {
         }
     }
 
-    /// Moves the socket before anything listens, for paths short enough
-    /// for a socket in tests.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn set_socket(&mut self, socket: PathBuf) {
         assert!(!self.listening, "the socket already listens");
         self.socket = socket;
@@ -74,8 +61,6 @@ impl Passwords {
             .clone()
     }
 
-    /// How ssh asks for `server`'s password, which answers only prompts that
-    /// name `login`.
     pub(crate) fn askpass(
         &mut self,
         server: ServerId,
@@ -161,13 +146,13 @@ impl Passwords {
         Arc::clone(&self.answers)
     }
 
-    /// Answers on the socket from now on, which only this user can reach.
     fn listen(&mut self) -> io::Result<()> {
         if self.listening {
             return Ok(());
         }
         let _ = std::fs::remove_file(&self.socket);
-        let listener = UnixListener::bind(&self.socket)?;
+        let listener = LocalListener::bind(&self.socket)?;
+        #[cfg(unix)]
         std::fs::set_permissions(&self.socket, std::fs::Permissions::from_mode(0o600))?;
         let answers = Arc::clone(&self.answers);
         std::thread::Builder::new()
@@ -190,9 +175,7 @@ impl Drop for Passwords {
     }
 }
 
-/// Reads `token`, a newline, and ssh's prompt, then writes the password, or
-/// nothing to refuse.
-fn respond(mut stream: UnixStream, answers: &Mutex<HashMap<String, Answer>>) -> io::Result<()> {
+fn respond(mut stream: LocalStream, answers: &Mutex<HashMap<String, Answer>>) -> io::Result<()> {
     let mut request = Vec::new();
     Read::by_ref(&mut stream)
         .take(16 * 1024)
@@ -208,10 +191,6 @@ fn respond(mut stream: UnixStream, answers: &Mutex<HashMap<String, Answer>>) -> 
     stream.write_all(answer.as_bytes())
 }
 
-/// A key's passphrase never leaves this computer, so ssh's own passphrase
-/// prompt gets the password. A password goes to a host, so only a prompt
-/// for exactly the destination's login gets it. Anything else, such as a jump
-/// host's prompt or trusting an unknown host, is refused.
 fn answer_for(answer: &mut Answer, prompt: &str) -> Option<String> {
     if let Some(host_key) = &mut answer.host_key
         && host_key_prompt(prompt)
@@ -247,9 +226,6 @@ fn host_key_prompt(prompt: &str) -> bool {
             .ends_with("Are you sure you want to continue connecting (yes/no/[fingerprint])?")
 }
 
-/// ssh starts a password prompt with the login it is for: `user@host's
-/// password: `, or `(user@host) ` before the server's own words. Both parts
-/// are as `ssh -G` resolves them, so they match exactly.
 fn asks_password_of(prompt: &str, login: &str) -> bool {
     if prompt.strip_prefix(login).map(str::trim_end) == Some("'s password:") {
         return true;
@@ -261,10 +237,9 @@ fn asks_password_of(prompt: &str, login: &str) -> bool {
         .is_some_and(|words| words.to_lowercase().contains("password"))
 }
 
-/// Answers one ssh prompt by asking the app, then exits.
 pub(crate) fn run(socket: &std::ffi::OsStr, prompt: &str) -> ExitCode {
     let token = std::env::var(TOKEN).unwrap_or_default();
-    let answer = UnixStream::connect(socket).and_then(|mut stream| {
+    let answer = LocalStream::connect(socket).and_then(|mut stream| {
         stream.write_all(format!("{token}\n{prompt}").as_bytes())?;
         stream.shutdown(std::net::Shutdown::Write)?;
         let mut answer = String::new();

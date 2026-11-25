@@ -19,7 +19,6 @@ if [[ "${GITHUB_REF:-}" != refs/heads/main ]]; then
     exit 1
 fi
 cd "$ROOT"
-# A beta is built from the commit that triggered it; a stable release from the beta it promotes.
 SOURCE="$GITHUB_SHA"
 if [[ "$CHANNEL" == stable ]]; then
     : "${BETA_TAG:?BETA_TAG is required for a stable release}"
@@ -56,7 +55,6 @@ for ARCH in arm64 x86_64; do
     DEB_PACKAGE=muxy-desktop
     [[ "$CHANNEL" != beta ]] || DEB_PACKAGE=muxy-desktop-beta
     ASSETS+=("${DEB_PACKAGE}_${VERSION}_${DEB_ARCH}.deb")
-    # A beta may skip Intel; a stable release is also how Intel Macs leave Muxy 1.x.
     if [[ "$CHANNEL" == beta && "$ARCH" == x86_64 && ! -e "Muxy-${VERSION}-${ARCH}.dmg" && ! -e "muxy-${VERSION}-macos-${ARCH}.zip" ]]; then
         continue
     fi
@@ -66,11 +64,15 @@ for ARCH in arm64 x86_64; do
     fi
 done
 if [[ "$CHANNEL" == stable ]]; then
-    # Muxy 1.x builds from before per-architecture feeds read appcast.xml.
     if [[ -f appcast-arm64.xml ]]; then
         cp appcast-arm64.xml appcast.xml
     fi
     ASSETS+=(appcast.xml)
+fi
+if [[ "$CHANNEL" == beta ]]; then
+    for ARCH in arm64 x86_64; do
+        ASSETS+=("muxy-${VERSION}-windows-${ARCH}.zip")
+    done
 fi
 ASSETS+=("muxy-mobile-${VERSION}-ios.zip" "muxy-mobile-${VERSION}-android.zip" "muxy-mobile-${VERSION}.json")
 for ASSET in "${ASSETS[@]}"; do
@@ -100,9 +102,6 @@ if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
         exit 0
     fi
 else
-    # RELEASE_NOTES, when given, replaces the generated notes. Otherwise, like Muxy 1.x: GitHub's
-    # generated changes, cleaned. A beta lists the changes since the previous beta; a stable
-    # release lets GitHub choose the previous release.
     NOTES_ARGS=(-f "tag_name=$TAG" -f "target_commitish=$SOURCE")
     : > release-notes.md
     if [[ "$CHANNEL" == beta ]]; then
@@ -128,7 +127,6 @@ else
         --title "Muxy $VERSION" "${DRAFT_FLAGS[@]}" --notes-file release-notes.md
 fi
 
-# A failed upload leaves a resumable draft, never a half-populated public release.
 gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${ASSETS[@]}"
 gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets > uploaded-assets.json
 python3 - uploaded-assets.json "${ASSETS[@]}" <<'PY'
@@ -148,7 +146,6 @@ if [[ "$CHANNEL" == beta ]]; then
 elif [[ "${DRAFT:-false}" == true ]]; then
     echo "==> $TAG is a complete draft. Publishing it as the latest release updates Muxy 1.x and 2.x."
 else
-    # The latest release is the stable feed of Muxy 2.x and of Muxy 1.x's updater.
     gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$SOURCE" \
         --draft=false --prerelease=false --latest
 fi

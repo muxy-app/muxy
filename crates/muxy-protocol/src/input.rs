@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::ErrorCode;
 
-/// Input interpreted by the session owner using its current terminal modes.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub enum TerminalInput {
     #[n(0)]
@@ -58,8 +57,6 @@ impl KeyModifiers {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct KeyEvent {
-    /// Logical character or lowercase key name: enter, up, pageup, f1, numpad0, etc.
-    /// Empty for text without a corresponding key. Not a native library's key number.
     #[n(0)]
     pub key: String,
     #[n(1)]
@@ -68,10 +65,8 @@ pub struct KeyEvent {
     pub modifiers: KeyModifiers,
     #[n(3)]
     pub consumed_modifiers: KeyModifiers,
-    /// Layout-generated text before control/meta transformations, not pasted text.
     #[n(4)]
     pub text: String,
-    /// Zero when the platform cannot supply an unshifted Unicode scalar.
     #[n(5)]
     pub unshifted_codepoint: u32,
     #[n(6)]

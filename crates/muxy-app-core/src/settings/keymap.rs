@@ -27,7 +27,7 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    pub const ACTIONS: [ShortcutId; 66] = [
+    pub const ACTIONS: [ShortcutId; 82] = [
         ShortcutId::OpenSettings,
         ShortcutId::NewHomeTab,
         ShortcutId::NewTabInProject,
@@ -87,6 +87,7 @@ impl Keymap {
         ShortcutId::Find,
         ShortcutId::FindNext,
         ShortcutId::FindPrevious,
+        ShortcutId::InsertPath,
         ShortcutId::ScrollToBottom,
         ShortcutId::PreviousPrompt,
         ShortcutId::NextPrompt,
@@ -94,6 +95,21 @@ impl Keymap {
         ShortcutId::IncreaseFontSize,
         ShortcutId::DecreaseFontSize,
         ShortcutId::NewBrowserTab,
+        ShortcutId::SwitchProject,
+        ShortcutId::RenameTab,
+        ShortcutId::MoveTabLeft,
+        ShortcutId::MoveTabRight,
+        ShortcutId::ResizePaneLeft,
+        ShortcutId::ResizePaneRight,
+        ShortcutId::ResizePaneUp,
+        ShortcutId::ResizePaneDown,
+        ShortcutId::FloatPane,
+        ShortcutId::DockFloatingTerminal,
+        ShortcutId::ShowFloatingTerminalInAllProjects,
+        ShortcutId::ShowFloatingTerminalInItsProject,
+        ShortcutId::MoveTabToMainWindow,
+        ShortcutId::ApplyLayout,
+        ShortcutId::OpenProjectInDefaultApp,
     ];
 
     pub fn chord(&self, action: ShortcutId) -> Option<&KeyChord> {
@@ -110,13 +126,10 @@ impl Keymap {
         self.0.get(id)
     }
 
-    /// Whether the user removed an extension command's shortcut, which an
-    /// empty override records.
     pub fn unassigned(&self, id: &str) -> bool {
         self.1.get(id).is_some_and(String::is_empty)
     }
 
-    /// Removes an extension command's shortcut, including its manifest default.
     pub fn with_unassigned(&self, id: &str) -> Result<Self> {
         if !extension_action(id) {
             return Err(Error::new(
@@ -129,8 +142,6 @@ impl Keymap {
         Self::from_overrides(overrides)
     }
 
-    /// A command can't take a key a built-in action uses now. One that had its
-    /// key before a built-in default claimed it keeps it, and that default yields.
     pub fn with_binding(&self, id: &str, chord: Option<KeyChord>) -> Result<Self> {
         if shortcuts::find(id).is_none() && !extension_action(id) && !command_action(id) {
             return Err(Error::new("keymap", "unknown action"));
@@ -164,8 +175,6 @@ impl Keymap {
         Ok(resolved)
     }
 
-    /// The action that holds `id`'s default key while `id` holds its default
-    /// key. Neither could be reset alone, so resetting one resets both.
     fn swapped_with(&self, id: &str) -> Option<String> {
         let defaults = Self::default();
         let default = defaults.binding(id)?;
@@ -182,7 +191,7 @@ impl Keymap {
     }
 
     pub fn save(&self, path: &std::path::Path) -> Result<()> {
-        crate::settings::appearance::replace_section(path, "keymap", &self.1)
+        crate::settings::document::replace_section(path, "keymap", &self.1)
             .map_err(|error| Error::new("keymap", error))
     }
 
@@ -190,17 +199,13 @@ impl Keymap {
         &self.1
     }
 
-    /// Muxy 1.x closed a tab with ⌘W and a pane with ⇧⌘W, and importing it
-    /// kept those keys. Puts both actions back on their defaults in a settings
-    /// file that binds either one to the other's default key. Returns whether
-    /// the file changed; one that would no longer load is left alone.
     pub fn reset_swapped_close_shortcuts(path: &std::path::Path) -> Result<bool> {
         let error = |error| Error::new("keymap", error);
-        let document = crate::settings::appearance::read_document(path).map_err(error)?;
+        let document = crate::settings::document::read_document(path).map_err(error)?;
         if close_shortcuts_reset(&document).is_none() {
             return Ok(false);
         }
-        crate::settings::appearance::edit_document(path, |document| {
+        crate::settings::document::edit_document(path, |document| {
             let Some(keymap) = close_shortcuts_reset(document) else {
                 return Ok(false);
             };
@@ -287,7 +292,6 @@ impl Keymap {
         Ok(())
     }
 
-    /// Each key a built-in action uses in some context, and that action.
     fn builtin_keys(&self) -> BTreeMap<String, &'static str> {
         let mut builtins = BTreeMap::new();
         for shortcut in shortcuts::ALL {
@@ -317,15 +321,11 @@ impl<'de> Deserialize<'de> for Keymap {
     }
 }
 
-/// macOS-only keys that Linux once used as defaults. A file that still holds
-/// one gets the current Linux default instead.
 const FORMER_LINUX_DEFAULTS: [(&str, &str); 2] = [
     ("new_worktree", "cmd-alt-n"),
     ("switch_worktree", "cmd-alt-w"),
 ];
 
-/// The `[keymap]` table without the close tab and close pane overrides, when
-/// either holds the other's default key and the result still loads.
 fn close_shortcuts_reset(document: &toml::Table) -> Option<toml::Table> {
     let keymap = document.get("keymap")?.as_table()?;
     let defaults = Keymap::default();
@@ -357,7 +357,6 @@ fn former_linux_default(name: &str, value: &str) -> bool {
     !cfg!(target_os = "macos") && FORMER_LINUX_DEFAULTS.contains(&(name, value))
 }
 
-/// Actions that no longer exist. Older settings files that bind them still load.
 const RETIRED: [&str; 9] = [
     "project_colors.previous_color",
     "project_colors.next_color",
@@ -370,8 +369,7 @@ const RETIRED: [&str; 9] = [
     "voice.pause",
 ];
 
-/// Built-in defaults that give way to a key a user binding already has.
-const YIELDING: [ShortcutId; 58] = [
+const YIELDING: [ShortcutId; 75] = [
     ShortcutId::OpenSettings,
     ShortcutId::NewHomeTab,
     ShortcutId::NewTabInProject,
@@ -430,6 +428,23 @@ const YIELDING: [ShortcutId; 58] = [
     ShortcutId::BrowserInspect,
     ShortcutId::FormNextControl,
     ShortcutId::FormPreviousControl,
+    ShortcutId::SwitchProject,
+    ShortcutId::RenameTab,
+    ShortcutId::MoveTabLeft,
+    ShortcutId::MoveTabRight,
+    ShortcutId::ResizePaneLeft,
+    ShortcutId::ResizePaneRight,
+    ShortcutId::ResizePaneUp,
+    ShortcutId::ResizePaneDown,
+    ShortcutId::FloatPane,
+    ShortcutId::DockFloatingTerminal,
+    ShortcutId::ShowFloatingTerminalInAllProjects,
+    ShortcutId::ShowFloatingTerminalInItsProject,
+    ShortcutId::MoveTabToMainWindow,
+    ShortcutId::ApplyLayout,
+    ShortcutId::OpenProjectInDefaultApp,
+    ShortcutId::ToggleAgentSessions,
+    ShortcutId::InsertPath,
 ];
 
 fn overlaps(left: &Shortcut, right: &Shortcut) -> bool {
@@ -455,8 +470,6 @@ fn same_scope(left: &str, right: &str) -> bool {
         return true;
     }
     match (extension_action(left), extension_action(right)) {
-        // Extension commands may share a key: an extension that is off keeps
-        // its binding, and among those that are on the first to claim it wins.
         (true, true) => false,
         (true, false) | (false, true) => true,
         (false, false) => shortcuts::find(left)

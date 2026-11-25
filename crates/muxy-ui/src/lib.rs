@@ -1,6 +1,3 @@
-//! Reusable GPUI components. Shared shortcut definitions come from muxy-core;
-//! app settings resolve them through the registration interface.
-
 pub mod accessibility;
 #[cfg(target_os = "macos")]
 pub mod app_icon;
@@ -56,6 +53,10 @@ pub mod window_drag;
 
 #[allow(unsafe_code)]
 pub mod quick_terminal;
+
+#[cfg(windows)]
+#[allow(unsafe_code, reason = "Writing the app's per-user registry keys")]
+pub mod registry;
 
 #[allow(
     unsafe_code,

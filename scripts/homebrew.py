@@ -31,7 +31,6 @@ def digest(sums, name):
 
 def cask(version, sums, repository):
     arm, intel = (digest(sums, f"Muxy-{version}-{arch}.dmg") for arch in ("arm64", "x86_64"))
-    # The app updates itself and keeps running servers through it; brew upgrade would not.
     return f'''cask "muxy" do
   arch arm: "arm64", intel: "x86_64"
 

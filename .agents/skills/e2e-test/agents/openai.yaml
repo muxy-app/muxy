@@ -1,0 +1,4 @@
+interface:
+  display_name: "Muxy E2E Tests"
+  short_description: "Release E2E tests on macOS, Wayland and X11 VMs with parallel low-cost testers"
+  default_prompt: "Use $e2e-test to run Muxy's E2E suites on all platforms."

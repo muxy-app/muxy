@@ -1,7 +1,3 @@
-//! The Servers page's Clients section: whether phones and other computers
-//! may reach this computer's server, the code that pairs one, and the
-//! clients paired with it.
-
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,7 +20,6 @@ use crate::model::AppModel;
 
 pub(crate) const CODE_SIZE: f32 = 196.0;
 
-/// A pairing offer as shown: its link, and the QR code encoded once.
 #[derive(Clone)]
 pub(crate) struct Pairing {
     link: String,
@@ -49,9 +44,6 @@ impl Pairing {
     }
 }
 
-/// The section's title and its card, or why it can't show yet. Until
-/// clients are allowed, the card holds only the switch and the clients
-/// already paired.
 pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let m = model.servers_page.metrics;
     let access = model.client_access();
@@ -144,8 +136,6 @@ pub(crate) fn this_computer(model: &AppModel, cx: &Context<AppModel>) -> AnyElem
         .into_any_element()
 }
 
-/// The server-wide switch for push notifications to paired phones, saying
-/// what it does in its current position.
 fn push_row(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) -> AnyElement {
     let on = state.push_notifications;
     row(
@@ -196,7 +186,6 @@ fn note(text: &str, error: bool, model: &AppModel) -> AnyElement {
     }
 }
 
-/// A label and its description beside the control.
 fn row(
     id: &'static str,
     label: SharedString,
@@ -236,7 +225,6 @@ fn row(
         .into_any_element()
 }
 
-/// A label and its description over the content.
 fn stacked(
     id: &'static str,
     label: SharedString,
@@ -346,7 +334,6 @@ fn pairing(state: &RemoteAccessState, model: &AppModel, cx: &Context<AppModel>) 
         .into_any_element()
 }
 
-/// The pairing code, or why it can't show.
 pub(crate) fn code(code: Option<Arc<QrCode>>, metrics: Metrics) -> AnyElement {
     let Some(code) = code else {
         return div()
@@ -367,7 +354,6 @@ pub(crate) fn code(code: Option<Arc<QrCode>>, metrics: Metrics) -> AnyElement {
         .into_any_element()
 }
 
-/// Dark modules on a light square in every theme, merged into one quad per run.
 pub(crate) fn qr(code: Arc<QrCode>) -> gpui::Canvas<()> {
     canvas(
         |_, _, _| {},
@@ -505,7 +491,6 @@ fn kind(kind: DeviceKind) -> SharedString {
     }
 }
 
-/// Whether the phone gets push notifications, once it asked for them.
 fn notifications(device: &PairedDevice) -> Option<SharedString> {
     Some(match device.push? {
         PushStatus::Active => tr!("Notifications on"),

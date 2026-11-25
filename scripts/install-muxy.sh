@@ -29,7 +29,6 @@ if [ "$DEV_ARCHIVE" = true ]; then
     FILES='muxy muxy-server'
     FILE_COUNT=2
 else
-    # A stable X.Y.Z, or a beta X.Y.Z-beta.N where N is a commit count.
     BASE=${VERSION%%-beta.*}
     if [ "$BASE" != "$VERSION" ]; then
         case "${VERSION#"$BASE"-beta.}" in ''|0*|*[!0-9]*) fail 'Invalid beta version.' ;; esac
@@ -118,7 +117,6 @@ else
     [ "${ACTUAL%% *}" = "$EXPECTED" ] || fail 'Archive SHA-256 mismatch.'
 fi
 
-# Validate names and types before reading individual members into regular files.
 printf '%s\n' $FILES | sort > "$TEMP/expected"
 if [ "$EXT" = zip ]; then
     unzip -Z -1 "$TEMP/$ARCHIVE" > "$TEMP/members"
@@ -189,8 +187,6 @@ GENERATION=$(mktemp -d "$MANAGED/pair-$VERSION.XXXXXX")
 for BINARY in $FILES; do mv "$STAGE/pair/$BINARY" "$GENERATION/"; done
 ln -s "${GENERATION##*/}" "$STAGE/current"
 
-# Preserve a usable previous pair while converting ordinary files or bundle
-# links. Public commands must never point at a missing or unrelated generation.
 if [ -f "$DEST/muxy" ] && [ -f "$DEST/muxy-server" ] &&
     { [ ! -L "$DEST/muxy" ] || [ "$(readlink "$DEST/muxy")" != '.muxy/current/muxy' ] ||
       [ ! -L "$DEST/muxy-server" ] || [ "$(readlink "$DEST/muxy-server")" != '.muxy/current/muxy-server' ]; }; then
@@ -203,8 +199,6 @@ if [ -f "$DEST/muxy" ] && [ -f "$DEST/muxy-server" ] &&
     mv -f "$MOVE_FLAG" "$STAGE/previous" "$MANAGED/current"
 fi
 
-# Existing managed commands already use this shared pointer. For the first
-# installation, prepare both public links with rollback before activating it.
 for BINARY in muxy-server muxy; do
     if [ -L "$DEST/$BINARY" ] && [ "$(readlink "$DEST/$BINARY")" = ".muxy/current/$BINARY" ]; then
         continue

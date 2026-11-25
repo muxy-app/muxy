@@ -7,6 +7,7 @@ caught too, so a hung test fails the check whatever the harness mode.
 
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -21,27 +22,41 @@ TESTS_FINISHED = re.compile(rb"test result: ")
 
 def run(command, **kwargs):
     """Run the command like subprocess.run(command, check=True, **kwargs), within the test time limit."""
-    # A file, unlike a pipe, cannot keep the run waiting on processes the command leaves behind.
-    with tempfile.TemporaryFile() as output:
-        process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT, start_new_session=True, **kwargs)
-        try:
-            slow_test = watch(process, output.fileno())
-        finally:
-            if process.poll() is None:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
+    directory = tempfile.mkdtemp()
+    try:
+        path = os.path.join(directory, "output")
+        with open(path, "wb") as output, open(path, "rb", buffering=0) as reader:
+            process = subprocess.Popen(
+                command, stdout=output, stderr=subprocess.STDOUT, start_new_session=os.name != "nt", **kwargs
+            )
+            try:
+                slow_test = watch(process, reader)
+            finally:
+                if process.poll() is None:
+                    kill_tree(process)
+                    process.wait()
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
     if slow_test:
         raise TimeoutError(f"Stopped the run because {slow_test} ran for over {LIMIT_SECONDS} seconds")
     if process.returncode:
         raise subprocess.CalledProcessError(process.returncode, command)
 
 
+def kill_tree(process):
+    """Kill the command and every process it started."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True, check=False)
+    else:
+        os.killpg(process.pid, signal.SIGKILL)
+
+
 def watch(process, output):
     """Echo the command's output as it grows and return the first test that runs too long, if any."""
-    offset, partial, testing, last_output = 0, b"", False, time.monotonic()
+    partial, testing, last_output = b"", False, time.monotonic()
     while True:
         exited = process.poll() is not None
-        chunk = os.pread(output, 1 << 16, offset)
+        chunk = output.read(1 << 16)
         if not chunk:
             if exited:
                 return None
@@ -49,7 +64,6 @@ def watch(process, output):
                 return "a test"
             time.sleep(0.1)
             continue
-        offset += len(chunk)
         last_output = time.monotonic()
         sys.stdout.buffer.write(chunk)
         sys.stdout.buffer.flush()

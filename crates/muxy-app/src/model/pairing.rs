@@ -1,7 +1,3 @@
-//! Pairing with another computer from the link its Servers page shows.
-//! The server's entry lives in `settings.toml` and its token for this
-//! computer in `paired-servers.toml`.
-
 use gpui::{Context, Task};
 use muxy_app_core::ServerId;
 use muxy_app_core::settings::{PairedServer, PairingTokens, ServerEntry};
@@ -11,23 +7,16 @@ use muxy_ui::tr;
 
 use super::{AppModel, Quitting};
 
-/// Pairing with another computer, kept apart from the form that started it,
-/// so it finishes and is saved even if the form closes.
 #[derive(Default)]
 pub(crate) struct Pairing {
     running: Option<Task<()>>,
-    /// Accepted by the other computer but not saved here yet. Its link is
-    /// spent, so saving again reuses the pairing instead of the link.
     unsaved: Option<(PairingInvite, Paired)>,
 }
 
-/// What the pairing form submits.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct PairingForm {
     pub(crate) link: String,
-    /// Empty keeps the name it had, or the one the other computer reports.
     pub(crate) name: String,
-    /// Empty leaves it ungrouped.
     pub(crate) group: String,
 }
 
@@ -38,7 +27,6 @@ pub(crate) fn parse_link(link: &str) -> Result<PairingInvite, String> {
     })
 }
 
-/// Why pairing failed, in the words of what to do about it.
 fn pairing_failure(error: &ClientError) -> String {
     match error {
         ClientError::Server(reply) if reply.code == ErrorCode::Unauthorized => tr!(
@@ -59,13 +47,15 @@ fn pairing_failure(error: &ClientError) -> String {
     }
 }
 
-/// This computer as the other one lists it among its paired devices.
 fn computer_name() -> String {
+    #[cfg(unix)]
     let name = rustix::system::uname()
         .nodename()
         .to_string_lossy()
         .trim()
         .to_owned();
+    #[cfg(windows)]
+    let name = std::env::var("COMPUTERNAME").unwrap_or_default();
     let mut label = String::new();
     for character in name
         .strip_suffix(".local")
@@ -90,11 +80,6 @@ impl AppModel {
         self.pairing.running.is_some()
     }
 
-    /// Pairs with the computer the form's link is for and lists it, or with
-    /// `id`, pairs that listed server again. Everything that can fail here is
-    /// checked first, since the link works once. Pairing runs off the UI
-    /// thread and is saved when it finishes, even if the form has closed;
-    /// `finish_pair_form` hears how it went.
     pub(crate) fn start_pairing(
         &mut self,
         id: Option<ServerId>,
@@ -129,7 +114,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Saves a pairing the other computer accepted, or keeps it to save again.
     pub(super) fn save_pairing(
         &mut self,
         id: Option<ServerId>,
@@ -154,8 +138,6 @@ impl AppModel {
         }
     }
 
-    /// What the form holds that pairing would fail on after spending the
-    /// link: its name and group, and a link for another listed computer.
     fn check_pairing(
         &self,
         id: Option<ServerId>,
@@ -183,7 +165,6 @@ impl AppModel {
         }
     }
 
-    /// The listed server with this certificate.
     fn paired_with(&self, fingerprint: &[u8; 32]) -> Option<&ServerEntry> {
         self.settings.servers.iter().find(|entry| {
             entry
@@ -193,7 +174,6 @@ impl AppModel {
         })
     }
 
-    /// Pairs with the computer that showed `invite`, off the UI thread.
     fn pair_computer(
         invite: PairingInvite,
         cx: &mut Context<Self>,
@@ -206,11 +186,6 @@ impl AppModel {
         })
     }
 
-    /// Lists a computer this one just paired with, and connects to it. One
-    /// already listed, by `id` or by the same certificate, is updated in place,
-    /// so pairing again never lists it twice. Pairing again from its own form
-    /// (`id`) takes the group as typed. The token is saved first: if the entry
-    /// can't be, the token it had before is put back.
     pub(crate) fn save_paired_server(
         &mut self,
         id: Option<ServerId>,
@@ -273,7 +248,6 @@ impl AppModel {
         Ok(server)
     }
 
-    /// Renames or regroups a paired server without pairing again.
     pub(crate) fn edit_paired_server(
         &mut self,
         id: ServerId,
@@ -299,8 +273,6 @@ impl AppModel {
         Ok(())
     }
 
-    /// Why a paired server stopped accepting this computer, by the name the
-    /// user gave it, which its worker doesn't know.
     pub(super) fn name_unpaired(
         &self,
         server: ServerId,
@@ -318,10 +290,6 @@ impl AppModel {
         )
     }
 
-    /// Drops the tokens of the paired servers about to be forgotten, and
-    /// returns them to put back if forgetting fails, so a server is never
-    /// listed without its token or gone with its token left behind. Their
-    /// pairing stays on the other computer until it is revoked there.
     pub(super) fn take_pairings(
         &self,
         servers: &[ServerId],

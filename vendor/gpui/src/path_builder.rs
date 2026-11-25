@@ -13,19 +13,14 @@ pub use lyon::tessellation::{FillOptions, FillRule, StrokeOptions};
 
 use crate::{Path, Pixels, Point, point, px};
 
-/// Style of the PathBuilder
 pub enum PathStyle {
-    /// Stroke style
     Stroke(StrokeOptions),
-    /// Fill style
     Fill(FillOptions),
 }
 
-/// A [`Path`] builder.
 pub struct PathBuilder {
     raw: lyon::path::builder::WithSvg<lyon::path::BuilderImpl>,
     transform: Option<lyon::math::Transform>,
-    /// PathStyle of the PathBuilder
     pub style: PathStyle,
     dash_array: Option<Vec<Pixels>>,
 }
@@ -84,7 +79,6 @@ impl Default for PathBuilder {
 }
 
 impl PathBuilder {
-    /// Creates a new [`PathBuilder`] to build a Stroke path.
     pub fn stroke(width: Pixels) -> Self {
         Self {
             style: PathStyle::Stroke(StrokeOptions::default().with_line_width(width.0)),
@@ -92,22 +86,15 @@ impl PathBuilder {
         }
     }
 
-    /// Creates a new [`PathBuilder`] to build a Fill path.
     pub fn fill() -> Self {
         Self::default()
     }
 
-    /// Sets the style of the [`PathBuilder`].
     pub fn with_style(self, style: PathStyle) -> Self {
         Self { style, ..self }
     }
 
-    /// Sets the dash array of the [`PathBuilder`].
-    ///
-    /// [MDN](https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Attribute/stroke-dasharray)
     pub fn dash_array(mut self, dash_array: &[Pixels]) -> Self {
-        // If an odd number of values is provided, then the list of values is repeated to yield an even number of values.
-        // Thus, 5,3,2 is equivalent to 5,3,2,5,3,2.
         let array = if dash_array.len() % 2 == 1 {
             let mut new_dash_array = dash_array.to_vec();
             new_dash_array.extend_from_slice(dash_array);
@@ -120,26 +107,21 @@ impl PathBuilder {
         self
     }
 
-    /// Move the current point to the given point.
     #[inline]
     pub fn move_to(&mut self, to: Point<Pixels>) {
         self.raw.move_to(to.into());
     }
 
-    /// Draw a straight line from the current point to the given point.
     #[inline]
     pub fn line_to(&mut self, to: Point<Pixels>) {
         self.raw.line_to(to.into());
     }
 
-    /// Draw a curve from the current point to the given point, using the given control point.
     #[inline]
     pub fn curve_to(&mut self, to: Point<Pixels>, ctrl: Point<Pixels>) {
         self.raw.quadratic_bezier_to(ctrl.into(), to.into());
     }
 
-    /// Adds a cubic Bézier to the [`Path`] given its two control points
-    /// and its end point.
     #[inline]
     pub fn cubic_bezier_to(
         &mut self,
@@ -151,7 +133,6 @@ impl PathBuilder {
             .cubic_bezier_to(control_a.into(), control_b.into(), to.into());
     }
 
-    /// Adds an elliptical arc.
     pub fn arc_to(
         &mut self,
         radii: Point<Pixels>,
@@ -168,7 +149,6 @@ impl PathBuilder {
         );
     }
 
-    /// Equivalent to `arc_to` in relative coordinates.
     pub fn relative_arc_to(
         &mut self,
         radii: Point<Pixels>,
@@ -185,7 +165,6 @@ impl PathBuilder {
         );
     }
 
-    /// Adds a polygon.
     pub fn add_polygon(&mut self, points: &[Point<Pixels>], closed: bool) {
         let points = points.iter().copied().map(|p| p.into()).collect::<Vec<_>>();
         self.raw.add_polygon(Polygon {
@@ -194,19 +173,16 @@ impl PathBuilder {
         });
     }
 
-    /// Close the current sub-path.
     #[inline]
     pub fn close(&mut self) {
         self.raw.close();
     }
 
-    /// Applies a transform to the path.
     #[inline]
     pub fn transform(&mut self, transform: Transform) {
         self.transform = Some(transform);
     }
 
-    /// Applies a translation to the path.
     #[inline]
     pub fn translate(&mut self, to: Point<Pixels>) {
         if let Some(transform) = self.transform {
@@ -216,7 +192,6 @@ impl PathBuilder {
         }
     }
 
-    /// Applies a scale to the path.
     #[inline]
     pub fn scale(&mut self, scale: f32) {
         if let Some(transform) = self.transform {
@@ -226,9 +201,6 @@ impl PathBuilder {
         }
     }
 
-    /// Applies a rotation to the path.
-    ///
-    /// The `angle` is in degrees value in the range 0.0 to 360.0.
     #[inline]
     pub fn rotate(&mut self, angle: f32) {
         let radians = angle.to_radians();
@@ -239,7 +211,6 @@ impl PathBuilder {
         }
     }
 
-    /// Builds into a [`Path`].
     #[inline]
     pub fn build(self) -> Result<Path<Pixels>, Error> {
         let path = if let Some(transform) = self.transform {
@@ -258,11 +229,9 @@ impl PathBuilder {
         path: &lyon::path::Path,
         options: &FillOptions,
     ) -> Result<Path<Pixels>, Error> {
-        // Will contain the result of the tessellation.
         let mut buf: VertexBuffers<lyon::math::Point, u16> = VertexBuffers::new();
         let mut tessellator = FillTessellator::new();
 
-        // Compute the tessellation.
         tessellator.tessellate_path(
             path,
             options,
@@ -304,11 +273,9 @@ impl PathBuilder {
             path
         };
 
-        // Will contain the result of the tessellation.
         let mut buf: VertexBuffers<lyon::math::Point, u16> = VertexBuffers::new();
         let mut tessellator = StrokeTessellator::new();
 
-        // Compute the tessellation.
         tessellator.tessellate_path(
             path,
             options,
@@ -318,7 +285,6 @@ impl PathBuilder {
         Ok(Self::build_path(buf))
     }
 
-    /// Builds a [`Path`] from a [`lyon::tessellation::VertexBuffers`].
     pub fn build_path(buf: VertexBuffers<lyon::math::Point, u16>) -> Path<Pixels> {
         if buf.vertices.is_empty() {
             return Path::new(Point::default());

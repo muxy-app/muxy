@@ -34,9 +34,14 @@ Every payload value is a string.
 | `panel.opened`, `panel.closed` | `extensionID`, `panelID`, and `instance` for a named [instance](panels.md#instances) | |
 | `popover.opened`, `popover.closed` | `extensionID`, `popoverID` | |
 | `modal.opened`, `modal.closed` | `extensionID`, `modalID` | |
+| `ui.changed` | Everything `ui.state()` returns | |
+| `theme.changed` | `name`, `colorScheme` (`light` or `dark`) | |
+| `preferences.changed` | `key`, `value`, once per [preference](api.md#preferences) that changed | `preferences:read` |
+| `settings.changed` | `key` of the extension's own setting that changed | |
 
 **Tab context:** `tabID`, `projectID`, `worktreeID`, `areaID`, `title`,
-`projectPath`, and `kind` (`terminal`, `extensionWebView`, or `browser`).
+`projectPath`, `isPinned`, `color` when set, and `kind` (`terminal`,
+`extensionWebView`, or `browser`).
 Terminal tabs add `paneID` and `cwd`. Extension tabs add
 `extensionID`, `tabTypeID`, `tabInstanceID`, and `data` as a JSON string.
 Browser tabs add `paneID` and `url`.

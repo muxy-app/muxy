@@ -37,6 +37,12 @@ impl VisibilityMotion {
         self.started = self.clock.now();
     }
 
+    pub fn show(&mut self) {
+        self.from = self.value();
+        self.target = 1.0;
+        self.started = self.clock.now();
+    }
+
     fn value(&self) -> f32 {
         let progress = (self.clock.now().duration_since(self.started).as_secs_f32()
             / self.duration.as_secs_f32())

@@ -315,17 +315,17 @@ impl PreparedUpdate {
     }
 
     #[cfg(test)]
-    pub(crate) fn fixture() -> Result<Self> {
-        let staging = tempfile::tempdir()?;
-        Ok(Self {
+    pub(crate) fn fixture() -> Self {
+        let staging = crate::test_support::directory();
+        Self {
             version: "2.0.0-beta.1234".into(),
             installation: Installation {
-                bundle: staging.path().join("installed.app"),
+                bundle: staging.join("installed.app"),
                 team: "TESTTEAM00".into(),
             },
-            staging: staging.keep(),
+            staging,
             build: Some(muxy_protocol::BuildInfo::current()),
-        })
+        }
     }
 
     pub(crate) fn compatible_with(&self, server: &muxy_protocol::ServerInfo) -> bool {

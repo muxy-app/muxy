@@ -1,8 +1,3 @@
-//! The app's proxy beyond terminals: its own web requests, and ssh to other
-//! computers. ssh runs the app's own executable as its `ProxyCommand`, which
-//! reads the proxy from its environment, connects through it, and relays
-//! ssh's bytes.
-
 use std::fmt::Write as _;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, TcpStream, ToSocketAddrs};
@@ -14,23 +9,16 @@ use std::time::Duration;
 use muxy_app_core::settings::{ProxyKind, ProxySettings};
 use muxy_client::ProxyCommand;
 
-/// The app runs as ssh's proxy command when this is its first argument.
 pub(crate) const TUNNEL: &str = "--muxy-proxy-tunnel";
-/// Which proxy the tunnel uses. It is in the environment of the app's ssh
-/// runs, so only processes of this user can read it.
 const SETTINGS: &str = "MUXY_PROXY";
-/// Covers connecting to the proxy and its handshake.
 const TIMEOUT: Duration = Duration::from_secs(10);
-/// Longest proxy reply header accepted.
 const MAX_REPLY: usize = 16 * 1024;
 
-/// The proxy the app's own requests use, when it applies to the whole app.
 #[cfg(not(test))]
 static APP: RwLock<Option<ProxySettings>> = RwLock::new(None);
 
 #[cfg(test)]
 thread_local! {
-    /// Tests run side by side, so each keeps its own.
     static APP: RwLock<Option<ProxySettings>> = const { RwLock::new(None) };
 }
 
@@ -52,8 +40,6 @@ fn app() -> Option<ProxySettings> {
     with_app(|app| app.read().unwrap_or_else(PoisonError::into_inner).clone())
 }
 
-/// Sends the client's requests through the app's proxy, if there is one. A
-/// proxy that can't be used fails the request instead of going around it.
 pub(crate) fn configure(
     builder: reqwest::blocking::ClientBuilder,
 ) -> reqwest::Result<reqwest::blocking::ClientBuilder> {
@@ -69,7 +55,6 @@ pub(crate) fn configure(
     Ok(builder.proxy(route))
 }
 
-/// How ssh reaches other computers through `proxy`.
 pub(crate) fn ssh_command(proxy: &ProxySettings) -> io::Result<ProxyCommand> {
     Ok(ProxyCommand {
         program: std::env::current_exe()?,
@@ -83,7 +68,6 @@ pub(crate) fn ssh_command(proxy: &ProxySettings) -> io::Result<ProxyCommand> {
     })
 }
 
-/// Runs as ssh's proxy command for `<host> <port>`.
 pub(crate) fn run_tunnel(mut arguments: impl Iterator<Item = std::ffi::OsString>) -> ExitCode {
     let result = (|| {
         let host = arguments
@@ -110,8 +94,6 @@ pub(crate) fn run_tunnel(mut arguments: impl Iterator<Item = std::ffi::OsString>
     }
 }
 
-/// A connection to `host:port` through `proxy`, or straight there when
-/// `proxy` bypasses it, ready for the caller's bytes.
 pub(crate) fn connect(proxy: &ProxySettings, host: &str, port: u16) -> io::Result<TcpStream> {
     if proxy.bypasses(host) {
         return open(host, port);
@@ -290,8 +272,6 @@ fn socks5_failure(code: u8) -> &'static str {
     }
 }
 
-/// Copies standard input to `stream` and `stream` to standard output until
-/// the computer closes the connection.
 fn relay(stream: &TcpStream) -> io::Result<()> {
     let mut upstream = stream.try_clone()?;
     thread::spawn(move || {

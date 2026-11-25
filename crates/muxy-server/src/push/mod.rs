@@ -1,9 +1,3 @@
-//! Push notifications to paired phones through the muxy.app relay.
-//!
-//! One thread makes every relay call, so registrations, deliveries, and
-//! deletions never race. Requests change the saved registration themselves
-//! and ask the thread to bring the relay in line.
-
 mod payload;
 mod relay;
 
@@ -23,20 +17,15 @@ pub(crate) use relay::{Credentials, HttpRelay, Outgoing, Relay, RelayError};
 use crate::remote::PushRecord;
 use crate::{Registry, ServerError};
 
-/// How long an event waits for the user before the phone is told.
 const GRACE: Duration = Duration::from_secs(20);
-/// A notification's lifetime at APNs and FCM, and how long it is retried.
 const TTL_SECONDS: u64 = 3600;
-/// How long `RegisterPush` waits for the relay before answering `Pending`.
 pub(crate) const REGISTER_WAIT: Duration = Duration::from_secs(12);
 const FIRST_RETRY: Duration = Duration::from_secs(5);
 const LAST_RETRY: Duration = Duration::from_secs(10 * 60);
 const DELETE_ATTEMPTS: u32 = 5;
-/// The thread checks this often whether the server is still there.
 const IDLE: Duration = Duration::from_secs(60);
 
 enum Command {
-    /// Brings the relay in line with the device's saved registration.
     Resync {
         device: DeviceId,
         reply: Option<Sender<PushStatus>>,
@@ -45,14 +34,12 @@ enum Command {
     Delete(Credentials),
 }
 
-/// The relay, and the thread that talks to it once the server runs it.
 pub(crate) struct Push {
     relay: Arc<dyn Relay>,
     timing: Timing,
     commands: Mutex<Option<Sender<Command>>>,
 }
 
-/// How long events wait for the user, and the first wait before a retry.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Timing {
     pub(crate) grace: Duration,
@@ -106,8 +93,6 @@ impl Push {
         }
     }
 
-    /// The device's status once the relay answers, or `None` if it takes
-    /// longer than `wait`; the thread keeps trying either way.
     fn sync(&self, device: DeviceId, wait: Duration) -> Option<PushStatus> {
         let (reply, status) = mpsc::channel();
         if !self.send(Command::Resync {
@@ -121,15 +106,12 @@ impl Push {
 }
 
 impl Registry {
-    /// Uses `relay` for push notifications, with `timing` instead of the real waits.
     #[cfg(test)]
     pub(crate) fn with_push_relay(mut self, relay: Arc<dyn Relay>, timing: Timing) -> Self {
         self.push = Push::new(relay, timing);
         self
     }
 
-    /// Starts the push thread, which then hears about every new activity
-    /// event and retries registrations left pending.
     pub fn start_push(self: &Arc<Self>) {
         let mut commands = self
             .push
@@ -173,8 +155,6 @@ impl Registry {
         *commands = Some(sender);
     }
 
-    /// Keeps the phone's token and answers with its key, registering with
-    /// the relay when the token is new or changed, or wasn't accepted yet.
     pub(crate) fn register_push(
         &self,
         device: DeviceId,
@@ -233,7 +213,6 @@ impl Registry {
         })
     }
 
-    /// Stops the phone's notifications and forgets its key.
     pub(crate) fn unregister_push(&self, device: DeviceId) -> Result<(), ServerError> {
         loop {
             let Some(current) = self.remote.push_record(device) else {
@@ -246,8 +225,6 @@ impl Registry {
         }
     }
 
-    /// A paused phone's new token, so it is the one registered when
-    /// notifications come back on. A phone with nothing kept stays without.
     fn keep_paused_token(&self, device: DeviceId, token: &PushToken) -> Result<(), ServerError> {
         loop {
             let Some(current) = self.remote.push_record(device) else {
@@ -270,9 +247,6 @@ impl Registry {
         }
     }
 
-    /// Off deletes the relay registrations and keeps each phone's token and
-    /// key; on registers those phones again with the same keys, so they need
-    /// not reconnect.
     pub(crate) fn set_push_notifications(
         &self,
         on: bool,
@@ -290,8 +264,6 @@ impl Registry {
         Ok(self.remote_access_state())
     }
 
-    /// Forgets one phone's push registration and key; it gets a new key when
-    /// it next registers.
     pub(crate) fn reset_push(
         &self,
         device: DeviceId,
@@ -303,7 +275,6 @@ impl Registry {
         Ok(self.remote_access_state())
     }
 
-    /// Deletes a revoked phone's registration at the relay.
     pub(crate) fn forget_push(&self, record: Option<PushRecord>) {
         self.push.delete(record.and_then(|record| record.relay));
     }
@@ -316,7 +287,6 @@ fn disabled() -> PushRegistration {
     }
 }
 
-/// APNs tokens are hex in any case; the relay keeps them lowercase.
 fn normalized(mut token: PushToken) -> PushToken {
     if token.platform == PushPlatform::Apns {
         token.token.make_ascii_lowercase();
@@ -339,7 +309,6 @@ fn unix_now() -> u64 {
         .as_secs()
 }
 
-/// Doubles from `first` up to `LAST_RETRY`, unless the relay said when.
 fn backoff(first: Duration, attempt: u32, after: Option<Duration>) -> Duration {
     after.map_or_else(
         || first.saturating_mul(1 << attempt.min(16)).min(LAST_RETRY),
@@ -432,7 +401,6 @@ impl Worker {
         }
     }
 
-    /// One sync per device: a newer request joins the one waiting, and runs now.
     fn schedule_sync(&mut self, device: DeviceId, due: Instant, reply: Option<Sender<PushStatus>>) {
         if let Some(sync) = self.syncs.iter_mut().find(|sync| sync.device == device) {
             sync.due = sync.due.min(due);
@@ -486,7 +454,6 @@ impl Worker {
         }
     }
 
-    /// The device's status afterwards, and when the relay asked to be tried again.
     fn sync_device(
         &mut self,
         registry: &Registry,
@@ -551,7 +518,6 @@ impl Worker {
         (status, retry_after)
     }
 
-    /// Deletes a registration the relay made for a record that changed meanwhile.
     fn forget(&mut self, created: Option<Credentials>) {
         if let Some(credentials) = created {
             self.deletes.push(Deletion {
@@ -576,7 +542,6 @@ impl Worker {
         }
     }
 
-    /// The event outlived the grace period: one delivery per registered phone.
     fn expand(&mut self, registry: &Registry, event: u64) {
         if registry.activity.event(event).is_none() || !sending(registry) {
             return;
@@ -595,7 +560,6 @@ impl Worker {
         }
     }
 
-    /// Checks every rule again right before the call, since earlier calls take time.
     fn deliver(&mut self, registry: &Registry, delivery: Delivery) {
         let Some(event) = registry.activity.event(delivery.event) else {
             return;
@@ -675,7 +639,6 @@ fn take_due<T>(items: &mut Vec<T>, now: Instant, due: impl Fn(&T) -> Instant) ->
     ready
 }
 
-/// Push is on, and phones may connect to open what they are told about.
 fn sending(registry: &Registry) -> bool {
     registry.remote.push_notifications() && registry.remote.accepting()
 }

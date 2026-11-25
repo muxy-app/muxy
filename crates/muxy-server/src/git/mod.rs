@@ -6,6 +6,7 @@ mod github;
 mod hooks;
 mod mutate;
 mod operations;
+mod parse;
 mod processes;
 mod read;
 mod snapshot;
@@ -14,16 +15,14 @@ mod tests;
 pub(crate) mod watch;
 mod worktree;
 
-use crate::{Registry, ServerError};
+use crate::{Registry, ServerError, locks::KeyedLocks};
 use command::run;
 use muxy_protocol::{
     GitAction, GitPullRequestAction, GitReply, GitRequest, ProjectId, ProjectKind, ServerPath,
 };
-use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
-use std::os::unix::ffi::OsStrExt;
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
+use std::sync::{Arc, PoisonError, RwLock};
 
 type Result<T> = std::result::Result<T, ServerError>;
 fn error(message: impl std::fmt::Display) -> ServerError {
@@ -34,9 +33,27 @@ fn text(bytes: &[u8]) -> Result<String> {
         .map(|s| s.trim_end_matches('\n').to_owned())
         .map_err(error)
 }
+fn path(path: &ServerPath) -> Result<PathBuf> {
+    path.to_path_buf()
+        .map_err(|code| ServerError::new(code, "Path is not valid on this computer"))
+}
+fn server_path(path: &Path) -> Result<ServerPath> {
+    ServerPath::from_path(path).map_err(|code| ServerError::new(code, "Path is not valid Unicode"))
+}
+fn git_path(output: &[u8]) -> Result<PathBuf> {
+    let bytes = output.strip_suffix(b"\n").unwrap_or(output);
+    let path = path(&ServerPath(bytes.to_vec()))?;
+    if cfg!(windows) && path.is_absolute() {
+        return Ok(PathBuf::from(
+            path.as_os_str().to_string_lossy().replace('/', "\\"),
+        ));
+    }
+    Ok(path)
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Git {
-    locks: Mutex<HashMap<PathBuf, Weak<RwLock<()>>>>,
+    locks: KeyedLocks<PathBuf, RwLock<()>>,
     github: github::Github,
     hook_config: Option<PathBuf>,
     pub(crate) operations: operations::Operations,
@@ -48,23 +65,8 @@ impl Git {
             path,
             &["rev-parse", "--path-format=absolute", "--git-common-dir"],
         )?;
-        let common = Path::new(OsStr::from_bytes(
-            common.strip_suffix(b"\n").unwrap_or(&common),
-        ))
-        .canonicalize()
-        .map_err(error)?;
-        Ok(self.lock_at(common))
-    }
-
-    fn lock_at(&self, common: PathBuf) -> Arc<RwLock<()>> {
-        let mut locks = self.locks.lock().unwrap_or_else(PoisonError::into_inner);
-        locks.retain(|_, lock| lock.strong_count() > 0);
-        let lock = locks
-            .get(&common)
-            .and_then(Weak::upgrade)
-            .unwrap_or_default();
-        locks.insert(common, Arc::downgrade(&lock));
-        lock
+        let common = muxy_core::files::canonicalize(&git_path(&common)?).map_err(error)?;
+        Ok(self.locks.get(common))
     }
 }
 
@@ -99,7 +101,7 @@ impl Registry {
             return self.git_worktree(request.project, intent);
         }
         let project = self.catalog.project(request.project)?;
-        let directory = project.directory.as_path();
+        let directory = &path(&project.directory)?;
         if !directory.is_dir() {
             return Err(error("Project directory is missing"));
         }
@@ -110,8 +112,11 @@ impl Registry {
             let lock = if is_repository(directory)? {
                 self.git.lock_for(directory)?
             } else {
-                self.git
-                    .lock_at(directory.canonicalize().map_err(error)?.join(".git"))
+                self.git.locks.get(
+                    muxy_core::files::canonicalize(directory)
+                        .map_err(error)?
+                        .join(".git"),
+                )
             };
             let _guard = lock.write().unwrap_or_else(PoisonError::into_inner);
             self.catalog.project(request.project)?;
@@ -133,12 +138,9 @@ impl Registry {
                     .parent_id
                     .ok_or_else(|| error("Missing worktree parent"))?,
             )?;
-            validate_member(parent.directory.as_path(), directory)?;
+            validate_member(&path(&parent.directory)?, directory)?;
         }
-        let root_bytes = run(directory, &["rev-parse", "--show-toplevel"])?;
-        let root = PathBuf::from(OsStr::from_bytes(
-            root_bytes.strip_suffix(b"\n").unwrap_or(&root_bytes),
-        ));
+        let root = git_path(&run(directory, &["rev-parse", "--show-toplevel"])?)?;
         let directory = root.as_path();
         let lock = self.git.lock_for(directory)?;
         if let Some(reply) = self.read_remote(request.project, directory, &lock, &request.action) {
@@ -147,7 +149,6 @@ impl Registry {
         let read = is_read(&request.action);
         let _read = read.then(|| lock.read().unwrap_or_else(PoisonError::into_inner));
         let _write = (!read).then(|| lock.write().unwrap_or_else(PoisonError::into_inner));
-        // The project may have been deleted while waiting for another repository operation.
         self.catalog.project(request.project)?;
         let reply = self.dispatch_git(&project, directory, &request.action);
         if !read {
@@ -156,8 +157,6 @@ impl Registry {
         reply
     }
 
-    /// Reads that ask the remote. They hold the repository lock only while
-    /// reading local state, so changes never wait on the network.
     fn read_remote(
         &self,
         project: ProjectId,
@@ -258,9 +257,9 @@ impl Registry {
             GitAction::Worktrees => {
                 let mut worktrees = read::worktrees(directory)?;
                 for worktree in &mut worktrees {
-                    worktree.registered = self
-                        .catalog
-                        .child_at(project.id, worktree.directory.as_path());
+                    worktree.registered = path(&worktree.directory)
+                        .ok()
+                        .and_then(|directory| self.catalog.child_at(project.id, &directory));
                 }
                 Ok(GitReply::Worktrees(worktrees))
             }
@@ -270,7 +269,7 @@ impl Registry {
                     None => project.clone(),
                 };
                 Ok(GitReply::WorktreeHooks(hooks::resolve(
-                    source.directory.as_path(),
+                    &path(&source.directory)?,
                     self.git.hook_config.as_deref(),
                     *teardown,
                 )?))
@@ -306,7 +305,6 @@ impl Registry {
     }
 }
 
-/// Previews, commits, and publishes exactly what the user reviewed.
 fn review(directory: &Path, action: &GitAction) -> Result<GitReply> {
     match action {
         GitAction::ChangesPreview { line_limit } => Ok(GitReply::ChangesPreview(Box::new(
@@ -363,25 +361,27 @@ fn validate_branch(directory: &Path, branch: &str) -> Result<()> {
     run(directory, &["check-ref-format", "--branch", branch]).map(|_| ())
 }
 fn validate_member(repository: &Path, directory: &Path) -> Result<muxy_protocol::GitWorktree> {
-    let target = directory.canonicalize().map_err(error)?;
+    let target = muxy_core::files::canonicalize(directory).map_err(error)?;
     read::worktrees(repository)?
         .into_iter()
-        .find(|w| {
-            w.directory
-                .as_path()
-                .canonicalize()
-                .is_ok_and(|p| p == target)
-        })
+        .find(|w| same_canonical(&w.directory, &target))
         .ok_or_else(|| error("Directory is not a registered Git worktree"))
+}
+fn same_canonical(directory: &ServerPath, target: &Path) -> bool {
+    path(directory)
+        .and_then(|directory| muxy_core::files::canonicalize(&directory).map_err(error))
+        .is_ok_and(|directory| muxy_core::paths::path_eq(&directory, target))
 }
 
 fn safe_path(repository: &Path, relative: &ServerPath) -> Result<PathBuf> {
-    let relative = relative.as_path();
+    let relative = &path(relative)?;
     if relative
         .components()
         .any(|c| !matches!(c, Component::Normal(_)))
         || relative.as_os_str().is_empty()
-        || relative.components().any(|c| c.as_os_str() == ".git")
+        || relative
+            .components()
+            .any(|c| muxy_core::paths::path_eq(c.as_os_str().as_ref(), Path::new(".git")))
     {
         return Err(error("Invalid repository-relative path"));
     }
@@ -415,7 +415,7 @@ fn mutate_files(repository: &Path, action: &GitAction, paths: &[ServerPath]) -> 
         }
         return Ok(());
     }
-    let current = read::files(&read::status(repository)?)?;
+    let current = parse::files(&read::status(repository)?)?;
     let mut tracked = Vec::new();
     let mut untracked = Vec::new();
     for relative in paths {
@@ -437,12 +437,12 @@ fn mutate_files(repository: &Path, action: &GitAction, paths: &[ServerPath]) -> 
                 continue;
             }
         }
-        tracked.push(OsString::from(relative.as_path().as_os_str()));
+        tracked.push(path(relative)?.into_os_string());
         if let Some(original) = &file.original_path
             && matches!(action, GitAction::Unstage(_))
         {
             safe_path(repository, original)?;
-            tracked.push(OsString::from(original.as_path().as_os_str()));
+            tracked.push(path(original)?.into_os_string());
         }
     }
     if !tracked.is_empty() {

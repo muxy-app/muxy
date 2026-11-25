@@ -8,13 +8,11 @@ pub struct Pane {
     pub id: PaneId,
     pub title: String,
     pub content: PaneContent,
-    /// The terminal started with the app's proxy.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub proxy: bool,
 }
 
 impl Pane {
-    /// The session a terminal pane shows, once it has one.
     pub fn session(&self) -> Option<SessionId> {
         match self.content {
             PaneContent::Terminal { session } => session,
@@ -29,13 +27,9 @@ impl Pane {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PaneContent {
-    Terminal {
-        session: Option<SessionId>,
-    },
+    Terminal { session: Option<SessionId> },
     Settings,
     Webview(crate::webview::WebviewDescriptor),
     Browser(crate::browser::BrowserPane),
-    /// A Devices tab saved by an older version. It reads back so those states
-    /// still load, and is removed as they do; Devices is a Settings page now.
     Servers,
 }

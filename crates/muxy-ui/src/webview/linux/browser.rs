@@ -59,7 +59,7 @@ impl NativeBrowser {
                 allows: options.allows,
             }),
             script: String::new(),
-            transparent: false,
+            background: None,
             events: output.clone(),
             shared: shared.clone(),
         };
@@ -80,8 +80,10 @@ impl NativeBrowser {
                     passthrough: Cell::new(false),
                     hit_regions: RefCell::new(None),
                     pressed_inside: Cell::new(0),
+                    last_click: Cell::new(None),
                     placed: Cell::new(None),
                     shown: Cell::new(None),
+                    background: Cell::new(None),
                 },
                 visible: Cell::new(false),
                 focused: Cell::new(false),
@@ -96,8 +98,6 @@ impl NativeBrowser {
     pub fn browser(&self) -> &Self {
         self
     }
-    /// The page renders off screen and any window draws its snapshots, so
-    /// there is nothing to move.
     pub fn move_to_window(&self, window: &Window) -> std::result::Result<(), String> {
         self.page.move_to_window(window)
     }
@@ -117,8 +117,8 @@ impl NativeBrowser {
         self.page
             .sync(bounds, clip, gpui::Rgba::default(), radius, scale);
     }
-    pub fn occlude(&self, occlusions: &[Bounds<Pixels>]) {
-        self.page.occlude(occlusions);
+    pub fn occlude(&self, occlusions: &[crate::webview::Cover], window: &mut Window) {
+        self.page.occlude(occlusions, window);
     }
     #[allow(clippy::unused_self)]
     pub fn occlude_also(&self, _bounds: Bounds<Pixels>) {}

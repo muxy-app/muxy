@@ -1,15 +1,7 @@
-//! Pane drops see a layout as rows and columns rather than binary splits: a run
-//! of same-direction splits is one row or column, so a pane dropped beside
-//! another pane in a row joins that row.
-
 use super::{Axis, Direction, Layout};
 use crate::PaneId;
 
 impl Layout {
-    /// The distinct drops along `edge` of `anchor`, innermost first: beside
-    /// `anchor`, then beside each enclosing row or column that shares that
-    /// edge. Each is given as how deeply its pane, row, or column is nested,
-    /// with 0 for the whole layout, so drops on different edges compare.
     pub fn dock_depths(&self, anchor: PaneId, edge: Direction) -> Vec<usize> {
         Node::from(self)
             .levels(anchor, edge)
@@ -18,12 +10,6 @@ impl Layout {
             .collect()
     }
 
-    /// Moves `pane` to the `edge` of `anchor`, or of the enclosing row or
-    /// column that `level` picks from [`Layout::dock_depths`].
-    ///
-    /// A pane joining a row or column gets an equal share of it, a pane moved
-    /// within its own row or column keeps its size, and the panes it leaves
-    /// grow evenly into its space.
     pub fn docked(
         &self,
         pane: PaneId,
@@ -43,9 +29,6 @@ impl Layout {
         }
     }
 
-    /// Adds `pane`, which comes from another layout, at the `edge` of
-    /// `anchor`, or of the enclosing row or column that `level` picks from
-    /// [`Layout::dock_depths`].
     pub fn inserted(
         &self,
         pane: PaneId,
@@ -62,7 +45,6 @@ impl Layout {
         root.into_layout()
     }
 
-    /// Gives every member of each row and column an equal share of it.
     pub fn equalized(&self) -> Option<Self> {
         let mut root = Node::from(self);
         root.equalize();
@@ -75,16 +57,13 @@ enum Node {
     Group(Group),
 }
 
-/// A row or column: one run of same-direction splits.
 struct Group {
     axis: Axis,
     members: Vec<Member>,
-    /// The original splits, reused until the members change.
     shape: Option<Shape>,
 }
 
 struct Member {
-    /// Share of the group, from 0 to 1.
     size: f32,
     node: Node,
 }
@@ -148,9 +127,6 @@ impl Node {
         group.shape = None;
     }
 
-    /// Paths of the nodes a pane can dock against along `edge` of `anchor`,
-    /// innermost first. Rows or columns that run along the edge only repeat
-    /// the drop beside their end member, so they are skipped.
     fn levels(&self, anchor: PaneId, edge: Direction) -> Vec<Vec<usize>> {
         let Some(path) = self.find(anchor) else {
             return Vec::new();
@@ -169,8 +145,6 @@ impl Node {
         levels
     }
 
-    /// Moves `pane` beside the node at `target`, returning whether anything
-    /// changed.
     fn dock(&mut self, pane: PaneId, target: &[usize], edge: Direction) -> Option<bool> {
         let axis = edge.axis();
         let after = usize::from(matches!(edge, Direction::Right | Direction::Down));
@@ -235,9 +209,6 @@ impl Node {
         Some(true)
     }
 
-    /// Whether the group at `path` runs across `axis` and holds only `pane`
-    /// and one other member, which takes the group's place once `pane` moves.
-    /// Docking beside that member then means docking beside the group.
     fn dissolves_without(&self, path: &[usize], pane: PaneId, axis: Axis) -> bool {
         let Some(Self::Group(group)) = self.at(path) else {
             return false;
@@ -258,8 +229,6 @@ impl Node {
         }
     }
 
-    /// Removes the member at `path`; the rest of its row or column grows
-    /// evenly into its space, and a group left with one member dissolves.
     fn remove(&mut self, path: &[usize]) -> Option<()> {
         let (index, parent) = path.split_last()?;
         let node = self.at_mut(parent)?;
@@ -282,7 +251,6 @@ impl Node {
         Some(())
     }
 
-    /// Turns this node into the only member of a new group along `axis`.
     fn wrap(&mut self, axis: Axis) {
         let node = std::mem::replace(
             self,
@@ -297,7 +265,6 @@ impl Node {
         }
     }
 
-    /// Panes side by side along `axis`, as if `without` were already gone.
     fn lanes(&self, axis: Axis, without: PaneId) -> f32 {
         match self {
             Self::Pane(pane) => {
@@ -358,8 +325,6 @@ impl Node {
 }
 
 impl Group {
-    /// Index of the member that touches `edge`, which must run across the
-    /// group.
     fn end(&self, edge: Direction) -> Option<usize> {
         match edge {
             Direction::Left | Direction::Up => Some(0),
@@ -408,8 +373,6 @@ impl Shape {
     }
 }
 
-/// Rebuilds a changed row or column as splits that each divide it as close to
-/// the middle as its members allow.
 fn balanced(axis: Axis, mut members: Vec<Member>) -> Option<Layout> {
     if members.len() < 2 {
         return members.pop()?.node.into_layout();

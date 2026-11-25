@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{Focusable, Modifiers, VisualTestContext};
 use muxy_app_core::extensions::workspace;
@@ -40,7 +40,6 @@ fn write_package(root: &Path, name: &str, version: &str) {
     .unwrap();
 }
 
-/// Runs a `muxy extension` command as the app socket would.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "Every caller builds the arguments with json!"
@@ -59,7 +58,8 @@ fn call(
     })
     .detach();
     cx.executor().allow_parking();
-    for _ in 0..2_000 {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
         cx.run_until_parked();
         if let Ok(result) = replied.try_recv() {
             return result;
@@ -131,13 +131,15 @@ fn the_command_palette_can_create_and_manage_extensions(cx: &mut TestAppContext)
             let registry = model.command_registry(true, cx);
             let create = registry.action("create_extension").expect("create").clone();
             create(model, window, cx);
-            assert!(matches!(
-                &model.overlay,
-                Some(Overlay::ExtensionAgent(open)) if open.task == AgentTask::Create
-            ));
-            model.dismiss_overlay(cx);
             assert!(registry.action("manage_extensions").is_some());
         });
+    });
+    cx.run_until_parked();
+    model.read_with(cx, |model, _| {
+        assert!(matches!(
+            &model.overlay,
+            Some(Overlay::ExtensionAgent(open)) if open.task == AgentTask::Create
+        ));
     });
 }
 
@@ -288,7 +290,12 @@ fn an_agent_starts_in_a_home_tab_at_the_workspace_with_its_prompt(cx: &mut TestA
             .startup_command(pane)
             .expect("command")
             .to_owned();
-        assert!(command.starts_with("/test/agent '"), "{command}");
+        let start = if cfg!(windows) {
+            "& '/test/agent' '"
+        } else {
+            "/test/agent '"
+        };
+        assert!(command.starts_with(start), "{command}");
         assert!(
             command.contains(&workspace::skill_file(&root).display().to_string()),
             "{command}"

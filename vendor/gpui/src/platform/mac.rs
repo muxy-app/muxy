@@ -1,5 +1,3 @@
-//! Macos screen have a y axis that goings up from the bottom of the screen and
-//! an origin at the bottom left of the main display.
 mod dispatcher;
 mod display;
 mod display_link;
@@ -57,7 +55,6 @@ pub(crate) use window::*;
 #[cfg(feature = "font-kit")]
 pub(crate) use text_system::*;
 
-/// A frame of video captured from a screen.
 pub(crate) type PlatformScreenCaptureFrame = CVImageBuffer;
 
 trait BoolExt {

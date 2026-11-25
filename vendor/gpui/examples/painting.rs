@@ -17,7 +17,6 @@ impl PaintingViewer {
     fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
         let mut lines = vec![];
 
-        // Black squares beneath transparent paths.
         let background_quads = vec![
             (
                 Bounds {
@@ -56,7 +55,6 @@ impl PaintingViewer {
             ),
         ];
 
-        // 50% opaque red path that extends across black quad.
         let mut builder = PathBuilder::fill();
         builder.move_to(point(px(50.), px(50.)));
         builder.line_to(point(px(130.), px(50.)));
@@ -68,7 +66,6 @@ impl PaintingViewer {
         red.a = 0.5;
         lines.push((path, red.into()));
 
-        // 50% opaque blue path that extends across black quad.
         let mut builder = PathBuilder::fill();
         builder.move_to(point(px(150.), px(50.)));
         builder.line_to(point(px(230.), px(50.)));
@@ -80,7 +77,6 @@ impl PaintingViewer {
         blue.a = 0.5;
         lines.push((path, blue.into()));
 
-        // 50% opaque green path that extends across black quad.
         let mut builder = PathBuilder::fill();
         builder.move_to(point(px(250.), px(50.)));
         builder.line_to(point(px(330.), px(50.)));
@@ -92,7 +88,6 @@ impl PaintingViewer {
         green.a = 0.5;
         lines.push((path, green.into()));
 
-        // 50% opaque black path that extends across black quad.
         let mut builder = PathBuilder::fill();
         builder.move_to(point(px(350.), px(50.)));
         builder.line_to(point(px(430.), px(50.)));
@@ -104,7 +99,6 @@ impl PaintingViewer {
         black.a = 0.5;
         lines.push((path, black.into()));
 
-        // Two 50% opaque red circles overlapping - center should be darker red
         let mut builder = PathBuilder::fill();
         let center = point(px(530.), px(85.));
         let radius = px(30.);
@@ -153,17 +147,14 @@ impl PaintingViewer {
         red2.a = 0.5;
         lines.push((path, red2.into()));
 
-        // draw a Rust logo
         let mut builder = lyon::path::Path::svg_builder();
         lyon::extra::rust_logo::build_logo_path(&mut builder);
-        // move down the Path
         let mut builder: PathBuilder = builder.into();
         builder.translate(point(px(10.), px(200.)));
         builder.scale(0.9);
         let path = builder.build().unwrap();
         lines.push((path, gpui::black().into()));
 
-        // draw a lightening bolt ⚡
         let mut builder = PathBuilder::fill();
         builder.add_polygon(
             &[
@@ -177,7 +168,6 @@ impl PaintingViewer {
         let path = builder.build().unwrap();
         lines.push((path, rgb(0x1d4ed8).into()));
 
-        // draw a ⭐
         let mut builder = PathBuilder::fill();
         builder.move_to(point(px(350.), px(200.)));
         builder.line_to(point(px(370.), px(260.)));
@@ -201,7 +191,6 @@ impl PaintingViewer {
             .color_space(ColorSpace::Oklab),
         ));
 
-        // draw linear gradient
         let square_bounds = Bounds {
             origin: point(px(450.), px(200.)),
             size: size(px(200.), px(80.)),
@@ -231,7 +220,6 @@ impl PaintingViewer {
             ),
         ));
 
-        // draw a pie chart
         let center = point(px(96.), px(96.));
         let pie_center = point(px(775.), px(255.));
         let segments = [
@@ -272,7 +260,6 @@ impl PaintingViewer {
             lines.push((path, color.into()));
         }
 
-        // draw a wave
         let options = StrokeOptions::default()
             .with_line_width(1.)
             .with_line_join(lyon::path::LineJoin::Bevel);
@@ -359,7 +346,6 @@ impl Render for PaintingViewer {
                         canvas(
                             move |_, _, _| {},
                             move |_, _, window, _| {
-                                // First draw background quads
                                 for (bounds, color) in background_quads.iter() {
                                     window.paint_quad(quad(
                                         *bounds,
@@ -371,7 +357,6 @@ impl Render for PaintingViewer {
                                     ));
                                 }
 
-                                // Then draw the default paths on top
                                 for (path, color) in default_lines {
                                     window.paint_path(path, color);
                                 }
@@ -417,7 +402,6 @@ impl Render for PaintingViewer {
 
                         let is_shifted = ev.modifiers.shift;
                         let mut pos = ev.position;
-                        // When holding shift, draw a straight line
                         if is_shifted {
                             let dx = pos.x - this.start.x;
                             let dy = pos.y - this.start.y;
