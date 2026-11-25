@@ -148,8 +148,8 @@ impl AppModel {
     }
 
     #[cfg(not(test))]
-    pub(crate) fn discover_ai_providers(cx: &mut Context<Self>) {
-        let generation = cx.entity().read(cx).ai.installed_generation;
+    pub(crate) fn discover_ai_providers(&self, cx: &mut Context<Self>) {
+        let generation = self.ai.installed_generation;
         cx.spawn(async move |this, cx| {
             let installed = crate::ai::run(|| Ok(Provider::discover())).await;
             if let Ok(installed) = installed {

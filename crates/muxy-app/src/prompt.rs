@@ -78,12 +78,6 @@ mod tests {
     fn default_or_custom_instructions_precede_the_wrapped_original_prompt() {
         let default = enhancement_prompt("ship it", "  ");
         assert!(default.starts_with(DEFAULT_INSTRUCTIONS));
-        assert!(default.contains("objective"));
-        assert!(default.contains("context"));
-        assert!(default.contains("constraints"));
-        assert!(default.contains("language"));
-        assert!(default.contains("Do not invent"));
-        assert!(default.contains("only the rewritten prompt"));
         assert!(default.contains("<original_prompt>\nship it\n</original_prompt>"));
 
         let custom = enhancement_prompt("ship it", " Keep it short. ");

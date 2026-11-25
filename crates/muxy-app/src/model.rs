@@ -733,7 +733,7 @@ impl AppModel {
         model.refresh_extension_workspace(cx);
         model.start_webview_demo(cx);
         #[cfg(not(test))]
-        Self::discover_ai_providers(cx);
+        model.discover_ai_providers(cx);
         #[cfg(not(test))]
         Self::discover_project_apps(cx);
         model.sync_visible(cx);
