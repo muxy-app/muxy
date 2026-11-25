@@ -264,7 +264,17 @@ impl Detector {
         self.settle(next)
     }
 
+    #[cfg(test)]
     pub(crate) fn report(&mut self, provider: AgentProvider, state: ProgramState) -> bool {
+        self.report_with_background(provider, state, false)
+    }
+
+    pub(crate) fn report_with_background(
+        &mut self,
+        provider: AgentProvider,
+        state: ProgramState,
+        background: bool,
+    ) -> bool {
         if self.provider != Some(provider) {
             *self = Self {
                 provider: Some(provider),
@@ -272,10 +282,15 @@ impl Detector {
             };
         }
         self.last_input = None;
-        self.settle(match state {
+        let next = match state {
             ProgramState::Working => AgentState::Working,
             ProgramState::Blocked => AgentState::Blocked,
             ProgramState::Idle | ProgramState::Done | ProgramState::Error => AgentState::Idle,
+        };
+        self.settle(if background && next == AgentState::Idle {
+            AgentState::Working
+        } else {
+            next
         })
     }
 

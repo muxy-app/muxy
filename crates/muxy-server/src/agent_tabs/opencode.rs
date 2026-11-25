@@ -179,7 +179,12 @@ pub(super) fn read_tabs(
             continue;
         };
         for (directory, found) in parse_tabs(&file, directories) {
-            tabs.entry(directory).or_insert(found);
+            if !tabs
+                .keys()
+                .any(|known| super::same_directory(known, &directory))
+            {
+                tabs.insert(directory, found);
+            }
         }
     }
     tabs

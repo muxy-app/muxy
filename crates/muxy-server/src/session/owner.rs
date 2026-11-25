@@ -808,7 +808,11 @@ impl Owner {
             self.track_agent_tabs(agent);
             if let Some(agent) = agent {
                 let completed = if let Some(status) = status {
-                    self.detector.report(agent, status.state)
+                    self.detector.report_with_background(
+                        agent,
+                        status.state,
+                        self.activity.agent_tab_busy(self.info.id),
+                    )
                 } else {
                     self.detect_on_screen(agent, now)
                 };
@@ -884,7 +888,7 @@ impl Owner {
             self.info.id,
             crate::agent_tabs::Pane {
                 provider,
-                project: self.info.project,
+                project: self.published.project(),
                 directory: String::from_utf8_lossy(&self.metadata.directory.0).into_owned(),
                 title: self.metadata.title.clone(),
             },
