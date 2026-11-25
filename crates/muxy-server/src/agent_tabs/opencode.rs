@@ -93,11 +93,11 @@ impl OpenCode {
     fn root(&mut self, service: &Service, id: &str) -> String {
         let mut current = id.to_owned();
         for _ in 0..32 {
-            if !self.parents.contains_key(&current) {
-                let parent = service
-                    .get(&format!("/api/session/{}", http::query(&current)))
-                    .and_then(|session| session["parentID"].as_str().map(str::to_owned));
-                self.remember(&current, parent.as_deref());
+            if !self.parents.contains_key(&current)
+                && let Some(session) =
+                    service.get(&format!("/api/session/{}", http::query(&current)))
+            {
+                self.remember(&current, session["parentID"].as_str());
             }
             match self.parents.get(&current) {
                 Some(Some(parent)) => current.clone_from(parent),
