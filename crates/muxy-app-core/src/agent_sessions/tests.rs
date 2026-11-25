@@ -138,15 +138,6 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     let mut catalog = Catalog::default();
     let listing = catalog.scan(&roots, &project);
     assert_eq!(listing.sessions.len(), 8);
-    assert_eq!(
-        listing
-            .sessions
-            .iter()
-            .filter(|session| session.provider == AgentProvider::Cursor)
-            .map(|session| (session.id.as_str(), session.title.as_str()))
-            .collect::<Vec<_>>(),
-        [("cursor-1", "Fix regression")]
-    );
     assert!(listing.warnings.is_empty());
     let title = |provider| {
         listing
@@ -157,6 +148,7 @@ fn reads_native_formats_and_scopes_to_the_exact_project() -> Result {
     };
     assert_eq!(title(AgentProvider::Claude), Some("Fix regression"));
     assert_eq!(title(AgentProvider::Codex), Some("Codex saved title"));
+    assert_eq!(title(AgentProvider::Cursor), Some("Fix regression"));
     for provider in PROVIDERS
         .into_iter()
         .filter(|provider| supported(*provider))

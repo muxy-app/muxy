@@ -204,9 +204,6 @@ impl Metadata {
     }
 }
 
-/// One JSON value from a transcript line. A finished line ends in a newline.
-/// Cursor writes `meta.json` as a single object and does not end the file
-/// with a newline, so that value is passed here without one.
 fn json_record(line: &[u8]) -> Option<Value> {
     let line = line.strip_suffix(b"\n").unwrap_or(line);
     let line = line.strip_suffix(b"\r").unwrap_or(line);

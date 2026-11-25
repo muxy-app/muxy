@@ -165,8 +165,9 @@ control to the harness, which may update its session normally.
 | Cursor | `~/.cursor/chats/*/*/meta.json` | `cursor-agent --resume ID` |
 
 `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and `CURSOR_CONFIG_DIR` are respected when
-set to absolute paths. When `CURSOR_CONFIG_DIR` is unset, Cursor chats are
-read from `$XDG_CONFIG_HOME/cursor/chats`.
+set to absolute paths. When `CURSOR_CONFIG_DIR` is unset and
+`XDG_CONFIG_HOME` is set, Cursor chats are read from
+`$XDG_CONFIG_HOME/cursor/chats`, as Cursor does.
 OpenCode, Grok, Kiro, Antigravity, and Hermes appear as **Not
 supported** in the filter menu: their database-only or unverified storage
 formats are not read.
