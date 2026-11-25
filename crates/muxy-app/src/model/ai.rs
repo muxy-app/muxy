@@ -154,10 +154,13 @@ impl AppModel {
             let installed = crate::ai::run(|| Ok(Provider::discover())).await;
             if let Ok(installed) = installed {
                 let _ = this.update(cx, |model, cx| {
-                    if model.ai.installed_generation == generation
-                        && model.ai.installed != installed
-                    {
+                    let previous = model.ai.installed.clone();
+                    if model.ai.installed_generation == generation {
                         model.ai.installed = installed;
+                    } else {
+                        model.ai.refresh_installed();
+                    }
+                    if model.ai.installed != previous {
                         model.sync_preferences(cx);
                         cx.notify();
                     }
