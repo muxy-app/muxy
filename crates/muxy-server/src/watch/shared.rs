@@ -7,8 +7,6 @@ use super::DebouncedWatch;
 use crate::ServerError;
 use crate::connection::Connection;
 
-/// One watch per project, whoever asks for it. A watch stops when its last
-/// subscription is dropped.
 #[derive(Clone, Default)]
 pub(crate) struct Shared(Arc<Mutex<HashMap<ProjectId, Arc<Slot>>>>);
 
@@ -18,8 +16,6 @@ struct Slot {
     subscribers: Subscribers,
 }
 
-/// The connections a watch reports to, held weakly so a closed connection
-/// never stays alive for its watch.
 #[derive(Clone, Default)]
 pub(crate) struct Subscribers(Arc<Mutex<Vec<Weak<Connection>>>>);
 
@@ -42,7 +38,6 @@ impl Subscribers {
             .push(connection);
     }
 
-    /// Returns whether anyone is still subscribed.
     fn remove(&self, connection: &Weak<Connection>) -> bool {
         let mut connections = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(index) = connections
@@ -70,9 +65,6 @@ impl Subscription {
 }
 
 impl Shared {
-    /// Subscribes `connection` to the project's watch, starting it with `start`
-    /// when nobody watches the project yet. `start` returns `None` when there
-    /// is nothing to watch.
     pub(crate) fn subscribe(
         &self,
         project: ProjectId,
@@ -120,7 +112,6 @@ impl Shared {
             .is_some_and(|held| Arc::ptr_eq(held, slot))
     }
 
-    /// Called with the slot's watch locked, so nobody joins it meanwhile.
     fn forget(&self, project: ProjectId, slot: &Arc<Slot>) {
         let mut slots = self.slots();
         if slots

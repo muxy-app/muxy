@@ -5,14 +5,17 @@ pub mod bundle;
     reason = "posix_spawn with a disclaimed responsible process"
 )]
 pub mod host;
+#[cfg(windows)]
+#[allow(unsafe_code, reason = "Win32 process and token queries")]
+mod windows;
 
 use crate::{Client, ClientError};
 use muxy_core::file_lock::{self, FileLock};
 use muxy_protocol::transport::ByteStream;
 use std::ffi::OsString;
 use std::io;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -27,16 +30,34 @@ pub fn server_executable() -> io::Result<PathBuf> {
         }
         return Ok(path.into());
     }
-    Ok(muxy_core::executable::current_path()?.with_file_name("muxy-server"))
+    Ok(muxy_core::executable::sibling(
+        &muxy_core::executable::current_path()?,
+        "muxy-server",
+    ))
+}
+
+pub fn connect(socket: &Path) -> Result<Box<dyn ByteStream>, ClientError> {
+    let stream = muxy_protocol::transport::connect_local(socket)?;
+    #[cfg(unix)]
+    if !muxy_protocol::transport::peer_is_same_user(&stream)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "the server at {} runs as another user, so it was not used",
+                socket.display()
+            ),
+        )
+        .into());
+    }
+    #[cfg(windows)]
+    windows::check_server(&stream)?;
+    Ok(Box::new(stream))
 }
 
 pub fn ensure_running(socket: &Path, executable: &Path) -> Result<Client, ClientError> {
     start_and_connect(socket, executable, spawn, Client::connect_with_timeout)
 }
 
-/// Like [`ensure_running`], but a packaged app starts the server through a
-/// `host`, so terminals keep the app's macOS privacy permissions after the
-/// app quits. Only for the app, whose `main` runs the host.
 pub fn ensure_running_hosted(socket: &Path, executable: &Path) -> Result<Client, ClientError> {
     start_and_connect(
         socket,
@@ -46,18 +67,13 @@ pub fn ensure_running_hosted(socket: &Path, executable: &Path) -> Result<Client,
     )
 }
 
-/// Like [`ensure_running`], but returns the socket without a handshake, so a
-/// bridge can leave version negotiation to the client at its other end.
 pub fn ensure_listening(
     socket: &Path,
     executable: &Path,
 ) -> Result<Box<dyn ByteStream>, ClientError> {
-    start_and_connect(socket, executable, spawn, |socket, _| {
-        Ok(muxy_protocol::transport::connect(socket)?)
-    })
+    start_and_connect(socket, executable, spawn, |socket, _| connect(socket))
 }
 
-/// Connects, first starting the server if nothing listens on `socket`.
 fn start_and_connect<T>(
     socket: &Path,
     executable: &Path,
@@ -96,9 +112,10 @@ fn start_and_connect<T>(
 }
 
 fn server_arguments(socket: &Path) -> [OsString; 6] {
+    let socket = std::path::absolute(socket).unwrap_or_else(|_| socket.to_owned());
     [
         "--socket".into(),
-        socket.into(),
+        socket.clone().into(),
         "--settings".into(),
         socket.with_file_name("server.toml").into(),
         "--log".into(),
@@ -107,13 +124,7 @@ fn server_arguments(socket: &Path) -> [OsString; 6] {
 }
 
 fn spawn(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
-    let mut child = Command::new(executable)
-        .args(arguments)
-        .process_group(0)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+    let mut child = spawn_detached(executable, arguments)?;
     thread::Builder::new()
         .name("muxy-server-wait".into())
         .spawn(move || {
@@ -122,11 +133,32 @@ fn spawn(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+pub type Detached = std::process::Child;
+#[cfg(windows)]
+pub use windows::Detached;
+
+pub fn spawn_detached(program: &Path, arguments: &[OsString]) -> io::Result<Detached> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        Command::new(program)
+            .args(arguments)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+    }
+    #[cfg(windows)]
+    {
+        windows::spawn_detached(program, arguments)
+    }
+}
+
 fn spawn_hosted(executable: &Path, arguments: &[OsString]) -> io::Result<()> {
     #[cfg(target_os = "macos")]
     if let Some(app) = host::app_for(executable)? {
-        // The host can't report a server that fails to start, so a missing
-        // one fails here, as it would when started directly.
         std::fs::metadata(executable)?;
         return host::spawn(&app, arguments);
     }

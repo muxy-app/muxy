@@ -1,5 +1,3 @@
-//! Pointer input for a page the app draws itself.
-
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -9,7 +7,6 @@ use gpui::{
 };
 use muxy_ui::webview::Pointer;
 
-/// What the pointer is doing to a page, kept from one frame to the next.
 #[derive(Default)]
 pub(crate) struct PointerState {
     held: Cell<Option<MouseButton>>,
@@ -17,9 +14,6 @@ pub(crate) struct PointerState {
 }
 
 impl PointerState {
-    /// Passes the pointer to `native` while it is over `hitbox`, and for as
-    /// long as a button pressed there is held: a drag that leaves the page,
-    /// as when selecting text, still ends in it.
     pub(crate) fn forward(
         self: Rc<Self>,
         native: impl Fn(Pointer) + Clone + 'static,

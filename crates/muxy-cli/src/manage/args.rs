@@ -10,6 +10,7 @@ use super::help;
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct Invocation {
     pub(crate) json: bool,
+    pub(crate) quiet: bool,
     pub(crate) action: Action,
 }
 
@@ -51,6 +52,7 @@ pub(crate) enum Server {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Project {
     List,
+    Inspect(String),
     Add {
         directory: PathBuf,
         name: Option<String>,
@@ -72,10 +74,14 @@ pub(crate) enum Project {
     Delete(String),
 }
 
-/// Session commands. A missing session or project means the terminal this
-/// command runs in.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Session {
+    Inspect(Option<SessionId>),
+    Rename {
+        session: Option<SessionId>,
+        name: String,
+    },
+    SendStdin(Option<SessionId>),
     List {
         project: Option<String>,
         all: bool,
@@ -84,15 +90,17 @@ pub(crate) enum Session {
         project: Option<String>,
         directory: Option<PathBuf>,
         size: Size,
-        /// Typed into the new terminal, followed by Return.
         command: Option<String>,
     },
     End(Option<SessionId>),
     Discard(Option<SessionId>),
     Show {
         session: Option<SessionId>,
-        /// Adds the tab without switching the window to it.
         background: bool,
+    },
+    Link {
+        session: Option<SessionId>,
+        split: Option<muxy_app_core::Direction>,
     },
     Send {
         session: Option<SessionId>,
@@ -128,7 +136,6 @@ pub(crate) enum Session {
     },
 }
 
-/// What `session wait` waits for.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Until {
     Text { text: String, ignore_case: bool },
@@ -172,6 +179,7 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Invocation> {
     {
         return Ok(Invocation {
             json: false,
+            quiet: false,
             action: Action::Help(usage),
         });
     }
@@ -244,21 +252,28 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<Invocation> {
         }
         _ => return Err(invalid(usage)),
     };
+    let quiet = options.flag("--quiet") || options.flag("-q");
+    if quiet && options.flag("--json") {
+        return Err(invalid("--quiet and --json cannot be combined"));
+    }
     Ok(Invocation {
         json: options.flag("--json"),
+        quiet,
         action,
     })
 }
 
-/// The options that take a value, and the flags, of `group verb`.
 fn options(group: &str, verb: &str) -> (&'static [&'static str], &'static [&'static str]) {
     match (group, verb) {
         ("project", "add") => (&["--name"], &["--create", "--reuse"]),
         ("project", "delete") | ("session", "end" | "discard") => (&[], &["--yes"]),
         ("worktree", "remove") => (&[], &["--yes", "--force", "--hooks"]),
         ("server", "stop") => (&[], &["--force"]),
-        ("session", "list") => (&["--project"], &["--all"]),
+        ("project" | "worktree", "list") => (&[], &["--quiet", "-q"]),
+        ("session", "list") => (&["--project"], &["--all", "--quiet", "-q"]),
+        ("session", "send") => (&[], &["--stdin"]),
         ("session", "show") => (&[], &["--background"]),
+        ("session", "link") => (&["--split"], &[]),
         ("session", "create") => (&["--directory", "--cols", "--rows"], &[]),
         ("session", "read-screen") => (&["--lines"], &["--saved"]),
         ("session", "history") => (&["--before", "--limit"], &["--saved"]),
@@ -291,6 +306,10 @@ fn project(verb: &str, o: &mut Options<'_>) -> io::Result<Project> {
         "list" => {
             o.count(0)?;
             Ok(Project::List)
+        }
+        "inspect" => {
+            o.count(1)?;
+            Ok(Project::Inspect(o.word(0)?.into()))
         }
         "add" => {
             o.count(1)?;
@@ -343,12 +362,15 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
     if verb == "create" {
         return create_session(o);
     }
+    if verb == "send-keys" {
+        return send_keys(o);
+    }
     let arguments = match verb {
-        "send" | "send-keys" | "search" => 1,
-        "end" | "discard" | "show" | "read-screen" | "history" | "wait" => 0,
+        "send" if o.flag("--stdin") => 0,
+        "send" | "search" | "rename" => 1,
+        "end" | "discard" | "show" | "link" | "read-screen" | "history" | "wait" | "inspect" => 0,
         _ => return Err(invalid(help::SESSION)),
     };
-    // The session ID comes first and may be left out inside a Muxy terminal.
     let given = o
         .words
         .len()
@@ -356,19 +378,20 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
         .filter(|given| *given <= 1)
         .ok_or_else(|| invalid("wrong number of arguments; run muxy <command> --help"))?;
     let session = if given == 1 {
-        Some(
-            o.word(0)?
-                .parse::<u64>()
-                .ok()
-                .and_then(SessionId::new)
-                .ok_or_else(|| invalid("session ID must be a nonzero decimal integer"))?,
-        )
+        Some(session_id(o.word(0)?)?)
     } else {
         None
     };
     let argument = || o.word(given);
     let saved = o.flag("--saved");
     match verb {
+        "inspect" => Ok(Session::Inspect(session)),
+        "rename" => {
+            let name = argument()?.to_owned();
+            muxy_protocol::validate_session_name(&name)
+                .map_err(|_| invalid("session name must be nonempty, trimmed, at most 256 bytes and contain no control characters"))?;
+            Ok(Session::Rename { session, name })
+        }
         "end" => {
             o.confirm()?;
             Ok(Session::End(session))
@@ -381,13 +404,19 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
             session,
             background: o.flag("--background"),
         }),
+        "link" => Ok(Session::Link {
+            session,
+            split: match o.value("--split")? {
+                None => None,
+                Some("right") => Some(muxy_app_core::Direction::Right),
+                Some("down") => Some(muxy_app_core::Direction::Down),
+                Some(_) => return Err(invalid("--split must be right or down")),
+            },
+        }),
+        "send" if o.flag("--stdin") => Ok(Session::SendStdin(session)),
         "send" => Ok(Session::Send {
             session,
             text: argument()?.into(),
-        }),
-        "send-keys" => Ok(Session::Key {
-            session,
-            bytes: key(argument()?)?.to_vec(),
         }),
         "wait" => Ok(Session::Wait {
             session,
@@ -423,7 +452,6 @@ fn session(verb: &str, o: &mut Options<'_>) -> io::Result<Session> {
     }
 }
 
-/// `session create [project] [options] [-- COMMAND...]`.
 fn create_session(o: &Options<'_>) -> io::Result<Session> {
     let (project, command) = o.words.split_at(o.literal.unwrap_or(o.words.len()));
     if project.len() > 1 {
@@ -527,6 +555,38 @@ fn worktree(verb: &str, o: &mut Options<'_>) -> io::Result<Worktree> {
     }
 }
 
+fn session_id(text: &str) -> io::Result<SessionId> {
+    text.parse::<u64>()
+        .ok()
+        .and_then(SessionId::new)
+        .ok_or_else(|| invalid("session ID must be a nonzero decimal integer"))
+}
+
+fn send_keys(options: &Options<'_>) -> io::Result<Session> {
+    let Some(first) = options.words.first() else {
+        return Err(invalid(
+            "give at least one key; run muxy help session send-keys",
+        ));
+    };
+    let first = text(first)?;
+    let (session, skip) = if first.bytes().all(|byte| byte.is_ascii_digit()) && !first.is_empty() {
+        (Some(session_id(first)?), 1)
+    } else {
+        (None, 0)
+    };
+    if options.words.len() == skip {
+        return Err(invalid(
+            "give at least one key; run muxy help session send-keys",
+        ));
+    }
+    let mut bytes = Vec::new();
+    for word in &options.words[skip..] {
+        bytes.extend_from_slice(key(text(word)?)?);
+    }
+    muxy_protocol::validate_input(&bytes).map_err(|_| invalid("too many keys"))?;
+    Ok(Session::Key { session, bytes })
+}
+
 fn key(key: &str) -> io::Result<&'static [u8]> {
     match key.to_ascii_lowercase().as_str() {
         "escape" | "esc" => Ok(b"\x1b"),
@@ -546,7 +606,6 @@ struct Options<'a> {
     words: Vec<&'a OsStr>,
     values: BTreeMap<&'a str, &'a OsStr>,
     flags: BTreeSet<&'a str>,
-    /// How many words came before `--`, if it was given.
     literal: Option<usize>,
 }
 impl<'a> Options<'a> {
@@ -674,6 +733,9 @@ mod tests {
             vec!["session", "send", "1", "two", "three"],
             vec!["session", "show", "1", "2"],
             vec!["session", "show", "tab"],
+            vec!["session", "link", "1", "2"],
+            vec!["session", "link", "--split", "left"],
+            vec!["session", "link", "--split"],
             vec!["session", "create", "--background"],
             vec!["session", "list", "--background"],
             vec!["session", "wait", "1"],
@@ -728,6 +790,20 @@ mod tests {
             })
         );
         assert_eq!(
+            action(&["session", "link"])?,
+            Action::Session(Session::Link {
+                session: None,
+                split: None
+            })
+        );
+        assert_eq!(
+            action(&["session", "link", "5", "--split", "down"])?,
+            Action::Session(Session::Link {
+                session: id,
+                split: Some(muxy_app_core::Direction::Down)
+            })
+        );
+        assert_eq!(
             action(&["session", "search", "5", "error"])?,
             action(&["session", "search", "5", "error", "--limit", "100"])?
         );
@@ -777,6 +853,124 @@ mod tests {
                 timeout_ms: 500,
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn help_option_values_match_the_parser() {
+        for group in [
+            "server", "project", "session", "worktree", "settings", "activity", "git", "files",
+            "exec",
+        ] {
+            let mut verbs = help::children(group);
+            if verbs.is_empty() {
+                verbs.push(String::new());
+            }
+            for verb in verbs {
+                let path = if verb.is_empty() {
+                    group.to_owned()
+                } else {
+                    format!("{group} {verb}")
+                };
+                let (values, flags) = options(group, &verb);
+                let documented = help::flags(&path);
+                for flag in values.iter().chain(flags) {
+                    assert!(documented.iter().any(|name| name == flag), "{path} {flag}");
+                }
+                for flag in documented {
+                    assert_eq!(
+                        help::takes_value(&path, &flag),
+                        values.contains(&flag.as_str()),
+                        "{path} {flag}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn inspection_renaming_stdin_and_multiple_keys_parse() -> io::Result<()> {
+        assert_eq!(
+            action(&["project", "inspect", "App"])?,
+            Action::Project(Project::Inspect("App".into()))
+        );
+        assert_eq!(
+            action(&["session", "inspect"])?,
+            Action::Session(Session::Inspect(None))
+        );
+        assert_eq!(
+            action(&["session", "inspect", "42"])?,
+            Action::Session(Session::Inspect(SessionId::new(42)))
+        );
+        assert_eq!(
+            action(&["session", "rename", "42", "build"])?,
+            Action::Session(Session::Rename {
+                session: SessionId::new(42),
+                name: "build".into()
+            })
+        );
+        assert_eq!(
+            action(&["session", "send", "--stdin"])?,
+            Action::Session(Session::SendStdin(None))
+        );
+        assert_eq!(
+            action(&["session", "send", "42", "--stdin"])?,
+            Action::Session(Session::SendStdin(SessionId::new(42)))
+        );
+        for arguments in [
+            vec!["session", "send-keys", "Ctrl+C", "Enter"],
+            vec!["session", "send-keys", "42", "Ctrl+C", "Enter"],
+        ] {
+            let session = if arguments.len() == 5 {
+                SessionId::new(42)
+            } else {
+                None
+            };
+            assert_eq!(
+                action(&arguments)?,
+                Action::Session(Session::Key {
+                    session,
+                    bytes: vec![3, 13]
+                })
+            );
+        }
+        for arguments in [
+            vec!["session", "inspect", "0"],
+            vec!["session", "rename", "42", ""],
+            vec!["session", "rename", "42", "  build"],
+            vec!["session", "rename", "42", "a\nb"],
+            vec!["session", "send", "42", "text", "--stdin"],
+            vec!["session", "send-keys", "42"],
+            vec!["session", "send-keys", "0", "Enter"],
+            vec!["session", "send-keys", "42", "Enter", "unknown"],
+        ] {
+            assert!(words(&arguments).is_err(), "{arguments:?}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn quiet_is_only_for_resource_lists_and_conflicts_with_json() -> io::Result<()> {
+        for arguments in [
+            vec!["project", "list"],
+            vec!["session", "list"],
+            vec!["worktree", "list", "App"],
+        ] {
+            for flag in ["-q", "--quiet"] {
+                let mut arguments = arguments.clone();
+                arguments.push(flag);
+                assert!(words(&arguments)?.quiet);
+                arguments.push("--json");
+                assert!(words(&arguments).is_err());
+            }
+        }
+        for arguments in [
+            vec!["session", "inspect", "--quiet"],
+            vec!["server", "status", "-q"],
+            vec!["activity", "list", "--quiet"],
+        ] {
+            assert!(words(&arguments).is_err());
+        }
         Ok(())
     }
 

@@ -20,7 +20,7 @@ fn unpacked_packages_require_explicit_enable_and_unload_keeps_sources() {
     let source = tempfile::tempdir().unwrap();
     package(&source.path().join("dist"), "files");
     let mut registry = Registry::load(profile.path());
-    assert_eq!(registry.load_unpacked(source.path()).unwrap(), "files");
+    assert_eq!(registry.load_unpacked(source.path()).unwrap().name, "files");
     assert!(registry.enabled("files").is_none());
     assert!(registry.load_unpacked(source.path()).is_err());
     registry.set_enabled("files", true).unwrap();
@@ -155,6 +155,46 @@ fn a_folder_cant_be_loaded_twice_under_two_names() {
 }
 
 #[test]
+fn a_name_moved_to_another_folder_starts_disabled() {
+    let profile = tempfile::tempdir().unwrap();
+    let original = tempfile::tempdir().unwrap();
+    let replacement = tempfile::tempdir().unwrap();
+    package(original.path(), "hello");
+    package(replacement.path(), "hello");
+    let mut registry = Registry::load(profile.path());
+    assert!(registry.load_unpacked(original.path()).unwrap().new_source);
+    registry.set_enabled("hello", true).unwrap();
+    fs::write(original.path().join("package.json"), "not json").unwrap();
+
+    let mut registry = Registry::load(profile.path());
+    assert!(registry.extensions.is_empty());
+    let target = registry.unpacked_target(replacement.path()).unwrap();
+    assert_eq!((target.name.as_str(), target.new_source), ("hello", true));
+    assert!(registry.extensions.is_empty());
+    let loaded = registry.load_unpacked(replacement.path()).unwrap();
+    assert!(loaded.new_source);
+    assert!(registry.enabled("hello").is_none());
+    assert!(Registry::load(profile.path()).enabled("hello").is_none());
+}
+
+#[test]
+fn a_folder_refused_for_a_loaded_name_is_refused_before_anything_changes() {
+    let profile = tempfile::tempdir().unwrap();
+    let loaded = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    package(loaded.path(), "hello");
+    package(other.path(), "hello");
+    let mut registry = Registry::load(profile.path());
+    registry.load_unpacked(loaded.path()).unwrap();
+    assert!(registry.unpacked_target(other.path()).is_err());
+    assert!(registry.load_unpacked(other.path()).is_err());
+    assert_eq!(
+        registry.source_folder("hello"),
+        Some(loaded.path().canonicalize().unwrap().as_path())
+    );
+}
+
+#[test]
 fn a_repaired_folder_can_be_loaded_again_after_failing_at_startup() {
     let profile = tempfile::tempdir().unwrap();
     let source = tempfile::tempdir().unwrap();
@@ -167,7 +207,9 @@ fn a_repaired_folder_can_be_loaded_again_after_failing_at_startup() {
     let mut registry = Registry::load(profile.path());
     assert!(registry.extensions.is_empty());
     fs::write(source.path().join("package.json"), good).unwrap();
-    assert_eq!(registry.load_unpacked(source.path()).unwrap(), "hello");
+    let loaded = registry.load_unpacked(source.path()).unwrap();
+    assert_eq!(loaded.name, "hello");
+    assert!(!loaded.new_source);
 }
 
 #[test]
@@ -204,6 +246,44 @@ fn manifests_reject_escaping_resources_and_invalid_commands() {
     value["muxy"]["commands"][0]["action"]["tabType"] = json!("absent");
     fs::write(path, value.to_string()).unwrap();
     assert!(Extension::load(root.path()).is_err());
+}
+
+#[test]
+fn a_malformed_marketplace_listing_never_stops_an_extension_loading() {
+    let root = tempfile::tempdir().unwrap();
+    package(root.path(), "files");
+    let path = root.path().join("package.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        Extension::load(root.path()).unwrap().manifest.marketplace,
+        Listing::default()
+    );
+    value["muxy"]["marketplace"] = json!({
+        "author": " Ada ",
+        "categories": ["git", 7, ""],
+        "icon": "assets/icon.svg",
+        "screenshots": "one.png",
+        "homepage": {"url": "https://example.com"},
+        "repository": "https://github.com/example/files",
+    });
+    fs::write(&path, value.to_string()).unwrap();
+    assert_eq!(
+        Extension::load(root.path()).unwrap().manifest.marketplace,
+        Listing {
+            author: Some("Ada".into()),
+            categories: vec!["git".into()],
+            icon: Some("assets/icon.svg".into()),
+            screenshots: Vec::new(),
+            homepage: None,
+            repository: Some("https://github.com/example/files".into()),
+        }
+    );
+    value["muxy"]["marketplace"] = json!("not a listing");
+    fs::write(&path, value.to_string()).unwrap();
+    assert_eq!(
+        Extension::load(root.path()).unwrap().manifest.marketplace,
+        Listing::default()
+    );
 }
 
 #[test]
@@ -261,6 +341,30 @@ fn grants_scope_exact_shell_and_program_and_storage_is_per_extension() {
             .unwrap(),
         serde_json::Value::Null
     );
+}
+
+#[test]
+fn names_that_differ_only_in_case_keep_separate_data() {
+    let root = tempfile::tempdir().unwrap();
+    package(&root.path().join("upper"), "Notes");
+    package(&root.path().join("lower"), "notes");
+    let upper = Extension::load(&root.path().join("upper")).unwrap();
+    let lower = Extension::load(&root.path().join("lower")).unwrap();
+    let saved = root.path().join("extension-storage");
+    fs::create_dir_all(&saved).unwrap();
+    fs::write(saved.join("Notes.json"), r#"{"cache":1}"#).unwrap();
+
+    let storage = Storage::new(root.path());
+    let get = |extension| storage.call(extension, "storage.get", &json!({"key":"cache"}));
+    assert_eq!(get(&upper).unwrap(), json!(1));
+    assert_eq!(get(&lower).unwrap(), serde_json::Value::Null);
+    storage
+        .call(&lower, "storage.set", &json!({"key":"cache","value":2}))
+        .unwrap();
+    assert_eq!(get(&upper).unwrap(), json!(1));
+    assert_eq!(get(&lower).unwrap(), json!(2));
+    assert!(saved.join("^notes.json").is_file());
+    assert!(saved.join("notes.json").is_file());
 }
 
 #[test]
@@ -344,6 +448,133 @@ fn write_package(root: &Path, muxy: &serde_json::Value, files: &[(&str, &str)]) 
         json!({"name":"sample","version":"1.0.0","muxy":muxy}).to_string(),
     )
     .unwrap();
+}
+
+#[test]
+fn failed_grant_changes_keep_the_previous_permissions() {
+    let root = tempfile::tempdir().unwrap();
+    let profile = root.path().join("profile");
+    let saved = root.path().join("saved");
+    fs::create_dir(&profile).unwrap();
+    let request = Request::file("write", "a.txt");
+    let mut grants = Grants::load(&profile).unwrap();
+    for owner in ["files", "files-extra", "trusted"] {
+        grants
+            .remember(owner, &request, Choice::DenyAndRemember)
+            .unwrap();
+    }
+    grants.set_trusted("trusted", true).unwrap();
+    let original = fs::read(profile.join("extension-grants.json")).unwrap();
+    fs::rename(&profile, &saved).unwrap();
+    fs::write(&profile, b"not a directory").unwrap();
+
+    let mutations = [
+        (
+            "allow",
+            (|grants, request| grants.remember("files", request, Choice::AllowAndRemember))
+                as fn(&mut Grants, &Request) -> Result<(), String>,
+        ),
+        ("deny", |grants, request| {
+            grants.remember("new", request, Choice::DenyAndRemember)
+        }),
+        ("block", |grants, request| {
+            grants.remember("files", request, Choice::Block)
+        }),
+        ("trust choice", |grants, request| {
+            grants.remember("files", request, Choice::Trust)
+        }),
+        ("trust", |grants, _| grants.set_trusted("files", true)),
+        ("revoke trust", |grants, _| {
+            grants.set_trusted("trusted", false)
+        }),
+        ("remove", |grants, request| {
+            grants.remove("files", &request.rule(Choice::DenyAndRemember).unwrap())
+        }),
+        ("clear", |grants, _| grants.clear("files")),
+        ("clear trusted", |grants, _| grants.clear("trusted")),
+    ];
+    for (name, mutate) in mutations {
+        let mut changed = grants.clone();
+        assert!(mutate(&mut changed, &request).is_err(), "{name}");
+        for owner in ["files", "files-extra", "trusted", "new"] {
+            assert_eq!(changed.rules(owner), grants.rules(owner), "{name}: {owner}");
+            assert_eq!(
+                changed.trusted(owner),
+                grants.trusted(owner),
+                "{name}: {owner}"
+            );
+            assert_eq!(
+                changed.decision(owner, &request),
+                grants.decision(owner, &request),
+                "{name}: {owner}"
+            );
+        }
+    }
+    for choice in [Choice::Allow, Choice::Cancel] {
+        grants.remember("files", &request, choice).unwrap();
+        assert_eq!(grants.decision("files", &request), Consent::Deny);
+    }
+    assert_eq!(
+        fs::read(saved.join("extension-grants.json")).unwrap(),
+        original
+    );
+    assert_eq!(fs::read(&profile).unwrap(), b"not a directory");
+}
+
+#[test]
+fn removing_a_grant_persists_without_changing_other_scopes() {
+    let root = tempfile::tempdir().unwrap();
+    let mut grants = Grants::load(root.path()).unwrap();
+    let write = Request::file("write", "a.txt");
+    let remove = Request::file("delete", "a.txt");
+    for (owner, request) in [
+        ("files", &write),
+        ("files", &remove),
+        ("files-extra", &write),
+    ] {
+        grants
+            .remember(owner, request, Choice::AllowAndRemember)
+            .unwrap();
+    }
+    grants
+        .remove("files", &write.rule(Choice::AllowAndRemember).unwrap())
+        .unwrap();
+    for saved in [grants, Grants::load(root.path()).unwrap()] {
+        assert_eq!(saved.decision("files", &write), Consent::Ask);
+        assert_eq!(saved.decision("files", &remove), Consent::Allow);
+        assert_eq!(saved.decision("files-extra", &write), Consent::Allow);
+    }
+}
+
+#[test]
+fn trust_allows_every_gate_over_saved_rules_until_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let mut grants = Grants::load(root.path()).unwrap();
+    let exec = Request::for_call("files", "exec", &json!({"argv":["rm","-rf"]}), "").unwrap();
+    let push = Request::for_call("files", "git.push", &json!({}), "/repo").unwrap();
+    let fetch = Request::http("example.com", "GET", "https://example.com");
+    grants.remember("files", &exec, Choice::Block).unwrap();
+    grants
+        .remember("files", &push, Choice::DenyAndRemember)
+        .unwrap();
+    assert!(Choice::Trust.allows() && Choice::Trust.remembers());
+    assert_eq!(exec.rule(Choice::Trust), None);
+    grants.remember("files", &fetch, Choice::Trust).unwrap();
+    let reloaded = Grants::load(root.path()).unwrap();
+    assert!(reloaded.trusted("files"));
+    assert!(!reloaded.trusted("git"));
+    for request in [&exec, &push, &fetch] {
+        assert_eq!(reloaded.decision("files", request), Consent::Allow);
+        assert_eq!(reloaded.decision("git", request), Consent::Ask);
+    }
+    assert_eq!(reloaded.rules("files").len(), 2);
+    grants.set_trusted("files", false).unwrap();
+    assert_eq!(grants.decision("files", &exec), Consent::Blocked);
+    assert_eq!(grants.decision("files", &push), Consent::Deny);
+    assert_eq!(grants.decision("files", &fetch), Consent::Ask);
+    grants.set_trusted("files", true).unwrap();
+    grants.clear("files").unwrap();
+    assert!(!Grants::load(root.path()).unwrap().trusted("files"));
 }
 
 #[test]
@@ -460,6 +691,45 @@ fn manifests_load_whatever_main_accepts() {
     assert!(!only("a*b").matches("a*x"));
     assert!(!only("?").matches("ab"));
     assert!(only("src/*.rs").matches("SRC/lib.RS"));
+    assert!(only("Dockerfile").matches("nested/Dockerfile"));
+    assert!(
+        !FileOpener {
+            patterns: Vec::new(),
+            ..opener.clone()
+        }
+        .matches("anything.md")
+    );
+    let unregistered: FileOpener =
+        serde_json::from_value(json!({"id":"viewer", "tabType":"view"})).unwrap();
+    assert!(!unregistered.matches("anything.md"));
+}
+
+#[test]
+fn file_type_registrations_override_legacy_patterns_without_changing_the_tab_contract() {
+    let root = tempfile::tempdir().unwrap();
+    write_package(
+        root.path(),
+        &json!({
+            "tabTypes": [{"id": "editor", "title": "Editor", "entry": "index.html"}],
+            "fileOpeners": [{"id": "editor", "tabType": "editor", "singleton": false,
+                "patterns": ["*"], "fileTypes": ["*.md", "*.png", "Dockerfile"]}]
+        }),
+        &[("index.html", "")],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    let opener = &extension.manifest.file_openers[0];
+    assert_eq!(opener.patterns, ["*"]);
+    assert_eq!(opener.tab_type, "editor");
+    assert!(!opener.singleton);
+    assert!(opener.matches("docs/README.MD"));
+    assert!(opener.matches("image.png"));
+    assert!(opener.matches("app/Dockerfile"));
+    assert!(!opener.matches("archive.zip"));
+    let disabled = FileOpener {
+        file_types: Some(Vec::new()),
+        ..opener.clone()
+    };
+    assert!(!disabled.matches("readme.md"));
 }
 
 #[test]
@@ -565,4 +835,162 @@ fn detached_panel_frames_must_be_sane() {
         );
         assert!(Extension::load(root.path()).is_err(), "{frame}");
     }
+}
+
+#[test]
+fn app_control_verbs_need_their_permissions() {
+    let none = json!({});
+    for (verb, permission) in [
+        ("tabs.close", Some("tabs:write")),
+        ("tabs.rename", Some("tabs:write")),
+        ("tabs.pin", Some("tabs:write")),
+        ("tabs.move", Some("tabs:write")),
+        ("tabs.list", Some("tabs:read")),
+        ("panes.split", Some("panes:write")),
+        ("panes.zoom", Some("panes:write")),
+        ("panes.list", Some("panes:read")),
+        ("projects.next", Some("projects:write")),
+        ("projects.removed", Some("projects:read")),
+        ("projects.openIn", Some("system:open")),
+        ("projects.reveal", Some("system:open")),
+        ("app.openExternal", Some("system:open")),
+        ("agents.focus", Some("agents:write")),
+        ("ui.setSidebar", Some("ui:write")),
+        ("ui.quickTerminal", Some("ui:write")),
+        ("commands.list", Some("commands:read")),
+        ("commands.run", Some("commands:run")),
+        ("commands.anything", Some("commands:run")),
+        ("composer.setDraft", Some("composer:write")),
+        ("composer.submit", Some("composer:write")),
+        ("layouts.list", Some("layouts:read")),
+        ("layouts.apply", Some("layouts:write")),
+        ("preferences.get", Some("preferences:read")),
+        ("preferences.set", Some("preferences:write")),
+        ("clipboard.readText", Some("clipboard:read")),
+        ("clipboard.writeText", Some("clipboard:write")),
+        ("ui.state", None),
+        ("app.info", None),
+        ("settings.get", None),
+        ("settings.set", None),
+    ] {
+        assert_eq!(required_permission(verb, &none), permission, "{verb}");
+        if let Some(permission) = permission {
+            assert!(PERMISSIONS.contains(&permission), "{permission}");
+        }
+    }
+    assert_eq!(
+        event_permission("preferences.changed"),
+        Some("preferences:read")
+    );
+    for event in ["settings.changed", "theme.changed", "ui.changed"] {
+        assert_eq!(event_permission(event), None, "{event}");
+    }
+}
+
+#[test]
+fn sending_the_composer_and_reading_the_clipboard_ask_first() {
+    let none = json!({});
+    for verb in ["composer.submit", "composer.insert"] {
+        let request = Request::for_call("sample", verb, &none, "").unwrap();
+        assert_eq!(request.gate, Gate::PanesSend, "{verb}");
+    }
+    let request = Request::for_call("sample", "clipboard.readText", &none, "").unwrap();
+    assert_eq!(request.gate, Gate::ClipboardRead);
+    assert_eq!(request.gate.name(), "clipboard.read");
+    let request = Request::custom_command("Deploy", "make deploy");
+    assert_eq!(request.gate, Gate::TabsRunCommand);
+    assert_eq!(request.pattern, "command:make deploy");
+    for verb in [
+        "composer.setDraft",
+        "clipboard.writeText",
+        "commands.run",
+        "ui.setSidebar",
+    ] {
+        assert!(
+            Request::for_call("sample", verb, &none, "").is_none(),
+            "{verb}"
+        );
+    }
+}
+
+#[test]
+fn manifests_accept_the_app_control_permissions() {
+    let root = tempfile::tempdir().unwrap();
+    write_package(
+        root.path(),
+        &json!({
+            "permissions": ["ui:write", "commands:read", "commands:run", "composer:write", "layouts:read", "layouts:write", "preferences:read", "preferences:write", "clipboard:read", "clipboard:write", "system:open", "agents:write"],
+            "events": ["preferences.changed", "settings.changed", "theme.changed", "ui.changed"],
+        }),
+        &[],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    assert!(extension.allows("clipboard:read"));
+    assert!(extension.allows_event("preferences.changed"));
+    assert!(extension.allows_event("ui.changed"));
+}
+
+#[test]
+fn rail_items_are_checked_like_topbar_items() {
+    let root = tempfile::tempdir().unwrap();
+    let manifest = |rail: serde_json::Value| {
+        json!({
+            "commands": [{"id": "toggle", "title": "Toggle"}],
+            "topbarItems": [{"id": "same", "icon": "star", "command": "toggle"}],
+            "railItems": rail,
+        })
+    };
+    write_package(
+        root.path(),
+        &manifest(json!([
+            {"id": "same", "icon": "star", "command": "toggle", "tooltip": "Star"},
+            {"id": "hidden", "icon": "bolt", "command": "toggle", "visible": false},
+        ])),
+        &[],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    let rail = &extension.manifest.rail_items;
+    assert_eq!(rail.len(), 2);
+    assert_eq!(rail[0].tooltip.as_deref(), Some("Star"));
+    assert!(rail[0].visible);
+    assert!(!rail[1].visible);
+    for invalid in [
+        json!([{"id": "a", "icon": "star", "command": "absent"}]),
+        json!([
+            {"id": "a", "icon": "star", "command": "toggle"},
+            {"id": "a", "icon": "bolt", "command": "toggle"},
+        ]),
+        json!([{"id": "", "icon": "star", "command": "toggle"}]),
+    ] {
+        write_package(root.path(), &manifest(invalid.clone()), &[]);
+        assert!(Extension::load(root.path()).is_err(), "{invalid}");
+    }
+    assert_eq!(
+        required_permission("rail.set", &json!({})),
+        Some("panels:write")
+    );
+}
+
+#[test]
+fn localizations_that_share_a_bundle_and_language_read_it_once() {
+    let root = tempfile::tempdir().unwrap();
+    let localizations: Vec<_> = (0..40)
+        .map(|index| {
+            json!({"id":format!("de{index}"),"language":"de","title":"Deutsch","bundle":"German.bundle"})
+        })
+        .collect();
+    let catalog = format!("\"A\" = \"{}\";", "x".repeat(3 * 1024 * 1024));
+    write_package(
+        root.path(),
+        &json!({"localizations":localizations}),
+        &[
+            (
+                "German.bundle/Info.plist",
+                r#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict></dict></plist>"#,
+            ),
+            ("German.bundle/de.lproj/Localizable.strings", &catalog),
+        ],
+    );
+    let extension = Extension::load(root.path()).unwrap();
+    assert_eq!(extension.manifest.localizations.len(), 40);
 }

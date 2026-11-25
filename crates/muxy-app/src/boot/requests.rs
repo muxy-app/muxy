@@ -42,8 +42,6 @@ impl Requests {
                 self.queued.push_back(work);
                 return None;
             }
-            // Keep one latest size per channel in the trailing resize run even at capacity.
-            // Other requests are ordering barriers and cannot extend a full queue.
         } else if self.queued.len() >= MAX_QUEUED_REQUESTS {
             return Some(rejected(
                 work,

@@ -1,13 +1,10 @@
-//! The connection the app keeps with each server: this computer's, and each
-//! one listed in `settings.toml`. Session and channel IDs are counters per
-//! server, so what they key lives with the server too.
-
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use gpui::Context;
 use muxy_app_core::settings::ServerEntry;
 use muxy_app_core::{PaneId, Project, ServerId};
 use muxy_client::SshTarget;
+use muxy_core::capability::Feature;
 use muxy_protocol::{ChannelId, SessionId, SessionProgress};
 use muxy_ui::tr;
 
@@ -19,34 +16,25 @@ pub(crate) struct Runtime {
     pub(super) work: Option<Worker>,
     pub(super) connection: ConnectionState,
     pub(super) generation: u64,
-    /// The server's build and instance, as its last connection reported them.
     pub(super) info: Option<muxy_protocol::ServerInfo>,
-    /// What the server can do, as its last connection reported.
     pub(super) features: Vec<muxy_protocol::Feature>,
-    /// Why the last connection attempt failed, for the server's own status.
     pub(super) error: Option<String>,
-    /// Another computer's server is stopping or restarting at the user's request.
     pub(super) stopping: bool,
-    /// What kind of failure `error` is, when ssh or the bridge said.
     pub(super) failure: Option<muxy_client::RemoteReason>,
-    /// Installing Muxy there, at the user's request.
     pub(super) install: Option<super::remote_servers::Install>,
-    /// How the worker reaches another computer.
     pub(super) target: Option<Target>,
-    /// Connecting again after a drop.
     pub(super) retry: super::reconnect::Retry,
-    /// Checks of its project folders started, so only the latest applies.
     pub(super) status_checks: u64,
-    /// It logs in with a password, which the app asks for before connecting.
     pub(super) password_login: bool,
     pub(super) catalog: catalog::Synchronization,
     pub(super) references: Option<Vec<SessionId>>,
+    pub(super) names_asked: BTreeMap<SessionId, Option<String>>,
     pub(super) discarding: HashSet<SessionId>,
     pub(super) sessions_revision: u64,
-    /// Channels up to this one were attached on this connection; the closed ones are acknowledged.
     pub(super) last_channel: u32,
     pub(crate) progress: HashMap<SessionId, SessionProgress>,
     pub(crate) activity: activity::ActivityView,
+    pub(super) shown: Option<BTreeSet<SessionId>>,
 }
 
 impl Runtime {
@@ -67,24 +55,22 @@ impl Runtime {
             password_login: false,
             catalog: catalog::Synchronization::default(),
             references: None,
+            names_asked: BTreeMap::new(),
             discarding: HashSet::new(),
             sessions_revision: 0,
             last_channel: 0,
             progress: HashMap::new(),
             activity: activity::ActivityView::default(),
+            shown: None,
         }
     }
 }
 
 pub(crate) struct Servers {
     workers: Workers,
-    /// Passwords typed this session, which ssh asks the app for.
     pub(super) passwords: crate::askpass::Passwords,
-    /// How ssh goes through the app's proxy, when it applies to the whole app.
     pub(super) proxy: Option<muxy_client::ProxyCommand>,
-    /// `paired-servers.toml`, with the tokens for servers this computer paired with.
     pub(super) tokens: std::path::PathBuf,
-    /// This computer's server, which is always there.
     pub(crate) local: Runtime,
     remotes: BTreeMap<ServerId, Runtime>,
 }
@@ -107,8 +93,6 @@ pub(super) fn ssh_target(
 }
 
 impl Servers {
-    /// Boot already asked the local worker to connect, as generation 1.
-    /// ssh asks for passwords on `askpass`, a socket path.
     pub(super) fn new(
         workers: Workers,
         local: Worker,
@@ -141,7 +125,6 @@ impl Servers {
         }
     }
 
-    /// This computer's server first, then the others.
     pub(super) fn ids(&self) -> Vec<ServerId> {
         std::iter::once(ServerId::local())
             .chain(self.remotes.keys().copied())
@@ -153,10 +136,6 @@ impl Servers {
             .chain(self.remotes.iter().map(|(id, runtime)| (*id, runtime)))
     }
 
-    /// Starts the worker for another computer's server. An invalid entry
-    /// leaves the server without a worker, and its error says why. A server
-    /// that had a worker before keeps counting from its `generation`, so
-    /// updates from that worker are never taken for the new one's.
     fn add(&mut self, entry: &ServerEntry, generation: u64) {
         let mut runtime = Runtime::new(None, ConnectionState::Disconnected, generation);
         runtime.password_login = entry.password_login;
@@ -170,9 +149,6 @@ impl Servers {
         self.remotes.insert(entry.id, runtime);
     }
 
-    /// How the worker reaches `entry`: as a paired computer with its saved
-    /// token, or over ssh with its key file, asking the app for a password
-    /// when it logs in with one.
     pub(super) fn target(&mut self, entry: &ServerEntry) -> std::io::Result<Target> {
         if let Some(paired) = &entry.paired {
             return self.paired_target(entry, paired);
@@ -215,8 +191,6 @@ impl Servers {
         })
     }
 
-    /// Stops another computer's worker and drops what its connection kept.
-    /// Returns the generation it reached.
     pub(super) fn remove(&mut self, server: ServerId) -> Option<u64> {
         let runtime = self.remotes.remove(&server)?;
         if let Some(worker) = &runtime.work {
@@ -225,9 +199,6 @@ impl Servers {
         Some(runtime.generation)
     }
 
-    /// Starts a server listed after launch, or one whose way in changed. The
-    /// new worker starts a generation past the old one's, so the old one's
-    /// updates are dropped even before the new one connects.
     pub(super) fn restart(&mut self, entry: &ServerEntry) {
         let generation = self.remove(entry.id).map_or(0, |generation| generation + 1);
         self.add(entry, generation);
@@ -243,16 +214,9 @@ impl Servers {
 }
 
 impl AppModel {
-    /// Connects every server listed in settings, each on its own worker, so
-    /// SSH never blocks the window.
-    /// Servers that log in with a password wait until one of their projects
-    /// is opened or they are connected by hand, so launching never asks.
-    pub(super) fn start_servers(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn start_servers(&mut self) {
         for entry in self.settings.servers.clone() {
             self.servers.add(&entry, 0);
-            if !entry.password_login {
-                self.connect_server(entry.id, cx);
-            }
         }
     }
 
@@ -270,10 +234,6 @@ impl AppModel {
         self.ready(server)
     }
 
-    /// Whether another computer's catalog has shown, on this connection, that
-    /// it is still the server the app knew. Until then its session numbers
-    /// may belong to someone else's sessions, so none are closed or read.
-    /// This computer's server is trusted as before.
     pub(crate) fn confirmed(&self, server: ServerId) -> bool {
         server.is_local()
             || self
@@ -282,10 +242,6 @@ impl AppModel {
                 .is_some_and(|runtime| runtime.catalog.restore.is_none())
     }
 
-    /// Whether another computer's catalog has shown, on this connection, that
-    /// it is the server the app knew, so the project edits waiting for that
-    /// server can go to it. A server that answers as another one never gets
-    /// them. This computer's server is trusted as before.
     pub(super) fn identified(&self, server: ServerId) -> bool {
         server.is_local()
             || self
@@ -294,7 +250,6 @@ impl AppModel {
                 .is_some_and(|runtime| runtime.catalog.identified)
     }
 
-    /// The project's server; this computer's for a project that is gone.
     pub(super) fn project_server_or_local(&self, project: muxy_protocol::ProjectId) -> ServerId {
         self.state
             .project_server(project)
@@ -307,22 +262,16 @@ impl AppModel {
             .map_or(0, |runtime| runtime.generation)
     }
 
-    /// The connection generation of the project's server, which work for the
-    /// project keeps so a reconnect expires it.
     pub(super) fn project_generation(&self, project: muxy_protocol::ProjectId) -> u64 {
         self.state
             .project_server(project)
             .map_or(0, |server| self.generation(server))
     }
 
-    /// Projects of servers that are no longer in settings stay in the state,
-    /// hidden, until their server returns.
     pub(crate) fn project_shown(&self, project: &Project) -> bool {
         project.server_id.is_local() || self.settings.server(project.server_id).is_some()
     }
 
-    /// The Home folder of another computer's server, from its catalog; `None`
-    /// for this computer's, whose Home is `$HOME`.
     pub(crate) fn remote_home(&self, server: ServerId) -> Option<&std::path::Path> {
         if server.is_local() {
             return None;
@@ -338,7 +287,6 @@ impl AppModel {
             .is_none_or(ServerId::is_local)
     }
 
-    /// The Muxy version the server runs, once it connected.
     pub(crate) fn server_version(&self, server: ServerId) -> Option<&str> {
         self.servers
             .get(server)
@@ -346,29 +294,22 @@ impl AppModel {
             .map(|info| info.build.version.as_str())
     }
 
-    /// Why the server's last connection attempt failed.
     pub(crate) fn server_error(&self, server: ServerId) -> Option<&str> {
         self.servers
             .get(server)
             .and_then(|runtime| runtime.error.as_deref())
     }
 
-    /// Projects the sidebar and Switch Project list: shown ones, with another
-    /// computer's Home only under the Remote Servers workspace.
     pub(crate) fn project_listed(&self, project: &Project) -> bool {
         self.project_shown(project)
-            && (!project.is_remote_home() || self.state.remote_servers_selected())
     }
 
-    /// The name settings give another computer's server.
     pub(crate) fn server_name(&self, server: ServerId) -> Option<&str> {
         self.settings
             .server(server)
             .map(|entry| entry.name.as_str())
     }
 
-    /// A failure nobody asked about: this computer's server alerts; another
-    /// computer's shows beside it in the sidebar's Remote section.
     pub(super) fn server_problem(
         &mut self,
         server: ServerId,
@@ -383,9 +324,6 @@ impl AppModel {
         }
     }
 
-    /// Saved files the server couldn't read when it started, which it runs
-    /// without. This computer's catalog is explained once, when its fresh
-    /// project list replaces the old one.
     pub(super) fn unreadable_message(&self, server: ServerId) -> Option<String> {
         let info = self.servers.get(server)?.info.as_ref()?;
         let kept: Vec<_> = info
@@ -404,7 +342,6 @@ impl AppModel {
         Some(self.server_message(server, &message))
     }
 
-    /// Names another computer's server in a message about it.
     pub(super) fn server_message(&self, server: ServerId, message: &str) -> String {
         match self.server_name(server) {
             Some(name) if !server.is_local() => format!("{name}: {message}"),
@@ -412,7 +349,6 @@ impl AppModel {
         }
     }
 
-    /// The server that produced the pane's attachment, and its channel there.
     pub(super) fn attachment(&self, pane: PaneId, cx: &gpui::App) -> Option<(ServerId, ChannelId)> {
         self.terminal(&pane)
             .and_then(|view| view.view.read(cx).attachment())
@@ -434,9 +370,6 @@ impl AppModel {
         self.connect_to_server(server, false, cx);
     }
 
-    /// Reconnects a remote server when one of its projects or tabs is shown.
-    /// This computer's server keeps connecting only when a terminal needs it,
-    /// so a server stopped from Settings stays stopped.
     pub(crate) fn connect_on_demand(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if !server.is_local() && self.connection(server) == ConnectionState::Disconnected {
             self.connect_server(server, cx);
@@ -451,6 +384,7 @@ impl AppModel {
     ) {
         if self.quitting != Quitting::Idle
             || (server.is_local() && self.server_preferences.control_busy)
+            || (!server.is_local() && !self.supports(Feature::SshRemotes))
         {
             return;
         }
@@ -500,7 +434,6 @@ impl AppModel {
         }
     }
 
-    /// Drops what was waiting on `server`'s connection.
     fn forget_requests(&mut self, server: ServerId) {
         self.pending.retain(|_, owner| *owner != server);
         self.detached_pending
@@ -526,7 +459,6 @@ impl AppModel {
         }
     }
 
-    /// Marks only `server`'s panes and requests as disconnected.
     pub(super) fn disconnect(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if server.is_local() {
             self.stop_extension_tasks(cx);
@@ -580,7 +512,7 @@ impl AppModel {
             }
             self.server_preferences.busy = false;
             self.server_preferences.pending.clear();
-            self.mobile = self.mobile.after_disconnect();
+            self.client_access = self.client_access.after_disconnect();
         }
         self.sync_preferences(cx);
         self.forget_requests(server);
@@ -636,8 +568,6 @@ impl AppModel {
         sent
     }
 
-    /// Asks the workers to finish their work in flight before quitting: this
-    /// computer's always, and each other server that is connected.
     pub(super) fn flush_servers(&mut self, cx: &mut Context<Self>) -> bool {
         self.flushing.clear();
         for server in self.servers.ids() {
@@ -654,8 +584,6 @@ impl AppModel {
         true
     }
 
-    /// Whether every server has finished. A server with work left is asked to
-    /// flush again.
     pub(super) fn flushed(&mut self, server: ServerId, cx: &mut Context<Self>) -> bool {
         let busy = self.pending_on(server)
             || self

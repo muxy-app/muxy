@@ -1,71 +1,49 @@
-//! What app content is drawn over the workspace. Native views (terminal
-//! scroll, webviews, browsers, spinners) step aside under it, and drags stop.
-//! A new layer is added here, once.
-
 use muxy_app_core::settings::ComposerPresentation;
 
 use super::AppModel;
 
-/// The layers drawn over the workspace right now.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Coverage {
     overlay: Option<OverlayLayer>,
-    /// A dialog above the window.
     dialog: bool,
     composer: Option<ComposerLayer>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OverlayLayer {
-    /// Marks the rectangle it covers, so native views are cut out under it.
     Marked,
     Unmarked,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ComposerLayer {
-    /// Open or closing, it dims the whole workspace.
     Floating,
-    /// A panel composer animating closed.
     PanelClosing,
-    /// An open panel composer that isn't pinned, drawn over the panes.
     LoosePanel,
 }
 
 impl Coverage {
-    /// An overlay or a dialog owns the window: resizes and window drags
-    /// stop.
     pub(crate) fn modal(self) -> bool {
         self.overlay.is_some() || self.dialog
     }
 
-    /// Terminal scroll can't be cut out under a rectangle, so it hides under
-    /// every layer except a pinned panel composer, which sits beside the panes.
     pub(crate) fn hides_terminal_scroll(self) -> bool {
         self.modal() || self.composer.is_some()
     }
 
-    /// Webviews and browsers hide under layers that cover the whole
-    /// workspace. Under a panel composer they are cut out under its rectangle
-    /// instead.
     pub(crate) fn hides_webviews(self) -> bool {
         self.modal() || self.composer == Some(ComposerLayer::Floating)
     }
 
-    /// A webview modal or extension popover is the overlay itself, so only
-    /// a dialog is above it.
     pub(crate) fn hides_overlay_webviews(self) -> bool {
         self.dialog
     }
 
-    /// Spinners are cut out under a marked overlay. A dialog sits above the
-    /// window, so it hides none.
     pub(crate) fn hides_spinners(self) -> bool {
         self.overlay == Some(OverlayLayer::Unmarked)
             || self.composer == Some(ComposerLayer::Floating)
     }
 
-    /// Pane drags stop under every layer except an open panel composer.
     pub(crate) fn blocks_pane_drag(self) -> bool {
         self.modal()
             || matches!(
@@ -112,8 +90,6 @@ impl AppModel {
 mod tests {
     use super::{ComposerLayer, Coverage, OverlayLayer};
 
-    /// Modal, then whether it hides terminal scroll, webviews, overlay
-    /// webviews and spinners, then whether it blocks pane drag.
     fn answers(coverage: Coverage) -> [bool; 6] {
         [
             coverage.modal(),

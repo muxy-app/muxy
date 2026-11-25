@@ -22,12 +22,17 @@ impl Category {
             ],
             Self::Composer => &[tr_key!("Behavior"), tr_key!("Text")],
             Self::Browser => &[tr_key!("General"), tr_key!("Browsing"), tr_key!("Profiles")],
-            Self::Ai => &[tr_key!("Commit"), tr_key!("Create Pull Request")],
+            Self::Ai => &[
+                tr_key!("Commit"),
+                tr_key!("Create Pull Request"),
+                tr_key!("Prompt Enhancer"),
+            ],
             Self::General => &[
                 tr_key!("Closing terminals"),
                 tr_key!("Files"),
                 tr_key!("Window size"),
                 tr_key!("Worktrees"),
+                tr_key!("Privacy"),
             ],
             Self::Appearance => &[
                 tr_key!("Language"),
@@ -37,12 +42,7 @@ impl Category {
             ],
             Self::Keyboard => &[tr_key!("Shortcuts")],
             Self::Terminal => super::terminal::SECTIONS,
-            Self::Server => &[
-                tr_key!("Connection"),
-                tr_key!("Sessions"),
-                tr_key!("Server control"),
-            ],
-            Self::Devices | Self::Extensions | Self::Commands | Self::About => &[],
+            Self::Servers | Self::Extensions | Self::Commands | Self::About => &[],
             Self::Backup => &[
                 tr_key!("Backup & Restore"),
                 tr_key!("Migration"),
@@ -53,14 +53,14 @@ impl Category {
 }
 
 impl SettingsView {
-    fn select_category(
+    pub(crate) fn select_category(
         &mut self,
         category: Category,
         section: Option<&'static str>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.finish_terminal_slider(cx);
+        self.finish_slider(cx);
         self.recording = None;
         self.cancel_quick_recording(cx);
         if section.is_none()
@@ -76,7 +76,7 @@ impl SettingsView {
         self.results.reset();
         self.search.update(cx, |search, cx| search.set_text("", cx));
         self.focus.focus(window);
-        if category == Category::Server {
+        if category == Category::Servers {
             cx.emit(SettingsEvent::ReadServer);
         }
         if category == Category::Extensions {
@@ -161,7 +161,6 @@ impl SettingsView {
                     categories = categories.child(
                         navigation::subitem(
                             self.layout_style(),
-                            // The same section can sit under two open categories.
                             SharedString::from(format!(
                                 "settings-subcategory-{}-{section}",
                                 category.label()
@@ -266,6 +265,11 @@ impl SettingsView {
             tr!("Welcome Tour"),
             cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::ShowWelcomeTour)),
         );
+        let agent = self.header_button(
+            "settings-ask-agent",
+            tr!("Ask Agent…"),
+            cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::AskAgent)),
+        );
         if !self.results.editable {
             return div()
                 .h(self.layout_metrics.scaled(56.0))
@@ -273,6 +277,8 @@ impl SettingsView {
                 .flex()
                 .items_center()
                 .justify_end()
+                .gap(self.layout_metrics.scaled(8.0))
+                .child(agent)
                 .child(tour)
                 .into_any_element();
         }
@@ -292,8 +298,12 @@ impl SettingsView {
                     .text_size(self.layout_metrics.scaled(14.0))
                     .text_color(self.theme.accent)
                     .bg(self.theme.accent_soft)
-                    .child(if self.category == Category::Server {
-                        tr!("Current device")
+                    .child(if self.category == Category::Servers {
+                        if cfg!(target_os = "macos") {
+                            tr!("This Mac")
+                        } else {
+                            tr!("This Computer")
+                        }
                     } else {
                         tr!("User")
                     }),
@@ -304,6 +314,7 @@ impl SettingsView {
                     .flex_none()
                     .items_center()
                     .gap(self.layout_metrics.scaled(8.0))
+                    .child(agent)
                     .child(tour)
                     .child(self.header_button(
                         "settings-open-configuration",
@@ -411,18 +422,6 @@ impl SettingsView {
                     content.pt(self.layout_metrics.scaled(32.0))
                 })
                 .child(extensions.clone())
-                .into_any_element();
-        }
-        if self.category == Category::Devices
-            && self.query.is_empty()
-            && let Some(devices) = &self.devices
-        {
-            return div()
-                .w_full()
-                .min_w_0()
-                .min_h_0()
-                .h_full()
-                .child(devices.clone())
                 .into_any_element();
         }
         let view = cx.entity();

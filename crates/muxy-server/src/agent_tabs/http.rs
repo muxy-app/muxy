@@ -1,5 +1,3 @@
-//! A blocking HTTP/1.1 GET for an agent's service on this computer.
-
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
@@ -7,16 +5,12 @@ use std::time::{Duration, Instant};
 const TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_RESPONSE: usize = 4 * 1024 * 1024;
 
-/// The loopback address in `url`, such as `http://127.0.0.1:4096`. Other
-/// hosts are refused so the service password never leaves the computer.
 pub(super) fn loopback(url: &str) -> Option<SocketAddr> {
     let authority = url.strip_prefix("http://")?.split('/').next()?;
     let address: SocketAddr = authority.replace("localhost", "127.0.0.1").parse().ok()?;
     address.ip().is_loopback().then_some(address)
 }
 
-/// The body of a `200 OK` reply to `GET path`, if the whole reply arrives
-/// within `TIMEOUT` and before `deadline`, however the service paces it.
 pub(super) fn get(
     address: SocketAddr,
     path: &str,
@@ -99,7 +93,6 @@ fn dechunk(mut rest: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-/// `value` for a URL query, with every byte outside the unreserved set escaped.
 pub(super) fn query(value: &str) -> String {
     use std::fmt::Write as _;
     let mut encoded = String::with_capacity(value.len());

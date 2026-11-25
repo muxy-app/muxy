@@ -107,19 +107,17 @@ fn a_panel_composer_covers_only_its_rectangle(cx: &mut TestAppContext) {
     });
 }
 
-/// Draws the window and returns the rectangles marked over native views.
 fn drawn_marks(view: &Entity<AppModel>, cx: &mut VisualTestContext) -> Vec<Bounds<Pixels>> {
     view.update(cx, |_, cx| cx.notify());
     cx.run_until_parked();
     view.update(cx, |model, _| {
         let marks = model.webviews.occlusions.borrow();
-        marks.iter().map(|(_, bounds)| *bounds).collect()
+        marks.iter().map(|(_, cover)| cover.bounds).collect()
     })
 }
 
 pub(super) type Open = Box<dyn Fn(&mut AppModel, &mut Window, &mut Context<AppModel>)>;
 
-/// Gives an anchored popover a place on screen, as its button would.
 fn anchor(anchor: &muxy_ui::popover::PopoverAnchor) {
     anchor.set(Some(Bounds::new(
         gpui::point(px(300.0), px(500.0)),
@@ -127,12 +125,9 @@ fn anchor(anchor: &muxy_ui::popover::PopoverAnchor) {
     )));
 }
 
-/// Every overlay a test can open. `Webview`, `Popover`, `Native`,
-/// `ProjectLogo` and `Projects` need a native web view, an extension, a
-/// decoded image or a folder search; `PullRequest` needs a loaded pull request.
-pub(super) fn openers(project: ProjectId) -> [(&'static str, Open); 21] {
+pub(super) fn openers(project: ProjectId) -> Vec<(&'static str, Open)> {
     let at = gpui::point(px(200.0), px(200.0));
-    [
+    let openers: [(&'static str, Open); 22] = [
         ("updates", Box::new(AppModel::toggle_update_popover)),
         ("server", Box::new(AppModel::toggle_server_popover)),
         ("remote servers", Box::new(AppModel::toggle_remote_popover)),
@@ -199,6 +194,7 @@ pub(super) fn openers(project: ProjectId) -> [(&'static str, Open); 21] {
             Box::new(move |model, window, cx| model.open_project_icons(project, at, window, cx)),
         ),
         ("commands", Box::new(AppModel::toggle_command_palette)),
+        ("file opener", Box::new(file_opener)),
         (
             "git form",
             Box::new(move |model, _, cx| model.open_git_form(project, true, cx)),
@@ -224,7 +220,11 @@ pub(super) fn openers(project: ProjectId) -> [(&'static str, Open); 21] {
             "password",
             Box::new(|model, _, cx| model.ask_password(ServerId::local(), cx)),
         ),
-    ]
+    ];
+    openers
+        .into_iter()
+        .filter(|(name, _)| !(cfg!(windows) && name.contains("remote servers")))
+        .collect()
 }
 
 #[gpui::test]
@@ -248,4 +248,27 @@ fn overlays_mark_exactly_when_their_variant_says(cx: &mut TestAppContext) {
         let marks = drawn_marks(&view, cx);
         assert_eq!(!marks.is_empty(), marked, "{name} marks {marks:?}");
     }
+}
+
+fn file_opener(model: &mut AppModel, _: &mut Window, cx: &mut Context<AppModel>) {
+    use muxy_app_core::opener::{FileHandler, FileLocation, OpenRequest, Target};
+    let pane = model.active_pane().expect("pane");
+    let context = model.opener_context(pane).expect("context");
+    model.open_file_chooser(
+        OpenRequest {
+            target: Target::File(FileLocation {
+                path: context.project_directory.join("readme.md"),
+                line: None,
+                column: None,
+            }),
+            context,
+        },
+        "readme.md".into(),
+        vec![FileHandler {
+            id: "preview:md".into(),
+            title: "Preview".into(),
+            patterns: vec!["*.md".into()],
+        }],
+        cx,
+    );
 }

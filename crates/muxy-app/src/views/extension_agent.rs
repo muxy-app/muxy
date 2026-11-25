@@ -1,6 +1,3 @@
-//! The picker that chooses which agent works on an extension, in the style of
-//! the command palette.
-
 use gpui::{AnyElement, AppContext, Context, Entity, Focusable, IntoElement, Window};
 use muxy_ui::picker::{
     Picker, PickerAction, PickerConfig, PickerEvent, PickerItem, PickerLeading, PickerRow,
@@ -17,8 +14,6 @@ const CHECK_AGAIN: &str = "check-again";
 pub(crate) struct ExtensionAgentPicker {
     pub(crate) task: AgentTask,
     pub(crate) picker: Entity<Picker>,
-    /// The agent chosen here, while it gets ready. What it is waiting for is
-    /// dropped when this changes or the picker closes.
     pub(crate) attempt: u64,
 }
 
@@ -40,6 +35,7 @@ pub(crate) fn placeholder(task: &AgentTask) -> gpui::SharedString {
         AgentTask::Edit { name, .. } => tr!("Edit %@ with…", name),
         AgentTask::Clone { name, .. } => tr!("Clone %@ as %@ with…", name, clone_name(name)),
         AgentTask::Publish { name, .. } => tr!("Publish %@ with…", name),
+        AgentTask::Settings { .. } => tr!("Change settings with…"),
     }
 }
 
@@ -76,7 +72,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Looks for agents again, for one the user has just installed.
     pub(crate) fn refresh_extension_agents(&mut self, cx: &mut Context<Self>) {
         #[cfg(not(test))]
         self.ai.refresh_installed();
@@ -86,7 +81,6 @@ impl AppModel {
         self.update_extension_agents(cx);
     }
 
-    /// Lists the agents that match what was typed, or says what to install.
     pub(crate) fn update_extension_agents(&mut self, cx: &mut Context<Self>) {
         let agents = self.extension_agents();
         let Some(Overlay::ExtensionAgent(open)) = &self.overlay else {

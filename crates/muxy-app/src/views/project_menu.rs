@@ -8,8 +8,6 @@ use super::menu::{Command, Item, color_items};
 use super::project_editor::Field;
 use crate::model::{AppModel, git::Repository};
 
-/// The menu of a top-level project. `worktrees` is `None` when its folder is not
-/// a Git repository, and otherwise whether its worktrees are shown.
 pub(crate) fn items(
     state: &AppState,
     project: &Project,
@@ -27,7 +25,6 @@ pub(crate) fn items(
         focus.separated(),
     ];
     let icon = Item::submenu(tr!("Icon"), icon_items(project));
-    // Another computer's Home goes by its server's name.
     if project.is_remote_home() {
         items.push(icon.separated());
     } else {
@@ -55,7 +52,6 @@ pub(crate) fn items(
     items
 }
 
-/// A folder on another computer can't be revealed here, but its path can be copied.
 fn path_items(project: &Project) -> Vec<Item> {
     let copy = Item::action(tr!("Copy Path"), Command::CopyPath(project.id));
     if project.server_id.is_local() {
@@ -132,8 +128,6 @@ pub(crate) fn workspace_items(state: &AppState, project: ProjectId) -> Vec<Item>
     items
 }
 
-/// The menu of a row in a project's worktree list. `primary` is the project's own row.
-/// A worktree whose folder is gone can only be removed.
 pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
     let id = project.id;
     if project.status() != ProjectStatus::Available {
@@ -174,21 +168,23 @@ pub(crate) fn worktree_items(project: &Project, primary: bool) -> Vec<Item> {
 }
 
 impl AppModel {
-    /// The sidebar menu of `project`. Worktree projects get the worktree menu.
+    pub(crate) fn tracks_worktrees(&self, project: ProjectId) -> bool {
+        self.state
+            .projects()
+            .iter()
+            .any(|child| child.parent_id == Some(project))
+            || !self
+                .git
+                .projects
+                .get(&project)
+                .is_some_and(Repository::not_a_repository)
+    }
+
     pub(crate) fn project_menu(&self, project: &Project) -> Vec<Item> {
         if project.parent_id.is_some() {
             return worktree_items(project, false);
         }
-        let repository = self
-            .state
-            .projects()
-            .iter()
-            .any(|child| child.parent_id == Some(project.id))
-            || !self
-                .git
-                .projects
-                .get(&project.id)
-                .is_some_and(Repository::not_a_repository);
+        let repository = self.tracks_worktrees(project.id);
         let focus = if self.appearance.sidebar_focus {
             Item::action(
                 self.state.active_workspace().map_or_else(
@@ -270,8 +266,6 @@ impl AppModel {
         );
     }
 
-    /// `title` and `action` are English keys, shown translated; `message` is
-    /// shown as is.
     pub(crate) fn confirm(
         &mut self,
         title: &'static str,

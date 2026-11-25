@@ -13,8 +13,6 @@ members = [
     "crates/muxy-mobile",
 ]
 
-# Current boundary policy, not a permanent crate list. Structural changes update
-# this table and the affected crate-level documentation together.
 [workspace.metadata.architecture.allowed-dependencies]
 muxy-core = []
 muxy-protocol = ["muxy-core"]
@@ -77,4 +75,4 @@ libghostty-vt = { path = "vendor/libghostty-vt" }
 libghostty-vt-sys = { path = "vendor/libghostty-vt-sys" }
 core-text = { path = "vendor/core-text" }
 xim-ctext = { path = "vendor/xim-ctext" }
-gpui = { git = "https://github.com/muxy-app/gpui", branch = "main" }
+gpui = { path = "vendor/gpui" }

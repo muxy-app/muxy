@@ -24,10 +24,21 @@ pub(super) struct Dialog {
 }
 
 impl Dialog {
-    /// The card's background and one scaled point.
     #[cfg(test)]
     pub(super) fn look(&self) -> (gpui::Hsla, gpui::Pixels) {
         (self.request.theme.bg, self.request.metrics.scaled(1.0))
+    }
+
+    #[cfg(test)]
+    pub(super) fn danger(&self) -> Option<usize> {
+        self.request.danger
+    }
+
+    #[cfg(test)]
+    pub(super) fn tick(&mut self, index: usize) {
+        if let Some(checkbox) = self.request.choices.checkboxes.get_mut(index) {
+            checkbox.checked = true;
+        }
     }
 
     pub(super) fn new(
@@ -142,7 +153,6 @@ impl Render for Dialog {
     )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.dismissed && !self.focus.contains_focused(window, cx) {
-            // After this frame, since what had focus already reported it in this one.
             let focus = self.focus_handle(cx);
             window.defer(cx, move |window, _| window.focus(&focus));
         }
@@ -254,7 +264,11 @@ impl Render for Dialog {
             buttons = buttons.child(controls::button(
                 style,
                 &format!("dialog-answer-{index}"),
-                controls::Button::secondary(button.label()),
+                if self.request.danger == Some(index) {
+                    controls::Button::danger(button.label())
+                } else {
+                    controls::Button::secondary(button.label())
+                },
                 move |_, _, cx| {
                     let _ = weak.update(cx, |view, cx| view.finish(Some(index), cx));
                 },

@@ -6,10 +6,6 @@ use crate::{AttachmentEvent, ServerError};
 
 use super::Connection;
 
-/// Writes one attached channel's events straight into its connection's outbox.
-///
-/// Dropping it without an `Ended` event still fails the channel, so the
-/// client hears about a session that went away.
 pub(crate) struct OutboxSink {
     connection: Weak<Connection>,
     channel: ChannelId,
@@ -29,13 +25,19 @@ impl OutboxSink {
         }
     }
 
+    pub(crate) fn shares_images(&self) -> bool {
+        self.connection
+            .upgrade()
+            .is_some_and(|connection| connection.shares_images())
+    }
+
     pub(crate) fn send(&mut self, event: AttachmentEvent) -> bool {
         let Some(connection) = self.connection.upgrade() else {
             return false;
         };
         match event {
             AttachmentEvent::Snapshot { snapshot, process } => {
-                connection.snapshot(self.channel, snapshot, process)
+                connection.snapshot(self.channel, *snapshot, process)
             }
             AttachmentEvent::Metadata(event) => connection.push_metadata(self.channel, event),
             AttachmentEvent::Frame(frame) => connection.push_frame(self.channel, frame),
@@ -80,7 +82,6 @@ mod tests {
     const CHANNEL: ChannelId = ChannelId(1);
     const REQUEST: RequestId = RequestId(7);
 
-    /// A connection with `CHANNEL` attached and waiting on `REQUEST`, and that channel's sink.
     fn attached() -> Result<(Arc<Connection>, Receiver<impl Sized>, OutboxSink), Box<dyn Error>> {
         let connection = Arc::new(Connection::new(Arc::default()));
         let (handle, commands) = SessionHandle::fake();
@@ -126,7 +127,7 @@ mod tests {
         };
 
         assert!(sink.send(AttachmentEvent::Snapshot {
-            snapshot,
+            snapshot: Box::new(snapshot),
             process: None,
         }));
         assert!(matches!(
@@ -155,6 +156,282 @@ mod tests {
         drop(sink);
         connection.close();
         assert_eq!(connection.next(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_connection_that_defers_images_gets_screens_without_their_pixels() -> TestResult {
+        let image = muxy_protocol::GraphicImage {
+            id: 1,
+            generation: 1,
+            width: 1,
+            height: 1,
+            rgba: vec![255; 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        };
+        let graphics = muxy_protocol::Graphics {
+            images: vec![image.clone()],
+            ..muxy_protocol::Graphics::default()
+        };
+        let listed = muxy_protocol::GraphicImage {
+            rgba: Arc::default(),
+            ..image
+        };
+        for defers in [false, true] {
+            let (connection, _commands, mut sink) = attached()?;
+            if defers {
+                connection.defer_images();
+            }
+            let mut snapshot = snapshot()?;
+            snapshot.graphics = graphics.clone();
+            let frame = ScreenFrame {
+                size: snapshot.size,
+                graphics: Some(graphics.clone()),
+                seq: 1,
+                reset: false,
+                rows: Vec::new(),
+                cursor: snapshot.cursor,
+                modes: snapshot.modes,
+            };
+            assert!(sink.send(AttachmentEvent::Snapshot {
+                snapshot: Box::new(snapshot),
+                process: None,
+            }));
+            let resized = frame.clone();
+            assert!(sink.send(AttachmentEvent::Frame(frame)));
+            let expected = if defers { &listed } else { &graphics.images[0] };
+            let Some((
+                CONTROL,
+                Message::Reply {
+                    body: ReplyBody::Attached { snapshot, .. },
+                    ..
+                },
+            )) = connection.next()
+            else {
+                return Err("no attach reply".into());
+            };
+            assert_eq!(&snapshot.graphics.images[0], expected, "defers: {defers}");
+            let Some((CHANNEL, Message::Frame(frame))) = connection.next() else {
+                return Err("no frame".into());
+            };
+            let sent = frame.graphics.ok_or("no graphics")?;
+            assert_eq!(&sent.images[0], expected, "defers: {defers}");
+            assert_eq!(sent.validate(), Ok(()));
+
+            for seq in [2, 3] {
+                assert!(sink.send(AttachmentEvent::Frame(ScreenFrame {
+                    seq,
+                    graphics: (seq == 2).then(|| graphics.clone()),
+                    ..resized.clone()
+                })));
+            }
+            connection.ack(CHANNEL, 1);
+            let Some((CHANNEL, Message::Frame(merged))) = connection.next() else {
+                return Err("no merged frame".into());
+            };
+            assert_eq!(merged.seq, 3);
+            let merged = merged.graphics.ok_or("no merged graphics")?;
+            assert_eq!(&merged.images[0], expected, "defers: {defers}");
+            let mut page = muxy_protocol::HistoryPage {
+                prompts: Vec::new(),
+                rows: Vec::new(),
+                next: None,
+                total_rows: 0,
+                screen: Some(muxy_protocol::SavedScreen {
+                    graphics: graphics.clone(),
+                    size: resized.size,
+                    rows: Vec::new(),
+                    cursor: resized.cursor,
+                    reason: None,
+                }),
+                links: None,
+                graphics: Some(graphics.clone()),
+            };
+            connection.defer_page(&mut page);
+            let screen = page.screen.ok_or("no screen")?;
+            assert_eq!(&screen.graphics.images[0], expected, "defers: {defers}");
+            let history = page.graphics.ok_or("no history images")?;
+            assert_eq!(&history.images[0], expected, "defers: {defers}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_connection_that_streams_images_is_sent_each_one_once() -> TestResult {
+        let image = |generation| muxy_protocol::GraphicImage {
+            id: 1,
+            generation,
+            width: 1,
+            height: 1,
+            rgba: vec![255; 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        };
+        let graphics = |generation| muxy_protocol::Graphics {
+            images: vec![image(generation)],
+            ..muxy_protocol::Graphics::default()
+        };
+        let (connection, _commands, mut sink) = attached()?;
+        connection.stream_images();
+        let mut snapshot = snapshot()?;
+        snapshot.graphics = graphics(1);
+        let frame = ScreenFrame {
+            size: snapshot.size,
+            graphics: Some(graphics(1)),
+            seq: 1,
+            reset: false,
+            rows: Vec::new(),
+            cursor: snapshot.cursor,
+            modes: snapshot.modes,
+        };
+        assert!(sink.send(AttachmentEvent::Snapshot {
+            snapshot: Box::new(snapshot),
+            process: None,
+        }));
+        let Some((
+            CONTROL,
+            Message::Reply {
+                body: ReplyBody::Attached { snapshot, .. },
+                ..
+            },
+        )) = connection.next()
+        else {
+            return Err("no attach reply".into());
+        };
+        assert_eq!(snapshot.graphics.images[0], image(1));
+        let mut changed = frame.clone();
+        changed.seq = 2;
+        changed.graphics = Some(graphics(2));
+        for (frame, pixels) in [(frame, false), (changed, true)] {
+            let seq = frame.seq;
+            assert!(sink.send(AttachmentEvent::Frame(frame)));
+            let Some((CHANNEL, Message::Frame(sent))) = connection.next() else {
+                return Err("no frame".into());
+            };
+            let sent = sent.graphics.ok_or("no graphics")?;
+            assert_eq!(!sent.images[0].rgba.is_empty(), pixels, "frame {seq}");
+            assert_eq!(sent.validate(), Ok(()));
+            connection.ack(CHANNEL, seq);
+        }
+        Ok(())
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn shared_pixels_stay_readable_until_their_screen_is_acknowledged() -> TestResult {
+        use muxy_protocol::shared_memory::take;
+
+        let image = |generation, shade| muxy_protocol::GraphicImage {
+            id: 1,
+            generation,
+            width: 1,
+            height: 1,
+            rgba: vec![shade; 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        };
+        let graphics = |generation, shade| muxy_protocol::Graphics {
+            images: vec![image(generation, shade)],
+            ..muxy_protocol::Graphics::default()
+        };
+        let (connection, _commands, mut sink) = attached()?;
+        connection.share_images();
+        assert!(sink.shares_images());
+        let mut snapshot = snapshot()?;
+        snapshot.graphics = graphics(1, 10);
+        let frame = |seq, generation, shade| ScreenFrame {
+            size: snapshot.size,
+            graphics: Some(graphics(generation, shade)),
+            seq,
+            reset: false,
+            rows: Vec::new(),
+            cursor: snapshot.cursor,
+            modes: snapshot.modes,
+        };
+        let next = |connection: &Connection| -> Result<(ChannelId, Message), Box<dyn Error>> {
+            let (channel, mut message) = connection.next().ok_or("nothing to send")?;
+            connection.share_pixels(channel, &mut message);
+            Ok((channel, message))
+        };
+        let shared = |message: &Message| -> Option<String> {
+            let graphics = match message {
+                Message::Frame(frame) => frame.graphics.as_ref()?,
+                Message::Reply {
+                    body: ReplyBody::Attached { snapshot, .. },
+                    ..
+                } => &snapshot.graphics,
+                _ => return None,
+            };
+            let image = graphics.images.first()?;
+            assert!(image.rgba.is_empty());
+            image.shared.as_ref().map(|shared| shared.name.clone())
+        };
+        assert!(sink.send(AttachmentEvent::Snapshot {
+            snapshot: Box::new(snapshot.clone()),
+            process: None,
+        }));
+        let attached = shared(&next(&connection)?.1).ok_or("snapshot pixels not shared")?;
+
+        assert!(sink.send(AttachmentEvent::Frame(frame(1, 1, 10))));
+        let (_, unchanged) = next(&connection)?;
+        assert_eq!(shared(&unchanged), None);
+        assert_eq!(take(&attached, 4, <[u8]>::to_vec)?, [10; 4]);
+        connection.ack(CHANNEL, 1);
+
+        assert!(sink.send(AttachmentEvent::Frame(frame(2, 2, 20))));
+        let acked = shared(&next(&connection)?.1).ok_or("frame 2 pixels not shared")?;
+        connection.ack(CHANNEL, 2);
+        assert!(take(&acked, 4, <[u8]>::len).is_err());
+
+        assert!(sink.send(AttachmentEvent::Frame(frame(3, 3, 30))));
+        let pending = shared(&next(&connection)?.1).ok_or("frame 3 pixels not shared")?;
+        assert_eq!(take(&pending, 4, <[u8]>::to_vec)?, [30; 4]);
+
+        connection.ack(CHANNEL, 3);
+        assert!(sink.send(AttachmentEvent::Frame(frame(4, 4, 40))));
+        let detached = shared(&next(&connection)?.1).ok_or("frame 4 pixels not shared")?;
+        connection.detach(CHANNEL)?;
+        assert!(take(&detached, 4, <[u8]>::len).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn a_picture_refitted_to_another_size_is_sent_again() -> TestResult {
+        let image = |width: u32| muxy_protocol::GraphicImage {
+            id: 1,
+            generation: 3,
+            width,
+            height: 1,
+            rgba: vec![255; width as usize * 4].into(),
+            ..muxy_protocol::GraphicImage::default()
+        };
+        let (connection, _commands, mut sink) = attached()?;
+        connection.stream_images();
+        let snapshot = snapshot()?;
+        let frame = |seq, width| ScreenFrame {
+            size: snapshot.size,
+            graphics: Some(muxy_protocol::Graphics {
+                images: vec![image(width)],
+                ..muxy_protocol::Graphics::default()
+            }),
+            seq,
+            reset: false,
+            rows: Vec::new(),
+            cursor: snapshot.cursor,
+            modes: snapshot.modes,
+        };
+        assert!(sink.send(AttachmentEvent::Snapshot {
+            snapshot: Box::new(snapshot.clone()),
+            process: None,
+        }));
+        connection.next();
+        for (seq, width, pixels) in [(1, 4, true), (2, 4, false), (3, 2, true)] {
+            assert!(sink.send(AttachmentEvent::Frame(frame(seq, width))));
+            let Some((CHANNEL, Message::Frame(sent))) = connection.next() else {
+                return Err("no frame".into());
+            };
+            let sent = sent.graphics.ok_or("no graphics")?;
+            assert_eq!(!sent.images[0].rgba.is_empty(), pixels, "frame {seq}");
+            connection.ack(CHANNEL, seq);
+        }
         Ok(())
     }
 

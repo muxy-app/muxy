@@ -204,6 +204,14 @@ fn row(
             StatefulInteractiveElement::aria_description,
         )
         .debug_selector(move || format!("worktree-{id}"))
+        .relative()
+        .when(!unavailable, |row| {
+            row.child(crate::views::move_drag::zone(
+                &model.move_drag.zones,
+                crate::views::move_drag::Owner::Sidebar,
+                crate::views::move_drag::ZoneKind::Project(id),
+            ))
+        })
         .flex()
         .items_center()
         .gap(m.spacing3())
@@ -296,8 +304,6 @@ fn row(
         .into_any_element()
 }
 
-/// What a client reads after a worktree's name, beyond its selected state. A
-/// removal is in `activity`.
 fn worktree_description(
     primary: bool,
     missing: bool,
@@ -310,7 +316,6 @@ fn worktree_description(
     ])
 }
 
-/// A worktree the server is still creating.
 fn creating_row(name: &str, parent: ProjectId, index: usize, model: &AppModel) -> AnyElement {
     let m = model.metrics;
     let key = format!("worktree-creating-{parent}-{index}");

@@ -15,7 +15,7 @@ SCOPES = (FULL, DESKTOP)
 DESKTOP_CRATES = ("muxy-app", "muxy-ui")
 DESKTOP_TEST = [
     "cargo", "test", "--locked", *(arg for crate in DESKTOP_CRATES for arg in ("-p", crate)),
-    "--all-features", "--timings",
+    "--all-features", "--tests", "--timings",
 ]
 
 
@@ -33,7 +33,7 @@ def tests(scope, full):
 
 
 def git(*args, cwd):
-    return subprocess.check_output(["git", *args], cwd=cwd, text=True, errors="surrogateescape")
+    return subprocess.check_output(["git", *args], cwd=cwd, encoding="utf-8", errors="surrogateescape")
 
 
 def changed_paths(cwd=ROOT):

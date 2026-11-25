@@ -1,6 +1,3 @@
-//! Messages from a newer build: this build skips what it doesn't know and
-//! keeps the connection.
-
 use std::error::Error;
 
 use minicbor::Encoder;
@@ -13,7 +10,6 @@ use muxy_protocol::{
     RequestId, SessionId, Topic,
 };
 
-/// A frame holding `payload`, as a newer build would write it.
 fn frame(kind: u8, channel: ChannelId, payload: &[u8]) -> Result<Vec<u8>, WireError> {
     let mut header = Header::new(payload.len(), channel, MessageKind::Hello)?;
     header.kind = kind;
@@ -140,7 +136,6 @@ fn requests_for_unknown_methods_are_correlated() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn files_actions_and_replies_from_a_newer_build_are_correlated() -> Result<(), Box<dyn Error>> {
-    // Files (method 28) holding [project, action] with an action this build doesn't know.
     let request = cbor(|e| {
         e.array(2)?.encode(RequestId(5))?;
         e.array(2)?.u32(28)?.array(1)?;
@@ -152,7 +147,6 @@ fn files_actions_and_replies_from_a_newer_build_are_correlated() -> Result<(), B
         decode_one(&frame(MessageKind::Request as u8, CONTROL, &request)?)?,
         Some((CONTROL, Message::UnsupportedRequest { id: RequestId(5) }))
     );
-    // A files reply (28) of a kind this build doesn't know.
     let reply = cbor(|e| {
         e.array(2)?.encode(RequestId(6))?;
         e.array(2)?.u32(28)?.array(1)?;
@@ -183,7 +177,6 @@ fn unreadable_reply_bodies_are_correlated() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn malformed_request_bodies_are_still_rejected() -> Result<(), Box<dyn Error>> {
-    // A body that claims more items than the payload holds is broken, not newer.
     let payload = [0x82, 0x01, 0x82, 0x18];
     let bytes = frame(MessageKind::Request as u8, CONTROL, &payload)?;
     assert!(matches!(decode_one(&bytes), Err(WireError::Decode(_))));
@@ -219,7 +212,6 @@ fn clipboard_write_keeps_its_metadata_variant_number() -> Result<(), Box<dyn Err
 
 #[test]
 fn builds_before_v2_are_told_to_update_in_their_own_framing() {
-    // length 7, version 1, control channel, VersionUnsupported, empty payload.
     assert_eq!(
         legacy_version_unsupported(),
         [7, 0, 0, 0, 1, 0, 0, 0, 0, 0, 5]
@@ -237,6 +229,7 @@ fn mouse_events_naming_newer_buttons_stay_valid() -> Result<(), WireError> {
         row: 1,
         scroll: Some(ScrollDirection::Unrecognized(9)),
         modifiers: Modifiers::default(),
+        pixel: None,
     });
     let mut bytes = Vec::new();
     encode(&event, ChannelId(1), &mut bytes)?;
@@ -249,10 +242,8 @@ fn mouse_events_naming_newer_buttons_stay_valid() -> Result<(), WireError> {
 #[test]
 fn unknown_event_variants_are_ignored_only_when_well_formed() -> Result<(), Box<dyn Error>> {
     let metadata = MessageKind::Metadata as u8;
-    // [[99, ...]]: the variant's value is missing.
     let truncated = frame(metadata, ChannelId(1), &[0x81, 0x82, 0x18, 0x63])?;
     assert!(matches!(decode_one(&truncated), Err(WireError::Decode(_))));
-    // [[99, []]] followed by a stray byte.
     let trailing = frame(
         metadata,
         ChannelId(1),
@@ -265,13 +256,11 @@ fn unknown_event_variants_are_ignored_only_when_well_formed() -> Result<(), Box<
 #[test]
 fn invalid_values_in_known_requests_stay_fatal() -> Result<(), Box<dyn Error>> {
     let request = MessageKind::Request as u8;
-    // EndSession (method 6) with session 0, which is never valid.
     let zero_session = cbor(|e| {
         e.array(2)?.encode(RequestId(1))?;
         e.array(2)?.u32(6)?.array(1)?.u64(0)?;
         Ok(())
     })?;
-    // Resize (method 9) with 65,536 columns, which overflows u16.
     let overflow = cbor(|e| {
         e.array(2)?.encode(RequestId(2))?;
         e.array(2)?.u32(9)?.array(2)?.u32(1)?;

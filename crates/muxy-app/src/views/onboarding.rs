@@ -1,6 +1,3 @@
-//! The welcome tour's modal: animated art beside one short step, with a way
-//! out on every step.
-
 pub(crate) mod art;
 mod steps;
 
@@ -30,13 +27,10 @@ const CARD_RADIUS: f32 = 16.0;
 const ART_RADIUS: f32 = 10.0;
 const ART_MARGIN: f32 = 6.0;
 const ART_SHARE: f32 = 0.56;
-/// Narrower than this and the words need all of the room.
 const ART_MIN_CARD_WIDTH: f32 = 760.0;
 const WINDOW_MARGIN: f32 = 16.0;
 pub(crate) const BACKDROP_ALPHA: f32 = 0.6;
 
-/// The card and its art at the current window size. The art is left out when
-/// the window is too small to spare room for it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Layout {
     pub(crate) card: Size<Pixels>,
@@ -84,8 +78,6 @@ impl OverlayView for OnboardingModal {
         true
     }
 
-    /// The tour only ends by finishing or skipping it, so a stray click or
-    /// another command's clean-up can't lose it.
     fn on_dismiss(&self, _: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
         Dismissal::Stay
     }
@@ -176,9 +168,6 @@ fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyE
         .into_any_element()
 }
 
-/// Empty space that moves the window. The move starts directly, not as an
-/// action: actions travel up from whatever has focus, and a focused button may
-/// be gone by now, such as Back on the first step.
 fn window_mover(id: &'static str, cx: &mut Context<AppModel>) -> gpui::Stateful<Div> {
     super::titlebar::background_with(
         id,
@@ -194,7 +183,6 @@ fn window_mover(id: &'static str, cx: &mut Context<AppModel>) -> gpui::Stateful<
     )
 }
 
-/// The words and controls beside the art.
 fn column(step: Step, art_shown: bool, model: &AppModel, cx: &mut Context<AppModel>) -> Div {
     let m = model.metrics;
     let body = steps::body(step, art_shown, model, cx);
@@ -329,8 +317,6 @@ fn footer(step: Step, model: &AppModel, cx: &mut Context<AppModel>) -> Div {
         )
 }
 
-/// While the install button still has work to offer, it is the step's one
-/// primary button.
 fn install_is_the_next_move(step: Step, model: &AppModel) -> bool {
     step == Step::Extensions
         && model.offers_to_install() > 0
@@ -341,7 +327,6 @@ fn install_is_the_next_move(step: Step, model: &AppModel) -> bool {
             .any(|offer| matches!(offer.state, OfferState::Failed(_)))
 }
 
-/// One dot per step; each jumps to its step.
 fn dots(step: Step, model: &AppModel, cx: &mut Context<AppModel>) -> Div {
     let m = model.metrics;
     let theme = &model.theme;

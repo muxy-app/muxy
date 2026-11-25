@@ -43,13 +43,13 @@ pub(crate) enum PickerKind {
     Theme(bool),
     QuickTheme(bool),
     AiProvider(crate::repository_actions::Action),
+    PromptProvider,
     ExtensionSidebar,
     FileOpener,
     AppLanguage,
 }
 
 impl PickerKind {
-    /// What a theme picker changes, and for which appearance.
     pub(super) fn theme(self) -> Option<(crate::views::theme_picker::ThemeTarget, bool)> {
         use crate::views::theme_picker::ThemeTarget;
         match self {
@@ -68,6 +68,7 @@ impl PickerKind {
             Self::QuickTheme(false) => "quick-light-theme",
             Self::QuickTheme(true) => "quick-dark-theme",
             Self::AiProvider(action) => super::ai::provider_id(action),
+            Self::PromptProvider => "prompt-provider",
             Self::ExtensionSidebar => "extension-sidebar",
             Self::FileOpener => "file-opener",
             Self::AppLanguage => "app-language",

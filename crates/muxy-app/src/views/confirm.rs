@@ -74,7 +74,6 @@ async fn prompt(
     }))
 }
 
-/// Stops or restarts a server; `name` is another computer's, `None` this one's.
 pub(crate) async fn prompt_server(
     parent: &Parent,
     restart: bool,
@@ -94,7 +93,7 @@ pub(crate) async fn prompt_server(
             name
         ),
         None => tr!(
-            "All running terminal sessions on this device will end. Saved terminal output and settings will remain."
+            "All running terminal sessions on this computer will end. Saved terminal output and settings will remain."
         ),
     };
     server_prompt(parent, &title, &label, &message, cx).await
@@ -137,8 +136,28 @@ pub(crate) async fn prompt_revoke(
     cx: &mut AsyncApp,
 ) -> Result<bool, String> {
     let title = tr!("Revoke %@?", device);
-    let message = tr!("The device disconnects now and must be paired again to reconnect.");
+    let message = tr!("The client disconnects now and must be paired again to reconnect.");
     server_prompt(parent, &title, &tr!("Revoke"), &message, cx).await
+}
+
+pub(crate) async fn prompt_pause_push(parent: &Parent, cx: &mut AsyncApp) -> Result<bool, String> {
+    let title = tr!("Pause Push Notifications?");
+    let message = tr!(
+        "Paired phones stop getting notifications, and muxy.app forgets them. This computer keeps their registrations for 90 days, so turning this back on resumes them without reconnecting."
+    );
+    server_prompt(parent, &title, &tr!("Pause"), &message, cx).await
+}
+
+pub(crate) async fn prompt_reset_push(
+    parent: &Parent,
+    device: &str,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let title = tr!("Reset Notifications for %@?", device);
+    let message = tr!(
+        "This computer forgets the phone's notification key and stops notifying it. The phone stays paired, and gets a new key the next time it connects."
+    );
+    server_prompt(parent, &title, &tr!("Reset"), &message, cx).await
 }
 
 pub(crate) async fn prompt_reset_terminal(
@@ -154,8 +173,6 @@ pub(crate) async fn prompt_reset_terminal(
 pub(crate) const BACKGROUND_TITLE: &str = tr_key!("Allow Muxy to Run in the Background?");
 pub(crate) const OPEN_LOGIN_ITEMS: &str = tr_key!("Open Login Items");
 
-/// Whether to open the setting that keeps terminals running after the app
-/// quits.
 pub(crate) async fn prompt_background_activity(
     parent: &Parent,
     cx: &mut AsyncApp,
@@ -227,7 +244,7 @@ pub(crate) async fn prompt_update(
         (false, Some(0)) => UpdateChoice::Schedule,
         _ => UpdateChoice::Later,
     };
-    if choice == UpdateChoice::EndSessions && !server_prompt(parent, &tr!("Update and End All Sessions?"), &tr!("Update and End Sessions"), &tr!("All terminal processes on this device will end, including sessions used by other clients. Terminal panes will close. App-only panes and settings will remain."), cx).await? {
+    if choice == UpdateChoice::EndSessions && !server_prompt(parent, &tr!("Update and End All Sessions?"), &tr!("Update and End Sessions"), &tr!("All terminal processes on this computer will end, including sessions used by other clients. Terminal panes will close. App-only panes and settings will remain."), cx).await? {
         return Ok(UpdateChoice::Later);
     }
     Ok(choice)
@@ -241,7 +258,7 @@ async fn prompt_install(
     cx: &mut AsyncApp,
 ) -> Result<UpdateChoice, String> {
     let message = tr!(
-        "Install Muxy %@ and restart the app? Running terminals will continue, and the server will update when all terminal sessions end. Restarting the server now ends all terminal sessions on this device, including sessions used by other clients.",
+        "Install Muxy %@ and restart the app? Running terminals will continue, and the server will update when all terminal sessions end. Restarting the server now ends all terminal sessions on this computer, including sessions used by other clients.",
         version
     );
     Ok(match install_prompt(parent, &message, cx).await? {
@@ -251,7 +268,6 @@ async fn prompt_install(
     })
 }
 
-/// Reports whether the server should restart too, or `None` when declined.
 async fn install_prompt(
     parent: &Parent,
     message: &str,

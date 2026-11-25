@@ -43,6 +43,7 @@ pub(super) fn run(
         git_watch: Arc::new(Mutex::new(None)),
         files_workers: WorkerPool::new("connection-files", 1, 16)?,
         files_readers: WorkerPool::new("connection-files-read", 4, 32)?,
+        push_workers: WorkerPool::new("connection-push", 1, 4)?,
         files_watch: Arc::new(Mutex::new(crate::files::watch::Subscriptions::default())),
         search_cache: Arc::new(Mutex::new(SearchCache::default())),
         last_channel: Arc::new(AtomicU32::new(0)),
@@ -151,6 +152,7 @@ struct Requests {
     git_readers: WorkerPool,
     files_workers: WorkerPool,
     files_readers: WorkerPool,
+    push_workers: WorkerPool,
     files_watch: Arc<Mutex<crate::files::watch::Subscriptions>>,
     git_watch: Arc<Mutex<Option<crate::watch::Subscription>>>,
     search_cache: Arc<Mutex<SearchCache>>,
@@ -214,6 +216,22 @@ impl Requests {
                     .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
                 Ok(None)
             }
+            RequestBody::ListEntries(directory) => {
+                let output = Arc::clone(connection);
+                self.files_readers
+                    .try_spawn(move || {
+                        if output.is_closed() {
+                            return;
+                        }
+                        let body = match crate::files::entries(&directory) {
+                            Ok(entries) => ReplyBody::Entries(entries),
+                            Err(error) => ReplyBody::Error(error.to_reply()),
+                        };
+                        output.push_control(Message::Reply { id, body });
+                    })
+                    .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
+                Ok(None)
+            }
             RequestBody::Git(request) => {
                 let watch = Arc::clone(&self.git_watch);
                 let registry = Arc::clone(&self.registry);
@@ -260,6 +278,45 @@ impl Requests {
                         output.push_control(Message::Reply { id, body });
                     })
                     .map_err(|e| ServerError::new(ErrorCode::BadRequest, e.to_string()))?;
+                Ok(None)
+            }
+            RequestBody::RegisterPush(token) => {
+                let device = connection.device().ok_or_else(|| {
+                    ServerError::new(ErrorCode::Unauthorized, "not a paired phone")
+                })?;
+                let registry = Arc::clone(&self.registry);
+                let output = Arc::clone(connection);
+                self.push_workers
+                    .try_spawn(move || {
+                        if output.is_closed() {
+                            return;
+                        }
+                        let body =
+                            match registry.register_push(device, token, crate::push::REGISTER_WAIT)
+                            {
+                                Ok(registration) => ReplyBody::PushRegistered(registration),
+                                Err(error) => ReplyBody::Error(error.to_reply()),
+                            };
+                        output.push_control(Message::Reply { id, body });
+                    })
+                    .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
+                Ok(None)
+            }
+            RequestBody::UnregisterPush => {
+                let device = connection.device().ok_or_else(|| {
+                    ServerError::new(ErrorCode::Unauthorized, "not a paired phone")
+                })?;
+                let registry = Arc::clone(&self.registry);
+                let output = Arc::clone(connection);
+                self.push_workers
+                    .try_spawn(move || {
+                        let body = match registry.unregister_push(device) {
+                            Ok(()) => ReplyBody::PushUnregistered,
+                            Err(error) => ReplyBody::Error(error.to_reply()),
+                        };
+                        output.push_control(Message::Reply { id, body });
+                    })
+                    .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
                 Ok(None)
             }
             body => {
@@ -344,6 +401,21 @@ fn ordered_request(
             connection.set_session_colors(session, colors);
             ReplyBody::SessionColorsSet
         }
+        RequestBody::WatchSessionMetadata => {
+            connection.watch_metadata();
+            registry.introduce_all(connection);
+            ReplyBody::SessionMetadataWatched
+        }
+        RequestBody::SetSessionName {
+            session,
+            name,
+            replacing,
+        } => {
+            registry
+                .catalog
+                .set_session_name(session, name, replacing.as_deref())?;
+            ReplyBody::SessionNameSet
+        }
         RequestBody::Attach { session, size } => {
             attach(session, Some(size), id, registry, connection, last_channel)?;
             return Ok(None);
@@ -387,6 +459,7 @@ fn ordered_request(
         }
         RequestBody::SyncSessionReferences { .. }
         | RequestBody::CloseSession { .. }
+        | RequestBody::MoveSession { .. }
         | RequestBody::DiscardSession(_)
         | RequestBody::CancelCreation(_)
         | RequestBody::ReadCatalog { .. }
@@ -397,10 +470,13 @@ fn ordered_request(
         }
         RequestBody::Upload(chunk) => ReplyBody::Uploaded(registry.upload(&chunk)?),
         RequestBody::Ping
+        | RequestBody::RegisterPush(_)
+        | RequestBody::UnregisterPush
         | RequestBody::Exec(_)
         | RequestBody::CancelExec(_)
         | RequestBody::Git(_)
-        | RequestBody::Files(_) => {
+        | RequestBody::Files(_)
+        | RequestBody::ListEntries(_) => {
             return Err(ServerError::new(
                 ErrorCode::BadRequest,
                 "request was routed to the wrong worker",
@@ -433,6 +509,14 @@ fn ordered_request(
         }
         RequestBody::RevokeDevice(device) => {
             ReplyBody::RemoteAccess(registry.revoke_device(device)?)
+        }
+        RequestBody::SetPushNotifications(on) => {
+            connection.watch_remote_access();
+            ReplyBody::RemoteAccess(registry.set_push_notifications(on)?)
+        }
+        RequestBody::ResetPush(device) => {
+            connection.watch_remote_access();
+            ReplyBody::RemoteAccess(registry.reset_push(device)?)
         }
         RequestBody::ListSessions => ReplyBody::Sessions(registry.list()),
         RequestBody::CreateSession {
@@ -476,6 +560,29 @@ fn ordered_request(
             before,
             max_rows,
         } => ReplyBody::HistoryPage(registry.saved_history_page(session, before, max_rows)?),
+        RequestBody::DeferImages => {
+            connection.defer_images();
+            ReplyBody::ImagesDeferred
+        }
+        RequestBody::StreamImages => {
+            connection.stream_images();
+            ReplyBody::ImagesStreamed
+        }
+        RequestBody::ShareImages => {
+            if !muxy_protocol::shared_memory::supported() {
+                return Err(ServerError::new(
+                    ErrorCode::Unsupported,
+                    "this server can't share images in memory",
+                ));
+            }
+            connection.share_images();
+            ReplyBody::ImagesShared
+        }
+        RequestBody::ImageFrames {
+            channel,
+            image,
+            keys,
+        } => image_frames(connection, channel, image, keys)?,
 
         RequestBody::Search {
             source,
@@ -520,6 +627,10 @@ fn project_request(
         RequestBody::CloseSession { session, operation } => {
             registry.close_session(session, operation, connection)?;
             ReplyBody::SessionClosed
+        }
+        RequestBody::MoveSession { session, project } => {
+            registry.move_session(session, project)?;
+            ReplyBody::SessionMoved
         }
         RequestBody::DiscardSession(session) => {
             registry.discard(session)?;
@@ -574,13 +685,31 @@ fn live_history(
         max_rows,
         reply,
     })?;
-    let page = page.recv_timeout(Duration::from_secs(5)).map_err(|_| {
+    let mut page = page.recv_timeout(Duration::from_secs(5)).map_err(|_| {
         ServerError::new(
             ErrorCode::HistoryUnavailable,
             "history request did not complete",
         )
     })??;
+    connection.defer_page(&mut page);
     Ok(ReplyBody::HistoryPage(page))
+}
+
+fn image_frames(
+    connection: &Arc<Connection>,
+    channel: ChannelId,
+    image: u32,
+    keys: Vec<u64>,
+) -> Result<ReplyBody, ServerError> {
+    let handle = connection
+        .handle(channel)
+        .ok_or_else(|| ServerError::new(ErrorCode::UnknownChannel, "unknown channel"))?;
+    let (reply, frames) = mpsc::channel();
+    handle.send(SessionCommand::ImageFrames { image, keys, reply })?;
+    let frames = frames
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|_| ServerError::new(ErrorCode::BadRequest, "image request did not complete"))??;
+    Ok(ReplyBody::ImageFrames(frames))
 }
 
 fn live_search(
@@ -637,8 +766,6 @@ fn attach(
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| ServerError::new(ErrorCode::BadRequest, "attachment IDs exhausted"))?,
     );
-    // The session replies straight to the connection, and the client may use the
-    // channel as soon as it reads that reply.
     last_channel.store(channel.0, Ordering::Release);
     let sink = AttachmentSink::outbox(OutboxSink::new(connection, channel, session));
     connection.attach(

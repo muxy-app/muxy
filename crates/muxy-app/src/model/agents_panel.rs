@@ -12,8 +12,6 @@ pub(crate) const PANEL: &str = "builtin:agents";
 pub(crate) const MIN_WIDTH: f32 = 220.0;
 pub(crate) const MIN_HEIGHT: f32 = 140.0;
 const DEFAULT_FRAME: [f32; 4] = [80.0, 80.0, 320.0, 360.0];
-/// How long a background tab stays the active row while its host terminal
-/// switches to it, in case the switch never shows.
 const SWITCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -27,8 +25,6 @@ pub(crate) enum AgentStatus {
 impl AgentStatus {
     pub(crate) const ALL: [Self; 4] = [Self::Blocked, Self::Working, Self::Completed, Self::Idle];
 
-    /// How early a row sorts. Completed and idle agents rank together, so
-    /// opening a finished agent, which reads its finish, doesn't move it.
     pub(crate) fn urgency(self) -> u8 {
         match self {
             Self::Blocked => 0,
@@ -48,23 +44,15 @@ pub(crate) struct RunningAgent {
     pub(crate) provider: AgentProvider,
     pub(crate) status: AgentStatus,
     pub(crate) finished_at: Option<u64>,
-    /// Set for a tab the agent in `session` keeps open but doesn't show.
     pub(crate) hidden: Option<HiddenTab>,
-    /// Where the row goes among rows of the same project and urgency: its
-    /// terminal's place, then its tab's place in the agent's tab bar, so
-    /// switching tabs doesn't reorder rows.
     pub(crate) order: (usize, u16),
 }
 
-/// A tab in an agent's own tab bar that no pane here shows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct HiddenTab {
-    /// A hash of the agent's ID for the session, which the snapshot keeps.
     pub(crate) key: u64,
 }
 
-/// A tab's row key, scoped to its agent and project, so sessions two
-/// directories share or two agents number alike stay apart.
 pub(crate) fn hidden_key(provider: AgentProvider, project: ProjectId, id: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -76,9 +64,6 @@ fn tab_key(tab: &AgentTab) -> u64 {
     hidden_key(tab.provider, tab.project, &tab.id)
 }
 
-/// Places every row of an agent's tabs by its first host shown here and its
-/// place in the tab bar, whichever terminal shows it, then adds rows for the
-/// tabs no pane here shows.
 fn add_agent_tabs(agents: &mut Vec<RunningAgent>, servers: &[(ServerId, &[AgentTab])]) {
     let place = |agents: &[RunningAgent], server: ServerId, tab: &AgentTab| {
         tab.hosts.iter().find_map(|session| {
@@ -137,9 +122,6 @@ fn add_agent_tabs(agents: &mut Vec<RunningAgent>, servers: &[(ServerId, &[AgentT
     }
 }
 
-/// Whether a row stands for a tab no terminal shows. While a host switches,
-/// the tab it goes to counts as shown and the one it leaves doesn't, so the
-/// rows change as soon as the switch starts.
 pub(crate) fn in_background(agent: &RunningAgent, switching: Option<&RunningAgent>) -> bool {
     match switching {
         Some(target) if target.key() == agent.key() => false,
@@ -198,9 +180,6 @@ impl Entry {
     }
 }
 
-/// Whether the agent at `index` is the first listed for its project, so a
-/// project heading goes above it when the panel shows headings. Project rows
-/// have no headings.
 pub(crate) fn starts_project_group(entries: &[Entry], index: usize) -> bool {
     let Entry::Agent(agent) = &entries[index] else {
         return false;
@@ -240,11 +219,7 @@ pub(crate) struct AgentsPanel {
     pub(crate) docked_height: std::rc::Rc<std::cell::Cell<Pixels>>,
     pub(crate) owner: gpui::Entity<()>,
     pub(crate) clock: Option<gpui::Task<()>>,
-    /// A background tab to switch a host terminal to once it attaches, after
-    /// opening the tab from another project.
     pub(crate) pending_switch: Option<(PaneId, EntryKey, std::time::Instant)>,
-    /// The background tab a host terminal is switching to, which stays the
-    /// active row until the terminal shows it, rather than the tab it leaves.
     pub(crate) switching: Option<(EntryKey, std::time::Instant)>,
 }
 
@@ -277,6 +252,9 @@ impl AppModel {
         let mut seen = std::collections::BTreeSet::new();
         let mut agents: Vec<RunningAgent> = Vec::new();
         for project in self.state.projects() {
+            if !self.project_listed(project) {
+                continue;
+            }
             let position = servers
                 .iter()
                 .position(|(server, _)| *server == project.server_id)
@@ -365,7 +343,6 @@ impl AppModel {
         self.agents_panel_entries_from(self.running_agents())
     }
 
-    /// The tab a background row stands for, in its server's snapshot.
     fn agent_tab(&self, server: ServerId, key: u64) -> Option<&AgentTab> {
         self.activity(server)?
             .snapshot
@@ -374,9 +351,6 @@ impl AppModel {
             .find(|tab| tab_key(tab) == key)
     }
 
-    /// What a row calls an agent's work: the name the user gave its tab,
-    /// else the session title the agent reports, else its terminal title,
-    /// else the agent's name.
     pub(crate) fn agent_title(&self, agent: &RunningAgent) -> String {
         let usable = |title: &str| Some(title.trim().to_owned()).filter(|title| !title.is_empty());
         if let Some(hidden) = agent.hidden {
@@ -404,8 +378,6 @@ impl AppModel {
             .unwrap_or_else(|| agent.provider.name().to_owned())
     }
 
-    /// Agents grouped by project in sidebar order, most urgent first within a
-    /// project; or one row per project running agents.
     pub(crate) fn agents_panel_entries_from(&self, mut agents: Vec<RunningAgent>) -> Vec<Entry> {
         let order = self.agents_project_order();
         let rank = |project: &ProjectId| order.get(project).copied().unwrap_or(usize::MAX);
@@ -434,7 +406,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Each project's position in the sidebar, with worktrees after their project.
     fn agents_project_order(&self) -> std::collections::HashMap<ProjectId, usize> {
         let mut parents: Vec<_> = self
             .state
@@ -456,7 +427,7 @@ impl AppModel {
             Placement::Floating
         } else if self.appearance.agents_panel_dock == AgentsPanelDock::Right {
             Placement::Right
-        } else if self.appearance.sidebar_expanded && !self.extension_sidebar_active() {
+        } else if self.sidebar_docks_expanded() && !self.extension_sidebar_active() {
             Placement::Docked
         } else {
             Placement::Popup
@@ -530,8 +501,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// The background tab a host terminal is switching to, while the switch
-    /// is fresh and the tab still waits in the background.
     pub(crate) fn switching_agent_tab(&self, entries: &[Entry]) -> Option<RunningAgent> {
         let (key, since) = self.agents_panel.switching?;
         if since.elapsed() >= SWITCH_TIMEOUT {
@@ -644,10 +613,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Shows a background tab: its host terminal switches to it with the
-    /// input the server gives, waiting to attach when it's in another
-    /// project; a tab the agent can't switch to opens in a new terminal with
-    /// the server's resume command.
     fn open_agent_tab(&mut self, agent: RunningAgent, cx: &mut Context<Self>) {
         let Some(hidden) = agent.hidden else {
             return;
@@ -698,10 +663,6 @@ impl AppModel {
         }
     }
 
-    /// The input that still switches `pane`'s agent to the background tab
-    /// opened from another project, once the pane attaches. Nothing if the
-    /// app is quitting, the request is stale or the user moved on, or the
-    /// tab is gone, moved, or already shown there.
     pub(crate) fn take_pending_agent_switch(&mut self, pane: PaneId) -> Option<Vec<u8>> {
         let (target, key, since) = self.agents_panel.pending_switch?;
         if target != pane {
@@ -741,7 +702,7 @@ impl AppModel {
                 .iter()
                 .any(|entry| entry.id == tab && entry.panes.iter().any(|entry| entry.id == pane))
         });
-        if !present {
+        if !present || self.raise_pane_window(pane, cx) {
             return;
         }
         self.select_project(project, cx);
@@ -840,7 +801,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Whether the panel puts a heading naming each project above its agents.
     pub(crate) fn agents_panel_headings(&self) -> bool {
         self.appearance.agents_panel_grouped
             && self.appearance.agents_panel_grouping == AgentsPanelGrouping::Agents

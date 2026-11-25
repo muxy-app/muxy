@@ -1,0 +1,2 @@
+#[cfg(doc)]
+use crate::*;

@@ -1,7 +1,5 @@
 name: Release
 
-# Promotes a published beta to a stable release: the latest GitHub release,
-# which Muxy 2 and Muxy 1.x both update to, and the Homebrew cask and formula.
 on:
   workflow_dispatch:
     inputs:
@@ -77,7 +75,6 @@ jobs:
             exit 1
           fi
           echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
-      # The release job runs the promoted beta's publish script, which may predate the changelog input.
       - name: Check the beta can publish the changelog
         if: inputs.changelog != ''
         env:
@@ -127,7 +124,6 @@ jobs:
           RELEASE_NOTES: ${{ inputs.changelog }}
         run: bash scripts/publish-release.sh "$VERSION" artifacts
 
-  # Runs main's script: the promoted beta's checkout may predate it.
   notify-discord:
     needs: release
     if: ${{ !inputs.draft }}

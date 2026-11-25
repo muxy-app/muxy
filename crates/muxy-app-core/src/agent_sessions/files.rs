@@ -1,3 +1,5 @@
+mod codex_index;
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,6 +8,7 @@ use std::time::SystemTime;
 use muxy_protocol::AgentProvider;
 
 use super::{Session, normalized, parse};
+use codex_index::CodexIndex;
 
 const MAX_ENTRIES: usize = 20_000;
 const PROVIDER_READ_BYTES: u64 = 8 * 1024 * 1024;
@@ -30,6 +33,7 @@ impl Roots {
                 (AgentProvider::Pi, home.join(".pi/agent/sessions"), 1),
                 (AgentProvider::OhMyPi, home.join(".omp/agent/sessions"), 1),
                 (AgentProvider::Xal, home.join(".xal/sessions"), 1),
+                (AgentProvider::Cursor, home.join(".cursor/chats"), 2),
             ],
         }
     }
@@ -43,6 +47,7 @@ impl Roots {
                 AgentProvider::Codex => {
                     std::env::var_os("CODEX_HOME").map(|path| PathBuf::from(path).join("sessions"))
                 }
+                AgentProvider::Cursor => cursor_chats_root(),
                 _ => None,
             };
             if let Some(path) = override_path.filter(|path| path.is_absolute()) {
@@ -72,6 +77,7 @@ struct Cached {
 #[derive(Debug, Default)]
 pub struct Catalog {
     files: HashMap<PathBuf, Cached>,
+    codex_index: CodexIndex,
 }
 
 impl Catalog {
@@ -80,10 +86,18 @@ impl Catalog {
         let mut listing = Listing::default();
         let mut seen = HashSet::new();
         for (provider, root, depth) in &roots.sources {
+            let first_session = listing.sessions.len();
+            let mut pending = false;
             let mut read_budget = PROVIDER_READ_BYTES;
             let mut paths = Vec::new();
             let mut budget = MAX_ENTRIES;
-            if let Err(error) = discover(root, *depth, &mut budget, &mut paths) {
+            if let Err(error) = discover(
+                root,
+                *depth,
+                *provider == AgentProvider::Cursor,
+                &mut budget,
+                &mut paths,
+            ) {
                 listing.warnings.push((*provider, error.to_string()));
             }
             listing.limited |= budget == 0;
@@ -103,7 +117,7 @@ impl Catalog {
                         && cached.length == length
                 });
                 if cached.is_none() && read_budget < parse::read_limit(length) {
-                    listing.pending = true;
+                    pending = true;
                 } else if cached.is_none() {
                     match parse::read(&path, *provider, modified, &mut read_budget) {
                         Ok(session) => {
@@ -135,6 +149,17 @@ impl Catalog {
                     listing.sessions.push(session.clone());
                 }
             }
+            if *provider == AgentProvider::Codex && !pending {
+                match self.codex_index.apply(
+                    root,
+                    &mut listing.sessions[first_session..],
+                    read_budget,
+                ) {
+                    Ok(more) => pending = more,
+                    Err(error) => listing.warnings.push((*provider, error.to_string())),
+                }
+            }
+            listing.pending |= pending;
         }
         self.files.retain(|path, _| seen.contains(path));
         listing.sessions.sort_by(|a, b| {
@@ -150,9 +175,26 @@ impl Catalog {
     }
 }
 
+fn cursor_chats_root() -> Option<PathBuf> {
+    absolute_env("CURSOR_CONFIG_DIR")
+        .map(|path| path.join("chats"))
+        .or_else(|| absolute_env("XDG_CONFIG_HOME").map(|path| path.join("cursor/chats")))
+}
+
+fn absolute_env(key: &str) -> Option<PathBuf> {
+    let raw = std::env::var_os(key)?;
+    let text = raw.to_str()?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(text);
+    path.is_absolute().then_some(path)
+}
+
 fn discover(
     path: &Path,
     depth: usize,
+    cursor_chat: bool,
     budget: &mut usize,
     paths: &mut Vec<PathBuf>,
 ) -> std::io::Result<()> {
@@ -171,7 +213,7 @@ fn discover(
         let kind = entry.file_type()?;
         if kind.is_dir() && depth > 0 {
             directories.push(entry.path());
-        } else if kind.is_file() && entry.path().extension().is_some_and(|ext| ext == "jsonl") {
+        } else if kind.is_file() && session_file(&entry.path(), cursor_chat) {
             paths.push(entry.path());
         }
     }
@@ -180,7 +222,16 @@ fn discover(
         if *budget == 0 {
             break;
         }
-        discover(&directory, depth - 1, budget, paths)?;
+        discover(&directory, depth - 1, cursor_chat, budget, paths)?;
     }
     Ok(())
+}
+
+fn session_file(path: &Path, cursor_chat: bool) -> bool {
+    if cursor_chat {
+        path.file_name().is_some_and(|name| name == "meta.json")
+            && path.with_file_name("store.db").is_file()
+    } else {
+        path.extension().is_some_and(|ext| ext == "jsonl")
+    }
 }

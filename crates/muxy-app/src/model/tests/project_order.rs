@@ -5,7 +5,7 @@ fn fixture() -> (AppState, [ProjectId; 4]) {
     let mut state = AppState::bootstrap().expect("state");
     let ids = ["repo10", "repo2b", "Repo1", "repo2a"].map(|name| {
         let id = state
-            .add_project(ServerId::local(), std::env::temp_dir())
+            .add_project(ServerId::local(), crate::test_support::project_directory())
             .expect("project");
         state.rename_project(id, name).expect("name");
         id

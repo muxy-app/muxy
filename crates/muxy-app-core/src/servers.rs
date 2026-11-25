@@ -1,18 +1,14 @@
-//! Which server each project and pane belongs to, and what the app keeps per
-//! server. Session IDs are counters per server, so session-keyed state lives
-//! with its server.
-
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use muxy_protocol::{OperationId, ProjectIntent, ServerIdentity, SessionId};
 use serde::{Deserialize, Serialize};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{AppError, AppState, PaneContent, PaneId, Project, ProjectId, ServerId};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct ServerState {
-    /// The server that answered last time; another one is refused.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) identity: Option<ServerIdentity>,
     pub(crate) catalog_revision: u64,
@@ -24,26 +20,82 @@ pub(crate) struct ServerState {
     pub(crate) pending_discards: Vec<SessionId>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) close_operations: BTreeMap<SessionId, OperationId>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) given_names: BTreeMap<SessionId, String>,
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub(crate) dismissed: BTreeSet<SessionId>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) recent_paths: Vec<String>,
 }
+
+const RECENT_PATHS: usize = 100;
 
 impl AppState {
     pub fn project_server(&self, project: ProjectId) -> Option<ServerId> {
         self.project(project).map(|project| project.server_id)
     }
 
-    /// The Quick Terminal always runs on this computer.
     pub fn pane_server(&self, pane: PaneId) -> Option<ServerId> {
         self.placed_pane(pane).map(|placed| placed.server)
     }
 
-    /// A remote server has a Home once its catalog has been applied.
+    pub fn dismissed_sessions(&self, server: ServerId) -> BTreeSet<SessionId> {
+        self.servers
+            .get(&server)
+            .map(|state| state.dismissed.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn dismiss_sessions(
+        &mut self,
+        server: ServerId,
+        sessions: impl IntoIterator<Item = SessionId>,
+    ) -> bool {
+        let mut sessions = sessions.into_iter().peekable();
+        if sessions.peek().is_none() {
+            return false;
+        }
+        let dismissed = &mut self.servers.entry(server).or_default().dismissed;
+        let before = dismissed.len();
+        dismissed.extend(sessions);
+        dismissed.len() != before
+    }
+
+    pub fn retain_dismissed(&mut self, server: ServerId, live: &HashSet<SessionId>) -> bool {
+        let shown: HashSet<_> = self.session_references(server).into_iter().collect();
+        let Some(state) = self.servers.get_mut(&server) else {
+            return false;
+        };
+        let before = state.dismissed.len();
+        state
+            .dismissed
+            .retain(|session| live.contains(session) && !shown.contains(session));
+        state.dismissed.len() != before
+    }
+
+    pub fn recent_paths(&self, server: ServerId) -> &[String] {
+        self.servers
+            .get(&server)
+            .map_or(&[], |state| state.recent_paths.as_slice())
+    }
+
+    pub fn remember_path(&mut self, server: ServerId, path: &str) -> bool {
+        let recent = &mut self.servers.entry(server).or_default().recent_paths;
+        if recent.first().is_some_and(|first| first == path) {
+            return false;
+        }
+        recent.retain(|other| other != path);
+        recent.insert(0, path.to_owned());
+        recent.truncate(RECENT_PATHS);
+        true
+    }
+
     pub fn server_home(&self, server: ServerId) -> Option<&Project> {
         self.projects
             .iter()
             .find(|project| project.home && project.server_id == server)
     }
 
-    /// Sessions shown by `server`'s panes, sorted and without repeats.
     pub fn session_references(&self, server: ServerId) -> Vec<SessionId> {
         self.panes()
             .filter(|placed| placed.server == server)
@@ -53,8 +105,42 @@ impl AppState {
             .collect()
     }
 
-    /// Sessions shown by panes, for every server with projects here. A server
-    /// whose panes show none has an empty list.
+    pub fn session_names(&self, server: ServerId) -> BTreeMap<SessionId, String> {
+        let mut names = BTreeMap::new();
+        for placed in self.panes().filter(|placed| placed.server == server) {
+            let Some(session) = placed.pane.session() else {
+                continue;
+            };
+            let Some(title) = placed.tab.and_then(|tab| tab.custom_title.as_deref()) else {
+                continue;
+            };
+            if let Some(name) = shared_name(title) {
+                names.entry(session).or_insert(name);
+            }
+        }
+        names
+    }
+
+    pub fn given_session_names(&self, server: ServerId) -> BTreeMap<SessionId, String> {
+        self.servers
+            .get(&server)
+            .map(|state| state.given_names.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn record_session_name(
+        &mut self,
+        server: ServerId,
+        session: SessionId,
+        name: Option<String>,
+    ) {
+        let names = &mut self.servers.entry(server).or_default().given_names;
+        match name {
+            Some(name) => names.insert(session, name),
+            None => names.remove(&session),
+        };
+    }
+
     pub fn session_references_by_server(&self) -> BTreeMap<ServerId, Vec<SessionId>> {
         let mut references: BTreeMap<_, BTreeSet<_>> = self
             .projects
@@ -113,8 +199,6 @@ impl AppState {
         }
     }
 
-    /// Removes the panes of the Devices tab that older versions saved. Devices
-    /// is a Settings page now.
     pub(crate) fn remove_saved_devices_panes(&mut self) -> Result<(), AppError> {
         let panes: Vec<_> = self
             .panes()
@@ -127,8 +211,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Removes `server`'s projects with their tabs and workspace memberships,
-    /// and what the app kept for it. Nothing changes on the server.
     pub fn forget_server(&mut self, server: ServerId) -> Result<(), AppError> {
         if server.is_local() {
             return Err(AppError::InvalidState(
@@ -140,9 +222,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Removes a remote server's projects with their tabs, workspace
-    /// memberships, and window references. The window moves to the local Home
-    /// if it showed one of them.
     pub(crate) fn remove_remote_projects(&mut self, server: ServerId) {
         if server.is_local() {
             return;
@@ -183,4 +262,18 @@ impl AppState {
             self.queue_discard(server, session);
         }
     }
+}
+
+fn shared_name(title: &str) -> Option<String> {
+    let mut length = 0;
+    for grapheme in title.graphemes(true) {
+        if length + grapheme.len() > muxy_protocol::MAX_SESSION_NAME {
+            break;
+        }
+        length += grapheme.len();
+    }
+    let name = title[..length].trim_end();
+    muxy_protocol::validate_session_name(name)
+        .is_ok()
+        .then(|| name.to_owned())
 }

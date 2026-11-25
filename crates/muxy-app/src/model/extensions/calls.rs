@@ -56,8 +56,23 @@ impl AppModel {
                 self.extension_storage(call, cx);
                 return;
             }
+            "tabs.new" | "tabs.close" | "tabs.rename" | "tabs.setColor" | "tabs.pin"
+            | "tabs.move" | "tabs.moveToWindow" | "tabs.dock" => self.tab_control(&call, cx),
             verb if verb.starts_with("tabs.") => self.tabs_call(&call, cx),
+            "panes.split"
+            | "panes.focus"
+            | "panes.zoom"
+            | "panes.equalize"
+            | "panes.detach"
+            | "panes.restart"
+            | "panes.scrollToBottom"
+            | "panes.float"
+            | "panes.moveToTab"
+            | "panes.moveToWindow" => self.pane_control(&call, cx),
             verb if verb.starts_with("panes.") => self.panes_call(&call, cx),
+            "projects.next" | "projects.previous" | "projects.focus" | "projects.sort"
+            | "projects.removed" | "projects.restore" | "projects.apps" | "projects.openIn"
+            | "projects.reveal" => self.project_control(&call, cx),
             "projects.create" => {
                 self.create_extension_project(call, cx);
                 return;
@@ -83,6 +98,21 @@ impl AppModel {
                 return;
             }
             "agents.list" => Ok(Value::Array(self.agent_statuses().into_values().collect())),
+            "agents.focus" => self.focus_extension_agent(&call, cx),
+            verb if verb.starts_with("ui.") => self.ui_call(&call, window, cx),
+            "commands.list" | "commands.run" => self.commands_call(&call, window, cx),
+            verb if verb.starts_with("composer.") => self.composer_call(&call, window, cx),
+            verb if verb.starts_with("preferences.") => self.preferences_call(&call, cx),
+            verb if verb.starts_with("clipboard.") => Self::clipboard_call(&call, cx),
+            verb if verb.starts_with("app.") => self.app_call(&call, cx),
+            verb if verb.starts_with("settings.") => {
+                self.settings_call(call, cx);
+                return;
+            }
+            "layouts.list" | "layouts.apply" => {
+                self.layouts_call(call, cx);
+                return;
+            }
             "gh.user" => {
                 self.gh_user(call, cx);
                 return;
@@ -95,7 +125,7 @@ impl AppModel {
                 Ok(Value::Null)
             }
             "popover.resize" => self.resize_popover(&call.owner, &call.args, cx),
-            "topbar.set" | "statusbar.set" => self.set_item(&call, cx),
+            "topbar.set" | "rail.set" | "statusbar.set" => self.set_item(&call, cx),
             verb if verb.starts_with("shortcuts.") => self.shortcuts_call(&call, cx),
             "modal.open" | "modal.feed" | "modal.finish" | "modal.await" => {
                 match self.script_modal(&call, window, cx) {
@@ -157,8 +187,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// `muxy.browser`: the same requests `muxy browser` makes, answered when
-    /// the page is done.
     fn extension_browser_call(&mut self, call: Call, window: &mut Window, cx: &mut Context<Self>) {
         let args = crate::model::browsers::automation::extension_args(&call.verb, &call.args);
         let reply = self.browser_call(&call.verb, &args, window, cx);
@@ -175,7 +203,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Log lines from `console.*`: one per script call, or a batch from a page.
     fn console(&mut self, call: &Call) {
         let single = [call.args.clone()];
         let lines = call.args["lines"]
@@ -320,7 +347,6 @@ impl AppModel {
             .spawn(async move { client.exec_async(request).await.map_err(exec_error) }))
     }
 
-    /// `gh.user`: the signed-in GitHub CLI account, cached for five minutes.
     fn gh_user(&mut self, call: Call, cx: &mut Context<Self>) {
         if let Some((fetched, user)) = &self.extensions.gh_user
             && fetched.elapsed() < GH_USER_TTL
@@ -394,7 +420,6 @@ impl AppModel {
         .detach();
     }
 
-    /// `projects.create`: optionally creates the folder on the server first.
     fn create_extension_project(&mut self, call: Call, cx: &mut Context<Self>) {
         let mut workspace = None;
         if let Some(identifier) = call.args["workspace"]
@@ -777,7 +802,6 @@ pub(super) fn exec_request(call: &Call, job: u64) -> Result<ExecRequest, String>
     Ok(request)
 }
 
-/// Server errors as `exec` reports them; launch failures read like main's.
 pub(super) fn exec_error(error: muxy_client::ClientError) -> String {
     match error {
         muxy_client::ClientError::Server(reply) if reply.code == ErrorCode::SpawnFailed => {

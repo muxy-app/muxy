@@ -59,7 +59,6 @@ pub enum ExitReason {
     Signaled(i32),
     Ended,
     ServerStopped,
-    /// A reason from a newer build, kept by its number.
     Unrecognized(u32),
 }
 
@@ -98,7 +97,6 @@ impl<'b, C> Decode<'b, C> for ExitReason {
 pub struct AttachSnapshot {
     #[n(0)]
     pub graphics: crate::Graphics,
-    /// Prompt starts in history-then-screen row coordinates.
     #[n(1)]
     pub prompts: Vec<u16>,
     #[n(2)]
@@ -125,6 +123,10 @@ pub struct AttachSnapshot {
     pub history_total: u64,
     #[n(12)]
     pub links: Option<Vec<LinkRow>>,
+    #[n(13)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub history_graphics: Option<crate::Graphics>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -133,7 +135,6 @@ pub struct HistoryCursor(#[n(0)] pub u64);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct HistoryPage {
-    /// Prompt starts in page-history-then-optional-screen row coordinates.
     #[n(0)]
     pub prompts: Vec<u16>,
     #[n(1)]
@@ -147,6 +148,10 @@ pub struct HistoryPage {
     pub screen: Option<SavedScreen>,
     #[n(5)]
     pub links: Option<Vec<LinkRow>>,
+    #[n(6)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub graphics: Option<crate::Graphics>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -265,6 +270,10 @@ pub enum MetadataEvent {
     ClipboardWrite(#[n(0)] String),
 }
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Each mode is an independent terminal setting"
+)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct InputModes {
     #[n(0)]
@@ -273,6 +282,10 @@ pub struct InputModes {
     pub alternate_scroll: bool,
     #[n(2)]
     pub focus_events: bool,
+    #[n(3)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub mouse_pixels: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -289,6 +302,9 @@ pub struct MouseEvent {
     pub scroll: Option<ScrollDirection>,
     #[n(5)]
     pub modifiers: Modifiers,
+    #[n(6)]
+    #[serde(default)]
+    pub pixel: Option<[u32; 2]>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -303,8 +319,6 @@ pub enum MouseAction {
     Scroll,
 }
 
-// Open because an optional field would otherwise read a newer value as absent,
-// which fails validation instead of being ignored.
 open_enum! {
     #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
     pub enum MouseButton {

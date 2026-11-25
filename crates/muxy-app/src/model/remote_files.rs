@@ -1,11 +1,7 @@
-//! Files on another computer, reached through its server's second
-//! connection: what is dropped or pasted on its terminals is sent there, and
-//! files their links name can be copied here.
-
 use std::cmp::Reverse;
-use std::fs::DirBuilder;
 use std::io;
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,29 +15,21 @@ use muxy_ui::tr;
 use super::AppModel;
 use crate::views::menu::{Command, Item};
 
-/// What a terminal on another computer gets in place of this computer's
-/// files or clipboard, which programs there can't reach.
 #[derive(Clone, Debug)]
 pub(crate) enum Upload {
     Files(Vec<PathBuf>),
-    /// Image bytes, and the extension of their format.
     Image(Vec<u8>, &'static str),
 }
 
-/// One server's files, through its second connection.
 #[derive(Clone)]
 pub(crate) struct RemoteFiles {
     client: Client,
-    /// The computer's name, for messages.
     name: String,
-    /// Its Home and project folders, longest first: file requests reach
-    /// files inside them.
     roots: Vec<(ProjectId, PathBuf)>,
     home: PathBuf,
 }
 
 impl RemoteFiles {
-    /// Sends files or an image for `session`, and returns their paths there.
     pub(crate) fn upload(
         &self,
         session: SessionId,
@@ -63,25 +51,18 @@ impl RemoteFiles {
     }
 
     fn read_local(&self, path: &Path, name: &str) -> Result<Vec<u8>, String> {
-        let unreadable =
-            |error: io::Error| tr!("Could not read %@: %@", name, error.to_string()).to_string();
-        let metadata = std::fs::metadata(path).map_err(unreadable)?;
-        if metadata.is_dir() {
-            return Err(tr!(
+        read_upload(path, MAX_UPLOAD_BYTES).map_err(|error| match error {
+            UploadError::Folder => tr!(
                 "%@ is a folder. Only files can be sent to %@.",
                 name,
                 &self.name
             )
-            .to_string());
-        }
-        if metadata.len() > MAX_UPLOAD_BYTES {
-            return Err(too_large(name, &self.name));
-        }
-        let bytes = std::fs::read(path).map_err(unreadable)?;
-        if bytes.len() as u64 > MAX_UPLOAD_BYTES {
-            return Err(too_large(name, &self.name));
-        }
-        Ok(bytes)
+            .to_string(),
+            UploadError::TooLarge => too_large(name, &self.name),
+            UploadError::Unreadable(error) => {
+                tr!("Could not read %@: %@", name, error.to_string()).to_string()
+            }
+        })
     }
 
     fn send(&self, session: SessionId, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
@@ -109,10 +90,6 @@ impl RemoteFiles {
         }
     }
 
-    /// A file a terminal shows, if it is there: `text` is resolved against
-    /// the terminal's folder, with `~` meaning that computer's Home. Files
-    /// outside its projects and Home can't be checked, so an absolute path
-    /// there is taken as it is, for copying its path.
     pub(crate) fn resolve(&self, text: &str, directory: &Path) -> Option<Target> {
         let absolute = text.starts_with('/') || text.starts_with("file://");
         Target::file(text, directory, Some(&self.home), |path| {
@@ -124,12 +101,10 @@ impl RemoteFiles {
         })
     }
 
-    /// Whether file requests reach `path`: it is in a project or Home.
     pub(crate) fn reaches(&self, path: &Path) -> bool {
         self.locate(path).is_some()
     }
 
-    /// The project or Home holding `path`, and `path` inside it.
     fn locate(&self, path: &Path) -> Option<(ProjectId, PathBuf)> {
         self.roots.iter().find_map(|(project, root)| {
             let relative = path.strip_prefix(root).ok()?;
@@ -145,9 +120,23 @@ impl RemoteFiles {
         })
     }
 
-    /// Whether a project's folder is there, as this computer checks its own:
-    /// a worktree also needs its `.git` file. `None` when the server
-    /// couldn't say.
+    pub(crate) fn project_file(
+        &self,
+        project: ProjectId,
+        path: &Path,
+        root: &Path,
+    ) -> Option<String> {
+        let relative = path.strip_prefix(root).ok()?;
+        let info = self
+            .client
+            .file_info(project, ServerPath::from(relative))
+            .ok()?;
+        if info.is_directory {
+            return None;
+        }
+        info.path.as_path().to_str().map(str::to_owned)
+    }
+
     pub(crate) fn folder_available(&self, project: ProjectId, worktree: bool) -> Option<bool> {
         let stat = |path: &[u8]| self.client.file_info(project, ServerPath(path.to_vec()));
         let missing = |error: &ClientError| matches!(error, ClientError::Server(error) if error.code == ErrorCode::BadPath);
@@ -167,7 +156,6 @@ impl RemoteFiles {
         }
     }
 
-    /// The file's bytes, up to the files limit.
     pub(crate) fn read(&self, path: &Path) -> Result<Vec<u8>, String> {
         let Some((project, relative)) = self.locate(path) else {
             return Err(tr!(
@@ -206,9 +194,6 @@ fn display_name(path: &Path) -> String {
     )
 }
 
-/// Copied files, or an image copied without text, which a terminal on
-/// another computer gets sent instead of their names or a paste key it can't
-/// act on. Text pastes as text, as it does here.
 pub(crate) fn clipboard_upload(item: &gpui::ClipboardItem, cx: &gpui::App) -> Option<Upload> {
     #[cfg(not(test))]
     let copied = muxy_ui::pasteboard::read_content(cx).ok();
@@ -219,8 +204,6 @@ pub(crate) fn clipboard_upload(item: &gpui::ClipboardItem, cx: &gpui::App) -> Op
     upload_for(copied, item)
 }
 
-/// What one clipboard sends, from its two readings: `copied` knows files
-/// from the text a file manager offers beside them, `item` is what pastes.
 fn upload_for(
     copied: Option<muxy_ui::pasteboard::Content>,
     item: &gpui::ClipboardItem,
@@ -244,7 +227,6 @@ fn upload_for(
     })
 }
 
-/// The extension of an image's format, from its first bytes.
 pub(crate) fn image_extension(bytes: &[u8]) -> &'static str {
     match bytes {
         [0xff, 0xd8, 0xff, ..] => "jpg",
@@ -269,36 +251,96 @@ pub(crate) fn image_extension(bytes: &[u8]) -> &'static str {
     }
 }
 
-/// Saves a read-only copy of another computer's file in this computer's
-/// temporary folder, named as a copy, and returns its path.
+#[derive(Debug)]
+enum UploadError {
+    Folder,
+    TooLarge,
+    Unreadable(io::Error),
+}
+
+fn read_upload(path: &Path, limit: u64) -> Result<Vec<u8>, UploadError> {
+    use std::io::Read;
+    if std::fs::metadata(path)
+        .map_err(UploadError::Unreadable)?
+        .is_dir()
+    {
+        return Err(UploadError::Folder);
+    }
+    let file = open_without_waiting(path).map_err(UploadError::Unreadable)?;
+    let metadata = file.metadata().map_err(UploadError::Unreadable)?;
+    if metadata.is_dir() {
+        return Err(UploadError::Folder);
+    }
+    if !metadata.is_file() {
+        return Err(UploadError::Unreadable(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        )));
+    }
+    if metadata.len() > limit {
+        return Err(UploadError::TooLarge);
+    }
+    let mut bytes = Vec::new();
+    file.take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(UploadError::Unreadable)?;
+    if bytes.len() as u64 > limit {
+        return Err(UploadError::TooLarge);
+    }
+    Ok(bytes)
+}
+
+fn open_without_waiting(path: &Path) -> io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        use rustix::fs::{Mode, OFlags};
+        Ok(rustix::fs::open(
+            path,
+            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?
+        .into())
+    }
+    #[cfg(windows)]
+    {
+        std::fs::File::open(path)
+    }
+}
+
 pub(crate) fn save_copy(bytes: &[u8], original: &Path, server: &str) -> io::Result<PathBuf> {
-    let name = display_name(original);
+    let name = display_name(original).replace(['/', '\\', '\0'], "-");
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => name.split_at(dot),
         _ => (name.as_str(), ""),
     };
-    let server = server.replace(['/', '\0'], "-");
-    let folder = std::env::temp_dir()
-        .join("Muxy Copies")
-        .join(muxy_protocol::OperationId::new().to_string());
-    DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&folder)?;
+    let server = server.replace(['/', '\\', '\0'], "-");
+    let mut folder = tempfile::Builder::new();
+    folder.prefix("Muxy Copy ");
+    #[cfg(unix)]
+    folder.permissions(std::fs::Permissions::from_mode(0o700));
+    let folder = folder.tempdir()?.keep();
     let copy = folder.join(format!("{stem} (copy from {server}){extension}"));
-    std::fs::write(&copy, bytes)?;
-    std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o444))?;
+    let mut file = muxy_core::files::private_file()
+        .write(true)
+        .create_new(true)
+        .open(&copy)?;
+    io::Write::write_all(&mut file, bytes)?;
+    #[cfg(unix)]
+    let read_only = std::fs::Permissions::from_mode(0o444);
+    #[cfg(windows)]
+    let read_only = {
+        let mut permissions = file.metadata()?.permissions();
+        permissions.set_readonly(true);
+        permissions
+    };
+    file.set_permissions(read_only)?;
     Ok(copy)
 }
 
-/// Opens a file with an app on this computer.
 pub(crate) type Open = Arc<dyn Fn(&Path) -> io::Result<()> + Send + Sync>;
 
-/// A remote file link's menu, and how copies open.
 pub(crate) struct RemoteLinks {
-    /// The file whose menu is open, and the terminal that showed it.
     menu: Option<(PaneId, ServerId, PathBuf)>,
-    /// Opens a saved copy with this computer's default app.
     pub(crate) open: Open,
 }
 
@@ -311,9 +353,9 @@ impl Default for RemoteLinks {
     }
 }
 
+const REMOTE_LINK_TRIES: usize = 32;
+
 impl AppModel {
-    /// Another computer's files, once its second connection is open. Asks
-    /// for that connection when it isn't.
     pub(crate) fn remote_files(
         &mut self,
         server: ServerId,
@@ -347,9 +389,6 @@ impl AppModel {
         })
     }
 
-    /// Asks another computer's server whether its projects' folders are
-    /// there, as this computer's are checked on disk. A project whose folder
-    /// is gone shows as failed.
     pub(crate) fn check_remote_projects(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if server.is_local() || !self.ready(server) || self.extensions.client(server).is_none() {
             return;
@@ -423,8 +462,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Sends what was dropped or pasted on a terminal of another computer,
-    /// then pastes where it landed there, if the terminal is still the same.
     pub(super) fn upload_to_pane(&mut self, pane: PaneId, upload: Upload, cx: &mut Context<Self>) {
         let (Some(attachment), Some((_, session))) =
             (self.attachment(pane, cx), self.state.pane_session(pane))
@@ -461,8 +498,6 @@ impl AppModel {
         .detach();
     }
 
-    /// Looks up a file a terminal of another computer shows, through its
-    /// server, and tells the terminal whether it is a link.
     pub(super) fn resolve_remote_link(
         &mut self,
         pane: PaneId,
@@ -478,18 +513,18 @@ impl AppModel {
         let Ok(files) = self.remote_files(context.server, cx) else {
             return;
         };
-        let text = candidate.text.clone();
+        let mut wanted = candidate.clone();
+        wanted.wider.truncate(REMOTE_LINK_TRIES);
         let resolved = cx
             .background_executor()
-            .spawn(async move { files.resolve(&text, &context.directory) });
+            .spawn(async move { wanted.resolve(|text| files.resolve(text, &context.directory)) });
         cx.spawn(async move |_, cx| {
-            let target = resolved.await;
-            let _ = view.update(cx, |pane, cx| pane.link_resolved(&candidate, target, cx));
+            let found = resolved.await;
+            let _ = view.update(cx, |pane, cx| pane.link_resolved(&candidate, found, cx));
         })
         .detach();
     }
 
-    /// A remote file link offers a copy here, or its path.
     pub(super) fn remote_link_menu(
         &mut self,
         pane: PaneId,
@@ -532,8 +567,6 @@ impl AppModel {
         }
     }
 
-    /// Reads the file through its server, saves a read-only copy here, and
-    /// opens it with the default app.
     pub(crate) fn open_remote_copy(&mut self, cx: &mut Context<Self>) {
         let Some((_, server, path)) = self.remote_links.menu.take() else {
             return;
@@ -568,6 +601,168 @@ mod tests {
     use muxy_ui::pasteboard::Content;
 
     use super::*;
+
+    #[test]
+    fn uploads_read_only_regular_files_within_the_limit() {
+        let folder = tempfile::tempdir().expect("folder");
+        let file = folder.path().join("a.txt");
+        std::fs::write(&file, "hello").expect("write");
+        assert_eq!(read_upload(&file, 5).expect("read"), b"hello");
+        assert!(matches!(read_upload(&file, 4), Err(UploadError::TooLarge)));
+        assert!(matches!(
+            read_upload(folder.path(), 5),
+            Err(UploadError::Folder)
+        ));
+        #[cfg(unix)]
+        {
+            assert!(matches!(
+                read_upload(Path::new("/dev/zero"), 5),
+                Err(UploadError::Unreadable(_))
+            ));
+            let pipe = folder.path().join("pipe");
+            let made = std::process::Command::new("mkfifo")
+                .arg(&pipe)
+                .status()
+                .expect("mkfifo");
+            assert!(made.success());
+            assert!(matches!(
+                read_upload(&pipe, 5),
+                Err(UploadError::Unreadable(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn copies_land_in_a_new_private_folder_read_only() {
+        let copy = save_copy(b"data", Path::new("/srv/notes.txt"), "box/one").expect("copy");
+        assert_eq!(
+            copy.file_name().and_then(|name| name.to_str()),
+            Some("notes (copy from box-one).txt")
+        );
+        assert_eq!(std::fs::read(&copy).expect("read"), b"data");
+        assert!(
+            std::fs::metadata(&copy)
+                .expect("metadata")
+                .permissions()
+                .readonly()
+        );
+        let folder = copy.parent().expect("folder").to_owned();
+        #[cfg(unix)]
+        assert_eq!(
+            std::fs::metadata(&folder)
+                .expect("folder")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        let second =
+            save_copy(b"data", Path::new("/srv/notes.txt"), "box/one").expect("second copy");
+        assert_ne!(
+            second.parent(),
+            Some(folder.as_path()),
+            "each copy gets its own folder"
+        );
+        for copy in [copy, second] {
+            let folder = copy.parent().expect("folder").to_owned();
+            let mut permissions = std::fs::metadata(&copy).expect("metadata").permissions();
+            #[allow(
+                clippy::permissions_set_readonly_false,
+                reason = "Lets the test clean up"
+            )]
+            permissions.set_readonly(false);
+            std::fs::set_permissions(&copy, permissions).expect("writable");
+            std::fs::remove_dir_all(folder).expect("clean up");
+        }
+    }
+
+    #[test]
+    fn project_file_uses_the_source_project_and_the_servers_resolved_path() {
+        use muxy_protocol::wire::{Decoder, Encoder};
+        use muxy_protocol::{
+            CONTROL, ErrorReply, FileInfo, FilesAction, FilesReply, Message, ReplyBody,
+            RequestBody, ServerInfo,
+        };
+
+        let project = ProjectId::new();
+        let (client, server) = muxy_protocol::transport::socket_pair().expect("socket pair");
+        server
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .expect("read timeout");
+        let worker = std::thread::spawn(move || {
+            let mut decoder = Decoder::new(server.try_clone().expect("clone"));
+            let mut encoder = Encoder::new(server);
+            decoder.next().expect("hello");
+            encoder
+                .send(
+                    CONTROL,
+                    &Message::HelloReply {
+                        versions: muxy_protocol::SUPPORTED.to_vec(),
+                        server: ServerInfo::current(),
+                        features: Vec::new(),
+                    },
+                )
+                .expect("hello reply");
+            let info = |path: &str, is_directory| {
+                ReplyBody::Files(FilesReply::Info(FileInfo {
+                    name: Path::new(path).file_name().map_or_else(
+                        || ServerPath::from(""),
+                        |name| ServerPath::from(Path::new(name)),
+                    ),
+                    path: path.into(),
+                    is_directory,
+                    size: 0,
+                }))
+            };
+            for (path, reply) in [
+                ("src/../README.md", info("README.md", false)),
+                ("src/alias", info("documents/README.md", false)),
+                ("src/..", info("", true)),
+                (
+                    "src/../../secret.md",
+                    ReplyBody::Error(ErrorReply {
+                        code: ErrorCode::BadPath,
+                        message: "Path escapes the workspace root".into(),
+                    }),
+                ),
+            ] {
+                let (
+                    _,
+                    Message::Request {
+                        id,
+                        body: RequestBody::Files(request),
+                    },
+                ) = decoder.next().expect("file request")
+                else {
+                    panic!("expected file request")
+                };
+                assert_eq!(request.project, project);
+                assert_eq!(request.action, FilesAction::Stat(path.into()));
+                encoder
+                    .send(CONTROL, &Message::Reply { id, body: reply })
+                    .expect("file reply");
+            }
+        });
+        let files = RemoteFiles {
+            client: Client::from_stream(Box::new(client)).expect("client"),
+            name: "Remote".into(),
+            roots: vec![
+                (ProjectId::new(), PathBuf::from("/repo/src")),
+                (project, PathBuf::from("/repo")),
+            ],
+            home: "/home/me".into(),
+        };
+        let open = |path| files.project_file(project, Path::new(path), Path::new("/repo"));
+        assert_eq!(open("/outside/file.md"), None);
+        assert_eq!(open("/repo/src/../README.md").as_deref(), Some("README.md"));
+        assert_eq!(
+            open("/repo/src/alias").as_deref(),
+            Some("documents/README.md")
+        );
+        assert_eq!(open("/repo/src/.."), None);
+        assert_eq!(open("/repo/src/../../secret.md"), None);
+        worker.join().expect("server");
+    }
 
     #[test]
     fn copied_files_are_sent_though_their_names_are_also_on_the_clipboard_as_text() {

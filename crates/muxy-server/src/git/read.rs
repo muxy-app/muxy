@@ -1,7 +1,9 @@
-use super::{Result, error, run, text};
-use muxy_protocol::{GitBranch, GitFile, GitSummary, GitWorktree, ServerPath};
-use std::collections::HashMap;
+use super::{Result, error, git_path, parse, run, server_path, text};
+use muxy_protocol::{GitBranch, GitFile, GitSummary, GitWorktree};
 use std::path::Path;
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn status(path: &Path) -> Result<Vec<u8>> {
     run(
@@ -10,42 +12,8 @@ pub(super) fn status(path: &Path) -> Result<Vec<u8>> {
     )
 }
 
-pub(super) fn files(bytes: &[u8]) -> Result<Vec<GitFile>> {
-    let mut records = bytes.split(|b| *b == 0).filter(|r| !r.is_empty());
-    let mut files = Vec::new();
-    while let Some(record) = records.next() {
-        if record.len() < 4 || record[2] != b' ' {
-            return Err(error("Invalid Git status"));
-        }
-        let original = if record[..2].iter().any(|b| matches!(b, b'R' | b'C')) {
-            Some(ServerPath(
-                records
-                    .next()
-                    .ok_or_else(|| error("Missing rename source"))?
-                    .to_vec(),
-            ))
-        } else {
-            None
-        };
-        files.push(GitFile {
-            path: ServerPath(record[3..].to_vec()),
-            original_path: original,
-            index: record[0],
-            worktree: record[1],
-            added: None,
-            removed: None,
-        });
-        if files.len() > 4096 {
-            return Err(error(
-                "More than 4096 changed files; narrow changes using Git",
-            ));
-        }
-    }
-    Ok(files)
-}
-
 pub(super) fn summary(path: &Path) -> Result<GitSummary> {
-    let files = files(&status(path)?)?;
+    let files = parse::files(&status(path)?)?;
     let mut summary = GitSummary {
         branch: run(path, &["symbolic-ref", "--quiet", "--short", "HEAD"])
             .ok()
@@ -136,12 +104,12 @@ pub(super) fn branches(path: &Path) -> Result<Vec<GitBranch>> {
 }
 
 pub(super) fn changes(path: &Path) -> Result<Vec<GitFile>> {
-    let mut files = files(&status(path)?)?;
+    let mut files = parse::files(&status(path)?)?;
     let staged = line_stats(path, true)?;
     let unstaged = line_stats(path, false)?;
     for file in &mut files {
         if file.untracked() {
-            if let Some(lines) = untracked_lines(&path.join(file.path.as_path())) {
+            if let Some(lines) = untracked_lines(&path.join(super::path(&file.path)?)) {
                 file.added = Some(lines);
                 file.removed = Some(0);
             }
@@ -161,8 +129,6 @@ pub(super) fn changes(path: &Path) -> Result<Vec<GitFile>> {
     Ok(files)
 }
 
-type LineStats = HashMap<Vec<u8>, (Option<u64>, Option<u64>)>;
-
 pub(super) fn file_status(path: &Path) -> Result<Vec<muxy_protocol::GitFileStatus>> {
     use muxy_protocol::{GitFileStatus, GitLineStat};
     let files = changes(path)?;
@@ -176,7 +142,7 @@ pub(super) fn file_status(path: &Path) -> Result<Vec<muxy_protocol::GitFileStatu
             binary: additions.is_none() && deletions.is_none(),
         }
     };
-    Ok(files
+    files
         .into_iter()
         .map(|file| {
             let staged = stat(staged.get(&file.path.0));
@@ -184,18 +150,18 @@ pub(super) fn file_status(path: &Path) -> Result<Vec<muxy_protocol::GitFileStatu
                 GitLineStat {
                     additions: file.added,
                     deletions: file.removed,
-                    binary: untracked_binary(&path.join(file.path.as_path())),
+                    binary: untracked_binary(&path.join(super::path(&file.path)?)),
                 }
             } else {
                 stat(unstaged.get(&file.path.0))
             };
-            GitFileStatus {
+            Ok(GitFileStatus {
                 file,
                 staged,
                 unstaged,
-            }
+            })
         })
-        .collect())
+        .collect()
 }
 
 fn untracked_binary(path: &Path) -> bool {
@@ -208,7 +174,7 @@ fn untracked_binary(path: &Path) -> bool {
         .is_ok_and(|file| file.take(8000).read_to_end(&mut bytes).is_ok() && bytes.contains(&0))
 }
 
-fn line_stats(path: &Path, staged: bool) -> Result<LineStats> {
+fn line_stats(path: &Path, staged: bool) -> Result<parse::LineStats> {
     let mut args = vec![
         "diff",
         "--numstat",
@@ -222,36 +188,7 @@ fn line_stats(path: &Path, staged: bool) -> Result<LineStats> {
     }
     args.push("--");
     let bytes = run(path, &args)?;
-    let mut records = bytes.split(|b| *b == 0);
-    let mut stats = HashMap::new();
-    while let Some(record) = records.next() {
-        if record.is_empty() {
-            continue;
-        }
-        let parts: Vec<_> = record.splitn(3, |b| *b == b'\t').collect();
-        if parts.len() != 3 {
-            return Err(error("Invalid Git line statistics"));
-        }
-        let target = if parts[2].is_empty() {
-            records
-                .next()
-                .ok_or_else(|| error("Missing rename source"))?;
-            records
-                .next()
-                .ok_or_else(|| error("Missing rename target"))?
-        } else {
-            parts[2]
-        };
-        let number = |bytes: &[u8]| -> Result<Option<u64>> {
-            if bytes == b"-" {
-                Ok(None)
-            } else {
-                text(bytes)?.parse().map(Some).map_err(error)
-            }
-        };
-        stats.insert(target.to_vec(), (number(parts[0])?, number(parts[1])?));
-    }
-    Ok(stats)
+    parse::line_stats(&bytes)
 }
 
 pub(super) fn worktrees(path: &Path) -> Result<Vec<GitWorktree>> {
@@ -260,7 +197,7 @@ pub(super) fn worktrees(path: &Path) -> Result<Vec<GitWorktree>> {
     for record in bytes.split(|b| *b == 0) {
         if let Some(path) = record.strip_prefix(b"worktree ") {
             result.push(GitWorktree {
-                directory: ServerPath(path.to_vec()),
+                directory: server_path(&git_path(path)?)?,
                 head: None,
                 branch: None,
                 primary: result.is_empty(),

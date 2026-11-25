@@ -15,6 +15,7 @@ use super::sidebar::{client_button, client_press};
 use super::tab_sidebar::tab_description;
 use super::titlebar;
 use crate::model::AppModel;
+use crate::views::move_drag;
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::Metrics;
@@ -50,10 +51,11 @@ pub(crate) fn tab_strip(
         - actions_width
         - new_tab_width)
         .max(0.0);
-    let count = u16::try_from(model.state.current_project().tabs.len()).unwrap_or(u16::MAX);
+    let count =
+        u16::try_from(model.state.current_project().listed_tabs().count()).unwrap_or(u16::MAX);
     let ideal_width = available / f32::from(count.max(1));
     let width = ideal_width.clamp(min_tab_width(model), max_tab_width(model));
-    let tabs: Vec<_> = model.state.current_project().tabs.iter().collect();
+    let tabs: Vec<_> = model.state.current_project().listed_tabs().collect();
     let mut cells = tab_cells(&tabs, width, true, model, cx);
     let pinned_button = if ideal_width < min_tab_width(model) {
         new_button
@@ -70,12 +72,18 @@ pub(crate) fn tab_strip(
                 .accessibility_id("tabs-scroll")
                 .aria_label(tr!("Tabs"))
                 .debug_selector(|| "tabs-scroll".into())
+                .relative()
                 .flex()
                 .flex_1()
                 .min_w(px(0.0))
                 .h_full()
                 .overflow_x_scroll()
-                .child(cells),
+                .child(cells)
+                .child(move_drag::zone(
+                    &model.move_drag.zones,
+                    move_drag::Owner::Strip,
+                    move_drag::ZoneKind::Strip(model.state.current_project().id),
+                )),
         )
         .children(pinned_button)
         .child(actions)
@@ -90,16 +98,12 @@ fn max_tab_width(model: &AppModel) -> f32 {
     f32::from(model.metrics.scaled(200.0))
 }
 
-/// Whether the built-in sidebar shows tabs, each project with its own new tab
-/// button, so the titlebar needs none.
 pub(super) fn sidebar_opens_tabs(model: &AppModel) -> bool {
     model.appearance.layout != muxy_app_core::settings::AppLayout::ProjectFocused
-        && model.appearance.sidebar_expanded
+        && model.sidebar_docks_expanded()
         && !model.extension_sidebar_active()
 }
 
-/// The strip above a group's panes: its tabs and a button for a new tab in
-/// the group.
 pub(crate) fn group_strip(
     group: &TabGroup,
     width: f32,
@@ -146,6 +150,11 @@ pub(crate) fn group_strip(
                 .overflow_x_scroll()
                 .child(cells),
         )
+        .child(move_drag::zone(
+            &model.move_drag.zones,
+            move_drag::Owner::Strip,
+            move_drag::ZoneKind::Strip(project.id),
+        ))
         .child(
             gpui::canvas(
                 move |bounds, _, _| strips.borrow_mut().push((shown, bounds)),
@@ -157,7 +166,6 @@ pub(crate) fn group_strip(
         .into_any_element()
 }
 
-/// Tab cells for `tabs`, measured for dragging. `shortcuts` shows ⌘1–9 hints.
 fn tab_cells(
     tabs: &[&Tab],
     width: f32,
@@ -166,8 +174,24 @@ fn tab_cells(
     cx: &mut Context<AppModel>,
 ) -> gpui::Div {
     let mut cells = div().flex().flex_none().items_center().h_full();
+    let project = model.state.current_project().id;
     for (index, tab) in tabs.iter().enumerate() {
-        cells = cells.child(tab_cell(tab, index, width, shortcuts, model, cx));
+        cells = cells.child(
+            div()
+                .relative()
+                .flex_none()
+                .h_full()
+                .child(tab_cell(tab, index, width, shortcuts, model, cx))
+                .child(move_drag::zone(
+                    &model.move_drag.zones,
+                    move_drag::Owner::Strip,
+                    move_drag::ZoneKind::Tab {
+                        project,
+                        tab: tab.id,
+                        axis: muxy_app_core::Axis::Horizontal,
+                    },
+                )),
+        );
     }
     drag::measure_tabs(
         cells,
@@ -176,7 +200,6 @@ fn tab_cells(
     )
 }
 
-/// Opens a tab after `anchor` in its group, or at the end of the focused one.
 pub(super) fn new_tab_button(
     anchor: Option<TabId>,
     model: &AppModel,
@@ -186,7 +209,8 @@ pub(super) fn new_tab_button(
         || SharedString::from("new-tab"),
         |anchor| SharedString::from(format!("new-tab-{anchor}")),
     );
-    titlebar::icon_button(id, Icon::Plus, tr!("New Tab (⌘T)"), model)
+    let tooltip = model.tooltip(tr!("New Tab"), ShortcutId::NewTab);
+    titlebar::icon_button(id, Icon::Plus, tooltip, model)
         .aria_label(tr!("New Tab"))
         .accessibility_id(if anchor.is_some() {
             "group-new-tab-button"
@@ -222,11 +246,7 @@ pub(super) fn existing_terminals_button(
     } else {
         tr!("%lld Existing Terminals", count)
     };
-    let tooltip = model
-        .settings
-        .keymap
-        .chord(ShortcutId::ExistingTerminals)
-        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"));
+    let tooltip = model.tooltip(name.clone(), ShortcutId::ExistingTerminals);
     titlebar::icon_button("existing-terminals", Icon::TerminalStack, tooltip, model)
         .aria_label(name)
         .accessibility_id("existing-terminals-button")
@@ -238,14 +258,9 @@ pub(super) fn existing_terminals_button(
         .into_any_element()
 }
 
-/// Opens a browser tab in the current project.
 pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let name = tr!("Open Browser Tab");
-    let tooltip = model
-        .settings
-        .keymap
-        .chord(ShortcutId::NewBrowserTab)
-        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"));
+    let tooltip = model.tooltip(name.clone(), ShortcutId::NewBrowserTab);
     titlebar::icon_button("new-browser-tab", Icon::Globe, tooltip, model)
         .aria_label(name)
         .accessibility_id("browser-button")
@@ -257,13 +272,8 @@ pub(super) fn browser_button(model: &AppModel, cx: &mut Context<AppModel>) -> An
         .into_any_element()
 }
 
-pub(super) fn settings_tooltip(model: &AppModel) -> String {
-    let name = tr!("Settings");
-    model
-        .settings
-        .keymap
-        .chord(ShortcutId::OpenSettings)
-        .map_or_else(|| name.to_string(), |chord| format!("{name} ({chord})"))
+pub(super) fn settings_tooltip(model: &AppModel) -> SharedString {
+    model.tooltip(tr!("Settings"), ShortcutId::OpenSettings)
 }
 
 pub(super) fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
@@ -293,11 +303,7 @@ pub(super) fn zoom_control(
     } else {
         tr!("Maximize Pane")
     };
-    let tooltip = model
-        .settings
-        .keymap
-        .chord(ShortcutId::ToggleZoomPane)
-        .map_or_else(|| label.to_string(), |chord| format!("{label} ({chord})"));
+    let tooltip = model.tooltip(label.clone(), ShortcutId::ToggleZoomPane);
     titlebar::icon_button(
         "toggle-zoom-pane",
         if zoomed {
@@ -445,6 +451,7 @@ fn tab_cell(
         .when(!model.tab_drag.is_active(), |cell| {
             cell.group(group.clone())
         })
+        .when(cfg!(windows), InteractiveElement::occlude)
         .relative()
         .flex()
         .flex_none()
@@ -581,7 +588,6 @@ enum Glyph {
     Bell,
     Pin,
     Settings,
-    /// A terminal in the tab started with the app's proxy.
     Proxy,
     Terminal,
 }

@@ -1,11 +1,13 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
+use std::sync::{PoisonError, RwLock};
 
-use muxy_protocol::{ErrorCode, FilesAction, FilesReply, FilesRequest, ServerPath};
+use muxy_protocol::{ErrorCode, FilesAction, FilesReply, FilesRequest, PathEntry, ServerPath};
 
-use crate::{Registry, ServerError};
+use crate::{Registry, ServerError, locks::KeyedLocks};
 
+#[cfg(any(windows, test))]
+pub(crate) mod names;
+mod native;
 mod operations;
 mod root;
 mod trash;
@@ -17,52 +19,80 @@ fn error(cause: impl std::fmt::Display) -> ServerError {
     ServerError::new(ErrorCode::BadPath, cause.to_string())
 }
 
+fn path(path: &ServerPath) -> Result<PathBuf> {
+    path.to_path_buf()
+        .map_err(|code| ServerError::new(code, "Path is not valid on this computer"))
+}
+
+fn wire_path(path: &Path) -> Result<ServerPath> {
+    let mut path = ServerPath::from_path(path)
+        .map_err(|code| ServerError::new(code, "Path is not valid Unicode"))?;
+    if cfg!(windows) {
+        for byte in &mut path.0 {
+            if *byte == b'\\' {
+                *byte = b'/';
+            }
+        }
+    }
+    Ok(path)
+}
+
+fn is_git(name: &std::ffi::OsStr) -> bool {
+    muxy_core::paths::path_eq(Path::new(name), Path::new(".git"))
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Files {
-    locks: Mutex<HashMap<PathBuf, Weak<RwLock<()>>>>,
+    locks: KeyedLocks<PathBuf, RwLock<()>>,
     pub(crate) watches: crate::watch::Shared,
 }
 
-impl Files {
-    fn lock_for(&self, path: &Path) -> Arc<RwLock<()>> {
-        let mut locks = self.locks.lock().unwrap_or_else(PoisonError::into_inner);
-        locks.retain(|_, lock| lock.strong_count() > 0);
-        let lock = locks.get(path).and_then(Weak::upgrade).unwrap_or_default();
-        locks.insert(path.to_owned(), Arc::downgrade(&lock));
-        lock
-    }
+pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
+    let mut names: Vec<_> = contents(directory)?
+        .into_iter()
+        .filter(|entry| entry.is_directory)
+        .map(|entry| entry.name)
+        .collect();
+    within_limits(&mut names, |name| name);
+    Ok(names)
 }
 
-/// The folders directly inside `directory`, an absolute path anywhere on
-/// this computer, for choosing a new project's folder. Links to folders
-/// count. A folder with more than the protocol allows lists only its first.
-pub(crate) fn folders(directory: &ServerPath) -> Result<Vec<ServerPath>> {
+pub(crate) fn entries(directory: &ServerPath) -> Result<Vec<PathEntry>> {
+    let mut entries = contents(directory)?;
+    within_limits(&mut entries, |entry| &entry.name);
+    Ok(entries)
+}
+
+fn contents(directory: &ServerPath) -> Result<Vec<PathEntry>> {
     muxy_protocol::validate_absolute_path(directory)
         .map_err(|code| ServerError::new(code, "Use an absolute folder path"))?;
-    let directory = directory.as_path();
+    let directory = path(directory)?;
     let entries = std::fs::read_dir(directory).map_err(|cause| match cause.kind() {
         std::io::ErrorKind::NotFound => error("folder does not exist"),
         std::io::ErrorKind::NotADirectory => error("not a folder"),
         _ => error(cause),
     })?;
-    let mut names = Vec::new();
+    let mut contents = Vec::new();
     for entry in entries {
         let entry = entry.map_err(error)?;
-        let folder = entry
+        let is_directory = entry
             .file_type()
             .is_ok_and(|kind| kind.is_dir() || (kind.is_symlink() && entry.path().is_dir()));
-        if folder {
-            names.push(ServerPath::from(entry.file_name()));
+        if let Ok(name) = wire_path(Path::new(&entry.file_name())) {
+            contents.push(PathEntry { name, is_directory });
         }
     }
-    names.sort_by_cached_key(|name| String::from_utf8_lossy(&name.0).to_lowercase());
-    names.truncate(muxy_protocol::MAX_FILE_ENTRIES);
+    Ok(contents)
+}
+
+fn within_limits<T>(items: &mut Vec<T>, name: impl Fn(&T) -> &ServerPath) {
+    items.sort_by_cached_key(|item| String::from_utf8_lossy(&name(item).0).to_lowercase());
+    items.truncate(muxy_protocol::MAX_FILE_ENTRIES);
     let mut bytes = 0;
-    names.retain(|name| {
-        bytes += name.0.len();
+    items.retain(|item| {
+        bytes += name(item).0.len();
         bytes <= muxy_protocol::MAX_FILE_PATH_BYTES
     });
-    Ok(names)
 }
 
 pub(crate) fn is_read(action: &FilesAction) -> bool {
@@ -81,31 +111,29 @@ impl Registry {
             .validate()
             .map_err(|code| ServerError::new(code, "Invalid files request"))?;
         let project = self.catalog.project(request.project)?;
-        let root = root::Root::open(project.directory.as_path())?;
-        let lock = self.files.lock_for(&root.path);
+        let root = root::Root::open(&path(&project.directory)?)?;
+        let lock = self.files.locks.get(root.path.clone());
         let read = is_read(&request.action);
         let _read = read.then(|| lock.read().unwrap_or_else(PoisonError::into_inner));
         let _write = (!read).then(|| lock.write().unwrap_or_else(PoisonError::into_inner));
         let reply = match &request.action {
-            FilesAction::List(value) => FilesReply::Entries(root.list(value.as_path())?),
-            FilesAction::Read(value) => FilesReply::Content(root.read(value.as_path())?),
-            FilesAction::ReadBytes(value) => FilesReply::Bytes(root.read_bytes(value.as_path())?),
-            FilesAction::Stat(value) => {
-                FilesReply::Info(root.info(&root.resolve(value.as_path())?)?)
-            }
+            FilesAction::List(value) => FilesReply::Entries(root.list(&path(value)?)?),
+            FilesAction::Read(value) => FilesReply::Content(root.read(&path(value)?)?),
+            FilesAction::ReadBytes(value) => FilesReply::Bytes(root.read_bytes(&path(value)?)?),
+            FilesAction::Stat(value) => FilesReply::Info(root.info(&root.resolve(&path(value)?)?)?),
             FilesAction::Write {
                 path: value,
                 content,
-            } => FilesReply::Path(root.write(value.as_path(), content.as_bytes())?),
+            } => FilesReply::Path(root.write(&path(value)?, content.as_bytes())?),
             FilesAction::WriteBytes { path: value, bytes } => {
-                FilesReply::Path(root.write(value.as_path(), bytes)?)
+                FilesReply::Path(root.write(&path(value)?, bytes)?)
             }
-            FilesAction::Mkdir(value) => FilesReply::Path(root.mkdir(value.as_path())?),
+            FilesAction::Mkdir(value) => FilesReply::Path(root.mkdir(&path(value)?)?),
             FilesAction::Rename { path: value, name } => {
-                FilesReply::Path(root.rename(value.as_path(), name.as_path().as_os_str())?)
+                FilesReply::Path(root.rename(&path(value)?, path(name)?.as_os_str())?)
             }
             FilesAction::Move { paths, into } => {
-                FilesReply::Paths(root.move_files(paths, into.as_path())?)
+                FilesReply::Paths(root.move_files(paths, &path(into)?)?)
             }
             FilesAction::Delete(paths) => {
                 root.delete(paths)?;

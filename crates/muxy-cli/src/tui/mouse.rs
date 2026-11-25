@@ -1,6 +1,3 @@
-//! The mouse: clicking and dragging the interface, selecting and copying
-//! text, scrolling history, and passing events to apps that use the mouse.
-
 use std::time::{Duration, Instant};
 
 use muxy_app_core::{Axis, PaneId};
@@ -18,11 +15,8 @@ use crate::state::Result;
 use crate::ui::{Mode, Overlay, Target, Ui, layout, layout::Divider, panes};
 use crate::worker::{Action, View, Worker, lock};
 
-/// Clicks this close together count as a double or triple click.
 const MULTI_CLICK: Duration = Duration::from_millis(400);
-/// Rows scrolled per wheel notch.
 const WHEEL_ROWS: isize = 3;
-/// How often a selection dragged past a pane's edge scrolls it.
 const AUTOSCROLL: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy, Debug)]
@@ -37,7 +31,6 @@ enum Drag {
         column: u16,
         row: u16,
     },
-    /// A press the app under it receives, with the moves and release after it.
     App {
         pane: PaneId,
         button: TerminalButton,
@@ -48,7 +41,6 @@ enum Drag {
 pub(super) struct Pointer {
     drag: Option<Drag>,
     click: Option<(Instant, Position, u8)>,
-    /// The last motion sent to an app, to skip repeats within one cell.
     motion: Option<(PaneId, Position)>,
     scrolled: Option<Instant>,
 }
@@ -59,7 +51,6 @@ impl Pointer {
         ui.hover = Some(position);
         let mut target = ui.target(event.column, event.row);
         if ui.overlay != Overlay::None {
-            // A dialog that opened mid-drag still ends the drag.
             if let MouseEventKind::Up(button) = event.kind
                 && self.drag.is_some()
             {
@@ -84,7 +75,6 @@ impl Pointer {
         }
     }
 
-    /// Keeps scrolling while a selection is held past a pane's top or bottom.
     pub(super) fn tick(&mut self, worker: &Worker, ui: &mut Ui) {
         let Some(Drag::Select { pane, column, row }) = self.drag else {
             return;
@@ -95,7 +85,6 @@ impl Pointer {
         else {
             return;
         };
-        // A pane can reach the screen's bottom edge, so its last row scrolls down too.
         let rows = if row < inner.y {
             1
         } else if row.saturating_add(1) >= inner.bottom() {
@@ -141,7 +130,6 @@ impl Pointer {
                     super::menu::pane(worker, ui, pane, at);
                 }
                 Some(Target::Tab(pane)) => {
-                    // Below the tab bar, so the tab stays in view.
                     let below = Position::new(at.x, at.y.saturating_add(1));
                     super::menu::tab(worker, ui, pane, below);
                 }
@@ -259,7 +247,6 @@ impl Pointer {
         Ok(())
     }
 
-    /// Counts this press as the first, second, or third of a quick series.
     fn clicks(&mut self, position: Position) -> u8 {
         let now = Instant::now();
         let count = match self.click {
@@ -400,7 +387,6 @@ impl Pointer {
         forward(worker, ui, pane, MouseAction::Motion, None, None, event)
     }
 
-    /// Whether `event` is in the same cell as the last motion sent.
     fn repeats(&mut self, pane: PaneId, event: MouseEvent) -> bool {
         let at = (pane, Position::new(event.column, event.row));
         let repeated = self.motion == Some(at);
@@ -459,9 +445,6 @@ fn wheel(
     }
 }
 
-/// Clicks and the wheel while a dialog or menu is open. Returns whether the
-/// event still belongs to what is under it: a right-click outside a menu
-/// closes it and opens another there.
 fn dialog(event: MouseEvent, target: Option<Target>, worker: &Worker, ui: &mut Ui) -> Result<bool> {
     let menu = matches!(ui.overlay, Overlay::Menu(_));
     match (event.kind, target) {
@@ -507,7 +490,6 @@ fn dialog(event: MouseEvent, target: Option<Target>, worker: &Worker, ui: &mut U
     Ok(false)
 }
 
-/// Runs a menu item, or opens a picker's row.
 fn choose(index: usize, worker: &Worker, ui: &mut Ui) -> Result {
     let command = match &mut ui.overlay {
         Overlay::Menu(menu) => menu.command(index),
@@ -523,8 +505,6 @@ fn choose(index: usize, worker: &Worker, ui: &mut Ui) -> Result {
     }
 }
 
-/// Shows the tab holding `pane`, even if it already looks current: a tab
-/// opened a moment before may not be on screen yet, and the click comes after.
 fn select_tab(worker: &Worker, pane: PaneId) -> Result {
     let Some(project) = lock(&worker.shared)
         .state
@@ -550,7 +530,6 @@ pub(super) fn focus(worker: &Worker, pane: PaneId) -> Result {
     worker.send(Action::SelectPane(project, pane))
 }
 
-/// Moves the end of the selection being dragged in `pane` to a cell.
 fn extend(worker: &Worker, ui: &mut Ui, pane: PaneId, column: u16, row: u16) {
     let Some(inner) = ui.area(Target::Content(pane)) else {
         return;
@@ -563,7 +542,6 @@ fn extend(worker: &Worker, ui: &mut Ui, pane: PaneId, column: u16, row: u16) {
     }
 }
 
-/// Puts the selected text on the clipboard of the computer showing this UI.
 pub(super) fn copy(worker: &Worker, selection: Selection) -> Result {
     let text = {
         let shared = lock(&worker.shared);
@@ -584,8 +562,6 @@ pub(super) fn copy(worker: &Worker, selection: Selection) -> Result {
     Ok(())
 }
 
-/// Whether clicks in `view` belong to its app. History shown in place of
-/// the app's screen is the UI's to select.
 fn reports_mouse(view: &View, shift: bool) -> bool {
     !shift
         && !view.ended
@@ -602,7 +578,6 @@ fn reports(worker: &Worker, pane: PaneId, event: MouseEvent) -> bool {
         .is_some_and(|view| reports_mouse(view, shift))
 }
 
-/// Whether the wheel over `pane` belongs to its app rather than scrollback.
 fn reports_wheel(worker: &Worker, pane: PaneId, event: MouseEvent) -> bool {
     let shift = event.modifiers.contains(KeyModifiers::SHIFT);
     lock(&worker.shared).views.get(&pane).is_some_and(|view| {
@@ -622,7 +597,6 @@ fn terminal_button(button: MouseButton) -> TerminalButton {
     }
 }
 
-/// Sends a mouse event to the app in `pane`, in the pane's own cells.
 pub(super) fn forward(
     worker: &Worker,
     ui: &Ui,
@@ -659,6 +633,7 @@ pub(super) fn forward(
             alt: event.modifiers.contains(KeyModifiers::ALT),
             ctrl: event.modifiers.contains(KeyModifiers::CONTROL),
         },
+        pixel: None,
     };
     worker.mouse(channel, mouse)
 }

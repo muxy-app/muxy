@@ -22,7 +22,6 @@ pub struct Theme {
     pub accent_foreground: Hsla,
     pub warning: Hsla,
     pub danger: Hsla,
-    /// The dimming behind a modal dialog.
     pub backdrop: Hsla,
     pub diff_add: Hsla,
     pub diff_remove: Hsla,
@@ -67,9 +66,6 @@ impl Theme {
         blend(self.surface, self.bg)
     }
 
-    /// A panel set back from the content beside it. On a light theme it stays
-    /// lighter than `surface` over `bg`, because `border` is only a little darker
-    /// than that and would disappear against anything darker.
     pub fn sunken(&self) -> Hsla {
         let alpha = if self.bg.l > 0.5 { 0.03 } else { 0.1 };
         blend(gpui::hsla(0.0, 0.0, 0.0, alpha), self.bg)

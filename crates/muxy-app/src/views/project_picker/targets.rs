@@ -13,29 +13,29 @@ pub(crate) enum Target {
 
 pub(super) fn registry(model: &AppModel) -> Registry<Target> {
     let mut commands = Registry::default();
-    let local = tr!("Local");
-    for project in projects(model, ServerId::local()) {
-        commands.register(project_command(
-            project,
-            model.project_title(project),
-            &local,
-        ));
-    }
-    let remote = tr!("Remote");
-    for entry in &model.settings.servers {
-        let server = entry.id;
-        commands.register(
-            Command::new(
-                format!("server-{server}"),
-                entry.name.clone(),
-                Target::Server(server),
-            )
-            .keywords(entry.destination().to_owned())
-            .badge(remote.clone()),
-        );
-        for project in projects(model, server).into_iter().filter(|p| !p.home) {
-            let title = format!("{} · {}", entry.name, project.name);
-            commands.register(project_command(project, title, &remote));
+    for server in model.known_servers() {
+        let badge = SharedString::from(model.server_label(server));
+        let remote = !server.is_local();
+        if remote && let Some(entry) = model.settings.server(server) {
+            commands.register(
+                Command::new(
+                    format!("server-{server}"),
+                    entry.name.clone(),
+                    Target::Server(server),
+                )
+                .keywords(entry.destination().to_owned())
+                .badge(tr!("Server")),
+            );
+        }
+        for project in projects(model, server)
+            .into_iter()
+            .filter(|project| !(remote && project.home))
+        {
+            commands.register(project_command(
+                project,
+                model.project_title(project),
+                &badge,
+            ));
         }
     }
     commands

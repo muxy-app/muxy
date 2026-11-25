@@ -1,9 +1,3 @@
-//! Encoded samples, kept for as long as their protocol version is supported.
-//!
-//! Each file is named by its message kind and a hash of its bytes, so changing
-//! an encoding adds a file instead of replacing one. Every file must stay
-//! readable, because it is what an older build of the same version sends.
-
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +5,6 @@ use std::path::{Path, PathBuf};
 use muxy_protocol::wire::{Decoder, MessageKind, WireError, encode};
 use muxy_protocol::{CONTROL, CURRENT, ChannelId, ChannelKind, Message};
 
-/// Points at another build's fixtures to check that this build reads them.
 const OTHER_FIXTURES: &str = "MUXY_PROTOCOL_FIXTURES";
 
 fn directory() -> PathBuf {
@@ -33,9 +26,6 @@ fn every_sample_has_a_fixture() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Without `MUXY_PROTOCOL_FIXTURES`, reads this build's fixtures strictly.
-/// With it, reads a newer build's fixtures the way a running peer would:
-/// messages this build doesn't know may be skipped or reported as unsupported.
 #[test]
 fn every_fixture_decodes() -> Result<(), Box<dyn Error>> {
     let other = std::env::var_os(OTHER_FIXTURES).map(PathBuf::from);

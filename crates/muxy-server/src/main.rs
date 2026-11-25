@@ -1,11 +1,10 @@
-//! Server executable composition root and process lifecycle.
-
 mod args;
 mod legacy;
 mod logging;
 mod remote_listener;
 mod run;
 mod settings_file;
+mod shutdown;
 
 use std::io::{self, Write};
 use std::process::ExitCode;

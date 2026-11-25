@@ -25,9 +25,7 @@ enum Target {
     Tab(TabId),
     Workspace(WorkspaceId),
     NewWorkspace(Option<ProjectId>),
-    /// A new remote server group for these servers.
     NewServerGroup(Servers),
-    /// The remote server group at an index of `Settings::server_groups`.
     ServerGroup(usize),
 }
 
@@ -39,6 +37,14 @@ pub(crate) struct Editor {
 }
 
 impl AppModel {
+    pub(crate) fn editor_position(&self, window: &Window) -> Point<Pixels> {
+        let size = window.viewport_size();
+        gpui::point(
+            size.width / 2.0 - self.metrics.scaled(120.0),
+            size.height / 3.0,
+        )
+    }
+
     pub(crate) fn open_project_editor(
         &mut self,
         id: ProjectId,
@@ -91,7 +97,6 @@ impl AppModel {
         }
     }
 
-    /// Creates a workspace, adding `project` when it starts from a project menu.
     pub(crate) fn open_new_workspace_editor(
         &mut self,
         project: Option<ProjectId>,

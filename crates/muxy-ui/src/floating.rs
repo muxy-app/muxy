@@ -1,6 +1,3 @@
-//! Panels that float freely over the window: where each one is, how a drag
-//! moves or resizes it, and which one is in front.
-
 use crate::theme::{Metrics, Theme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -9,7 +6,6 @@ use gpui::{
 };
 use std::rc::Rc;
 
-/// A floating panel's place in window points, before the app's zoom.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloatingFrame {
     pub x: f32,
@@ -40,8 +36,6 @@ impl FloatingFrame {
         self.to_array().iter().all(|value| value.is_finite())
     }
 
-    /// Fits the frame inside `area` and `limits`, moving it before shrinking
-    /// it. An area smaller than the minimum keeps the minimum at its origin.
     #[must_use]
     pub fn clamped(self, area: Size<f32>, limits: SizeLimits) -> Self {
         let fit = |origin: f32, extent: f32, area: f32, minimum: f32, maximum: f32| {
@@ -69,7 +63,6 @@ impl FloatingFrame {
     }
 }
 
-/// The smallest and largest size a floating panel may take.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SizeLimits {
     pub min: Size<f32>,
@@ -107,16 +100,12 @@ impl SizeLimits {
     }
 }
 
-/// Which side of an axis a resize drag moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Side {
-    /// The left or top edge.
     Start,
-    /// The right or bottom edge.
     End,
 }
 
-/// The edges a resize drag moves, one per axis at most.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Edges {
     pub horizontal: Option<Side>,
@@ -175,7 +164,6 @@ impl Edges {
     }
 }
 
-/// A drag that moves a floating panel, or resizes it by some of its edges.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloatingDrag {
     pointer: Point<f32>,
@@ -204,9 +192,6 @@ impl FloatingDrag {
         self.edges.is_some()
     }
 
-    /// The frame once the pointer is at `pointer`. `scale` turns window
-    /// pixels into frame points. An edge stops at the area's border, and the
-    /// opposite edge stays put while the panel is at a size limit.
     pub fn frame_at(
         &self,
         pointer: Point<Pixels>,
@@ -266,7 +251,6 @@ fn point_of(pointer: Point<Pixels>) -> Point<f32> {
     Point::new(f32::from(pointer.x), f32::from(pointer.y))
 }
 
-/// Which floating panel is in front of which, bottom first.
 #[derive(Debug, Clone)]
 pub struct FloatingStack<K> {
     order: Vec<K>,
@@ -279,7 +263,6 @@ impl<K> Default for FloatingStack<K> {
 }
 
 impl<K: PartialEq + Clone> FloatingStack<K> {
-    /// Brings `key` to the front, reporting whether the order changed.
     pub fn raise(&mut self, key: &K) -> bool {
         if self.order.last() == Some(key) {
             return false;
@@ -309,8 +292,6 @@ impl<K: PartialEq + Clone> FloatingStack<K> {
         self.order.iter()
     }
 
-    /// Orders `items` bottom first. Items the stack doesn't know go on top,
-    /// in the order given.
     pub fn sort<T>(&self, items: &mut [T], key: impl Fn(&T) -> &K) {
         items.sort_by_key(|item| self.rank(key(item)).unwrap_or(usize::MAX));
     }
@@ -323,8 +304,6 @@ type GripFactory = Rc<dyn Fn(CursorStyle) -> AnyElement>;
 const RESIZE_EDGE: f32 = 6.0;
 const RESIZE_CORNER: f32 = 12.0;
 
-/// A floating panel's box: drawn as a raised card, or left bare so the page
-/// draws everything itself. Its edges and corners resize it.
 #[derive(IntoElement)]
 #[must_use]
 pub struct FloatingCard {
@@ -365,14 +344,11 @@ impl FloatingCard {
         }
     }
 
-    /// Window pixels per frame point. The app's zoom by default; `1.0` for
-    /// a frame in the pixels its page lays out in.
     pub fn unit(mut self, unit: f32) -> Self {
         self.unit = unit;
         self
     }
 
-    /// Whether the card draws its background, border, and shadow.
     pub fn framed(mut self, framed: bool) -> Self {
         self.framed = framed;
         self
@@ -383,14 +359,11 @@ impl FloatingCard {
         self
     }
 
-    /// Whether the card takes the clicks on it. One that doesn't lets them
-    /// reach what is under it.
     pub fn interactive(mut self, interactive: bool) -> Self {
         self.interactive = interactive;
         self
     }
 
-    /// Called when a resize handle is pressed, with the edges it moves.
     pub fn on_resize(
         mut self,
         handler: impl Fn(Option<Edges>, Point<Pixels>, &mut Window, &mut App) + 'static,
@@ -399,15 +372,11 @@ impl FloatingCard {
         self
     }
 
-    /// Called when any button is pressed anywhere on an interactive card,
-    /// before its contents see the press, such as to bring it to the front.
     pub fn on_press(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_press = Some(Rc::new(handler));
         self
     }
 
-    /// Adds `grip(cursor)` inside each resize handle, such as a layer that
-    /// lets native views under the handle pass clicks to it.
     pub fn grip(mut self, grip: impl Fn(CursorStyle) -> AnyElement + 'static) -> Self {
         self.grip = Some(Rc::new(grip));
         self

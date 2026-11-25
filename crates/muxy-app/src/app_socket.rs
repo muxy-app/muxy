@@ -1,18 +1,15 @@
-//! The socket `muxy browser` reaches the app on: one JSON request and one
-//! reply per connection, from processes of this user only.
-
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use muxy_app_core::browser::api::{Request, encode_reply};
+use muxy_protocol::transport::{LocalListener, LocalStream};
 use serde_json::Value;
 
-/// Requests answered at once; more wait for a free slot.
 const CONCURRENT: usize = 16;
 
 pub(crate) struct Incoming {
@@ -26,7 +23,6 @@ impl Incoming {
     }
 }
 
-/// The listening socket. Dropping it removes the file.
 #[derive(Debug)]
 pub(crate) struct AppSocket {
     path: PathBuf,
@@ -38,16 +34,16 @@ impl Drop for AppSocket {
     }
 }
 
-/// Listens at `path`, unless another app already answers there.
 pub(crate) fn listen(path: &Path) -> io::Result<(AppSocket, async_channel::Receiver<Incoming>)> {
-    if UnixStream::connect(path).is_ok() {
+    if LocalStream::connect(path).is_ok() {
         return Err(io::Error::new(
             io::ErrorKind::AddrInUse,
             "another Muxy app answers browser commands",
         ));
     }
     let _ = std::fs::remove_file(path);
-    let listener = UnixListener::bind(path)?;
+    let listener = LocalListener::bind(path)?;
+    #[cfg(unix)]
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     let (requests, incoming) = async_channel::bounded(64);
     let busy = Arc::new(AtomicUsize::new(0));
@@ -86,7 +82,7 @@ pub(crate) fn listen(path: &Path) -> io::Result<(AppSocket, async_channel::Recei
     ))
 }
 
-fn answer(mut stream: UnixStream, requests: &async_channel::Sender<Incoming>) -> io::Result<()> {
+fn answer(mut stream: LocalStream, requests: &async_channel::Sender<Incoming>) -> io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let result = match Request::read(&stream) {
         Ok(request) => {

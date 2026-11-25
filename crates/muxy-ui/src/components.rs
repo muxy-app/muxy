@@ -149,6 +149,7 @@ pub struct IconButton {
     color: Hsla,
     hover_color: Hsla,
     tooltip: Option<Tooltip>,
+    shortcut: Option<SharedString>,
     focus_handle: Option<FocusHandle>,
     selected: Option<(bool, Hsla, Pixels)>,
     on_click: Option<ClickHandler>,
@@ -156,8 +157,6 @@ pub struct IconButton {
 }
 
 impl IconButton {
-    /// `name` is what accessibility clients read and what the tooltip says,
-    /// since the button shows only an icon.
     pub fn new(
         id: impl Into<ElementId>,
         name: impl Into<SharedString>,
@@ -179,6 +178,7 @@ impl IconButton {
             color,
             hover_color,
             tooltip: None,
+            shortcut: None,
             focus_handle: None,
             selected: None,
             on_click: None,
@@ -186,21 +186,21 @@ impl IconButton {
         }
     }
 
-    /// Shows the name in a tooltip.
     pub fn tooltip(mut self, theme: &Theme) -> Self {
         self.tooltip = Some(Tooltip::themed(self.name.clone(), theme));
         self
     }
 
-    /// What accessibility clients read when the tooltip isn't enough, such as a
-    /// row's Edit button, which has to say which row.
+    pub fn shortcut(mut self, key: Option<SharedString>) -> Self {
+        self.shortcut = key;
+        self
+    }
+
     pub fn named(mut self, name: impl Into<SharedString>) -> Self {
         self.accessible_name = Some(name.into());
         self
     }
 
-    /// The ID accessibility clients see, when the element ID holds a value that
-    /// changes between runs. Otherwise they see the element ID.
     pub fn accessibility_id(mut self, id: impl Into<SharedString>) -> Self {
         self.accessibility_id = Some(id.into());
         self
@@ -293,7 +293,10 @@ impl RenderOnce for IconButton {
                         cx.stop_propagation();
                     });
         }
-        if let Some(tooltip) = self.tooltip {
+        if let Some(mut tooltip) = self.tooltip {
+            if let Some(key) = self.shortcut {
+                tooltip.text = crate::shortcuts::with_key(&tooltip.text, &key);
+            }
             button = button.tooltip(move |_, cx| cx.new(|_| tooltip.clone()).into());
         }
         button
@@ -331,7 +334,9 @@ impl Tooltip {
     }
 
     fn surface(&self, metrics: Metrics) -> gpui::Div {
+        let text = self.text.clone();
         div()
+            .debug_selector(move || format!("tooltip:{text}"))
             .max_w(metrics.scaled(320.0))
             .line_clamp(4)
             .px(metrics.scaled(8.0))
@@ -353,8 +358,6 @@ impl Render for Tooltip {
     }
 }
 
-/// Hides native pages under a tooltip, which the app draws after their
-/// occlusions were applied.
 pub type TooltipCover = std::rc::Rc<dyn Fn(gpui::Bounds<Pixels>)>;
 
 struct CoveringTooltip {
@@ -374,7 +377,6 @@ impl Render for CoveringTooltip {
     }
 }
 
-/// A tooltip that `cover` keeps visible above native pages.
 pub fn covering_tooltip(
     text: impl Into<SharedString>,
     theme: &Theme,
@@ -435,8 +437,6 @@ impl SymbolGlyph {
         }
     }
 
-    /// The symbol drawn in place of one this system has no glyph for, such
-    /// as a name an extension chose.
     #[must_use]
     pub fn or(mut self, fallback: impl Into<SharedString>) -> Self {
         self.fallback = Some(fallback.into());
@@ -498,8 +498,6 @@ impl RenderOnce for SymbolGlyph {
     }
 }
 
-/// A template SVG tinted like an SF Symbol and fitted to a `size` square.
-/// `key` identifies the bytes for caching; unreadable SVGs fall back to `fallback`.
 #[derive(IntoElement)]
 pub struct TemplateGlyph {
     key: SharedString,
@@ -568,8 +566,6 @@ impl RenderOnce for TemplateGlyph {
     }
 }
 
-/// The symbol as the system draws it, or as its bundled icon. `None` when
-/// there is neither.
 #[cfg(target_os = "macos")]
 fn symbol_layer(
     symbol: &SharedString,
@@ -591,7 +587,6 @@ fn symbol_layer(
     )
 }
 
-/// The symbol as its bundled icon. `None` when it has none.
 #[cfg(not(target_os = "macos"))]
 fn symbol_layer(
     symbol: &SharedString,

@@ -1,7 +1,9 @@
+mod island;
 mod resize;
 mod vibrancy;
 pub(super) mod worktrees;
 
+pub(super) use island::layer as island;
 pub(crate) use resize::SidebarResize;
 pub(super) use resize::handle as resize_handle;
 
@@ -16,7 +18,7 @@ use gpui::{
     px,
 };
 use muxy_app_core::{
-    Project, ProjectId, ProjectStatus,
+    Project, ProjectId, ProjectStatus, ServerId,
     settings::{AppLayout, ProjectOrder, SidebarCollapsedStyle},
 };
 
@@ -25,6 +27,7 @@ use super::{
     overlays::Overlay,
     tab_activity, tab_sidebar,
 };
+use muxy_core::capability::Feature;
 use muxy_ui::accessibility::hidden_button;
 use muxy_ui::components::{ButtonInteraction, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
@@ -38,29 +41,22 @@ pub(crate) fn register_commands(
     model: &AppModel,
     cx: &Context<AppModel>,
 ) {
-    use super::command_palette::Handler;
-    use super::workspace::commands::register_placed;
+    use super::command_palette::{Handler, with_shortcut};
+    use super::workspace::commands::{
+        SWITCH_PROJECT_PAGE, SWITCH_WORKSPACE_PAGE, register_placed, search_words, title,
+    };
     use muxy_core::shortcuts::ShortcutId;
     use muxy_ui::command_palette::{Command, Registry};
 
-    register_placed(registry, model, ShortcutId::AddProject);
-    register_placed(registry, model, ShortcutId::NewTabInProject);
-    let create: Handler = Rc::new(|model, _, cx| {
-        model.open_extension_agent(crate::extensions::authoring::AgentTask::Create, cx);
-    });
-    registry.register(
-        Command::new("create_extension", tr!("Create Extension…"), create)
-            .keywords("new make build extension agent"),
-    );
-    let manage: Handler = Rc::new(AppModel::show_extensions_settings);
-    registry.register(
-        Command::new("manage_extensions", tr!("Manage Extensions"), manage)
-            .keywords("settings installed marketplace extension"),
-    );
-    let has_workspaces = !model.state.workspaces().is_empty() || model.remote_servers_offered();
+    register_placed(registry, model, ShortcutId::AddProject, cx);
+    register_placed(registry, model, ShortcutId::NewTabInProject, cx);
+    let has_workspaces = !model.state.workspaces().is_empty();
+    let app = model;
     let model = cx.weak_entity();
-    registry.register(
-        Command::list("switch_project", tr!("Switch Project…"), move |cx| {
+    let switch_project = Command::list(
+        SWITCH_PROJECT_PAGE,
+        title(ShortcutId::SwitchProject),
+        move |cx| {
             let mut projects = Registry::default();
             let Some(model) = model.upgrade() else {
                 return projects;
@@ -87,22 +83,32 @@ pub(crate) fn register_commands(
                         || model.project_title(project),
                         |parent| format!("{} / {}", parent.name, project.name),
                     );
-                projects.register(
-                    Command::new(id.to_string(), title, handler)
-                        .keywords(project.directory.to_string_lossy())
-                        .disabled(project.status() == ProjectStatus::Missing),
-                );
+                let command = Command::new(id.to_string(), title, handler)
+                    .keywords(project.directory.to_string_lossy())
+                    .disabled(project.status() == ProjectStatus::Missing);
+                projects.register(if project.server_id.is_local() {
+                    command
+                } else {
+                    command.badge(model.server_label(project.server_id))
+                });
             }
             projects
-        })
-        .keywords("Switch Project"),
-    );
+        },
+    )
+    .keywords(search_words(ShortcutId::SwitchProject));
+    registry.register(with_shortcut(
+        app,
+        ShortcutId::SwitchProject,
+        switch_project,
+    ));
     if !has_workspaces {
         return;
     }
     let model = cx.weak_entity();
-    registry.register(
-        Command::list("switch_workspace", tr!("Switch Workspace…"), move |cx| {
+    let switch_workspace = Command::list(
+        SWITCH_WORKSPACE_PAGE,
+        title(ShortcutId::SwitchWorkspace),
+        move |cx| {
             let mut workspaces = Registry::default();
             let Some(model) = model.upgrade() else {
                 return workspaces;
@@ -123,39 +129,44 @@ pub(crate) fn register_commands(
                 } else {
                     command
                 });
-                if id.is_none() && model.remote_servers_offered() {
-                    let handler: Handler = Rc::new(|model, _, cx| model.select_remote_servers(cx));
-                    workspaces.register(
-                        Command::new("remote_servers", tr!("Remote Servers"), handler)
-                            .keywords("Remote Servers"),
-                    );
-                }
             }
             workspaces
-        })
-        .keywords("Switch Workspace"),
-    );
+        },
+    )
+    .keywords(search_words(ShortcutId::SwitchWorkspace));
+    registry.register(with_shortcut(
+        app,
+        ShortcutId::SwitchWorkspace,
+        switch_workspace,
+    ));
 }
 
 pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
+    model.move_drag.zones.clear(
+        window.window_handle().window_id(),
+        super::move_drag::Owner::Sidebar,
+    );
     if model.extension_sidebar_active() {
         return div()
             .debug_selector(|| "workspace-sidebar".into())
             .flex()
             .flex_col()
             .flex_none()
-            .w(px(model.sidebar_width()))
+            .w(px(model.sidebar_panel_width()))
             .h_full()
             .min_h(px(0.0))
             .bg(model.sidebar_background())
             .map(|sidebar| super::titlebar::top_corners(sidebar, window, true, false))
-            .child(div().h(m.title_bar_height()).flex_none())
+            .child(div().h(top_inset(model)).flex_none())
             .children(model.webviews.sidebar.as_ref().map(|sidebar| {
                 div()
                     .flex()
                     .flex_1()
                     .min_h(px(0.0))
+                    .when(model.sidebar_peeking(), |surface| {
+                        surface.pt(m.spacing3()).pb(m.radius_xl())
+                    })
                     .child(sidebar.surface.view.clone())
             }))
             .into_any_element();
@@ -172,7 +183,7 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .flex()
         .flex_col()
         .flex_none()
-        .w(px(model.sidebar_width()))
+        .w(px(model.sidebar_panel_width()))
         .h_full()
         .min_h(px(0.0))
         .child(
@@ -183,7 +194,7 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
                 .min_h(px(0.0))
                 .bg(model.sidebar_background())
                 .map(|sidebar| super::titlebar::top_corners(sidebar, window, true, false))
-                .child(div().h(m.title_bar_height()).flex_none())
+                .child(div().h(top_inset(model)).flex_none())
                 .child(header)
                 .child(contents)
                 .children(super::agents_panel::collapsed_button(model, cx)),
@@ -191,6 +202,14 @@ pub(crate) fn sidebar(model: &AppModel, window: &Window, cx: &mut Context<AppMod
         .children(super::agents_panel::docked(model, window, cx))
         .child(footer(model, cx))
         .into_any_element()
+}
+
+fn top_inset(model: &AppModel) -> Pixels {
+    if model.sidebar_peeking() {
+        model.metrics.spacing2()
+    } else {
+        model.metrics.title_bar_height()
+    }
 }
 
 fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
@@ -208,12 +227,13 @@ fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         })
         .bg(model.sidebar_background())
         .child(extensions_button(model, cx))
-        .child(super::remote_servers::section(model, cx))
+        .when(model.supports(Feature::SshRemotes), |footer| {
+            footer.child(super::remote_servers::section(model, cx))
+        })
         .child(settings_button(model, cx))
         .into_any_element()
 }
 
-/// The side of the square icon buttons at the bottom of the sidebar.
 pub(super) fn footer_button_size(model: &AppModel) -> Pixels {
     if model.appearance.sidebar_expanded {
         model.metrics.control_large()
@@ -226,7 +246,6 @@ pub(super) fn collapsed_item_size(model: &AppModel) -> Pixels {
     model.metrics.scaled(34.0)
 }
 
-/// A footer control: square until a caller gives it a label to fill the row.
 pub(super) fn footer_button(
     id: &'static str,
     label: impl Into<SharedString>,
@@ -237,7 +256,6 @@ pub(super) fn footer_button(
     footer_control(id, &label, model).tooltip(tooltip)
 }
 
-/// A footer control without a tooltip, for one whose menu is open.
 fn footer_control(id: &'static str, label: &SharedString, model: &AppModel) -> Stateful<Div> {
     let theme = &model.theme;
     div()
@@ -259,7 +277,6 @@ fn footer_control(id: &'static str, label: &SharedString, model: &AppModel) -> S
         .focus(|style| style.bg(theme.hover))
 }
 
-/// A footer icon, with a dot on its corner for something worth a look.
 pub(super) fn footer_icon(
     group: &'static str,
     icon: Icon,
@@ -358,17 +375,17 @@ fn settings_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
-/// The row after the last project, in the list's own layout.
-fn add_project_row(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+fn add_project_row(server: ServerId, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
     let wide = model.appearance.sidebar_expanded;
+    let id = add_project_id(server);
     div()
-        .id("add-project")
+        .id(id.clone())
         .role(Role::Button)
-        .accessibility_id("add-project")
+        .accessibility_id(id.clone())
         .aria_label(tr!("Add Project"))
-        .debug_selector(|| "add-project".into())
+        .debug_selector(move || id.to_string())
         .flex()
         .flex_none()
         .items_center()
@@ -385,13 +402,22 @@ fn add_project_row(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
             row.justify_center()
                 .size(collapsed_item_size(model))
                 .tooltip(muxy_ui::components::tooltip(
-                    tr!("Add Project").to_string(),
+                    if server == model.state.current_project().server_id {
+                        model.tooltip(
+                            tr!("Add Project"),
+                            muxy_core::shortcuts::ShortcutId::AddProject,
+                        )
+                    } else {
+                        tr!("Add Project")
+                    },
                     &model.theme,
                 ))
         })
-        .button_interaction(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
-            model.choose_project_source(event.position(), window, cx);
-        }))
+        .button_interaction(
+            cx.listener(move |model, event: &gpui::ClickEvent, window, cx| {
+                model.choose_project_source(server, event.position(), window, cx);
+            }),
+        )
         .child(
             div()
                 .flex()
@@ -418,9 +444,6 @@ fn add_project_row(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
-/// What a client's press on a row runs. It goes straight to the action, since
-/// the mouse events a press otherwise becomes land on whatever is at the row's
-/// center, and on nothing once the row has scrolled away.
 pub(super) fn client_press(
     cx: &Context<AppModel>,
     action: impl Fn(&mut AppModel, &mut Window, &mut Context<AppModel>) + 'static,
@@ -429,7 +452,6 @@ pub(super) fn client_press(
     move |_, window, cx| press(&(), window, cx)
 }
 
-/// A button for what the pointer reaches by hovering or right-clicking a row.
 pub(super) fn client_button(
     id: impl Into<SharedString>,
     name: impl Into<SharedString>,
@@ -444,7 +466,6 @@ pub(super) fn client_button(
     })
 }
 
-/// What applies to a row, read after its name.
 pub(super) fn describe(
     parts: impl IntoIterator<Item = Option<SharedString>>,
 ) -> Option<SharedString> {
@@ -453,7 +474,6 @@ pub(super) fn describe(
 }
 
 impl AppModel {
-    /// Offers the two ways into extensions: building one, or managing them.
     pub(crate) fn open_extensions_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let manage = tr!("Manage Extensions");
         let manage = match self.extension_update_count() {
@@ -476,57 +496,38 @@ impl AppModel {
         }
     }
 
-    /// Whether the sidebar's bottom row is on screen. A hidden sidebar and an
-    /// extension's sidebar don't draw it.
     pub(crate) fn sidebar_footer_shown(&self) -> bool {
         self.sidebar_width() > 0.0 && !self.extension_sidebar_active()
     }
 
     pub(crate) fn choose_project_source(
         &mut self,
+        server: ServerId,
         position: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let items = self.project_source_items();
+        let items = self.project_source_items(server);
         self.open_menu(items, position, window, cx);
     }
 
-    fn project_source_items(&self) -> Vec<Item> {
-        let server = |entry: &muxy_app_core::settings::ServerEntry| {
-            Item::action(entry.name.clone(), Command::AddRemoteProject(entry.id))
-        };
-        let devices = crate::model::by_group(&self.settings.servers, |entry| entry)
-            .into_iter()
-            .flat_map(|(group, entries)| match group {
-                Some(group) => vec![Item::submenu(
-                    group.to_owned(),
-                    entries.into_iter().map(server).collect(),
-                )],
-                None => entries.into_iter().map(server).collect(),
-            })
-            .chain(std::iter::once(
-                Item::action(tr!("Manage Devices…"), Command::ManageRemoteDevices).separated(),
-            ))
-            .collect();
-        let mut items = vec![
-            Item::action(tr!("Local"), Command::AddProject),
-            Item::submenu(tr!("Remote"), devices),
-        ];
-        let removed = self.restorable_projects();
+    fn project_source_items(&self, server: ServerId) -> Vec<Item> {
+        let mut items = vec![Item::action(tr!("Folder…"), Command::AddProject(server))];
+        let removed = self.restorable_projects(server);
         if !removed.is_empty() {
             items.push(Item::submenu(tr!("Recently Removed"), removed).separated());
         }
         items
     }
 
-    fn restorable_projects(&self) -> Vec<Item> {
+    fn restorable_projects(&self, server: ServerId) -> Vec<Item> {
         self.state
             .removed_projects()
             .iter()
             .enumerate()
             .filter(|(_, removed)| {
-                self.state.server_home(removed.server_id).is_some()
+                removed.server_id == server
+                    && self.state.server_home(removed.server_id).is_some()
                     && !self.state.projects().iter().any(|project| {
                         project.server_id == removed.server_id
                             && project.directory == removed.directory
@@ -538,8 +539,6 @@ impl AppModel {
             .collect()
     }
 
-    /// The name shown for a project: another computer's Home goes by its
-    /// server's name.
     pub(crate) fn project_title(&self, project: &Project) -> String {
         match self.server_name(project.server_id) {
             Some(name) if project.home => name.to_owned(),
@@ -547,7 +546,6 @@ impl AppModel {
         }
     }
 
-    /// The project's folder, with `~` for its own computer's Home.
     pub(crate) fn project_path_label(&self, project: &Project) -> String {
         if project.server_id.is_local() {
             return super::project_picker::display_path(&project.directory);
@@ -566,7 +564,7 @@ impl AppModel {
     pub(crate) fn cached_sidebar(&self) -> gpui::AnyView {
         gpui::AnyView::from(self.sidebar_view.clone()).cached(
             div()
-                .w(px(self.sidebar_width()))
+                .w(px(self.sidebar_panel_width()))
                 .h_full()
                 .min_h(px(0.0))
                 .flex_none()
@@ -576,16 +574,16 @@ impl AppModel {
     }
 
     pub(crate) fn sidebar_width(&self) -> f32 {
+        if self.appearance.sidebar_auto_hide {
+            0.0
+        } else {
+            self.sidebar_natural_width()
+        }
+    }
+
+    pub(crate) fn sidebar_natural_width(&self) -> f32 {
         if self.appearance.sidebar_expanded {
-            let width = self
-                .appearance
-                .sidebar_expanded_width
-                .filter(|width| width.is_finite())
-                .map_or_else(
-                    || self.metrics.sidebar_expanded_width(),
-                    |width| self.metrics.scaled(width),
-                );
-            f32::from(self.clamp_expanded_sidebar_width(width))
+            f32::from(self.expanded_sidebar_width())
         } else if (self.appearance.layout == AppLayout::ProjectFocused
             || self.extension_sidebar_active())
             && self.appearance.sidebar_collapsed_style == SidebarCollapsedStyle::Icons
@@ -596,17 +594,37 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn sidebar_panel_width(&self) -> f32 {
+        if self.sidebar_peeking() {
+            self.sidebar_natural_width()
+        } else {
+            self.sidebar_width()
+        }
+    }
+
+    fn expanded_sidebar_width(&self) -> Pixels {
+        let width = self
+            .appearance
+            .sidebar_expanded_width
+            .filter(|width| width.is_finite())
+            .map_or_else(
+                || self.metrics.sidebar_expanded_width(),
+                |width| self.metrics.scaled(width),
+            );
+        self.clamp_expanded_sidebar_width(width)
+    }
+
     fn clamp_expanded_sidebar_width(&self, width: Pixels) -> Pixels {
         let width = width.clamp(
             self.metrics.sidebar_expanded_min_width(),
             self.metrics.sidebar_expanded_max_width(),
         );
-        #[cfg(target_os = "linux")]
+        #[cfg(not(target_os = "macos"))]
         let width = width.min(self.sidebar_available_width);
         width
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "macos"))]
     pub(crate) fn fit_sidebar_to_window(
         &mut self,
         window: &Window,
@@ -629,23 +647,28 @@ impl AppModel {
         if self.appearance.sidebar_focus {
             return tr!("Focused Project");
         }
-        if self.state.remote_servers_selected() {
-            return tr!("Remote Servers");
-        }
         self.state.active_workspace().map_or_else(
             || tr!("All Projects"),
             |workspace| workspace.name.clone().into(),
         )
     }
 
-    /// Top-level projects the workspace filter lists, in sidebar order.
     pub(crate) fn listed_parents(&self) -> Vec<&Project> {
+        self.sidebar_servers()
+            .into_iter()
+            .filter(|server| self.server_expanded(*server))
+            .flat_map(|server| self.listed_parents_on(server))
+            .collect()
+    }
+
+    fn listed_parents_on(&self, server: ServerId) -> Vec<&Project> {
         let mut parents: Vec<_> = self
             .state
             .projects()
             .iter()
             .filter(|project| {
-                project.parent_id.is_none()
+                project.server_id == server
+                    && project.parent_id.is_none()
                     && self.state.is_listed(project)
                     && self.project_listed(project)
             })
@@ -654,21 +677,8 @@ impl AppModel {
         parents
     }
 
-    /// Sorts top-level projects as the sidebar lists them.
     pub(crate) fn sort_parents(&self, parents: &mut [&Project]) {
-        let server = |project: &Project| {
-            self.settings
-                .servers
-                .iter()
-                .position(|entry| entry.id == project.server_id)
-                .map_or(0, |index| index + 1)
-        };
         self.sort_projects(parents);
-        if self.state.remote_servers_selected()
-            || self.appearance.sidebar_project_order != ProjectOrder::Manual
-        {
-            parents.sort_by_cached_key(|project| server(project));
-        }
     }
 
     pub(crate) fn sort_projects(&self, projects: &mut [&Project]) {
@@ -709,23 +719,223 @@ impl AppModel {
     }
 
     pub(crate) fn sidebar_projects(&self) -> Vec<&Project> {
-        let active = self.state.current_project();
-        let focused = active.parent_id.unwrap_or(active.id);
-        self.listed_parents()
+        self.sidebar_groups()
             .into_iter()
-            .filter(|project| !self.appearance.sidebar_focus || project.id == focused)
-            .flat_map(|parent| {
-                let children = if self.appearance.layout != AppLayout::ProjectFocused
-                    && self.worktrees_visible(parent.id)
-                {
-                    self.worktree_children(parent.id)
+            .flat_map(|group| group.projects)
+            .collect()
+    }
+
+    pub(crate) fn sidebar_groups(&self) -> Vec<ServerGroup<'_>> {
+        let active = self.state.current_project();
+        if self.appearance.sidebar_focus {
+            let focused = active.parent_id.unwrap_or(active.id);
+            let projects = self
+                .listed_parents_on(active.server_id)
+                .into_iter()
+                .filter(|project| project.id == focused)
+                .flat_map(|parent| self.with_worktrees(parent))
+                .collect();
+            return vec![ServerGroup {
+                server: active.server_id,
+                heading: false,
+                projects,
+            }];
+        }
+        self.sidebar_servers()
+            .into_iter()
+            .map(|server| ServerGroup {
+                server,
+                heading: true,
+                projects: if self.server_expanded(server) {
+                    self.listed_parents_on(server)
+                        .into_iter()
+                        .flat_map(|parent| self.with_worktrees(parent))
+                        .collect()
                 } else {
                     Vec::new()
-                };
-                std::iter::once(parent).chain(children)
+                },
             })
             .collect()
     }
+
+    fn with_worktrees<'a>(&'a self, parent: &'a Project) -> Vec<&'a Project> {
+        let children = if self.appearance.layout != AppLayout::ProjectFocused
+            && self.worktrees_visible(parent.id)
+        {
+            self.worktree_children(parent.id)
+        } else {
+            Vec::new()
+        };
+        std::iter::once(parent).chain(children).collect()
+    }
+}
+
+pub(crate) struct ServerGroup<'a> {
+    pub(crate) server: ServerId,
+    pub(crate) heading: bool,
+    pub(crate) projects: Vec<&'a Project>,
+}
+
+fn add_project_id(server: ServerId) -> SharedString {
+    if server.is_local() {
+        "add-project".into()
+    } else {
+        format!("add-project-{server}").into()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum HeadingRows {
+    Projects,
+    Tabs,
+}
+
+pub(super) fn server_heading(
+    server: ServerId,
+    rows: HeadingRows,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    let m = model.metrics;
+    let theme = &model.theme;
+    let expanded = model.server_expanded(server);
+    let name = SharedString::from(model.server_label(server));
+    let status = server_status_label(server, model);
+    let id = SharedString::from(format!("sidebar-server-{server}"));
+    let selector = if server.is_local() {
+        SharedString::from("sidebar-server-local")
+    } else {
+        id.clone()
+    };
+    let group = id.clone();
+    div()
+        .id(id.clone())
+        .role(Role::Button)
+        .accessibility_id(id)
+        .aria_label(name.clone())
+        .aria_description(status.clone())
+        .aria_expanded(expanded)
+        .debug_selector(move || selector.to_string())
+        .group(group.clone())
+        .flex()
+        .flex_none()
+        .items_center()
+        .cursor_pointer()
+        .h(m.control_small())
+        .gap(m.spacing2())
+        .map(|row| match rows {
+            HeadingRows::Projects => row.pl(m.spacing2()),
+            HeadingRows::Tabs => row.pl(m.spacing4()),
+        })
+        .button_interaction(cx.listener(move |model, _, _, cx| {
+            model.toggle_server_group(server, cx);
+        }))
+        .on_mouse_down(
+            gpui::MouseButton::Right,
+            cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                model.open_sidebar_server_menu(server, event.position, window, cx);
+            }),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .truncate()
+                .text_size(m.font_caption())
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.fg_muted)
+                .group_hover(group, |style| style.text_color(theme.fg))
+                .child(name.clone()),
+        )
+        .child(server_menu_button(server, &name, model, cx))
+        .into_any_element()
+}
+
+fn server_menu_button(
+    server: ServerId,
+    name: &SharedString,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    let theme = &model.theme;
+    let m = model.metrics;
+    let id = SharedString::from(format!("sidebar-server-menu-{server}"));
+    let group = id.clone();
+    let bounds = Rc::new(Cell::new(None::<Bounds<Pixels>>));
+    let anchor = bounds.clone();
+    div()
+        .id(id.clone())
+        .role(Role::Button)
+        .accessibility_id(id.clone())
+        .aria_label(tr!("Server Actions for %@", name.as_ref()))
+        .debug_selector(move || id.to_string())
+        .group(group.clone())
+        .relative()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(m.control_small())
+        .rounded(m.radius_sm())
+        .cursor_pointer()
+        .focus(|style| style.bg(theme.hover))
+        .tooltip(muxy_ui::components::tooltip(tr!("Server Actions"), theme))
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .button_interaction(
+            cx.listener(move |model, event: &gpui::ClickEvent, window, cx| {
+                cx.stop_propagation();
+                let position = match event {
+                    gpui::ClickEvent::Mouse(_) => None,
+                    gpui::ClickEvent::Keyboard(_) => anchor.get().map(|b| b.bottom_left()),
+                }
+                .unwrap_or_else(|| window.mouse_position());
+                model.open_sidebar_server_menu(server, position, window, cx);
+            }),
+        )
+        .child(
+            canvas(move |b, _, _| bounds.set(Some(b)), |_, (), _, _| {})
+                .absolute()
+                .size_full(),
+        )
+        .child(
+            IconGlyph::new(Icon::Ellipsis, m.icon_xs(), theme.fg_dim)
+                .hover_in_group(group, theme.fg),
+        )
+        .into_any_element()
+}
+
+fn server_status_label(server: ServerId, model: &AppModel) -> SharedString {
+    if let Some(remote) = model
+        .remote_servers()
+        .into_iter()
+        .find(|remote| remote.entry.id == server)
+    {
+        return super::remote_servers::status_label(&remote);
+    }
+    muxy_ui::l10n::translate(model.status_of(server).label())
+}
+
+fn server_note(server: ServerId, model: &AppModel) -> Option<AnyElement> {
+    if server.is_local()
+        || !model.appearance.sidebar_expanded
+        || model.state.server_home(server).is_some()
+    {
+        return None;
+    }
+    let m = model.metrics;
+    let status = server_status_label(server, model);
+    let id = format!("sidebar-server-note-{server}");
+    Some(
+        div()
+            .debug_selector(move || id.clone())
+            .px(m.spacing2())
+            .text_size(m.font_footnote())
+            .text_color(model.theme.fg_dim)
+            .truncate()
+            .child(status)
+            .into_any_element(),
+    )
 }
 
 fn header(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
@@ -833,17 +1043,10 @@ fn current_parent(model: &AppModel) -> ProjectId {
 fn filter_items(model: &AppModel) -> Vec<Item> {
     let focused = model.appearance.sidebar_focus;
     let active = model.state.active_workspace().map(|workspace| workspace.id);
-    let remote = model.state.remote_servers_selected();
     let mut items = vec![
         Item::action(tr!("All Projects"), Command::SelectWorkspace(None))
-            .checked_if(!focused && !remote && active.is_none()),
+            .checked_if(!focused && active.is_none()),
     ];
-    if model.remote_servers_offered() {
-        items.push(
-            Item::action(tr!("Remote Servers"), Command::SelectRemoteServers)
-                .checked_if(!focused && remote),
-        );
-    }
     items.extend(model.state.workspaces().iter().map(|workspace| {
         Item::action(
             workspace.name.clone(),
@@ -860,7 +1063,13 @@ fn filter_items(model: &AppModel) -> Vec<Item> {
         .separated(),
     );
     if focused {
-        items.push(Item::submenu(tr!("Add Project"), model.project_source_items()).separated());
+        items.push(
+            Item::submenu(
+                tr!("Add Project"),
+                model.project_source_items(model.state.current_project().server_id),
+            )
+            .separated(),
+        );
     }
     items.push(Item::action(tr!("New Workspace…"), Command::NewWorkspace(None)).separated());
     if let Some(id) = active {
@@ -946,7 +1155,9 @@ impl DraggedProject {
         {
             return;
         }
-        let target = target.filter(|target| *target != self.id);
+        let server = model.state.project_server(self.id);
+        let target = target
+            .filter(|target| *target != self.id && model.state.project_server(*target) == server);
         if self.last_target.replace(target) != target
             && let Some(target) = target
         {
@@ -972,17 +1183,7 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let targets = Rc::new(RefCell::new(ProjectRows::default()));
     let measured = targets.clone();
     let moving = targets.clone();
-    let projects = model.sidebar_projects();
-    let shortcuts = model.navigation_projects();
-    let ids: Vec<_> = projects
-        .iter()
-        .map(|project| {
-            (!project.home
-                && project.parent_id.is_none()
-                && project.status() == ProjectStatus::Available)
-                .then_some(project.id)
-        })
-        .collect();
+    let (rows, ids) = grouped_rows(model, cx);
     div()
         .id("projects-scroll")
         .role(Role::Tree)
@@ -1023,13 +1224,7 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                 .pt(if wide { m.spacing5() } else { m.spacing2() })
                 .pb(m.spacing3())
                 .when(!wide, Styled::items_center)
-                .children(projects.iter().enumerate().map(|(index, project)| {
-                    let shortcut = shortcuts.iter().take(9).position(|id| *id == project.id);
-                    worktrees::group(project, index, shortcut, model, cx)
-                }))
-                .when(!model.appearance.sidebar_focus || !wide, |list| {
-                    list.child(add_project_row(model, cx))
-                })
+                .children(rows)
                 .on_children_prepainted(move |bounds, _, _| {
                     measured.borrow_mut().0 = ids
                         .iter()
@@ -1039,6 +1234,60 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                 }),
         )
         .into_any_element()
+}
+
+fn grouped_rows(
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> (Vec<AnyElement>, Vec<Option<ProjectId>>) {
+    let m = model.metrics;
+    let wide = model.appearance.sidebar_expanded;
+    let shortcuts = model.navigation_projects();
+    let mut rows = Vec::new();
+    let mut ids = Vec::new();
+    let mut index = 0;
+    for (position, group) in model.sidebar_groups().into_iter().enumerate() {
+        let expanded = !group.heading || model.server_expanded(group.server);
+        if group.heading && wide {
+            rows.push(
+                div()
+                    .when(position > 0, |heading| heading.pt(m.spacing3()))
+                    .child(server_heading(
+                        group.server,
+                        HeadingRows::Projects,
+                        model,
+                        cx,
+                    ))
+                    .into_any_element(),
+            );
+            ids.push(None);
+        }
+        for project in group.projects {
+            let shortcut = shortcuts.iter().take(9).position(|id| *id == project.id);
+            rows.push(worktrees::group(project, index, shortcut, model, cx));
+            ids.push(
+                (!project.home
+                    && project.parent_id.is_none()
+                    && project.status() == ProjectStatus::Available)
+                    .then_some(project.id),
+            );
+            index += 1;
+        }
+        if !expanded {
+            continue;
+        }
+        if group.heading
+            && let Some(note) = server_note(group.server, model)
+        {
+            rows.push(note);
+            ids.push(None);
+        }
+        if !model.appearance.sidebar_focus || !wide {
+            rows.push(add_project_row(group.server, model, cx));
+            ids.push(None);
+        }
+    }
+    (rows, ids)
 }
 
 #[allow(
@@ -1061,23 +1310,29 @@ fn project_row(
         || model.state.current_project().parent_id == Some(id);
     let has_worktrees = model.has_worktrees(project) && !missing;
     let group = SharedString::from(format!("project-{id}"));
-    let tile = shortcut
-        .and_then(|index| {
-            model.shortcut_hints.label(
-                muxy_core::shortcuts::ShortcutId::PROJECTS[index],
-                &model.settings.keymap,
-            )
-        })
-        .map_or_else(
-            || project_tile(project, model, tile_size(model), Some(group.clone())),
-            |label| {
-                div()
-                    .debug_selector(move || format!("project-shortcut-{id}"))
-                    .child(super::shortcut_hints::badge(label, tile_size(model), model))
-                    .into_any_element()
-            },
-        );
+    let hint = shortcut.and_then(|index| {
+        model.shortcut_hints.label(
+            muxy_core::shortcuts::ShortcutId::PROJECTS[index],
+            &model.settings.keymap,
+        )
+    });
+    let hinted = hint.is_some();
+    let tile = hint.map_or_else(
+        || project_tile(project, model, tile_size(model), Some(group.clone())),
+        |label| {
+            div()
+                .debug_selector(move || format!("project-shortcut-{id}"))
+                .child(super::shortcut_hints::badge(label, tile_size(model), model))
+                .into_any_element()
+        },
+    );
     let activity = tab_activity::project_status(id, model);
+    let dimmed = !wide
+        && !hinted
+        && matches!(
+            activity,
+            tab_activity::Status::Busy(_) | tab_activity::Status::Progress(_)
+        );
     let name = SharedString::from(model.project_title(project));
     let description = project_description(missing, remote_description(project, model), activity);
     let expanded = has_worktrees.then(|| wide && model.expanded_worktrees.contains(&id));
@@ -1098,6 +1353,13 @@ fn project_row(
         .debug_selector(|| format!("project-row-{index}"))
         .group(group)
         .relative()
+        .when(!missing, |row| {
+            row.child(super::move_drag::zone(
+                &model.move_drag.zones,
+                super::move_drag::Owner::Sidebar,
+                super::move_drag::ZoneKind::Project(id),
+            ))
+        })
         .flex()
         .flex_none()
         .items_center()
@@ -1113,7 +1375,9 @@ fn project_row(
                 .hover(|style| style.bg(if active { theme.surface } else { theme.hover }))
         })
         .when(!wide, |row| {
-            row.justify_center().size(collapsed_item_size(model))
+            row.justify_center()
+                .size(collapsed_item_size(model))
+                .tooltip(muxy_ui::components::tooltip(name.clone(), theme))
         })
         .when(missing, |row| row.opacity(0.5))
         .when(!missing, |row| {
@@ -1158,8 +1422,32 @@ fn project_row(
                     .child(name),
             )
         })
-        .when(wide, |row| row.children(remote_marker(project, model)))
-        .when(activity != tab_activity::Status::None, |row| {
+        .when(dimmed, |row| {
+            row.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .size(tile_size(model))
+                            .rounded(m.radius_md())
+                            .bg(theme.bg.opacity(0.6))
+                            .child(tab_activity::status_glyph(
+                                format!("project-activity-{id}"),
+                                activity,
+                                m.icon_lg(),
+                                model,
+                            )),
+                    ),
+            )
+        })
+        .when(activity != tab_activity::Status::None && !dimmed, |row| {
             row.child(
                 div()
                     .flex()
@@ -1221,7 +1509,6 @@ fn press_project(
     }
 }
 
-/// Opens the menu a project's right click opens.
 pub(super) fn project_actions(
     project: &Project,
     title: &str,
@@ -1240,12 +1527,10 @@ pub(super) fn project_actions(
     )
 }
 
-/// A worktree sits under its project.
 pub(super) fn project_level(project: &Project) -> usize {
     if project.parent_id.is_some() { 2 } else { 1 }
 }
 
-/// What a client reads after a project's name, beyond its selected state.
 pub(super) fn project_description(
     missing: bool,
     remote: Option<SharedString>,
@@ -1259,7 +1544,7 @@ pub(super) fn project_description(
 }
 
 pub(super) fn remote_description(project: &Project, model: &AppModel) -> Option<SharedString> {
-    if project.is_remote_home() {
+    if project.home || project.server_id.is_local() {
         return None;
     }
     model
@@ -1273,30 +1558,6 @@ pub(super) fn tile_size(model: &AppModel) -> Pixels {
     } else {
         model.metrics.icon_xxl()
     }
-}
-
-/// Marks another computer's project, naming it in a tooltip.
-pub(super) fn remote_marker(project: &Project, model: &AppModel) -> Option<AnyElement> {
-    let tooltip = remote_description(project, model)?;
-    let id = project.id;
-    let m = model.metrics;
-    Some(
-        div()
-            .id(SharedString::from(format!("project-remote-{id}")))
-            .debug_selector(move || format!("project-remote-{id}"))
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .size(m.scaled(18.0))
-            .tooltip(muxy_ui::components::tooltip(tooltip, &model.theme))
-            .child(IconGlyph::new(
-                Icon::Network,
-                m.font_caption(),
-                model.theme.fg_muted,
-            ))
-            .into_any_element(),
-    )
 }
 
 pub(crate) fn project_color(project: &Project, model: &AppModel) -> gpui::Rgba {
@@ -1337,6 +1598,12 @@ pub(crate) fn project_tile(
                 .child(icon.clone())
                 .into_any_element()
         }
+    } else if let Some(image) = model.project_icons.image(project) {
+        gpui::img(image)
+            .size(size)
+            .rounded(m.radius_md() * scale)
+            .object_fit(gpui::ObjectFit::Contain)
+            .into_any_element()
     } else if project.home && project.server_id.is_local() {
         SymbolGlyph::new("house.fill", m.font_title_large() * scale, foreground).into_any_element()
     } else {

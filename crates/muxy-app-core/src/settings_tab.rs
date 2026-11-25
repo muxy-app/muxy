@@ -1,5 +1,6 @@
 use crate::{
-    AppError, AppState, PaneContent, PaneId, Project, ProjectId, ProjectStatus, Tab, TabId,
+    AppError, AppState, PaneContent, PaneId, Project, ProjectId, ProjectStatus, ServerId, Tab,
+    TabId,
 };
 
 impl AppState {
@@ -56,7 +57,13 @@ impl AppState {
         project: ProjectId,
         title: &str,
     ) -> Result<TabId, AppError> {
-        let (project, tab) = if let Some(open) = self.settings_tab() {
+        let open = self.settings_tab().filter(|(project, tab)| {
+            self.project_server(*project) == Some(ServerId::local())
+                || self
+                    .tab_windows()
+                    .any(|(_, detached, _)| detached.id == *tab)
+        });
+        let (project, tab) = if let Some(open) = open {
             for pane in &mut self.tab_mut(open.1)?.panes {
                 if pane.content == PaneContent::Settings {
                     title.clone_into(&mut pane.title);
@@ -67,7 +74,9 @@ impl AppState {
             let stale: Vec<_> = self
                 .projects
                 .iter()
-                .filter(|project| project.status() != ProjectStatus::Available)
+                .filter(|project| {
+                    project.status() != ProjectStatus::Available || !project.server_id.is_local()
+                })
                 .flat_map(|project| &project.tabs)
                 .flat_map(|tab| &tab.panes)
                 .filter(|pane| pane.content == PaneContent::Settings)
@@ -86,8 +95,10 @@ impl AppState {
             self.add_tab(project, tab, near)?;
             (project, id)
         };
-        self.select_project(project)?;
-        self.select_tab(project, tab)?;
+        if self.tab_mut(tab)?.window.is_none() {
+            self.select_project(project)?;
+            self.select_tab(project, tab)?;
+        }
         if let Some(pane) = self
             .tab_mut(tab)?
             .panes

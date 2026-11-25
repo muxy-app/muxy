@@ -1,7 +1,8 @@
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+
+use muxy_core::files::private_file;
 
 use muxy_server::ServerSettings;
 use serde::{Deserialize, Serialize};
@@ -31,12 +32,7 @@ pub(crate) fn load(path: &Path) -> io::Result<ServerSettings> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             let defaults =
                 toml::to_string_pretty(&SettingsFile::default()).map_err(io::Error::other)?;
-            let mut file = match OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(path)
-            {
+            let mut file = match private_file().write(true).create_new(true).open(path) {
                 Ok(file) => file,
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return load(path),
                 Err(error) => return Err(error),

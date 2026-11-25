@@ -16,7 +16,6 @@ pub fn option_sides() -> (bool, bool) {
     (flags & 0x20 != 0, flags & 0x40 != 0)
 }
 
-/// The modifiers held right now, even when no event reported them.
 pub fn held_modifiers() -> Modifiers {
     let flags = NSEvent::modifierFlags_class();
     Modifiers {

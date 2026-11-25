@@ -34,6 +34,7 @@ pub fn supported(provider: AgentProvider) -> bool {
             | AgentProvider::Pi
             | AgentProvider::OhMyPi
             | AgentProvider::Xal
+            | AgentProvider::Cursor
     )
 }
 
@@ -69,6 +70,7 @@ impl Session {
             AgentProvider::Pi => "pi --session",
             AgentProvider::OhMyPi => "omp --resume",
             AgentProvider::Xal => "xal resume",
+            AgentProvider::Cursor => "cursor-agent --resume",
             _ => return None,
         };
         Some(format!("{command} {}", self.id))
@@ -86,6 +88,15 @@ fn valid_id(id: &str) -> bool {
 
 fn normalized(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn normalize_title(value: &str) -> Option<String> {
+    let title: String = value
+        .chars()
+        .take(240)
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    (!title.trim().is_empty()).then(|| title.trim().to_owned())
 }
 
 #[cfg(test)]

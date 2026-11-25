@@ -14,6 +14,7 @@ use muxy_ui::tr;
 use super::{menu, overlays, sidebar, status_bar, tab_strip, titlebar};
 use crate::model::AppModel;
 use crate::model::focus::Next;
+use crate::model::tab_windows::Surface;
 
 pub(crate) mod commands;
 
@@ -24,6 +25,14 @@ actions!(
         OpenAbout,
         ShowWelcomeTour,
         CheckForUpdates,
+        MoveTabToNewWindow,
+        MovePaneToNewTab,
+        MovePaneToNewWindow,
+        FloatPane,
+        DockFloatingTerminal,
+        ShowFloatingTerminalInAllProjects,
+        ShowFloatingTerminalInItsProject,
+        ToggleFloatingTerminals,
         InstallCommandLineTool,
         NewTab,
         ExistingTerminals,
@@ -54,6 +63,7 @@ actions!(
         ToggleThemePicker,
         ToggleCommandPalette,
         ToggleComposer,
+        EnhancePrompt,
         NavigateBack,
         NavigateForward,
         Quit,
@@ -71,6 +81,7 @@ actions!(
         Find,
         FindNext,
         FindPrevious,
+        InsertPath,
         PreviousPrompt,
         NextPrompt,
         SelectCommandOutput,
@@ -83,7 +94,46 @@ actions!(
         BrowserZoomOut,
         BrowserZoomReset,
         BrowserCopyUrl,
-        BrowserInspect
+        BrowserInspect,
+        BrowserOpenExternally,
+        CreateExtension,
+        ManageExtensions,
+        ShowTip,
+        SwitchProject,
+        SwitchWorkspace,
+        ShowServers,
+        ToggleStatusBar,
+        OpenKeyboardShortcuts,
+        RenameTab,
+        ResetTabTitle,
+        ToggleTabPin,
+        CloseOtherTabs,
+        CloseTabsToTheLeft,
+        CloseTabsToTheRight,
+        NewTabToTheLeft,
+        NewTabToTheRight,
+        MoveTabLeft,
+        MoveTabRight,
+        MoveTabToMainWindow,
+        RenameProject,
+        RemoveProject,
+        CopyProjectPath,
+        RevealProject,
+        ApplyLayout,
+        ToggleProjectFocus,
+        ToggleWorktrees,
+        OpenProjectInDefaultApp,
+        NewWorkspace,
+        ResizePaneLeft,
+        ResizePaneRight,
+        ResizePaneUp,
+        ResizePaneDown,
+        FocusNextPane,
+        FocusPreviousPane,
+        ClearScreen,
+        SelectAllInTerminal,
+        ScrollToTop,
+        ResetFontSize
     ]
 );
 
@@ -191,6 +241,19 @@ impl AppModel {
     }
 
     pub(crate) fn toggle_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.appearance.sidebar_auto_hide {
+            self.flip_sidebar(window, cx);
+            return;
+        }
+        if !self.sidebar_auto_hides() {
+            self.appearance.sidebar_expanded = true;
+            self.save_appearance(cx);
+        }
+        self.dismiss_overlay(cx);
+        self.toggle_sidebar_peek(cx);
+    }
+
+    fn flip_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.appearance.sidebar_expanded = !self.appearance.sidebar_expanded;
         self.save_appearance(cx);
         self.dismiss_overlay(cx);
@@ -233,7 +296,7 @@ impl AppModel {
     }
 }
 
-fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
+pub(crate) fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
     commands::action_handlers(cx)
         .key_context("WorkspaceTabs")
         .on_modifiers_changed(
@@ -260,19 +323,20 @@ fn action_handlers(cx: &mut Context<AppModel>) -> gpui::Div {
             cx.listener(|model, _, _, cx| model.navigate(true, cx)),
         )
         .on_action(cx.listener(|model, action: &SelectProject, _, cx| {
-            if let Some(project) = model.navigation_projects().get(action.index) {
-                model.select_project(*project, cx);
+            if let Some(project) = model.navigation_projects().get(action.index).copied() {
+                model.show_main_window(cx);
+                model.select_project(project, cx);
             }
         }))
         .on_action(cx.listener(|model, action: &SelectTab, _, cx| {
+            if model.surface() != Surface::Main {
+                return;
+            }
             if let Some(tab) = model.navigation_tabs().get(action.index) {
                 model.select_tab(*tab, cx);
             }
         }))
         .on_action(cx.listener(titlebar::begin_window_move))
-        .on_action(
-            cx.listener(|model, _: &ReloadConfiguration, _, cx| model.reload_configuration(cx)),
-        )
 }
 
 impl AppModel {
@@ -291,12 +355,20 @@ impl AppModel {
         if coverage.modal() {
             self.split_resize.end();
         }
+        let key_float = self.key_float();
+        let focused: Vec<_> = self
+            .state
+            .tab_windows()
+            .filter(|(_, _, window)| !window.is_floating() || key_float == Some(window.id))
+            .filter_map(|(_, _, window)| window.active_pane())
+            .chain(self.main_active_pane().filter(|_| key_float.is_none()))
+            .collect();
         for (id, pane) in &self.grids {
             if self.is_quick_terminal(*id) {
                 continue;
             }
             pane.view.update(cx, |pane, cx| {
-                pane.set_focused(Some(*id) == active, cx);
+                pane.set_focused(focused.contains(id), cx);
                 let radius = if zoomed.contains(id) {
                     (self.metrics.radius_lg() - px(1.0)).max(px(0.0))
                 } else {
@@ -318,10 +390,17 @@ impl AppModel {
     fn prepare_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let _span = crate::profiler::span(crate::profiler::Metric::WorkspacePrepare);
         let overlay = self.overlay.is_some();
+        let elsewhere = self.tab_windows.key_window().is_some() && !overlay;
+        if elsewhere && self.focus_owner.wants_active_pane() {
+            self.focus_owner.settle();
+            if let Some(id) = self.tab_windows.key_window() {
+                self.tab_windows.request_focus(id);
+                cx.notify();
+            }
+        }
         match self.focus_owner.take(overlay) {
             Some(Next::Element(focus)) => focus.focus(window),
             Some(Next::ActivePane) => self.focus_active(window, cx),
-            // With no pane, the workspace keeps the keyboard for its shortcuts.
             None if !overlay && self.active_pane().is_none() && window.focused(cx).is_none() => {
                 self.focus_active(window, cx);
             }
@@ -334,9 +413,13 @@ impl AppModel {
         } else if modal {
             self.cancel_titlebar_drag(cx);
         }
-        if !self.appearance.sidebar_expanded || modal {
+        if !self.sidebar_docks_expanded() || modal {
             self.finish_sidebar_resize(cx);
         }
+        if !self.sidebar_auto_hides() {
+            self.reset_sidebar_peek();
+        }
+        self.note_window_hover(window.is_window_hovered(), cx);
         let pending = self.tab_drag.pending();
         self.tab_drag
             .cancel_unavailable(self.state.current_project(), false);
@@ -345,14 +428,34 @@ impl AppModel {
         }
         self.validate_layout_drag(cx);
         self.sync_tab_sidebar(cx);
-        self.layout_drag.geometry.clear();
+        let here = window.window_handle().window_id();
+        self.layout_drag.geometry.clear(here);
+        self.move_drag.zones.note_window(window);
+        self.move_drag
+            .zones
+            .clear(here, super::move_drag::Owner::Strip);
+        if self.sidebar_panel_width() <= 0.0 || self.extension_sidebar_active() {
+            self.move_drag
+                .zones
+                .clear(here, super::move_drag::Owner::Sidebar);
+        }
         self.tab_drag.clear_bounds();
     }
 }
 
 impl Render for AppModel {
-    #[allow(clippy::too_many_lines, reason = "One workspace layout")]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.drawing(Surface::Main, |model| model.render_workspace(window, cx))
+    }
+}
+
+impl AppModel {
+    #[allow(clippy::too_many_lines, reason = "One workspace layout")]
+    fn render_workspace(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
         let _span = crate::profiler::span(crate::profiler::Metric::WorkspaceRender);
         self.metrics.apply_to_window(window);
         self.sync_traffic_lights(window);
@@ -364,12 +467,15 @@ impl Render for AppModel {
         self.ensure_settings_tab(window, cx);
         self.prepare_workspace(window, cx);
         self.sync_project_logos(window, cx);
+        self.sync_project_icons(cx);
         #[cfg(all(target_os = "macos", not(test)))]
         self.sync_background_effects(window, cx);
         self.sync_toast(cx);
         self.sync_window_accessibility(window, cx);
+        let floats = super::floating_tab::cards(self, window, cx);
+        self.sync_float_focus(window, cx);
         let (actions, actions_width) = titlebar::actions(self, window, cx);
-        #[cfg(target_os = "linux")]
+        #[cfg(not(target_os = "macos"))]
         self.fit_sidebar_to_window(window, actions_width, cx);
         let theme = &self.theme;
         let tab_focused = self.appearance.layout == muxy_app_core::settings::AppLayout::TabFocused
@@ -385,8 +491,15 @@ impl Render for AppModel {
         let content = super::agents_panel::right_panel_content(content, self, window, cx);
         let content = super::agent_sessions::panel_content(content, self, window, cx);
         let content = self.composer_content(content, window, cx);
+        let content = super::rail::content(content, self, cx);
         let workspace = action_handlers(cx)
-            .capture_key_down(cx.listener(AppModel::cancel_drag_on_escape))
+            .capture_any_mouse_down(cx.listener(|model, _, _, cx| {
+                model.enter_main_unless_overlay(cx);
+            }))
+            .capture_key_down(cx.listener(|model, event, window, cx| {
+                model.enter_main_unless_overlay(cx);
+                model.cancel_drag_on_escape(event, window, cx);
+            }))
             .track_focus(&self.focus)
             .relative()
             .flex()
@@ -430,18 +543,20 @@ impl Render for AppModel {
             )
             .child(sidebar_divider(self, sidebar_width, window))
             .child(titlebar::navigation(self, sidebar_width, window, cx))
-            .when(self.appearance.sidebar_expanded, |body| {
+            .when(self.sidebar_docks_expanded(), |body| {
                 body.child(sidebar::resize_handle(self, cx))
             })
             .when(self.sidebar_resize.is_some(), |body| {
                 body.child(div().absolute().inset_0().cursor_ew_resize().occlude())
             })
+            .child(super::floating::layer(self, floats, window, cx))
+            .children(sidebar::island(self, window, cx))
             .child(super::splits::drag::track_pointer(cx))
-            .child(super::splits::drag::overlay(self))
+            .child(super::splits::drag::overlay(self, window))
+            .child(super::move_drag::overlay(self, window))
             .child(self.floating_composer(window, cx))
             .children(super::tips::toast(self, window, cx))
             .children(super::banners::render(self, window, cx))
-            .child(super::floating::layer(self, window, cx))
             .when(
                 self.settings_picker_open() && self.overlay.is_none(),
                 |body| {
@@ -452,7 +567,9 @@ impl Render for AppModel {
                     )
                 },
             )
-            .child(titlebar::overlay(overlays::layer(self, window, cx), window))
+            .when(self.tab_windows.overlay == Surface::Main, |body| {
+                body.child(titlebar::overlay(overlays::layer(self, window, cx), window))
+            })
             .child(self.apply_webview_regions(cx));
         #[cfg(target_os = "linux")]
         let workspace = titlebar::frame::render(
@@ -463,12 +580,10 @@ impl Render for AppModel {
                 .then_some(super::onboarding::BACKDROP_ALPHA),
             window,
         );
-        crate::profiler::workspace(workspace)
+        crate::profiler::workspace(workspace).into_any_element()
     }
 }
 
-/// The line between the sidebar and the content. It starts below the
-/// navigation buttons where they reach past the sidebar.
 fn sidebar_divider(model: &AppModel, sidebar_width: f32, window: &Window) -> gpui::Div {
     let top = if sidebar_width >= titlebar::navigation_width(model, window) {
         0.0

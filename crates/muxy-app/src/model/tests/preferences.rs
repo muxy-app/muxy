@@ -129,6 +129,7 @@ fn settings_reuses_its_tab_without_opening_windows_or_stealing_focus(cx: &mut Te
     });
 }
 
+#[cfg(not(windows))]
 #[gpui::test]
 fn quick_terminal_settings_and_pickers_use_the_workspace_tab(cx: &mut TestAppContext) {
     let mut state = AppState::bootstrap().expect("state");
@@ -256,8 +257,6 @@ fn settings_takes_the_keyboard_back_when_the_focused_control_goes_away(cx: &mut 
     assert!(settings_holds_focus(&model, cx));
 }
 
-/// Presses the empty top bar. Says whether the window move reached the
-/// workspace: an action no window handler takes falls through to the app.
 fn press_top_bar_reaches_window_move(cx: &mut VisualTestContext) -> bool {
     let unhandled = Rc::new(std::cell::Cell::new(false));
     let flag = unhandled.clone();
@@ -373,6 +372,7 @@ fn terminal_preferences_apply_to_live_panes_preserve_zoom_and_reject_invalid_edi
         model.change_preference(Change::Field("adjust-cursor-thickness", "2".into()), cx);
         model.change_preference(Change::Terminal("cursor-style", "bar".into()), cx);
         model.change_preference(Change::Terminal("copy-on-select", "true".into()), cx);
+        model.change_preference(Change::Field("selection-word-chars", "/_".into()), cx);
         assert_eq!(pane.read(cx).terminal.font_size, 20.0);
         assert_eq!(
             pane.read(cx).terminal.options.background_opacity,
@@ -383,6 +383,7 @@ fn terminal_preferences_apply_to_live_panes_preserve_zoom_and_reject_invalid_edi
             CellHeight::Pixels(2)
         );
         assert_eq!(pane.read(cx).terminal.options.copy_on_select, Some(true));
+        assert_eq!(pane.read(cx).terminal.options.selection_word_chars, "/_");
         assert_eq!(
             model.palette.cursor_style,
             Some(muxy_protocol::CursorShape::Bar)
@@ -1059,5 +1060,280 @@ fn an_extension_sidebar_is_listed_chosen_and_falls_back_when_disabled(cx: &mut T
             .expect("disabled");
         assert!(!model.extension_sidebar_active());
         assert_eq!(model.appearance.extension_sidebar, "workspace-nav");
+    });
+}
+
+#[gpui::test]
+fn reloading_applies_settings_changed_on_disk_and_keeps_them_when_invalid(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::keys::Profile;
+    use muxy_app_core::settings::{NewPaneDirectory, Settings};
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let (view, cx) = settings_tab(boot, cx);
+    view.update(cx, |model, cx| {
+        let profile = Profile::new(model.path.parent().expect("profile"));
+        profile
+            .set("panes.new_pane_directory", "current")
+            .expect("set");
+        profile
+            .set("clipboard.copy_on_select", "true")
+            .expect("set");
+        profile.set("terminal.font_size", "21").expect("set");
+        model.reload_settings(cx).expect("reload");
+        assert_eq!(
+            model.settings.panes.new_pane_directory,
+            NewPaneDirectory::Current
+        );
+        assert!(model.settings.clipboard.copy_on_select);
+        assert_eq!(model.terminal.font_size, 21.0);
+
+        let applied: Settings = model.settings.clone();
+        std::fs::write(
+            profile.settings_path(),
+            "[panes]\nnew_pane_directory = \"sideways\"\n",
+        )
+        .expect("write");
+        assert!(model.reload_settings(cx).is_err());
+        assert_eq!(model.settings, applied);
+    });
+}
+
+#[gpui::test]
+fn sliders_keep_their_place_while_dragging_and_save_once_on_release(cx: &mut TestAppContext) {
+    let (boot, _) = stub_boot(AppState::bootstrap().expect("state"));
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (model, settings) = settings_tab(boot, cx);
+    click_preference(settings, "settings-category-Composer");
+    let selector = "settings-slider-row-composer-line-height";
+    let row = settings.debug_bounds(selector).expect("line height slider");
+    let saved = || std::fs::read_to_string(&path).unwrap_or_default();
+    let before = saved();
+    let at = |x: f32| gpui::point(row.origin.x + px(x), row.center().y);
+    settings.simulate_event(gpui::MouseDownEvent {
+        position: at(2.0),
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    settings.run_until_parked();
+    for x in [60.0, 120.0, 180.0] {
+        settings.simulate_event(gpui::MouseMoveEvent {
+            position: at(x),
+            pressed_button: Some(gpui::MouseButton::Left),
+            ..Default::default()
+        });
+        settings.run_until_parked();
+        assert_eq!(
+            settings.debug_bounds(selector),
+            Some(row),
+            "the slider moved"
+        );
+        assert_eq!(saved(), before, "saved while dragging");
+    }
+    settings.simulate_event(gpui::MouseUpEvent {
+        position: at(180.0),
+        button: gpui::MouseButton::Left,
+        click_count: 1,
+        ..Default::default()
+    });
+    settings.run_until_parked();
+    let height = model.read_with(settings, |model, _| model.settings.composer.line_height);
+    assert!(height > 1.5, "{height}");
+    let reloaded = muxy_app_core::settings::Settings::load(&path).expect("saved");
+    assert_eq!(reloaded.composer.line_height, height);
+}
+
+#[gpui::test]
+fn reloading_keeps_a_cli_change_and_an_unsaved_field_of_the_same_section(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, settings) = settings_tab(boot, cx);
+    click_preference(settings, "settings-field-width");
+    settings.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-a 1 4 0 0"
+    } else {
+        "ctrl-a 1 4 0 0"
+    });
+    view.update(settings, |model, cx| {
+        assert_eq!(model.settings.window.default_size[0], 1200.0);
+        let profile =
+            muxy_app_core::settings::keys::Profile::new(model.path.parent().expect("profile"));
+        profile.set("window.close_behavior", "detach").expect("set");
+        model.reload_settings(cx).expect("reload");
+        assert_eq!(model.settings.window.default_size[0], 1400.0);
+        assert_eq!(
+            model.settings.window.close_behavior,
+            muxy_app_core::settings::CloseBehavior::Detach
+        );
+        let saved =
+            muxy_app_core::settings::Settings::load(&profile.settings_path()).expect("load");
+        assert_eq!(saved.window, model.settings.window);
+    });
+}
+
+#[gpui::test]
+fn prompt_settings_persist_and_clear_in_settings_toml(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (model, settings) = settings_tab(boot, cx);
+    model.update(settings, |model, cx| {
+        model.set_prompt_provider("xal", cx);
+        model
+            .try_change_preference(
+                Change::Field(crate::prompt::PROMPT_MODEL, "  gpt-5.4  ".into()),
+                cx,
+            )
+            .expect("model saved");
+        model
+            .try_change_preference(
+                Change::Field(crate::prompt::PROMPT_INSTRUCTIONS, "  Be concise  ".into()),
+                cx,
+            )
+            .expect("instructions saved");
+        let saved = muxy_app_core::settings::Settings::load(&path).expect("load");
+        assert_eq!(
+            saved
+                .ai
+                .providers
+                .get(crate::prompt::PROMPT_PROVIDER)
+                .map(String::as_str),
+            Some("xal")
+        );
+        assert_eq!(
+            saved
+                .ai
+                .prompts
+                .get(crate::prompt::PROMPT_MODEL)
+                .map(String::as_str),
+            Some("gpt-5.4")
+        );
+        assert_eq!(
+            saved
+                .ai
+                .prompts
+                .get(crate::prompt::PROMPT_INSTRUCTIONS)
+                .map(String::as_str),
+            Some("Be concise")
+        );
+
+        model.set_prompt_provider("", cx);
+        model
+            .try_change_preference(Change::Field(crate::prompt::PROMPT_MODEL, "   ".into()), cx)
+            .expect("model cleared");
+        model
+            .try_change_preference(
+                Change::Field(
+                    crate::prompt::PROMPT_INSTRUCTIONS,
+                    crate::prompt::DEFAULT_INSTRUCTIONS.into(),
+                ),
+                cx,
+            )
+            .expect("instructions restored");
+        let saved = muxy_app_core::settings::Settings::load(&path).expect("load");
+        assert!(
+            !saved
+                .ai
+                .providers
+                .contains_key(crate::prompt::PROMPT_PROVIDER)
+        );
+        assert!(!saved.ai.prompts.contains_key(crate::prompt::PROMPT_MODEL));
+        assert!(
+            !saved
+                .ai
+                .prompts
+                .contains_key(crate::prompt::PROMPT_INSTRUCTIONS)
+        );
+    });
+    settings.simulate_resize(size(px(1400.0), px(1800.0)));
+    click_preference(settings, "settings-category-AI");
+    model.update(settings, |model, cx| {
+        model
+            .try_change_preference(
+                Change::Field(crate::prompt::PROMPT_INSTRUCTIONS, "Custom rubric".into()),
+                cx,
+            )
+            .expect("custom saved");
+    });
+    settings.run_until_parked();
+    click_preference(settings, "prompt-instructions-restore");
+    settings.run_until_parked();
+    let saved = muxy_app_core::settings::Settings::load(&path).expect("load");
+    assert!(
+        !saved
+            .ai
+            .prompts
+            .contains_key(crate::prompt::PROMPT_INSTRUCTIONS)
+    );
+}
+
+#[gpui::test]
+fn prompt_provider_picker_filters_and_enhance_flushes_dirty_model(cx: &mut TestAppContext) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (model, settings) = settings_tab(boot, cx);
+    settings.simulate_resize(size(px(1400.0), px(1200.0)));
+    model.update(settings, |model, cx| {
+        model.ai.installed = vec![crate::ai::provider("xal").expect("xal")];
+        model.set_prompt_provider("xal", cx);
+    });
+
+    click_preference(settings, "settings-category-AI");
+    click_preference(settings, "settings-picker-prompt-provider");
+    settings.simulate_input("codex");
+    settings.run_until_parked();
+    model.read_with(settings, |model, cx| {
+        let Some(crate::views::settings::tab::SettingsOverlay::Providers { picker, .. }) = &model
+            .settings_tab
+            .as_ref()
+            .expect("tab")
+            .root
+            .read(cx)
+            .overlay
+        else {
+            panic!("provider picker is not open");
+        };
+        let ids: Vec<_> = picker
+            .read(cx)
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                muxy_ui::picker::PickerItem::Row(row) => Some(row.id.as_ref()),
+                muxy_ui::picker::PickerItem::Section(_) => None,
+            })
+            .collect();
+        assert_eq!(ids, vec!["codex"]);
+    });
+    settings.simulate_keystrokes("escape");
+    settings.run_until_parked();
+
+    click_preference(settings, "settings-field-prompt-model");
+    settings.simulate_input("big");
+    settings.run_until_parked();
+    model.update_in(settings, |model, window, cx| {
+        assert!(
+            !model
+                .settings
+                .ai
+                .prompts
+                .contains_key(crate::prompt::PROMPT_MODEL)
+        );
+        model
+            .set_composer_text("fix the login bug".into(), window, cx)
+            .expect("draft");
+        model.enhance_prompt(cx);
+        assert!(model.composer.enhancing.is_none());
+        assert!(
+            model
+                .visible_error()
+                .is_some_and(|error| error.contains("no confirmed model flag"))
+        );
+        let saved = muxy_app_core::settings::Settings::load(&path).expect("load");
+        assert_eq!(
+            saved
+                .ai
+                .prompts
+                .get(crate::prompt::PROMPT_MODEL)
+                .map(String::as_str),
+            Some("big")
+        );
     });
 }

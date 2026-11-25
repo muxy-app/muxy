@@ -2,7 +2,6 @@ use super::git::registered_current_project;
 use super::*;
 use muxy_protocol::{GitWorktree, ProjectMutation, ServerPath};
 use muxy_ui::picker::{Picker, PickerItem, PickerRow};
-use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 const NEW_WORKTREE: &str = if cfg!(target_os = "macos") {
@@ -16,7 +15,6 @@ const SWITCH_WORKTREE: &str = if cfg!(target_os = "macos") {
     "ctrl-shift-alt-w"
 };
 
-/// Work the model sent, kept so worktree syncs stay pending until a test answers them.
 pub(super) struct Sent(std::sync::mpsc::Receiver<(u64, Work)>, Vec<Work>);
 
 impl Sent {
@@ -32,6 +30,10 @@ impl Sent {
             .filter(|work| matches!(work, Work::ExtensionClient(_)))
             .count()
     }
+}
+
+fn bytes(path: &Path) -> Vec<u8> {
+    ServerPath::from(path).0
 }
 
 fn worktree(directory: &[u8], primary: bool) -> GitWorktree {
@@ -67,11 +69,13 @@ fn listed_worktrees_skip_the_main_checkout_leftovers_and_the_projects_own_folder
     let checkout = tempfile::tempdir().expect("checkout");
     let links = tempfile::tempdir().expect("links");
     let link = links.path().join("checkout");
+    #[cfg(unix)]
     std::os::unix::fs::symlink(checkout.path(), &link).expect("symlink");
-    let bytes = |path: &Path| path.as_os_str().as_bytes().to_vec();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(checkout.path(), &link).expect("symlink");
     let own = crate::model::worktrees::resolved(&ServerPath(bytes(&link)), true);
     let listed = |worktree: &GitWorktree| crate::model::worktrees::listed(worktree, &own, true);
-    let reported = checkout.path().canonicalize().expect("resolved checkout");
+    let reported = muxy_core::files::canonicalize(checkout.path()).expect("resolved checkout");
     let mut prunable = worktree(b"/code/app-gone", false);
     prunable.prunable = true;
     assert!(
@@ -135,12 +139,7 @@ fn sync_prunes_empty_worktrees_without_allowing_tabs_during_reconciliation(
     state.select_project(root).expect("parent");
     std::fs::remove_dir_all(&state.project(missing).expect("missing").directory).expect("delete");
     let mut entry = worktree(
-        state
-            .project(listed)
-            .expect("listed")
-            .directory
-            .as_os_str()
-            .as_bytes(),
+        &bytes(&state.project(listed).expect("listed").directory),
         false,
     );
     entry.registered = Some(listed);
@@ -242,12 +241,7 @@ fn worktree_sync_preserves_tabs_opened_while_it_was_running(cx: &mut TestAppCont
         .into_iter()
         .map(|id| {
             worktree(
-                state
-                    .project(id)
-                    .expect("worktree")
-                    .directory
-                    .as_os_str()
-                    .as_bytes(),
+                &bytes(&state.project(id).expect("worktree").directory),
                 false,
             )
         })
@@ -323,7 +317,7 @@ fn pruning_preflight_skips_existing_folders_locked_worktrees_history_and_failed_
     let directory = tempfile::tempdir().expect("folders");
     let [empty, history, failed, existing, locked] = [(); 5].map(|()| ProjectId::new());
     let missing_path = |id: ProjectId| directory.path().join(id.to_string());
-    let mut entry = worktree(missing_path(locked).as_os_str().as_bytes(), false);
+    let mut entry = worktree(&bytes(&missing_path(locked)), false);
     entry.locked = true;
     let entries = vec![entry];
     let candidates = vec![
@@ -841,7 +835,12 @@ fn worktree_switcher_refreshes_catalog_without_losing_query_or_selection(cx: &mu
     let (state, root, [selected, removed, _], directory) = pruning_fixture();
     let (view, cx, _sent) = connected(state, cx);
     let picker = open_worktree_switcher(&view, cx);
-    let query = directory.path().to_string_lossy().into_owned();
+    let query = directory
+        .path()
+        .file_name()
+        .expect("name")
+        .to_string_lossy()
+        .into_owned();
     picker.update(cx, |picker, cx| picker.set_query(query.clone(), cx));
     cx.run_until_parked();
     picker.update(cx, |picker, cx| {

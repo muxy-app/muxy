@@ -11,8 +11,6 @@ pub fn register_shortcuts(registry: &mut crate::shortcuts::Registry<'_>) {
     registry.register(ShortcutId::FormPreviousControl, &PreviousControl);
 }
 
-/// Moves focus to the next field, wrapping at the ends. With none focused,
-/// goes to the first field, or to the last when moving backwards.
 pub fn advance_focus(fields: &[FocusHandle], backwards: bool, window: &mut Window) {
     let count = fields.len();
     let next = match fields.iter().position(|field| field.is_focused(window)) {
@@ -26,9 +24,6 @@ pub fn advance_focus(fields: &[FocusHandle], backwards: bool, window: &mut Windo
     }
 }
 
-/// Moves focus to the next tab stop inside `container`, for a surface whose stops
-/// aren't known up front. It walks the window's tab order and skips the rest of
-/// the window. With no stop inside, focus goes to `container`.
 pub fn advance_focus_within(
     container: &FocusHandle,
     backwards: bool,
@@ -98,8 +93,6 @@ pub fn row(
         .child(div().flex_none().min_w(px(0.0)).child(control))
 }
 
-/// A row for a list setting: its `action`, such as an Add button, sits beside
-/// the label like any other control, and the list's `items` span the row below.
 pub fn list_row(
     style: Style,
     label: &str,

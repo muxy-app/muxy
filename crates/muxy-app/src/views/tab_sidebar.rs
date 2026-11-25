@@ -5,6 +5,7 @@ use gpui::{
     div, px,
 };
 use muxy_app_core::{Project, ProjectId, ProjectStatus, Tab, TabId, settings::AppLayout};
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::accessibility::OnPress;
 use muxy_ui::components::{ButtonInteraction, IconButton, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
@@ -14,6 +15,7 @@ use muxy_ui::tr;
 use super::sidebar::{client_button, client_press, describe, project_description};
 use super::{tab_activity, tab_strip, titlebar};
 use crate::model::AppModel;
+use crate::views::move_drag;
 
 impl AppModel {
     pub(crate) fn set_layout(&mut self, layout: AppLayout, cx: &mut Context<Self>) {
@@ -106,21 +108,29 @@ impl AppModel {
         &'a self,
         project: &'a Project,
     ) -> impl Iterator<Item = &'a Tab> {
-        project.tabs.iter().filter(|tab| {
+        project.listed_tabs().filter(|tab| {
             self.appearance.layout != AppLayout::AgentsFocused || self.agent_tab_pane(tab).is_some()
         })
     }
 
-    pub(crate) fn tab_sidebar_projects(&self) -> (Vec<&Project>, usize) {
+    pub(crate) fn tab_sidebar_groups(&self) -> Vec<(super::sidebar::ServerGroup<'_>, usize)> {
         let listed = |project: &&Project| {
             self.appearance.sidebar_focus || self.sidebar_tabs(project).next().is_some()
         };
-        let mut projects = self.sidebar_projects();
-        let without_tabs = projects.iter().filter(|project| !listed(project)).count();
-        if !self.projects_without_tabs_shown {
-            projects.retain(listed);
-        }
-        (projects, without_tabs)
+        self.sidebar_groups()
+            .into_iter()
+            .map(|mut group| {
+                let without_tabs = group
+                    .projects
+                    .iter()
+                    .filter(|project| !listed(project))
+                    .count();
+                if !self.projects_without_tabs_shown {
+                    group.projects.retain(listed);
+                }
+                (group, without_tabs)
+            })
+            .collect()
     }
 
     pub(crate) fn toggle_projects_without_tabs(&mut self, cx: &mut Context<Self>) {
@@ -143,8 +153,7 @@ impl AppModel {
             return self
                 .state
                 .current_project()
-                .tabs
-                .iter()
+                .listed_tabs()
                 .map(|tab| tab.id)
                 .collect();
         }
@@ -153,7 +162,7 @@ impl AppModel {
             .filter(|project| {
                 project.status() == ProjectStatus::Available && self.project_expanded(project.id)
             })
-            .flat_map(|project| project.tabs.iter().map(|tab| tab.id))
+            .flat_map(|project| project.listed_tabs().map(|tab| tab.id))
             .collect()
     }
 }
@@ -174,15 +183,34 @@ pub(super) fn contents(
         .flex_col()
         .pt(model.metrics.spacing5())
         .pb(model.metrics.spacing3());
-    let (projects, without_tabs) = model.tab_sidebar_projects();
-    for project in projects {
-        rows = rows.child(project_group(project, &numbers, targets.clone(), model, cx));
-    }
-    if without_tabs > 0 {
-        rows = rows.child(projects_without_tabs_toggle(without_tabs, model, cx));
-    }
-    if !model.appearance.sidebar_focus {
-        rows = rows.child(add_project_button(model, cx));
+    for (position, (group, without_tabs)) in model.tab_sidebar_groups().into_iter().enumerate() {
+        if group.heading {
+            rows = rows.child(
+                div()
+                    .px(model.metrics.spacing3())
+                    .when(position > 0, |heading| heading.pt(model.metrics.spacing3()))
+                    .child(super::sidebar::server_heading(
+                        group.server,
+                        super::sidebar::HeadingRows::Tabs,
+                        model,
+                        cx,
+                    )),
+            );
+        }
+        for project in group.projects {
+            rows = rows.child(project_group(project, &numbers, targets.clone(), model, cx));
+        }
+        if without_tabs > 0 {
+            rows = rows.child(projects_without_tabs_toggle(
+                group.server,
+                without_tabs,
+                model,
+                cx,
+            ));
+        }
+        if group.heading && model.server_expanded(group.server) && !model.appearance.sidebar_focus {
+            rows = rows.child(add_project_button(group.server, model, cx));
+        }
     }
     div()
         .debug_selector(|| "tab-sidebar".into())
@@ -210,15 +238,24 @@ pub(super) fn contents(
         .into_any_element()
 }
 
-fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
+fn add_project_button(
+    server: muxy_app_core::ServerId,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
     let m = model.metrics;
     let theme = &model.theme;
+    let id = SharedString::from(if server.is_local() {
+        "tab-add-project".to_owned()
+    } else {
+        format!("tab-add-project-{server}")
+    });
     div()
-        .id("tab-add-project")
+        .id(id.clone())
         .role(Role::Button)
-        .accessibility_id("tab-add-project")
+        .accessibility_id(id.clone())
         .aria_label(tr!("Add Project"))
-        .debug_selector(|| "tab-add-project".into())
+        .debug_selector(move || id.to_string())
         .mx(m.spacing3())
         .my(m.spacing1())
         .pl(m.spacing4())
@@ -234,15 +271,18 @@ fn add_project_button(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
         .text_color(theme.fg_muted)
         .hover(|style| style.bg(theme.hover).text_color(theme.fg))
         .focus(|style| style.bg(theme.hover).text_color(theme.fg))
-        .button_interaction(cx.listener(|model, event: &gpui::ClickEvent, window, cx| {
-            model.choose_project_source(event.position(), window, cx);
-        }))
+        .button_interaction(
+            cx.listener(move |model, event: &gpui::ClickEvent, window, cx| {
+                model.choose_project_source(server, event.position(), window, cx);
+            }),
+        )
         .child(IconGlyph::new(Icon::Plus, m.font_body(), theme.fg_muted))
         .child(tr!("Add Project"))
         .into_any_element()
 }
 
 fn projects_without_tabs_toggle(
+    server: muxy_app_core::ServerId,
     count: usize,
     model: &AppModel,
     cx: &mut Context<AppModel>,
@@ -257,6 +297,11 @@ fn projects_without_tabs_toggle(
     } else {
         tr!("%lld more projects", count)
     };
+    let id = SharedString::from(if server.is_local() {
+        "tab-sidebar-projects-without-tabs".to_owned()
+    } else {
+        format!("tab-sidebar-projects-without-tabs-{server}")
+    });
     div()
         .my(m.spacing1())
         .h(row_height(model))
@@ -266,12 +311,12 @@ fn projects_without_tabs_toggle(
         .justify_center()
         .child(
             div()
-                .id("tab-sidebar-projects-without-tabs")
+                .id(id.clone())
                 .role(Role::Button)
-                .accessibility_id("tab-sidebar-projects-without-tabs")
+                .accessibility_id(id.clone())
                 .aria_label(label.clone())
                 .aria_expanded(shown)
-                .debug_selector(|| "tab-sidebar-projects-without-tabs".into())
+                .debug_selector(move || id.to_string())
                 .cursor_pointer()
                 .text_size(m.font_footnote())
                 .text_color(theme.fg_dim)
@@ -362,6 +407,14 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
             }),
         )
         .debug_selector(move || format!("tab-project-{id}"))
+        .relative()
+        .when(!missing, |row| {
+            row.child(move_drag::zone(
+                &model.move_drag.zones,
+                move_drag::Owner::Sidebar,
+                move_drag::ZoneKind::Project(id),
+            ))
+        })
         .mx(m.spacing3())
         .my(m.spacing1())
         .pl(m.spacing4())
@@ -414,14 +467,13 @@ fn project_title(project: &Project, model: &AppModel, cx: &mut Context<AppModel>
             group_label(title, model)
                 .absolute()
                 .inset_0()
-                .text_color(model.theme.fg_muted)
+                .text_color(model.theme.fg)
                 .opacity(0.0)
                 .group_hover(group, |style| style.opacity(1.0)),
         )
         .into_any_element()
 }
 
-/// What a status glyph's tooltip says, for clients that can't hover it.
 pub(super) fn activity_description(status: tab_activity::Status) -> Option<SharedString> {
     use muxy_protocol::ProgressState;
     use tab_activity::Status;
@@ -442,7 +494,6 @@ pub(super) fn activity_description(status: tab_activity::Status) -> Option<Share
     })
 }
 
-/// What a client reads after a tab's title, beyond its selected state.
 pub(super) fn tab_description(
     pinned: bool,
     status: tab_activity::Status,
@@ -455,19 +506,17 @@ pub(super) fn tab_description(
     ])
 }
 
-/// The height of a tab row, shared with the agents panel's rows.
 pub(super) fn row_height(model: &AppModel) -> gpui::Pixels {
     model.metrics.control_small() + model.metrics.spacing2() * 2.0
 }
 
-/// The dim name above a project's rows, shared with the agents panel.
 pub(super) fn group_label(text: impl Into<SharedString>, model: &AppModel) -> gpui::Div {
     div()
         .flex_1()
         .min_w(px(0.0))
         .truncate()
-        .text_size(model.metrics.font_footnote())
-        .text_color(model.theme.fg_dim)
+        .text_size(model.metrics.font_body())
+        .text_color(model.theme.fg_muted)
         .child(text.into())
 }
 
@@ -499,6 +548,11 @@ fn new_tab_button(project: &Project, model: &AppModel, cx: &mut Context<AppModel
             )
             .accessibility_id(format!("project-new-tab-{}", project.name))
             .tooltip(theme)
+            .shortcut(
+                (id == model.state.current_project().id)
+                    .then(|| model.shortcut_label(ShortcutId::NewTab))
+                    .flatten(),
+            )
             .on_click(cx.listener(move |model, _, window, cx| {
                 cx.stop_propagation();
                 model.select_project(id, cx);
@@ -560,7 +614,6 @@ fn project_accessory(
         .flex_none()
         .items_center()
         .gap(m.spacing3())
-        .children(super::sidebar::remote_marker(project, model))
         .when(project.parent_id.is_some() && !has_activity, |row| {
             row.child(IconGlyph::new(
                 Icon::GitBranch,
@@ -613,6 +666,7 @@ fn tab_row(
         .and_then(|color| muxy_ui::theme::parse_hex(color.as_str()))
         .map(gpui::Hsla::from);
     let group = SharedString::from(format!("sidebar-tab-{id}"));
+    let zone = tab_activity::HoverZone::default();
     let status = tab_activity::tab_status(tab, model);
     let hover = color.map_or(if active { theme.surface } else { theme.hover }, |color| {
         color.opacity(if active { 0.18 } else { 0.08 })
@@ -637,7 +691,19 @@ fn tab_row(
             }),
         )
         .debug_selector(move || format!("sidebar-tab-{id}"))
-        .when(!model.tab_drag.is_active(), |row| row.group(group.clone()))
+        .relative()
+        .child(move_drag::zone(
+            &model.move_drag.zones,
+            move_drag::Owner::Sidebar,
+            move_drag::ZoneKind::Tab {
+                project,
+                tab: id,
+                axis: muxy_app_core::Axis::Vertical,
+            },
+        ))
+        .when(!model.tab_drag.is_active(), |row| {
+            row.group(group.clone()).child(zone.track())
+        })
         .mx(m.spacing3())
         .my(m.spacing1())
         .pl(m.spacing4())
@@ -733,13 +799,13 @@ fn tab_row(
             tab,
             status,
             number.and_then(|index| {
-                model.shortcut_hints.label(
-                    muxy_core::shortcuts::ShortcutId::TABS[index],
-                    &model.settings.keymap,
-                )
+                model
+                    .shortcut_hints
+                    .label(ShortcutId::TABS[index], &model.settings.keymap)
             }),
             bell,
             group,
+            &zone,
             model,
             cx,
         ))
@@ -841,12 +907,17 @@ impl AppModel {
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "One tab row's accessory and its hover"
+)]
 fn tab_accessory(
     tab: &Tab,
     status: tab_activity::Status,
     shortcut: Option<String>,
     bell: bool,
     group: SharedString,
+    zone: &tab_activity::HoverZone,
     model: &AppModel,
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
@@ -867,7 +938,14 @@ fn tab_accessory(
             .child(super::shortcut_hints::badge(shortcut, m.icon_md(), model))
             .into_any_element()
     } else if status != tab_activity::Status::None {
-        tab_activity::status_glyph(format!("tab-{id}"), status, m.icon_sm(), model)
+        tab_activity::status_glyph_in(
+            format!("tab-{id}"),
+            status,
+            m.icon_sm(),
+            None,
+            Some(zone),
+            model,
+        )
     } else if bell {
         div()
             .size(m.scaled(7.0))

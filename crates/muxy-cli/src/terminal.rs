@@ -3,10 +3,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ratatui::crossterm::{cursor, event, execute, terminal};
-use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGSTOP, SIGTERM, SIGTSTP};
+#[cfg(unix)]
+use signal_hook::consts::signal::{SIGHUP, SIGSTOP, SIGTSTP};
+use signal_hook::consts::signal::{SIGINT, SIGTERM};
+
+mod quiet;
+
+use quiet::Quiet;
 
 pub(crate) fn require_interactive() -> io::Result<()> {
     if io::stdin().is_terminal() && io::stdout().is_terminal() {
@@ -18,19 +24,19 @@ pub(crate) fn require_interactive() -> io::Result<()> {
     }
 }
 
-/// Whether this runs in a login over SSH, away from the computer's screen.
 pub(crate) fn over_ssh() -> bool {
     ["SSH_CONNECTION", "SSH_TTY"]
         .iter()
         .any(|name| std::env::var_os(name).is_some())
 }
 
-pub(crate) type Terminal = ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>;
+pub(crate) type Terminal = ratatui::Terminal<Quiet<ratatui::backend::CrosstermBackend<io::Stdout>>>;
 
 pub(crate) struct Events {
     receiver: Receiver<io::Result<event::Event>>,
     stop: Arc<AtomicBool>,
     pause: Arc<AtomicBool>,
+    #[cfg_attr(windows, allow(dead_code, reason = "Only a suspend pauses input"))]
     paused: Receiver<()>,
     resume: mpsc::SyncSender<()>,
 }
@@ -88,6 +94,7 @@ impl Events {
         }
     }
 
+    #[cfg(unix)]
     fn pause(&self) -> io::Result<()> {
         self.pause.store(true, Ordering::Release);
         while self.receiver.try_recv().is_ok() {}
@@ -118,6 +125,7 @@ impl Drop for Events {
 pub(crate) struct Host {
     pub terminal: Terminal,
     pub stop: Arc<AtomicBool>,
+    #[cfg(unix)]
     suspend: Arc<AtomicBool>,
     _signals: Signals,
 }
@@ -125,13 +133,19 @@ pub(crate) struct Host {
 impl Host {
     pub(crate) fn enter() -> io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
-        let suspend = Arc::new(AtomicBool::new(false));
         let mut signals = Signals::default();
-        for signal in [SIGHUP, SIGINT, SIGTERM] {
+        #[cfg(unix)]
+        let stopping = [SIGHUP, SIGINT, SIGTERM];
+        #[cfg(windows)]
+        let stopping = [SIGINT, SIGTERM];
+        for signal in stopping {
             signals
                 .0
                 .push(signal_hook::flag::register(signal, Arc::clone(&stop))?);
         }
+        #[cfg(unix)]
+        let suspend = Arc::new(AtomicBool::new(false));
+        #[cfg(unix)]
         signals
             .0
             .push(signal_hook::flag::register(SIGTSTP, Arc::clone(&suspend))?);
@@ -141,8 +155,11 @@ impl Host {
             previous(info);
         }));
         let mut host = Self {
-            terminal: Terminal::new(ratatui::backend::CrosstermBackend::new(io::stdout()))?,
+            terminal: Terminal::new(Quiet::new(ratatui::backend::CrosstermBackend::new(
+                io::stdout(),
+            )))?,
             stop,
+            #[cfg(unix)]
             suspend,
             _signals: signals,
         };
@@ -163,6 +180,7 @@ impl Host {
         self.terminal.clear()
     }
 
+    #[cfg(unix)]
     pub(crate) fn resume_if_needed(&mut self, events: &Events) -> io::Result<bool> {
         if !self.suspend.swap(false, Ordering::AcqRel) {
             return Ok(false);
@@ -174,6 +192,16 @@ impl Host {
         self.activate()?;
         events.resume();
         Ok(true)
+    }
+
+    #[cfg(windows)]
+    #[allow(
+        clippy::unused_self,
+        clippy::unnecessary_wraps,
+        reason = "Windows consoles have no suspend"
+    )]
+    pub(crate) fn resume_if_needed(&mut self, _events: &Events) -> io::Result<bool> {
+        Ok(false)
     }
 }
 
@@ -209,9 +237,10 @@ fn restore() {
     let _ = terminal::disable_raw_mode();
 }
 
+#[cfg(unix)]
 fn discard_pending_input() {
     let input = io::stdin();
-    let started = Instant::now();
+    let started = std::time::Instant::now();
     let mut quiet = started;
     while started.elapsed() < Duration::from_millis(100) {
         match rustix::io::ioctl_fionread(&input) {
@@ -222,11 +251,20 @@ fn discard_pending_input() {
                 {
                     return;
                 }
-                quiet = Instant::now();
+                quiet = std::time::Instant::now();
             }
             Err(_) => return,
         }
         thread::sleep(Duration::from_millis(1));
     }
     let _ = rustix::termios::tcflush(input, rustix::termios::QueueSelector::IFlush);
+}
+
+#[cfg(windows)]
+fn discard_pending_input() {
+    for _ in 0..64 {
+        if !event::poll(Duration::from_millis(5)).unwrap_or(false) || event::read().is_err() {
+            break;
+        }
+    }
 }

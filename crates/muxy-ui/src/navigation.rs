@@ -7,8 +7,6 @@ use gpui::{
 use crate::components::{ButtonInteraction, SymbolGlyph};
 use crate::controls::Style;
 
-/// A page in a list of pages. Clients read it as a tab, so the list holding it
-/// needs `Role::TabList`.
 pub fn item(
     style: Style,
     id: impl Into<SharedString>,
@@ -59,8 +57,6 @@ pub fn subitem(
         })
 }
 
-/// The chevron inside an [`item`]. It stays out of the tree, so give clients a
-/// hidden button beside the tab.
 pub fn disclosure(
     style: Style,
     id: impl Into<ElementId>,

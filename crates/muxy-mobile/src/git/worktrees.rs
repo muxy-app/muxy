@@ -1,6 +1,3 @@
-//! Worktrees belong to a top-level project. Called on a worktree project, the
-//! calls that list and add worktrees act on its parent.
-
 use muxy_protocol::{
     OperationId, ProjectDescriptor, ProjectId, ServerPath, WorktreeAction, WorktreeIntent,
 };
@@ -13,18 +10,18 @@ use crate::records::{Project, server_path};
 
 #[uniffi::export]
 impl GitRepository {
-    /// The repository's worktrees; `registered` names the project of each.
+    #[doc = " The repository's worktrees; `registered` names the project of each."]
     pub fn worktrees(&self) -> Result<Vec<GitWorktree>, MobileError> {
         let root = self.root()?;
         Ok(collect(self.client.git_worktrees(root.id)?))
     }
 
-    /// Checks out `branch` in a new worktree and returns its project. `base`
-    /// creates the branch from that ref, such as `HEAD` or `main`; `None`
-    /// checks out an existing branch. Without a `directory`, the worktree goes
-    /// next to the project's folder, named `<project>-<branch>` with slashes
-    /// turned into dashes. The desktop app's worktree location setting is not
-    /// used.
+    #[doc = " Checks out `branch` in a new worktree and returns its project. `base`"]
+    #[doc = " creates the branch from that ref, such as `HEAD` or `main`; `None`"]
+    #[doc = " checks out an existing branch. Without a `directory`, the worktree goes"]
+    #[doc = " next to the project's folder, named `<project>-<branch>` with slashes"]
+    #[doc = " turned into dashes. The desktop app's worktree location setting is not"]
+    #[doc = " used."]
     pub fn create_worktree(
         &self,
         branch: String,
@@ -44,7 +41,7 @@ impl GitRepository {
         )
     }
 
-    /// Adds a worktree made outside Muxy, at its absolute `directory`.
+    #[doc = " Adds a worktree made outside Muxy, at its absolute `directory`."]
     pub fn register_worktree(&self, directory: String) -> Result<Project, MobileError> {
         let root = self.root()?;
         self.add_worktree(
@@ -56,8 +53,8 @@ impl GitRepository {
         )
     }
 
-    /// Checks out a pull request in a new worktree, by default next to the
-    /// project's folder, named `<project>-pr-<number>`.
+    #[doc = " Checks out a pull request in a new worktree, by default next to the"]
+    #[doc = " project's folder, named `<project>-pr-<number>`."]
     pub fn checkout_pull_request_worktree(
         &self,
         number: u64,
@@ -78,14 +75,14 @@ impl GitRepository {
         )
     }
 
-    /// Describes this worktree project for confirming its removal, such as
-    /// whether it has uncommitted changes.
+    #[doc = " Describes this worktree project for confirming its removal, such as"]
+    #[doc = " whether it has uncommitted changes."]
     pub fn inspect_worktree_removal(&self) -> Result<WorktreeRemoval, MobileError> {
         Ok(self.client.git_inspect_removal(self.project)?.into())
     }
 
-    /// Deletes this worktree project and its folder, and ends its terminals,
-    /// if nothing changed since `inspect_worktree_removal`.
+    #[doc = " Deletes this worktree project and its folder, and ends its terminals,"]
+    #[doc = " if nothing changed since `inspect_worktree_removal`."]
     pub fn remove_worktree(&self, expected: WorktreeRemoval) -> Result<(), MobileError> {
         Ok(self
             .client
@@ -94,7 +91,6 @@ impl GitRepository {
 }
 
 impl GitRepository {
-    /// The project that owns the worktrees: this one, or its parent.
     fn root(&self) -> Result<ProjectDescriptor, MobileError> {
         let catalog = self.client.catalog()?;
         let project = find_project(&catalog.projects, self.project)?;
@@ -120,7 +116,6 @@ impl GitRepository {
     }
 }
 
-/// Next to the project's folder, named after the project and `suffix`.
 fn suggested_folder(project: &ProjectDescriptor, suffix: &str) -> ServerPath {
     let directory = project.directory.as_path();
     let name = format!("{}-{}", folder_name(&project.name), folder_name(suffix));
@@ -128,7 +123,6 @@ fn suggested_folder(project: &ProjectDescriptor, suffix: &str) -> ServerPath {
     ServerPath::from(folder)
 }
 
-/// Slashes would nest folders, so they become dashes.
 fn folder_name(name: &str) -> String {
     name.trim().replace(['/', '\\'], "-")
 }

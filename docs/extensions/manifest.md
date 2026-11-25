@@ -56,6 +56,7 @@ The `muxy` object is required; its fields are optional.
 | `popovers` | object[] | [Panels](panels.md#popovers) |
 | `sidebar` | object | [Panels](panels.md#sidebar) |
 | `topbarItems` | object[] | [Bar items](bar-items.md) |
+| `railItems` | object[] | [Bar items](bar-items.md#the-rail) |
 | `statusBarItems` | object[] | [Bar items](bar-items.md) |
 | `localizations` | object[] | [Localizations](localizations.md) |
 | `settings` | object[] | [Settings](#settings) below |
@@ -82,6 +83,9 @@ Panels, the sidebar, and bar items take an `icon`:
   the extension icon in place of the rest.
 - `svg` is a file of up to 256 KiB. It is tinted like the app's own icons, so
   use `currentColor` or one solid color. It looks the same on macOS and Linux.
+  Icons can't use patterns, filters, `url()` in a `<style>`, or repeated
+  `id`s, and stay under 10,000 elements once every reference is expanded;
+  Muxy shows its own icon in place of one that doesn't.
 
 ## Settings
 
@@ -94,5 +98,5 @@ Declared settings appear on the extension's page in **Settings → Extensions**.
 ]
 ```
 
-`type` is `string`, `bool`, or `number`. Extensions can't read these values at
-runtime yet; use [storage](api.md#storage) for values your code needs.
+`type` is `string`, `bool`, or `number`. Read and change them with
+[`muxy.settings`](api.md#settings).

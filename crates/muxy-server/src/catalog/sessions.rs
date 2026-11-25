@@ -1,4 +1,4 @@
-use super::{Catalog, Creation, Membership, ServerError, bad, check_revision, unknown};
+use super::{Catalog, Creation, Membership, ServerError, State, bad, check_revision, unknown};
 use muxy_protocol::{
     CATALOG_PAGE_SIZE, OperationId, ProjectId, ProjectSession, ProjectSessions, SessionId,
     SessionInfo, SessionStatus,
@@ -70,6 +70,7 @@ impl Catalog {
                     info: info.clone(),
                     status: SessionStatus::Starting,
                     ended_at: None,
+                    name: None,
                 },
             );
             state.creations.insert(
@@ -89,11 +90,43 @@ impl Catalog {
         status: SessionStatus,
     ) -> Result<(), ServerError> {
         self.update(|state| {
-            if let Some(membership) = state.sessions.get_mut(&session) {
-                // A fast process may exit before the spawning thread publishes its handle.
-                if status != SessionStatus::Live || membership.status == SessionStatus::Starting {
-                    membership.status = status;
-                }
+            if let Some(membership) = state.sessions.get_mut(&session)
+                && (status != SessionStatus::Live || membership.status == SessionStatus::Starting)
+            {
+                membership.status = status;
+            }
+            Ok(())
+        })
+    }
+
+    pub(crate) fn set_session_name(
+        &self,
+        session: SessionId,
+        name: Option<String>,
+        replacing: Option<&str>,
+    ) -> Result<(), ServerError> {
+        let applies = |membership: &Membership| {
+            replacing.is_none_or(|expected| membership.name.as_deref() == Some(expected))
+        };
+        let unchanged = {
+            let state = self.lock();
+            let membership = state
+                .sessions
+                .get(&session)
+                .filter(|_| !state.discarding.contains(&session))
+                .ok_or_else(|| ServerError::unknown_session(session))?;
+            membership.name == name || !applies(membership)
+        };
+        if unchanged {
+            return self.ensure_durable();
+        }
+        self.update(|state| {
+            let membership = state
+                .sessions
+                .get_mut(&session)
+                .ok_or_else(|| ServerError::unknown_session(session))?;
+            if applies(membership) {
+                membership.name = name;
             }
             Ok(())
         })
@@ -161,8 +194,32 @@ impl Catalog {
         })
     }
 
-    /// Every session the catalog keeps, live or saved, except those being
-    /// discarded.
+    pub(crate) fn move_session(
+        &self,
+        session: SessionId,
+        project: ProjectId,
+    ) -> Result<bool, ServerError> {
+        if !self.lock().movable(session, project)? {
+            return Ok(false);
+        }
+        self.update(|state| {
+            if !state.movable(session, project)? {
+                return Ok(false);
+            }
+            if let Some(membership) = state.sessions.get_mut(&session) {
+                membership.info.project = project;
+            }
+            Ok(true)
+        })
+    }
+
+    pub(crate) fn session_project(&self, session: SessionId) -> Option<ProjectId> {
+        self.lock()
+            .sessions
+            .get(&session)
+            .map(|membership| membership.info.project)
+    }
+
     pub(crate) fn sessions(&self) -> std::collections::BTreeSet<SessionId> {
         let state = self.lock();
         state
@@ -217,6 +274,7 @@ impl Catalog {
                 status: entry.status,
                 owner: None,
                 attached: false,
+                name: entry.name.clone(),
             })
             .collect();
         let next = entries
@@ -227,5 +285,21 @@ impl Catalog {
             sessions,
             next,
         })
+    }
+}
+
+impl State {
+    fn movable(&self, session: SessionId, project: ProjectId) -> Result<bool, ServerError> {
+        if !self.projects.contains_key(&project) || self.deleting.contains(&project) {
+            return Err(unknown());
+        }
+        let Some(membership) = self
+            .sessions
+            .get(&session)
+            .filter(|_| !self.discarding.contains(&session))
+        else {
+            return Err(ServerError::unknown_session(session));
+        };
+        Ok(membership.info.project != project)
     }
 }

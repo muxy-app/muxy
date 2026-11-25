@@ -19,7 +19,6 @@ use clipboard::ClipboardWrites;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClientEvent {
-    /// The reply to `Client::attach` with this `tag`; the channel's frames follow it.
     Attached {
         tag: u64,
         session: SessionId,
@@ -73,7 +72,6 @@ pub enum ClientEvent {
 }
 
 impl ClientEvent {
-    /// The coalesce key of the message this event came from.
     pub fn coalesce_key(&self) -> Option<CoalesceKey> {
         match self {
             Self::SessionMetadata { session, .. } => Some(CoalesceKey::SessionMetadata(*session)),
@@ -88,8 +86,6 @@ impl ClientEvent {
         }
     }
 
-    /// Folds `newer`, which has the same coalesce key, into this event, as
-    /// [`Message::merge`] folds their messages.
     pub fn merge(&mut self, newer: Self) {
         match (self, newer) {
             (Self::CatalogChanged { revision }, Self::CatalogChanged { revision: newer })
@@ -108,8 +104,6 @@ impl ClientEvent {
     }
 }
 
-/// Takes the terminal that `Client::attach` announced with `tag`, for a caller
-/// that reads the events itself. Earlier events are dropped.
 pub fn take_attached(events: &Receiver<ClientEvent>, tag: u64) -> Result<Attachment, ClientError> {
     events
         .try_iter()
@@ -164,7 +158,6 @@ struct Router<'a> {
 }
 
 impl Router<'_> {
-    /// The next event, and the attach request it answers.
     fn next(
         &mut self,
         decoder: &mut Decoder<impl Read>,
@@ -225,9 +218,8 @@ impl Router<'_> {
         }
     }
 
-    /// An attach reply becomes its terminal's event; any other goes to whoever waits.
     fn reply(
-        &self,
+        &mut self,
         id: RequestId,
         body: ReplyBody,
     ) -> Option<(ClientEvent, Option<(RequestId, ChannelId)>)> {
@@ -238,6 +230,7 @@ impl Router<'_> {
         match (body, attaching) {
             (ReplyBody::Attached { snapshot, process }, Some(attaching)) => {
                 let channel = snapshot.channel;
+                self.clipboard.attached(channel);
                 let attachment = Attachment::new(*snapshot, process, self.server_input);
                 let event = ClientEvent::Attached {
                     tag: attaching.tag,

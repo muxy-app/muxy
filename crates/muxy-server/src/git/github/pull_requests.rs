@@ -5,6 +5,34 @@ use muxy_protocol::{GitMergeMethod, GitPullRequest, GitPullRequestFilter, GitRep
 use serde_json::Value;
 use std::path::Path;
 
+enum ViewSelector<'a> {
+    ConfiguredNumber(String),
+    Context,
+    Branch(&'a str),
+}
+
+impl ViewSelector<'_> {
+    fn arguments<'a>(&'a self, identity: &'a str, fields: &'a str) -> Vec<&'a str> {
+        let mut arguments = vec!["pr", "view"];
+        match self {
+            Self::ConfiguredNumber(number) => {
+                arguments.extend([number.as_str(), "--repo", identity]);
+            }
+            Self::Context => (),
+            Self::Branch(branch) => arguments.extend([*branch, "--repo", identity]),
+        }
+        arguments.extend(["--json", fields]);
+        arguments
+    }
+
+    fn accepts(&self, current: &CurrentBranch, value: &Value) -> bool {
+        match self {
+            Self::ConfiguredNumber(_) => is_open(value),
+            Self::Context | Self::Branch(_) => current.matches_view(value),
+        }
+    }
+}
+
 impl Github {
     pub(super) fn diff(
         &self,
@@ -302,57 +330,25 @@ impl Github {
         fields: &str,
     ) -> Result<Option<Value>> {
         let mut first_error = None;
-        if let Some(number) = current.configured_number {
-            match self.cli.run(
-                repository,
-                &[
-                    "pr",
-                    "view",
-                    &number.to_string(),
-                    "--repo",
-                    identity,
-                    "--json",
-                    fields,
-                ],
-            ) {
+        let selectors = [
+            current
+                .configured_number
+                .map(|number| ViewSelector::ConfiguredNumber(number.to_string())),
+            Some(ViewSelector::Context),
+            current
+                .branch
+                .parse::<u64>()
+                .is_err()
+                .then_some(ViewSelector::Branch(&current.branch)),
+        ];
+        for selector in selectors.into_iter().flatten() {
+            match self
+                .cli
+                .run(repository, &selector.arguments(identity, fields))
+            {
                 Ok(bytes) => {
                     let value: Value = serde_json::from_slice(&bytes).map_err(error)?;
-                    if is_open(&value) {
-                        return Ok(Some(value));
-                    }
-                }
-                Err(cause) if no_pr(&cause) => (),
-                Err(cause) => first_error = Some(cause),
-            }
-        }
-        match self.cli.run(repository, &["pr", "view", "--json", fields]) {
-            Ok(bytes) => {
-                let value: Value = serde_json::from_slice(&bytes).map_err(error)?;
-                if current.matches_view(&value) {
-                    return Ok(Some(value));
-                }
-            }
-            Err(cause) if no_pr(&cause) => (),
-            Err(cause) => {
-                first_error.get_or_insert(cause);
-            }
-        }
-        if current.branch.parse::<u64>().is_err() {
-            match self.cli.run(
-                repository,
-                &[
-                    "pr",
-                    "view",
-                    &current.branch,
-                    "--repo",
-                    identity,
-                    "--json",
-                    fields,
-                ],
-            ) {
-                Ok(bytes) => {
-                    let value: Value = serde_json::from_slice(&bytes).map_err(error)?;
-                    if current.matches_view(&value) {
+                    if selector.accepts(current, &value) {
                         return Ok(Some(value));
                     }
                 }
@@ -539,3 +535,6 @@ fn safe_component(value: &str) -> String {
         component
     }
 }
+
+#[cfg(all(test, unix))]
+mod tests;

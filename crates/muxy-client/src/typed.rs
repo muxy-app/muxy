@@ -1,7 +1,3 @@
-//! Typed requests on a project: one method per action, sync and async, each
-//! returning what that action answers.
-
-/// Reply decoders that accept only the expected variants of one reply kind.
 macro_rules! decoders {
     ($kind:ident; $($name:ident -> $output:ty { $($pattern:pat => $value:expr),+ $(,)? })*) => {
         $(
@@ -17,8 +13,6 @@ macro_rules! decoders {
     };
 }
 
-/// A sync and an async method for each action, sent with `$send` and
-/// `$send_async` and read with the named decoder.
 macro_rules! typed_requests {
     ($send:ident, $send_async:ident; $(
         $(#[$doc:meta])*

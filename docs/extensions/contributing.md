@@ -67,6 +67,10 @@ Add a `marketplace` block under `muxy`:
 }
 ```
 
+The `icon` and `screenshots` paths are relative to the published `dist/`, so
+your build must copy them there; Settings → Extensions shows them for the
+installed extension.
+
 Add a `README.md` that says what the extension does and why it needs each
 permission.
 

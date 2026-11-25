@@ -1,4 +1,4 @@
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStringExt;
 
 use super::*;
@@ -42,62 +42,64 @@ fn file(path: impl Into<PathBuf>) -> FileLocation {
     }
 }
 
+#[test]
+fn extension_paths_are_files_resolved_inside_the_project() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("project");
+    std::fs::create_dir_all(project.join("folder.md")).unwrap();
+    std::fs::write(project.join("readme.md"), "hello").unwrap();
+    std::fs::write(root.path().join("outside.md"), "outside").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.path().join("outside.md"), project.join("link.md")).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(root.path().join("outside.md"), project.join("link.md"))
+        .unwrap();
+    assert_eq!(
+        project_file(&project.join("readme.md"), &project).as_deref(),
+        Some("readme.md")
+    );
+    assert_eq!(
+        project_file(&project.join("folder.md/../readme.md"), &project).as_deref(),
+        Some("readme.md")
+    );
+    for path in [
+        project.join("folder.md"),
+        project.join("link.md"),
+        project.join("../outside.md"),
+        project.join("missing.md"),
+    ] {
+        assert!(project_file(&path, &project).is_none());
+    }
+}
+
 #[cfg(target_os = "macos")]
 #[test]
-fn editor_selection_and_failed_launch_fall_back_without_losing_context() {
-    let editors = [
-        Editor {
-            bundle: "first".into(),
-            name: "First".into(),
-            path: "/Applications/First.app".into(),
-            rank: 0,
-        },
-        Editor {
-            bundle: "preferred".into(),
-            name: "Preferred".into(),
-            path: "/Applications/Preferred.app".into(),
-            rank: 1,
-        },
-    ];
+fn terminal_files_always_use_finder_regardless_of_legacy_or_project_preferences() {
     let request = OpenRequest {
         target: Target::File(file("/tmp/file.rs")),
         context: context(),
     };
-    for (preference, application) in [
-        ("preferred", "/Applications/Preferred.app"),
-        ("missing", "/Applications/First.app"),
-    ] {
-        let settings = muxy_app_core::settings::OpenerSettings {
-            project_target: Some(preference.into()),
-            ..muxy_app_core::settings::OpenerSettings::default()
-        };
-        let mut calls = 0;
-        open_with(
-            &request,
-            &settings,
-            || &editors,
-            |command| {
+    for preference in ["com.microsoft.VSCode", FINDER, "missing"] {
+        for legacy in [
+            "system.editor",
+            "system.application",
+            "files:viewer",
+            "system.finder",
+        ] {
+            let settings = muxy_app_core::settings::OpenerSettings {
+                project_target: Some(preference.into()),
+                file: legacy.into(),
+                ..muxy_app_core::settings::OpenerSettings::default()
+            };
+            let mut calls = 0;
+            open_with(&request, &settings, |command| {
                 calls += 1;
-                if calls == 1 {
-                    assert_eq!(
-                        command,
-                        &Launch::system([
-                            "-a".into(),
-                            application.into(),
-                            "/project".into(),
-                            "/tmp/file.rs".into()
-                        ])
-                    );
-                    Err(io::Error::other("editor failed"))
-                } else {
-                    assert_eq!(command, &finder(Path::new("/tmp/file.rs")));
-                    Ok(())
-                }
-            },
-        )
-        .expect("Finder fallback");
-        assert_eq!(calls, 2);
-        assert_eq!(settings.project_target.as_deref(), Some(preference));
+                assert_eq!(command, &finder(Path::new("/tmp/file.rs")));
+                Ok(())
+            })
+            .expect("Finder");
+            assert_eq!(calls, 1);
+        }
     }
     let mut remote = request;
     remote.context.server = muxy_app_core::ServerId::new();
@@ -105,8 +107,7 @@ fn editor_selection_and_failed_launch_fall_back_without_losing_context() {
         open_with(
             &remote,
             &muxy_app_core::settings::OpenerSettings::default(),
-            || &editors,
-            |_| panic!("remote file must not launch")
+            |_| panic!("remote file must not launch"),
         )
         .is_err()
     );
@@ -114,7 +115,7 @@ fn editor_selection_and_failed_launch_fall_back_without_losing_context() {
     assert!(resolve("https://example.com", &remote.context).is_some());
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 #[test]
 fn linux_openers_preserve_literal_paths_and_use_the_file_manager_for_reveal() {
     let temp = Temp::new();
@@ -185,7 +186,7 @@ fn the_project_button_prefers_the_chosen_app_then_an_editor_then_the_file_manage
 
 #[test]
 fn projects_open_as_folders_in_the_chosen_app() {
-    let directory = std::env::temp_dir();
+    let directory = crate::test_support::project_directory();
     let editors = [Editor {
         bundle: "editor".into(),
         name: "Editor".into(),
@@ -238,4 +239,47 @@ fn the_file_manager_comes_before_editors_in_their_preferred_order() {
     assert_eq!(listed, [(FINDER, true), ("zed", false), ("code", false)]);
     assert_eq!(apps[1].name, "Zed");
     assert_eq!(apps[1].path, Path::new("/Applications/Zed.app"));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_openers_hand_files_to_the_shell_and_editors_to_their_command_shims() {
+    let temp = Temp::new();
+    let directory = temp.0.join("project space");
+    std::fs::create_dir(&directory).expect("project");
+    let bin = temp.0.join("bin");
+    std::fs::create_dir(&bin).expect("bin");
+    std::fs::write(bin.join("code.cmd"), "").expect("shim");
+    let path = muxy_core::executable::find_with_extensions(
+        std::slice::from_ref(&bin),
+        "code",
+        ".EXE;.CMD",
+    )
+    .expect("editor");
+    let location = file(directory.join("main.rs"));
+    let editor = Editor {
+        bundle: "com.microsoft.VSCode".into(),
+        name: "Visual Studio Code".into(),
+        path,
+        rank: 0,
+    };
+    let command = editor.command(&location, &directory);
+    assert_eq!(command.program, bin.join("code.cmd"));
+    assert_eq!(
+        command.args,
+        [
+            directory.as_os_str().to_owned(),
+            "--goto".into(),
+            format!("{}:12:3", location.path.display()).into(),
+        ]
+    );
+    let system = Launch::system([location.path.as_os_str().to_owned()]);
+    assert!(system.program.as_os_str().is_empty(), "the shell opens it");
+    assert_eq!(
+        finder(&location.path).select.as_deref(),
+        Some(location.path.as_path())
+    );
+    let folder = finder(&directory);
+    assert_eq!(folder.select, None);
+    assert_eq!(folder.args, [directory.into_os_string()]);
 }

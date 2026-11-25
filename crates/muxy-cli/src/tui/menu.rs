@@ -1,5 +1,3 @@
-//! Right-click menus: what they offer for a terminal or a tab, and doing it.
-
 use muxy_app_core::{Direction, PaneId};
 use muxy_protocol::{MouseAction, MouseButton as TerminalButton};
 use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -11,7 +9,6 @@ use crate::ui::menu::{Command, Item, Menu};
 use crate::ui::{Mode, Overlay, Ui};
 use crate::worker::{Action, Worker, lock};
 
-/// Opens the menu for the terminal in `pane`.
 pub(super) fn pane(worker: &Worker, ui: &mut Ui, pane: PaneId, at: Position) {
     let shared = lock(&worker.shared);
     let Some(tab) = shared.state.as_ref().and_then(crate::state::State::tab) else {
@@ -58,7 +55,6 @@ pub(super) fn pane(worker: &Worker, ui: &mut Ui, pane: PaneId, at: Position) {
     ui.overlay = Overlay::Menu(Menu::new(at, items));
 }
 
-/// Opens the menu for the current project's tab holding `pane`.
 pub(super) fn tab(worker: &Worker, ui: &mut Ui, pane: PaneId, at: Position) {
     let shared = lock(&worker.shared);
     let Some(project) = shared

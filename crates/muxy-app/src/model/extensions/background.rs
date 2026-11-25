@@ -1,8 +1,3 @@
-//! Background scripts: one long-lived `JavaScriptCore` context per enabled
-//! extension that declares `background`. They start with the extension, keep
-//! running across server reconnects like pages do, restart when the extension
-//! is updated, and stop when it is disabled, reloaded, or removed.
-
 use gpui::Context;
 use muxy_core::capability::Feature;
 
@@ -22,7 +17,6 @@ impl AppModel {
             .any(|background| background.script == script)
     }
 
-    /// Stops one extension's background script, or every one with `None`.
     pub(super) fn stop_backgrounds(&mut self, owner: Option<&str>) {
         let stopped: Vec<_> = self
             .extensions
@@ -124,7 +118,6 @@ impl AppModel {
         }
     }
 
-    /// Whether the extension's background script is running.
     pub(crate) fn background_running(&self, owner: &str) -> bool {
         self.extensions.backgrounds.contains_key(owner)
     }

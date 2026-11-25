@@ -1,5 +1,3 @@
-//! File and folder pickers through the desktop portal's file chooser.
-
 use std::collections::HashMap;
 use std::future::Future;
 use std::io;
@@ -19,8 +17,6 @@ const PORTAL: &str = "org.freedesktop.portal.Desktop";
 const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 const REQUEST: &str = "org.freedesktop.portal.Request";
 
-/// An open picker. Dropping it closes the dialog, and its answer is never
-/// delivered.
 #[derive(Debug)]
 pub struct FolderPicker {
     _open: async_channel::Sender<()>,
@@ -35,7 +31,6 @@ pub fn choose_folder(
     choose_folder_with(cx, message, "", directory, on_complete)
 }
 
-/// A folder picker whose confirm button reads `prompt`, when it is not empty.
 pub fn choose_folder_with(
     cx: &mut App,
     message: &str,
@@ -83,8 +78,6 @@ fn open(
     FolderPicker { _open: open }
 }
 
-/// Gives the answer to `on_complete`, unless the picker is dropped first:
-/// then nobody waits for the answer, and `close` ends the request instead.
 async fn until_dropped<A>(
     ask: impl Future<Output = A>,
     dropped: async_channel::Receiver<()>,
@@ -109,8 +102,6 @@ async fn until_dropped<A>(
     }
 }
 
-/// Ends a request, which closes its dialog. One that never started, or was
-/// answered, is not there to end.
 async fn close(token: &str) {
     let Ok(connection) = crate::dbus::session() else {
         return;
@@ -123,7 +114,6 @@ async fn close(token: &str) {
     }
 }
 
-/// Where the portal puts the request this connection makes with `token`.
 fn request_path(connection: &zbus::Connection, token: &str) -> Option<String> {
     Some(request_path_for(connection.unique_name()?.as_str(), token))
 }
@@ -151,7 +141,6 @@ impl Chooser {
     }
 
     async fn ask(&self, token: &str, cx: &mut AsyncApp) -> io::Result<Option<PathBuf>> {
-        // Kept until the answer: dropping it detaches the dialog from the window.
         let parent = parent(cx).await;
         let window = parent.as_ref().map(ToString::to_string).unwrap_or_default();
         let connection = crate::dbus::session().map_err(explain)?;
@@ -204,15 +193,12 @@ impl Chooser {
     }
 }
 
-/// The folder the dialog starts in, as the portal takes it: the bytes of the
-/// nearest folder that exists, ending in a zero.
 fn current_folder(directory: &Path) -> Option<Vec<u8>> {
     let existing = directory.ancestors().find(|folder| folder.is_dir())?;
     let bytes = existing.as_os_str().as_bytes();
     (existing.is_absolute() && !bytes.contains(&0)).then(|| [bytes, &[0]].concat())
 }
 
-/// The one local file a confirmed dialog chose. Anything else is a cancel.
 fn selected(code: u32, mut results: HashMap<String, OwnedValue>) -> Option<PathBuf> {
     if code != 0 {
         return None;
@@ -227,7 +213,6 @@ fn selected(code: u32, mut results: HashMap<String, OwnedValue>) -> Option<PathB
         .flatten()
 }
 
-/// The identifier that attaches the dialog to the window in front.
 async fn parent(cx: &mut AsyncApp) -> Option<WindowIdentifier> {
     use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
     let window = cx.update(|cx| cx.active_window()).ok()??;

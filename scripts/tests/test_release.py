@@ -56,8 +56,12 @@ class BetaVersionTests(unittest.TestCase):
         [folders] = info["CFBundleDocumentTypes"]
         self.assertEqual(folders["LSItemContentTypes"], ["public.folder"])
         self.assertEqual(folders["LSHandlerRank"], "Alternate")
+        [links] = info["CFBundleURLTypes"]
+        self.assertEqual(links["CFBundleURLSchemes"], ["muxy-beta"])
         info = release.bundle_info("2.1.0", "1234")
         self.assertEqual([info[key] for key in keys], ["Muxy", "com.muxy.app", "2.1.0", "1234"])
+        [links] = info["CFBundleURLTypes"]
+        self.assertEqual(links["CFBundleURLSchemes"], ["muxy"])
         self.assertEqual(info["SUPublicEDKey"], "X5YPWvD11Qthw+41DPZQRK8aOYBlPjjfeWW2k3510cY=")
         for version, build in (("2.1.0-beta.1234", "1235"), ("2.1.0", "0"), ("2.1.0", "x")):
             with self.subTest(version=version, build=build), self.assertRaises(ValueError):

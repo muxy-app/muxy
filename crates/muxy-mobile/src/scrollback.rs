@@ -6,15 +6,14 @@ use muxy_protocol::{ChannelId, ErrorCode, HistoryCursor, HistoryPage};
 use crate::MobileError;
 use crate::records::Line;
 
-/// A terminal's history and screen as they were at one moment, so reading
-/// back is not disturbed by new output.
+#[doc = " A terminal's history and screen as they were at one moment, so reading"]
+#[doc = " back is not disturbed by new output."]
 #[derive(uniffi::Object)]
 pub struct Scrollback {
     client: Client,
     channel: ChannelId,
     lines: Vec<Line>,
     history_rows: u64,
-    /// Where the next older page ends; `None` once nothing older remains.
     older: Mutex<Option<HistoryCursor>>,
 }
 
@@ -54,19 +53,19 @@ impl Scrollback {
 
 #[uniffi::export]
 impl Scrollback {
-    /// The newest history rows followed by the screen, oldest first.
+    #[doc = " The newest history rows followed by the screen, oldest first."]
     pub fn lines(&self) -> Vec<Line> {
         self.lines.clone()
     }
 
-    /// Rows the server kept above the screen when this copy was taken.
+    #[doc = " Rows the server kept above the screen when this copy was taken."]
     pub fn history_rows(&self) -> u64 {
         self.history_rows
     }
 
-    /// The rows just above those already loaded, oldest first. Empty once
-    /// nothing older remains, or once the history was cleared or rewrapped;
-    /// take a new scrollback to see it again.
+    #[doc = " The rows just above those already loaded, oldest first. Empty once"]
+    #[doc = " nothing older remains, or once the history was cleared or rewrapped;"]
+    #[doc = " take a new scrollback to see it again."]
     pub fn load_older(&self, max_rows: u16) -> Result<Vec<Line>, MobileError> {
         let mut older = self.older.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(before) = *older else {
@@ -89,7 +88,6 @@ impl Scrollback {
     }
 }
 
-/// The server serves 1 to 500 rows per page.
 fn page_size(max_rows: u16) -> u16 {
     max_rows.clamp(1, 500)
 }

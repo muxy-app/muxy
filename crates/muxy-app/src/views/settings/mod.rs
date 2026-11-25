@@ -7,12 +7,14 @@ mod catalog;
 mod commands;
 mod composer;
 pub(crate) mod extensions;
+mod files;
 mod keyboard;
 mod layout;
 mod pickers;
 mod quick_terminal;
 mod results;
 mod server;
+mod slider;
 pub(crate) mod tab;
 mod terminal;
 mod terminal_lists;
@@ -42,11 +44,13 @@ use crate::model::preferences::Change;
 pub(crate) fn register_commands(
     registry: &mut muxy_ui::command_palette::Registry<super::command_palette::Handler>,
     model: &crate::model::AppModel,
+    cx: &gpui::App,
 ) {
     super::workspace::commands::register_placed(
         registry,
         model,
         muxy_core::shortcuts::ShortcutId::OpenSettings,
+        cx,
     );
 }
 
@@ -61,15 +65,14 @@ pub(crate) enum Category {
     Keyboard,
     Commands,
     Browser,
-    Server,
-    Devices,
+    Servers,
     Extensions,
     Backup,
     About,
 }
 
 impl Category {
-    pub(crate) const ALL: [Self; 14] = [
+    pub(crate) const ALL: [Self; 13] = [
         Self::General,
         Self::QuickTerminal,
         Self::Composer,
@@ -78,15 +81,13 @@ impl Category {
         Self::Commands,
         Self::Terminal,
         Self::Browser,
-        Self::Server,
-        Self::Devices,
+        Self::Servers,
         Self::Extensions,
         Self::Ai,
         Self::Backup,
         Self::About,
     ];
 
-    /// The English name; also the key of its translation.
     fn label(self) -> &'static str {
         match self {
             Self::General => tr_key!("General"),
@@ -98,8 +99,7 @@ impl Category {
             Self::Keyboard => tr_key!("Keyboard"),
             Self::Commands => tr_key!("Commands"),
             Self::Browser => tr_key!("Browser"),
-            Self::Server => tr_key!("Server"),
-            Self::Devices => tr_key!("Devices"),
+            Self::Servers => tr_key!("Servers"),
             Self::Extensions => tr_key!("Extensions"),
             Self::Backup => tr_key!("Backup & Restore"),
             Self::About => tr_key!("About"),
@@ -123,6 +123,7 @@ pub(crate) enum SettingsEvent {
     OpenConfiguration(&'static str),
     DismissProblem,
     ShowWelcomeTour,
+    AskAgent,
 }
 
 #[derive(Clone)]
@@ -137,18 +138,12 @@ pub(crate) struct Snapshot {
     pub(crate) server_update: Option<String>,
     pub(crate) pending_server_fields: HashSet<String>,
     pub(crate) ai_installed: Vec<&'static str>,
-    /// The installed extensions have been read from disk.
     pub(crate) extensions_loaded: bool,
-    /// Enabled extensions that provide a sidebar, as `(extension, label)`.
     pub(crate) sidebars: Vec<(String, String)>,
-    /// Enabled extensions' file openers, as `(setting value, label)`.
-    pub(crate) file_openers: Vec<(String, String)>,
-    /// Languages enabled extensions provide, as `(selection, label)`.
+    pub(crate) file_openers: Vec<muxy_app_core::opener::FileHandler>,
     pub(crate) languages: Vec<(String, String)>,
     pub(crate) extension_shortcuts: Vec<crate::model::extensions::ExtensionShortcut>,
     pub(crate) browser_profiles: Vec<browser::Profile>,
-    /// Other browsers' profiles that can be imported, by name, and whether
-    /// their cookies can be.
     pub(crate) browser_sources: Vec<(String, bool)>,
 }
 
@@ -157,14 +152,13 @@ pub(crate) struct SettingsView {
     backup_import: Option<crate::backup::PreparedImport>,
     backup_status: String,
     pub(crate) extensions: Option<Entity<extensions::ExtensionsView>>,
-    pub(crate) devices: Option<Entity<super::cached::CachedView<crate::model::AppModel>>>,
+    pub(crate) servers: Option<Entity<super::cached::CachedView<crate::model::AppModel>>>,
     navigation_view: Entity<super::cached::CachedView<Self>>,
     content_view: Entity<super::cached::CachedView<Self>>,
     quick_recording: Option<(muxy_ui::quick_terminal::ShortcutRecording, gpui::Task<()>)>,
-    terminal_slider: Option<terminal::Drag>,
+    slider: Option<slider::Drag>,
     codepoint_editor: Option<terminal_lists::CodepointEditor>,
     binding_editor: Option<terminal_lists::BindingEditor>,
-    quick_slider: Option<(&'static str, gpui::Bounds<gpui::Pixels>)>,
     pub(crate) focus: FocusHandle,
     snapshot: Snapshot,
     theme: Theme,
@@ -184,6 +178,7 @@ pub(crate) struct SettingsView {
     pub(crate) errors: HashMap<String, String>,
     recording: Option<String>,
     command_editor: Option<muxy_app_core::settings::CustomCommand>,
+    file_rule_editor: Option<files::RuleEditor>,
     focus_initialized: bool,
     compact: bool,
     picker_anchors: HashMap<PickerKind, PickerAnchor>,
@@ -208,7 +203,6 @@ impl SettingsView {
 
 const CONTENT_SCALE: f32 = 1.15;
 
-/// Settings rows are drawn larger than the rest of the app.
 pub(crate) fn content_metrics(metrics: Metrics) -> Metrics {
     metrics.times(CONTENT_SCALE)
 }
@@ -259,17 +253,16 @@ impl SettingsView {
             backup_import: None,
             backup_status: String::new(),
             extensions: None,
-            devices: None,
+            servers: None,
             navigation_view: super::cached::CachedView::new(
                 |view, window, cx| view.navigation(window, cx),
                 cx,
             ),
             content_view: super::cached::CachedView::new(|view, _, cx| view.content(cx), cx),
             quick_recording: None,
-            terminal_slider: None,
+            slider: None,
             codepoint_editor: None,
             binding_editor: None,
-            quick_slider: None,
             focus,
             snapshot,
             theme,
@@ -292,6 +285,7 @@ impl SettingsView {
             errors: HashMap::new(),
             recording: None,
             command_editor: None,
+            file_rule_editor: None,
             focus_initialized: false,
             compact: false,
             picker_anchors: [
@@ -301,6 +295,7 @@ impl SettingsView {
                 PickerKind::QuickTheme(true),
                 PickerKind::AiProvider(crate::repository_actions::Action::Commit),
                 PickerKind::AiProvider(crate::repository_actions::Action::CreatePullRequest),
+                PickerKind::PromptProvider,
                 PickerKind::ExtensionSidebar,
                 PickerKind::FileOpener,
                 PickerKind::AppLanguage,
@@ -335,6 +330,14 @@ impl SettingsView {
                 if multiline { input.multiline() } else { input }
             });
             let changed = cx.subscribe(&input, move |pane: &mut Self, _, event, cx| {
+                if id == "file-pattern" {
+                    match event {
+                        InputEvent::Submitted => pane.save_file_rule(cx),
+                        InputEvent::Cancelled => pane.cancel_file_rule(cx),
+                        InputEvent::Changed => cx.notify(),
+                    }
+                    return;
+                }
                 if matches!(id, "command-name" | "command-text") {
                     match event {
                         InputEvent::Submitted => pane.save_command(cx),
@@ -418,16 +421,6 @@ impl SettingsView {
         for (id, value) in [
             ("composer-font", settings.composer.font_family.clone()),
             (
-                "composer-line-height",
-                settings.composer.line_height.to_string(),
-            ),
-            ("quick-width", settings.quick_terminal.width.to_string()),
-            ("quick-height", settings.quick_terminal.height.to_string()),
-            (
-                "sidebar-vibrancy-level",
-                settings.appearance.sidebar_vibrancy_level.to_string(),
-            ),
-            (
                 "worktree-template",
                 settings.worktrees.default_location.path_template.clone(),
             ),
@@ -454,8 +447,30 @@ impl SettingsView {
                     .cloned()
                     .unwrap_or_else(|| action.default_prompt().into()),
             )
-        })) {
+        }))
+        .chain([
+            (
+                crate::prompt::PROMPT_MODEL,
+                settings
+                    .ai
+                    .prompts
+                    .get(crate::prompt::PROMPT_MODEL)
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            (
+                crate::prompt::PROMPT_INSTRUCTIONS,
+                settings
+                    .ai
+                    .prompts
+                    .get(crate::prompt::PROMPT_INSTRUCTIONS)
+                    .filter(|prompt| !prompt.trim().is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| crate::prompt::DEFAULT_INSTRUCTIONS.into()),
+            ),
+        ]) {
             if !self.dirty.contains(id)
+                && self.dragging() != Some(id)
                 && !self.errors.contains_key(id)
                 && !self.snapshot.pending_server_fields.contains(id)
             {
@@ -507,7 +522,9 @@ impl SettingsView {
         self.dirty
             .drain()
             .map(|id| Change::Field(id, self.fields[id].read(cx).text().trim().to_owned()))
-            .chain(self.terminal_slider.take().and_then(terminal::Drag::change))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .chain(self.take_slider_change())
             .collect()
     }
 
@@ -518,6 +535,7 @@ impl SettingsView {
             self.errors.remove(id);
             match id {
                 "commands" => self.command_editor = None,
+                "file-rules" => self.file_rule_editor = None,
                 "font-codepoint-map" => self.codepoint_editor = None,
                 "terminal-keybindings" => self.binding_editor = None,
                 "terminal-reset" => {
@@ -532,7 +550,6 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Clears a page-level error; the application error is dismissed everywhere.
     fn dismiss_error(&mut self, id: &str, cx: &mut Context<Self>) {
         self.set_error(id, None, cx);
         if id == "application" {
@@ -547,7 +564,6 @@ impl SettingsView {
         }
     }
 
-    /// Shows Extensions → Browse limited to language packs.
     fn browse_languages(&mut self, cx: &mut Context<Self>) {
         self.show_extensions(cx);
         if let Some(extensions) = &self.extensions {
@@ -572,18 +588,18 @@ impl SettingsView {
         cx.notify();
     }
 
-    pub(crate) fn show_devices(&mut self, cx: &mut Context<Self>) {
-        self.category = Category::Devices;
+    pub(crate) fn show_servers(&mut self, cx: &mut Context<Self>) {
+        self.category = Category::Servers;
         self.section = None;
         self.query.clear();
         self.results.reset();
         self.search.update(cx, |input, cx| input.set_text("", cx));
+        cx.emit(SettingsEvent::ReadServer);
         cx.notify();
     }
 
-    /// Whether the Devices page is on screen; search results replace it.
-    pub(crate) fn devices_shown(&self) -> bool {
-        self.category == Category::Devices && self.query.is_empty()
+    pub(crate) fn servers_shown(&self) -> bool {
+        self.category == Category::Servers && self.query.is_empty()
     }
 
     fn matches(&self, category: Category, label: &str) -> bool {
@@ -616,10 +632,9 @@ impl SettingsView {
         }
     }
 
-    /// The file behind this category's settings.
     fn configuration_file(&self) -> &'static str {
         match self.category {
-            Category::Server => "server.toml",
+            Category::Servers => "server.toml",
             Category::Terminal => "terminal.toml",
             _ => "settings.toml",
         }
@@ -639,8 +654,6 @@ impl SettingsView {
         }
     }
 
-    /// A setting row. `label` is the English key it is listed and searched
-    /// by; an explicit `description` is already translated.
     fn row(&self, id: &str, label: &str, control: AnyElement) -> AnyElement {
         self.row_with(id, label, control, self.compact)
     }
@@ -660,7 +673,6 @@ impl SettingsView {
         self.text_row(id, &translate(label), description, control, stacked)
     }
 
-    /// A row whose label is shown as given, such as a custom command's name.
     fn text_row(
         &self,
         id: &str,
@@ -674,7 +686,6 @@ impl SettingsView {
         })
     }
 
-    /// A list setting's row: `action` sits beside the label, `items` below.
     fn list_row(
         &self,
         id: &str,
@@ -695,8 +706,6 @@ impl SettingsView {
         })
     }
 
-    /// Wraps a row's body with its section heading, error, and focus reveal.
-    /// `body` gets the description to show, falling back to the catalog's.
     fn framed_row(
         &self,
         id: &str,
@@ -777,7 +786,6 @@ impl SettingsView {
         form::note(self.style(), text, error)
     }
 
-    /// A note clients can read, for a list's empty state.
     fn readable_note(&self, id: &'static str, text: &str) -> AnyElement {
         self.note(text, false)
             .id(id)
@@ -786,7 +794,6 @@ impl SettingsView {
             .into_any_element()
     }
 
-    /// A stored value shown without a control, for a setting whose feature cannot run here.
     fn stored(&self, id: &str, value: &str) -> AnyElement {
         controls::button(
             self.style(),
@@ -809,11 +816,7 @@ impl SettingsView {
                 self.style(),
                 id,
                 &self.fields[id],
-                if matches!(id, "quick-width" | "quick-height") {
-                    Some(64.0)
-                } else {
-                    (!self.compact).then_some(210.0)
-                },
+                (!self.compact).then_some(210.0),
             ))
             .into_any_element()
     }
@@ -838,7 +841,6 @@ impl SettingsView {
     }
 }
 
-/// A note saying why `id`'s control was refused, announced when it appears.
 fn announced_error(note: gpui::Div, id: &str, error: &str) -> accessibility::LiveRegion {
     accessibility::announced(
         note.id(gpui::SharedString::from(format!("settings-error-{id}"))),
@@ -847,16 +849,12 @@ fn announced_error(note: gpui::Div, id: &str, error: &str) -> accessibility::Liv
     )
 }
 
-/// Every text field Settings shows, and whether it takes several lines.
 fn field_ids() -> impl Iterator<Item = (&'static str, bool)> {
     [
+        "file-pattern",
         "command-name",
         "command-text",
         "composer-font",
-        "composer-line-height",
-        "quick-width",
-        "quick-height",
-        "sidebar-vibrancy-level",
         "worktree-template",
         "worktree-folder",
         "width",
@@ -871,13 +869,16 @@ fn field_ids() -> impl Iterator<Item = (&'static str, bool)> {
     .chain(terminal_lists::EDITOR_FIELDS)
     .map(|id| (id, false))
     .chain(ai::PROMPTS.iter().map(|(_, id)| (*id, true)))
+    .chain([
+        (crate::prompt::PROMPT_MODEL, false),
+        (crate::prompt::PROMPT_INSTRUCTIONS, true),
+    ])
 }
 
 fn palette_index(id: &str) -> Option<&str> {
     id.strip_prefix("palette-")
 }
 
-/// What accessibility clients read for the control `id`.
 fn control_name(id: &str) -> gpui::SharedString {
     catalog::control_label(id).map_or_else(Default::default, muxy_ui::l10n::translate)
 }
@@ -895,24 +896,15 @@ impl Render for SettingsView {
         div()
             .id("settings-view")
             .on_mouse_move(cx.listener(|view, event: &gpui::MouseMoveEvent, _, cx| {
-                view.move_terminal_slider(event.position, cx);
-                if let Some((id, bounds)) = view.quick_slider {
-                    view.move_quick_slider(id, bounds, event.position, cx);
-                }
+                view.move_slider(event.position, cx);
             }))
             .on_mouse_up(
                 gpui::MouseButton::Left,
-                cx.listener(|view, _, _, cx| {
-                    view.finish_terminal_slider(cx);
-                    view.quick_slider = None;
-                }),
+                cx.listener(|view, _, _, cx| view.finish_slider(cx)),
             )
             .on_mouse_up_out(
                 gpui::MouseButton::Left,
-                cx.listener(|view, _, _, cx| {
-                    view.finish_terminal_slider(cx);
-                    view.quick_slider = None;
-                }),
+                cx.listener(|view, _, _, cx| view.finish_slider(cx)),
             )
             .debug_selector(|| "settings-view".into())
             .track_focus(&self.focus)
@@ -1015,6 +1007,7 @@ mod tests {
                 PickerKind::QuickTheme(true),
                 PickerKind::AiProvider(crate::repository_actions::Action::Commit),
                 PickerKind::AiProvider(crate::repository_actions::Action::CreatePullRequest),
+                PickerKind::PromptProvider,
                 PickerKind::ExtensionSidebar,
                 PickerKind::FileOpener,
                 PickerKind::AppLanguage,

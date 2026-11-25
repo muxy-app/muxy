@@ -165,6 +165,8 @@ struct StoredMembership {
     status: StoredStatus,
     #[serde(default)]
     ended_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -216,6 +218,8 @@ struct StoredGitReceipt {
     #[serde(default)]
     failed: Option<StoredError>,
     reply: Option<StoredGitReply>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    set_aside: Option<ServerPath>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -462,6 +466,7 @@ impl From<&Membership> for StoredMembership {
             info: (&membership.info).into(),
             status: membership.status.into(),
             ended_at: membership.ended_at,
+            name: membership.name.clone(),
         }
     }
 }
@@ -472,6 +477,9 @@ impl From<StoredMembership> for Membership {
             info: membership.info.into(),
             status: membership.status.into(),
             ended_at: membership.ended_at,
+            name: membership
+                .name
+                .filter(|name| muxy_protocol::validate_session_name(name).is_ok()),
         }
     }
 }
@@ -560,6 +568,7 @@ impl TryFrom<&GitReceipt> for StoredGitReceipt {
                 .as_ref()
                 .map(StoredGitReply::try_from)
                 .transpose()?,
+            set_aside: receipt.set_aside.clone(),
         })
     }
 }
@@ -578,6 +587,7 @@ impl From<StoredGitReceipt> for GitReceipt {
             hook_error: receipt.hook_error,
             failed: receipt.failed.map(ErrorReply::from),
             reply: receipt.reply.map(GitReply::from),
+            set_aside: receipt.set_aside,
         }
     }
 }

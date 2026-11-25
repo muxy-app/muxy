@@ -1,7 +1,3 @@
-//! Tells the terminal what a script is doing with the program status
-//! protocol (OSC 7501). It needs no server, so it works over SSH and in any
-//! terminal that supports the protocol; others ignore it.
-
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
@@ -13,7 +9,6 @@ const KINDS: [&str; 3] = ["permission", "question", "auth"];
 const MAX_TITLE: usize = 192;
 const MAX_MESSAGE: usize = 2048;
 
-/// Reads `<state> [options]` into the report to send.
 pub(crate) fn parse(arguments: &[OsString]) -> io::Result<String> {
     let text = arguments
         .iter()
@@ -53,10 +48,9 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<String> {
     keys.report(state)
 }
 
-/// Writes the report to this process's terminal, even when its output is
-/// redirected, or to its output when it has no terminal.
 pub(crate) fn run(report: &str) -> io::Result<()> {
-    if let Ok(mut terminal) = OpenOptions::new().write(true).open("/dev/tty") {
+    let terminal = if cfg!(windows) { "CONOUT$" } else { "/dev/tty" };
+    if let Ok(mut terminal) = OpenOptions::new().write(true).open(terminal) {
         return terminal.write_all(report.as_bytes());
     }
     let mut stdout = io::stdout().lock();

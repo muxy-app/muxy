@@ -1,8 +1,8 @@
 mod legacy;
 mod projects;
 
-pub use legacy::{import_settings, import_shell, merge_legacy_files};
-pub use projects::{import_projects, remap_project_settings, remap_settings};
+pub use legacy::{import_projects, import_settings, import_shell, merge_legacy_files};
+pub use projects::{remap_project_settings, remap_settings};
 
 use std::path::{Path, PathBuf};
 
@@ -15,9 +15,7 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 #[derive(Debug, Default)]
 pub struct ImportReport {
     pub imported: usize,
-    /// Options Muxy 2 doesn't have.
     pub skipped: Vec<String>,
-    /// The user's own data that could not come along, to check after import.
     pub attention: Vec<String>,
 }
 

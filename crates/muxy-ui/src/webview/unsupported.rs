@@ -25,7 +25,6 @@ impl NativeWebview {
         _source: Source,
         _script: &str,
         _background: Rgba,
-        _transparent_background: bool,
     ) -> Result<(Self, Receiver<Event>), String> {
         Err(Feature::ExtensionWebviews.unsupported_reason().into_owned())
     }
@@ -35,6 +34,9 @@ impl NativeWebview {
     pub(super) fn set_focused(&self, _focused: bool) {
         match *self {}
     }
+    pub(super) fn take_click(&self) -> bool {
+        match *self {}
+    }
     pub(super) fn set_grips(&self, _grips: &[(Bounds<Pixels>, CursorStyle)]) {
         match *self {}
     }
@@ -42,6 +44,9 @@ impl NativeWebview {
         match *self {}
     }
     pub(super) fn set_hit_regions(&self, _regions: Option<&[Bounds<Pixels>]>) {
+        match *self {}
+    }
+    pub(super) fn move_to_window(&self, _window: &Window) -> Result<(), String> {
         match *self {}
     }
     pub(super) fn order_front(_views: &[&Self]) {}
@@ -73,7 +78,7 @@ impl NativeWebview {
     ) {
         match *self {}
     }
-    pub(super) fn occlude(&self, _occlusions: &[Bounds<Pixels>]) {
+    pub(super) fn occlude(&self, _occlusions: &[super::Cover], _window: &mut Window) {
         match *self {}
     }
     pub(super) fn set_visible(&self, _visible: bool) {

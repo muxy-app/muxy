@@ -1,3 +1,4 @@
+use super::slider::{Commit, Slider};
 use super::{Category, PickerKind, SettingsEvent, SettingsView, Snapshot};
 use crate::model::preferences::{AgentsPanelToggle, Change, WorktreeToggle};
 use gpui::{AnyElement, Context, InteractiveElement, IntoElement};
@@ -7,7 +8,7 @@ use muxy_app_core::settings::{
     SidebarCollapsedStyle,
 };
 use muxy_ui::controls::{self, Choice};
-use muxy_ui::l10n::{tr_key, translate};
+use muxy_ui::l10n::tr_key;
 use muxy_ui::tr;
 
 #[allow(
@@ -100,10 +101,22 @@ pub(super) fn rows(
             Change::StatusBar(!appearance.status_bar_visible),
         ),
         (
+            "rail",
+            tr_key!("Show rail"),
+            appearance.rail_enabled,
+            Change::Rail(!appearance.rail_enabled),
+        ),
+        (
             "pane-headers",
             tr_key!("Show pane headers"),
             appearance.pane_headers,
             Change::PaneHeaders(!appearance.pane_headers),
+        ),
+        (
+            "open-in-app-button",
+            tr_key!("Show Open in App button"),
+            appearance.open_in_app_button,
+            Change::OpenInAppButton(!appearance.open_in_app_button),
         ),
         (
             "confirm-process",
@@ -129,6 +142,18 @@ pub(super) fn rows(
     if category == Category::Appearance && pane.matches(category, tr_key!("Active sidebar")) {
         rows.push(active_sidebar(pane, cx));
     }
+    if category == Category::Appearance && pane.matches(category, tr_key!("Auto-hide sidebar")) {
+        rows.push(pane.row(
+            "sidebar-auto-hide",
+            tr_key!("Auto-hide sidebar"),
+            pane.toggle(
+                "sidebar-auto-hide",
+                appearance.sidebar_auto_hide,
+                Change::SidebarAutoHide(!appearance.sidebar_auto_hide),
+                cx,
+            ),
+        ));
+    }
     if category == Category::Appearance && pane.matches(category, tr_key!("Sidebar vibrancy")) {
         rows.push(pane.row(
             "sidebar-vibrancy",
@@ -146,7 +171,17 @@ pub(super) fn rows(
         rows.push(pane.row(
             "sidebar-vibrancy-level",
             tr_key!("Sidebar vibrancy level"),
-            pane.field("sidebar-vibrancy-level"),
+            pane.slider(
+                Slider::new(
+                    "sidebar-vibrancy-level",
+                    (0.0, 100.0),
+                    1.0,
+                    "%",
+                    Commit::Field,
+                ),
+                f32::from(appearance.sidebar_vibrancy_level),
+                cx,
+            ),
         ));
     }
     if category == Category::Appearance && pane.matches(category, tr_key!("Show tips")) {
@@ -171,6 +206,20 @@ pub(super) fn rows(
                 "remember-projects-without-tabs",
                 appearance.remember_projects_without_tabs,
                 Change::RememberProjectsWithoutTabs(!appearance.remember_projects_without_tabs),
+                cx,
+            ),
+        ));
+    }
+    if category == Category::Appearance
+        && pane.matches(category, tr_key!("Show other servers in the sidebar"))
+    {
+        rows.push(pane.row(
+            "sidebar-servers",
+            tr_key!("Show other servers in the sidebar"),
+            pane.toggle(
+                "sidebar-servers",
+                appearance.sidebar_remote_servers,
+                Change::SidebarServers(!appearance.sidebar_remote_servers),
                 cx,
             ),
         ));
@@ -255,16 +304,27 @@ pub(super) fn rows(
             ));
         }
     }
-    if category == Category::General && pane.matches(category, tr_key!("Open files with")) {
-        rows.push(pane.row(
-            "file-opener",
-            tr_key!("Open files with"),
-            pane.picker(PickerKind::FileOpener, &file_opener(&pane.snapshot), cx),
-        ));
+    if category == Category::General {
+        rows.extend(super::files::rows(pane, cx));
+    }
+    let size = pane.snapshot.settings.window.default_size;
+    for (index, id, label, minimum) in [
+        (0, "width", tr_key!("Default window width"), 640.0),
+        (1, "height", tr_key!("Default window height"), 400.0),
+    ] {
+        if category == Category::General && pane.matches(category, label) {
+            rows.push(pane.row(
+                id,
+                label,
+                pane.slider_field(
+                    Slider::new(id, (minimum, 16384.0), 10.0, "", Commit::Field),
+                    size[index],
+                    cx,
+                ),
+            ));
+        }
     }
     for (id, label) in [
-        ("width", tr_key!("Default window width")),
-        ("height", tr_key!("Default window height")),
         (
             "worktree-template",
             tr_key!("Default worktree path template"),
@@ -275,19 +335,19 @@ pub(super) fn rows(
             rows.push(pane.row(id, label, pane.field(id)));
         }
     }
+    if category == Category::General
+        && pane.matches(category, tr_key!("Send an anonymous daily ping"))
+    {
+        let enabled = pane.snapshot.settings.privacy.usage_ping;
+        rows.push(pane.row(
+            "usage-ping",
+            tr_key!("Send an anonymous daily ping"),
+            pane.toggle("usage-ping", enabled, Change::UsagePing(!enabled), cx),
+        ));
+    }
     rows
 }
 
-/// Built-in openers for files clicked in a terminal, as `(setting value, label key)`.
-pub(super) const FILE_OPENERS: [(&str, &str); 3] = [
-    ("system.editor", tr_key!("Project editor")),
-    ("system.finder", crate::opener::FILE_MANAGER),
-    ("system.application", tr_key!("Default application")),
-];
-
-/// Which sidebar shows. The row is there before any extension provides one,
-/// and says where to get one; a chosen one that is no longer enabled stays
-/// chosen, and the row says the built-in sidebar shows meanwhile.
 fn active_sidebar(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
     let selected = &pane.snapshot.settings.appearance.extension_sidebar;
     let unavailable =
@@ -318,7 +378,6 @@ fn active_sidebar(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEle
     )
 }
 
-/// The label of a sidebar selection: built in, a provider, or an unavailable one.
 pub(super) fn sidebar_label(snapshot: &Snapshot, selected: &str) -> String {
     if selected.is_empty() {
         return tr!("Built-in").to_string();
@@ -339,35 +398,6 @@ pub(super) fn sidebar_label(snapshot: &Snapshot, selected: &str) -> String {
         )
 }
 
-/// The chosen file opener's label. A chosen extension opener that is no
-/// longer enabled stays chosen, marked unavailable.
-fn file_opener(snapshot: &Snapshot) -> String {
-    let value = &snapshot.settings.openers.file;
-    FILE_OPENERS
-        .iter()
-        .map(|&(id, label)| (id, translate(label)))
-        .chain(
-            snapshot
-                .file_openers
-                .iter()
-                .map(|(id, label)| (id.as_str(), label.clone().into())),
-        )
-        .find(|(id, _)| id == value)
-        .map_or_else(
-            || unavailable_file_opener(value),
-            |(_, label)| label.to_string(),
-        )
-}
-
-pub(super) fn unavailable_file_opener(value: &str) -> String {
-    match value.split_once(':') {
-        Some((extension, opener)) => tr!("%@ (%@, unavailable)", extension, opener).to_string(),
-        None => tr!("%@ (unavailable)", value).to_string(),
-    }
-}
-
-/// The app language. While the chosen language's extension is unavailable,
-/// the row says English shows meanwhile.
 fn app_language(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyElement {
     let selected = &pane.snapshot.settings.appearance.language;
     let unavailable =
@@ -388,8 +418,6 @@ fn app_language(pane: &SettingsView, cx: &mut Context<SettingsView>) -> AnyEleme
     )
 }
 
-/// The label of a language selection: English, a provider, or an
-/// unavailable one.
 pub(super) fn language_label(snapshot: &Snapshot, selected: &str) -> String {
     if selected.is_empty() {
         return tr!("English").to_string();

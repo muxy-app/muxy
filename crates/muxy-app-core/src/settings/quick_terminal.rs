@@ -15,9 +15,7 @@ pub struct QuickTerminalSettings {
     pub blur: u8,
     pub pinned: bool,
     pub shortcut: QuickTerminalShortcut,
-    /// Empty uses the app's dark theme.
     pub dark_theme: String,
-    /// Empty uses the app's light theme.
     pub light_theme: String,
 }
 
@@ -38,7 +36,6 @@ impl Default for QuickTerminalSettings {
 }
 
 impl QuickTerminalSettings {
-    /// The theme chosen for the Quick Terminal, or `None` to use the app's.
     pub fn theme(&self, dark: bool) -> Option<&str> {
         let name = if dark {
             &self.dark_theme
@@ -84,7 +81,7 @@ impl QuickTerminalSettings {
 
     pub fn save(&self, path: &Path) -> Result<()> {
         self.validate()?;
-        crate::settings::appearance::save_section(path, "quick_terminal", self)
+        crate::settings::document::save_section(path, "quick_terminal", self)
             .map_err(|error| Error::new("quick_terminal", error))
     }
 }

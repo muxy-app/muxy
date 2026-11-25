@@ -157,6 +157,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("ListFolders", ChannelKind::Control),
             Message::Request {
+                body: RequestBody::ListEntries(_),
+                ..
+            } => ("ListEntries", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::Upload(_),
                 ..
             } => ("Upload", ChannelKind::Control),
@@ -164,6 +168,84 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: RequestBody::RevokeDevice(_),
                 ..
             } => ("RevokeDevice", ChannelKind::Control),
+            Message::Request {
+                body:
+                    RequestBody::RegisterPush(muxy_protocol::PushToken {
+                        platform: muxy_protocol::PushPlatform::Apns,
+                        ..
+                    }),
+                ..
+            } => ("RegisterApnsPush", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::RegisterPush(_),
+                ..
+            } => ("RegisterFcmPush", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::UnregisterPush,
+                ..
+            } => ("UnregisterPush", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::SetPushNotifications(_),
+                ..
+            } => ("SetPushNotifications", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::ResetPush(_),
+                ..
+            } => ("ResetPush", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::DeferImages,
+                ..
+            } => ("DeferImages", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ImagesDeferred,
+                ..
+            } => ("ImagesDeferred", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::StreamImages,
+                ..
+            } => ("StreamImages", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ImagesStreamed,
+                ..
+            } => ("ImagesStreamed", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::ShareImages,
+                ..
+            } => ("ShareImages", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ImagesShared,
+                ..
+            } => ("ImagesShared", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::ImageFrames { .. },
+                ..
+            } => ("ImageFramesRequest", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ImageFrames(_),
+                ..
+            } => ("ImageFramesReply", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::PushRegistered(registration),
+                ..
+            } if registration.key.is_some() => ("PushRegistered", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::PushRegistered(_),
+                ..
+            } => ("PushDisabled", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::PushUnregistered,
+                ..
+            } => ("PushUnregistered", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::RemoteAccess(state),
+                ..
+            } if state.push_notifications => ("RemoteAccessWithPush", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::RemoteAccess(state),
+                ..
+            } if state.push_kept_until.is_some() => {
+                ("RemoteAccessPushPaused", ChannelKind::Control)
+            }
             Message::Reply {
                 body: ReplyBody::Authenticated,
                 ..
@@ -266,6 +348,12 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("ProjectMutated", ChannelKind::Control),
             Message::Reply {
+                body: ReplyBody::ProjectSessions(page),
+                ..
+            } if page.sessions.iter().any(|session| session.name.is_some()) => {
+                ("NamedProjectSessions", ChannelKind::Control)
+            }
+            Message::Reply {
                 body: ReplyBody::ProjectSessions(_),
                 ..
             } => ("ProjectSessions", ChannelKind::Control),
@@ -314,6 +402,14 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("SessionClosed", ChannelKind::Control),
             Message::Request {
+                body: RequestBody::MoveSession { .. },
+                ..
+            } => ("MoveSession", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::SessionMoved,
+                ..
+            } => ("SessionMoved", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::StopServerIfIdle,
                 ..
             } => ("StopServerIfIdle", ChannelKind::Control),
@@ -357,6 +453,29 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 body: RequestBody::SetSessionColors { .. },
                 ..
             } => ("SessionColorsRequest", ChannelKind::Control),
+            Message::Request {
+                body:
+                    RequestBody::SetSessionName {
+                        replacing: Some(_), ..
+                    },
+                ..
+            } => ("SessionNameClearRequest", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::SetSessionName { .. },
+                ..
+            } => ("SessionNameRequest", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::SessionNameSet,
+                ..
+            } => ("SessionNameReply", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::WatchSessionMetadata,
+                ..
+            } => ("WatchSessionMetadata", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::SessionMetadataWatched,
+                ..
+            } => ("SessionMetadataWatched", ChannelKind::Control),
             Message::Reply {
                 body: ReplyBody::SessionColorsSet,
                 ..
@@ -460,6 +579,10 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("Folders", ChannelKind::Control),
             Message::Reply {
+                body: ReplyBody::Entries(_),
+                ..
+            } => ("Entries", ChannelKind::Control),
+            Message::Reply {
                 body: ReplyBody::Uploaded(_),
                 ..
             } => ("Uploaded", ChannelKind::Control),
@@ -476,7 +599,18 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 },
                 ChannelKind::Session,
             ),
+            Message::Mouse(event) if event.pixel.is_some() => ("PixelMouse", ChannelKind::Session),
             Message::Mouse(_) => ("Mouse", ChannelKind::Session),
+            Message::Frame(frame)
+                if frame.graphics.as_ref().is_some_and(|graphics| {
+                    graphics.images.iter().any(|image| image.shared.is_some())
+                }) =>
+            {
+                ("FrameWithSharedImages", ChannelKind::Session)
+            }
+            Message::Frame(frame) if frame.graphics.is_some() => {
+                ("FrameWithImages", ChannelKind::Session)
+            }
             Message::Frame(_) => ("Frame", ChannelKind::Session),
             Message::Metadata(MetadataEvent::History { .. }) => {
                 ("HistoryMetadata", ChannelKind::Session)
@@ -485,6 +619,9 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ("ScreenPrompts", ChannelKind::Session)
             }
             Message::Metadata(MetadataEvent::Links { .. }) => ("Links", ChannelKind::Session),
+            Message::Metadata(MetadataEvent::InputModes(modes)) if modes.mouse_pixels => {
+                ("PixelInputModes", ChannelKind::Session)
+            }
             Message::Metadata(MetadataEvent::InputModes(_)) => ("InputModes", ChannelKind::Session),
             Message::Metadata(MetadataEvent::CursorBlinking(_)) => {
                 ("CursorBlinking", ChannelKind::Session)
@@ -544,6 +681,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "CloseSession",
             "SessionReferencesSynced",
             "SessionClosed",
+            "MoveSession",
+            "SessionMoved",
             "ReadCatalog",
             "MutateProject",
             "PruneWorktree",
@@ -577,6 +716,12 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "TerminalColorsReply",
             "SessionColorsRequest",
             "SessionColorsReply",
+            "SessionNameRequest",
+            "SessionNameClearRequest",
+            "SessionNameReply",
+            "WatchSessionMetadata",
+            "SessionMetadataWatched",
+            "NamedProjectSessions",
             "HistoryRequest",
             "SavedHistoryRequest",
             "HistoryReply",
@@ -597,6 +742,8 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "ClearInput",
             "Mouse",
             "InputModes",
+            "PixelMouse",
+            "PixelInputModes",
             "CursorBlinking",
             "ClipboardWrite",
             "Progress",
@@ -612,10 +759,32 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "StartPairingWithHosts",
             "ListFolders",
             "Folders",
+            "ListEntries",
+            "Entries",
             "Upload",
             "Uploaded",
             "CancelPairing",
             "RevokeDevice",
+            "RegisterApnsPush",
+            "RegisterFcmPush",
+            "UnregisterPush",
+            "SetPushNotifications",
+            "ResetPush",
+            "RemoteAccessPushPaused",
+            "PushRegistered",
+            "PushDisabled",
+            "PushUnregistered",
+            "DeferImages",
+            "ImagesDeferred",
+            "StreamImages",
+            "ImagesStreamed",
+            "ShareImages",
+            "ImagesShared",
+            "ImageFramesRequest",
+            "ImageFramesReply",
+            "FrameWithImages",
+            "FrameWithSharedImages",
+            "RemoteAccessWithPush",
             "Authenticated",
             "Paired",
             "RemoteAccess",
@@ -674,6 +843,7 @@ fn snapshot() -> AttachSnapshot {
         history: vec![],
         history_cursor: None,
         history_total: 0,
+        history_graphics: None,
     }
 }
 
@@ -717,6 +887,7 @@ fn history_limits_and_page_shape_are_validated() {
         next: Some(HistoryCursor(3)),
         total_rows: 5,
         screen: None,
+        graphics: None,
     };
     assert_eq!(
         reply(ReplyBody::HistoryPage(valid.clone())).validate(),
@@ -765,6 +936,54 @@ fn history_limits_and_page_shape_are_validated() {
 }
 
 #[test]
+fn history_page_images_must_cover_its_rows() {
+    use muxy_protocol::{GraphicImage, GraphicPlacement, Graphics, HistoryCursor, HistoryPage};
+    let rows = snapshot().rows;
+    let count = i32::try_from(rows.len()).expect("rows");
+    let placed = |row: i32, tall: u32| HistoryPage {
+        links: None,
+        prompts: Vec::new(),
+        rows: rows.clone(),
+        next: Some(HistoryCursor(3)),
+        total_rows: 5,
+        screen: None,
+        graphics: Some(Graphics {
+            cell: muxy_protocol::CellSize::default(),
+            images: vec![GraphicImage {
+                id: 1,
+                width: 1,
+                height: 1,
+                ..GraphicImage::default()
+            }],
+            placements: vec![GraphicPlacement {
+                image: 1,
+                id: 0,
+                column: 0,
+                row,
+                offset: [0, 0],
+                size: [8, tall],
+                source: [0, 0, 1, 1],
+                z: 0,
+            }],
+        }),
+    };
+    for (row, tall) in [(0, 16), (count - 1, 16), (-1, 32)] {
+        assert_eq!(
+            reply(ReplyBody::HistoryPage(placed(row, tall))).validate(),
+            Ok(()),
+            "row {row}, {tall} pixels tall"
+        );
+    }
+    for (row, tall) in [(count, 16), (-1, 16), (-2, 32)] {
+        assert_eq!(
+            reply(ReplyBody::HistoryPage(placed(row, tall))).validate(),
+            Err(ErrorCode::BadRequest),
+            "row {row}, {tall} pixels tall"
+        );
+    }
+}
+
+#[test]
 fn history_links_reject_out_of_page_rows_and_invalid_spans() {
     use muxy_protocol::{HistoryPage, LinkRow, LinkSpan};
     let link = LinkRow {
@@ -782,6 +1001,7 @@ fn history_links_reject_out_of_page_rows_and_invalid_spans() {
         next: None,
         total_rows: 1,
         screen: None,
+        graphics: None,
     };
     assert!(
         reply(ReplyBody::HistoryPage(page.clone()))
@@ -895,6 +1115,7 @@ fn history_and_screen_link_budgets_are_independent_and_bounded()
                 cursor: snapshot.cursor,
                 reason: None,
             }),
+            graphics: None,
         };
         assert_eq!(
             reply(ReplyBody::HistoryPage(page.clone())).validate(),
@@ -907,6 +1128,64 @@ fn history_and_screen_link_budgets_are_independent_and_bounded()
         );
     }
     Ok(())
+}
+
+#[test]
+fn session_names_are_trimmed_bounded_and_free_of_control_characters() {
+    let project = muxy_protocol::ProjectId::from_u128(1);
+    for (name, expected) in [
+        (None, Ok(())),
+        (Some("API server".to_owned()), Ok(())),
+        (
+            Some("é".repeat(muxy_protocol::MAX_SESSION_NAME / 2)),
+            Ok(()),
+        ),
+        (Some(String::new()), Err(ErrorCode::BadRequest)),
+        (Some(" padded".into()), Err(ErrorCode::BadRequest)),
+        (Some("two\nlines".into()), Err(ErrorCode::BadRequest)),
+        (Some("bell\u{7}".into()), Err(ErrorCode::BadRequest)),
+        (
+            Some("x".repeat(muxy_protocol::MAX_SESSION_NAME + 1)),
+            Err(ErrorCode::BadRequest),
+        ),
+    ] {
+        assert_eq!(
+            request(RequestBody::SetSessionName {
+                session: session_id(),
+                name: name.clone(),
+                replacing: None,
+            })
+            .validate(),
+            expected,
+            "{name:?}"
+        );
+        assert_eq!(
+            request(RequestBody::SetSessionName {
+                session: session_id(),
+                name: None,
+                replacing: name.clone(),
+            })
+            .validate(),
+            expected,
+            "replacing {name:?}"
+        );
+        let listed = reply(ReplyBody::ProjectSessions(muxy_protocol::ProjectSessions {
+            revision: 1,
+            sessions: vec![muxy_protocol::ProjectSession {
+                info: muxy_protocol::SessionInfo {
+                    project,
+                    id: session_id(),
+                    directory: directory(),
+                },
+                status: muxy_protocol::SessionStatus::Live,
+                owner: None,
+                attached: false,
+                name: name.clone(),
+            }],
+            next: None,
+        }));
+        assert_eq!(listed.validate(), expected, "{name:?}");
+    }
 }
 
 #[test]
@@ -937,6 +1216,7 @@ fn graphics_reject_overflow_truncation_missing_images_and_invalid_crops() {
             width: 1,
             height: 1,
             rgba: vec![255; 4].into(),
+            ..GraphicImage::default()
         }],
         placements: vec![GraphicPlacement {
             image: 1,
@@ -963,4 +1243,167 @@ fn graphics_reject_overflow_truncation_missing_images_and_invalid_crops() {
     graphics.placements[0].source[0] = 0;
     graphics.placements[0].image = 2;
     assert!(graphics.validate().is_err());
+}
+
+#[test]
+fn graphics_accept_deferred_pixels_and_check_animation_frames() {
+    use muxy_protocol::{GraphicFrame, GraphicImage, Graphics, MAX_GRAPHICS_FRAMES};
+    let frame = |key| GraphicFrame { key, gap: 40 };
+    let mut graphics = Graphics {
+        images: vec![GraphicImage {
+            id: 1,
+            generation: 9,
+            width: 2,
+            height: 2,
+            frames: vec![frame(1), frame(2)],
+            ..GraphicImage::default()
+        }],
+        ..Graphics::default()
+    };
+    assert!(graphics.validate().is_ok());
+    assert_eq!(graphics.images[0].frame_keys().collect::<Vec<_>>(), [1, 2]);
+    graphics.images[0].playback.frame = 2;
+    assert!(graphics.validate().is_err());
+    graphics.images[0].playback.frame = 1;
+    graphics.images[0].frames = vec![frame(1); MAX_GRAPHICS_FRAMES + 1];
+    assert!(graphics.validate().is_err());
+    graphics.images[0].frames.clear();
+    assert!(graphics.validate().is_err());
+    graphics.images[0].playback.frame = 0;
+    assert_eq!(graphics.images[0].frame_keys().collect::<Vec<_>>(), [9]);
+    graphics.images[0].width = 4096;
+    graphics.images[0].height = 4096;
+    assert!(graphics.validate().is_ok());
+    graphics.images[0].width = 8192;
+    graphics.images[0].height = 8192;
+    assert!(graphics.validate().is_err());
+}
+
+#[test]
+fn graphics_keep_inline_pixels_small_and_shared_pixels_by_name() {
+    use muxy_protocol::{
+        GraphicImage, Graphics, MAX_GRAPHICS_BYTES, MAX_SHARED_GRAPHICS_BYTES, SharedPixels,
+    };
+    let side = 2048;
+    let large = |id, rgba: bool, shared: Option<&str>| GraphicImage {
+        id,
+        width: side,
+        height: side,
+        rgba: if rgba {
+            vec![0; (side * side * 4) as usize].into()
+        } else {
+            std::sync::Arc::default()
+        },
+        shared: shared.map(|name| SharedPixels { name: name.into() }),
+        ..GraphicImage::default()
+    };
+    let graphics = |images| Graphics {
+        images,
+        ..Graphics::default()
+    };
+    assert!(side as usize * side as usize * 4 > MAX_GRAPHICS_BYTES / 2);
+    assert!(
+        graphics(vec![large(1, false, Some("/mx1-2"))])
+            .validate()
+            .is_ok()
+    );
+    assert!(
+        graphics(vec![large(1, true, None), large(2, true, None)])
+            .validate()
+            .is_err()
+    );
+    let quarter = |id| GraphicImage {
+        id,
+        width: 1024,
+        height: 1024,
+        rgba: vec![0; 1024 * 1024 * 4].into(),
+        ..GraphicImage::default()
+    };
+    assert!(graphics(vec![quarter(1), quarter(2)]).validate().is_ok());
+    assert!(
+        graphics(vec![quarter(1), quarter(2), quarter(3)])
+            .validate()
+            .is_err()
+    );
+    assert!(
+        graphics(vec![large(1, true, Some("/mx1-2"))])
+            .validate()
+            .is_err()
+    );
+    assert!(
+        graphics(vec![large(1, false, Some("/etc/passwd"))])
+            .validate()
+            .is_err()
+    );
+    let count = u32::try_from(MAX_SHARED_GRAPHICS_BYTES / (side as usize * side as usize * 4))
+        .unwrap_or_default();
+    let fits: Vec<_> = (0..count)
+        .map(|id| large(id, false, Some("/mx1-2")))
+        .collect();
+    assert!(graphics(fits.clone()).validate().is_ok());
+    let mut over = fits;
+    over.push(large(count, false, Some("/mx1-2")));
+    assert!(graphics(over).validate().is_err());
+}
+
+#[test]
+fn image_frame_requests_and_replies_are_bounded() {
+    use muxy_protocol::{ImageFrame, MAX_GRAPHICS_BYTES, MAX_GRAPHICS_FRAMES};
+    let ask = |channel, keys| {
+        request(RequestBody::ImageFrames {
+            channel,
+            image: 1,
+            keys,
+        })
+        .validate()
+    };
+    assert!(ask(ChannelId(1), vec![7]).is_ok());
+    assert_eq!(ask(CONTROL, vec![7]), Err(ErrorCode::UnknownChannel));
+    assert_eq!(ask(ChannelId(1), Vec::new()), Err(ErrorCode::BadRequest));
+    assert_eq!(
+        ask(ChannelId(1), vec![7; MAX_GRAPHICS_FRAMES + 1]),
+        Err(ErrorCode::BadRequest)
+    );
+    let frame = |width: u32, height: u32, bytes: usize| ImageFrame {
+        key: 7,
+        width,
+        height,
+        rgba: vec![0; bytes].into(),
+    };
+    let answer = |frames| reply(ReplyBody::ImageFrames(frames)).validate();
+    assert!(answer(Vec::new()).is_ok());
+    assert!(answer(vec![frame(1, 2, 8), frame(1, 1, 4)]).is_ok());
+    assert!(answer(vec![frame(1, 2, 4)]).is_err());
+    assert!(answer(vec![frame(0, 0, 0)]).is_err());
+    let half = MAX_GRAPHICS_BYTES / 2 + 4;
+    let side = u32::try_from(half / 4).unwrap_or_default();
+    assert!(answer(vec![frame(side, 1, half), frame(side, 1, half)]).is_err());
+}
+
+#[test]
+fn pixels_kept_from_an_older_screen_must_match_the_new_size() {
+    use muxy_protocol::{GraphicImage, Graphics};
+    let image = |width: u32, pixels: bool| GraphicImage {
+        id: 1,
+        generation: 5,
+        width,
+        height: 1,
+        rgba: if pixels {
+            vec![255; width as usize * 4].into()
+        } else {
+            std::sync::Arc::default()
+        },
+        ..GraphicImage::default()
+    };
+    let graphics = |image| Graphics {
+        images: vec![image],
+        ..Graphics::default()
+    };
+    let older = graphics(image(4, true));
+    let mut same = graphics(image(4, false));
+    same.keep_pixels(&older);
+    assert_eq!(same.images[0].rgba.len(), 16);
+    let mut refitted = graphics(image(2, false));
+    refitted.keep_pixels(&older);
+    assert!(refitted.images[0].rgba.is_empty());
 }

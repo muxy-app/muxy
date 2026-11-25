@@ -29,7 +29,6 @@ fn allowed(name: &str, roots: &[&str]) -> bool {
         })
 }
 
-/// What a 1.x backup may contain.
 const LEGACY_ROOTS: &[&str] = &[
     "settings.json",
     "projects.json",
@@ -42,7 +41,6 @@ const LEGACY_ROOTS: &[&str] = &[
     "logos",
 ];
 
-/// A backup error in the app language.
 fn failure(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
     message.into()
 }
@@ -91,9 +89,11 @@ pub(super) fn collect(directory: &Path, roots: &[&str]) -> Result<Files> {
         }
         let name = path
             .strip_prefix(directory)?
-            .to_str()
+            .components()
+            .map(|component| component.as_os_str().to_str())
+            .collect::<Option<Vec<_>>>()
             .ok_or_else(|| failure(&tr!("Configuration filenames must be UTF-8")))?
-            .to_owned();
+            .join("/");
         if !allowed(&name, roots) {
             return Err(failure(&tr!("Invalid configuration path")));
         }
@@ -169,13 +169,17 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
         }
     };
     let names: Vec<String> = serde_json::from_value(manifest["files"].clone())?;
+    if names.len() > MAX_FILES {
+        return Err(failure(&tr!("Backup contains too many entries")));
+    }
+    let names: HashSet<String> = names.into_iter().collect();
     let roots = if legacy { LEGACY_ROOTS } else { ROOTS };
     let mut files = Files::new();
     let mut seen = HashSet::new();
     let mut size = 0;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
-        let name = entry.name().trim_end_matches('/').to_owned();
+        let name = entry.name()?.trim_end_matches('/').to_owned();
         if !safe_name(&name)
             || !seen.insert(name.clone())
             || entry
@@ -189,14 +193,7 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
         if entry.is_dir() || name == "manifest.json" || name.starts_with("__MACOSX/") {
             continue;
         }
-        if !allowed(&name, roots)
-            || !names.iter().any(|root| {
-                name == *root
-                    || name
-                        .strip_prefix(root)
-                        .is_some_and(|suffix| suffix.starts_with('/'))
-            })
-        {
+        if !allowed(&name, roots) || !itself_and_folders(&name).any(|root| names.contains(root)) {
             if legacy {
                 continue;
             }
@@ -215,16 +212,15 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
         }
         files.insert(name, bytes);
     }
+    let folders: HashSet<&str> = files
+        .keys()
+        .flat_map(|file| itself_and_folders(file).skip(1))
+        .collect();
     for name in names {
         if !safe_name(&name) {
             return Err(failure(&tr!("Invalid manifest path")));
         }
-        if allowed(&name, roots)
-            && !seen.contains(&name)
-            && !files
-                .keys()
-                .any(|file| file.starts_with(&format!("{name}/")))
-        {
+        if allowed(&name, roots) && !seen.contains(&name) && !folders.contains(name.as_str()) {
             return Err(failure(&tr!("Backup is missing %@", &name)));
         }
     }
@@ -240,23 +236,24 @@ pub(super) fn read(source: &Path) -> Result<(Files, bool, Restore)> {
     Ok((files, legacy, restore))
 }
 
+fn itself_and_folders(name: &str) -> impl Iterator<Item = &str> {
+    std::iter::successors(Some(name), |name| {
+        name.rsplit_once('/').map(|(folder, _)| folder)
+    })
+}
+
 pub(super) fn materialize(directory: &Path, files: &Files) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     for (name, bytes) in files {
         if !allowed(name, ROOTS) {
             return Err(failure(&tr!("Invalid restore path")));
         }
         let path = directory.join(name);
         if let Some(parent) = path.parent() {
-            fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(parent)?;
+            muxy_core::files::private_dir(parent)?;
         }
-        let mut file = fs::OpenOptions::new()
+        let mut file = muxy_core::files::private_file()
             .write(true)
             .create_new(true)
-            .mode(0o600)
             .open(path)?;
         file.write_all(bytes)?;
         file.sync_all()?;

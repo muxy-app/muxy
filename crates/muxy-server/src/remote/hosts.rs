@@ -2,11 +2,8 @@ use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 
 use muxy_protocol::MAX_PAIRING_HOSTS;
 
-/// Addresses a phone can try: the given ones, then the ones found here, most
-/// direct first. Routing lookups send no packets.
 pub(super) fn candidates(given: &[String]) -> Vec<String> {
     let mut hosts = given.to_vec();
-    // A documentation address resolves through the default route.
     if let Some(address) = route("192.0.2.1:9") {
         hosts.push(address.to_string());
     }
@@ -21,8 +18,6 @@ pub(super) fn candidates(given: &[String]) -> Vec<String> {
     unique(hosts)
 }
 
-/// Each address once, in its first spelling since DNS ignores case, and only
-/// as many as a pairing link holds.
 fn unique(hosts: Vec<String>) -> Vec<String> {
     let mut kept: Vec<String> = Vec::with_capacity(MAX_PAIRING_HOSTS);
     for host in hosts {
@@ -35,7 +30,6 @@ fn unique(hosts: Vec<String>) -> Vec<String> {
     kept
 }
 
-/// The machine's name without a local-network suffix, for display on the phone.
 pub(super) fn display_name() -> String {
     let name = node_name();
     let name = name.strip_suffix(".local").unwrap_or(&name);
@@ -75,9 +69,12 @@ fn local_name() -> Option<String> {
 }
 
 fn node_name() -> String {
-    rustix::system::uname()
+    #[cfg(unix)]
+    let name = rustix::system::uname()
         .nodename()
         .to_string_lossy()
-        .trim()
-        .to_owned()
+        .into_owned();
+    #[cfg(windows)]
+    let name = std::env::var("COMPUTERNAME").unwrap_or_default();
+    name.trim().to_owned()
 }

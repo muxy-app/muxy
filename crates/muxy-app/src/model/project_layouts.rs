@@ -290,6 +290,17 @@ impl AppModel {
                 return;
             }
         };
+        self.confirm_project_layout(project, directory, &layout.name, config, cx);
+    }
+
+    pub(crate) fn confirm_project_layout(
+        &mut self,
+        project: ProjectId,
+        directory: PathBuf,
+        name: &str,
+        config: Config,
+        cx: &mut Context<Self>,
+    ) {
         let Some(target) = self.state.project(project) else {
             return;
         };
@@ -300,7 +311,7 @@ impl AppModel {
             .collect();
         let message = tr!(
             "Apply “%@” to “%@”? This replaces all of this project's tabs, including pinned tabs, and runs the layout's commands. Terminals no longer shown by any app will end. Only apply layouts you trust.",
-            &layout.name,
+            name,
             &target.name
         )
         .to_string();
@@ -372,7 +383,6 @@ impl AppModel {
         }
     }
 
-    /// Forgets the layouts `server` listed, which a new connection lists again.
     pub(super) fn forget_server_layouts(&mut self, server: ServerId, cx: &mut Context<Self>) {
         let on_server =
             |model: &Self, project: ProjectId| model.state.project_server(project) == Some(server);

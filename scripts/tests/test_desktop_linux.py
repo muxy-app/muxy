@@ -68,7 +68,7 @@ class DesktopLinuxTests(unittest.TestCase):
             ["cargo", "fmt", "--all", "--check"],
             ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
             ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
-            ["cargo", "test", "--locked", "--workspace", "--all-features", "--timings"],
+            ["cargo", "test", "--locked", "--workspace", "--all-features", "--tests", "--timings"],
         ])
         for call in run.call_args_list:
             env = call.kwargs["env"]
@@ -103,20 +103,19 @@ class DesktopLinuxTests(unittest.TestCase):
             CHECK.main()
         run.assert_not_called()
 
-    def test_ci_runs_desktop_checks_on_both_architectures_beside_the_headless_and_macos_jobs(self):
+    def test_ci_runs_lint_and_test_in_parallel_on_x86_64_beside_the_headless_and_macos_jobs(self):
         for expected in [
-            "python3 scripts/check-desktop-macos.py",
-            'python3 scripts/check-headless.py --target "${{ matrix.target }}"',
-            'python3 scripts/check-desktop-linux.py --target "${{ matrix.target }}"',
-            "runner: ubuntu-22.04\n",
-            "runner: ubuntu-22.04-arm\n",
-            "runner: ubuntu-24.04\n",
-            "runner: ubuntu-24.04-arm\n",
+            'python3 scripts/check-desktop-macos.py --part "${{ matrix.part }}" --scope "$SCOPE"',
+            "python3 scripts/check-headless.py --target x86_64-unknown-linux-gnu",
+            "python3 scripts/check-desktop-linux.py --target x86_64-unknown-linux-gnu\n"
+            '          --part "${{ matrix.part }}" --scope "$SCOPE"',
             "part: [lint, test]",
-            '--part "${{ matrix.part }}"',
+            "runs-on: ubuntu-22.04\n",
+            "runs-on: ubuntu-24.04\n",
         ]:
             self.assertIn(expected, WORKFLOW)
-        self.assertNotIn("continue-on-error", WORKFLOW)
+        for absent in ["-arm", "matrix.runner", "continue-on-error"]:
+            self.assertNotIn(absent, WORKFLOW)
 
 
 if __name__ == "__main__":

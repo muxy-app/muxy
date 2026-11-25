@@ -1,0 +1,32 @@
+#!/bin/bash
+# Runs in the guest's logged-in graphical session; caller may use nohup.
+set -euo pipefail
+if [ -n "${MUXY_E2E_HIDE_CLI:-}" ]; then
+  PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$HOME/.cache/muxy-vm/target/debug" | paste -sd: -)"
+  export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+else
+  export PATH="$HOME/.cache/muxy-vm/target/debug:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+fi
+export MUXY_DIR="$HOME/.local/state/muxy-vm"
+export MUXY_SERVER_BIN="$HOME/.cache/muxy-vm/target/debug/muxy-server"
+if [ "$(uname -s)" = Linux ]; then
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+  session_type="$(loginctl show-session "$(loginctl show-user "$(id -u)" -p Display --value)" -p Type --value)"
+  case "$session_type" in
+    wayland)
+      export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+      test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+      unset DISPLAY
+      ;;
+    x11)
+      : "${DISPLAY:?SwiftVM must supply the logged-in X11 display}"
+      unset WAYLAND_DISPLAY
+      ;;
+    *) echo "A logged-in X11 or Wayland desktop is required (got $session_type)" >&2; exit 1 ;;
+  esac
+  export XDG_SESSION_TYPE="$session_type"
+fi
+mkdir -p "$MUXY_DIR"
+cd "$HOME/src/muxy"
+exec "$HOME/.cache/muxy-vm/target/debug/muxy-app" "$@"

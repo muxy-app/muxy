@@ -154,8 +154,6 @@ fn compile(source: &str) -> Result<Vec<CompiledRule>, String> {
         .collect()
 }
 
-/// Compiles a provider's rules the first time it runs, so a server holds only the
-/// regexes of agents it has seen. The largest set takes a few milliseconds.
 fn rules(provider: AgentProvider) -> &'static [CompiledRule] {
     static RULES: [OnceLock<Vec<CompiledRule>>; MANIFESTS.len()] =
         [const { OnceLock::new() }; MANIFESTS.len()];
@@ -178,7 +176,6 @@ fn detect(provider: AgentProvider, input: DetectionInput<'_>) -> Option<(AgentSt
                 .then_some((compiled.rule.state, compiled.rule.visible_idle));
         }
     }
-    // Like herdr, known-agent fallback is idle, subject to transition confirmation.
     Some((AgentState::Idle, false))
 }
 
@@ -205,9 +202,6 @@ impl Detector {
         self.update_with_background(provider, screen, title, progress, false, now)
     }
 
-    /// Like `update`, where `background` says the agent reported work running
-    /// that its screen may not show, such as subagents. That work keeps an
-    /// idle screen working; anything the screen shows still takes priority.
     pub(crate) fn update_with_background(
         &mut self,
         provider: Option<AgentProvider>,
@@ -257,7 +251,6 @@ impl Detector {
                 .is_some_and(|(screen, title, progress)| {
                     !screen.trim().is_empty() || !title.trim().is_empty() || !progress.is_empty()
                 });
-            // A cleared screen is never evidence that a working cycle finished.
             if !has_signal {
                 self.pending = None;
                 return false;
@@ -271,8 +264,6 @@ impl Detector {
         self.settle(next)
     }
 
-    /// Takes the state the agent reported itself (OSC 7501), which needs no
-    /// confirmation and outranks what the screen shows.
     pub(crate) fn report(&mut self, provider: AgentProvider, state: ProgramState) -> bool {
         if self.provider != Some(provider) {
             *self = Self {
@@ -288,9 +279,6 @@ impl Detector {
         })
     }
 
-    /// Forgets that work started, as when a terminal switches to another of
-    /// its agent's tabs: the work it showed hasn't finished just because the
-    /// next tab's screen is idle.
     pub(crate) fn forget_cycle(&mut self) {
         self.cycle = false;
     }
@@ -309,10 +297,6 @@ impl Detector {
     }
 }
 
-/// The agent to update and the status report it made, from the agent
-/// running in the foreground, the agent last seen, and the latest report
-/// (OSC 7501). A report naming another program, or another agent, is not
-/// the agent's; one naming an agent recognizes it even behind SSH.
 pub(crate) fn reporting_agent(
     running: Option<AgentProvider>,
     previous: Option<AgentProvider>,
@@ -352,7 +336,6 @@ pub(crate) fn identify(name: &str, argv: &[String]) -> Option<AgentProvider> {
             .contains("hermes_cli.main")
             .then_some(AgentProvider::Hermes);
     }
-    // Only inspect the executable/script position, never arbitrary prompt arguments.
     let script = argv.get(1)?;
     if script.starts_with('-') {
         return None;
@@ -376,9 +359,6 @@ pub(crate) fn identify(name: &str, argv: &[String]) -> Option<AgentProvider> {
     })
 }
 
-/// The program text a Python interpreter runs with `-c`, found by reading only
-/// the interpreter's own options, so arguments passed to the program are never
-/// read. Installers such as Hermes's launch their agent this way.
 fn python_program<'a>(runtime: &str, argv: &'a [String]) -> Option<&'a str> {
     if !runtime.starts_with("python") {
         return None;
@@ -397,9 +377,6 @@ fn python_program<'a>(runtime: &str, argv: &'a [String]) -> Option<&'a str> {
     None
 }
 
-/// The agent a member of a foreground process group runs. A one-shot
-/// `claude -p` under another program is that program's helper, not a session
-/// in this terminal; one the terminal runs directly still counts.
 pub(crate) fn identify_member(name: &str, argv: &[String], leader: bool) -> Option<AgentProvider> {
     let provider = identify(name, argv)?;
     let one_shot = provider == AgentProvider::Claude

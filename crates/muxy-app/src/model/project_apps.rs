@@ -1,5 +1,3 @@
-//! The apps the titlebar's Open in IDE control opens the current project in.
-
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,10 +11,8 @@ use super::AppModel;
 use super::preferences::Change;
 use crate::opener::ProjectApp;
 
-/// Opens a project folder with the app of an id.
 pub(crate) type Open = Arc<dyn Fn(&Path, &str) -> io::Result<()> + Send + Sync>;
 
-/// An app with its icon, ready to draw.
 #[derive(Clone)]
 pub(crate) struct Listed {
     pub(crate) app: ProjectApp,
@@ -30,9 +26,7 @@ impl AsRef<ProjectApp> for Listed {
 }
 
 pub(crate) struct ProjectApps {
-    /// The file manager and the installed editors, once they are found.
     pub(crate) listed: Option<Vec<Listed>>,
-    /// Where the control is drawn, so its menu drops down from it.
     pub(crate) anchor: PopoverAnchor,
     pub(crate) open: Open,
 }
@@ -47,8 +41,6 @@ impl Default for ProjectApps {
     }
 }
 
-/// Icons are drawn this many pixels square, enough for a 16 point icon on a
-/// Retina display.
 #[cfg(all(target_os = "macos", not(test)))]
 const ICON_PIXELS: u32 = 64;
 
@@ -70,7 +62,6 @@ fn icon(app: &ProjectApp) -> Option<Arc<gpui::RenderImage>> {
 }
 
 impl AppModel {
-    /// Looks for the installed editors and their icons in the background.
     #[cfg(not(test))]
     pub(super) fn discover_project_apps(cx: &mut Context<Self>) {
         let found = cx.background_executor().spawn(async {
@@ -92,14 +83,12 @@ impl AppModel {
         .detach();
     }
 
-    /// The current project's folder, when it is on this computer and there.
     pub(crate) fn project_apps_directory(&self) -> Option<PathBuf> {
         let project = self.state.current_project();
         (project.server_id.is_local() && project.status() == ProjectStatus::Available)
             .then(|| project.directory.clone())
     }
 
-    /// The app the control's main button opens.
     pub(crate) fn default_project_app(&self) -> Option<&Listed> {
         crate::opener::default_project_app(
             self.project_apps.listed.as_deref()?,
@@ -107,8 +96,6 @@ impl AppModel {
         )
     }
 
-    /// Opens the current project in the app at `index` of the list, which
-    /// becomes the one the main button opens.
     pub(crate) fn open_project_in(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(app) = self
             .project_apps
@@ -128,8 +115,6 @@ impl AppModel {
         self.open_project_with(app, cx);
     }
 
-    /// Opens the current project in the app the main button shows, leaving
-    /// the saved choice alone: an app that wasn't found this time stays chosen.
     pub(crate) fn open_project_in_default(&mut self, cx: &mut Context<Self>) {
         if let Some(app) = self
             .default_project_app()
@@ -143,6 +128,15 @@ impl AppModel {
         let Some(directory) = self.project_apps_directory() else {
             return;
         };
+        self.open_directory_with(directory, app, cx);
+    }
+
+    pub(crate) fn open_directory_with(
+        &mut self,
+        directory: PathBuf,
+        app: String,
+        cx: &mut Context<Self>,
+    ) {
         let open = Arc::clone(&self.project_apps.open);
         let result = crate::opener::submit(move || open(&directory, &app));
         let failed = |model: &mut Self, error: String, cx: &mut Context<Self>| {
@@ -163,15 +157,12 @@ impl AppModel {
         }
     }
 
-    /// Drops editors deleted since they were found, so the main button and
-    /// the menu offer only apps that are still installed.
     fn forget_uninstalled_project_apps(&mut self) {
         if let Some(listed) = &mut self.project_apps.listed {
             listed.retain(|listed| listed.app.is_file_manager() || listed.app.path.exists());
         }
     }
 
-    /// Drops the list of apps down from the control.
     pub(crate) fn open_project_apps_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use crate::views::menu::{Command, Item, MenuIcon};
         use crate::views::overlays::Overlay;

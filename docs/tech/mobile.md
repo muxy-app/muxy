@@ -1,7 +1,9 @@
 # Mobile
 
-Phones connect straight to `muxy-server` on the user's computer. There is no
-cloud service. A phone connects in one of two ways:
+Phones connect straight to `muxy-server` on the user's computer. The only
+service in between is the push relay at `muxy.app`, which forwards
+[push notifications](#push-notifications) it can't read. A phone connects in
+one of two ways:
 
 - **Paired, over TLS.** The phone reaches the computer on the same network,
   through a VPN such as Tailscale, or at an address added to the pairing code.
@@ -46,7 +48,8 @@ such as a cloud server behind NAT, puts that name first with
   its connection at once.
 - A connection that hasn't signed in gets nothing else from the server.
 - Paired phones can't manage mobile access, change server settings, stop the
-  server, or run programs outside a terminal (`exec`).
+  server, or run programs outside a terminal (`exec`). They can register only
+  their own push token.
 - Over SSH, the phone logs in as the user and can do what that login can. Host
   keys and credentials stay in the app's SSH client.
 
@@ -61,6 +64,55 @@ such as a cloud server behind NAT, puts that name first with
   `scripts/build-mobile-sdk.sh` builds it locally.
 - A phone works with any server that shares its protocol version, so phone
   releases only need to follow breaking protocol changes.
+
+## Push notifications
+
+```mermaid
+sequenceDiagram
+    participant Phone
+    participant Server as muxy-server
+    participant Relay as muxy.app relay
+    participant Platform as APNs or FCM
+    Phone->>Server: RegisterPush, with its token
+    Server->>Relay: Register the token
+    Relay-->>Server: Registration id and secret
+    Server-->>Phone: Status, and a key only the two of them hold
+    Note over Server: An agent needs attention or finishes,<br/>and 20 s pass with nobody looking
+    Server->>Relay: Encrypted notification
+    Relay->>Platform: Forward it
+    Platform-->>Phone: Show it
+```
+
+- `muxy-server` sends them, with or without the desktop app. The relay holds
+  the Apple and Google credentials, which can't ship in an open-source binary.
+- Each paired phone that turns notifications on gets its own registration and
+  32-byte key on each server. `remote.json` keeps the relay registration's id
+  and secret, the key, and the phone's token.
+- The content is end-to-end encrypted with AES-256-GCM. The relay sees only
+  the kind of event, and identifiers derived from the key that mean nothing
+  to it. The phone shows decrypted text only when it authenticates under a
+  key it holds.
+- An event is sent about 20 seconds after it happens, once per phone, unless
+  it was acknowledged by then, the phone is connected, or push notifications
+  or client access are off.
+- Tapping one opens the app on the event's terminal pane.
+- Only paired phones can register; phones over SSH have no device record.
+- The server reaches the relay over HTTPS with the web PKI's roots, through
+  the proxy in `HTTPS_PROXY`, `ALL_PROXY`, or `HTTP_PROXY` unless `NO_PROXY`
+  says otherwise. `MUXY_PUSH_RELAY` points it at another relay, such as one on
+  this computer for testing.
+- `muxy mobile push off`, or the desktop's **Push notifications** setting,
+  pauses them for every phone. The relay registrations are deleted at once, so
+  nothing more goes to muxy.app. Each phone's token and key stay in
+  `remote.json` for 90 days, and turning them back on registers those phones
+  again with the same keys, without them reconnecting.
+- `muxy mobile push reset <device>` forgets one phone's registration and key
+  without unpairing it; the phone gets a new key on its next connect. Revoking
+  a phone, or the phone turning notifications off, does the same.
+
+The full contract between the server, the relay, and the apps is
+[push-notifications.md](https://github.com/muxy-app/muxy.app/blob/main/docs/push-notifications.md)
+in the `muxy.app` repository.
 
 ## Other computers
 

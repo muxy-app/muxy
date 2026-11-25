@@ -4,12 +4,16 @@ use muxy_protocol::{
     ClientKind, DeviceId, DeviceKind, SessionClient, SessionId, TerminalColors, Topic,
 };
 
-/// Invalidations a connection asked for by reading the matching state.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Each watch is an independent subscription"
+)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Watches {
     pub(super) catalog: bool,
     pub(super) activity: bool,
     pub(super) remote_access: bool,
+    pub(super) metadata: bool,
 }
 
 impl Watches {
@@ -23,19 +27,26 @@ impl Watches {
     }
 }
 
-/// Who is on the other end of a connection, and what it asked for.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) enum ImageDelivery {
+    #[default]
+    Send,
+    Defer,
+    Stream,
+    Share,
+}
+
 #[derive(Debug, Default)]
 pub(super) struct ConnectionState {
     pub(super) client: SessionClient,
-    /// The paired device on the other end of a network connection.
     pub(super) device: Option<(DeviceId, DeviceKind)>,
     pub(super) watches: Watches,
     pub(super) colors: Option<TerminalColors>,
+    pub(super) images: ImageDelivery,
     pub(super) session_colors: HashMap<SessionId, TerminalColors>,
 }
 
 impl ConnectionState {
-    /// A computer says which app it is once connected, as local apps do.
     pub(super) fn for_device(device: DeviceId, kind: DeviceKind) -> Self {
         let mut state = Self {
             device: Some((device, kind)),

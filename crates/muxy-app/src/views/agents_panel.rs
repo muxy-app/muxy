@@ -5,6 +5,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use muxy_app_core::settings::{AgentsPanelDensity, AgentsPanelDock, AgentsPanelIcon};
+use muxy_core::shortcuts::ShortcutId;
 use muxy_ui::accessibility::{self, OnPress};
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
@@ -15,7 +16,7 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 use crate::model::agents_panel::{
-    AgentStatus, Drag, Entry, MIN_HEIGHT, MIN_WIDTH, PANEL, Placement, RunningAgent, in_background,
+    AgentStatus, Entry, MIN_HEIGHT, MIN_WIDTH, PANEL, Placement, RunningAgent, in_background,
     starts_project_group,
 };
 use crate::views::overlays::{Mark, OverlayView};
@@ -25,7 +26,6 @@ const POPUP_WIDTH: f32 = 300.0;
 const POPUP_MAX_HEIGHT: f32 = 380.0;
 const RESIZE_GRIP: f32 = 18.0;
 const RESIZE_EDGE: f32 = 6.0;
-const FLOATING_GROUP: &str = "agents-panel-floating";
 
 fn status_color(status: AgentStatus, model: &AppModel) -> Hsla {
     match status {
@@ -35,7 +35,6 @@ fn status_color(status: AgentStatus, model: &AppModel) -> Hsla {
     }
 }
 
-/// The agent's status as its terminal tab shows it, when the tab shows one.
 fn status_glyph(
     agent: &RunningAgent,
     owner: gpui::EntityId,
@@ -64,14 +63,13 @@ fn status_glyph(
                 status,
                 m.icon_sm(),
                 Some(owner),
+                None,
                 model,
             ))
             .into_any_element(),
     )
 }
 
-/// A background tab shows only whether its own work runs, since its
-/// terminal shows another tab.
 fn hidden_status(status: AgentStatus) -> super::tab_activity::Status {
     if status == AgentStatus::Working {
         super::tab_activity::Status::Progress(muxy_protocol::TerminalProgress {
@@ -111,7 +109,6 @@ fn status_name(status: AgentStatus) -> SharedString {
     }
 }
 
-/// How many agents a worktree has in each status, as clients read it.
 fn counts_description(counts: &[usize; 4]) -> String {
     AgentStatus::ALL
         .into_iter()
@@ -122,7 +119,6 @@ fn counts_description(counts: &[usize; 4]) -> String {
         .join(", ")
 }
 
-/// What a row's icons and colors say, for clients that can't see them.
 fn entry_description(entry: &Entry, model: &AppModel) -> String {
     match entry {
         Entry::Agent(agent) if agent.hidden.is_some() => format!(
@@ -140,7 +136,6 @@ fn entry_description(entry: &Entry, model: &AppModel) -> String {
     }
 }
 
-/// How long ago the agent finished, when the panel shows idle time.
 fn idle_age(agent: &RunningAgent, model: &AppModel) -> Option<SharedString> {
     if !model.appearance.agents_panel_idle_time {
         return None;
@@ -169,10 +164,6 @@ fn idle_time(agent: &RunningAgent, model: &AppModel) -> Option<AnyElement> {
     )
 }
 
-/// The second line of a normal row: where the agent runs, unless its
-/// project's heading says so, which agent it is, unless the title names it,
-/// whether it's a background tab, and what it's doing. A worktree's counts
-/// already sit on its right.
 fn details(entry: &Entry, title: &str, background: bool, model: &AppModel) -> Option<String> {
     let Entry::Agent(agent) = entry else {
         return None;
@@ -258,7 +249,6 @@ fn root_project<'a>(entry: &Entry, model: &'a AppModel) -> Option<&'a muxy_app_c
     )
 }
 
-/// The project's color as a bar down the row's leading edge, spanning it.
 fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     if !model.appearance.agents_panel_project_colors
         || !model.appearance.agents_panel_colors_apply()
@@ -282,7 +272,6 @@ fn project_stripe(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     )
 }
 
-/// How big a row's leading icon is: larger beside two lines of text.
 fn icon_size(model: &AppModel) -> gpui::Pixels {
     if compact(model) {
         model.metrics.icon_sm()
@@ -329,7 +318,6 @@ fn leading(entry: &Entry, model: &AppModel) -> Option<AnyElement> {
     }
 }
 
-/// A row's title, with its details under it in a normal row.
 fn row_text(entry: &Entry, title: String, background: bool, model: &AppModel) -> gpui::Div {
     let m = model.metrics;
     let theme = &model.theme;
@@ -604,8 +592,6 @@ fn header_buttons(detached: bool, model: &AppModel, cx: &mut Context<AppModel>) 
     })
 }
 
-/// Space between the panel's edges and its rows. Docked, the sidebar's own
-/// margin already lines rows up with the sidebar's tabs.
 fn inset(placement: Placement, model: &AppModel) -> gpui::Pixels {
     if placement == Placement::Docked {
         px(0.0)
@@ -750,7 +736,10 @@ pub(crate) fn right_panel_content(
     }
     let m = model.metrics;
     let scale = m.multiplier();
-    let maximum = f32::from(window.viewport_size().width) - model.sidebar_width() - 100.0;
+    let maximum = f32::from(window.viewport_size().width)
+        - model.sidebar_width()
+        - super::rail::width(model)
+        - 100.0;
     let placement = AppModel::agents_right_placement();
     let sizing = PanelSizing::new(
         &placement,
@@ -817,7 +806,6 @@ pub(crate) fn docked(
         .map(|height| model.clamp_docked_height(height, window.viewport_size()));
     let measured = model.agents_panel.docked_height.clone();
     let start = measured.clone();
-    let active = matches!(model.agents_panel.drag, Some(Drag::Docked { .. }));
     let background = model.sidebar_background();
     let separator = Hsla::from(contrasting_foreground(background.into())).opacity(0.08);
     let panel = div()
@@ -844,7 +832,6 @@ pub(crate) fn docked(
             div()
                 .id("agents-panel-docked-resize")
                 .debug_selector(|| "agents-panel-docked-resize".into())
-                .group("agents-panel-docked-resize")
                 .absolute()
                 .top(-m.scaled(RESIZE_EDGE / 2.0))
                 .left(-m.spacing3())
@@ -858,16 +845,6 @@ pub(crate) fn docked(
                         window.prevent_default();
                         cx.stop_propagation();
                     }),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top(m.scaled(RESIZE_EDGE / 2.0) - px(1.0))
-                        .w_full()
-                        .h(px(1.0))
-                        .group_hover("agents-panel-docked-resize", |line| {
-                            line.bg(model.theme.accent)
-                        }),
                 ),
         );
     Some(
@@ -876,7 +853,6 @@ pub(crate) fn docked(
             .bg(background)
             .border_t_1()
             .border_color(separator)
-            .when(active, |panel| panel.border_color(model.theme.accent))
             .child(panel)
             .into_any_element(),
     )
@@ -964,7 +940,7 @@ fn scrollbar(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
 pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> Option<AnyElement> {
     let open = matches!(model.overlay, Some(super::overlays::Overlay::Agents));
     if model.agents_panel_placement() != Placement::Popup
-        || model.appearance.sidebar_expanded
+        || model.sidebar_docks_expanded()
         || !(open || model.appearance.agents_panel_visible)
     {
         return None;
@@ -998,7 +974,7 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
             .cursor_pointer()
             .hover(|style| style.bg(theme.hover))
             .tooltip(muxy_ui::components::tooltip(
-                tr!("Agents").to_string(),
+                model.tooltip(tr!("Agents"), ShortcutId::ToggleAgentsPanel),
                 &model.theme,
             ))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -1030,7 +1006,6 @@ pub(crate) fn collapsed_button(model: &AppModel, cx: &mut Context<AppModel>) -> 
     )
 }
 
-/// The Agents panel as a popup beside the sidebar.
 pub(crate) struct AgentsPopup;
 
 impl OverlayView for AgentsPopup {
@@ -1089,7 +1064,6 @@ fn resize_handle(
     cx: &mut Context<AppModel>,
 ) -> AnyElement {
     let m = model.metrics;
-    let theme = &model.theme;
     div()
         .id(id)
         .debug_selector(move || id.into())
@@ -1111,20 +1085,7 @@ fn resize_handle(
                 .right_0()
                 .bottom_0()
                 .size(m.scaled(RESIZE_GRIP))
-                .cursor(gpui::CursorStyle::ResizeUpLeftDownRight)
-                .child(
-                    div()
-                        .invisible()
-                        .group_hover(FLOATING_GROUP, Styled::visible)
-                        .absolute()
-                        .right(m.scaled(4.0))
-                        .bottom(m.scaled(4.0))
-                        .size(m.scaled(7.0))
-                        .border_r_2()
-                        .border_b_2()
-                        .rounded_br(m.scaled(2.0))
-                        .border_color(theme.fg_dim),
-                ),
+                .cursor(gpui::CursorStyle::ResizeUpLeftDownRight),
         })
         .on_mouse_down(
             MouseButton::Left,
@@ -1179,7 +1140,6 @@ fn drag_tracker(cx: &mut Context<AppModel>) -> AnyElement {
     .into_any_element()
 }
 
-/// The detached agents panel's card, for the floating layer.
 pub(crate) fn floating(
     model: &AppModel,
     window: &Window,
@@ -1194,7 +1154,6 @@ pub(crate) fn floating(
     let theme = &model.theme;
     let [x, y, width, height] = model.agents_panel_frame(window.viewport_size());
     let panel = div()
-        .group(FLOATING_GROUP)
         .absolute()
         .left(m.scaled(x))
         .top(m.scaled(y))

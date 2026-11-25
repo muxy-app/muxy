@@ -1,5 +1,3 @@
-//! The logo arrives, and terminals fan out beneath it, each running something.
-
 use gpui::{Div, ParentElement, Styled, div};
 
 use super::kit::{

@@ -7,7 +7,7 @@ use muxy_core::process::{self, Limits};
 use muxy_protocol::{ProjectDescriptor, WorktreeHook};
 use serde::Deserialize;
 
-use super::{Result, error};
+use super::{Result, error, path};
 
 const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 
@@ -29,12 +29,18 @@ enum Hook {
 }
 
 fn global_path() -> Result<PathBuf> {
+    #[cfg(unix)]
     let root = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
         .ok_or_else(|| error("Home directory is unavailable"))?;
-    Ok(root.join("muxy/worktree.json"))
+    #[cfg(windows)]
+    let root = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| error("The roaming application data folder is unavailable"))?;
+    Ok(root.join("muxy").join("worktree.json"))
 }
 
 fn load(path: &Path, teardown: bool, project: bool) -> Result<Vec<WorktreeHook>> {
@@ -134,18 +140,17 @@ pub(super) fn run(
     hooks: &[WorktreeHook],
 ) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(300);
-    let shell = crate::process::user_shell();
+    let directory = path(&project.directory)?;
     for hook in hooks {
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .ok_or_else(|| error("Worktree hooks timed out"))?;
-        let mut process = Command::new(&shell);
+        let mut process = script(&hook.command);
         process
-            .args(["-c", &hook.command])
-            .current_dir(project.directory.as_path())
+            .current_dir(&directory)
             .env("MUXY_PROJECT_PATH", repository)
             .env("MUXY_WORKTREE_ID", project.id.to_string())
-            .env("MUXY_WORKTREE_PATH", project.directory.as_path())
+            .env("MUXY_WORKTREE_PATH", &directory)
             .env("MUXY_WORKTREE_NAME", &project.name)
             .env("MUXY_WORKTREE_BRANCH", branch);
         if let Some(path) = crate::exec::login_path() {
@@ -184,4 +189,16 @@ fn run_hook(command: &mut Command, timeout: Duration) -> std::result::Result<(),
     } else {
         format!("it was stopped ({})", output.status)
     })
+}
+
+#[cfg(unix)]
+fn script(command: &str) -> Command {
+    let mut process = Command::new(crate::process::user_shell());
+    process.args(["-c", command]);
+    process
+}
+
+#[cfg(windows)]
+fn script(command: &str) -> Command {
+    crate::exec::cmd_script(command)
 }

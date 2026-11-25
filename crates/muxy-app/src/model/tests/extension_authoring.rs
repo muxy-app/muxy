@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{Focusable, Modifiers, VisualTestContext};
 use muxy_app_core::extensions::workspace;
@@ -40,7 +40,6 @@ fn write_package(root: &Path, name: &str, version: &str) {
     .unwrap();
 }
 
-/// Runs a `muxy extension` command as the app socket would.
 #[allow(
     clippy::needless_pass_by_value,
     reason = "Every caller builds the arguments with json!"
@@ -59,7 +58,8 @@ fn call(
     })
     .detach();
     cx.executor().allow_parking();
-    for _ in 0..2_000 {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
         cx.run_until_parked();
         if let Ok(result) = replied.try_recv() {
             return result;
@@ -131,13 +131,15 @@ fn the_command_palette_can_create_and_manage_extensions(cx: &mut TestAppContext)
             let registry = model.command_registry(true, cx);
             let create = registry.action("create_extension").expect("create").clone();
             create(model, window, cx);
-            assert!(matches!(
-                &model.overlay,
-                Some(Overlay::ExtensionAgent(open)) if open.task == AgentTask::Create
-            ));
-            model.dismiss_overlay(cx);
             assert!(registry.action("manage_extensions").is_some());
         });
+    });
+    cx.run_until_parked();
+    model.read_with(cx, |model, _| {
+        assert!(matches!(
+            &model.overlay,
+            Some(Overlay::ExtensionAgent(open)) if open.task == AgentTask::Create
+        ));
     });
 }
 
@@ -250,6 +252,12 @@ fn each_task_says_what_the_agent_is_picked_for() {
             "Clone files as files-custom with…",
         ),
         (AgentTask::Publish { name, folder }, "Publish files with…"),
+        (
+            AgentTask::Settings {
+                profile: "/profile".into(),
+            },
+            "Change settings with…",
+        ),
     ] {
         assert_eq!(
             crate::views::extension_agent::placeholder(&task).as_ref(),
@@ -282,7 +290,12 @@ fn an_agent_starts_in_a_home_tab_at_the_workspace_with_its_prompt(cx: &mut TestA
             .startup_command(pane)
             .expect("command")
             .to_owned();
-        assert!(command.starts_with("/test/agent '"), "{command}");
+        let start = if cfg!(windows) {
+            "& '/test/agent' '"
+        } else {
+            "/test/agent '"
+        };
+        assert!(command.starts_with(start), "{command}");
         assert!(
             command.contains(&workspace::skill_file(&root).display().to_string()),
             "{command}"
@@ -610,4 +623,53 @@ fn validate_reports_what_the_store_needs(cx: &mut TestAppContext) {
     let problems = reply["problems"].as_array().expect("problems");
     assert!(!problems.is_empty());
     assert_eq!(reply["name"], "hello");
+}
+
+#[gpui::test]
+fn a_settings_agent_starts_in_a_home_tab_at_the_profile_with_its_skill(cx: &mut TestAppContext) {
+    let (model, cx) = open_model(cx);
+    model.update(cx, |model, cx| {
+        model.open_settings_agent(cx);
+        let Some(Overlay::ExtensionAgent(open)) = &model.overlay else {
+            panic!("no picker");
+        };
+        let task = open.task.clone();
+        let profile = model.path.parent().expect("profile").to_owned();
+        assert_eq!(
+            task,
+            AgentTask::Settings {
+                profile: profile.clone()
+            }
+        );
+        model
+            .start_agent_for_test(provider("claude").expect("claude"), &task, cx)
+            .expect("start");
+        assert!(model.overlay.is_none(), "the picker closed");
+        let home = model.state.server_home(ServerId::local()).expect("home");
+        assert_eq!(model.state.current_project().id, home.id);
+        let skill = muxy_app_core::settings::agent::skill_file(&profile);
+        assert_eq!(
+            std::fs::read_to_string(&skill).expect("skill"),
+            muxy_app_core::settings::agent::SKILL
+        );
+        assert!(
+            !model.path.with_file_name("extension-workspace").exists(),
+            "no extension workspace is made"
+        );
+        let pane = model.active_pane().expect("pane");
+        let command = model
+            .state
+            .startup_command(pane)
+            .expect("command")
+            .to_owned();
+        assert!(command.contains(&skill.display().to_string()), "{command}");
+        assert_eq!(
+            model
+                .state
+                .clone()
+                .prepare_creation(pane, Path::new("/elsewhere"))
+                .0,
+            profile.display().to_string().into_bytes(),
+        );
+    });
 }

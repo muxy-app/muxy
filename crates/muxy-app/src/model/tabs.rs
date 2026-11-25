@@ -8,7 +8,6 @@ use muxy_app_core::{
 use super::{AppModel, ConnectionState, Quitting};
 use crate::views::tab_strip::TabDrop;
 
-/// A terminal tab to open, and what its terminal starts with.
 pub(crate) struct OpenTerminal<'a> {
     pub(crate) project: ProjectId,
     pub(crate) title: Option<&'a str>,
@@ -17,8 +16,6 @@ pub(crate) struct OpenTerminal<'a> {
 }
 
 impl AppModel {
-    /// Opens and selects a terminal tab, leaving the state as it was if any
-    /// of it fails. `Ok(None)` means saving failed, and that has been reported.
     pub(crate) fn open_terminal(
         &mut self,
         OpenTerminal {
@@ -57,6 +54,7 @@ impl AppModel {
             self.changed(cx);
             self.focus_owner.request_active_pane();
             let server = self.state.current_project().server_id;
+            self.reveal_server(server, cx);
             if self.connection(server) == ConnectionState::Disconnected {
                 self.connect_server(server, cx);
             }
@@ -88,8 +86,6 @@ impl AppModel {
         }
     }
 
-    /// Applies a tab drop. `previous` was shown before pressing `tab` selected
-    /// it, so the group `tab` leaves goes back to showing it.
     pub(crate) fn drop_tab(
         &mut self,
         tab: TabId,
@@ -166,11 +162,14 @@ impl AppModel {
         else {
             return;
         };
+        let directory = self.new_tab_directory(project, cx);
         if self.edit_tab(
             |state| {
-                state
-                    .open_terminal_tab_adjacent(project, anchor, side)
-                    .map(|_| ())
+                state.open_terminal_tab_adjacent(project, anchor, side)?;
+                if let Some(pane) = state.window().active_pane {
+                    state.plan_creation(pane, directory.as_deref(), None);
+                }
+                Ok(())
             },
             cx,
         ) {
@@ -195,8 +194,29 @@ impl AppModel {
         else {
             return;
         };
-        let items = crate::views::tab_menu::items(project, id);
+        let destinations = self.move_destinations(project.id);
+        let items = crate::views::tab_menu::items(project, id, &destinations);
         self.open_menu(items, position, window, cx);
+    }
+
+    pub(crate) fn move_destinations(
+        &self,
+        project: ProjectId,
+    ) -> Vec<(ProjectId, gpui::SharedString)> {
+        self.sidebar_projects()
+            .into_iter()
+            .chain(self.state.projects().iter())
+            .filter(|candidate| {
+                candidate.id != project
+                    && candidate.status() == ProjectStatus::Available
+                    && self.state.can_move_into(project, candidate.id)
+            })
+            .fold(Vec::new(), |mut found, candidate| {
+                if !found.iter().any(|(id, _)| *id == candidate.id) {
+                    found.push((candidate.id, self.project_title(candidate).into()));
+                }
+                found
+            })
     }
 
     pub(crate) fn close_tabs(

@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use muxy_app_core::{Branch, Direction, Layout, PaneId};
@@ -44,7 +43,6 @@ pub(crate) struct Tab {
     pub focus: PaneId,
     pub zoom: bool,
     pub panes: BTreeMap<PaneId, Pane>,
-    /// A name given in place of the terminal's title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 }
@@ -251,7 +249,6 @@ impl State {
         Ok(())
     }
 
-    /// Closes every pane of the current project's tab that holds `pane`.
     pub(crate) fn close_tab(&mut self, pane: PaneId) -> Result {
         let index = self.tab_index(pane)?;
         let project = self
@@ -266,7 +263,6 @@ impl State {
         Ok(())
     }
 
-    /// Moves the tab holding `pane` one place earlier or later.
     pub(crate) fn move_tab(&mut self, pane: PaneId, forward: bool) -> Result {
         let index = self.tab_index(pane)?;
         let project = self
@@ -291,7 +287,6 @@ impl State {
         Ok(())
     }
 
-    /// Names the tab holding `pane`; no name shows its terminal's title.
     pub(crate) fn rename_tab(&mut self, pane: PaneId, title: Option<String>) -> Result {
         let index = self.tab_index(pane)?;
         let title = title
@@ -334,8 +329,6 @@ impl State {
             .collect()
     }
 
-    /// Removes the panes that show `sessions`, which have ended. Their saved
-    /// output stays on the server, so nothing is discarded.
     pub(crate) fn close_sessions(&mut self, sessions: &BTreeSet<SessionId>) {
         for project in self.projects.values_mut() {
             for index in (0..project.tabs.len()).rev() {
@@ -402,9 +395,6 @@ impl State {
             .map_err(|error| error.to_string())
     }
 
-    /// Sets the split that divides `first` from `second`, as a mouse drag
-    /// does. Naming panes instead of a path keeps it right if another
-    /// instance changed the layout meanwhile.
     pub(crate) fn set_ratio(&mut self, first: PaneId, second: PaneId, ratio: f32) -> Result {
         let tab = self.tab_mut().ok_or("No pane to resize")?;
         let path = split_between(&tab.layout, first, second, &mut Vec::new())
@@ -480,7 +470,6 @@ impl State {
 }
 
 impl Tab {
-    /// Removes `id` and hands its focus to the pane beside it.
     fn remove_pane(&mut self, id: PaneId) -> Option<Pane> {
         let pane = self.panes.remove(&id)?;
         let neighbor = self.layout.nearest(id);
@@ -576,13 +565,8 @@ impl Store {
             Ok(())
         }
     }
-    /// Loads the layout kept in `directory`, creating the folder, private to
-    /// this user, if it is missing.
     pub(crate) fn load(directory: &Path, catalog: &CatalogPage) -> Result<Self> {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(directory)
+        muxy_core::files::private_dir(directory)
             .map_err(|error| format!("Cannot create {}: {error}", directory.display()))?;
         let path = directory.join("tui-state.json");
         let _guard = state_lock(&path)?;
@@ -638,8 +622,6 @@ impl Store {
         next.validate()?;
         if next != self.state || !self.path.exists() {
             if let Err(error) = persist(&self.path, &next) {
-                // A directory sync can fail after rename. Restore the old document
-                // before allowing any further mutation or server-side effect.
                 if persist(&self.path, &self.state).is_err() {
                     self.blocked = true;
                 }
@@ -653,12 +635,11 @@ impl Store {
 }
 
 fn state_lock(path: &Path) -> Result<File> {
-    let file = OpenOptions::new()
+    let file = muxy_core::files::private_file()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(0o600)
         .open(path.with_file_name("tui.lock"))
         .map_err(|error| error.to_string())?;
     muxy_core::file_lock::acquire_file(&file, std::time::Duration::from_secs(2))
@@ -811,10 +792,10 @@ mod tests {
     fn invalid_state_is_reported_without_overwriting_it() -> Result {
         let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
         let path = directory.path().join("tui-state.json");
-        fs::write(&path, b"not json").map_err(|error| error.to_string())?;
+        std::fs::write(&path, b"not json").map_err(|error| error.to_string())?;
         assert!(Store::load(directory.path(), &catalog()).is_err());
         assert_eq!(
-            fs::read(&path).map_err(|error| error.to_string())?,
+            std::fs::read(&path).map_err(|error| error.to_string())?,
             b"not json"
         );
         Ok(())

@@ -305,6 +305,36 @@ fn large_server_pastes_are_bounded_complete_and_preserve_text(cx: &mut TestAppCo
     assert_eq!(contents, text.replace("\r\n", "\n").as_bytes());
 }
 
+const DROPPED: &str = if cfg!(windows) {
+    r"C:\Temp\a b"
+} else {
+    "/tmp/a b"
+};
+
+#[gpui::test]
+fn dropped_paths_are_quoted_for_the_shell_in_the_foreground(cx: &mut TestAppContext) {
+    let (pane, cx) = cx.add_window_view(pane);
+    let sent = record(&pane, cx);
+    let drop_into = |name: &str, cx: &mut gpui::VisualTestContext| {
+        pane.update(cx, |pane, cx| {
+            pane.process = Some(ForegroundProcess {
+                name: name.to_owned(),
+                is_shell: true,
+            });
+            pane.drop_paths(&[PathBuf::from(DROPPED)], cx);
+        });
+    };
+    drop_into("tcsh", cx);
+    assert!(sent.borrow().is_empty(), "{:?}", sent.borrow());
+    drop_into("pwsh", cx);
+    assert_eq!(
+        sent.borrow().as_slice(),
+        [Sent::Terminal(TerminalInput::Paste(
+            format!("'{DROPPED}'").into_bytes()
+        ))]
+    );
+}
+
 #[gpui::test]
 fn clipboard_paths_and_focus_do_not_use_stale_client_modes(cx: &mut TestAppContext) {
     let (pane, cx) = cx.add_window_view(pane);
@@ -320,14 +350,14 @@ fn clipboard_paths_and_focus_do_not_use_stale_client_modes(cx: &mut TestAppConte
         });
         pane.update(cx, TerminalPane::paste_clipboard);
         pane.update(cx, |pane, cx| {
-            pane.drop_paths(&[PathBuf::from("/tmp/a b")], cx);
+            pane.drop_paths(&[PathBuf::from(DROPPED)], cx);
         });
         pane.update(cx, |pane, cx| pane.focus_changed(true, cx));
         assert_eq!(
             sent.borrow().as_slice(),
             [
                 Sent::Terminal(TerminalInput::Paste(b"one\r\ntwo\x1b[201~".to_vec())),
-                Sent::Terminal(TerminalInput::Paste(b"'/tmp/a b'".to_vec())),
+                Sent::Terminal(TerminalInput::Paste(format!("'{DROPPED}'").into_bytes())),
                 Sent::Terminal(TerminalInput::Focus(true)),
             ]
         );

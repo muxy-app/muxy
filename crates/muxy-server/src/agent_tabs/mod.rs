@@ -1,13 +1,3 @@
-//! Agents that keep several sessions as tabs in one terminal, such as
-//! `OpenCode`. Each one's [`TabSource`] says how its terminal title names the
-//! session on screen, which tabs are open and working, and how a client
-//! switches to or resumes a tab. From that the server tells clients which
-//! session each terminal shows, which keep working in the background, and
-//! which open tabs no terminal shows.
-//!
-//! Supporting another agent takes a `TabSource` in [`sources`] and its
-//! provider in `PROVIDERS`; the protocol and clients need no change.
-
 mod http;
 mod opencode;
 mod poll;
@@ -23,72 +13,51 @@ use muxy_protocol::{
 
 pub(crate) use poll::poll;
 
-/// What one agent with session tabs reports, and how it's driven.
 pub(crate) trait TabSource: Send {
     fn provider(&self) -> AgentProvider;
 
-    /// The tabs open in `directories` and the sessions with work running,
-    /// or `None` while the agent's service can't be reached.
     fn report(&mut self, directories: &HashSet<String>) -> Option<Report>;
 
-    /// The session title the agent put in a terminal title, and whether it
-    /// shortened it with a trailing ellipsis.
     fn shown_title<'a>(&self, title: &'a str) -> Option<(&'a str, bool)>;
 
-    /// Input that makes the agent show the tab at `index` in its tab bar.
     fn switch_input(&self, index: usize) -> Option<Vec<u8>>;
 
-    /// A command line that opens session `id` in a new terminal.
     fn resume_command(&self, id: &str) -> Option<String>;
 }
 
-/// The agents the server reads tabs from, in the order of [`sources`].
 const PROVIDERS: [AgentProvider; 1] = [AgentProvider::OpenCode];
 
-/// A source for each of [`PROVIDERS`].
 pub(crate) fn sources() -> Vec<Box<dyn TabSource>> {
     vec![Box::new(opencode::OpenCode::default())]
 }
 
-/// Whether the server reads tabs from `provider`.
 pub(crate) fn supported(provider: AgentProvider) -> bool {
     PROVIDERS.contains(&provider)
 }
 
-/// A terminal running such an agent, as its session owner last saw it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Pane {
     pub(crate) provider: AgentProvider,
     pub(crate) project: ProjectId,
-    /// The agent's working directory, which scopes its tabs.
     pub(crate) directory: String,
-    /// The terminal title the agent set.
     pub(crate) title: String,
 }
 
-/// One open tab in an agent's tab bar.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Tab {
     pub(crate) id: String,
     pub(crate) title: String,
 }
 
-/// What an agent's service reported.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Report {
-    /// Open tabs in order, by working directory.
     pub(crate) tabs: HashMap<String, Vec<Tab>>,
-    /// Sessions with work running, themselves or through a subagent.
     pub(crate) busy: HashSet<String>,
-    /// When each session was last shown, in the agent's own clock, so
-    /// terminals whose titles match several tabs show the latest of them.
     pub(crate) viewed: HashMap<String, u64>,
 }
 
-/// Where the reports put each terminal and every open tab.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Reconciled {
-    /// The ID and title of the tab each terminal shows.
     pub(crate) shown: BTreeMap<SessionId, (String, String)>,
     pub(crate) busy: HashSet<SessionId>,
     pub(crate) tabs: Vec<AgentTab>,
@@ -105,10 +74,6 @@ pub(crate) fn same_directory(left: &str, right: &str) -> bool {
     trim(left) == trim(right)
 }
 
-/// Matches each terminal to the tab whose title it shows, then lists every
-/// tab of each directory with the terminal showing it and all those that
-/// have it open. A terminal keeps the tab it showed before while that tab
-/// still matches, so tabs with the same title don't trade terminals.
 pub(crate) fn reconcile(
     sources: &[Box<dyn TabSource>],
     panes: &BTreeMap<SessionId, Pane>,
@@ -231,7 +196,6 @@ fn reconcile_source(
     }
 }
 
-/// `title` cut at a character boundary to fit `MAX_AGENT_TITLE`.
 fn clip(title: &str) -> String {
     let mut end = title.len().min(MAX_AGENT_TITLE);
     while !title.is_char_boundary(end) {
@@ -256,14 +220,11 @@ fn claim<'a>(
     }
 }
 
-/// The terminals running agents with tabs, their last reports, and where
-/// those put each terminal and tab.
 pub(crate) struct Tracker {
     sources: Vec<Box<dyn TabSource>>,
     panes: BTreeMap<SessionId, Pane>,
     reports: HashMap<AgentProvider, Report>,
     reconciled: Reconciled,
-    /// The terminals changed since the poller last read them.
     stale: bool,
 }
 
@@ -297,13 +258,11 @@ impl Tracker {
         self.stale
     }
 
-    /// The terminals to report on, clearing the change since the last read.
     pub(crate) fn take_panes(&mut self) -> BTreeMap<SessionId, Pane> {
         self.stale = false;
         self.panes.clone()
     }
 
-    /// Records what `session` shows; returns whether that changed.
     pub(crate) fn observe(&mut self, session: SessionId, pane: Pane) -> bool {
         if self.panes.get(&session) == Some(&pane) {
             return false;
@@ -313,7 +272,6 @@ impl Tracker {
         true
     }
 
-    /// Forgets `session`; returns whether it was known.
     pub(crate) fn forget(&mut self, session: SessionId) -> bool {
         let known = self.panes.remove(&session).is_some();
         self.stale |= known;
@@ -330,8 +288,6 @@ impl Tracker {
         }
     }
 
-    /// Matches the terminals to the last reports; returns whether what
-    /// clients see changed.
     pub(crate) fn reconcile(&mut self) -> bool {
         let next = reconcile(&self.sources, &self.panes, &self.reports, &self.reconciled);
         if next == self.reconciled {

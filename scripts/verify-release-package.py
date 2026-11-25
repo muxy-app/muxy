@@ -68,8 +68,6 @@ def verify(args):
             finally:
                 run('hdiutil', 'detach', mount)
 
-        # Only download transport is substituted: the production installer reads
-        # the exact packaged archive and hashes from this Actions artifact.
         downloads = work / 'downloads'
         downloads.mkdir()
         shutil.copyfile(args.archive, downloads / args.archive.name)

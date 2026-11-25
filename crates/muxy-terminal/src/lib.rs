@@ -1,8 +1,3 @@
-//! Native terminal emulation, retained history, and PTY process I/O.
-//!
-//! Screen data uses the shared protocol types; session lifecycle and
-//! application policy stay with their owners.
-
 mod error;
 mod events;
 mod ghostty;
@@ -25,7 +20,9 @@ pub use screen::{
 
 mod graphics;
 pub use graphics::{
-    CellSize, GraphicImage, GraphicPlacement, Graphics, MAX_GRAPHICS_BYTES, MAX_GRAPHICS_PLACEMENTS,
+    CellSize, GraphicFrame, GraphicImage, GraphicPlacement, Graphics, ImageFrame,
+    MAX_GRAPHICS_BYTES, MAX_GRAPHICS_PLACEMENTS, MAX_SHARED_GRAPHICS_BYTES, Playback,
+    PlaybackState,
 };
 
 pub mod pty;

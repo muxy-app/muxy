@@ -1,4 +1,3 @@
-//! One-time input adapter; presentation stays in the desktop's original file.
 use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read};
@@ -68,7 +67,6 @@ enum Content {
 }
 
 pub(crate) fn read(profile: &Path) -> io::Result<LegacyImport> {
-    // Every committed catalog is an import receipt, including an empty-profile import.
     if profile.join("sessions/catalog.json").try_exists()? {
         return Ok(LegacyImport::default());
     }

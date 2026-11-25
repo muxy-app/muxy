@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::env;
-use std::ffi::{CString, OsStr, OsString};
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use muxy_protocol::ErrorCode;
@@ -9,12 +9,17 @@ use muxy_terminal::pty::{Pty, PtySize, SpawnRequest};
 use crate::error::ServerError;
 use crate::settings::ServerSettings;
 
-const LOGIN_FLAG: &str = "-l";
 const TERMINAL_ENV: [(&str, &str); 3] = [
     ("TERM", "xterm-256color"),
     ("COLORTERM", "truecolor"),
     ("TERM_PROGRAM", "muxy"),
 ];
+
+pub(crate) struct Shell {
+    pub(crate) pty: Pty,
+    #[cfg(windows)]
+    pub(crate) job: crate::platform::windows::Job,
+}
 
 pub(crate) fn spawn_shell(
     settings: &ServerSettings,
@@ -23,21 +28,22 @@ pub(crate) fn spawn_shell(
     size: PtySize,
     identity: (muxy_protocol::ServerIdentity, muxy_protocol::SessionId),
     extra: &BTreeMap<String, String>,
-) -> Result<Pty, ServerError> {
+) -> Result<Shell, ServerError> {
     if !directory.is_dir() {
         return Err(ServerError::new(
             ErrorCode::BadPath,
             format!("{} is not a directory", directory.display()),
         ));
     }
+    let program = resolve_shell(settings);
     let mut request = SpawnRequest {
-        program: resolve_shell(settings),
-        args: vec![OsString::from(LOGIN_FLAG)],
+        args: shell_arguments(&program),
+        program,
         cwd: directory.to_path_buf(),
         env: environment(identity, extra),
         size,
     };
-    request.env.retain(|(name, _)| name != "SHELL");
+    request.env.retain(|(name, _)| !same_name(name, "SHELL"));
     request.env.push((
         OsString::from("SHELL"),
         request.program.clone().into_os_string(),
@@ -45,7 +51,45 @@ pub(crate) fn spawn_shell(
     if let Some(integration) = integration {
         integration.configure(&mut request, settings.shell_integration);
     }
-    Pty::spawn(request).map_err(ServerError::spawn_failed)
+    let pty = Pty::spawn(request).map_err(ServerError::spawn_failed)?;
+    #[cfg(windows)]
+    {
+        let mut pty = pty;
+        let job = pty
+            .process_handle()
+            .ok_or_else(|| std::io::Error::other("the shell has no process handle"))
+            .and_then(|process| {
+                let job = crate::platform::windows::Job::killed_on_drop()?;
+                job.assign(process)?;
+                Ok(job)
+            });
+        match job {
+            Ok(job) => Ok(Shell { pty, job }),
+            Err(error) => {
+                let _ = pty.kill();
+                let _ = pty.wait();
+                Err(ServerError::spawn_failed(error))
+            }
+        }
+    }
+    #[cfg(unix)]
+    Ok(Shell { pty })
+}
+
+fn shell_arguments(program: &Path) -> Vec<OsString> {
+    #[cfg(unix)]
+    {
+        let _ = program;
+        vec!["-l".into()]
+    }
+    #[cfg(windows)]
+    {
+        if crate::shell::is_powershell(program) {
+            vec!["-NoLogo".into()]
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 fn resolve_shell(settings: &ServerSettings) -> PathBuf {
@@ -55,20 +99,21 @@ fn resolve_shell(settings: &ServerSettings) -> PathBuf {
         .unwrap_or_else(crate::process::user_shell)
 }
 
-/// `extra`, such as a proxy, replaces inherited variables but never Muxy's own.
 fn environment(
     identity: (muxy_protocol::ServerIdentity, muxy_protocol::SessionId),
     extra: &BTreeMap<String, String>,
 ) -> Vec<(OsString, OsString)> {
     let mut env: Vec<_> = env::vars_os()
-        .filter(|(name, _)| name.to_str().is_none_or(|name| !extra.contains_key(name)))
+        .filter(|(name, _)| inherited(name) && !extra.keys().any(|key| same_name(name, key)))
         .collect();
     env.extend(
         extra
             .iter()
             .map(|(key, value)| (OsString::from(key), OsString::from(value))),
     );
-    env.retain(|(name, _)| name != "MUXY_SERVER_ID" && name != "MUXY_SESSION_ID");
+    env.retain(|(name, _)| {
+        !same_name(name, "MUXY_SERVER_ID") && !same_name(name, "MUXY_SESSION_ID")
+    });
     env.push(("MUXY_SERVER_ID".into(), identity.0.to_string().into()));
     env.push((
         "MUXY_SESSION_ID".into(),
@@ -81,6 +126,23 @@ fn environment(
     );
     apply_utf8_locale(&mut env);
     env
+}
+
+fn inherited(name: &OsStr) -> bool {
+    !(cfg!(windows) && same_name(name, "PATH"))
+}
+
+pub(crate) fn same_name(name: &OsStr, expected: &str) -> bool {
+    if cfg!(windows) {
+        name.eq_ignore_ascii_case(expected)
+    } else {
+        name == expected
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn exists(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| !metadata.is_dir())
 }
 
 const CHARSET_LOCALE_KEYS: [&str; 3] = ["LC_ALL", "LC_CTYPE", "LANG"];
@@ -159,23 +221,27 @@ fn set_env(env: &mut Vec<(OsString, OsString)>, key: &str, value: &str) {
     env.push((OsString::from(key), OsString::from(value)));
 }
 
+#[cfg(unix)]
 #[allow(
     unsafe_code,
     reason = "the C library is the only authority on which locales it can load"
 )]
 fn locale_installed(name: &str) -> bool {
-    let Ok(name) = CString::new(name) else {
+    let Ok(name) = std::ffi::CString::new(name) else {
         return false;
     };
-    // SAFETY: `name` is a valid C string and a null base asks for a new locale.
     let locale =
         unsafe { libc::newlocale(libc::LC_CTYPE_MASK, name.as_ptr(), std::ptr::null_mut()) };
     if locale.is_null() {
         return false;
     }
-    // SAFETY: `locale` came from `newlocale` and is freed once.
     unsafe { libc::freelocale(locale) };
     true
+}
+
+#[cfg(windows)]
+fn locale_installed(_name: &str) -> bool {
+    false
 }
 
 fn system_locale() -> Option<String> {
@@ -342,5 +408,42 @@ mod tests {
         ensure_utf8_locale(&mut env, Some("zh_CN"), |_| false);
         assert_eq!(value(&env, "LANG"), Some(""));
         assert_eq!(value(&env, "PATH"), Some("/usr/bin"));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn store_pwsh_alias_counts_as_an_existing_shell() {
+        let Some(local) = env::var_os("LOCALAPPDATA") else {
+            return;
+        };
+        let alias = PathBuf::from(local).join(r"Microsoft\WindowsApps\pwsh.exe");
+        if std::fs::symlink_metadata(&alias).is_err() {
+            return;
+        }
+        assert!(exists(&alias));
+        assert!(std::fs::metadata(&alias).is_err() || alias.is_file());
+    }
+
+    #[test]
+    fn sessions_read_path_from_the_registry_and_match_names_without_case() {
+        assert!(!inherited(OsStr::new("Path")));
+        assert!(inherited(OsStr::new("TEMP")));
+        assert!(same_name(OsStr::new("shell"), "SHELL"));
+        let session = muxy_protocol::SessionId::new(7).expect("non-zero");
+        let extra = BTreeMap::from([("muxy_session_id".to_owned(), "1".to_owned())]);
+        let env = environment(
+            (muxy_protocol::ServerIdentity::from_u128(1), session),
+            &extra,
+        );
+        let ids: Vec<_> = env
+            .iter()
+            .filter(|(name, _)| same_name(name, "MUXY_SESSION_ID"))
+            .map(|(_, value)| value)
+            .collect();
+        assert_eq!(ids, [&OsString::from("7")]);
     }
 }

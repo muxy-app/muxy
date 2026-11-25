@@ -1,14 +1,21 @@
-//! The layer of panels floating over the window, back to front.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, DispatchPhase, InteractiveElement, IntoElement, MouseButton,
     MouseMoveEvent, MouseUpEvent, ParentElement, Styled, Window, canvas, div,
 };
 
+use std::collections::HashMap;
+
+use muxy_app_core::TabWindowId;
+
 use crate::model::AppModel;
 
-pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
+pub(crate) fn layer(
+    model: &AppModel,
+    mut floats: HashMap<TabWindowId, AnyElement>,
+    window: &Window,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
     let members = model.floating_members();
     let dragging = model.floating.drag.is_some()
         || matches!(
@@ -30,10 +37,13 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
                 super::agents_panel::floating(model, window, cx)
             } else if id.as_str() == crate::model::agent_sessions::PANEL {
                 super::agent_sessions::floating(model, window, cx)
+            } else if let Some(float) = crate::model::tab_windows::floating::panel_float(id) {
+                floats.remove(&float)
             } else {
                 model.detached_webview_panel(id, window, cx)
             }
         }))
+        .children(super::floating_tab::minimized(model, window, cx))
         .when(dragging, |layer| {
             layer.child(
                 div()

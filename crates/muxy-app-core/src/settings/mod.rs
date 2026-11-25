@@ -1,16 +1,15 @@
-//! Client configuration and keymap schema and storage.
-//!
-//! Server-owned settings and presentation code stay with their owners.
-
+pub mod agent;
 mod appearance;
 mod browser;
 mod chord;
 mod commands;
 mod composer;
 mod config;
+mod document;
 mod error;
 mod ghostty;
 mod keymap;
+pub mod keys;
 mod paired;
 mod private_file;
 mod proxy;
@@ -25,7 +24,8 @@ pub use worktrees::{
 
 pub use appearance::{
     AgentSessionsPosition, AgentsPanelDensity, AgentsPanelDock, AgentsPanelGrouping,
-    AgentsPanelIcon, AppLayout, Appearance, InterfaceSize, ProjectOrder, SidebarCollapsedStyle,
+    AgentsPanelIcon, AppLayout, Appearance, ExtensionsLayout, InterfaceSize, ProjectOrder,
+    SidebarCollapsedStyle,
 };
 pub use browser::BrowserSettings;
 pub use chord::KeyChord;
@@ -33,7 +33,7 @@ pub use commands::CustomCommand;
 pub use composer::{ComposerPosition, ComposerPresentation, ComposerSettings};
 pub use config::{
     ClipboardSettings, CloseBehavior, CommitChoices, NewPaneDirectory, OpenerSettings,
-    PaneSettings, PanelLayout, ProjectSettings, Settings, WindowSettings,
+    PaneSettings, PanelLayout, PrivacySettings, ProjectSettings, Settings, WindowSettings,
 };
 pub use error::{Error, Result};
 pub use ghostty::{

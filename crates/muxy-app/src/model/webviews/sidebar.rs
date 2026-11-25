@@ -1,6 +1,3 @@
-//! The extension sidebar: an enabled extension's `sidebar` page shown in place
-//! of the built-in sidebar when the user selects it in Settings.
-
 use gpui::{Context, Window};
 use muxy_ui::webview::assets::Source;
 
@@ -13,7 +10,6 @@ pub(crate) struct SidebarSurface {
 }
 
 impl AppModel {
-    /// Enabled extensions that provide a sidebar, as `(extension, label)`.
     pub(crate) fn extension_sidebars(&self) -> Vec<(String, String)> {
         self.extensions
             .registry
@@ -31,9 +27,6 @@ impl AppModel {
             .collect()
     }
 
-    /// Whether the selected extension sidebar replaces the built-in one. The
-    /// selection is kept while its extension is unavailable, and the built-in
-    /// sidebar shows meanwhile.
     pub(crate) fn extension_sidebar_active(&self) -> bool {
         let owner = &self.appearance.extension_sidebar;
         !owner.is_empty()
@@ -45,7 +38,10 @@ impl AppModel {
                     .is_some_and(|extension| extension.manifest.sidebar.is_some()))
     }
 
-    /// Creates, replaces, or removes the sidebar page to match the selection.
+    pub(crate) fn extension_sidebar_shown(&self) -> bool {
+        self.extension_sidebar_active() && self.sidebar_panel_width() > 0.0
+    }
+
     pub(super) fn sync_extension_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let wanted = self
             .extensions

@@ -1,7 +1,3 @@
-//! Panels that float freely over the window, side by side: the detached
-//! agents panel, the detached agent sessions panel, and detached extension
-//! panels. Clicking one brings it to the front.
-
 use gpui::{Context, Pixels, Point, Size, Window};
 use muxy_ui::floating::{Edges, FloatingDrag, FloatingFrame, FloatingStack, SizeLimits};
 use muxy_ui::panel::PanelId;
@@ -14,14 +10,11 @@ const SESSIONS_MIN: (f32, f32) = (260.0, 200.0);
 #[derive(Default)]
 pub(crate) struct Floating {
     pub(crate) stack: FloatingStack<PanelId>,
-    /// The panel being moved or resized by the pointer.
     pub(crate) drag: Option<(PanelId, FloatingDrag)>,
+    pub(crate) front_float: Option<muxy_app_core::TabWindowId>,
 }
 
 impl AppModel {
-    /// Window pixels per frame point of a floating panel: the app's zoom
-    /// for built-in panels, and none for extension panels, whose frames are
-    /// in the pixels their pages lay out in.
     pub(crate) fn floating_scale(&self, id: &PanelId) -> f32 {
         if self.webviews.panels.contains_key(id) {
             1.0
@@ -30,7 +23,6 @@ impl AppModel {
         }
     }
 
-    /// The window's size in a floating panel's frame points.
     pub(crate) fn floating_area_for(&self, id: &PanelId, window: &Window) -> Size<f32> {
         let scale = self.floating_scale(id);
         let viewport = window.viewport_size();
@@ -40,7 +32,6 @@ impl AppModel {
         }
     }
 
-    /// The window's size in built-in floating panels' frame points.
     pub(crate) fn floating_area(&self, window: &Window) -> Size<f32> {
         let scale = self.metrics.multiplier();
         let viewport = window.viewport_size();
@@ -50,7 +41,6 @@ impl AppModel {
         }
     }
 
-    /// Every floating panel shown now, bottom first.
     pub(crate) fn floating_members(&self) -> Vec<PanelId> {
         let mut members = Vec::new();
         if self.agents_panel_placement() == super::agents_panel::Placement::Floating
@@ -62,12 +52,15 @@ impl AppModel {
             members.push(PanelId::new(super::agent_sessions::PANEL));
         }
         members.extend(self.detached_webview_panels());
+        members.extend(
+            self.shown_floats()
+                .into_iter()
+                .map(super::tab_windows::floating::panel),
+        );
         self.floating.stack.sort(&mut members, |id| id);
         members
     }
 
-    /// Puts panels that just appeared on top and forgets hidden ones, so the
-    /// stack always matches what shows.
     pub(crate) fn sync_floating_stack(&mut self) {
         let members = self.floating_members();
         for member in &members {
@@ -100,7 +93,6 @@ impl AppModel {
         SizeLimits::at_least(SESSIONS_MIN.0, SESSIONS_MIN.1)
     }
 
-    /// The detached agent sessions panel's frame, inside the window.
     pub(crate) fn agent_sessions_frame(&self, window: &Window) -> FloatingFrame {
         let frame = self
             .appearance
@@ -111,8 +103,6 @@ impl AppModel {
         frame.clamped(self.floating_area(window), Self::agent_sessions_limits())
     }
 
-    /// The frame and size limits of a floating panel moved by the shared
-    /// drag, inside the window.
     fn floating_geometry(
         &self,
         id: &PanelId,
@@ -124,6 +114,12 @@ impl AppModel {
                 Self::agent_sessions_limits(),
             ));
         }
+        if let Some(float) = super::tab_windows::floating::panel_float(id) {
+            return Some((
+                self.float_frame(float, window)?,
+                super::tab_windows::floating::float_limits(),
+            ));
+        }
         self.detached_webview_geometry(id, window)
     }
 
@@ -132,10 +128,13 @@ impl AppModel {
             self.appearance.agent_sessions_frame = Some(frame.to_array());
             return;
         }
+        if let Some(float) = super::tab_windows::floating::panel_float(id) {
+            self.set_float_frame(float, frame);
+            return;
+        }
         self.set_detached_webview_frame(id, frame);
     }
 
-    /// Starts moving a floating panel, or resizing it by `edges`.
     pub(crate) fn begin_floating_drag(
         &mut self,
         id: &PanelId,
@@ -179,7 +178,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Ends the drag, keeping where the panel ended up.
     pub(crate) fn finish_floating_drag(&mut self, cx: &mut Context<Self>) {
         let Some((id, _)) = self.floating.drag.take() else {
             return;
@@ -189,13 +187,14 @@ impl AppModel {
             {
                 self.save_appearance(cx);
             }
+        } else if super::tab_windows::floating::panel_float(&id).is_some() {
+            self.save(cx);
         } else {
             self.save_detached_webview_frame(&id, cx);
         }
         cx.notify();
     }
 
-    /// Pops the agent sessions panel out to float, or docks it back.
     pub(crate) fn set_agent_sessions_detached(
         &mut self,
         detached: bool,

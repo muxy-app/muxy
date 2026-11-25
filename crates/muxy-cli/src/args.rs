@@ -10,23 +10,22 @@ use crate::manage::help;
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Command {
     Help,
-    /// One command's usage, which needs no server.
     Usage(&'static str),
+    DetailedUsage(String),
+    Completion(crate::completion::Shell),
+    Complete(Vec<OsString>),
     Version,
     BuildInfo,
     Interactive,
     Manage(Box<crate::manage::args::Invocation>),
     Mobile(Mobile),
-    /// Joins stdin and stdout to the server, for clients on other computers.
     Stdio(Start),
     Open(PathBuf),
-    /// Drives a browser tab in the desktop app on this computer.
     Browser(Box<crate::browser::Invocation>),
-    /// Manages extensions in the desktop app on this computer.
     Extension(Box<crate::extension::Invocation>),
-    /// Installs the agent skill into agent folders and these folders.
+    ExtensionDev(crate::extension::dev::Dev),
+    Config(crate::config::Invocation),
     InstallSkills(Vec<PathBuf>),
-    /// A program status report for this computer's terminal.
     Status(String),
 }
 
@@ -37,13 +36,10 @@ pub(crate) enum Mobile {
     Disable,
     Pair { addresses: Vec<String> },
     Revoke { device: String },
+    Push { on: bool },
+    ResetPush { device: String },
 }
 
-/// Reads the command, and the other computer whose server it uses when it
-/// starts with `--host DESTINATION`. Help, version and build info describe
-/// this computer's Muxy, a bridge must never reach on to another computer,
-/// and browser tabs and extensions live in this computer's desktop app, so
-/// none of them takes `--host`.
 pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Command)> {
     match arguments {
         [flag, destination, rest @ ..] if flag == "--host" => {
@@ -59,10 +55,14 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
                     Command::Help
                     | Command::Version
                     | Command::BuildInfo
+                    | Command::Completion(_)
+                    | Command::Complete(_)
                     | Command::Stdio(_)
                     | Command::Open(_)
                     | Command::Browser(_)
                     | Command::Extension(_)
+                    | Command::ExtensionDev(_)
+                    | Command::Config(_)
                     | Command::InstallSkills(_)
                     | Command::Status(_),
                     [word, ..],
@@ -79,6 +79,18 @@ pub(crate) fn parse(arguments: &[OsString]) -> io::Result<(Option<SshTarget>, Co
 }
 
 fn command(arguments: &[OsString]) -> io::Result<Command> {
+    if let Some(alias) = arguments
+        .first()
+        .and_then(|word| word.to_str())
+        .and_then(help::alias)
+    {
+        let mut expanded: Vec<_> = alias.split_whitespace().map(OsString::from).collect();
+        expanded.extend_from_slice(&arguments[1..]);
+        return command(&expanded);
+    }
+    if let Some(usage) = help::requested(arguments) {
+        return Ok(Command::DetailedUsage(usage));
+    }
     match arguments {
         [flag] if flag == "--help" || flag == "-h" => return Ok(Command::Help),
         [flag] if flag == "--version" || flag == "-V" => return Ok(Command::Version),
@@ -87,6 +99,38 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
     }
     match arguments {
         [] => Ok(Command::Interactive),
+        [word] if word == "version" => Ok(Command::Version),
+        [word, rest @ ..] if word == "__complete" => Ok(Command::Complete(rest.to_vec())),
+        [word, shell] if word == "completion" && shell != "--help" && shell != "-h" => {
+            crate::completion::Shell::parse(shell.to_str().unwrap_or_default())
+                .map(Command::Completion)
+        }
+        [word]
+            if matches!(
+                word.to_str(),
+                Some(
+                    "server"
+                        | "project"
+                        | "session"
+                        | "worktree"
+                        | "settings"
+                        | "activity"
+                        | "completion"
+                )
+            ) =>
+        {
+            Ok(Command::Usage(
+                help::topic(word.to_str().unwrap_or_default()).unwrap_or(help::ROOT),
+            ))
+        }
+        [word, flag]
+            if (flag == "--help" || flag == "-h")
+                && help::topic(word.to_str().unwrap_or_default()).is_some() =>
+        {
+            Ok(Command::Usage(
+                help::topic(word.to_str().unwrap_or_default()).unwrap_or(help::ROOT),
+            ))
+        }
         [command, .., flag] if command == "mobile" && (flag == "--help" || flag == "-h") => {
             Ok(Command::Usage(help::MOBILE))
         }
@@ -102,6 +146,7 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
         }
         [command, rest @ ..] if command == "browser" => crate::browser::parse(rest),
         [command, rest @ ..] if command == "extension" => crate::extension::parse(rest),
+        [command, rest @ ..] if command == "config" => crate::config::parse(rest),
         [command, rest @ ..] if command == "status" && asks_help(rest) => {
             Ok(Command::Usage(help::STATUS))
         }
@@ -109,11 +154,24 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
             crate::status::parse(rest).map(Command::Status)
         }
         [command] if command == "help" => Ok(Command::Help),
-        [command, topic] if command == "help" => topic
-            .to_str()
-            .and_then(help::topic)
-            .map(Command::Usage)
-            .ok_or_else(|| invalid("unknown command; run muxy --help")),
+        [command, topics @ ..] if command == "help" => {
+            let topics = topics
+                .iter()
+                .map(|word| {
+                    word.to_str()
+                        .ok_or_else(|| invalid("help topics must be UTF-8"))
+                })
+                .collect::<io::Result<Vec<_>>>()?;
+            let path = topics.join(" ");
+            if help::alias(&path).is_none()
+                && let Some(usage) = help::topic(&path)
+            {
+                return Ok(Command::Usage(usage));
+            }
+            help::detail(&path)
+                .map(Command::DetailedUsage)
+                .ok_or_else(|| invalid("unknown command; run muxy --help"))
+        }
         [word] if names_folder(word) => Ok(Command::Open(word.into())),
         _ => {
             crate::manage::args::parse(arguments).map(|command| Command::Manage(Box::new(command)))
@@ -121,8 +179,6 @@ fn command(arguments: &[OsString]) -> io::Result<Command> {
     }
 }
 
-/// Whether `--help` or `-h` stands where `muxy status` reads its state or an
-/// option, not where it reads an option's value.
 fn asks_help(arguments: &[OsString]) -> bool {
     arguments
         .iter()
@@ -152,6 +208,14 @@ fn mobile(arguments: &[OsString]) -> io::Result<Mobile> {
         [Some("revoke"), Some(device)] if !device.is_empty() => Ok(Mobile::Revoke {
             device: (*device).to_owned(),
         }),
+        [Some("push"), Some("on")] => Ok(Mobile::Push { on: true }),
+        [Some("push"), Some("off")] => Ok(Mobile::Push { on: false }),
+        [Some("push"), Some("reset"), Some(device)] if !device.is_empty() => {
+            Ok(Mobile::ResetPush {
+                device: (*device).to_owned(),
+            })
+        }
+        [Some("push"), ..] => Err(invalid("usage: muxy mobile push on|off|reset <device>")),
         _ => Err(invalid("unknown mobile command; run muxy mobile --help")),
     }
 }
@@ -211,6 +275,61 @@ mod tests {
     }
 
     #[test]
+    fn aliases_are_exactly_the_existing_session_commands() -> io::Result<()> {
+        for (short, long, rest) in [
+            ("ls", "list", vec!["--quiet"]),
+            ("new", "create", vec!["Home", "--", "echo", "--help"]),
+            ("send", "send", vec!["42", "--stdin"]),
+            ("send-key", "send-keys", vec!["42", "Ctrl+C", "Enter"]),
+            ("capture", "read-screen", vec!["42", "--saved"]),
+            ("wait", "wait", vec!["42", "--text", "ready"]),
+        ] {
+            let mut alias = vec![short];
+            alias.extend(&rest);
+            let mut full = vec!["session", long];
+            full.extend(&rest);
+            assert_eq!(words(&alias)?.1, words(&full)?.1);
+            assert!(!names_folder(OsStr::new(short)));
+            assert!(matches!(
+                words(&["help", short])?.1,
+                Command::DetailedUsage(_)
+            ));
+        }
+        assert!(matches!(words(&["./ls"])?.1, Command::Open(_)));
+        assert!(matches!(
+            words(&["--host", "devbox", "ls"])?,
+            (Some(_), Command::Manage(_))
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn group_help_and_completions_do_not_need_a_server() -> io::Result<()> {
+        for group in [
+            "project",
+            "session",
+            "server",
+            "worktree",
+            "settings",
+            "activity",
+            "completion",
+        ] {
+            assert!(matches!(words(&[group])?.1, Command::Usage(_)));
+        }
+        for shell in ["bash", "zsh", "fish"] {
+            assert!(matches!(
+                words(&["completion", shell])?.1,
+                Command::Completion(_)
+            ));
+        }
+        assert!(words(&["completion", "unknown"]).is_err());
+        assert!(words(&["--host", "example", "completion", "bash"]).is_err());
+        assert!(words(&["help", "session", "unknown"]).is_err());
+        assert_eq!(words(&["version"])?.1, Command::Version);
+        Ok(())
+    }
+
+    #[test]
     fn install_skills_takes_folders_but_no_host() -> io::Result<()> {
         assert_eq!(
             words(&["install-skills"])?.1,
@@ -255,6 +374,38 @@ mod tests {
         assert_eq!(words(&["help", "status"])?.1, Command::Usage(help::STATUS));
         assert!(!names_folder(OsStr::new("status")));
         assert!(words(&["--host", "example", "status", "working"]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn push_notifications_turn_on_and_off_from_mobile() -> io::Result<()> {
+        assert_eq!(
+            words(&["mobile", "push", "on"])?.1,
+            Command::Mobile(Mobile::Push { on: true })
+        );
+        assert_eq!(
+            words(&["mobile", "push", "off"])?.1,
+            Command::Mobile(Mobile::Push { on: false })
+        );
+        assert!(matches!(
+            words(&["--host", "box", "mobile", "push", "off"])?,
+            (Some(_), Command::Mobile(Mobile::Push { on: false }))
+        ));
+        assert_eq!(
+            words(&["mobile", "push", "reset", "3f2a"])?.1,
+            Command::Mobile(Mobile::ResetPush {
+                device: "3f2a".into()
+            })
+        );
+        for args in [
+            vec!["mobile", "push"],
+            vec!["mobile", "push", "maybe"],
+            vec!["mobile", "push", "on", "now"],
+            vec!["mobile", "push", "reset"],
+            vec!["mobile", "push", "reset", ""],
+        ] {
+            assert!(words(&args).is_err(), "{args:?}");
+        }
         Ok(())
     }
 

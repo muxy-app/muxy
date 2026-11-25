@@ -135,6 +135,7 @@ struct PendingImageRemoval {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct DraftState {
     draft: ComposerDraft,
+    revision: u64,
     pending_removals: BTreeMap<u64, PendingImageRemoval>,
 }
 
@@ -143,7 +144,6 @@ pub struct ComposerStore {
     path: PathBuf,
     drafts: BTreeMap<DraftId, DraftState>,
     malformed: BTreeMap<String, Value>,
-    revisions: BTreeMap<DraftId, u64>,
     dirty_revision: u64,
     flushed_revision: u64,
     load_status: ComposerLoadStatus,
@@ -179,7 +179,6 @@ impl ComposerStore {
             path,
             drafts,
             malformed,
-            revisions: BTreeMap::new(),
             dirty_revision: 0,
             flushed_revision: 0,
             load_status: status,
@@ -187,9 +186,6 @@ impl ComposerStore {
             submitted_images: HashSet::new(),
             profile_lock,
         };
-        for id in store.drafts.keys() {
-            store.revisions.insert(id.clone(), 0);
-        }
         store.sweep_startup();
         store
     }
@@ -225,7 +221,7 @@ impl ComposerStore {
     }
 
     pub fn draft_revision(&self, id: &DraftId) -> u64 {
-        self.revisions.get(id).copied().unwrap_or(0)
+        self.drafts.get(id).map_or(0, |state| state.revision)
     }
 
     pub fn dirty_revision(&self) -> u64 {
@@ -249,13 +245,13 @@ impl ComposerStore {
         }
         let revision = self.next_draft_revision(&id);
         self.drafts.insert(
-            id.clone(),
+            id,
             DraftState {
                 draft,
+                revision,
                 pending_removals: BTreeMap::new(),
             },
         );
-        self.revisions.insert(id, revision);
         self.touch();
         Ok(revision)
     }
@@ -302,8 +298,8 @@ impl ComposerStore {
             return Ok(self.draft_revision(&id));
         }
         state.draft.validate()?;
-        self.drafts.insert(id.clone(), state);
-        self.revisions.insert(id, revision);
+        state.revision = revision;
+        self.drafts.insert(id, state);
         self.touch();
         Ok(revision)
     }
@@ -344,7 +340,6 @@ impl ComposerStore {
             })?
             .write_prepared(source)?;
         let previous_state = self.drafts.get(&id).cloned();
-        let previous_draft_revision = self.revisions.get(&id).copied();
         let previous_dirty_revision = self.dirty_revision;
         let previous_overwrite_blocked = self.load_status.overwrite_blocked;
         let mut state = previous_state.clone().unwrap_or_default();
@@ -382,8 +377,8 @@ impl ComposerStore {
             return Err(error);
         }
         let draft_revision = self.next_draft_revision(&id);
+        state.revision = draft_revision;
         self.drafts.insert(id.clone(), state);
-        self.revisions.insert(id.clone(), draft_revision);
         self.touch();
         let publication = self.flush().and_then(|published| {
             if published {
@@ -400,18 +395,10 @@ impl ComposerStore {
             }
             match previous_state {
                 Some(state) => {
-                    self.drafts.insert(id.clone(), state);
+                    self.drafts.insert(id, state);
                 }
                 None => {
                     self.drafts.remove(&id);
-                }
-            }
-            match previous_draft_revision {
-                Some(revision) => {
-                    self.revisions.insert(id, revision);
-                }
-                None => {
-                    self.revisions.remove(&id);
                 }
             }
             self.dirty_revision = previous_dirty_revision;
@@ -587,6 +574,7 @@ fn load_document(
                     id,
                     DraftState {
                         draft,
+                        revision: 0,
                         pending_removals: BTreeMap::new(),
                     },
                 );
@@ -713,6 +701,98 @@ mod tests {
             .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
             .unwrap();
         bytes
+    }
+
+    #[test]
+    fn draft_revisions_preserve_no_ops_and_reject_stale_clears_independently() {
+        let profile = tempfile::tempdir().unwrap();
+        let mut store = ComposerStore::load_from(profile.path());
+        let first = store
+            .edit_content(id(), "notes".into(), Vec::new())
+            .unwrap();
+        let original = store.draft(&id()).unwrap().clone();
+        let dirty = store.dirty_revision();
+        assert_eq!(store.replace_draft(id(), original.clone()).unwrap(), first);
+        assert_eq!(
+            store
+                .edit_content(id(), "notes".into(), Vec::new())
+                .unwrap(),
+            first
+        );
+        assert_eq!(store.dirty_revision(), dirty);
+
+        let other = DraftId::new(PROJECT, OTHER_WORKTREE).unwrap();
+        let other_revision = store
+            .edit_content(other.clone(), "other notes".into(), Vec::new())
+            .unwrap();
+        assert_eq!(store.draft_revision(&id()), first);
+        let updated = store
+            .replace_draft(
+                id(),
+                ComposerDraft {
+                    text: "new notes".into(),
+                    ..original
+                },
+            )
+            .unwrap();
+        assert!(updated > first);
+        assert_eq!(store.draft_revision(&id()), updated);
+        assert!(!store.clear_if_revision(&id(), first).unwrap());
+        assert_eq!(store.draft(&id()).unwrap().text, "new notes");
+        assert!(store.clear_if_revision(&id(), updated).unwrap());
+        assert!(store.draft(&id()).is_none());
+        let cleared = store.draft_revision(&id());
+        assert!(cleared > updated);
+        assert_eq!(
+            store.edit_content(id(), String::new(), Vec::new()).unwrap(),
+            cleared
+        );
+        let recreated = store
+            .edit_content(id(), "next message".into(), Vec::new())
+            .unwrap();
+        assert!(recreated > cleared);
+        assert!(!store.clear_if_revision(&id(), updated).unwrap());
+        assert_eq!(store.draft(&id()).unwrap().text, "next message");
+        assert_eq!(store.draft_revision(&other), other_revision);
+        assert!(store.clear_if_revision(&other, other_revision).unwrap());
+    }
+
+    #[test]
+    fn failed_image_publication_restores_the_draft_and_its_revision() {
+        for text in [None, Some("notes")] {
+            let profile = tempfile::tempdir().unwrap();
+            let mut store = ComposerStore::load_from(profile.path());
+            if let Some(text) = text {
+                store.edit_content(id(), text.into(), Vec::new()).unwrap();
+            }
+            let previous = store.draft(&id()).cloned();
+            let revision = store.draft_revision(&id());
+            let dirty = store.dirty_revision();
+            let flushed = store.flushed_revision();
+            std::fs::create_dir(store.path()).unwrap();
+            assert!(store.attach_image(id(), &png(), 0).is_err());
+            assert_eq!(store.draft(&id()).cloned(), previous);
+            assert_eq!(store.draft_revision(&id()), revision);
+            assert_eq!(store.dirty_revision(), dirty);
+            assert_eq!(store.flushed_revision(), flushed);
+            std::fs::remove_dir(store.path()).unwrap();
+
+            let (_, attached) = store.attach_image(id(), &png(), 0).unwrap();
+            assert_eq!(attached, revision + 1);
+            assert_eq!(store.draft_revision(&id()), attached);
+            assert!(!store.clear_if_revision(&id(), revision).unwrap());
+            let saved = store.draft(&id()).unwrap().clone();
+            drop(store);
+            let mut restored = ComposerStore::load_from(profile.path());
+            assert_eq!(restored.draft(&id()), Some(&saved));
+            let loaded_revision = restored.draft_revision(&id());
+            let updated = restored
+                .edit_content(id(), "after reload".into(), Vec::new())
+                .unwrap();
+            assert!(updated > loaded_revision);
+            assert!(!restored.clear_if_revision(&id(), loaded_revision).unwrap());
+            assert_eq!(restored.draft(&id()).unwrap().text, "after reload");
+        }
     }
 
     #[test]

@@ -1,6 +1,3 @@
-//! A secure line reaches out to two servers and their projects join the sidebar.
-//! One connection drops and comes back with its terminals still running.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{Div, FontWeight, ParentElement, SharedString, Styled, div};
 use muxy_ui::components::IconGlyph;
@@ -161,7 +158,6 @@ fn lock(frame: &Frame, at: (f32, f32), reach: f32) -> Div {
         .child(text(frame, 8.0, muted(), "SSH"))
 }
 
-/// The sidebar they all land in.
 fn list(frame: &Frame, offline: f32) -> Div {
     let rows: [(&str, &str, u32, Option<SharedString>); 3] = [
         ("muxy", "M", INDIGO, None),

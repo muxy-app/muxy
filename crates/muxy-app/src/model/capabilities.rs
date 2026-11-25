@@ -13,10 +13,10 @@ fn backend(feature: Feature) -> Capability {
         Feature::CommandLineTool => crate::cli_install::CAPABILITY,
         Feature::Updates => crate::updater::CAPABILITY,
         Feature::AppHiding => Capability::of(cfg!(target_os = "macos")),
+        Feature::BrowserPanes | Feature::SshRemotes => Capability::of(!cfg!(windows)),
     }
 }
 
-/// What this build has backends for. Services refine the table as they start.
 pub(crate) fn backends() -> Capabilities {
     let mut capabilities = Capabilities::default();
     for feature in Feature::ALL {
@@ -30,7 +30,6 @@ impl AppModel {
         self.capabilities.supports(feature)
     }
 
-    /// Whether `feature` can run. Otherwise reports why, before any work starts.
     pub(crate) fn require(&mut self, feature: Feature, cx: &mut Context<Self>) -> bool {
         let Some(reason) = self.capabilities.reason(feature) else {
             return true;
@@ -39,7 +38,6 @@ impl AppModel {
         false
     }
 
-    /// Leaves an app-wide command to its own handler where `feature` can run.
     pub(crate) fn forward(&mut self, feature: Feature, cx: &mut Context<Self>) {
         if self.require(feature, cx) {
             cx.propagate();

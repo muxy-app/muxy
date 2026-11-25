@@ -9,10 +9,7 @@ use super::layout::StoredScreen;
 use super::{Record, SCREEN_LIMIT};
 
 const MAGIC: &[u8; 8] = b"MUXYSAV4";
-/// Written before the server owned its layout, from protocol types that match
-/// [`StoredScreen`].
 const MAGIC_V3: &[u8; 8] = b"MUXYSAV3";
-/// Written before rendering kept cursor shapes, graphics and underline styles.
 const MAGIC_V2: &[u8; 8] = b"MUXYSAV2";
 const HEADER_LEN: u64 = 32;
 
@@ -194,7 +191,6 @@ fn invalid() -> io::Error {
     io::Error::other("invalid saved terminal record")
 }
 
-// Postcard flushes each value. A checkpoint flushes once after the whole batch.
 struct DeferredFlush<W>(W);
 
 impl<W: Write> Write for DeferredFlush<W> {

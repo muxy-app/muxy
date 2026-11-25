@@ -50,7 +50,7 @@
         },
         "events": {
           "type": "array",
-          "description": "Workspace events this extension may subscribe to (pane.created, pane.closed, pane.focused, tab.created, tab.updated, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, modal.opened, modal.closed, project.switched, projects.changed, worktree.switched, worktree.headChanged, notification.posted, agent.status, file.changed). worktree.offline is not emitted in Muxy 2. Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
+          "description": "Workspace events this extension may subscribe to (pane.created, pane.closed, pane.focused, tab.created, tab.updated, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, modal.opened, modal.closed, project.switched, projects.changed, worktree.switched, worktree.headChanged, notification.posted, agent.status, file.changed, settings.changed, theme.changed, ui.changed, preferences.changed). worktree.offline is not emitted in Muxy 2. Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
           "items": { "type": "string" },
           "uniqueItems": true
         },
@@ -96,6 +96,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/topbarItem" }
         },
+        "railItems": {
+          "type": "array",
+          "description": "Icons on the rail, a column on the right edge of the window. They move to the top bar when the user turns the rail off.",
+          "items": { "$ref": "#/$defs/topbarItem" }
+        },
         "statusBarItems": {
           "type": "array",
           "items": { "$ref": "#/$defs/statusBarItem" }
@@ -112,7 +117,7 @@
         },
         "marketplace": {
           "type": "object",
-          "description": "Listing metadata used by the marketplace. Required: icon + at least one screenshot. Ignored by the app loader. The pricing key is reserved for a future paid-extensions feature and is not yet enforced.",
+          "description": "Listing metadata used by the marketplace. Required: icon + at least one screenshot. Settings → Extensions shows the installed copy's icon and screenshots from these paths; a malformed block never stops the extension loading. The pricing key is reserved for a future paid-extensions feature and is not yet enforced.",
           "additionalProperties": false,
           "required": ["icon", "screenshots"],
           "properties": {
@@ -164,6 +169,7 @@
         "worktrees:read",
         "worktrees:write",
         "agents:read",
+        "agents:write",
         "git:read",
         "git:write",
         "gh:read",
@@ -176,7 +182,18 @@
         "commands:run-script",
         "commands:exec",
         "shortcuts:register",
-        "remote:serve"
+        "remote:serve",
+        "ui:write",
+        "commands:read",
+        "commands:run",
+        "composer:write",
+        "layouts:read",
+        "layouts:write",
+        "preferences:read",
+        "preferences:write",
+        "clipboard:read",
+        "clipboard:write",
+        "system:open"
       ]
     },
     "icon": {
@@ -231,7 +248,13 @@
         "patterns": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
-          "default": ["*"]
+          "default": [],
+          "description": "Case-insensitive filename globs, or project-relative globs when containing a slash. Empty or omitted registers no automatic types; use * explicitly for all files."
+        },
+        "fileTypes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Automatic file-type registrations, overriding patterns when present. Uses the same glob syntax. Older Muxy versions ignore this field and continue using patterns, so an extension can retain its legacy behavior while advertising precise types to new Muxy versions. An empty array disables automatic registration."
         },
         "singleton": { "type": "boolean", "default": true }
       }

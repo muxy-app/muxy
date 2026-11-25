@@ -13,7 +13,6 @@ pub(super) fn matching(pane: &SettingsView) -> Vec<usize> {
         .collect()
 }
 
-/// Extension shortcuts that match the search, in extension order.
 pub(super) fn matching_extensions(pane: &SettingsView) -> Vec<usize> {
     pane.snapshot
         .extension_shortcuts
@@ -26,8 +25,6 @@ pub(super) fn matching_extensions(pane: &SettingsView) -> Vec<usize> {
         .collect()
 }
 
-/// An extension command's shortcut: record, reset to the manifest default,
-/// or unassign, as on main.
 pub(super) fn extension_row(
     pane: &SettingsView,
     index: usize,
@@ -150,6 +147,18 @@ pub(super) fn row(pane: &SettingsView, index: usize, cx: &mut Context<SettingsVi
 }
 
 impl SettingsView {
+    pub(crate) fn show_keyboard(&mut self, cx: &mut Context<Self>) {
+        self.finish_slider(cx);
+        self.recording = None;
+        self.cancel_quick_recording(cx);
+        self.category = Category::Keyboard;
+        self.section = None;
+        self.query.clear();
+        self.results.reset();
+        self.search.update(cx, |input, cx| input.set_text("", cx));
+        cx.notify();
+    }
+
     pub(crate) fn begin_recording(
         &mut self,
         id: &str,

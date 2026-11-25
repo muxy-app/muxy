@@ -1,6 +1,3 @@
-//! `OpenCode`'s shared service (`opencode serve --service`) and the tabs its
-//! terminal UIs keep, both under its state directory.
-
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -12,11 +9,8 @@ use serde_json::Value;
 use super::{Report, Tab, TabSource, http};
 
 const MAX_FILE: u64 = 4 * 1024 * 1024;
-/// Parents remembered at most, past which the cache starts over.
 const MAX_PARENTS: usize = 4096;
-/// The leader key `OpenCode` binds by default, `ctrl+x`.
 const LEADER: u8 = 0x18;
-/// The longest one report may take across all its requests.
 const REPORT_BUDGET: Duration = Duration::from_secs(3);
 
 #[derive(Default)]
@@ -29,8 +23,6 @@ impl TabSource for OpenCode {
         AgentProvider::OpenCode
     }
 
-    /// Running sessions come first, since they matter most; directory
-    /// listings then refresh titles and view times while the budget lasts.
     fn report(&mut self, directories: &HashSet<String>) -> Option<Report> {
         let directory = state_directory()?;
         let service = Service::read(&directory, Instant::now() + REPORT_BUDGET)?;
@@ -71,7 +63,6 @@ impl TabSource for OpenCode {
         Some(Report { tabs, busy, viewed })
     }
 
-    /// `OC | <title>`, shortened to 37 characters and `…` past 40.
     fn shown_title<'a>(&self, title: &'a str) -> Option<(&'a str, bool)> {
         let title = title.trim().strip_prefix("OC | ")?;
         Some(match title.strip_suffix('…') {
@@ -80,7 +71,6 @@ impl TabSource for OpenCode {
         })
     }
 
-    /// `<leader>1`…`<leader>0` select the first ten tabs.
     fn switch_input(&self, index: usize) -> Option<Vec<u8>> {
         let digit = u8::try_from((index + 1) % 10).ok().filter(|_| index < 10)?;
         Some(vec![LEADER, b'0' + digit])
@@ -100,7 +90,6 @@ impl OpenCode {
             .insert(id.to_owned(), parent.map(str::to_owned));
     }
 
-    /// The session at the top of `id`'s parents, looking up any not seen yet.
     fn root(&mut self, service: &Service, id: &str) -> String {
         let mut current = id.to_owned();
         for _ in 0..32 {
@@ -119,7 +108,6 @@ impl OpenCode {
     }
 }
 
-/// Whether `id` is safe to put on a command line.
 fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 200
@@ -151,7 +139,6 @@ fn read_json(path: &Path) -> Option<Value> {
 struct Service {
     address: SocketAddr,
     authorization: String,
-    /// When the report's budget runs out, after which requests fail.
     deadline: Instant,
 }
 
@@ -174,9 +161,6 @@ impl Service {
     }
 }
 
-/// The tabs of `directories`, each from the newest release channel's
-/// `tabs.json` that has it, such as `latest/tui/tabs.json`. Older files keep
-/// tabs a newer channel has since closed, so they aren't merged in.
 pub(super) fn read_tabs(
     directory: &Path,
     directories: &HashSet<String>,

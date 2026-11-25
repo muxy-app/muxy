@@ -346,8 +346,6 @@ enum PanelActionContent {
 pub enum PanelControl {
     Move(PanelPosition),
     Mode(PanelMode),
-    /// Pops a docked panel out to float freely, or docks a detached one;
-    /// `true` while it is detached.
     Detach(bool),
     Close,
 }
@@ -374,6 +372,7 @@ impl PanelControl {
 pub struct PanelAction {
     id: ElementId,
     label: SharedString,
+    shortcut: Option<SharedString>,
     content: PanelActionContent,
     focus_handle: FocusHandle,
     handler: PanelActionHandler,
@@ -401,6 +400,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Symbol(symbol.into()),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -418,6 +418,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Glyph(glyph.into()),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -435,6 +436,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Icon(icon),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -452,6 +454,7 @@ impl PanelAction {
         Self {
             id: id.into(),
             label: label.into(),
+            shortcut: None,
             content: PanelActionContent::Element(element.into_any_element()),
             focus_handle: focus_handle.tab_stop(true),
             handler: Rc::new(handler),
@@ -461,6 +464,11 @@ impl PanelAction {
 
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    pub fn shortcut(mut self, key: Option<SharedString>) -> Self {
+        self.shortcut = key;
         self
     }
 
@@ -523,14 +531,11 @@ impl PanelChrome {
         self
     }
 
-    /// Keeps the header's tooltips visible above native pages, such as the
-    /// panel's own page under the header.
     pub fn cover_tooltips(mut self, cover: impl Fn(gpui::Bounds<gpui::Pixels>) + 'static) -> Self {
         self.tooltip_cover = Some(Rc::new(cover));
         self
     }
 
-    /// Adds the control that pops the panel out to float, or docks it.
     pub fn with_detach_action(mut self, action: PanelAction) -> Self {
         self.detach_action = Some(action);
         self
@@ -615,6 +620,7 @@ fn panel_action(
     let PanelAction {
         id,
         label,
+        shortcut,
         content,
         focus_handle,
         handler,
@@ -644,6 +650,10 @@ fn panel_action(
         PanelActionContent::Element(element) => element,
         PanelActionContent::Glyph(glyph) => div().child(glyph).into_any_element(),
     };
+    let tooltip = shortcut.map_or_else(
+        || label.clone(),
+        |key| crate::shortcuts::with_key(&label, &key),
+    );
     let click_handler = handler.clone();
     let key_handler = handler;
     let focus_for_mouse = focus_handle.clone();
@@ -682,11 +692,11 @@ fn panel_action(
         })
         .map(|button| match cover {
             Some(cover) => button.tooltip(crate::components::covering_tooltip(
-                label,
+                tooltip,
                 theme,
                 cover.clone(),
             )),
-            None => button.tooltip(crate::components::tooltip(label, theme)),
+            None => button.tooltip(crate::components::tooltip(tooltip, theme)),
         })
         .child(glyph)
         .into_any_element()
@@ -731,7 +741,6 @@ impl PanelFrame {
         self.sizing.layout()
     }
 
-    /// Adds `child` inside the resize grip, such as a layer that fills it.
     #[must_use]
     pub fn grip(mut self, child: impl IntoElement) -> Self {
         self.grip = Some(child.into_any_element());
@@ -804,19 +813,11 @@ impl RenderOnce for PanelFrame {
         let bounds = self.sizing.bounds;
         let resize_state = self.sizing.resize_state.clone();
         let down_resize_state = resize_state.clone();
-        let group = SharedString::from(format!("panel-resize-{}", self.placement.id.as_str()));
-        let selector = group.clone();
-        let separator = div()
-            .absolute()
-            .bg(if resize_state.is_active() {
-                self.theme.accent
-            } else {
-                self.theme.border
-            })
-            .group_hover(group.clone(), |style| style.bg(self.theme.accent));
+        let id = SharedString::from(format!("panel-resize-{}", self.placement.id.as_str()));
+        let selector = id.clone();
+        let separator = div().absolute().bg(self.theme.border);
         let resize_handle = div()
-            .id(group.clone())
-            .group(group)
+            .id(id)
             .debug_selector(move || selector.to_string())
             .absolute()
             .occlude()

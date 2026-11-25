@@ -33,7 +33,7 @@ flowchart LR
 - The server keeps projects and which sessions belong to them. Apps keep tabs,
   panes, order, and workspaces.
 - The desktop app keeps a connection per server: this computer's, and one per
-  remote device. A second connection to each carries extension work and remote
+  other computer's server. A second connection to each carries extension work and remote
   file transfers, so they never wait behind terminal traffic.
 - Apps never include server code. They only speak the [protocol](./protocol.md).
 
@@ -157,7 +157,8 @@ flowchart LR
 - The server knows nothing about browsers. `muxy browser` reaches the desktop
   app over its own socket in the profile folder, `app.sock`, which only this
   user can open. One JSON request gets one JSON reply. `muxy extension` uses the
-  same socket, since extensions live in the desktop app too.
+  same socket, since extensions live in the desktop app too, and so does
+  `muxy config`, to have the app reload the settings files it just changed.
 
 ## AI activity
 
@@ -166,6 +167,8 @@ flowchart LR
 - Apps get agent status from the server. They never read terminal output
   themselves.
 - One desktop app delivers system notifications, so alerts are never doubled.
+- The server sends paired phones encrypted push notifications through the
+  `muxy.app` relay. See [Mobile](./mobile.md#push-notifications).
 
 ## Updates
 

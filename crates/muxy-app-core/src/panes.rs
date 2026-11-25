@@ -1,11 +1,9 @@
-//! Finding panes wherever they live: in a project's tabs, or in the Quick
-//! Terminal, which belongs to no tab and runs on this computer.
+use std::path::Path;
 
 use muxy_protocol::SessionId;
 
 use crate::{AppState, Pane, PaneId, Project, ServerId, Tab, TabId};
 
-/// A pane and where it lives. The Quick Terminal has no project or tab.
 #[derive(Clone, Copy, Debug)]
 pub struct PlacedPane<'a> {
     pub server: ServerId,
@@ -15,7 +13,6 @@ pub struct PlacedPane<'a> {
 }
 
 impl AppState {
-    /// Every pane, with the Quick Terminal last.
     pub fn panes(&self) -> impl Iterator<Item = PlacedPane<'_>> {
         self.projects
             .iter()
@@ -45,7 +42,6 @@ impl AppState {
         self.placed_pane(id).map(|placed| placed.pane)
     }
 
-    /// The server and session a terminal pane shows.
     pub fn pane_session(&self, id: PaneId) -> Option<(ServerId, SessionId)> {
         let placed = self.placed_pane(id)?;
         Some((placed.server, placed.pane.session()?))
@@ -55,13 +51,19 @@ impl AppState {
         self.placed_pane(id)?.tab.map(|tab| tab.id)
     }
 
-    /// The project a pane works in. The Quick Terminal works in Home.
     pub fn pane_project(&self, id: PaneId) -> Option<&Project> {
         let placed = self.placed_pane(id)?;
         Some(placed.project.unwrap_or_else(|| self.home()))
     }
 
-    /// Panes that show `server`'s `session`.
+    pub fn pane_home(&self, id: PaneId) -> Option<&Path> {
+        let server = self.placed_pane(id)?.server;
+        self.projects
+            .iter()
+            .find(|project| project.home && project.server_id == server)
+            .map(|project| project.directory.as_path())
+    }
+
     pub fn session_panes(
         &self,
         server: ServerId,

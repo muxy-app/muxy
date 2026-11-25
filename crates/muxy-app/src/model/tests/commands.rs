@@ -29,7 +29,6 @@ const APP: [ShortcutId; 6] = [
     ShortcutId::EndAllSessionsAndQuit,
 ];
 
-/// Whether the palette lists each command, and lists it disabled.
 fn listed(
     model: &mut AppModel,
     ids: &[ShortcutId],

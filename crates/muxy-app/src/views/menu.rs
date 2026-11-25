@@ -12,6 +12,8 @@ use crate::model::AppModel;
 mod render;
 mod shortcuts;
 
+pub(crate) use shortcuts::application_handles;
+
 actions!(
     menu,
     [
@@ -33,7 +35,6 @@ pub(crate) fn register_shortcuts(registry: &mut muxy_ui::shortcuts::Registry<'_>
     registry.register(ShortcutId::MenuCloseSubmenu, &CloseSubmenu);
 }
 
-/// How long the pointer may cross other rows on its way into an open submenu.
 const SUBMENU_GRACE: Duration = Duration::from_millis(250);
 
 #[derive(Clone, Copy, Debug)]
@@ -41,10 +42,8 @@ pub(crate) enum Command {
     Tab(muxy_app_core::TabId, super::tab_menu::Action),
     Layout(muxy_app_core::settings::AppLayout),
     AgentsPanel(bool),
-    /// Shows only this top-level project in the sidebar, or every project again.
     FocusProject(Option<muxy_app_core::ProjectId>),
     SelectWorkspace(Option<muxy_app_core::WorkspaceId>),
-    SelectRemoteServers,
     NewWorkspace(Option<muxy_app_core::ProjectId>),
     RenameWorkspace(muxy_app_core::WorkspaceId),
     DeleteWorkspace(muxy_app_core::WorkspaceId),
@@ -57,9 +56,11 @@ pub(crate) enum Command {
     ExistingSessions(muxy_app_core::ProjectId),
     ProjectLayouts(muxy_app_core::ProjectId),
     DetachTerminal(muxy_app_core::PaneId),
-    /// Restarts the terminal with the app's proxy, or without it.
+    MovePaneToTab(muxy_app_core::PaneId, muxy_app_core::ProjectId),
+    MovePaneToWindow(muxy_app_core::PaneId),
+    FloatPane(muxy_app_core::PaneId),
+    FloatScope(muxy_app_core::TabWindowId, muxy_app_core::FloatScope),
     RestartWithProxy(muxy_app_core::PaneId, bool),
-    /// Opens the status bar's proxy popover.
     ProxySettings,
     SplitPane(muxy_app_core::PaneId, muxy_app_core::Direction),
     ToggleZoomPane(muxy_app_core::PaneId),
@@ -72,31 +73,20 @@ pub(crate) enum Command {
     CopyPath(muxy_app_core::ProjectId),
     RevealPath(muxy_app_core::ProjectId),
     EditProject(muxy_app_core::ProjectId, super::project_editor::Field),
-    /// Sets a project's color to `PROJECT_COLORS[index]`.
     ProjectColor(muxy_app_core::ProjectId, usize),
     ProjectLogo(muxy_app_core::ProjectId),
     RemoveProjectLogo(muxy_app_core::ProjectId),
     RemoveProject(muxy_app_core::ProjectId),
-    AddProject,
-    AddRemoteProject(muxy_app_core::ServerId),
+    AddProject(muxy_app_core::ServerId),
     RestoreRemovedProject(usize),
-    ManageRemoteDevices,
-    /// A row of a remote server's menu, from the Devices popover or page.
     RemoteServers(super::server_menu::Servers, super::server_menu::Action),
-    /// The open remote file link's menu: copy the file here and open it.
     OpenRemoteCopy,
     CopyRemotePath,
-    /// A row of the menu the composer with this identity opened.
     Composer(gpui::EntityId, super::composer::menu::Command),
-    /// Opens a browser pane's page in the default browser, or the installed
-    /// browser at an index of `opener::web_browsers`.
     OpenInBrowser(muxy_app_core::PaneId, Option<usize>),
-    /// Browses a pane with the profile at an index of Settings' profile list.
     BrowserProfile(muxy_app_core::PaneId, usize),
     BrowserInspect(muxy_app_core::PaneId),
     ManageBrowserProfiles,
-    /// Opens the current project in the app at an index of
-    /// `AppModel::project_apps`.
     OpenProjectIn(usize),
     CreateExtension,
     ManageExtensions,
@@ -113,7 +103,6 @@ pub(crate) struct Item {
     separator_before: bool,
 }
 
-/// What a row shows before its label.
 #[derive(Clone)]
 pub(crate) enum MenuIcon {
     Image(std::sync::Arc<gpui::RenderImage>),
@@ -133,7 +122,6 @@ impl std::fmt::Debug for MenuIcon {
 enum Kind {
     Action(Command),
     Submenu(Vec<Item>),
-    /// A title over the rows after it, which can't be chosen.
     Heading,
 }
 
@@ -177,7 +165,6 @@ impl Item {
         self
     }
 
-    /// Shows a color dot before the label.
     pub(crate) fn swatch(mut self, color: Hsla) -> Self {
         self.swatch = Some(color);
         self
@@ -207,7 +194,6 @@ impl Item {
     }
 }
 
-/// The project palette as rows, each with its color dot, checking `current`.
 pub(crate) fn color_items(current: Option<&str>, command: impl Fn(usize) -> Command) -> Vec<Item> {
     PROJECT_COLORS
         .iter()
@@ -223,31 +209,18 @@ pub(crate) fn color_items(current: Option<&str>, command: impl Fn(usize) -> Comm
         .collect()
 }
 
-/// An open context menu and the submenus opened from it.
 #[derive(Debug)]
 pub(crate) struct Menu {
     pub(crate) items: Vec<Item>,
     pub(crate) position: Point<Pixels>,
-    /// The control the menu drops down from. It opens above the control when
-    /// there is no room below.
     pub(crate) drops_from: Option<Bounds<Pixels>>,
-    /// The control the menu opens above, for one at the bottom of the window,
-    /// where opening below would cover what sits under it.
     pub(crate) rises_from: Option<Bounds<Pixels>>,
-    /// What takes the keyboard back when the menu closes, instead of the
-    /// active pane.
     pub(crate) returns_focus_to: Option<gpui::WeakFocusHandle>,
-    /// It was opened from the Remote popover, which stays shown under it and
-    /// comes back when it closes.
     pub(crate) over_remote_servers: bool,
-    /// The root menu first, then one entry per open submenu, each opened from
-    /// the row highlighted in the level before it.
     levels: Vec<Level>,
     pointer: Option<Point<Pixels>>,
-    /// A row the pointer rests on while it heads for the open submenu.
     pending: Option<(usize, usize)>,
     grace: Option<Task<()>>,
-    /// Where each level was last drawn.
     panels: RefCell<Vec<Bounds<Pixels>>>,
 }
 
@@ -307,7 +280,6 @@ impl Menu {
         self.items_at(level)?.get(index)
     }
 
-    /// The deepest level with a highlighted row. The keyboard acts there.
     fn active(&self) -> usize {
         self.levels
             .iter()
@@ -357,7 +329,6 @@ impl Menu {
         true
     }
 
-    /// Opens the highlighted row's submenu and highlights its first row.
     fn open_submenu(&mut self) -> bool {
         self.pending = None;
         let level = self.active();
@@ -377,7 +348,6 @@ impl Menu {
         true
     }
 
-    /// Closes the innermost submenu. Its row stays highlighted in the parent.
     fn close_submenu(&mut self) -> bool {
         self.pending = None;
         if self.levels.len() < 2 {
@@ -387,7 +357,6 @@ impl Menu {
         true
     }
 
-    /// Highlights a row and opens its submenu, closing any other.
     fn point_at(&mut self, level: usize, index: usize) -> bool {
         let Some(item) = self.item(level, index) else {
             return false;
@@ -437,7 +406,6 @@ impl Menu {
         }
     }
 
-    /// The pointer left a row. A row without an open submenu loses its highlight.
     fn leave(&mut self, level: usize, index: usize) -> bool {
         if self.pending == Some((level, index)) {
             self.pending = None;
@@ -456,9 +424,6 @@ impl Menu {
     }
 }
 
-/// Whether the pointer, moving from `previous` to `current`, is heading into
-/// `submenu` beside `parent`: it moves toward the submenu's near edge and stays
-/// inside the triangle between where it was and that edge.
 fn heading_into(
     previous: Point<Pixels>,
     current: Point<Pixels>,
@@ -609,6 +574,15 @@ impl AppModel {
                         self.edit_tab(|state| state.toggle_tab_pin(id), cx);
                     }
                     Action::Close => self.close_tab(id, cx),
+                    Action::MoveToWindow => self.move_tab_to_window(id, None, None, cx),
+                    Action::MoveToProject(project) => {
+                        self.move_tab_to_place(id, muxy_app_core::TabPlace::end(project), cx);
+                    }
+                    Action::ReturnToMainWindow => {
+                        if let Some(window) = self.tab(id).and_then(|tab| tab.window.as_ref()) {
+                            self.return_tab_window(window.id, None, cx);
+                        }
+                    }
                     Action::CloseTabs(scope) => self.close_tabs(id, scope, cx),
                 }
             }
@@ -623,7 +597,6 @@ impl AppModel {
             }
             Command::FocusProject(project) => self.set_project_focus(project, cx),
             Command::SelectWorkspace(workspace) => self.select_workspace(workspace, cx),
-            Command::SelectRemoteServers => self.select_remote_servers(cx),
             Command::NewWorkspace(project) => {
                 self.open_new_workspace_editor(project, position, window, cx);
                 return;
@@ -672,6 +645,14 @@ impl AppModel {
                 return;
             }
             Command::DetachTerminal(pane) => self.detach_terminal(pane, cx),
+            Command::MovePaneToTab(pane, project) => {
+                self.move_pane_to_new_tab(pane, muxy_app_core::TabPlace::end(project), cx);
+            }
+            Command::MovePaneToWindow(pane) => self.move_pane_to_window(pane, None, None, cx),
+            Command::FloatPane(pane) => {
+                self.float_pane(pane, muxy_app_core::FloatScope::Project, cx);
+            }
+            Command::FloatScope(id, scope) => self.set_float_scope(id, scope, cx),
             Command::RestartWithProxy(pane, proxy) => self.restart_terminal(pane, proxy, cx),
             Command::ProxySettings => {
                 self.open_proxy_popover(window, cx);
@@ -687,23 +668,8 @@ impl AppModel {
             | Command::TerminalSelectCommandOutput(id) => {
                 self.perform_pane_menu(id, command, position, cx);
             }
-            Command::CopyPath(id) => {
-                if let Some(project) = self.state.project(id)
-                    && project.status() == muxy_app_core::ProjectStatus::Available
-                {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                        project.directory.to_string_lossy().into_owned(),
-                    ));
-                }
-            }
-            Command::RevealPath(id) => {
-                if let Some(project) = self.state.project(id)
-                    && project.status() == muxy_app_core::ProjectStatus::Available
-                    && project.server_id.is_local()
-                {
-                    cx.reveal_path(&project.directory);
-                }
-            }
+            Command::CopyPath(id) => self.copy_project_path(id, cx),
+            Command::RevealPath(id) => self.reveal_project(id, cx),
             Command::EditProject(id, field) => {
                 self.open_project_editor(id, field, position, window, cx);
                 return;
@@ -718,21 +684,13 @@ impl AppModel {
                 self.edit_project(|state| state.set_project_logo(id, None), cx);
             }
             Command::RemoveProject(id) => self.confirm_remove_project(id, cx),
-            Command::AddProject => {
-                self.open_project_picker(window, cx);
-                return;
-            }
-            Command::AddRemoteProject(server) => {
-                self.open_remote_project_picker(server, cx);
+            Command::AddProject(server) => {
+                self.open_project_picker_on(server, window, cx);
                 return;
             }
             Command::RestoreRemovedProject(index) => {
                 self.restore_removed_project(index, cx);
                 self.focus_active(window, cx);
-                return;
-            }
-            Command::ManageRemoteDevices => {
-                self.show_devices_settings(window, cx);
                 return;
             }
             Command::RemoteServers(servers, action) => {

@@ -1,5 +1,3 @@
-/// Whether projects can take a symbol as their icon. Only macOS draws every
-/// symbol, so elsewhere a project shows a logo or its initial.
 pub const PROJECT_ICONS: bool = cfg!(target_os = "macos");
 
 #[derive(Debug)]

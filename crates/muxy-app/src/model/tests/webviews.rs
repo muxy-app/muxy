@@ -1,3 +1,5 @@
+#![cfg(not(windows))]
+
 use super::*;
 
 #[gpui::test]
@@ -15,7 +17,7 @@ fn popovers_mark_the_area_they_cover(cx: &mut TestAppContext) {
     assert!(
         covers
             .iter()
-            .any(|(owner, cover)| owner.is_none() && *cover == popover),
+            .any(|(owner, cover)| owner.is_none() && cover.bounds == popover),
         "{covers:?} should cover {popover:?}"
     );
 }

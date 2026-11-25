@@ -28,11 +28,9 @@ struct State {
     stopping: bool,
 }
 
-/// How a requested session's terminal starts.
 #[derive(Debug, Default)]
 pub(crate) struct Launch {
     pub(crate) colors: Option<TerminalColors>,
-    /// More environment for the shell, such as a proxy.
     pub(crate) environment: BTreeMap<String, String>,
 }
 
@@ -49,7 +47,6 @@ pub struct Registry {
     pub(crate) git: crate::git::Git,
     pub(crate) files: crate::files::Files,
     uploads: crate::uploads::Uploads,
-    /// Serializes session operations, and holds the references they consult.
     pub(crate) operations: Mutex<Owners>,
     pub(crate) notifier: Arc<Notifier>,
     settings: Mutex<ServerSettings>,
@@ -61,6 +58,7 @@ pub struct Registry {
     completed: Arc<Condvar>,
     archive: Archive,
     pub(crate) remote: crate::RemoteAccess,
+    pub(crate) push: crate::push::Push,
 }
 
 impl Registry {
@@ -85,6 +83,7 @@ impl Registry {
             sessions: Sessions::default(),
             completed: Arc::default(),
             remote,
+            push: crate::push::Push::default(),
         }
     }
 
@@ -127,7 +126,6 @@ impl Registry {
         Ok(registry)
     }
 
-    /// This process, with the saved files it couldn't read at startup.
     pub fn server_info(&self) -> muxy_protocol::ServerInfo {
         muxy_protocol::ServerInfo {
             unreadable: self
@@ -255,15 +253,12 @@ impl Registry {
         Ok(())
     }
 
-    /// Keeps uploads in `directory` instead of the system's temporary folder.
     #[must_use]
     pub fn with_uploads(mut self, directory: PathBuf) -> Self {
         self.uploads = crate::uploads::Uploads::in_directory(directory);
         self
     }
 
-    /// Keeps a piece of a file sent for a live or saved session; after the
-    /// last piece, the file's absolute path.
     pub fn upload(
         &self,
         chunk: &muxy_protocol::UploadChunk,
@@ -295,23 +290,27 @@ impl Registry {
         self
     }
 
-    /// Starts listening for paired devices if mobile access was left on.
     pub fn resume_remote_access(&self) {
         self.remote.resume();
     }
 
-    /// Reserves a slot for a network connection that has not authenticated yet.
     pub fn admit_remote(&self) -> Option<crate::Admission> {
         self.remote.admit()
     }
 
     pub fn remote_access_state(&self) -> muxy_protocol::RemoteAccessState {
-        let connected = self
-            .live_connections()
+        self.remote.state(&self.connected_devices())
+    }
+
+    pub fn close_remote_access(&self) {
+        self.remote.close();
+    }
+
+    pub(crate) fn connected_devices(&self) -> HashSet<muxy_protocol::DeviceId> {
+        self.live_connections()
             .iter()
             .filter_map(|connection| connection.device())
-            .collect();
-        self.remote.state(&connected)
+            .collect()
     }
 
     pub(crate) fn write_remote_access(
@@ -329,7 +328,8 @@ impl Registry {
         &self,
         device: muxy_protocol::DeviceId,
     ) -> Result<muxy_protocol::RemoteAccessState, ServerError> {
-        self.remote.revoke(device)?;
+        let push = self.remote.revoke(device)?;
+        self.forget_push(push);
         self.close_devices(Some(device));
         Ok(self.remote_access_state())
     }
@@ -350,7 +350,6 @@ impl Registry {
         self.forget_unused_owners(&mut self.session_operation());
     }
 
-    /// An owner's references last as long as one of its connections.
     fn forget_unused_owners(&self, owners: &mut Owners) {
         let connections = self.live_connections();
         owners.retain(|owner| {
@@ -360,7 +359,6 @@ impl Registry {
         });
     }
 
-    /// Closes the connections of one paired device, or of every paired device.
     fn close_devices(&self, device: Option<muxy_protocol::DeviceId>) {
         for connection in self.live_connections() {
             if connection
@@ -418,7 +416,6 @@ impl Registry {
         Ok(())
     }
 
-    /// Reserves shutdown against all concurrent session creation.
     pub fn stop_if_idle(&self) -> bool {
         let mut state = lock(&self.sessions);
         if state.stopping || !state.sessions.is_empty() || !state.starting.is_empty() {
@@ -467,10 +464,9 @@ impl Registry {
         requester: Option<&Connection>,
     ) -> Result<SessionInfo, ServerError> {
         let _operation = self.session_operation();
-        let directory_bytes = session_directory(directory)?;
-        self.git
-            .operations
-            .check_session(directory_bytes.as_path())?;
+        let (directory, directory_bytes) = session_directory(directory)?;
+        let directory = directory.as_path();
+        self.git.operations.check_session(directory)?;
         if let Some(info) = self
             .catalog
             .creation(operation, project, &directory_bytes)?
@@ -505,10 +501,10 @@ impl Registry {
             (self.catalog.identity(), id),
             &launch.environment,
         )
-        .and_then(|pty| {
+        .and_then(|shell| {
             session::start(
                 info.clone(),
-                pty,
+                shell,
                 size,
                 budget,
                 self.archive.clone(),
@@ -552,7 +548,6 @@ impl Registry {
         Ok(info)
     }
 
-    /// Records a session's end, then tells every connection.
     fn session_exit(&self, id: SessionId) -> impl FnOnce(muxy_protocol::ExitReason) + use<> {
         let listing = Arc::clone(&self.sessions);
         let notifier = Arc::clone(&self.notifier);
@@ -604,7 +599,7 @@ impl Registry {
         lock(&self.sessions)
             .sessions
             .values()
-            .map(|handle| handle.info().clone())
+            .map(SessionHandle::info)
             .collect()
     }
 
@@ -652,8 +647,6 @@ impl Registry {
         }
     }
 
-    /// Records the sessions an app references. Connections of the same
-    /// owner share one set; a set older than the current one is ignored.
     pub(crate) fn set_references(
         &self,
         requester: &Connection,
@@ -698,7 +691,11 @@ impl Registry {
         }
     }
 
-    /// Gives a connection the current state of sessions it just started referencing.
+    pub(crate) fn introduce_all(&self, connection: &Connection) {
+        let sessions: Vec<_> = self.list().into_iter().map(|info| info.id).collect();
+        self.introduce(connection, sessions.iter());
+    }
+
     fn introduce<'a>(
         &self,
         connection: &Connection,
@@ -742,6 +739,26 @@ impl Registry {
         if discard {
             self.discard_owned(session)?;
         }
+        Ok(())
+    }
+
+    pub fn move_session(
+        &self,
+        session: SessionId,
+        project: muxy_protocol::ProjectId,
+    ) -> Result<(), ServerError> {
+        let _operation = self.session_operation();
+        let source = self.catalog.session_project(session);
+        self.git
+            .operations
+            .check_projects(&source.into_iter().chain([project]).collect::<Vec<_>>())?;
+        if !self.catalog.move_session(session, project)? {
+            return Ok(());
+        }
+        if let Some(handle) = self.handle(session) {
+            handle.move_to(project);
+        }
+        self.activity.move_session(session, project);
         Ok(())
     }
 
@@ -838,7 +855,6 @@ impl Registry {
         }
     }
 
-    /// Blocks until `shutdown` has ended every session.
     pub fn wait_stopped(&self) {
         let mut state = lock(&self.sessions);
         while !(state.stopping && state.sessions.is_empty() && state.starting.is_empty()) {
@@ -849,7 +865,6 @@ impl Registry {
         }
     }
 
-    /// Sends each connection what it has queued, then ends it.
     pub fn close_connections(&self) {
         self.notifier.close_all();
     }
@@ -883,10 +898,76 @@ fn saved_content_error(error: &io::Error) -> ServerError {
 #[path = "registry/recovery.rs"]
 mod recovery;
 
-fn session_directory(directory: &Path) -> Result<ServerPath, ServerError> {
-    let directory = ServerPath::from(directory);
-    muxy_protocol::validate_absolute_path(&directory).map_err(|code| {
-        ServerError::new(code, "session directory must be an absolute Unix path")
-    })?;
-    Ok(directory)
+fn session_directory(directory: &Path) -> Result<(PathBuf, ServerPath), ServerError> {
+    let path = valid_directory(directory)?;
+    #[cfg(windows)]
+    if let Ok(resolved) = muxy_core::files::canonicalize(directory)
+        && same_root(directory, &resolved)
+        && let Ok(path) = valid_directory(&resolved)
+    {
+        return Ok((resolved, path));
+    }
+    Ok((directory.to_owned(), path))
+}
+
+#[cfg(windows)]
+fn same_root(requested: &Path, resolved: &Path) -> bool {
+    use std::path::{Component, Prefix};
+    fn prefix(path: &Path) -> Option<Prefix<'_>> {
+        match path.components().next() {
+            Some(Component::Prefix(prefix)) => Some(prefix.kind()),
+            _ => None,
+        }
+    }
+    let requested = prefix(requested).map(|prefix| match prefix {
+        Prefix::VerbatimDisk(drive) => Prefix::Disk(drive),
+        Prefix::VerbatimUNC(server, share) => Prefix::UNC(server, share),
+        prefix => prefix,
+    });
+    match (requested, prefix(resolved)) {
+        (Some(Prefix::Disk(requested)), Some(Prefix::Disk(resolved))) => {
+            requested.eq_ignore_ascii_case(&resolved)
+        }
+        (
+            Some(Prefix::UNC(requested_server, requested_share)),
+            Some(Prefix::UNC(resolved_server, resolved_share)),
+        ) => {
+            requested_server.eq_ignore_ascii_case(resolved_server)
+                && requested_share.eq_ignore_ascii_case(resolved_share)
+        }
+        _ => false,
+    }
+}
+
+#[cfg(all(test, windows))]
+mod directory_tests {
+    use super::*;
+
+    #[test]
+    fn sessions_stay_on_the_drive_or_share_they_were_asked_for() {
+        let same =
+            |requested: &str, resolved: &str| same_root(Path::new(requested), Path::new(resolved));
+        assert!(same(r"c:/Users/me", r"C:\Users\me"));
+        assert!(same(r"\\Server\Share\a", r"\\server\share\a"));
+        assert!(!same(r"Z:\proj", r"\\server\share\proj"));
+        assert!(same(r"\\?\C:\Users\me", r"C:\Users\me"));
+        assert!(same(r"\\?\UNC\server\share\a", r"\\Server\Share\a"));
+        assert!(!same(r"S:\proj", r"C:\Users\me\proj"));
+        assert!(!same(r"C:\a", r"\\?\C:\a"));
+        assert!(!same(r"\\server\share\a", r"\\server\other\a"));
+    }
+}
+
+fn valid_directory(directory: &Path) -> Result<ServerPath, ServerError> {
+    let invalid = || {
+        ServerError::new(
+            ErrorCode::BadPath,
+            "session directory must be an absolute path on this computer",
+        )
+    };
+    let path = ServerPath::from_path(directory).map_err(|_| invalid())?;
+    if !directory.is_absolute() || path.0.len() > 4096 || path.0.contains(&0) {
+        return Err(invalid());
+    }
+    Ok(path)
 }

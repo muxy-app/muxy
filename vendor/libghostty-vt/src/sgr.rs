@@ -1,5 +1,3 @@
-//! Handling SGR (Select Graphic Rendition) escape sequences.
-
 use crate::{
     alloc::{Allocator, Object},
     error::{Error, Result, from_result},
@@ -7,50 +5,15 @@ use crate::{
     style::{PaletteIndex, RgbColor, Underline},
 };
 
-/// SGR (Select Graphic Rendition) attribute parser.
-///
-/// SGR sequences are the syntax used to set styling attributes such as bold,
-/// italic, underline, and colors for text in terminal emulators. For example,
-/// you may be familiar with sequences like `ESC[1;31m`. The 1;31 is the SGR
-/// attribute list.
-///
-/// The parser processes SGR parameters from CSI sequences (e.g., `ESC[1;31m`)
-/// and returns individual text attributes like bold, italic, colors, etc. It
-/// supports both semicolon (`;`) and colon (`:`) separators, possibly mixed,
-/// and handles various color formats including 8-color, 16-color, 256-color,
-/// X11 named colors, and RGB in multiple formats.
-///
-/// # Example
-/// ```rust
-/// use libghostty_vt::sgr::{Parser, Attribute};
-///
-/// let mut parser = Parser::new().unwrap();
-/// parser.set_params(&[1, 31], None).unwrap();
-///
-/// while let Some(attr) = parser.next().unwrap() {
-///     match attr {
-///         Attribute::Bold => println!("Bold enabled"),
-///         Attribute::Fg8(color) => println!("Foreground color: {color:?}"),
-///         _ => {},
-///     }
-/// }
-/// ```
 #[derive(Debug)]
 pub struct Parser<'alloc>(Object<'alloc, ffi::SgrParserImpl>);
 
 impl<'alloc> Parser<'alloc> {
-    /// Create a new SGR parser.
     pub fn new() -> Result<Self> {
-        // SAFETY: A NULL allocator is always valid
         unsafe { Self::new_inner(std::ptr::null()) }
     }
 
-    /// Create a new SGR parser with a custom allocator.
-    ///
-    /// See the [crate-level documentation](crate#memory-management-and-lifetimes)
-    /// regarding custom memory management and lifetimes.
     pub fn new_with_alloc<'ctx: 'alloc>(alloc: &'alloc Allocator<'ctx>) -> Result<Self> {
-        // SAFETY: Borrow checking should forbid invalid allocators
         unsafe { Self::new_inner(alloc.to_raw()) }
     }
 
@@ -61,24 +24,6 @@ impl<'alloc> Parser<'alloc> {
         Ok(Self(Object::new(raw)?))
     }
 
-    /// Set SGR parameters for parsing.
-    ///
-    /// Parameters are the numeric values from a CSI SGR sequence (e.g., for `ESC[1;31m`, params
-    /// would be `[1, 31]`).
-    ///
-    /// The `separators` slice optionally specifies the separator type for each parameter position.
-    /// Each byte should be either `b';'` for semicolon or `b':'` for colon.
-    /// This is needed for certain color formats that use colon separators (e.g., `ESC[4:3m`
-    /// for curly underline). Any invalid separator values are treated as semicolons.
-    ///
-    /// If `separators` is `None`, all parameters are assumed to be semicolon-separated.
-    ///
-    /// After calling this function, the parser is automatically reset and ready to iterate from
-    /// the beginning.
-    ///
-    /// # Panics
-    ///
-    /// **Panics** if `separators` is not `None` and is not the same length as `params`.
     pub fn set_params(&mut self, params: &[u16], separators: Option<&[u8]>) -> Result<()> {
         let sep = match separators {
             Some(seps) => {
@@ -96,14 +41,6 @@ impl<'alloc> Parser<'alloc> {
         from_result(result)
     }
 
-    /// Get the next SGR attribute.
-    ///
-    /// Parses and returns the next attribute from the parameter list.
-    /// Call this function repeatedly until it returns `None` to process all
-    /// attributes in the sequence.
-    ///
-    /// This cannot be expressed as a regular iterator since the returned
-    /// attribute borrows memory from the parser directly.
     #[expect(
         clippy::should_implement_trait,
         reason = "lending `next` cannot implement trait"
@@ -112,19 +49,12 @@ impl<'alloc> Parser<'alloc> {
         let mut raw_attr = ffi::SgrAttribute::default();
         let has_next = unsafe { ffi::ghostty_sgr_next(self.0.as_raw(), &raw mut raw_attr) };
         if has_next {
-            // This shouldn't really *ever* fail, so the fact it failed
-            // suggests we should stop anyways.
             Ok(Some(Attribute::from_raw(raw_attr)?))
         } else {
             Ok(None)
         }
     }
 
-    /// Reset an SGR parser instance to the beginning of the parameter list.
-    ///
-    /// Resets the parser's iteration state without clearing the parameters.
-    /// After calling this, [`Parser::next`] will start from the beginning of the
-    /// parameter list again.
     pub fn reset(&mut self) {
         unsafe { ffi::ghostty_sgr_reset(self.0.as_raw()) }
     }
@@ -136,10 +66,8 @@ impl Drop for Parser<'_> {
     }
 }
 
-/// An SGR attribute.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-#[expect(missing_docs, reason = "missing upstream docs")]
 pub enum Attribute<'p> {
     Unset,
     Unknown(Unknown<'p>),
@@ -175,7 +103,6 @@ pub enum Attribute<'p> {
 }
 
 impl Attribute<'_> {
-    /// This should never return None, but just to be safe.
     fn from_raw(value: ffi::SgrAttribute) -> Result<Self> {
         Ok(match value.tag {
             0 => Self::Unset,
@@ -217,22 +144,14 @@ impl Attribute<'_> {
     }
 }
 
-/// Unknown SGR attribute data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Unknown<'p> {
-    /// Full parameter list.
     pub full: &'p [u16],
-    /// Partial list where parsing encountered an unknown or invalid sequence.
     pub partial: &'p [u16],
 }
 
 impl From<ffi::SgrUnknown> for Unknown<'_> {
     fn from(value: ffi::SgrUnknown) -> Self {
-        // SAFETY: We trust libghostty to give us two valid slices
-        // of u16s that last at least as long as the current iteration,
-        // which is guaranteed by Rust's mutation XOR sharability property
-        // (e.g. one cannot reset the parser when this object still
-        // borrows the parser mutably).
         let full = unsafe { std::slice::from_raw_parts(value.full_ptr, value.full_len) };
         let partial = unsafe { std::slice::from_raw_parts(value.partial_ptr, value.partial_len) };
         Self { full, partial }

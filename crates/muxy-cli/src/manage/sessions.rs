@@ -1,14 +1,15 @@
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::Path;
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use muxy_app_core::browser::api;
+use muxy_app_core::session_link::SessionLink;
 use muxy_client::{Client, ClientError, ClientEvent, RunGrid};
 use muxy_protocol::{
-    ChannelId, ErrorCode, ExitReason, ProjectDescriptor, ProjectId, ProjectSession, SearchSource,
-    SessionId, SessionStatus, Size,
+    ChannelId, ErrorCode, ExitReason, HistoryCursor, ProjectDescriptor, ProjectId, ProjectSession,
+    SearchSource, SessionId, SessionStatus, Size,
 };
 use serde_json::{Value, json};
 
@@ -16,11 +17,16 @@ use super::args::{Session, Until};
 use super::{Output, Paths, Result, path_text, projects};
 
 const SHOW_WAIT: Duration = Duration::from_secs(10);
-/// Each command attaches at most once, so one tag tells its terminal apart.
 const ATTACH: u64 = 0;
 
 pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Paths) -> Result {
     match command {
+        Session::Inspect(session) => inspect(client, calling(client, session)?, output),
+        Session::Rename { session, name } => {
+            client.set_session_name(calling(client, session)?, Some(name), None)?;
+            output.ok()
+        }
+        Session::SendStdin(session) => send_stdin(client, calling(client, session)?, output),
         Session::List { project, all } => {
             list_projects(client, project.as_deref(), all, output, paths)
         }
@@ -50,6 +56,7 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
             session,
             background,
         } => show(client, calling(client, session)?, background, output, paths),
+        Session::Link { session, split } => link(client, calling(client, session)?, split, output),
         Session::Send { session, text } => {
             input(client, calling(client, session)?, text.into_bytes(), output)
         }
@@ -75,17 +82,7 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
             before,
             limit,
             saved,
-        } => {
-            let session = calling(client, session)?;
-            let page = if saved {
-                client.saved_history_page(session, before, limit)?
-            } else {
-                attached(client, session, |channel| {
-                    Ok(client.history_page(channel, before, limit)?)
-                })?
-            };
-            Output::json(&super::records::history(&page))
-        }
+        } => history(client, calling(client, session)?, before, limit, saved),
         Session::Search {
             session,
             query,
@@ -119,8 +116,6 @@ pub(super) fn run(command: Session, client: &Client, output: &Output, paths: Pat
     }
 }
 
-/// `session`, or else the terminal this command runs in, when that terminal
-/// belongs to the server `client` uses.
 fn calling(client: &Client, session: Option<SessionId>) -> Result<SessionId> {
     match session {
         Some(session) => Ok(session),
@@ -141,17 +136,7 @@ fn show(
             "session show uses the desktop app on this computer; it doesn't take --host".into(),
         );
     }
-    let mut found = None;
-    for project in client.catalog()?.projects {
-        if let Some(entry) = list(client, project.id)?
-            .into_iter()
-            .find(|entry| entry.info.id == session)
-        {
-            found = Some(entry);
-            break;
-        }
-    }
-    let entry = found.ok_or_else(|| format!("session {} not found", session.get()))?;
+    let entry = find(client, session)?;
     if !matches!(entry.status, SessionStatus::Live | SessionStatus::Starting) {
         return Err(format!("session {} has ended", session.get()).into());
     }
@@ -162,13 +147,40 @@ fn show(
         args.insert("background".into(), true.into());
     }
     show_when_ready(
-        || crate::browser::call_app("session.show", args.clone(), true, Duration::ZERO),
+        || crate::app::call_app("session.show", args.clone(), true, Duration::ZERO),
         Instant::now,
     )?;
     if output.json {
         Output::json(&json!({"id":session.get().to_string(), "project_id":entry.info.project}))
     } else {
         output.ok()
+    }
+}
+
+fn link(
+    client: &Client,
+    session: SessionId,
+    split: Option<muxy_app_core::Direction>,
+    output: &Output,
+) -> Result {
+    if !client
+        .list_sessions()?
+        .iter()
+        .any(|info| info.id == session)
+    {
+        return Err(format!("session {} isn't running", session.get()).into());
+    }
+    let link = SessionLink {
+        session,
+        server: Some(client.catalog_page(None, None)?.server),
+        split,
+    }
+    .to_link();
+    if output.json {
+        Output::json(&json!({"id":session.get().to_string(), "link":link}))
+    } else {
+        writeln!(io::stdout(), "{link}")?;
+        Ok(())
     }
 }
 
@@ -219,7 +231,6 @@ fn screen(
     }
 }
 
-/// The project of the terminal this command runs in.
 fn own_project(client: &Client) -> Result<ProjectDescriptor> {
     let session = crate::target::hosting_session(client.catalog_page(None, None)?.server)
         .ok_or("give a project; this isn't a Muxy terminal on that server")?;
@@ -300,12 +311,31 @@ fn list_projects(
             list(client, project.id)?
                 .iter()
                 .filter(|session| all || session.status == SessionStatus::Live)
-                .map(record),
+                .map(|session| {
+                    if output.human() {
+                        inspection_record(session)
+                    } else {
+                        record(session)
+                    }
+                }),
         );
     }
+    let columns: &[&str] = if output.human() {
+        &[
+            "id",
+            "name",
+            "project_id",
+            "status",
+            "attached",
+            "directory",
+        ]
+    } else {
+        &["id", "project_id", "status", "attached", "directory"]
+    };
     output.list(
         &records,
-        &["id", "project_id", "status", "attached", "directory"],
+        columns,
+        "No sessions. Start one with muxy session create <project>.",
     )
 }
 
@@ -313,6 +343,77 @@ fn record(session: &ProjectSession) -> Value {
     json!({"id":session.info.id.get().to_string(), "project_id":session.info.project,
         "directory":path_text(&session.info.directory), "directory_bytes":session.info.directory.0,
         "status":session.status, "attached":session.owner.is_some(), "owner":session.owner})
+}
+
+fn history(
+    client: &Client,
+    session: SessionId,
+    before: HistoryCursor,
+    limit: u16,
+    saved: bool,
+) -> Result {
+    let page = if saved {
+        client.saved_history_page(session, before, limit)?
+    } else {
+        attached(client, session, |channel| {
+            Ok(client.history_page(channel, before, limit)?)
+        })?
+    };
+    Output::json(&super::records::history(&page))
+}
+
+fn inspect(client: &Client, session: SessionId, output: &Output) -> Result {
+    output.inspect(
+        &inspection_record(&find(client, session)?),
+        &[
+            "id",
+            "name",
+            "project_id",
+            "status",
+            "attached",
+            "owner",
+            "directory",
+        ],
+    )
+}
+
+fn inspection_record(session: &ProjectSession) -> Value {
+    let mut value = record(session);
+    value["name"] = json!(session.name);
+    value
+}
+
+fn find(client: &Client, session: SessionId) -> Result<ProjectSession> {
+    for project in client.catalog()?.projects {
+        if let Some(entry) = list(client, project.id)?
+            .into_iter()
+            .find(|entry| entry.info.id == session)
+        {
+            return Ok(entry);
+        }
+    }
+    Err(format!("session {} not found", session.get()).into())
+}
+
+fn send_stdin(client: &Client, session: SessionId, output: &Output) -> Result {
+    if io::stdin().is_terminal() {
+        return Err("--stdin needs piped or redirected input".into());
+    }
+    input(client, session, stdin_bytes(io::stdin().lock())?, output)
+}
+
+fn stdin_bytes(reader: impl Read) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader
+        .take(muxy_protocol::MAX_INPUT as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    muxy_protocol::validate_input(&bytes).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "stdin exceeds the 1 MiB input limit; nothing was sent",
+        )
+    })?;
+    Ok(bytes)
 }
 
 fn list(client: &Client, project: ProjectId) -> Result<Vec<ProjectSession>> {
@@ -356,7 +457,6 @@ enum Waited {
     Ended(ExitReason),
 }
 
-/// Follows the session's screen until `until` happens or `timeout` passes.
 fn wait(
     client: &Client,
     session: SessionId,
@@ -404,7 +504,6 @@ fn wait(
                 session: ended,
                 reason,
             }) if ended == session => {
-                // The last output before an exit may never reach a frame.
                 break match until {
                     Until::Exit => Ok(Waited::Ended(reason)),
                     Until::Text { text, ignore_case } => {
@@ -423,7 +522,6 @@ fn wait(
     report(session, &finish_attachment(waited, detached)?, output)
 }
 
-/// The line containing `text` on an ended session's saved screen.
 fn saved_line(
     saved: Option<muxy_protocol::SavedScreen>,
     text: &str,
@@ -497,6 +595,40 @@ mod tests {
     use std::cell::Cell;
 
     use super::*;
+
+    #[test]
+    fn stdin_is_verbatim_and_bounded_before_any_input_is_sent() -> Result {
+        let bytes = b"hello\n\x00\xff\r";
+        assert_eq!(stdin_bytes(&bytes[..])?, bytes);
+        assert!(stdin_bytes(io::repeat(b'x').take(muxy_protocol::MAX_INPUT as u64 + 1)).is_err());
+        assert_eq!(
+            stdin_bytes(io::repeat(b'x').take(muxy_protocol::MAX_INPUT as u64))?.len(),
+            muxy_protocol::MAX_INPUT
+        );
+        assert!(stdin_bytes(io::empty())?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn inspection_includes_names_without_changing_list_json() -> Result {
+        let session = ProjectSession {
+            info: muxy_protocol::SessionInfo {
+                id: SessionId::new(u64::MAX).ok_or("session ID")?,
+                project: ProjectId::new(),
+                directory: muxy_protocol::ServerPath::from(Path::new("/tmp")),
+            },
+            status: SessionStatus::Ended,
+            owner: None,
+            attached: false,
+            name: Some("build".into()),
+        };
+        assert!(record(&session).get("name").is_none());
+        let inspected = inspection_record(&session);
+        assert_eq!(inspected["name"], "build");
+        assert_eq!(inspected["id"], u64::MAX.to_string());
+        assert_eq!(inspected["status"], "Ended");
+        Ok(())
+    }
 
     #[test]
     fn showing_waits_for_the_project_after_a_slow_app_start() -> Result {

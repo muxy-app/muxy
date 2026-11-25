@@ -1,4 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use muxy_protocol::ErrorCode;
 
 const DEFAULT_HISTORY_BUDGET_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -32,8 +34,6 @@ impl ServerSettings {
     }
 
     pub fn validate(&self) -> Result<(), crate::ServerError> {
-        use muxy_protocol::ErrorCode;
-        use std::os::unix::fs::PermissionsExt;
         self.document().validate().map_err(|code| {
             crate::ServerError::new(
                 code,
@@ -41,17 +41,44 @@ impl ServerSettings {
             )
         })?;
         if let Some(shell) = &self.default_shell {
-            let metadata = std::fs::metadata(shell).map_err(|error| {
-                crate::ServerError::new(ErrorCode::BadPath, format!("{}: {error}", shell.display()))
-            })?;
-            if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+            if !shell.is_absolute() {
                 return Err(crate::ServerError::new(
                     ErrorCode::BadPath,
-                    "shell must be an executable file",
+                    "shell must be an absolute path",
+                ));
+            }
+            if !runnable(shell)? {
+                return Err(crate::ServerError::new(
+                    ErrorCode::BadPath,
+                    if cfg!(windows) {
+                        "shell must be a program file, such as an .exe"
+                    } else {
+                        "shell must be an executable file"
+                    },
                 ));
             }
         }
         Ok(())
+    }
+}
+
+fn runnable(shell: &Path) -> Result<bool, crate::ServerError> {
+    let missing = |error: std::io::Error| {
+        crate::ServerError::new(ErrorCode::BadPath, format!("{}: {error}", shell.display()))
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = std::fs::metadata(shell).map_err(missing)?;
+        Ok(metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(windows)]
+    {
+        let metadata = std::fs::symlink_metadata(shell).map_err(missing)?;
+        Ok(!metadata.is_dir()
+            && shell.extension().is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("exe") || extension.eq_ignore_ascii_case("com")
+            }))
     }
 }
 

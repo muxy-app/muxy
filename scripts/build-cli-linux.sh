@@ -28,7 +28,6 @@ if [[ -e "$OUTPUT" ]]; then
     exit 1
 fi
 cd "$ROOT"
-# A cached native Zig object may otherwise depend on the previous runner's CPU.
 cargo clean -p libghostty-vt-sys
 cargo build --locked --release --target "$TARGET" -p muxy-cli -p muxy-server
 mkdir -p "$(dirname "$OUTPUT")"

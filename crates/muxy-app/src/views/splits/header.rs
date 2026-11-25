@@ -11,8 +11,6 @@ use muxy_ui::tr;
 
 use crate::model::AppModel;
 
-/// What a header button does: something to the pane itself, or a command that
-/// acts on the active pane once the pane is made active.
 #[derive(Clone, Copy)]
 enum Perform {
     Pane(fn(&mut AppModel, PaneId, &mut Context<AppModel>)),
@@ -37,11 +35,10 @@ struct Action {
     name: &'static str,
     icon: Icon,
     label: SharedString,
-    shortcut: ShortcutId,
+    shortcut: Option<ShortcutId>,
     perform: Perform,
 }
 
-/// The background a pane's header and dimming take, and the text on it.
 pub(super) fn colors(pane: PaneId, model: &AppModel, cx: &App) -> (Hsla, Hsla) {
     model.terminal(&pane).map_or_else(
         || (model.theme.bg, model.theme.fg),
@@ -49,8 +46,6 @@ pub(super) fn colors(pane: PaneId, model: &AppModel, cx: &App) -> (Hsla, Hsla) {
     )
 }
 
-/// The bar above a pane: what it shows, its title and, while the pane is
-/// active or under the pointer, its actions.
 pub(super) fn header(
     pane: &Pane,
     tab: &Tab,
@@ -66,10 +61,13 @@ pub(super) fn header(
         .terminal(&id)
         .is_some_and(|terminal| terminal.view.read(cx).bell_flashing);
     let zoomed = tab.zoomed == Some(id);
+    let movable = tab.zoomed.is_none();
     let actions = actions(pane, tab, model);
     let count = u16::try_from(actions.len()).unwrap_or(u16::MAX);
+    let edges = model.header_edges(id, tab);
     let shown = m.spacing4()
         + m.spacing4()
+        + edges.trailing
         + m.control_small() * f32::from(count)
         + m.spacing2() * f32::from(count.saturating_sub(1));
     div()
@@ -83,8 +81,12 @@ pub(super) fn header(
         .min_w(px(0.0))
         .overflow_hidden()
         .h(m.title_bar_height())
-        .pl(m.spacing6())
-        .pr(if active { shown } else { m.spacing4() })
+        .pl(m.spacing6() + edges.leading)
+        .pr(if active {
+            shown
+        } else {
+            m.spacing4() + edges.trailing
+        })
         .group_hover(group.clone(), move |style| style.pr(shown))
         .bg(background)
         .when(zoomed, |header| {
@@ -94,19 +96,45 @@ pub(super) fn header(
         .text_color(foreground)
         .on_mouse_down(
             MouseButton::Left,
-            cx.listener(move |model, _, window, cx| {
+            cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
                 model.focus_pane(id, cx);
                 model.focus_active(window, cx);
+                if let Some(carried) = edges.carries
+                    && event.click_count == 1
+                {
+                    model.begin_carry(carried, event.position, window, cx);
+                }
+                if let Some(float) = edges.floats {
+                    model.enter_float(float, cx);
+                    model.begin_floating_drag(
+                        &crate::model::tab_windows::floating::panel(float),
+                        None,
+                        event.position,
+                        window,
+                        cx,
+                    );
+                    window.prevent_default();
+                    cx.stop_propagation();
+                } else if movable && edges.carries.is_none() {
+                    model.begin_pane_handle_drag(id, event, window, cx);
+                }
             }),
         )
+        .when(edges.carries.is_some(), |header| {
+            header.on_click(cx.listener(|_, event: &gpui::ClickEvent, window, _| {
+                if event.click_count() == 2 {
+                    window.zoom_window();
+                }
+            }))
+        })
         .child(handle(pane, tab, bell, foreground, model, cx))
         .child(
             div()
                 .debug_selector(move || format!("pane-header-actions-{id}"))
                 .absolute()
                 .top(((m.title_bar_height() - m.control_small()) / 2.0).max(px(0.0)))
-                .left(m.spacing6())
-                .right(m.spacing4())
+                .left(m.spacing6() + edges.leading)
+                .right(m.spacing4() + edges.trailing)
                 .h(m.control_small())
                 .overflow_hidden()
                 .flex()
@@ -125,9 +153,6 @@ pub(super) fn header(
         .into_any_element()
 }
 
-/// The pane's icon and title. While the pane can be moved, they turn into a
-/// handle under the pointer: the icon becomes a move icon and dragging moves the
-/// pane, as dragging with Command held does.
 fn handle(
     pane: &Pane,
     tab: &Tab,
@@ -138,10 +163,12 @@ fn handle(
 ) -> AnyElement {
     let id = pane.id;
     let m = model.metrics;
-    let movable = tab.zoomed.is_none() && tab.panes.len() > 1;
+    let movable = tab.zoomed.is_none();
     let group = SharedString::from(format!("pane-handle-{id}"));
     let size = m.scaled(13.0);
     let hover = foreground.opacity(0.08);
+    let title = title(pane, model, cx);
+    let directory = directory(pane, &title, model, cx);
     div()
         .id(group.clone())
         .debug_selector(move || format!("pane-handle-{id}"))
@@ -198,7 +225,6 @@ fn handle(
                 }),
         )
         .child({
-            let title = title(pane, model, cx);
             let selector = format!("pane-title-{id}-{title}");
             div()
                 .debug_selector(move || selector.clone())
@@ -206,11 +232,33 @@ fn handle(
                 .truncate()
                 .child(title)
         })
+        .when_some(directory, |handle, directory| {
+            let selector = format!("pane-directory-{id}-{directory}");
+            handle.child(
+                div()
+                    .debug_selector(move || selector.clone())
+                    .min_w(px(0.0))
+                    .map(|mut path| {
+                        path.style().flex_shrink = Some(1000.0);
+                        path
+                    })
+                    .truncate()
+                    .text_color(foreground.opacity(0.55))
+                    .child(directory),
+            )
+        })
         .into_any_element()
 }
 
-/// A terminal names its shell rather than its folder, which the project
-/// already shows, once it reports one; until then, its usual title.
+fn directory(pane: &Pane, title: &str, model: &AppModel, cx: &App) -> Option<String> {
+    model
+        .terminal(&pane.id)?
+        .view
+        .read(cx)
+        .header_directory(model.state.pane_home(pane.id))
+        .filter(|directory| !title.ends_with(directory.as_str()))
+}
+
 fn title(pane: &Pane, model: &AppModel, cx: &App) -> String {
     model
         .terminal(&pane.id)
@@ -240,30 +288,87 @@ fn glyph(pane: &Pane, bell: bool, foreground: Hsla, model: &AppModel, cx: &App) 
     )
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "The pane header's available controls"
+)]
 fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
     let mut actions = vec![
         Action {
             name: "split-right",
             icon: Icon::Columns,
             label: tr!("Split Right"),
-            shortcut: ShortcutId::SplitRight,
+            shortcut: Some(ShortcutId::SplitRight),
             perform: Perform::Active(|model, cx| model.split_pane(Direction::Right, cx)),
         },
         Action {
             name: "split-down",
             icon: Icon::Rows,
             label: tr!("Split Down"),
-            shortcut: ShortcutId::SplitDown,
+            shortcut: Some(ShortcutId::SplitDown),
             perform: Perform::Active(|model, cx| model.split_pane(Direction::Down, cx)),
         },
     ];
-    if model.can_detach_terminal(pane.id) {
+    if !tab.floating() && matches!(pane.content, PaneContent::Terminal { .. }) {
         actions.push(Action {
-            name: "detach",
+            name: "float",
             icon: Icon::Overlap,
-            label: tr!("Detach Terminal"),
-            shortcut: ShortcutId::DetachTerminal,
-            perform: Perform::Pane(AppModel::detach_terminal),
+            label: tr!("Float Pane"),
+            shortcut: Some(ShortcutId::FloatPane),
+            perform: Perform::Pane(|model, pane, cx| {
+                model.float_pane(pane, muxy_app_core::FloatScope::Project, cx);
+            }),
+        });
+    }
+    if let Some(window) = tab.window.as_ref().filter(|window| window.is_floating()) {
+        let everywhere =
+            model.float_scope(window.id) == Some(muxy_app_core::FloatScope::AllProjects);
+        let project = model
+            .tab_project(tab.id)
+            .map(|project| model.project_title(project))
+            .unwrap_or_default();
+        actions.push(Action {
+            name: "float-scope",
+            icon: if everywhere {
+                Icon::Globe
+            } else {
+                Icon::Folder
+            },
+            label: if everywhere {
+                tr!("Show Only in %@", project.as_str())
+            } else {
+                tr!("Show in All Projects")
+            },
+            shortcut: Some(if everywhere {
+                ShortcutId::ShowFloatingTerminalInItsProject
+            } else {
+                ShortcutId::ShowFloatingTerminalInAllProjects
+            }),
+            perform: Perform::Pane(AppModel::toggle_pane_float_scope),
+        });
+        actions.push(Action {
+            name: "minimize",
+            icon: Icon::Minimize,
+            label: tr!("Minimize"),
+            shortcut: None,
+            perform: Perform::Pane(AppModel::minimize_pane_float),
+        });
+    }
+    if tab.detached() {
+        actions.push(Action {
+            name: "return",
+            icon: Icon::AppWindow,
+            label: if tab.floating() {
+                tr!("Dock as Tab")
+            } else {
+                tr!("Move to Main Window")
+            },
+            shortcut: Some(if tab.floating() {
+                ShortcutId::DockFloatingTerminal
+            } else {
+                ShortcutId::MoveTabToMainWindow
+            }),
+            perform: Perform::Pane(AppModel::return_pane_window),
         });
     }
     if tab.zoomed == Some(pane.id) {
@@ -271,7 +376,7 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             name: "restore",
             icon: Icon::Restore,
             label: tr!("Restore Pane"),
-            shortcut: ShortcutId::ToggleZoomPane,
+            shortcut: Some(ShortcutId::ToggleZoomPane),
             perform: Perform::Active(AppModel::toggle_zoom_pane),
         });
     } else if tab.layout.leaves().len() > 1 {
@@ -279,7 +384,7 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             name: "maximize",
             icon: Icon::Maximize,
             label: tr!("Maximize Pane"),
-            shortcut: ShortcutId::ToggleZoomPane,
+            shortcut: Some(ShortcutId::ToggleZoomPane),
             perform: Perform::Active(AppModel::toggle_zoom_pane),
         });
     }
@@ -288,7 +393,7 @@ fn actions(pane: &Pane, tab: &Tab, model: &AppModel) -> Vec<Action> {
             name: "close",
             icon: Icon::X,
             label: tr!("Close Pane"),
-            shortcut: ShortcutId::ClosePane,
+            shortcut: Some(ShortcutId::ClosePane),
             perform: Perform::Pane(AppModel::close_pane),
         });
     }
@@ -303,9 +408,9 @@ fn button(
     cx: &Context<AppModel>,
 ) -> AnyElement {
     let m = model.metrics;
-    let tooltip = model.settings.keymap.chord(action.shortcut).map_or_else(
-        || action.label.to_string(),
-        |chord| format!("{} ({chord})", action.label),
+    let tooltip = action.shortcut.map_or_else(
+        || action.label.clone(),
+        |shortcut| model.tooltip(action.label.clone(), shortcut),
     );
     let name = action.name;
     let perform = action.perform;

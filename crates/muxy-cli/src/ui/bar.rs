@@ -1,6 +1,3 @@
-//! The mode bar: which keys apply after Ctrl-B, while scrolling, or while
-//! resizing. It covers the bottom row of the panes and is hidden otherwise.
-
 use ratatui::{
     Frame,
     layout::Rect,

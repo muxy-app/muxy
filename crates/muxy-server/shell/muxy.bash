@@ -1,4 +1,3 @@
-# Source explicitly from your interactive Bash startup file. Bash startup is not redirected.
 [[ $- == *i* && ${MUXY_SHELL_INTEGRATION-} == 1 ]] || return
 [[ ${_muxy_installed-} == 1 ]] && return
 _muxy_installed=1
@@ -44,8 +43,6 @@ _muxy_prompt_status() {
     return "$_muxy_status"
 }
 
-# Bash 5 hides the caller's DEBUG trap while sourcing. Inspect it afterward,
-# directly in PROMPT_COMMAND, without replacing a user's trap.
 read -r -d '' _muxy_debug_setup <<'MUXY_DEBUG_SETUP' || :
 if [[ ${_muxy_debug_checked-0} == 0 ]]; then
     _muxy_debug_checked=1

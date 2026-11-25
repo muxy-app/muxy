@@ -1,20 +1,18 @@
-//! Connections to a server over the network, as a paired device.
-
 use std::io;
 use std::time::Duration;
 
 use muxy_protocol::transport::{ByteStream, tls};
 use muxy_protocol::{
     DeviceCredential, DeviceId, DeviceKind, ErrorCode, ErrorReply, Feature, PairRequest, Paired,
-    PairingInvite, PairingOffer, RemoteAccessSettings, RemoteAccessState, ReplyBody, RequestBody,
+    PairingInvite, PairingOffer, PushRegistration, PushToken, RemoteAccessSettings,
+    RemoteAccessState, ReplyBody, RequestBody,
 };
 
 use crate::{Client, ClientError};
 
-/// Budget for reaching and verifying one address of a server.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+const REGISTER_PUSH_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Where a paired server can be reached, and the certificate it must present.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RemoteEndpoint {
     pub hosts: Vec<String>,
@@ -33,7 +31,6 @@ impl From<&PairingInvite> for RemoteEndpoint {
 }
 
 impl Client {
-    /// Connects as a paired device, trying each host in order.
     pub fn connect_remote(
         endpoint: &RemoteEndpoint,
         credential: DeviceCredential,
@@ -45,9 +42,6 @@ impl Client {
         }
     }
 
-    /// Pairs with the server that issued the invite; the connection stays open.
-    /// A server too old to pair computers is refused before it could pair one
-    /// as a phone.
     pub fn pair(
         invite: &PairingInvite,
         name: &str,
@@ -103,10 +97,6 @@ impl Client {
         }
     }
 
-    /// Like [`Client::start_pairing`], but the link lists `hosts` before the
-    /// addresses the server finds itself, for a server that phones reach by
-    /// another name, such as behind NAT. Without hosts it sends the plain
-    /// request, which older servers also know.
     pub fn start_pairing_with(&self, hosts: Vec<String>) -> Result<PairingOffer, ClientError> {
         if hosts.is_empty() {
             return self.start_pairing();
@@ -134,6 +124,29 @@ impl Client {
     pub fn revoke_device(&self, device: DeviceId) -> Result<RemoteAccessState, ClientError> {
         remote_access(self.request(RequestBody::RevokeDevice(device))?)
     }
+
+    pub fn register_push(&self, token: PushToken) -> Result<PushRegistration, ClientError> {
+        token.validate().map_err(ClientError::Invalid)?;
+        match self.request_with_timeout(RequestBody::RegisterPush(token), REGISTER_PUSH_TIMEOUT)? {
+            ReplyBody::PushRegistered(registration) => Ok(registration),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
+    pub fn unregister_push(&self) -> Result<(), ClientError> {
+        match self.request(RequestBody::UnregisterPush)? {
+            ReplyBody::PushUnregistered => Ok(()),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
+    pub fn set_push_notifications(&self, on: bool) -> Result<RemoteAccessState, ClientError> {
+        remote_access(self.request(RequestBody::SetPushNotifications(on))?)
+    }
+
+    pub fn reset_push(&self, device: DeviceId) -> Result<RemoteAccessState, ClientError> {
+        remote_access(self.request(RequestBody::ResetPush(device))?)
+    }
 }
 
 fn remote_access(body: ReplyBody) -> Result<RemoteAccessState, ClientError> {
@@ -143,9 +156,6 @@ fn remote_access(body: ReplyBody) -> Result<RemoteAccessState, ClientError> {
     }
 }
 
-/// Whether the paired server still takes connections: `Some(false)` only
-/// when every host refuses them, `None` when any host's answer is unknown,
-/// such as a timeout, since that host may be where the server still runs.
 pub fn accepts_connections(endpoint: &RemoteEndpoint) -> Option<bool> {
     accepting(endpoint.hosts.iter().map(|host| {
         tls::connect(host, endpoint.port, endpoint.fingerprint, CONNECT_TIMEOUT).map(drop)
@@ -165,8 +175,6 @@ fn accepting(answers: impl IntoIterator<Item = io::Result<()>>) -> Option<bool> 
     (refused && !unknown).then_some(false)
 }
 
-/// A host presenting another certificate is skipped, never trusted; the
-/// mismatch is reported only if no host answers with the pinned one.
 fn connect(endpoint: &RemoteEndpoint) -> Result<Box<dyn ByteStream>, ClientError> {
     let mut mismatch = false;
     let mut failure = None;
@@ -189,7 +197,6 @@ fn connect(endpoint: &RemoteEndpoint) -> Result<Box<dyn ByteStream>, ClientError
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::net::UnixStream;
     use std::sync::mpsc;
     use std::thread;
 
@@ -207,12 +214,10 @@ mod tests {
         }
     }
 
-    /// A server offering `features` that pairs whoever asks, and reports the
-    /// pairing request it received.
     fn server(
         features: Vec<Feature>,
     ) -> Result<(Client, mpsc::Receiver<PairRequest>), ClientError> {
-        let (near, far) = UnixStream::pair()?;
+        let (near, far) = muxy_protocol::transport::socket_pair()?;
         let (requests, received) = mpsc::channel();
         thread::spawn(move || -> Result<(), muxy_protocol::wire::WireError> {
             let (read, write) = (far.try_clone()?, far);

@@ -23,7 +23,6 @@ use gpui::InteractiveElement;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Status {
     None,
-    /// Muxy is creating or removing a worktree; the key describes it.
     Busy(&'static str),
     Progress(TerminalProgress),
     Blocked,
@@ -31,7 +30,6 @@ pub(super) enum Status {
     Completed,
 }
 
-/// Sessions are numbered per server, so they are looked up on `server`.
 fn resolve(
     server: ServerId,
     sessions: &[SessionId],
@@ -93,7 +91,6 @@ pub(super) fn tab_status(tab: &Tab, model: &AppModel) -> Status {
     )
 }
 
-/// What the tab row of an agent's pane shows for that agent.
 pub(super) fn agent_status(agent: &RunningAgent, model: &AppModel) -> Status {
     resolve(
         agent.server,
@@ -113,7 +110,6 @@ pub(super) fn project_status(id: ProjectId, model: &AppModel) -> Status {
             .state
             .project(id)
             .is_some_and(|project| model.has_worktrees(project));
-    // The worktree list shows its own rows' work.
     if worktrees_shown {
         return Status::None;
     }
@@ -136,8 +132,6 @@ pub(super) fn worktree_status(id: ProjectId, model: &AppModel) -> Status {
 pub(super) const CREATING: &str = tr_key!("Creating worktree");
 const REMOVING: &str = tr_key!("Removing worktree");
 
-/// Worktrees `id` is creating, or the removal of `id` or, with
-/// `include_children`, of one of its worktrees.
 fn worktree_work(id: ProjectId, include_children: bool, model: &AppModel) -> Option<Status> {
     let removing = model.worktree_removing(id)
         || include_children
@@ -205,8 +199,26 @@ pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElem
     decorated("tab", tab.id, tab_status(tab, model), fallback, size, model)
 }
 
-/// A pane's own icon: the agent running in it, with that agent's progress or
-/// completion, or `fallback` when no agent runs there.
+#[derive(Clone, Default)]
+pub(super) struct HoverZone(Rc<Cell<Option<Bounds<Pixels>>>>);
+
+impl HoverZone {
+    pub(super) fn track(&self) -> AnyElement {
+        let bounds = self.0.clone();
+        canvas(move |zone, _, _| bounds.set(Some(zone)), |_, (), _, _| {})
+            .absolute()
+            .inset_0()
+            .into_any_element()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn hovered(&self, window: &gpui::Window) -> bool {
+        self.0
+            .get()
+            .is_some_and(|bounds| bounds.contains(&window.mouse_position()))
+    }
+}
+
 pub(super) fn pane_glyph(
     pane: &Pane,
     model: &AppModel,
@@ -217,12 +229,16 @@ pub(super) fn pane_glyph(
     let Some(provider) = model.pane_agent(id).map(|agent| agent.provider) else {
         return fallback;
     };
-    let status = model
-        .state
-        .pane_session(id)
-        .map_or(Status::None, |(server, session)| {
-            resolve(server, &[session], model.pane_completed(id), false, model)
-        });
+    let status =
+        model
+            .state
+            .pane_session(id)
+            .map_or(Status::None, |(server, session)| {
+                match resolve(server, &[session], model.pane_completed(id), false, model) {
+                    Status::Progress(_) => Status::None,
+                    status => status,
+                }
+            });
     decorated(
         "pane",
         id,
@@ -239,8 +255,6 @@ pub(super) fn pane_glyph(
     )
 }
 
-/// `icon` with a spinner in its place while work is in progress, and a dot
-/// when it is blocked or done.
 fn decorated(
     kind: &str,
     id: impl std::fmt::Display,
@@ -304,14 +318,11 @@ struct Native {
 
 #[cfg(target_os = "macos")]
 impl Spinners {
-    /// Hides every spinner, for when native views can't be placed reliably.
     pub(crate) fn set_blocked(&self, blocked: bool) {
         self.0.borrow_mut().blocked = blocked;
     }
 
-    /// Shows each spinner unless it is clipped, blocked, or under `covers`:
-    /// app content painted above native views, such as a menu.
-    pub(crate) fn present(&self, covers: &[(Option<gpui::EntityId>, Bounds<Pixels>)]) {
+    pub(crate) fn present(&self, covers: &[(Option<gpui::EntityId>, muxy_ui::webview::Cover)]) {
         let mut registry = self.0.borrow_mut();
         let blocked = registry.blocked;
         registry.natives.retain(|native| {
@@ -323,7 +334,9 @@ impl Spinners {
                 && native.bounds.get().is_some_and(|bounds| {
                     let owner = native.owner.get();
                     !covers.iter().any(|(cover_owner, cover)| {
-                        (owner.is_none() || *cover_owner != owner) && cover.intersects(&bounds)
+                        !cover.pointer_only
+                            && (owner.is_none() || *cover_owner != owner)
+                            && cover.bounds.intersects(&bounds)
                     })
                 });
             native.visible.set(visible);
@@ -335,7 +348,7 @@ impl Spinners {
     }
 
     fn glyph(&self, id: String, size: Pixels, color: Hsla) -> AnyElement {
-        self.glyph_in(id, size, color, None)
+        self.glyph_in(id, size, color, None, None)
     }
 
     pub(super) fn glyph_in(
@@ -344,8 +357,10 @@ impl Spinners {
         size: Pixels,
         color: Hsla,
         owner: Option<gpui::EntityId>,
+        zone: Option<&HoverZone>,
     ) -> AnyElement {
         let registry = self.0.clone();
+        let zone = zone.cloned();
         canvas(
             |_, _, _| (),
             move |bounds, (), window, _| {
@@ -372,9 +387,10 @@ impl Spinners {
                         native.bounds.set(Some(bounds));
                         native.owner.set(owner);
                         native.in_bounds.set(
-                            mask.contains(&bounds.origin) && mask.contains(&bounds.bottom_right()),
+                            mask.contains(&bounds.origin)
+                                && mask.contains(&bounds.bottom_right())
+                                && !zone.as_ref().is_some_and(|zone| zone.hovered(window)),
                         );
-                        // `present` decides visibility once everything above is laid out.
                         if let Some(spinner) = &native.spinner {
                             spinner.show(
                                 bounds,
@@ -410,7 +426,7 @@ impl Spinners {
         clippy::unused_self,
         reason = "GPUI clips its own overlays; only AppKit needs this hook"
     )]
-    pub(crate) fn present(&self, _covers: &[(Option<gpui::EntityId>, Bounds<Pixels>)]) {}
+    pub(crate) fn present(&self, _covers: &[(Option<gpui::EntityId>, muxy_ui::webview::Cover)]) {}
 
     pub(super) fn glyph_in(
         &self,
@@ -418,6 +434,7 @@ impl Spinners {
         size: Pixels,
         color: Hsla,
         _owner: Option<gpui::EntityId>,
+        _zone: Option<&HoverZone>,
     ) -> AnyElement {
         self.glyph(id, size, color)
     }
@@ -496,7 +513,6 @@ impl Spinners {
     }
 }
 
-/// An indeterminate spinner in the accent color.
 pub(super) fn spinner(id: impl Into<String>, size: Pixels, model: &AppModel) -> AnyElement {
     model.spinners.glyph(id.into(), size, model.theme.accent)
 }
@@ -509,7 +525,7 @@ pub(super) fn spinner_in(
 ) -> AnyElement {
     model
         .spinners
-        .glyph_in(id.into(), size, model.theme.accent, Some(owner))
+        .glyph_in(id.into(), size, model.theme.accent, Some(owner), None)
 }
 
 pub(super) fn status_glyph(
@@ -518,15 +534,15 @@ pub(super) fn status_glyph(
     size: Pixels,
     model: &AppModel,
 ) -> AnyElement {
-    status_glyph_in(id, status, size, None, model)
+    status_glyph_in(id, status, size, None, None, model)
 }
 
-/// A status glyph whose spinner stays visible over content `owner` paints.
 pub(super) fn status_glyph_in(
     id: String,
     status: Status,
     size: Pixels,
     owner: Option<gpui::EntityId>,
+    zone: Option<&HoverZone>,
     model: &AppModel,
 ) -> AnyElement {
     let theme = &model.theme;
@@ -537,7 +553,7 @@ pub(super) fn status_glyph_in(
             translate(key).to_string(),
             model
                 .spinners
-                .glyph_in(id.clone(), size, theme.accent, owner),
+                .glyph_in(id.clone(), size, theme.accent, owner, zone),
         ),
         Status::Progress(progress) => {
             let tooltip = match progress.state {
@@ -550,7 +566,7 @@ pub(super) fn status_glyph_in(
             (
                 "progress",
                 tooltip.to_string(),
-                progress_circle(&id, progress, size, owner, model),
+                progress_circle(&id, progress, size, owner, zone, model),
             )
         }
         Status::Blocked | Status::Completed => {
@@ -615,6 +631,7 @@ fn progress_circle(
     progress: TerminalProgress,
     size: Pixels,
     owner: Option<gpui::EntityId>,
+    zone: Option<&HoverZone>,
     model: &AppModel,
 ) -> AnyElement {
     let theme = &model.theme;
@@ -626,7 +643,9 @@ fn progress_circle(
         }
     };
     if progress.state == ProgressState::Indeterminate {
-        return model.spinners.glyph_in(id.to_owned(), size, color, owner);
+        return model
+            .spinners
+            .glyph_in(id.to_owned(), size, color, owner, zone);
     }
     progress_ring(
         size,

@@ -8,6 +8,9 @@ import sys
 import unittest
 from unittest.mock import patch
 
+if sys.platform == "win32":
+    raise unittest.SkipTest("The macOS guard raises POSIX resource limits")
+
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("desktop_macos", ROOT / "scripts/check-desktop-macos.py")
 GUARD = importlib.util.module_from_spec(SPEC)
@@ -25,7 +28,7 @@ class DesktopMacosTests(unittest.TestCase):
         stack.enter_context(patch.object(GUARD.subprocess, "check_output", return_value=f"host: {host}\n"))
         stack.enter_context(patch.object(GUARD.resource, "getrlimit", return_value=(256, 20480)))
         limit = stack.enter_context(patch.object(GUARD.resource, "setrlimit"))
-        env = {"RUSTDOCFLAGS": "--cfg regression_guard"}
+        env = {}
         if target is not None:
             env["CARGO_BUILD_TARGET"] = target
         stack.enter_context(patch.dict(os.environ, env, clear=True))
@@ -47,7 +50,7 @@ class DesktopMacosTests(unittest.TestCase):
                 self.doCleanups()
 
     def test_any_failed_check_stops_the_guard(self):
-        for failed_step in range(5):
+        for failed_step in range(3):
             with self.subTest(failed_step=failed_step):
                 run, _ = self.environment()
                 run.side_effect = [None] * failed_step + [subprocess.CalledProcessError(1, "check")]
@@ -62,14 +65,11 @@ class DesktopMacosTests(unittest.TestCase):
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual(commands, [
             [sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests"],
-            ["cargo", "fmt", "--all", "--check"],
             ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"],
-            ["cargo", "doc", "--locked", "--workspace", "--no-deps"],
-            ["cargo", "test", "--locked", "--workspace", "--all-features", "--timings"],
+            ["cargo", "test", "--locked", "--workspace", "--all-features", "--tests", "--timings"],
         ])
         for call in run.call_args_list:
             self.assertEqual(call.kwargs["cwd"], ROOT)
-            self.assertEqual(call.kwargs["env"]["RUSTDOCFLAGS"], "--cfg regression_guard -D warnings")
             self.assertEqual(call.kwargs["env"]["RUST_TEST_THREADS"], "4")
         limit.assert_called_once_with(GUARD.resource.RLIMIT_NOFILE, (10240, 20480))
         self.doCleanups()

@@ -13,11 +13,9 @@ pub(super) struct Results {
     focus: HashMap<Category, FocusHandle>,
     pub(super) row_focus: HashMap<String, FocusHandle>,
     pub(super) shortcut_focus: Vec<[FocusHandle; 2]>,
-    /// Record, reset, and unassign for each extension shortcut, by keymap id.
     pub(super) extension_focus: HashMap<String, [FocusHandle; 3]>,
     pub(super) command_focus: HashMap<String, [FocusHandle; 4]>,
     pub(super) reveal_focus: Rc<Cell<bool>>,
-    /// The row to bring on screen in the next frame.
     pub(super) reveal_row: Rc<Cell<Option<&'static str>>>,
     pub(super) dirty: bool,
     pub(super) editable: bool,
@@ -25,8 +23,7 @@ pub(super) struct Results {
     overdraw: Pixels,
 }
 
-/// The order of search results, which keeps related settings together.
-const SEARCH_ORDER: [Category; 14] = [
+const SEARCH_ORDER: [Category; 13] = [
     Category::General,
     Category::QuickTerminal,
     Category::Composer,
@@ -35,22 +32,20 @@ const SEARCH_ORDER: [Category; 14] = [
     Category::Keyboard,
     Category::Commands,
     Category::Browser,
-    Category::Server,
-    Category::Devices,
+    Category::Servers,
     Category::Extensions,
     Category::Ai,
     Category::Backup,
     Category::About,
 ];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Item {
     Section(Category),
     KeyboardHeading,
     CommandsHeading,
     CustomCommand(usize),
     Shortcut(usize),
-    /// The heading above an extension's shortcuts, named by its first one.
     ExtensionHeading(usize),
     ExtensionShortcut(usize),
     Empty,
@@ -210,17 +205,18 @@ impl SettingsView {
                 items.push(Item::Section(category));
             }
         }
-        self.results.editable = items.iter().any(|item| {
-            !matches!(
-                item,
-                Item::Section(Category::About | Category::Devices | Category::Extensions)
-            )
-        });
+        self.results.editable = items
+            .iter()
+            .any(|item| !matches!(item, Item::Section(Category::About | Category::Extensions)));
         if items.is_empty() {
             items.push(Item::Empty);
         }
         if self.results.editable {
             items.push(Item::Footer);
+        }
+        if self.unchanged(&items, overdraw) {
+            self.results.dirty = false;
+            return;
         }
         self.refresh_shortcut_focus(&items, cx);
         let offset = self.results.state.logical_scroll_top();
@@ -255,6 +251,18 @@ impl SettingsView {
         self.results.items = items;
         self.results.dirty = false;
         self.results.reset_scroll = false;
+    }
+
+    fn unchanged(&self, items: &[Item], overdraw: Pixels) -> bool {
+        self.results.overdraw == overdraw
+            && !self.results.reset_scroll
+            && self.results.items == items
+            && !items.iter().any(|item| {
+                matches!(
+                    item,
+                    Item::CustomCommand(_) | Item::ExtensionHeading(_) | Item::ExtensionShortcut(_)
+                )
+            })
     }
 
     fn refresh_shortcut_focus(&mut self, items: &[Item], cx: &mut Context<Self>) {
@@ -309,7 +317,6 @@ impl SettingsView {
             Category::Backup => super::backup::rows(self, cx),
             Category::About => super::about::rows(self, cx),
             Category::Terminal => terminal::rows(self, window, cx),
-            Category::Server => server::rows(self, cx),
             Category::Keyboard | Category::Commands => Vec::new(),
             Category::Extensions => {
                 if self.matches(
@@ -329,24 +336,26 @@ impl SettingsView {
                     Vec::new()
                 }
             }
-            Category::Devices => {
-                if self.matches(
-                    Category::Devices,
-                    tr_key!("Manage devices remote servers ssh pairing paired mobile phones computers port qr"),
+            Category::Servers => {
+                let mut rows = server::rows(self, cx);
+                if self.query.is_empty() {
+                    rows.extend(self.servers.clone().map(IntoElement::into_any_element));
+                } else if self.matches(
+                    Category::Servers,
+                    tr_key!("Manage servers clients remote ssh pairing paired mobile phones computers port qr"),
                 ) {
-                    vec![
+                    rows.push(
                         muxy_ui::controls::button(
                             self.style(),
-                            "manage-devices",
-                            muxy_ui::controls::Button::secondary(&tr!("Manage Devices")),
-                            cx.listener(|view, _, _, cx| view.show_devices(cx)),
+                            "manage-servers",
+                            muxy_ui::controls::Button::secondary(&tr!("Manage Servers")),
+                            cx.listener(|view, _, _, cx| view.show_servers(cx)),
                         )
-                        .debug_selector(|| "settings-manage-devices".into())
+                        .debug_selector(|| "settings-manage-servers".into())
                         .into_any_element(),
-                    ]
-                } else {
-                    Vec::new()
+                    );
                 }
+                rows
             }
             Category::QuickTerminal => super::quick_terminal::rows(self, cx),
         }

@@ -1,6 +1,3 @@
-//! Dialogs drawn over a dimmed screen: the project finder, existing
-//! terminals, help, and the close confirmation.
-
 use muxy_protocol::CatalogPage;
 use ratatui::{
     Frame,
@@ -14,7 +11,6 @@ use super::{Overlay, Target, Ui, clean, theme, truncate};
 use crate::projects::{self, Entry};
 use crate::worker::{Closing, Shared};
 
-/// Keyboard help: a group name, then each key and what it does.
 pub(crate) const HELP: &[(&str, &[(&str, &str)])] = &[
     (
         "Tabs",
@@ -79,7 +75,6 @@ const NOTES: &[&str] = &[
     "The desktop app keeps its own layout; terminal UI windows share one.",
 ];
 
-/// The projects matching `filter`, in list order.
 pub(crate) fn project_choices<'a>(catalog: &'a CatalogPage, filter: &str) -> Vec<Entry<'a>> {
     let filter = filter.to_lowercase();
     projects::tree(catalog)
@@ -94,8 +89,6 @@ pub(crate) fn project_choices<'a>(catalog: &'a CatalogPage, filter: &str) -> Vec
         .collect()
 }
 
-/// Lines of help text: the intro, each group's title, keys, and blank line,
-/// then the notes.
 pub(crate) fn help_lines() -> usize {
     1 + HELP.iter().map(|(_, keys)| keys.len() + 2).sum::<usize>() + NOTES.len()
 }
@@ -105,7 +98,6 @@ pub(super) fn draw(frame: &mut Frame<'_>, shared: &Shared, ui: &mut Ui) {
         return;
     }
     let area = frame.area();
-    // A menu leaves the screen as it is; dialogs dim what is behind them.
     if !matches!(ui.overlay, Overlay::Menu(_)) {
         let buffer = frame.buffer_mut();
         for y in area.y..area.bottom() {
@@ -348,7 +340,6 @@ fn help(frame: &mut Frame<'_>, ui: &mut Ui, scroll: usize) {
     );
     let body = Rect::new(inner.x, inner.y, inner.width, inner.height - 1);
     let first = scroll.min(text.len().saturating_sub(usize::from(body.height)));
-    // Keep the offset to what is shown, so scrolling back responds at once.
     ui.overlay = Overlay::Help(first);
     frame.render_widget(
         Paragraph::new(text.into_iter().skip(first).collect::<Vec<_>>()),

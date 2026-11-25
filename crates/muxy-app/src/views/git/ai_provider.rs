@@ -144,7 +144,6 @@ impl AppModel {
     }
 }
 
-/// The provider's logo among the bundled icons.
 pub(crate) fn provider_icon_path(provider: Provider) -> SharedString {
     let name = if provider.id == "droid" {
         "factory"

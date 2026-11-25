@@ -20,7 +20,6 @@ pub(crate) enum UpdateAction {
 pub(crate) struct UpdateDetails {
     pub(crate) label: String,
     pub(crate) description: String,
-    /// The action and its label, an English key shown translated.
     pub(crate) action: Option<(UpdateAction, &'static str)>,
     pub(crate) failed: bool,
 }

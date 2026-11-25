@@ -43,8 +43,11 @@ class SlowTestGuardTests(unittest.TestCase):
             print(sleeper.pid, flush=True)
         """)
         sleeper = int(self.output.splitlines()[0])
-        self.addCleanup(os.kill, sleeper, signal.SIGKILL)
-        os.kill(sleeper, 0)
+        if sys.platform == "win32":
+            self.addCleanup(subprocess.run, ["taskkill", "/F", "/PID", str(sleeper)], capture_output=True)
+        else:
+            self.addCleanup(os.kill, sleeper, signal.SIGKILL)
+            os.kill(sleeper, 0)
 
 
 if __name__ == "__main__":

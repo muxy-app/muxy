@@ -1,5 +1,3 @@
-//! The terminal UI: connecting, the event loop, and focus reports.
-
 mod keys;
 mod menu;
 mod mouse;
@@ -28,10 +26,6 @@ use crate::{
     worker::{Shared, View, Worker, lock},
 };
 
-/// Runs the TUI against this computer's server, or the one on `remote`,
-/// showing the project for `folder` if one is given and adding it if needed.
-/// Another computer is reached before the terminal is taken over, so an
-/// unreachable host or a refused login reports to the shell.
 pub(crate) fn run(remote: Option<SshTarget>, folder: Option<&Path>) -> Result {
     terminal::require_interactive().map_err(|error| error.to_string())?;
     let target = Target::new(remote).map_err(|error| error.to_string())?;
@@ -146,8 +140,6 @@ fn events(host: &mut Host, worker: &Worker, mut ui: Ui) -> Result {
             Event::Mouse(event) => pointer.handle(event, worker, &mut ui),
             Event::FocusGained => host_focus(worker, true),
             Event::FocusLost => host_focus(worker, false),
-            // The terminal may have cut or moved what was drawn, even if it
-            // is back to the size last drawn, so draw everything again.
             Event::Resize(_, _) => host.terminal.clear().map_err(|error| error.to_string()),
             Event::Key(_) => Ok(()),
         };
@@ -157,7 +149,6 @@ fn events(host: &mut Host, worker: &Worker, mut ui: Ui) -> Result {
     }
 }
 
-/// Drops screen state that belonged to panes that are gone.
 fn forget_closed(shared: &Shared, ui: &mut Ui) {
     let open = |pane: PaneId| {
         shared
@@ -197,8 +188,6 @@ pub(super) fn focused_pane(shared: &Shared) -> Option<PaneId> {
         .map(|tab| tab.focus)
 }
 
-/// Sends typing to the focused terminal, which brings it back from
-/// scrollback first.
 fn to_terminal(worker: &Worker, ui: &mut Ui, input: Input) -> Result {
     ui.selection = None;
     {
@@ -212,8 +201,6 @@ fn to_terminal(worker: &Worker, ui: &mut Ui, input: Input) -> Result {
     worker.typing(input)
 }
 
-/// Scrolls `pane`'s history by `rows`, positive to go back, or to the top
-/// when `rows` is `None`, fetching history from the server as needed.
 fn scroll(worker: &Worker, pane: PaneId, rows: Option<isize>) {
     let mut shared = lock(&worker.shared);
     let Some(view) = shared

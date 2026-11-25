@@ -1,6 +1,3 @@
-//! Publishing an unpacked extension: checking what the store requires, then
-//! opening a pull request against the store's repository from the user's fork.
-
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -12,7 +9,6 @@ use serde_json::{Value, json};
 use super::authoring::{STORE_REPOSITORY, Tools, copy_tree};
 use super::marketplace;
 
-/// The store on github.com, whatever host `GH_HOST` points `gh` at.
 const STORE_ON_GITHUB: &str = "github.com/muxy-app/extensions";
 const GITHUB_HOST: &str = "github.com";
 const ICON_MIN_SIZE: u32 = 256;
@@ -24,10 +20,7 @@ const MAX_PUBLISHED_BYTES: u64 = 64 * 1024 * 1024;
 const PUSH_ATTEMPTS: usize = 6;
 const BRANCH_ATTEMPTS: usize = 9;
 const FILES_IN_CONFIRMATION: usize = 12;
-/// Never sent from the package's top level: build output and its logs.
 const LEFT_OUT_AT_ROOT: &[&str] = &["dist", "logs", "release"];
-/// Never sent from anywhere, compared in lowercase: dependencies, each agent's
-/// folder and instructions, and files that hold credentials.
 const LEFT_OUT_NAMES: &[&str] = &[
     "node_modules",
     ".claude",
@@ -69,7 +62,6 @@ const LEFT_OUT_ENDINGS: &[&str] = &[
     ".keystore",
 ];
 
-/// The package as it stands, and what stops it being published.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Readiness {
     pub(crate) name: String,
@@ -80,24 +72,20 @@ pub(crate) struct Readiness {
     pub(crate) files: Vec<PathBuf>,
 }
 
-/// Who `gh` is signed in as.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum GitHub {
     Missing,
     SignedOut,
-    /// It couldn't tell, such as when offline.
     Unreachable(String),
     User(String),
 }
 
-/// The store's published copy of an extension.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Published {
     pub(crate) version: String,
     pub(crate) author: Option<String>,
 }
 
-/// The pull request a publish opened or updated.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PullRequest {
     pub(crate) url: String,
@@ -105,11 +93,9 @@ pub(crate) struct PullRequest {
     pub(crate) updated: bool,
 }
 
-/// Why a publish stopped.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum PublishFailure {
     NotReady(Vec<String>),
-    /// `gh` is missing or signed out, so an agent can guide the user.
     NeedsGitHub(String),
     Declined,
     Failed(String),
@@ -131,22 +117,15 @@ fn not_ready_message(problems: &[String]) -> String {
     lines.join("\n")
 }
 
-/// A publish that only needs the user's approval.
 #[derive(Debug)]
 pub(crate) struct PublishPlan {
     pub(crate) readiness: Readiness,
     pub(crate) login: String,
     pub(crate) update: bool,
-    /// Who published this name already, when that isn't the user.
     pub(crate) other_author: Option<String>,
-    /// A private copy of the files, made before the user is asked, so what they
-    /// approve is exactly what gets sent.
     pub(crate) staged: tempfile::TempDir,
 }
 
-/// Checks everything that can be checked without changing anything. The store
-/// is only asked about a package that is otherwise ready, so a name it might
-/// reject never reaches a request.
 pub(crate) fn plan(tools: &dyn Tools, source: &Path) -> Result<PublishPlan, PublishFailure> {
     let mut readiness = check(source);
     if !readiness.problems.is_empty() {
@@ -183,14 +162,20 @@ pub(crate) fn plan(tools: &dyn Tools, source: &Path) -> Result<PublishPlan, Publ
     })
 }
 
+fn package_path(file: &Path) -> String {
+    file.components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 impl PublishPlan {
-    /// What the user approves: where it goes, under whose name, and what is sent.
     pub(crate) fn confirmation(&self) -> String {
         let readiness = &self.readiness;
         let shown = readiness.files.len().min(FILES_IN_CONFIRMATION);
         let mut files: Vec<String> = readiness.files[..shown]
             .iter()
-            .map(|file| file.display().to_string())
+            .map(|file| package_path(file))
             .collect();
         if readiness.files.len() > shown {
             files.push(tr!("and %lld more", readiness.files.len() - shown).to_string());
@@ -242,8 +227,6 @@ pub(crate) fn pull_request_title(name: &str, version: &str) -> String {
     format!("{name} {version}")
 }
 
-/// Checks a package's source folder against the store's rules. CI repeats
-/// these, so this only saves the user a failed pull request.
 pub(crate) fn check(source: &Path) -> Readiness {
     let mut readiness = Readiness::default();
     let manifest = source.join("package.json");
@@ -330,8 +313,6 @@ pub(crate) fn check(source: &Path) -> Readiness {
     readiness
 }
 
-/// Whether `path` is a file itself. A link to one is left out of what is sent,
-/// so it doesn't count.
 fn regular_file(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
 }
@@ -373,9 +354,12 @@ fn check_listing(source: &Path, listing: &Value, problems: &mut Vec<String>) {
     }
     if screenshots.len() > SCREENSHOT_MAX_COUNT {
         problems.push(tr!("The store takes at most 6 screenshots.").to_string());
+        return;
     }
+    let mut checked = std::collections::HashSet::new();
     for screenshot in screenshots {
         match screenshot.as_str() {
+            Some(screenshot) if !checked.insert(screenshot) => {}
             Some(screenshot) => check_screenshot(source, screenshot, problems),
             None => problems
                 .push(tr!("Each marketplace.screenshots entry must be a file path.").to_string()),
@@ -383,8 +367,6 @@ fn check_listing(source: &Path, listing: &Value, problems: &mut Vec<String>) {
     }
 }
 
-/// Listing files are named relative to the build output, which may not have
-/// been built yet, so a file that a build would copy there counts too.
 fn listing_asset(source: &Path, relative: &str) -> Option<PathBuf> {
     if Path::new(relative)
         .components()
@@ -399,7 +381,7 @@ fn listing_asset(source: &Path, relative: &str) -> Option<PathBuf> {
 }
 
 fn png_size(path: &Path) -> Option<(u32, u32)> {
-    let bytes = fs::read(path).ok()?;
+    let bytes = read_head(path, 24)?;
     let width = bytes.get(16..20)?;
     let height = bytes.get(20..24)?;
     if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" || bytes.get(12..16)? != b"IHDR" {
@@ -409,6 +391,17 @@ fn png_size(path: &Path) -> Option<(u32, u32)> {
         u32::from_be_bytes(width.try_into().ok()?),
         u32::from_be_bytes(height.try_into().ok()?),
     ))
+}
+
+fn read_head(path: &Path, length: u64) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let file = fs::File::open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(length).read_to_end(&mut bytes).ok()?;
+    Some(bytes)
 }
 
 fn size_of(path: &Path) -> u64 {
@@ -421,12 +414,11 @@ fn has_extension(file: &str, extension: &str) -> bool {
         .is_some_and(|found| found.eq_ignore_ascii_case(extension))
 }
 
-/// The store's own test: the file opens with a tag, and has an `svg` one near the start.
 fn looks_like_svg(path: &Path) -> bool {
-    let Ok(bytes) = fs::read(path) else {
+    let Some(bytes) = read_head(path, 4096) else {
         return false;
     };
-    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).to_lowercase();
+    let head = String::from_utf8_lossy(&bytes).to_lowercase();
     let head = head.trim_start_matches('\u{feff}').trim_start();
     head.starts_with('<')
         && head.match_indices("<svg").any(|(start, _)| {
@@ -497,7 +489,6 @@ fn left_out(relative: &Path) -> bool {
         })
 }
 
-/// The source files a pull request would carry, and their total size.
 fn files_to_publish(source: &Path) -> io::Result<(Vec<PathBuf>, u64)> {
     fn walk(
         root: &Path,
@@ -552,34 +543,29 @@ fn signed_out(error: &str) -> bool {
         .any(|sign| error.contains(sign))
 }
 
-/// Copies the files to a private folder. One that went away or became a link
-/// since it was listed, or a folder that is itself a link, stops the publish.
 fn stage(source: &Path, files: &[PathBuf]) -> Result<tempfile::TempDir, String> {
     let changed = || tr!("The extension's files changed while checking them. Publish again.");
-    let linked = fs::symlink_metadata(source).map_err(|_| changed().to_string())?;
-    if linked.is_symlink() {
-        return Err(changed().to_string());
-    }
-    let staged = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let folder = super::beneath::Folder::open(source).map_err(|_| changed().to_string())?;
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut staging = tempfile::Builder::new();
+    #[cfg(unix)]
+    staging.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o700));
+    let staged = staging.tempdir().map_err(|error| error.to_string())?;
     for file in files {
-        let mut path = source.to_owned();
-        for part in file.components() {
-            path.push(part);
-            let metadata = fs::symlink_metadata(&path).map_err(|_| changed().to_string())?;
-            if metadata.is_symlink() {
-                return Err(changed().to_string());
-            }
-        }
+        let mut opened = folder.open_file(file).map_err(|_| changed().to_string())?;
         let target = staged.path().join(file);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
-        fs::copy(&path, &target).map_err(|error| error.to_string())?;
+        let mut copy = fs::File::create_new(&target).map_err(|error| error.to_string())?;
+        io::copy(&mut opened, &mut copy).map_err(|error| error.to_string())?;
+        let permissions = opened.metadata().map_err(|error| error.to_string())?;
+        copy.set_permissions(permissions.permissions())
+            .map_err(|error| error.to_string())?;
     }
     Ok(staged)
 }
 
-/// The store's copy of `name`, if it has one.
 pub(crate) fn published_version(
     tools: &dyn Tools,
     name: &str,
@@ -610,7 +596,6 @@ pub(crate) fn published_version(
     }))
 }
 
-/// Adds what only the store knows: a published version can't change.
 pub(crate) fn check_against_store(readiness: &mut Readiness, published: Option<&Published>) {
     if let Some(published) = published
         && !marketplace::is_update(&published.version, &readiness.version)
@@ -662,9 +647,6 @@ fn pull_request_body(readiness: &Readiness, update: bool) -> String {
     )
 }
 
-/// The open pull request from `owner`'s `branch` for this `title`, if there is
-/// one. A branch can also be another version's fallback, as `hello-1.2.0-2` is
-/// for both 1.2.0 and the prerelease 1.2.0-2, and that one mustn't be replaced.
 fn open_pull_request(
     tools: &dyn Tools,
     owner: &str,
@@ -698,8 +680,6 @@ fn open_pull_request(
         .map(str::to_owned))
 }
 
-/// A branch to push to: the open pull request's, whose commits get replaced, or
-/// one the fork doesn't have, so that no other branch of the user's is overwritten.
 fn choose_branch(
     tools: &dyn Tools,
     owner: &str,
@@ -727,7 +707,7 @@ fn choose_branch(
                 ],
                 None,
             )
-            .is_ok_and(|listed| !listed.is_empty());
+            .is_ok_and(|heads| !heads.is_empty());
         if !taken {
             return Ok((branch, None));
         }
@@ -735,8 +715,6 @@ fn choose_branch(
     Err(tr!("Your fork already has too many branches named %@.", base).to_string())
 }
 
-/// An ignore rule, in the package or the user's Git setup, can keep a file out of
-/// the commit, and the store rejects a package without these.
 fn check_required_staged(tools: &dyn Tools, repository: &Path, folder: &str) -> Result<(), String> {
     for file in ["package.json", "README.md", "package-lock.json"] {
         let path = format!("{folder}/{file}");
@@ -752,7 +730,6 @@ fn check_required_staged(tools: &dyn Tools, repository: &Path, folder: &str) -> 
     Ok(())
 }
 
-/// Commits what is staged, filling in only the identity Git has none of.
 fn commit(tools: &dyn Tools, repository: &Path, title: &str, login: &str) -> Result<(), String> {
     let name_option = format!("user.name={login}");
     let email_option = format!("user.email={login}@users.noreply.github.com");
@@ -769,7 +746,6 @@ fn commit(tools: &dyn Tools, repository: &Path, title: &str, login: &str) -> Res
     tools.run("git", &arguments, Some(repository)).map(|_| ())
 }
 
-/// A fork GitHub only just created can take a moment to accept a push.
 fn push(
     tools: &dyn Tools,
     repository: &Path,
@@ -778,6 +754,7 @@ fn push(
     force: bool,
 ) -> Result<(), String> {
     let refspec = format!("HEAD:refs/heads/{branch}");
+    let absent = format!("--force-with-lease=refs/heads/{branch}:");
     let mut arguments = vec![
         "-c",
         "credential.helper=",
@@ -785,9 +762,7 @@ fn push(
         "credential.helper=!gh auth git-credential",
         "push",
     ];
-    if force {
-        arguments.push("--force");
-    }
+    arguments.push(if force { "--force" } else { &absent });
     arguments.extend([fork_url, &refspec]);
     let mut result = Err(String::new());
     for attempt in 0..PUSH_ATTEMPTS {
@@ -802,9 +777,6 @@ fn push(
     result
 }
 
-/// Forks the store if needed, commits the staged files to a new branch, pushes
-/// it, and opens a pull request or updates the open one. The caller has already
-/// had this approved by the user.
 pub(crate) fn publish(
     tools: &dyn Tools,
     staged: &Path,

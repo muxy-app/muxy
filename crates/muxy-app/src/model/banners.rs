@@ -30,7 +30,6 @@ pub(crate) enum BannerKind {
 }
 
 impl AppModel {
-    /// Problems stay until dismissed; notices hide on their own and never replace a problem.
     pub(crate) fn sync_toast(&mut self, cx: &mut gpui::Context<Self>) {
         self.sync_problem_toast(cx);
         self.sync_notice_toast(cx);
@@ -159,7 +158,6 @@ impl AppModel {
         })
     }
 
-    /// The application error, until it is dismissed.
     pub(crate) fn visible_error(&self) -> Option<&str> {
         self.visible_banner()
             .filter(|(kind, _)| *kind == BannerKind::Error)
@@ -206,7 +204,6 @@ impl AppModel {
         self.error_detail = None;
     }
 
-    /// Reports a failed user action; it shows even when an identical failure was dismissed.
     pub(crate) fn fail_detail(
         &mut self,
         title: String,

@@ -1,7 +1,3 @@
-//! The welcome tour: where it stands, the extensions it sets up, and the phone
-//! it pairs. Other overlays may open over it, and it comes back when they
-//! close. Extensions it started setting up finish even if it closes first.
-
 use std::path::Path;
 use std::sync::Arc;
 
@@ -67,8 +63,6 @@ impl Step {
     }
 }
 
-/// How far an offered extension has come. An extension that is already
-/// installed needs only enabling, and one already enabled needs nothing.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum OfferState {
     Loading,
@@ -82,8 +76,6 @@ pub(crate) enum OfferState {
 }
 
 impl OfferState {
-    /// Whether a click can set this offer up. One done earlier counts, as it
-    /// may have been disabled since.
     fn can_start(&self) -> bool {
         matches!(self, Self::Ready | Self::Done | Self::Failed(_))
     }
@@ -96,15 +88,10 @@ pub(crate) struct Offer {
     pub(crate) state: OfferState,
 }
 
-/// Pairing a phone from the tour's mobile step.
 #[derive(Default)]
 pub(crate) struct PairAttempt {
-    /// A code was asked for and isn't showing yet.
     pub(crate) wanted: bool,
-    /// The tour turned device access on and nothing has paired yet, so leaving
-    /// turns it back off.
     turned_on: bool,
-    /// The devices paired before this attempt.
     known: Option<Vec<DeviceId>>,
     pub(crate) paired: Option<String>,
 }
@@ -113,13 +100,8 @@ pub(crate) struct Tour {
     pub(crate) step: Step,
     pub(crate) art: Entity<ArtView>,
     pub(crate) pair: PairAttempt,
-    /// The projects before the tour's button opened the picker, until a new
-    /// one appears.
     known_projects: Option<Vec<ProjectId>>,
-    /// The servers before the tour's button opened their form, until a new one
-    /// appears.
     known_servers: Option<Vec<ServerId>>,
-    /// The App Store's code, then Google Play's.
     pub(crate) store_codes: [Option<Arc<QrCode>>; 2],
     pub(crate) added_project: Option<String>,
     pub(crate) added_server: Option<String>,
@@ -144,7 +126,6 @@ impl Default for Onboarding {
 }
 
 impl Onboarding {
-    /// An offered extension is on its way, so it can't be installed again yet.
     pub(crate) fn installing(&self) -> bool {
         self.offers.iter().any(|offer| {
             matches!(
@@ -156,7 +137,6 @@ impl Onboarding {
 }
 
 impl AppModel {
-    /// Opens the tour where it stands, or from the start.
     pub(crate) fn open_onboarding(&mut self, cx: &mut Context<Self>) {
         if self.onboarding.tour.is_none() {
             if !self.onboarding.installing() {
@@ -232,7 +212,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Closes the tour for good, whether finished or skipped.
     pub(crate) fn finish_onboarding(&mut self, cx: &mut Context<Self>) {
         let tour = self.onboarding.tour.take();
         if matches!(self.overlay, Some(Overlay::Onboarding)) {
@@ -248,7 +227,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Adds a project from the tour, to confirm it once it appears.
     pub(crate) fn add_project_from_onboarding(
         &mut self,
         window: &mut gpui::Window,
@@ -258,10 +236,9 @@ impl AppModel {
         if let Some(tour) = &mut self.onboarding.tour {
             tour.known_projects = Some(known);
         }
-        self.open_project_picker(window, cx);
+        self.open_project_picker_on(ServerId::local(), window, cx);
     }
 
-    /// Adds a server from the tour, to confirm it once it appears.
     pub(crate) fn add_server_from_onboarding(&mut self, cx: &mut Context<Self>) {
         let known = self.server_ids();
         if let Some(tour) = &mut self.onboarding.tour {
@@ -270,8 +247,6 @@ impl AppModel {
         self.open_server_form(None, cx);
     }
 
-    /// Runs after every change. Confirms what the tour's buttons added, and
-    /// brings the tour back when whatever opened over it has closed.
     pub(crate) fn sync_onboarding(&mut self, cx: &mut Context<Self>) {
         self.note_onboarding_additions();
         if self.overlay.is_some() || self.onboarding.tour.is_none() {
@@ -312,7 +287,6 @@ impl AppModel {
         }
     }
 
-    /// The tour's mobile step is on screen, so its pairing code may be too.
     pub(super) fn onboarding_pairing_shown(&self) -> bool {
         matches!(self.overlay, Some(Overlay::Onboarding))
             && self
@@ -322,16 +296,12 @@ impl AppModel {
                 .is_some_and(|tour| tour.step == Step::Mobile)
     }
 
-    /// Something opened over the tour or closed it, so a code it showed is
-    /// withdrawn.
     pub(crate) fn onboarding_hidden(&mut self, cx: &mut Context<Self>) {
         if !self.onboarding_pairing_shown() {
             self.withdraw_pairing(cx);
         }
     }
 
-    /// The keyboard stays in the tour while it shows. A shortcut may have moved
-    /// it to the pane behind, and the button holding it may be gone or disabled.
     pub(crate) fn hold_onboarding_focus(&self, window: &mut gpui::Window, cx: &gpui::App) {
         if matches!(self.overlay, Some(Overlay::Onboarding))
             && !self.dialogs.is_open()
@@ -420,7 +390,6 @@ impl AppModel {
         }
     }
 
-    /// Ticked offers that can be set up now.
     pub(crate) fn offers_to_install(&self) -> usize {
         if !self.extensions_loaded() || self.onboarding.installing() {
             return 0;
@@ -436,7 +405,6 @@ impl AppModel {
             .count()
     }
 
-    /// Installs and enables the ticked offers, one at a time.
     pub(crate) fn install_offers(&mut self, cx: &mut Context<Self>) {
         if self.offers_to_install() == 0 {
             return;
@@ -452,8 +420,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Starts the next queued offer, unless something else is still running.
-    /// Another marketplace job holds it up until that job finishes.
     fn advance_offers(&mut self, cx: &mut Context<Self>) {
         loop {
             if self.extensions.installs.active.is_some()
@@ -498,8 +464,6 @@ impl AppModel {
         }
     }
 
-    /// A marketplace job finished: an offer's goes on to be enabled, and any
-    /// job makes way for the next offer.
     pub(super) fn onboarding_install_finished(&mut self, cx: &mut Context<Self>) {
         let installing = self
             .onboarding
@@ -536,8 +500,6 @@ impl AppModel {
         }
     }
 
-    /// Another job's result would be wiped when the next offer starts, before
-    /// any view could show it, so it is told where the user is.
     fn surface_finished_job(&mut self, cx: &mut Context<Self>) {
         let Some(finished) = self.extensions.installs.finished.take() else {
             return;
@@ -564,8 +526,6 @@ impl AppModel {
         .detach();
     }
 
-    /// An offer is done. With the tour already closed, the result is told
-    /// where the user is.
     fn settle_offer(&mut self, name: &str, result: Result<(), String>, cx: &mut Context<Self>) {
         let failure = result.as_ref().err().cloned();
         if let Some(offer) = self.offer_mut(name) {
@@ -590,7 +550,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Asks for a pairing code, turning device access on first when it is off.
     pub(crate) fn pair_phone_in_onboarding(&mut self, cx: &mut Context<Self>) {
         if !self.onboarding_pairing_shown() {
             return;
@@ -600,8 +559,8 @@ impl AppModel {
             tour.pair.paired = None;
             tour.pair.known = None;
         }
-        self.mobile.error = None;
-        if self.mobile.state.is_none() {
+        self.client_access.error = None;
+        if self.client_access.state.is_none() {
             self.read_remote_access(cx);
         }
         self.continue_onboarding_pairing(cx);
@@ -616,19 +575,21 @@ impl AppModel {
         self.focus_owner.request(&self.overlay_focus);
     }
 
-    /// Quitting ends the tour without leaving its mobile step, so access it
-    /// turned on goes back off now. Requests run in order, so this also follows
-    /// a request to turn it on that hasn't been answered yet.
-    pub(super) fn restore_device_access_before_quit(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn restore_client_access_before_quit(&mut self, cx: &mut Context<Self>) {
         let turned_on = self
             .onboarding
             .tour
             .as_ref()
             .is_some_and(|tour| tour.pair.turned_on);
-        if !(turned_on || self.mobile.restore_off) || !self.mobile_available() {
+        if !(turned_on || self.client_access.restore_off) || !self.client_access_available() {
             return;
         }
-        let Some(settings) = self.mobile.state.as_ref().map(|state| state.settings) else {
+        let Some(settings) = self
+            .client_access
+            .state
+            .as_ref()
+            .map(|state| state.settings)
+        else {
             return;
         };
         self.send(
@@ -641,8 +602,6 @@ impl AppModel {
         );
     }
 
-    /// Takes pairing one step further after every answer from the server, and
-    /// notices the phone that used the code.
     pub(super) fn continue_onboarding_pairing(&mut self, cx: &mut Context<Self>) {
         if !self.onboarding_pairing_shown() {
             return;
@@ -650,7 +609,7 @@ impl AppModel {
         let Some(tour) = &mut self.onboarding.tour else {
             return;
         };
-        let Some(state) = &self.mobile.state else {
+        let Some(state) = &self.client_access.state else {
             return;
         };
         if tour.pair.wanted && tour.pair.known.is_none() {
@@ -667,21 +626,21 @@ impl AppModel {
             tour.pair.wanted = false;
             tour.pair.turned_on = false;
         }
-        if tour.pair.wanted && self.mobile.error.is_some() {
+        if tour.pair.wanted && self.client_access.error.is_some() {
             tour.pair.wanted = false;
             return;
         }
-        if !tour.pair.wanted || self.mobile.busy {
+        if !tour.pair.wanted || self.client_access.busy {
             return;
         }
-        if self.mobile.pairing.is_some() {
+        if self.client_access.pairing.is_some() {
             tour.pair.wanted = false;
             return;
         }
         if !state.settings.enabled {
             tour.pair.turned_on = true;
-            self.set_device_access(true, cx);
-            if !self.mobile.busy
+            self.set_client_access(true, cx);
+            if !self.client_access.busy
                 && let Some(tour) = &mut self.onboarding.tour
             {
                 tour.pair.wanted = false;
@@ -695,18 +654,16 @@ impl AppModel {
             }
             ListenerStatus::Failed(message) => {
                 tour.pair.wanted = false;
-                self.mobile.error = Some(tr!("Not listening: %@", message).to_string());
+                self.client_access.error = Some(tr!("Not listening: %@", message).to_string());
             }
             _ => {}
         }
     }
 
-    /// The mobile step is gone: its code is withdrawn, and device access goes
-    /// back off if the tour turned it on and nothing paired.
     fn leave_onboarding_pairing(&mut self, turned_on: bool, cx: &mut Context<Self>) {
         self.withdraw_pairing(cx);
         if turned_on {
-            self.mobile.restore_off = true;
+            self.client_access.restore_off = true;
             self.settle_restored_access(cx);
         }
     }

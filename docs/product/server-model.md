@@ -9,6 +9,8 @@ the apps.
   it is stopped, or until an update replaces it once no terminals are left.
 - Stopping or restarting it ends every terminal but keeps settings and each
   terminal's saved content. Terminal programs are never restarted automatically.
+  The desktop app keeps its tabs and starts a new shell in each pane once the
+  server is back; the terminal UI closes the panes whose terminals ended.
 
 ## Sessions
 
@@ -104,3 +106,8 @@ sequenceDiagram
 - Revoking a phone, or turning mobile access off, disconnects it at once.
 - A phone can pair with a server on another computer too, with
   `muxy --host <computer> mobile pair`.
+- The server sends paired phones push notifications about agents through the
+  relay at `muxy.app`, encrypted so the relay can't read them. The server
+  sends them, not the desktop app, so they work on headless computers too.
+  They're on unless you pause them for every phone, which keeps the phones'
+  registrations for 90 days so they resume when you turn them back on.

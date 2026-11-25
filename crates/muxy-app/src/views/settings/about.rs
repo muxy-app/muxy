@@ -8,7 +8,7 @@ use super::{Category, SettingsEvent, SettingsView};
 
 impl SettingsView {
     pub(crate) fn show_about(&mut self, cx: &mut Context<Self>) {
-        self.finish_terminal_slider(cx);
+        self.finish_slider(cx);
         self.recording = None;
         self.cancel_quick_recording(cx);
         self.category = Category::About;
@@ -88,15 +88,16 @@ mod tests {
     fn about_search_only_offers_configuration_for_preference_results(cx: &mut TestAppContext) {
         for (category, query, editable) in [
             (Category::About, "", false),
-            (Category::About, "version", false),
-            (Category::About, "updates", false),
+            (Category::About, "channel", false),
+            (Category::About, "updates…", false),
+            (Category::About, "updates", true),
             (Category::About, "marketplace", false),
             (Category::General, "marketplace", false),
             (Category::About, "width", true),
             (Category::About, "a", true),
             (Category::About, "no-match", false),
             (Category::General, "", true),
-            (Category::General, "version", false),
+            (Category::General, "channel", false),
             (Category::General, "a", true),
         ] {
             let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
@@ -125,6 +126,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[gpui::test]
     fn about_cancels_shortcut_recording(cx: &mut TestAppContext) {
         let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));

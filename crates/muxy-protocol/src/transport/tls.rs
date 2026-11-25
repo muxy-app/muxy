@@ -1,14 +1,7 @@
-//! TLS 1.3 over TCP for paired devices, pinned to the server's certificate.
-//!
-//! A rustls connection needs exclusive access for both reading and writing, so
-//! one pump thread moves bytes between TLS and one end of a Unix socket pair.
-//! The other end is the byte stream callers split, exactly like a local socket.
-
 use std::error::Error;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
-use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -21,8 +14,8 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, Serve
 use rustls::{CertificateError, DigitallySignedStruct, SignatureScheme};
 
 use crate::transport::accepting::Accepting;
-use crate::transport::unix::socket_pair;
-use crate::transport::{ByteStream, Listener, StreamCancellation};
+use crate::transport::unix::{interrupt, shut_down, socket_pair};
+use crate::transport::{ByteStream, Listener, LocalStream, StreamCancellation};
 
 const ALPN: &[u8] = b"muxy/1";
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -31,8 +24,8 @@ const BUFFER: usize = 64 * 1024;
 const KEEPALIVE_IDLE: Duration = Duration::from_secs(30);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const KEEPALIVE_PROBES: u32 = 3;
+const IDLE: Duration = Duration::from_millis(10);
 
-/// A server certificate and its PKCS#8 private key, both DER encoded.
 #[derive(Clone, Eq, PartialEq)]
 pub struct TlsIdentity {
     pub certificate: Vec<u8>,
@@ -54,7 +47,6 @@ impl TlsIdentity {
     }
 }
 
-/// SHA-256 of a DER certificate, the value phones pin.
 pub fn fingerprint(certificate: &[u8]) -> [u8; 32] {
     let digest = ring::digest::digest(&ring::digest::SHA256, certificate);
     let mut bytes = [0; 32];
@@ -62,7 +54,6 @@ pub fn fingerprint(certificate: &[u8]) -> [u8; 32] {
     bytes
 }
 
-/// The server presented a certificate other than the pinned one.
 #[derive(Debug)]
 pub struct IdentityMismatch;
 
@@ -114,7 +105,6 @@ impl Listener for TlsListener {
     }
 }
 
-/// Connects to a paired server, trusting only the pinned certificate.
 pub fn connect(
     host: &str,
     port: u16,
@@ -146,8 +136,8 @@ pub fn connect(
 struct PendingTls {
     tcp: TcpStream,
     config: Arc<rustls::ServerConfig>,
-    app: UnixStream,
-    pump: UnixStream,
+    app: LocalStream,
+    pump: LocalStream,
     pumping: Arc<AtomicBool>,
 }
 
@@ -193,20 +183,18 @@ impl ByteStream for PendingTls {
     }
 }
 
-/// Before the pump starts, cancelling also cuts TCP so a stalled handshake
-/// ends at once. Afterwards only the app end closes, so the pump still flushes
-/// what the connection wrote last.
 struct PendingCancellation {
-    app: UnixStream,
+    app: LocalStream,
     tcp: TcpStream,
     pumping: Arc<AtomicBool>,
 }
 
 impl StreamCancellation for PendingCancellation {
     fn cancel(&self) {
-        let _ = self.app.shutdown(Shutdown::Both);
+        shut_down(&self.app);
         if !self.pumping.load(Ordering::Acquire) {
             let _ = self.tcp.shutdown(Shutdown::Both);
+            interrupt(&self.tcp);
         }
     }
 }
@@ -248,7 +236,6 @@ fn client_config(fingerprint: [u8; 32]) -> io::Result<Arc<rustls::ClientConfig>>
     Ok(Arc::new(config))
 }
 
-/// Trusts exactly one certificate, while still checking that the peer holds its key.
 #[derive(Debug)]
 struct PinnedCertificate {
     fingerprint: [u8; 32],
@@ -320,8 +307,6 @@ fn identity_error(error: io::Error) -> io::Error {
     }
 }
 
-/// Every read and write gets only the time left, so a peer that trickles bytes
-/// cannot stretch the handshake past its deadline.
 fn handshake(
     mut connection: rustls::Connection,
     tcp: &mut TcpStream,
@@ -365,7 +350,7 @@ fn remaining(deadline: Instant) -> io::Result<Duration> {
 fn start(
     mut connection: rustls::Connection,
     tcp: TcpStream,
-    pump: UnixStream,
+    pump: LocalStream,
     pumping: &AtomicBool,
 ) -> io::Result<()> {
     tcp.set_nodelay(true)?;
@@ -375,7 +360,6 @@ fn start(
     rustix::net::sockopt::set_tcp_keepcnt(&tcp, KEEPALIVE_PROBES)?;
     tcp.set_nonblocking(true)?;
     pump.set_nonblocking(true)?;
-    // Plaintext is only accepted while TLS has nothing queued, which bounds it.
     connection.set_buffer_limit(None);
     pumping.store(true, Ordering::Release);
     let pump = Pump {
@@ -394,26 +378,20 @@ fn start(
     Ok(())
 }
 
-/// One direction of the pumped connection.
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Flow {
     Open,
-    /// The source finished; buffered bytes are still being forwarded.
     Draining,
-    /// The destination's write side has been shut down.
     Done,
 }
 
 struct Pump {
     tls: rustls::Connection,
     tcp: TcpStream,
-    app: UnixStream,
-    /// Decrypted bytes not yet accepted by the app end.
+    app: LocalStream,
     received: Vec<u8>,
     buffer: Vec<u8>,
-    /// Network to app.
     inbound: Flow,
-    /// App to network.
     outbound: Flow,
     deadline: Option<Instant>,
 }
@@ -444,6 +422,9 @@ impl Pump {
             match self.tls.read_tls(&mut self.tcp) {
                 Ok(0) => self.inbound = Flow::Draining,
                 Ok(_) => {
+                    if self.deadline.is_some() {
+                        self.deadline = Some(Instant::now() + CLOSE_TIMEOUT);
+                    }
                     self.tls
                         .process_new_packets()
                         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
@@ -482,7 +463,6 @@ impl Pump {
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => return,
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(_) => {
-                    // The connection stopped reading: nothing more can be delivered.
                     self.received.clear();
                     self.inbound = Flow::Done;
                     self.close_outbound();
@@ -555,8 +535,6 @@ impl Pump {
         if !self.received.is_empty() {
             local |= PollFlags::OUT;
         }
-        // Only watch descriptors with pending interest; a hung-up socket would
-        // otherwise wake poll immediately, forever.
         let mut descriptors = Vec::with_capacity(2);
         if !network.is_empty() {
             descriptors.push(PollFd::new(&self.tcp, network));
@@ -565,7 +543,7 @@ impl Pump {
             descriptors.push(PollFd::new(&self.app, local));
         }
         if descriptors.is_empty() {
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(IDLE);
             return Ok(());
         }
         let timeout = self
@@ -574,6 +552,18 @@ impl Pump {
             .transpose()
             .map_err(io::Error::other)?;
         match rustix::event::poll(&mut descriptors, timeout.as_ref()) {
+            #[cfg(windows)]
+            Ok(ready)
+                if ready > 0
+                    && descriptors.iter().all(|descriptor| {
+                        !descriptor
+                            .revents()
+                            .intersects(PollFlags::IN | PollFlags::OUT)
+                    }) =>
+            {
+                thread::sleep(IDLE);
+                Ok(())
+            }
             Ok(_) | Err(rustix::io::Errno::INTR) => Ok(()),
             Err(error) => Err(error.into()),
         }

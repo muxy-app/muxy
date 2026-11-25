@@ -1,7 +1,3 @@
-//! Which desktop features this build and its runtime services can provide.
-//! Commands, settings, and error reports read one table instead of testing
-//! the operating system.
-
 use std::borrow::Cow;
 
 use crate::tr;
@@ -16,10 +12,12 @@ pub enum Feature {
     CommandLineTool,
     Updates,
     AppHiding,
+    BrowserPanes,
+    SshRemotes,
 }
 
 impl Feature {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::ExtensionScripts,
         Self::ExtensionWebviews,
         Self::QuickTerminal,
@@ -28,9 +26,10 @@ impl Feature {
         Self::CommandLineTool,
         Self::Updates,
         Self::AppHiding,
+        Self::BrowserPanes,
+        Self::SshRemotes,
     ];
 
-    /// Why a build without a backend for the feature cannot offer it.
     pub fn unsupported_reason(self) -> Cow<'static, str> {
         match self {
             Self::ExtensionScripts => {
@@ -53,6 +52,8 @@ impl Feature {
             }
             Self::Updates => tr!("Automatic updates are not available on this platform yet."),
             Self::AppHiding => tr!("Hiding apps is not available on this platform."),
+            Self::BrowserPanes => tr!("Browser tabs are not available on this platform yet."),
+            Self::SshRemotes => tr!("Remote servers are not available on this platform yet."),
         }
     }
 }
@@ -61,9 +62,7 @@ impl Feature {
 pub enum Capability {
     #[default]
     Supported,
-    /// This build has no backend for the feature.
     Unsupported,
-    /// The backend exists, but a service it needs is missing right now.
     Unavailable(String),
 }
 
@@ -80,7 +79,6 @@ impl Capability {
         *self == Self::Supported
     }
 
-    /// What an entry point reports when `feature`, in this state, cannot run.
     pub fn reason(&self, feature: Feature) -> Option<Cow<'static, str>> {
         match self {
             Self::Supported => None,
@@ -90,7 +88,7 @@ impl Capability {
     }
 }
 
-const _: () = assert!(Feature::ALL.len() == Feature::AppHiding as usize + 1);
+const _: () = assert!(Feature::ALL.len() == Feature::SshRemotes as usize + 1);
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Capabilities([Capability; Feature::ALL.len()]);
@@ -108,24 +106,19 @@ impl Capabilities {
         self.get(feature).is_supported()
     }
 
-    /// Whether this build has a backend for `feature`, whatever its services report.
     pub fn has_backend(&self, feature: Feature) -> bool {
         *self.get(feature) != Capability::Unsupported
     }
 
-    /// Fails with the reason when `feature` cannot run.
     pub fn check(&self, feature: Feature) -> Result<(), String> {
         self.reason(feature)
             .map_or(Ok(()), |reason| Err(reason.into_owned()))
     }
 
-    /// What an entry point reports when it cannot offer `feature`.
     pub fn reason(&self, feature: Feature) -> Option<Cow<'static, str>> {
         self.get(feature).reason(feature)
     }
 
-    /// Why this build cannot offer `feature` at all. `None` while a backend
-    /// exists, whatever its services report.
     pub fn unsupported(&self, feature: Feature) -> Option<Cow<'static, str>> {
         (!self.has_backend(feature)).then(|| feature.unsupported_reason())
     }

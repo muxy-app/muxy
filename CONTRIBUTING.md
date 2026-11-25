@@ -1,6 +1,37 @@
 # Contributing to Muxy
 
-Thank you for your interest in contributing to Muxy! This guide will help you get started.
+Thank you for your interest in contributing to Muxy! Bug reports, ideas, and
+pull requests are all welcome.
+
+## Reporting Bugs
+
+Search [existing issues](https://github.com/muxy-app/muxy/issues) first. If
+yours is already there, add your details to it instead of opening a new one.
+
+A good bug report includes:
+
+- **Versions:** the output of `muxy --build-info` and `muxy server status`
+- **System:** macOS, Linux, or Windows, and its version
+- **Steps to reproduce:** the smallest set of steps that shows the problem
+- **Expected and actual behavior:** what you thought would happen, and what
+  happened instead
+- **Logs:** the relevant lines from the logs listed in
+  [Troubleshooting](docs/user-guide/troubleshooting.md#logs)
+- **Screenshots or recordings**, when the problem is visual
+
+The more details you share, the faster a bug can be fixed. Remove anything
+private, such as paths, hostnames, or tokens, before posting logs.
+
+## Suggesting Ideas
+
+Open an issue that describes:
+
+- **The problem:** what you are trying to do, and what gets in the way
+- **Your idea:** how you imagine Muxy could solve it
+- **Alternatives:** other ways you have tried, or seen in other tools
+
+Explaining the problem matters more than the solution. It helps find the
+approach that fits Muxy best.
 
 ## Getting Started
 
@@ -31,9 +62,8 @@ cargo run -p muxy-cli     # muxy terminal UI
 ```
 
 Build as in [Setup](#setup) first, so `muxy-server` sits next to the binary you
-run.
-Development builds keep their data in a separate `Muxy Dev` profile (`muxy-dev`
-on Linux).
+run. Development builds keep their data in a separate `Muxy Dev` profile
+(`muxy-dev` on Linux).
 
 ## Development Workflow
 
@@ -59,7 +89,8 @@ cargo xtest               # all tests
 
 ## Checks
 
-All PRs must pass CI. Run its main checks locally:
+All PRs must pass CI, which runs on macOS, Linux, and Windows. Run its main
+checks locally:
 
 ```bash
 cargo fmt --all --check
@@ -73,7 +104,7 @@ server, and the crates they depend on. It needs glibc 2.35; elsewhere, run Clipp
 and tests with `-p` for each package that
 `python3 scripts/check-headless.py --packages` lists, instead of `--workspace`.
 `scripts/check-desktop-linux.py` covers the whole workspace, including the
-[experimental desktop app](docs/tech/constraints.md), on Ubuntu 24.04.
+experimental desktop app, on Ubuntu 24.04.
 
 A pull request that changes only source files in `crates/muxy-app` or
 `crates/muxy-ui` tests just those two crates and skips the headless check. Any
@@ -88,10 +119,10 @@ run everything.
 - Link any related issues
 - If you used AI to help write code, name the LLM in your own PR description
 
-## Reporting Issues
+## Extensions
 
-- Report bugs and ideas on [GitHub Issues](https://github.com/muxy-app/muxy/issues)
-- Search existing issues before creating a new one
+Extensions live in their own repository. See
+[Contributing an Extension](docs/extensions/contributing.md).
 
 ## License
 

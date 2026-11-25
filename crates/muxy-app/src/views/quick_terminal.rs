@@ -267,6 +267,17 @@ impl Render for QuickTerminalView {
                     }
                 }),
             )
+            .on_action(cx.listener(
+                |view, _: &crate::views::workspace::InsertPath, window, cx| {
+                    let theme = view.model.theme.clone();
+                    let metrics = view.model.metrics;
+                    if let Some(terminal) = &view.terminal {
+                        terminal.update(cx, |pane, cx| {
+                            pane.open_insert_path(&theme, metrics, window, cx);
+                        });
+                    }
+                },
+            ))
             .on_action(
                 cx.listener(|view, _: &crate::views::workspace::FindNext, _, cx| {
                     if let Some(terminal) = &view.terminal {
@@ -515,9 +526,6 @@ fn dispatch_bridge_action(owner: &WeakEntity<AppModel>, action: BridgeAction, cx
     });
 }
 
-/// What accessibility clients read of the panel. These nodes draw nothing. The
-/// model's buttons are left out, as the real ones publish themselves and a
-/// second node with their ID would be dropped from the tree.
 fn accessibility_nodes(
     status: &str,
     shortcut: &str,

@@ -6,7 +6,6 @@ use muxy_protocol::{CONTROL, Message, ReplyBody, RequestBody, ServerInfo};
 
 use crate::{Client, ClientError, Request};
 
-/// A server that answers each request with the next queued reply.
 pub(crate) struct Fake {
     pub(crate) client: Client,
     requests: Receiver<RequestBody>,
@@ -50,17 +49,14 @@ impl Fake {
         }
     }
 
-    /// Queues the answer to a later request.
     pub(crate) fn queue(&self, reply: ReplyBody) {
         self.replies.send(reply).expect("queue reply");
     }
 
-    /// The requests answered so far and not yet taken.
     pub(crate) fn answered(&self) -> Vec<RequestBody> {
         self.requests.try_iter().collect()
     }
 
-    /// Runs `call` with `reply` queued, and returns what it sent.
     pub(crate) fn answer<T>(
         &self,
         reply: ReplyBody,

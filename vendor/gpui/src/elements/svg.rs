@@ -1,0 +1,208 @@
+use crate::{
+    App, Bounds, Element, GlobalElementId, Hitbox, InspectorElementId, InteractiveElement,
+    Interactivity, IntoElement, LayoutId, Pixels, Point, Radians, SharedString, Size,
+    StyleRefinement, Styled, TransformationMatrix, Window, geometry::Negate as _, point, px,
+    radians, size,
+};
+use util::ResultExt;
+
+pub struct Svg {
+    interactivity: Interactivity,
+    transformation: Option<Transformation>,
+    path: Option<SharedString>,
+}
+
+#[track_caller]
+pub fn svg() -> Svg {
+    Svg {
+        interactivity: Interactivity::new(),
+        transformation: None,
+        path: None,
+    }
+}
+
+impl Svg {
+    pub fn path(mut self, path: impl Into<SharedString>) -> Self {
+        self.path = Some(path.into());
+        self
+    }
+
+    pub fn with_transformation(mut self, transformation: Transformation) -> Self {
+        self.transformation = Some(transformation);
+        self
+    }
+}
+
+impl Element for Svg {
+    type RequestLayoutState = ();
+    type PrepaintState = Option<Hitbox>;
+
+    fn id(&self) -> Option<crate::ElementId> {
+        self.interactivity.element_id.clone()
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        self.interactivity.source_location()
+    }
+
+    fn request_layout(
+        &mut self,
+        global_id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let layout_id = self.interactivity.request_layout(
+            global_id,
+            inspector_id,
+            window,
+            cx,
+            |style, window, cx| window.request_layout(style, None, cx),
+        );
+        (layout_id, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        global_id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<Hitbox> {
+        self.interactivity.prepaint(
+            global_id,
+            inspector_id,
+            bounds,
+            bounds.size,
+            window,
+            cx,
+            |_, _, hitbox, _, _| hitbox,
+        )
+    }
+
+    fn paint(
+        &mut self,
+        global_id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        hitbox: &mut Option<Hitbox>,
+        window: &mut Window,
+        cx: &mut App,
+    ) where
+        Self: Sized,
+    {
+        self.interactivity.paint(
+            global_id,
+            inspector_id,
+            bounds,
+            hitbox.as_ref(),
+            window,
+            cx,
+            |style, window, cx| {
+                if let Some((path, color)) = self.path.as_ref().zip(style.text.color) {
+                    let transformation = self
+                        .transformation
+                        .as_ref()
+                        .map(|transformation| {
+                            transformation.into_matrix(bounds.center(), window.scale_factor())
+                        })
+                        .unwrap_or_default();
+
+                    window
+                        .paint_svg(bounds, path.clone(), transformation, color, cx)
+                        .log_err();
+                }
+            },
+        )
+    }
+}
+
+impl IntoElement for Svg {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Styled for Svg {
+    fn style(&mut self) -> &mut StyleRefinement {
+        &mut self.interactivity.base_style
+    }
+}
+
+impl InteractiveElement for Svg {
+    fn interactivity(&mut self) -> &mut Interactivity {
+        &mut self.interactivity
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Transformation {
+    scale: Size<f32>,
+    translate: Point<Pixels>,
+    rotate: Radians,
+}
+
+impl Default for Transformation {
+    fn default() -> Self {
+        Self {
+            scale: size(1.0, 1.0),
+            translate: point(px(0.0), px(0.0)),
+            rotate: radians(0.0),
+        }
+    }
+}
+
+impl Transformation {
+    pub fn scale(scale: Size<f32>) -> Self {
+        Self {
+            scale,
+            translate: point(px(0.0), px(0.0)),
+            rotate: radians(0.0),
+        }
+    }
+
+    pub fn translate(translate: Point<Pixels>) -> Self {
+        Self {
+            scale: size(1.0, 1.0),
+            translate,
+            rotate: radians(0.0),
+        }
+    }
+
+    pub fn rotate(rotate: impl Into<Radians>) -> Self {
+        let rotate = rotate.into();
+        Self {
+            scale: size(1.0, 1.0),
+            translate: point(px(0.0), px(0.0)),
+            rotate,
+        }
+    }
+
+    pub fn with_scaling(mut self, scale: Size<f32>) -> Self {
+        self.scale = scale;
+        self
+    }
+
+    pub fn with_translation(mut self, translate: Point<Pixels>) -> Self {
+        self.translate = translate;
+        self
+    }
+
+    pub fn with_rotation(mut self, rotate: impl Into<Radians>) -> Self {
+        self.rotate = rotate.into();
+        self
+    }
+
+    fn into_matrix(self, center: Point<Pixels>, scale_factor: f32) -> TransformationMatrix {
+        TransformationMatrix::unit()
+            .translate(center.scale(scale_factor) + self.translate.scale(scale_factor))
+            .rotate(self.rotate)
+            .scale(self.scale)
+            .translate(center.scale(scale_factor).negate())
+    }
+}

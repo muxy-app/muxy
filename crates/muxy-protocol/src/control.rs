@@ -42,14 +42,10 @@ pub enum RequestBody {
         directory: ServerPath,
         #[n(3)]
         size: Size,
-        /// More environment for the shell, such as a proxy. Requires
-        /// `Feature::SESSION_ENVIRONMENT`; older servers ignore it.
         #[n(4)]
         #[cbor(default)]
         #[serde(default)]
         environment: std::collections::BTreeMap<String, String>,
-        /// Colors for this session alone, as `SetSessionColors` gives them,
-        /// from the start. Older servers ignore it.
         #[n(5)]
         #[cbor(default)]
         #[serde(default)]
@@ -180,15 +176,10 @@ pub enum RequestBody {
     ClearScreen(#[n(0)] ChannelId),
     #[n(41)]
     StartPairingWithHosts(#[n(0)] Vec<String>),
-    /// The folders directly inside an absolute path on the server's
-    /// computer, for choosing a new project's folder there.
     #[n(42)]
     ListFolders(#[n(0)] ServerPath),
-    /// A piece of a file to keep on the server's computer for a session.
     #[n(43)]
     Upload(#[n(0)] crate::UploadChunk),
-    /// Colors for one session on this connection, replacing the
-    /// connection's colors there; `None` goes back to them.
     #[n(44)]
     SetSessionColors {
         #[n(0)]
@@ -196,6 +187,51 @@ pub enum RequestBody {
         #[n(1)]
         colors: Option<TerminalColors>,
     },
+    #[n(45)]
+    SetSessionName {
+        #[n(0)]
+        session: SessionId,
+        #[n(1)]
+        name: Option<String>,
+        #[n(2)]
+        #[cbor(default)]
+        #[serde(default)]
+        replacing: Option<String>,
+    },
+    #[n(46)]
+    WatchSessionMetadata,
+    #[n(47)]
+    MoveSession {
+        #[n(0)]
+        session: SessionId,
+        #[n(1)]
+        project: crate::ProjectId,
+    },
+    #[n(48)]
+    RegisterPush(#[n(0)] crate::PushToken),
+    #[n(49)]
+    UnregisterPush,
+    #[n(50)]
+    SetPushNotifications(#[n(0)] bool),
+    #[n(51)]
+    ResetPush(#[n(0)] crate::DeviceId),
+    #[n(52)]
+    DeferImages,
+    #[n(53)]
+    ImageFrames {
+        #[n(0)]
+        channel: ChannelId,
+        #[n(1)]
+        image: u32,
+        #[n(2)]
+        keys: Vec<u64>,
+    },
+    #[n(54)]
+    StreamImages,
+    #[n(55)]
+    ListEntries(#[n(0)] ServerPath),
+    #[n(56)]
+    ShareImages,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -303,14 +339,32 @@ pub enum ReplyBody {
     Pairing(#[n(0)] crate::PairingOffer),
     #[n(36)]
     ScreenCleared,
-    /// Folder names, sorted ignoring case.
     #[n(37)]
     Folders(#[n(0)] Vec<ServerPath>),
-    /// An upload chunk arrived; after the last one, the file's absolute path.
     #[n(38)]
     Uploaded(#[n(0)] Option<ServerPath>),
     #[n(39)]
     SessionColorsSet,
+    #[n(40)]
+    SessionNameSet,
+    #[n(41)]
+    SessionMetadataWatched,
+    #[n(42)]
+    SessionMoved,
+    #[n(43)]
+    PushRegistered(#[n(0)] crate::PushRegistration),
+    #[n(44)]
+    PushUnregistered,
+    #[n(45)]
+    ImagesDeferred,
+    #[n(46)]
+    ImageFrames(#[n(0)] Vec<crate::ImageFrame>),
+    #[n(47)]
+    ImagesStreamed,
+    #[n(48)]
+    Entries(#[n(0)] Vec<crate::PathEntry>),
+    #[n(49)]
+    ImagesShared,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
@@ -337,12 +391,10 @@ open_enum! {
         HistoryUnavailable = 10,
         PersistenceFailed = 11,
         Unauthorized = 12,
-        /// The other side's build doesn't support this request or can't read its reply.
         Unsupported = 13,
     }
 }
 
-/// Server-owned configuration, independent of its storage format.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ServerSettingsDoc {
     #[n(0)]

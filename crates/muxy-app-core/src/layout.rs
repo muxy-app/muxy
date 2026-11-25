@@ -34,8 +34,9 @@ pub enum Branch {
     Second,
 }
 
-/// A split tree. Tabs split into panes; a project's tab groups split the same
-/// way.
+const MIN_RATIO: f32 = 0.15;
+const MAX_RATIO: f32 = 0.85;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Layout<L = PaneId> {
     Leaf(L),
@@ -68,7 +69,6 @@ impl<L: Copy + Eq> Layout<L> {
         leaves
     }
 
-    /// Each leaf with its share of the whole as `[x, y, width, height]`.
     pub fn rects(&self) -> Vec<(L, [f32; 4])> {
         let mut rects = Vec::new();
         self.visit(
@@ -108,7 +108,6 @@ impl<L: Copy + Eq> Layout<L> {
         }
     }
 
-    /// Puts `new` where `pane` is.
     pub fn replace(&mut self, pane: L, new: L) {
         match self {
             Self::Leaf(id) if *id == pane => *id = new,
@@ -162,8 +161,42 @@ impl<L: Copy + Eq> Layout<L> {
         let Self::Split { ratio, .. } = node else {
             return Err(AppError::InvalidState("path must name a split".into()));
         };
-        *ratio = value.clamp(0.15, 0.85);
+        *ratio = value.clamp(MIN_RATIO, MAX_RATIO);
         Ok(())
+    }
+
+    pub fn resize(&mut self, pane: L, direction: Direction, step: f32) -> bool {
+        self.resize_nearest(pane, direction, step) == Some(true)
+    }
+
+    fn resize_nearest(&mut self, pane: L, direction: Direction, step: f32) -> Option<bool> {
+        let Self::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } = self
+        else {
+            return None;
+        };
+        let inner = if first.contains(pane) { first } else { second };
+        if let Some(moved) = inner.resize_nearest(pane, direction, step) {
+            return Some(moved);
+        }
+        if *axis != direction.axis() || !inner.contains(pane) {
+            return None;
+        }
+        if !step.is_finite() {
+            return Some(false);
+        }
+        let delta = match direction {
+            Direction::Left | Direction::Up => -step,
+            Direction::Right | Direction::Down => step,
+        };
+        let resized = (*ratio + delta).clamp(MIN_RATIO, MAX_RATIO);
+        let moved = (resized - *ratio).abs() > f32::EPSILON;
+        *ratio = resized;
+        Some(moved)
     }
 
     pub fn validate(&self) -> Result<(), AppError> {
@@ -174,7 +207,7 @@ impl<L: Copy + Eq> Layout<L> {
             ..
         } = self
         {
-            if !ratio.is_finite() || !(0.15..=0.85).contains(ratio) {
+            if !ratio.is_finite() || !(MIN_RATIO..=MAX_RATIO).contains(ratio) {
                 return Err(AppError::InvalidState(
                     "split ratio must be between 0.15 and 0.85".into(),
                 ));
@@ -226,8 +259,6 @@ impl<L: Copy + Eq> Layout<L> {
             .map(|(id, _)| id)
     }
 
-    /// The leaf that takes over when `leaf` closes: the one beside it,
-    /// preferring the right, then left, below, above.
     pub fn nearest(&self, leaf: L) -> Option<L> {
         [
             Direction::Right,

@@ -25,12 +25,11 @@ pub struct Settings {
     pub clipboard: ClipboardSettings,
     pub openers: OpenerSettings,
     pub browser: super::BrowserSettings,
+    pub privacy: PrivacySettings,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub servers: Vec<super::ServerEntry>,
 }
 
-/// What the user chose for one extension panel: whether it floats detached,
-/// and where it last was while it did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PanelLayout {
@@ -40,8 +39,6 @@ pub struct PanelLayout {
     pub frame: Option<[f32; 4]>,
 }
 
-/// Per-action AI choices. Hand edits are expected here, so unknown keys and
-/// non-text values are ignored instead of stopping the app from starting.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiSettings {
@@ -55,7 +52,6 @@ pub struct AiSettings {
     pub commit: CommitChoices,
 }
 
-/// The options last chosen for an AI commit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CommitChoices {
     pub include_unstaged: bool,
@@ -95,10 +91,20 @@ fn commit_choices<'de, D: serde::Deserializer<'de>>(
     })
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PaneSettings {
     pub new_pane_directory: NewPaneDirectory,
+    pub insert_path_recents: bool,
+}
+
+impl Default for PaneSettings {
+    fn default() -> Self {
+        Self {
+            new_pane_directory: NewPaneDirectory::default(),
+            insert_path_recents: true,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -113,8 +119,6 @@ pub enum NewPaneDirectory {
 #[serde(default, deny_unknown_fields)]
 pub struct ProjectSettings {
     pub search_root: Option<PathBuf>,
-    /// Folders the project picker lists but never searches inside, on top of
-    /// the built-in skips. Relative entries are taken from the search root.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub search_skip: Vec<String>,
 }
@@ -135,6 +139,18 @@ pub enum CloseBehavior {
     Detach,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PrivacySettings {
+    pub usage_ping: bool,
+}
+
+impl Default for PrivacySettings {
+    fn default() -> Self {
+        Self { usage_ping: true }
+    }
+}
+
 impl Default for WindowSettings {
     fn default() -> Self {
         Self {
@@ -146,8 +162,6 @@ impl Default for WindowSettings {
 }
 
 impl Settings {
-    /// Saves one AI entry over the file's current contents, keeping hand edits,
-    /// and returns the AI settings as saved.
     pub fn save_ai_entry(
         path: &Path,
         table: &str,
@@ -157,7 +171,6 @@ impl Settings {
         Self::save_ai_entries(path, table, vec![(key, value.map(Into::into))])
     }
 
-    /// Saves the options last chosen for an AI commit.
     pub fn save_commit_choices(path: &Path, choices: CommitChoices) -> Result<AiSettings> {
         Self::save_ai_entries(
             path,
@@ -174,7 +187,7 @@ impl Settings {
         table: &str,
         entries: Vec<(&str, Option<toml::Value>)>,
     ) -> Result<AiSettings> {
-        crate::settings::appearance::save_entries(path, "ai", table, entries)
+        crate::settings::document::save_entries(path, "ai", table, entries)
             .and_then(|saved| saved.try_into().map_err(Into::into))
             .map_err(|error| Error::new("ai", error))
     }
@@ -208,7 +221,7 @@ impl Settings {
             .entry(owner.into())
             .or_default()
             .insert(panel.into(), layout);
-        crate::settings::appearance::save_section(path, "panel_layouts", &layouts)
+        crate::settings::document::save_section(path, "panel_layouts", &layouts)
             .map_err(|error| Error::new("panel_layouts", error))?;
         self.panel_layouts = layouts;
         Ok(())
@@ -233,7 +246,7 @@ impl Settings {
         pins.entry(owner.into())
             .or_default()
             .insert(panel.into(), pinned);
-        crate::settings::appearance::save_section(path, "panel_pins", &pins)
+        crate::settings::document::save_section(path, "panel_pins", &pins)
             .map_err(|error| Error::new("panel_pins", error))?;
         self.panel_pins = pins;
         Ok(())
@@ -244,7 +257,7 @@ impl Settings {
             "confirm_running_process".into(),
             toml::Value::Boolean(enabled),
         )]);
-        crate::settings::appearance::save_section(path, "window", &values)
+        crate::settings::document::save_section(path, "window", &values)
             .map_err(|error| Error::new("window.confirm_running_process", error))?;
         self.window.confirm_running_process = enabled;
         Ok(())
@@ -255,7 +268,7 @@ impl Settings {
             "search_root".into(),
             toml::Value::String(root.to_string_lossy().into_owned()),
         )]);
-        crate::settings::appearance::save_section(path, "projects", &values)
+        crate::settings::document::save_section(path, "projects", &values)
             .map_err(|error| Error::new("projects.search_root", error))?;
         self.projects.search_root = Some(root);
         Ok(())
@@ -301,34 +314,39 @@ impl Settings {
 
     pub fn save_window(&self, path: &Path) -> Result<()> {
         self.validate()?;
-        crate::settings::appearance::save_section(path, "window", &self.window)
+        crate::settings::document::save_section(path, "window", &self.window)
             .map_err(|error| Error::new("window", error))
     }
 
+    pub fn save_privacy(&self, path: &Path) -> Result<()> {
+        crate::settings::document::save_section(path, "privacy", &self.privacy)
+            .map_err(|error| Error::new("privacy", error))
+    }
+
     pub fn save_clipboard(&self, path: &Path) -> Result<()> {
-        crate::settings::appearance::save_section(path, "clipboard", &self.clipboard)
+        crate::settings::document::save_section(path, "clipboard", &self.clipboard)
             .map_err(|error| Error::new("clipboard", error))
     }
 
     pub fn save_openers(&self, path: &Path) -> Result<()> {
-        crate::settings::appearance::save_section(path, "openers", &self.openers)
+        crate::settings::document::save_section(path, "openers", &self.openers)
             .map_err(|error| Error::new("openers", error))
     }
 
     pub fn save_composer(&self, path: &Path) -> Result<()> {
         self.composer.validate()?;
-        crate::settings::appearance::save_section(path, "composer", &self.composer)
+        crate::settings::document::save_section(path, "composer", &self.composer)
             .map_err(|error| Error::new("composer", error))
     }
 
     pub fn save_browser(&self, path: &Path) -> Result<()> {
         self.browser.validate()?;
-        crate::settings::appearance::save_section(path, "browser", &self.browser)
+        crate::settings::document::save_section(path, "browser", &self.browser)
             .map_err(|error| Error::new("browser", error))
     }
 
     pub fn save_panes(&self, path: &Path) -> Result<()> {
-        crate::settings::appearance::save_section(path, "panes", &self.panes)
+        crate::settings::document::save_section(path, "panes", &self.panes)
             .map_err(|error| Error::new("panes", error))
     }
 }
@@ -374,16 +392,21 @@ pub struct ClipboardSettings {
 #[serde(default, deny_unknown_fields)]
 pub struct OpenerSettings {
     pub url: String,
+    #[serde(skip_serializing)]
     pub file: String,
     pub project_target: Option<String>,
+    pub always_ask: bool,
+    pub file_rules: Vec<crate::opener::FileRule>,
 }
 
 impl Default for OpenerSettings {
     fn default() -> Self {
         Self {
             url: "system.browser".into(),
-            file: "system.editor".into(),
+            file: String::new(),
             project_target: None,
+            always_ask: false,
+            file_rules: Vec::new(),
         }
     }
 }

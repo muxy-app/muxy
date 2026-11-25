@@ -12,7 +12,6 @@ use muxy_ui::tr;
 use super::overlays::{Mark, OverlayView, Placement};
 use crate::model::{AppModel, ServerStatus};
 
-/// The server popover above the status bar's server item.
 pub(crate) struct ServerPopover;
 
 impl OverlayView for ServerPopover {
@@ -45,7 +44,6 @@ fn status_color(status: ServerStatus, model: &AppModel) -> Hsla {
     }
 }
 
-/// What the status bar's server item says: which server, and how it's doing.
 fn control_text(remote: Option<&str>, status: ServerStatus) -> SharedString {
     let status = translate(status.label());
     match remote {
@@ -139,21 +137,14 @@ fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyE
                         )),
                 ),
         )
-        .child(
+        .children(version.map(|version| {
             div()
                 .text_color(theme.fg_muted)
                 .child(accessibility::label(
-                    "server-popover-project",
-                    match version {
-                        Some(version) => tr!(
-                            "Server for %@ · Muxy %@",
-                            &model.state.current_project().name,
-                            version
-                        ),
-                        None => tr!("Server for %@", &model.state.current_project().name),
-                    },
-                )),
-        )
+                    "server-popover-version",
+                    tr!("Muxy %@", version),
+                ))
+        }))
         .children(error.map(|error| {
             div()
                 .debug_selector(|| "server-popover-error".into())
@@ -167,7 +158,7 @@ fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyE
             div()
                 .text_color(theme.fg_muted)
                 .child(accessibility::label("server-popover-warning", if server.is_local() {
-                    tr!("Restarting or stopping this server ends all terminal sessions on this device, including sessions in other projects and clients.")
+                    tr!("Restarting or stopping this server ends all terminal sessions on this computer, including sessions in other projects and clients.")
                 } else {
                     tr!("Restarting or stopping this server ends all terminal sessions on %@, including sessions in other projects and clients.", &label)
                 })),
@@ -176,7 +167,7 @@ fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyE
         .id("server-popover")
         .role(Role::Dialog)
         .accessibility_id("server-popover")
-        .aria_label(tr!("Project server"))
+        .aria_label(tr!("Server"))
         .debug_selector(|| "server-popover".into())
         .key_context("Menu")
         .track_focus(&model.overlay_focus)
@@ -190,7 +181,7 @@ fn render(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyE
         .child(
             popover::header(theme, m)
                 .justify_between()
-                .child(tr!("Project server"))
+                .child(tr!("Server"))
                 .child(controls::button(
                     Style { theme, metrics: &m },
                     "close-server-status",

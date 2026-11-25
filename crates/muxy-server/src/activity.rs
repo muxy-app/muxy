@@ -3,12 +3,12 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use muxy_protocol::{
     ACTIVITY_HISTORY_LIMIT, ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity,
-    AgentState, SessionId, Topic,
+    AgentState, ProjectId, SessionId, Topic,
 };
 
 use crate::notifier::Notifier;
@@ -38,15 +38,24 @@ impl State {
     }
 }
 
-/// Live agent state and at most one unread indicator event per session, held only in memory.
-#[derive(Debug, Default)]
+type Observer = Box<dyn Fn(&ActivityEvent) + Send + Sync>;
+
+#[derive(Default)]
 pub(crate) struct Activity {
     state: Mutex<State>,
     notifier: Arc<Notifier>,
-    /// Whether the agent tab poller is running.
+    observer: OnceLock<Observer>,
     polling: AtomicBool,
-    /// Wakes the poller when terminals change.
     wake: Condvar,
+}
+
+impl std::fmt::Debug for Activity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Activity")
+            .field("state", &self.state)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Activity {
@@ -57,13 +66,26 @@ impl Activity {
         }
     }
 
+    pub(crate) fn observe(&self, observer: impl Fn(&ActivityEvent) + Send + Sync + 'static) {
+        if self.observer.set(Box::new(observer)).is_err() {
+            log::warn!("activity already has an observer");
+        }
+    }
+
+    pub(crate) fn event(&self, id: u64) -> Option<ActivityEvent> {
+        lock(&self.state)
+            .events
+            .iter()
+            .find(|event| event.id == id)
+            .cloned()
+    }
+
     pub(crate) fn open(directory: &Path, notifier: Arc<Notifier>) -> io::Result<Self> {
         match fs::remove_file(directory.join("activity.json")) {
             Ok(()) => (),
             Err(error) if error.kind() == io::ErrorKind::NotFound => (),
             Err(error) => return Err(error),
         }
-        // Native notifications from an earlier server must never target a new event.
         let next_id = u64::try_from(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -78,12 +100,12 @@ impl Activity {
                 ..State::default()
             }),
             notifier,
+            observer: OnceLock::new(),
             polling: AtomicBool::new(false),
             wake: Condvar::new(),
         })
     }
 
-    /// Bumps the revision and tells watching connections once the lock is released.
     fn changed(&self, mut state: MutexGuard<'_, State>) {
         state.revision += 1;
         let revision = state.revision;
@@ -117,9 +139,6 @@ impl Activity {
         }
     }
 
-    /// Records what a terminal running an agent with tabs shows, matches it
-    /// against the last reports at once, and starts the poller if it isn't
-    /// running.
     pub(crate) fn observe_agent_tabs(
         self: &Arc<Self>,
         session: SessionId,
@@ -145,7 +164,6 @@ impl Activity {
         }
     }
 
-    /// The terminals to report on, once `interval` passes or one changes.
     pub(crate) fn wait_for_agent_tabs(
         &self,
         interval: std::time::Duration,
@@ -158,7 +176,6 @@ impl Activity {
         state.tabs.take_panes()
     }
 
-    /// Forgets what `session` showed when it stops running such an agent.
     pub(crate) fn leave_agent_tabs(&self, session: SessionId) {
         let mut state = lock(&self.state);
         if state.tabs.forget(session) {
@@ -166,8 +183,6 @@ impl Activity {
         }
     }
 
-    /// Whether the agent in `session` reports work running that its screen
-    /// may not show.
     pub(crate) fn agent_tab_busy(&self, session: SessionId) -> bool {
         lock(&self.state).tabs.reconciled().busy.contains(&session)
     }
@@ -210,33 +225,34 @@ impl Activity {
         } else {
             None
         };
-        if let Some(kind) = kind {
+        let created = kind.map(|kind| {
             state.retain_events(|event| event.session != activity.session);
             state.next_id += 1;
-            let id = state.next_id;
-            state.events.insert(
-                0,
-                ActivityEvent {
-                    id,
-                    session: activity.session,
-                    project: activity.project,
-                    provider: activity.provider,
-                    timestamp: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs(),
-                    kind,
-                    read: false,
-                },
-            );
+            let event = ActivityEvent {
+                id: state.next_id,
+                session: activity.session,
+                project: activity.project,
+                provider: activity.provider,
+                timestamp: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                kind,
+                read: false,
+            };
+            state.events.insert(0, event.clone());
             if state.events.len() > ACTIVITY_HISTORY_LIMIT
                 && let Some(expired) = state.events.pop()
             {
                 state.claimed.remove(&expired.id);
             }
-        }
+            event
+        });
         state.agents.insert(activity.session, activity);
         self.changed(state);
+        if let (Some(event), Some(observer)) = (created, self.observer.get()) {
+            observer(&event);
+        }
     }
 
     pub(crate) fn clear_agent(&self, session: SessionId) {
@@ -253,6 +269,28 @@ impl Activity {
         let agent_removed = state.agents.remove(&session).is_some();
         let event_removed = state.retain_events(|event| event.session != session);
         if agent_removed || event_removed || tabs {
+            self.changed(state);
+        }
+    }
+
+    pub(crate) fn move_session(&self, session: SessionId, project: ProjectId) {
+        let mut state = lock(&self.state);
+        let mut moved = false;
+        if let Some(agent) = state.agents.get_mut(&session)
+            && agent.project != project
+        {
+            agent.project = project;
+            moved = true;
+        }
+        for event in state
+            .events
+            .iter_mut()
+            .filter(|event| event.session == session && event.project != project)
+        {
+            event.project = project;
+            moved = true;
+        }
+        if moved {
             self.changed(state);
         }
     }
@@ -286,7 +324,7 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use muxy_protocol::{AgentProvider, ProjectId};
+    use muxy_protocol::AgentProvider;
 
     fn agent(state: AgentState) -> AgentActivity {
         AgentActivity {
@@ -332,5 +370,53 @@ mod tests {
         assert!(activity.snapshot().events.is_empty());
         assert!(lock(&activity.state).claimed.is_empty());
         assert!(activity.revision() > revision);
+    }
+
+    #[test]
+    fn the_observer_hears_each_new_event_once_and_events_stay_readable_until_gone() {
+        let activity = Activity::default();
+        let (sender, events) = std::sync::mpsc::channel();
+        activity.observe(move |event| {
+            let _ = sender.send(event.clone());
+        });
+        activity.update(agent(AgentState::Working), false);
+        activity.update(agent(AgentState::Blocked), false);
+        activity.update(agent(AgentState::Blocked), false);
+        let attention = events.try_recv().ok();
+        assert_eq!(
+            attention.as_ref().map(|event| event.kind),
+            Some(ActivityKind::Attention)
+        );
+        assert!(events.try_recv().is_err());
+        let Some(attention) = attention else { return };
+        assert_eq!(activity.event(attention.id), Some(attention.clone()));
+        activity.update(agent(AgentState::Working), false);
+        activity.update(agent(AgentState::Idle), true);
+        let completed = events.try_recv().ok();
+        assert_eq!(
+            completed.as_ref().map(|event| event.kind),
+            Some(ActivityKind::Completed)
+        );
+        assert_eq!(activity.event(attention.id), None);
+        let Some(completed) = completed else { return };
+        activity.acknowledge(&[completed.id]);
+        assert_eq!(activity.event(completed.id), None);
+    }
+
+    #[test]
+    fn a_moved_session_takes_its_agent_and_unread_event_along() {
+        let activity = Activity::default();
+        let blocked = agent(AgentState::Blocked);
+        activity.update(blocked.clone(), false);
+        let revision = activity.revision();
+        let project = ProjectId::from_u128(2);
+        activity.move_session(blocked.session, project);
+        let snapshot = activity.snapshot();
+        assert_eq!(snapshot.agents[0].project, project);
+        assert_eq!(snapshot.events[0].project, project);
+        assert!(activity.revision() > revision);
+        let revision = activity.revision();
+        activity.move_session(blocked.session, project);
+        assert_eq!(activity.revision(), revision);
     }
 }

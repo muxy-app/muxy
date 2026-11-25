@@ -4,30 +4,6 @@ min_engine_version = 3
 updated_at = "2026-09-18T00:00:00Z"
 aliases = ["grok-build"]
 
-# Evidence: Grok Build 0.2.101 source and 1.0.34 live pane reads.
-#
-# Grok emits OSC 0 titles by default. Idle is "grok" or
-# "<session> - grok". During a turn, the configured title gains a braille
-# spinner and activity text. Permission prompts add "⚠ Action Required";
-# that prefix blinks while the terminal is unfocused, so visible blocker
-# rules outrank the title spinner rule.
-#
-# Grok also emits OSC 9;4 progress on supported terminals. Herdr retains the
-# payload after "9;": "4;1;-1" while busy and "4;0;0" when idle.
-#
-# Working turns render one live status line directly above the prompt box:
-#   "⠧ Waiting on subagent… 2.8s   13s ⇣29.7k [stop]"
-#   "⠴ Explore /tmp/… + 1 more… 5.6s   19s ⇣29.7k [stop]"
-# with a braille spinner and a trailing [stop] chip, plus an Esc:cancel
-# footer hint. Permission prompts and ask-user-question dialogs replace the
-# spinner with "◆" and draw a "┃"-guttered option list:
-#   "┃  2 (○) Yes, proceed"
-#   "┃  z (○) Type your answer here"
-# with footer hints "1/3:select │ Ctrl+o:yolo │ Ctrl+c:cancel" (permission)
-# or "Esc:unselect │ Tab:scrollback │ Shift+x:dismiss" (question dialog).
-# Idle footers end with "Ctrl+.:shortcuts" and never contain "Esc:cancel".
-# The startup splash draws its logo with braille characters, so working
-# rules must anchor on the [stop] chip, not on a bare spinner glyph.
 
 [[rules]]
 id = "osc_title_blocked"
@@ -61,7 +37,6 @@ region = "bottom_non_empty_lines(2)"
 visible_blocker = true
 contains = ["tab:scrollback", "shift+x:dismiss"]
 
-# Pre-0.2.x permission UI kept for older Grok Build releases.
 [[rules]]
 id = "permission_scope_selector"
 state = "blocked"
@@ -74,9 +49,6 @@ any = [
   { contains = ["←/→:scope"] },
 ]
 
-# Grok clears its OSC busy signals while background work runs. The first
-# non-empty row is pinned application chrome, where this animated chip shows
-# the number of running background tasks and disappears when the count is zero.
 [[rules]]
 id = "background_work_chip_working"
 state = "working"
@@ -85,8 +57,6 @@ region = "top_non_empty_lines(1)"
 visible_working = true
 line_regex = ['[⋅:⸬⁙.·]\s+[1-9][0-9]*\s+│']
 
-# Grok 1.0.34 moves background counts above the composer and clears OSC
-# progress between turns even while these commands are still running.
 [[rules]]
 id = "background_status_working"
 state = "working"
@@ -114,8 +84,6 @@ not = [
   { regex = ['[\x{2800}-\x{28FF}]'] },
 ]
 
-# Title items are configurable; omitting "grok" does not imply activity.
-# Require a spinner, with OSC progress covering titles that omit it.
 [[rules]]
 id = "osc_title_working"
 state = "working"
@@ -132,8 +100,6 @@ region = "osc_progress"
 visible_idle = true
 regex = ['^4;0;0$']
 
-# Visible activity outranks idle OSC signals: disabling title updates can
-# leave the startup "grok" title unchanged throughout a turn.
 [[rules]]
 id = "spinner_status_working"
 state = "working"
@@ -154,7 +120,6 @@ any = [
   { contains = ["ctrl+c:cancel"] },
 ]
 
-# Pre-0.2.x working chrome kept for older Grok Build releases.
 [[rules]]
 id = "waiting_tool_working"
 state = "working"

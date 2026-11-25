@@ -1,0 +1,1344 @@
+#!/bin/bash
+# Guest-side helper for Muxy E2E runs. Installed by `e2e up` as ~/.local/bin/muxy-e2e.
+# Works with macOS's bash 3.2: no associative arrays or mapfile.
+set -uo pipefail
+
+export MUXY_DIR="$HOME/.local/state/muxy-vm"
+BIN="$HOME/.cache/muxy-vm/target/debug"
+export MUXY_SERVER_BIN="$BIN/muxy-server"
+export PATH="$BIN:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+SHARE="$HOME/.local/share/muxy-vm"
+APP_LOG="$SHARE/app.log"
+FIXTURES="$HOME/e2e"
+HTTP_PORT=8765
+OS="$(uname -s)"
+
+die() { echo "muxy-e2e: $*" >&2; exit 1; }
+
+session_type() {
+  if [ "$OS" = Darwin ]; then echo macos; return; fi
+  loginctl show-session "$(loginctl show-user "$(id -u)" -p Display --value)" -p Type --value
+}
+
+linux_display_env() {
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  if [ "$(session_type)" = wayland ]; then
+    export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+  else
+    export DISPLAY="${DISPLAY:-:0}"
+  fi
+}
+
+# Steps single-quote paths like '~/e2e/beta' so the host shell keeps them; expand them here.
+expand_home() {
+  case "$1" in "~") printf '%s' "$HOME" ;; "~/"*) printf '%s' "$HOME/${1#\~/}" ;; *) printf '%s' "$1" ;; esac
+}
+
+run_muxy() {
+  local args=() arg
+  for arg in "$@"; do args+=("$(expand_home "$arg")"); done
+  muxy "${args[@]}"
+}
+
+app_pid() { pgrep -x muxy-app | head -1; }
+
+live_ids() { muxy session list --json 2>/dev/null | jq -r '.[] | select(.status == "Live") | .id'; }
+
+# read-screen returns the last 50 rows by default, which misses the top of a taller window.
+screen_of() { muxy session read-screen "$1" --lines 500 2>/dev/null | grep -v '^[[:space:]]*$'; }
+
+project_name() {
+  muxy project list --json 2>/dev/null | jq -r --arg id "$1" '.[] | select(.id == $id) | .name' | head -1
+}
+
+cmd_launch() {
+  if [ -n "$(app_pid)" ]; then echo "app already running: pid $(app_pid)"; return 0; fi
+  mkdir -p "$SHARE" "$MUXY_DIR"
+  printf '\n==== launch %s\n' "$(date)" >> "$APP_LOG"
+  if [ -f "$SHARE/ime-fixture" ] && [ "$OS" = Linux ]; then export XMODIFIERS=@im=ibus; fi
+  nohup "$HOME/.local/bin/muxy-vm-run" >> "$APP_LOG" 2>&1 < /dev/null &
+  local i
+  for i in $(seq 1 60); do
+    sleep 0.5
+    if [ -n "$(app_pid)" ] && muxy server status >/dev/null 2>&1; then
+      sleep 3
+      echo "app running: pid $(app_pid); server: $(muxy server status 2>&1 | head -1)"
+      return 0
+    fi
+  done
+  tail -30 "$APP_LOG" >&2
+  die "the app did not start within 30 seconds (log above)"
+}
+
+cmd_quit() {
+  local pid i
+  pid="$(app_pid)"
+  [ -n "$pid" ] || { echo "app not running"; return 0; }
+  kill -TERM "$pid"
+  for i in $(seq 1 20); do
+    sleep 0.5
+    [ -z "$(app_pid)" ] && { echo "app quit"; return 0; }
+  done
+  kill -KILL "$pid" 2>/dev/null
+  echo "app did not quit on SIGTERM; killed"
+}
+
+LINK_APP="$HOME/Applications/Muxy Beta E2E.app"
+LINK_ENTRY="$HOME/.local/share/applications/muxy-e2e-links.desktop"
+
+wait_for_app() {
+  local i
+  for i in $(seq 1 60); do
+    sleep 0.5
+    if [ -n "$(app_pid)" ] && muxy server status >/dev/null 2>&1; then
+      sleep 3
+      echo "app running: pid $(app_pid); server: $(muxy server status 2>&1 | head -1)"
+      return 0
+    fi
+  done
+  die "the app did not start within 30 seconds"
+}
+
+cmd_link_launch() {
+  cmd_quit >/dev/null
+  if [ "$OS" = Darwin ]; then
+    rm -rf "$LINK_APP"
+    mkdir -p "$LINK_APP/Contents/MacOS" "$MUXY_DIR"
+    local binary
+    for binary in muxy-app muxy muxy-server; do
+      cp -c "$BIN/$binary" "$LINK_APP/Contents/MacOS/$binary" 2>/dev/null || cp "$BIN/$binary" "$LINK_APP/Contents/MacOS/$binary"
+    done
+    python3 - "$HOME/src/muxy/scripts" "$LINK_APP/Contents/Info.plist" "$MUXY_DIR" "$BIN" <<'PLIST' || die "could not write the bundle's Info.plist"
+import plistlib
+import sys
+sys.path.insert(0, sys.argv[1])
+import release
+info = release.bundle_info("2.0.0-beta.1", "1")
+info["LSEnvironment"] = {"MUXY_DIR": sys.argv[3], "MUXY_SERVER_BIN": sys.argv[4] + "/muxy-server",
+                         "PATH": sys.argv[4] + ":/usr/bin:/bin:/usr/sbin:/sbin"}
+with open(sys.argv[2], "wb") as output:
+    plistlib.dump(info, output)
+PLIST
+    codesign --force --deep --sign - "$LINK_APP" >/dev/null 2>&1 || true
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$LINK_APP"
+    printf '\n==== link-launch %s\n' "$(date)" >> "$APP_LOG"
+    open "$LINK_APP" || die "could not open $LINK_APP"
+    wait_for_app
+    echo "muxy-beta:// links open $LINK_APP"
+    return 0
+  fi
+  mkdir -p "$(dirname "$LINK_ENTRY")"
+  cat > "$LINK_ENTRY" <<ENTRY
+[Desktop Entry]
+Type=Application
+Name=Muxy Beta E2E
+Exec="$HOME/.local/bin/muxy-vm-run" %U
+Terminal=false
+NoDisplay=true
+MimeType=x-scheme-handler/muxy-beta;
+ENTRY
+  update-desktop-database -q "$(dirname "$LINK_ENTRY")" 2>/dev/null || true
+  xdg-mime default "$(basename "$LINK_ENTRY")" x-scheme-handler/muxy-beta
+  cmd_launch
+  echo "muxy-beta:// links open $(xdg-mime query default x-scheme-handler/muxy-beta)"
+}
+
+cmd_open_link() {
+  local url="$1"
+  if [ "$OS" = Darwin ]; then
+    open "$url" || die "open refused $url"
+  else
+    linux_display_env
+    export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+    printf '\n==== open-link %s %s\n' "$url" "$(date)" >> "$APP_LOG"
+    nohup xdg-open "$url" >> "$APP_LOG" 2>&1 < /dev/null &
+  fi
+  sleep 3
+  echo "opened $url"
+}
+
+session_showing() {
+  local text="$1" id matches=""
+  for id in $(live_ids); do
+    if screen_of "$id" | grep -qF -- "$text"; then matches="$matches $id"; fi
+  done
+  set -- $matches
+  [ $# -eq 1 ] || die "expected one live terminal showing '$text', found $#"
+  echo "$1"
+}
+
+cmd_open_session() {
+  local link id="$1"
+  case "$id" in
+    ''|*[!0-9]*) id="$(session_showing "$1")" || exit 1; echo "session: $id" ;;
+  esac
+  if [ -n "${2:-}" ]; then
+    link="$(muxy session link "$id" --split "$2")" || die "muxy session link failed"
+  else
+    link="$(muxy session link "$id")" || die "muxy session link failed"
+  fi
+  echo "link: $link"
+  cmd_open_link "$link"
+}
+
+cmd_stop_all() {
+  cmd_quit >/dev/null
+  muxy server stop --force >/dev/null 2>&1 || true
+  pkill -x muxy-server 2>/dev/null || true
+  cmd_http_stop >/dev/null 2>&1 || true
+  echo "app, server and helpers stopped"
+}
+
+cmd_fixtures() {
+  rm -rf "$FIXTURES"
+  mkdir -p "$FIXTURES/alpha/.muxy/layouts" "$FIXTURES/beta" "$FIXTURES/gamma/.muxy" "$FIXTURES/site"
+  cat > "$FIXTURES/gamma/README.md" <<'EOF'
+# gamma
+Fixture repository for Muxy's worktree tests.
+EOF
+  cat > "$FIXTURES/gamma/.muxy/worktree.json" <<'EOF'
+{
+  "setup": ["echo setup-$MUXY_WORKTREE_BRANCH >> ~/e2e/hook-log.txt"],
+  "teardown": ["echo teardown-$MUXY_WORKTREE_BRANCH >> ~/e2e/hook-log.txt"]
+}
+EOF
+  (
+    cd "$FIXTURES/gamma" && git init -q -b main && git add -A && git commit -qm "Initial fixture" \
+      && git checkout -q -b topic && echo "only on topic" > topic.txt && git add -A \
+      && git commit -qm "Topic work" && git checkout -q main
+  ) || die "could not create the gamma git repository"
+  cat > "$FIXTURES/alpha/README.md" <<'EOF'
+# alpha
+Fixture project for Muxy E2E tests.
+EOF
+  cat > "$FIXTURES/alpha/.muxy/layouts/trio.yaml" <<'EOF'
+layout: horizontal
+panes:
+  - tab:
+      name: left
+      command: echo layout-left-$((40+2))
+  - layout: vertical
+    panes:
+      - tab: echo layout-top-$((40+2))
+      - tab:
+          name: bottom
+          command: echo layout-bottom-$((40+2))
+EOF
+  (cd "$FIXTURES/alpha" && git init -q -b main && git add -A && git commit -qm "Initial fixture") \
+    || die "could not create the alpha git repository"
+  printf 'beta notes\n' > "$FIXTURES/beta/notes.txt"
+  cat > "$FIXTURES/site/index.html" <<'EOF'
+<!doctype html>
+<html><head><meta charset="utf-8"><title>E2E Home</title></head>
+<body style="font-family: sans-serif; background: #fff7d6">
+<h1 id="greeting">Hello from Muxy E2E</h1>
+<p>Fixture page served from the guest.</p>
+<input id="name" placeholder="Your name">
+<button id="go" onclick="document.getElementById('out').textContent = 'Saved ' + document.getElementById('name').value">Save</button>
+<p id="out"></p>
+<a id="next" href="next.html">Go to the second page</a>
+</body></html>
+EOF
+  cat > "$FIXTURES/site/next.html" <<'EOF'
+<!doctype html>
+<html><head><meta charset="utf-8"><title>E2E Second</title></head>
+<body style="font-family: sans-serif; background: #d6f0ff"><h1>Second page reached</h1></body></html>
+EOF
+  echo "fixtures ready in $FIXTURES: alpha (git repo with .muxy/layouts/trio.yaml), beta, gamma (git repo with worktree hooks and a topic branch), site"
+}
+
+cmd_reset() {
+  cmd_stop_all >/dev/null
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  rm -rf "$MUXY_DIR" "$HOME/.muxy/worktrees"
+  # A fresh profile would open the welcome tour over everything; suites start past it.
+  mkdir -p "$MUXY_DIR"
+  printf '[appearance]\nonboarding_completed = true\n' > "$MUXY_DIR/settings.toml"
+  cmd_clip_set "" >/dev/null 2>&1 || true
+  cmd_fixtures
+  cmd_launch
+}
+
+cmd_screens() {
+  local id project
+  for id in $(live_ids); do
+    project="$(project_name "$(muxy session list --json | jq -r --arg id "$id" '.[] | select(.id == $id) | .project_id')")"
+    echo "=== session $id (project: $project)"
+    screen_of "$id"
+  done
+}
+
+cmd_find() {
+  local text="$1" id found=1 line
+  for id in $(live_ids); do
+    line="$(screen_of "$id" | grep -F -- "$text" | tail -1)"
+    if [ -n "$line" ]; then echo "$id: $line"; found=0; fi
+  done
+  return $found
+}
+
+cmd_wait() {
+  local text="$1" seconds="${2:-15}" i
+  for i in $(seq 1 $((seconds * 2))); do
+    cmd_find "$text" && return 0
+    sleep 0.5
+  done
+  echo "not found on any live terminal screen after ${seconds}s: $text" >&2
+  return 1
+}
+
+cmd_gone() {
+  local text="$1" seconds="${2:-15}" i
+  for i in $(seq 1 $((seconds * 2))); do
+    cmd_find "$text" >/dev/null || { echo "gone: $text"; return 0; }
+    sleep 0.5
+  done
+  echo "still on screen after ${seconds}s: $text" >&2
+  return 1
+}
+
+cmd_clip_set() {
+  if [ "$OS" = Darwin ]; then printf '%s' "$1" | pbcopy; return; fi
+  linux_display_env
+  if [ "$(session_type)" = wayland ]; then
+    if [ -z "$1" ]; then timeout 5 wl-copy --clear; else printf '%s' "$1" | timeout 5 wl-copy; fi
+  else
+    printf '%s' "$1" | timeout 5 xclip -selection clipboard
+  fi
+}
+
+cmd_clip_get() {
+  if [ "$OS" = Darwin ]; then pbpaste; echo; return; fi
+  linux_display_env
+  if [ "$(session_type)" = wayland ]; then timeout 5 wl-paste -n; else timeout 5 xclip -selection clipboard -o; fi
+  echo
+}
+
+cmd_http_start() {
+  cmd_http_stop >/dev/null 2>&1 || true
+  [ -d "$FIXTURES/site" ] || cmd_fixtures >/dev/null
+  nohup python3 -m http.server "$HTTP_PORT" --bind 127.0.0.1 --directory "$FIXTURES/site" > "$SHARE/http.log" 2>&1 < /dev/null &
+  echo $! > "$SHARE/http.pid"
+  sleep 1
+  curl -fsS "http://127.0.0.1:$HTTP_PORT/" | grep -q 'Hello from Muxy E2E' || die "fixture web server did not answer"
+  echo "serving http://127.0.0.1:$HTTP_PORT/"
+}
+
+cmd_http_stop() {
+  [ -f "$SHARE/http.pid" ] && kill "$(cat "$SHARE/http.pid")" 2>/dev/null
+  rm -f "$SHARE/http.pid"
+  echo "web server stopped"
+}
+
+cmd_dialog_fixture() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  mkdir -p "$HOME/.local/bin"
+  local provider
+  for provider in claude codex; do
+    if [ ! -e "$HOME/.local/bin/$provider" ]; then
+      printf '#!/bin/sh\nexit 125\n' > "$HOME/.local/bin/$provider"
+      chmod +x "$HOME/.local/bin/$provider"
+    fi
+  done
+  printf 'dialog fixture change\n' >> "$FIXTURES/alpha/README.md"
+  echo "dialog-only AI provider stubs installed; alpha has unstaged changes; cancel every AI confirmation"
+}
+
+cmd_symbol_language_fixture() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  [ -z "$(app_pid)" ] || die "quit the app before installing the language fixture"
+  python3 - <<'PY'
+import json, os, re
+from pathlib import Path
+profile = Path(os.environ['MUXY_DIR'])
+name = 'e2e-symbol-language'
+root = profile / 'extensions' / name
+bundle = root / 'French.bundle'
+(bundle / 'fr.lproj').mkdir(parents=True, exist_ok=True)
+(root / 'package.json').write_text(json.dumps({
+    'name': name, 'version': '1.0.0',
+    'muxy': {'localizations': [{'id': 'fr', 'language': 'fr', 'title': 'French symbols fixture', 'bundle': 'French.bundle'}]}
+}))
+(bundle / 'Info.plist').write_text('<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>test.muxy.symbols</string></dict></plist>')
+(bundle / 'fr.lproj' / 'Localizable.strings').write_text('"Folder" = "Dossier";\n"Folder Fill" = "Dossier rempli";\n')
+enabled = profile / 'extension-enabled.json'
+values = json.loads(enabled.read_text()) if enabled.exists() else []
+enabled.write_text(json.dumps(sorted(set(values + [name]))))
+settings = profile / 'settings.toml'
+text = settings.read_text() if settings.exists() else ''
+selection = 'language = "e2e-symbol-language:fr"\n'
+section = re.search(r'(?ms)^\[appearance\]\s*\n(.*?)(?=^\[|\Z)', text)
+if section:
+    body = re.sub(r'(?m)^language\s*=.*\n?', '', section[1])
+    text = text[:section.start()] + '[appearance]\n' + selection + body + text[section.end():]
+else:
+    text += '\n[appearance]\n' + selection
+settings.write_text(text)
+print('resource-only French symbol fixture installed and selected; launch the app')
+PY
+}
+
+cmd_agent_fixture() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  mkdir -p "$HOME/.local/bin"
+  local provider
+  for provider in claude codex kiro-cli; do
+    cat > "$HOME/.local/bin/$provider" <<'STUB'
+#!/bin/sh
+echo "AGENT-STUB name=$(basename "$0")"
+echo "AGENT-ARGS $*"
+echo "AGENT-CWD $(pwd)"
+echo "AGENT-MUXY $(command -v muxy)"
+if muxy extension list >/dev/null 2>&1; then echo "AGENT-CLI ok-$((40+2))"; else echo "AGENT-CLI failed"; fi
+sleep 600
+STUB
+    chmod +x "$HOME/.local/bin/$provider"
+  done
+  echo "stub agents installed: claude, codex, kiro-cli"
+}
+
+# A second server profile in this guest, listed in settings as the remote
+# server "devbox" through a custom SSH command, with project beta.
+cmd_remote_fixture() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  [ -z "$(app_pid)" ] || die "quit the app before adding the remote fixture"
+  local profile="$FIXTURES/remote-profile"
+  MUXY_DIR="$profile" muxy server stop --force >/dev/null 2>&1 || true
+  rm -rf "$profile"
+  mkdir -p "$profile"
+  MUXY_DIR="$profile" muxy project add "$FIXTURES/beta" >/dev/null || die "could not add beta to devbox"
+  python3 - "$profile" "$BIN" <<'PY' || die "could not list devbox in settings.toml"
+import os, sys, uuid
+from pathlib import Path
+profile, binary = sys.argv[1], sys.argv[2]
+settings = Path(os.environ['MUXY_DIR']) / 'settings.toml'
+command = (
+    f'env MUXY_DIR={profile} MUXY_SERVER_BIN={binary}/muxy-server '
+    f'PATH={binary}:/usr/bin:/bin sh -c'
+)
+with settings.open('a') as file:
+    file.write(f'\n[[servers]]\nid = "{uuid.uuid4()}"\nname = "devbox"\nssh_command = "{command}"\n')
+PY
+  echo "devbox listed with project beta; launch the app"
+}
+
+cmd_extension_fixture() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  [ -z "$(app_pid)" ] || die "quit the app before installing the extension fixture"
+  python3 - <<'PY'
+import json, os, struct
+from pathlib import Path
+home = Path.home() / 'e2e'
+manifest = {
+    'description': 'Says hello',
+    'permissions': ['panels:write', 'notifications:write'],
+    'panels': [{'id': 'hello', 'title': 'Hello', 'entry': 'panel.html'}],
+    'commands': [{'id': 'toggle', 'title': 'Hello: Toggle Panel', 'action': {'kind': 'togglePanel', 'panel': 'hello'}}],
+    'topbarItems': [{'id': 'hello', 'icon': 'sparkles', 'command': 'toggle', 'tooltip': 'Hello'}],
+}
+hello = home / 'hello-ext'
+hello.mkdir(parents=True, exist_ok=True)
+(hello / 'package.json').write_text(json.dumps({'name': 'hello-ext', 'version': '0.1.0', 'muxy': manifest}, indent=2))
+(hello / 'panel.html').write_text('<!doctype html><body>Hello</body>')
+ready = home / 'hello-ready'
+(ready / 'assets').mkdir(parents=True, exist_ok=True)
+(ready / 'panel.html').write_text('<!doctype html><body>Ready</body>')
+(ready / 'README.md').write_text('# Hello ready\n')
+(ready / 'package-lock.json').write_text('{}')
+(ready / 'assets' / 'icon.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+(ready / 'assets' / 'one.png').write_bytes(b'\x89PNG\r\n\x1a\n\0\0\0\rIHDR' + struct.pack('>II', 1600, 1000))
+(ready / 'package.json').write_text(json.dumps({
+    'name': 'hello-ready', 'version': '0.1.0', 'scripts': {'build': 'true'},
+    'muxy': dict(manifest, marketplace={'icon': 'assets/icon.svg', 'screenshots': ['assets/one.png']}),
+}, indent=2))
+installed = Path(os.environ['MUXY_DIR']) / 'extensions' / 'focus-timer'
+installed.mkdir(parents=True, exist_ok=True)
+(installed / 'package.json').write_text(json.dumps({
+    'name': 'focus-timer', 'version': '99.0.0', 'muxy': {'description': 'Stands in for an extension from the store'},
+}, indent=2))
+print('extension fixtures ready: ~/e2e/hello-ext, ~/e2e/hello-ready, and focus-timer as if from the store; launch the app')
+PY
+}
+
+cmd_exec_fixture() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  python3 - <<'PY'
+import json
+from pathlib import Path
+root = Path.home() / 'e2e' / 'exec-ext'
+(root / 'scripts').mkdir(parents=True, exist_ok=True)
+words = ' '.join(f'--option-{n:03d}=value-{n:03d}' for n in range(1, 121))
+scripts = {
+    'short': 'muxy.exec({ shell: "echo short-ok > $HOME/e2e/exec-short.txt" });',
+    'long': 'muxy.exec({ shell: "echo long-ok > $HOME/e2e/exec-long.txt; true ' + words + ' END-OF-COMMAND" });',
+    'other': 'muxy.exec({ shell: "echo other >> $HOME/e2e/exec-other.txt" });',
+    'alert': 'muxy.dialog.alert({ title: "Long alert", message: "START-OF-MESSAGE ' + words + ' END-OF-MESSAGE" });',
+}
+titles = {'short': 'Short', 'long': 'Long', 'other': 'Other', 'alert': 'Long Alert'}
+for name, body in scripts.items():
+    (root / 'scripts' / f'{name}.js').write_text(body + '\n')
+(root / 'package.json').write_text(json.dumps({
+    'name': 'exec-ext', 'version': '0.1.0',
+    'muxy': {
+        'description': 'Runs shell commands for permission tests',
+        'permissions': ['commands:exec', 'commands:run-script'],
+        'commands': [
+            {'id': name, 'title': f'Exec Test: {titles[name]}', 'action': {'kind': 'runScript', 'script': f'scripts/{name}.js'}}
+            for name in scripts
+        ],
+    },
+}, indent=2))
+print('exec fixture ready: ~/e2e/exec-ext with Exec Test: Short, Long, Other and Long Alert')
+PY
+}
+
+cmd_image_fixture() {
+  # Inline image test files: a 160x80 PNG with red, green, blue and yellow
+  # quarters, a 160x84 Sixel with purple, cyan, orange and white quarters, and
+  # ~/e2e/images/show, which prints them with text markers around each image.
+  local dir="$FIXTURES/images"
+  mkdir -p "$dir"
+  printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAKAAAABQCAIAAAARP+ljAAAA00lEQVR42u3RMQ0AIAwAMJRwTwRKEMuNkt1IQMeyJnXQkRGtxFmtDMGCBQsWLFiwYMGCBQsWLFiwYMGCBQsWLFiwYMGCBQsWLFiwYMGCBQsWLFiwYMGCBQsWLFiwYMGCBQsWLFiwYMGCBQsWLFiwYMGCBQsWLFiw4KLBsbOVd2crggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBggULFixYsGDBRX0VJtcMLjs7hAAAAABJRU5ErkJggg==' | base64 --decode > "$dir/photo.png" || die "could not write photo.png"
+  printf '%s' '"1;1;160;84#1;2;60;20;80#2;2;10;80;80#3;2;100;55;0#4;2;100;100;100#1!80~#2!80~-#1!80~#2!80~-#1!80~#2!80~-#1!80~#2!80~-#1!80~#2!80~-#1!80~#2!80~-#1!80~#2!80~-#3!80~#4!80~-#3!80~#4!80~-#3!80~#4!80~-#3!80~#4!80~-#3!80~#4!80~-#3!80~#4!80~-#3!80~#4!80~-' > "$dir/sixel.txt"
+  # A 160x80 GIF of four frames, two seconds each: red, green, blue, yellow.
+  printf '%s' 'R0lGODlhoABQAPf/MQAA/wD/Af4AAP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AP7+AAD/ACH/C05FVFNDQVBFMi4wAwEAAAAh+QQEyAAfACwAAAAAoABQAAAItwAFCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFixgzatzIsaPHjyBDihxJsqTJkyhTqlzJsqXLlzBjypxJs6bNmzhz6tzJs6fPn0CDCh1KtKjRo0iTKl3KtKnTp1CjSp1KtarVq1izat3KtavXr2DDih1LtqzZs2jTql3Ltq3bt3Djyp1Lt67du3jz6t3Lt6/fv4ADCx5MuLDhw4gTK17MuLHjx5AjS55MubLly5gza97MubPnz1ADAgAh+QQFyAD/ACwAAAAAoABQAAAItwADCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFixgzatzIsaPHjyBDihxJsqTJkyhTqlzJsqXLlzBjypxJs6bNmzhz6tzJs6fPn0CDCh1KtKjRo0iTKl3KtKnTp1CjSp1KtarVq1izat3KtavXr2DDih1LtqzZs2jTql3Ltq3bt3Djyp1Lt67du3jz6t3Lt6/fv4ADCx5MuLDhw4gTK17MuLHjx5AjS55MubLly5gza97MubPnz1ADAgAh+QQFyAD/ACwAAAAAoABQAAAItwABCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFixgzatzIsaPHjyBDihxJsqTJkyhTqlzJsqXLlzBjypxJs6bNmzhz6tzJs6fPn0CDCh1KtKjRo0iTKl3KtKnTp1CjSp1KtarVq1izat3KtavXr2DDih1LtqzZs2jTql3Ltq3bt3Djyp1Lt67du3jz6t3Lt6/fv4ADCx5MuLDhw4gTK17MuLHjx5AjS55MubLly5gza97MubPnz1ADAgAh+QQFyAD/ACwAAAAAoABQAAAItwAHCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFixgzatzIsaPHjyBDihxJsqTJkyhTqlzJsqXLlzBjypxJs6bNmzhz6tzJs6fPn0CDCh1KtKjRo0iTKl3KtKnTp1CjSp1KtarVq1izat3KtavXr2DDih1LtqzZs2jTql3Ltq3bt3Djyp1Lt67du3jz6t3Lt6/fv4ADCx5MuLDhw4gTK17MuLHjx5AjS55MubLly5gza97MubPnz1ADAgA7' | base64 --decode > "$dir/anim.gif" || die "could not write anim.gif"
+  cat > "$dir/show" <<'SHOW'
+#!/bin/bash
+# Prints test images. Usage: show kitty|kitty-file|kitty-temp|iterm|sixel|fifo|da1|iterm-gif|kitty-gif|kitty-anim
+DIR="$(cd "$(dirname "$0")" && pwd)"
+b64() { base64 < "$1" | tr -d '\n'; }
+path64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+case "${1:-}" in
+  kitty) printf 'KITTY-BEFORE\n\033_Ga=T,f=100,c=16;%s\033\\\nKITTY-AFTER\n' "$(b64 "$DIR/photo.png")" ;;
+  kitty-file) printf 'FILE-BEFORE\n\033_GX=1,a=T,f=100,t=f,c=16;%s\033\\\nFILE-AFTER\n' "$(path64 "$DIR/photo.png")" ;;
+  kitty-temp)
+    tmp="${TMPDIR:-/tmp}"; tmp="${tmp%/}/tty-graphics-protocol-muxy-e2e.png"
+    cp "$DIR/photo.png" "$tmp"
+    printf 'TEMP-BEFORE\n\033_Ga=T,f=100,t=t,c=16;%s\033\\\nTEMP-AFTER\n' "$(path64 "$tmp")"
+    sleep 1
+    if [ -e "$tmp" ]; then echo TEMP-KEPT; else echo TEMP-DELETED; fi ;;
+  iterm) printf 'ITERM-BEFORE\n\033]1337;File=inline=1;width=16:%s\007\nITERM-AFTER\n' "$(b64 "$DIR/photo.png")" ;;
+  sixel) printf 'SIXEL-BEFORE\n\033Pq%s\033\\\nSIXEL-AFTER\n' "$(cat "$DIR/sixel.txt")" ;;
+  iterm-gif) printf 'IGIF-BEFORE\n\033]1337;File=inline=1;width=16:%s\007\nIGIF-AFTER\n' "$(b64 "$DIR/anim.gif")" ;;
+  kitty-gif) printf 'KGIF-BEFORE\n\033_Ga=T,f=100,t=f,c=16;%s\033\\\nKGIF-AFTER\n' "$(path64 "$DIR/anim.gif")" ;;
+  kitty-anim)
+    # Frames of 32 by 16 pixels over 16 by 4 cells: red, green, blue and yellow, two seconds each.
+    px() { for _ in $(seq 512); do printf "$1"; done | base64 | tr -d '\n'; }
+    printf 'ANIM-BEFORE\n\033_Ga=T,i=77,f=32,s=32,v=16,c=16,r=4,q=2;%s\033\\' "$(px '\377\000\000\377')"
+    for pixel in '\000\377\000\377' '\000\000\377\377' '\377\377\000\377'; do
+      printf '\033_Ga=f,i=77,f=32,s=32,v=16,z=2000,q=2;%s\033\\' "$(px "$pixel")"
+    done
+    printf '\033_Ga=a,i=77,r=1,z=2000,q=2\033\\\033_Ga=a,i=77,s=3,v=1,q=2\033\\\nANIM-AFTER\n' ;;
+  fifo)
+    rm -f "$DIR/pipe"; mkfifo "$DIR/pipe"
+    printf 'FIFO-BEFORE\n\033_Ga=T,f=100,t=f,c=16;%s\033\\\nFIFO-AFTER\n' "$(path64 "$DIR/pipe")" ;;
+  da1)
+    old="$(stty -g)"; stty raw -echo
+    printf '\033[c'
+    reply=""
+    while IFS= read -r -s -n 1 -t 2 ch; do reply="$reply$ch"; [ "$ch" = c ] && break; done
+    stty "$old"
+    printf 'DA1=%s\n' "$(printf '%s' "$reply" | tr -d '\033')" ;;
+  *) echo "usage: show kitty|kitty-file|kitty-temp|iterm|sixel|fifo|da1|iterm-gif|kitty-gif|kitty-anim" >&2; exit 2 ;;
+esac
+SHOW
+  chmod +x "$dir/show"
+  echo "image fixtures written to $dir"
+}
+
+cmd_pixel_fixture() {
+  local dir="$FIXTURES/pixels"
+  mkdir -p "$dir"
+  cat > "$dir/probe" <<'PROBE'
+#!/usr/bin/env python3
+import base64
+import fcntl
+import os
+import re
+import select
+import struct
+import sys
+import termios
+import time
+import tty
+
+MODE = sys.argv[1] if len(sys.argv) > 1 else "draw"
+SECONDS = float(sys.argv[2]) if len(sys.argv) > 2 else 8.0
+FD = sys.stdin.fileno()
+OUT = sys.stdout.buffer
+BG = bytes([30, 30, 40, 255])
+WHITE = bytes([255, 255, 255, 255])
+BLACK = bytes([0, 0, 0, 255])
+RED = bytes([255, 0, 0, 255])
+MAGENTA = bytes([255, 0, 255, 255])
+GREEN = bytes([0, 255, 0, 255])
+REPORT = re.compile(rb"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
+PARTIAL = re.compile(rb"\x1b(\[(<[\d;]*)?)?$")
+MIN_IMAGE_ROWS = 4
+MIN_IMAGE_WIDTH = 32
+
+
+class TooSmall(Exception):
+    pass
+
+
+def write(data):
+    OUT.write(data)
+    OUT.flush()
+
+
+def read_until(done, timeout):
+    data = b""
+    end = time.time() + timeout
+    while time.time() < end and not done(data):
+        ready, _, _ = select.select([FD], [], [], 0.05)
+        if ready:
+            data += os.read(FD, 4096)
+    return data
+
+
+def cell_size():
+    write(b"\x1b[16t")
+    reply = read_until(lambda data: re.search(rb"\x1b\[6;(\d+);(\d+)t", data), 1.5)
+    match = re.search(rb"\x1b\[6;(\d+);(\d+)t", reply)
+    if not match:
+        return 8, 16
+    return int(match.group(2)), int(match.group(1))
+
+
+def window():
+    rows, cols, _, _ = struct.unpack("HHHH", fcntl.ioctl(FD, termios.TIOCGWINSZ, b"\0" * 8))
+    return cols, rows
+
+
+def put_shared(data):
+    try:
+        from multiprocessing import resource_tracker, shared_memory
+        memory = shared_memory.SharedMemory(create=True, size=len(data))
+        memory.buf[: len(data)] = data
+        name = memory._name
+        try:
+            resource_tracker.unregister(name, "shared_memory")
+        except Exception:
+            pass
+        memory.close()
+        return name
+    except Exception:
+        return None
+
+
+def unlink_shared(name):
+    try:
+        import _posixshmem
+        _posixshmem.shm_unlink(name)
+    except Exception:
+        pass
+
+
+def shared_transport():
+    name = put_shared(bytes(4))
+    if name is None:
+        return False
+    write(b"\x1b_Gi=4321,a=q,t=s,f=32,s=1,v=1;" + base64.b64encode(name.encode()) + b"\x1b\\")
+    reply = read_until(lambda data: b"i=4321;" in data and data.endswith(b"\x1b\\"), 1.5)
+    unlink_shared(name)
+    return b"i=4321;OK" in reply
+
+
+class Reports:
+    def __init__(self):
+        self.pending = b""
+
+    def feed(self, data):
+        self.pending += data
+        found = []
+        end = 0
+        for match in REPORT.finditer(self.pending):
+            button, x, y, kind = match.groups()
+            found.append((int(button), int(x), int(y), kind == b"M"))
+            end = match.end()
+        partial = PARTIAL.search(self.pending[end:])
+        tail = len(partial.group(0)) if partial else 0
+        keys = REPORT.sub(b"", self.pending[: len(self.pending) - tail])
+        self.pending = self.pending[len(self.pending) - tail:]
+        return found, b"q" in keys
+
+
+class Screen:
+    def __init__(self, images):
+        self.cw, self.ch = cell_size()
+        self.cols, self.rows = window()
+        self.width = self.cols * self.cw
+        self.height = (self.rows - 3) * self.ch
+        if images and (self.rows - 3 < MIN_IMAGE_ROWS or self.width < MIN_IMAGE_WIDTH):
+            raise TooSmall
+        self.shared = images and shared_transport()
+        self.base = self.pattern() if images else bytearray()
+
+    def pattern(self):
+        w, h = self.width, self.height
+        third = max(16, w // 3)
+        pairs = (third - 8) // 2
+        rest = w - 8 - 2 * pairs
+        plain = BG * w
+        stripes = BG * 8 + (WHITE + BLACK) * pairs + BG * rest
+        check_b = BG * 8 + (BLACK + WHITE) * pairs + BG * rest
+        frame = bytearray(w * h * 4)
+        stride = w * 4
+        for y in range(h):
+            if 8 <= y < h // 2:
+                row = stripes
+            elif h // 2 <= y < h - 8:
+                row = stripes if y % 2 == 0 else check_b
+            else:
+                row = plain
+            frame[y * stride:(y + 1) * stride] = row
+        size = min(24, w, h)
+        for (x0, y0, color) in ((0, 0, MAGENTA), (w - size, h - size, GREEN)):
+            for y in range(y0, y0 + size):
+                frame[(y * w + x0) * 4:(y * w + x0 + size) * 4] = color * size
+        return frame
+
+    def with_marker(self, frame, mx, my):
+        w, h = self.width, self.height
+        if not (0 <= mx < w and 0 <= my < h):
+            return frame
+        x0, x1 = max(0, mx - 20), min(w, mx + 21)
+        frame[(my * w + x0) * 4:(my * w + x1) * 4] = RED * (x1 - x0)
+        for y in range(max(0, my - 20), min(h, my + 21)):
+            frame[(y * w + mx) * 4:(y * w + mx + 1) * 4] = RED
+        return frame
+
+    def with_bar(self, frame, x):
+        w = self.width
+        x = x % max(1, w - 12)
+        stride = w * 4
+        for y in range(self.height // 2, self.height - 8):
+            frame[y * stride + x * 4:y * stride + (x + 12) * 4] = MAGENTA * 12
+        return frame
+
+    def show(self, frame):
+        keys = "a=T,f=32,s=%d,v=%d,i=1,p=1,C=1,q=2" % (self.width, self.height)
+        write(b"\x1b[1;1H")
+        if self.shared:
+            name = put_shared(bytes(frame))
+            if name is not None:
+                write(("\x1b_G%s,t=s,S=%d;" % (keys, len(frame))).encode() + base64.b64encode(name.encode()) + b"\x1b\\")
+                return
+        encoded = base64.b64encode(bytes(frame))
+        chunks = [encoded[i:i + 4096] for i in range(0, len(encoded), 4096)]
+        for index, chunk in enumerate(chunks):
+            more = 1 if index + 1 < len(chunks) else 0
+            head = (keys + ",") if index == 0 else ""
+            write(("\x1b_G%sm=%d;" % (head, more)).encode() + chunk + b"\x1b\\")
+
+    def status(self, line, text):
+        write(("\x1b[%d;1H\x1b[2K%s" % (self.rows - 2 + line, text)).encode())
+
+    def header(self):
+        megabytes = self.width * self.height * 4 / 1048576
+        self.status(0, "PROBE image=%dx%d bytes=%.1fMB cell=%dx%d transport=%s" % (
+            self.width, self.height, megabytes, self.cw, self.ch, "shared" if self.shared else "direct"))
+
+
+def leftover_regions():
+    if not os.path.isdir("/dev/shm"):
+        return "n/a"
+    return str(sum(1 for name in os.listdir("/dev/shm") if re.match(r"mx[0-9a-f]+-[0-9a-f]+$", name)))
+
+
+def clicked(button, press):
+    return press and button & 32 == 0 and button < 64
+
+
+def run_draw(screen):
+    write(b"\x1b[?1003h\x1b[?1006h\x1b[?1016h")
+    screen.show(screen.base)
+    screen.header()
+    screen.status(1, "MOUSE none yet")
+    screen.status(2, "q quits")
+    reports = Reports()
+    clicks = 0
+    while True:
+        ready, _, _ = select.select([FD], [], [], 0.2)
+        if not ready:
+            continue
+        found, quit_pressed = reports.feed(os.read(FD, 4096))
+        for button, x, y, press in found:
+            if clicked(button, press):
+                clicks += 1
+                screen.show(screen.with_marker(bytearray(screen.base), x, y))
+                screen.status(1, "CLICK-%d x=%d y=%d cell=%d,%d" % (clicks, x, y, x // screen.cw, y // screen.ch))
+            elif button & 32:
+                screen.status(2, "MOVE x=%d y=%d   (q quits)" % (x, y))
+        if quit_pressed:
+            return
+
+
+def run_cells(screen):
+    write(b"\x1b[?1003h\x1b[?1006h")
+    screen.status(0, "CELLS mode: SGR cell reports")
+    screen.status(2, "q quits")
+    reports = Reports()
+    while True:
+        ready, _, _ = select.select([FD], [], [], 0.2)
+        if not ready:
+            continue
+        found, quit_pressed = reports.feed(os.read(FD, 4096))
+        for button, x, y, press in found:
+            if clicked(button, press):
+                screen.status(1, "CELL-CLICK col=%d row=%d" % (x, y))
+        if quit_pressed:
+            return
+
+
+def run_stream(screen):
+    screen.header()
+    frames = 0
+    start = time.time()
+    while time.time() - start < SECONDS:
+        frames += 1
+        screen.show(screen.with_bar(bytearray(screen.base), frames * 8))
+        screen.status(1, "STREAMING frame=%d" % frames)
+        time.sleep(max(0.0, start + frames / 60.0 - time.time()))
+    elapsed = time.time() - start
+    time.sleep(2)
+    screen.status(1, "STREAM-DONE sent=%d rate=%.0f/s shm-left=%s" % (frames, frames / elapsed, leftover_regions()))
+    screen.status(2, "q quits")
+    while b"q" not in read_until(lambda data: b"q" in data, 3600):
+        pass
+
+
+def main():
+    old = termios.tcgetattr(FD)
+    message = "PROBE-EXIT"
+    try:
+        tty.setraw(FD)
+        write(b"\x1b[?1049h\x1b[?25l\x1b[2J")
+        screen = Screen(images=MODE != "cells")
+        {"draw": run_draw, "cells": run_cells, "stream": run_stream}[MODE](screen)
+    except TooSmall:
+        message = "PROBE-TOO-SMALL: make the pane at least %d rows tall and %d pixels wide" % (
+            MIN_IMAGE_ROWS + 3,
+            MIN_IMAGE_WIDTH,
+        )
+    finally:
+        try:
+            write(b"\x1b[?1016l\x1b[?1006l\x1b[?1003l\x1b_Ga=d,q=2\x1b\\\x1b[?25h\x1b[?1049l")
+        except OSError:
+            pass
+        termios.tcsetattr(FD, termios.TCSADRAIN, old)
+    print(message)
+
+
+main()
+PROBE
+  chmod +x "$dir/probe"
+  echo "pixel fixture written to $dir"
+}
+
+cmd_floating_fixture() {
+  python3 - <<'PY'
+import json
+from pathlib import Path
+files = json.loads("{\"desk-pet/package.json\": \"{\\n  \\\"name\\\": \\\"desk-pet\\\",\\n  \\\"version\\\": \\\"0.1.0\\\",\\n  \\\"muxy\\\": {\\n    \\\"description\\\": \\\"A little pet that walks along the bottom of the window\\\",\\n    \\\"permissions\\\": [\\\"panels:write\\\"],\\n    \\\"panels\\\": [\\n      {\\n        \\\"id\\\": \\\"pet\\\",\\n        \\\"entry\\\": \\\"pet.html\\\",\\n        \\\"mode\\\": \\\"detached\\\",\\n        \\\"chrome\\\": \\\"none\\\",\\n        \\\"transparent\\\": true,\\n        \\\"clickThrough\\\": true,\\n        \\\"resizable\\\": false,\\n        \\\"hiddenControls\\\": [\\\"detach\\\"],\\n        \\\"frame\\\": { \\\"x\\\": 0, \\\"y\\\": 400, \\\"width\\\": 600, \\\"height\\\": 120 }\\n      }\\n    ],\\n    \\\"commands\\\": [\\n      { \\\"id\\\": \\\"toggle\\\", \\\"title\\\": \\\"Desk Pet: Show or Hide\\\", \\\"action\\\": { \\\"kind\\\": \\\"togglePanel\\\", \\\"panel\\\": \\\"pet\\\" } }\\n    ]\\n  }\\n}\\n\", \"desk-pet/pet.html\": \"<!doctype html>\\n<html>\\n<head>\\n<meta charset=\\\"utf-8\\\">\\n<style>\\n  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; font: 13px -apple-system, system-ui, sans-serif; }\\n  #pet { position: absolute; bottom: 4px; left: 0; width: 64px; height: 64px; font-size: 52px; line-height: 64px;\\n         text-align: center; cursor: pointer; user-select: none; transition: transform .15s; }\\n  #pet.left { transform: scaleX(-1); }\\n  .bubble { position: absolute; bottom: 76px; padding: 8px 12px; border-radius: 14px; background: #fff; color: #222;\\n            box-shadow: 0 4px 14px rgba(0,0,0,.25); white-space: nowrap; }\\n  .bubble[hidden] { display: none; }\\n</style>\\n</head>\\n<body>\\n<div class=\\\"bubble\\\" id=\\\"bubble\\\" hidden></div>\\n<div id=\\\"pet\\\">\\ud83d\\udc08</div>\\n<script>\\n  const pet = document.getElementById('pet');\\n  const bubble = document.getElementById('bubble');\\n  const BASE = 120, TALL = 200, MARGIN = 28;\\n  let x = 40, speed = 0.8, talking = false, held = false;\\n  pet.addEventListener('pointerenter', () => { held = true; });\\n  pet.addEventListener('pointerleave', () => { held = false; });\\n\\n  const fit = async () => {\\n    const { bounds } = await muxy.panel.get();\\n    const height = talking ? TALL : BASE;\\n    await muxy.panel.setFrame({ x: 0, width: bounds.width, height, y: bounds.height - height - MARGIN });\\n  };\\n  muxy.panel.onChange(state => {\\n    const want = state.bounds.height - state.frame.height - MARGIN;\\n    if (state.frame.width !== state.bounds.width || Math.abs(state.frame.y - want) > 1) fit();\\n  });\\n  fit();\\n  muxy.panel.trackHitElements('#pet, #bubble:not([hidden])', { padding: 4 });\\n\\n  const lines = ['Meow!', 'Ship it \\ud83d\\ude80', 'Tests are green?', 'Nap time\\u2026', 'Hi there!'];\\n  pet.addEventListener('click', async () => {\\n    talking = true;\\n    await fit();\\n    bubble.textContent = lines[Math.floor(Math.random() * lines.length)];\\n    bubble.hidden = false;\\n    setTimeout(async () => { bubble.hidden = true; talking = false; await fit(); }, 2500);\\n  });\\n\\n  const step = () => {\\n    const max = window.innerWidth - 64;\\n    if (held || talking) { requestAnimationFrame(step); return; }\\n    x += speed;\\n    if (x <= 0 || x >= max) { speed = -speed; x = Math.max(0, Math.min(max, x)); }\\n    if (Math.random() < 0.004) speed = -speed;\\n    pet.style.left = x + 'px';\\n    pet.classList.toggle('left', speed < 0);\\n    bubble.style.left = Math.max(0, Math.min(window.innerWidth - bubble.offsetWidth, x - 10)) + 'px';\\n    requestAnimationFrame(step);\\n  };\\n  requestAnimationFrame(step);\\n</script>\\n</body>\\n</html>\\n\", \"sticky-notes/about.html\": \"<!doctype html>\\n<html><head><meta charset=\\\"utf-8\\\"><style>\\nbody { margin: 0; padding: 16px; font: 13px -apple-system, system-ui, sans-serif; color: var(--muxy-foreground); background: var(--muxy-background); }\\nh1 { font-size: 15px; margin: 0 0 8px; }\\n</style></head><body>\\n<h1>STICKY-ABOUT</h1>\\n<p>Run \\\"Sticky Notes: New Note\\\" from the command palette to add a note.</p>\\n</body></html>\\n\", \"sticky-notes/background.js\": \"const open = (id, note) => {\\n  muxy.panels.open('note', { id }, { instance: id, frame: note.frame || undefined });\\n};\\nfor (const key of muxy.storage.keys()) {\\n  if (!key.startsWith('note:')) continue;\\n  const id = key.slice(5);\\n  open(id, muxy.storage.get(key) || {});\\n}\\nmuxy.events.subscribe('command.new-note', () => {\\n  const id = 'n' + Date.now().toString(36);\\n  const note = { text: '', color: '#fff3a3' };\\n  muxy.storage.set('note:' + id, note);\\n  open(id, note);\\n});\\n\", \"sticky-notes/note.html\": \"<!doctype html>\\n<html>\\n<head>\\n<meta charset=\\\"utf-8\\\">\\n<style>\\n  html, body { margin: 0; height: 100%; background: transparent; font: 13px -apple-system, system-ui, sans-serif; }\\n  .note { position: absolute; inset: 8px; display: flex; flex-direction: column; border-radius: 10px;\\n          box-shadow: 0 6px 18px rgba(0,0,0,.25); overflow: hidden; color: #3b3200; }\\n  .bar { height: 26px; flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding: 0 6px;\\n         background: rgba(0,0,0,.06); }\\n  .bar button { border: 0; background: transparent; cursor: pointer; font-size: 13px; color: inherit; opacity: .6; }\\n  .bar button:hover { opacity: 1; }\\n  textarea { flex: 1; border: 0; resize: none; background: transparent; padding: 8px 10px; font: inherit; color: inherit; outline: none; }\\n</style>\\n</head>\\n<body>\\n<div class=\\\"note\\\" id=\\\"note\\\">\\n  <div class=\\\"bar\\\"><button id=\\\"color\\\" title=\\\"Color\\\">\\u25cf</button><button id=\\\"close\\\" title=\\\"Delete\\\">\\u2715</button></div>\\n  <textarea id=\\\"text\\\" placeholder=\\\"Write something\\u2026\\\"></textarea>\\n</div>\\n<script>\\n  const colors = ['#fff3a3', '#ffd6e0', '#c9f2d0', '#cfe6ff'];\\n  const id = muxy.data.id;\\n  const key = 'note:' + id;\\n  const note = document.getElementById('note');\\n  const text = document.getElementById('text');\\n  let saved = { text: '', color: colors[0] };\\n  const save = () => muxy.storage.set(key, saved);\\n  const paint = () => { note.style.background = saved.color; };\\n  muxy.storage.get(key).then(value => {\\n    saved = { ...saved, ...(value || {}) };\\n    text.value = saved.text || '';\\n    paint();\\n  });\\n  text.addEventListener('input', () => { saved.text = text.value; save(); });\\n  document.getElementById('color').addEventListener('click', () => {\\n    saved.color = colors[(colors.indexOf(saved.color) + 1) % colors.length];\\n    paint(); save();\\n  });\\n  document.getElementById('close').addEventListener('click', async () => {\\n    await muxy.storage.delete(key);\\n    muxy.panels.close();\\n  });\\n  const fitDragRegion = () => {\\n    muxy.panel.setDragRegions([{ x: 8, y: 8, width: Math.max(0, window.innerWidth - 76), height: 26 }]);\\n  };\\n  fitDragRegion();\\n  window.addEventListener('resize', fitDragRegion);\\n  let timer = null;\\n  muxy.panel.onChange(state => {\\n    clearTimeout(timer);\\n    timer = setTimeout(() => { saved.frame = state.frame; save(); }, 300);\\n  });\\n</script>\\n</body>\\n</html>\\n\", \"sticky-notes/package.json\": \"{\\n  \\\"name\\\": \\\"sticky-notes\\\",\\n  \\\"version\\\": \\\"0.1.0\\\",\\n  \\\"muxy\\\": {\\n    \\\"description\\\": \\\"Sticky notes that float over the window\\\",\\n    \\\"permissions\\\": [\\n      \\\"panels:write\\\",\\n      \\\"storage:read\\\",\\n      \\\"storage:write\\\"\\n    ],\\n    \\\"background\\\": \\\"background.js\\\",\\n    \\\"panels\\\": [\\n      {\\n        \\\"id\\\": \\\"note\\\",\\n        \\\"entry\\\": \\\"note.html\\\",\\n        \\\"mode\\\": \\\"detached\\\",\\n        \\\"chrome\\\": \\\"none\\\",\\n        \\\"frame\\\": {\\n          \\\"width\\\": 236,\\n          \\\"height\\\": 216\\n        },\\n        \\\"minSize\\\": {\\n          \\\"width\\\": 156,\\n          \\\"height\\\": 126\\n        }\\n      },\\n      {\\n        \\\"id\\\": \\\"about\\\",\\n        \\\"title\\\": \\\"Sticky Notes\\\",\\n        \\\"icon\\\": \\\"note.text\\\",\\n        \\\"entry\\\": \\\"about.html\\\",\\n        \\\"position\\\": \\\"right\\\",\\n        \\\"mode\\\": \\\"pinned\\\"\\n      }\\n    ],\\n    \\\"commands\\\": [\\n      {\\n        \\\"id\\\": \\\"new-note\\\",\\n        \\\"title\\\": \\\"Sticky Notes: New Note\\\"\\n      },\\n      {\\n        \\\"id\\\": \\\"about\\\",\\n        \\\"title\\\": \\\"Sticky Notes: About\\\",\\n        \\\"action\\\": {\\n          \\\"kind\\\": \\\"togglePanel\\\",\\n          \\\"panel\\\": \\\"about\\\"\\n        }\\n      }\\n    ],\\n    \\\"statusBarItems\\\": [\\n      {\\n        \\\"id\\\": \\\"new\\\",\\n        \\\"icon\\\": \\\"note.text.badge.plus\\\",\\n        \\\"side\\\": \\\"right\\\",\\n        \\\"command\\\": \\\"new-note\\\",\\n        \\\"tooltip\\\": \\\"New sticky note\\\"\\n      }\\n    ]\\n  }\\n}\\n\"}")
+home = Path.home() / 'e2e'
+for relative, text in files.items():
+    path = home / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+print('floating fixtures ready: ~/e2e/desk-pet and ~/e2e/sticky-notes')
+PY
+}
+
+cmd_bg_fixture() {
+  python3 - <<'PY'
+import json
+from pathlib import Path
+root = Path.home() / 'e2e' / 'bg-ext'
+root.mkdir(parents=True, exist_ok=True)
+stall = "<script>const end = Date.now() + 15000; while (Date.now() < end) {}</script>"
+plain = "margin:0;padding:24px;color:var(--muxy-foreground);font:20px system-ui,sans-serif"
+red = "<style>html,body{margin:0;height:100%;background:#c0392b;color:#fff;font:28px system-ui,sans-serif}</style>"
+pages = {
+    'plain.html': f'<!doctype html><html><head><meta charset="utf-8"></head><body style="{plain}"><h1>BG-PLAIN</h1><p>No background set.</p></body></html>',
+    'slow.html': f'<!doctype html><html><head><meta charset="utf-8">{stall}{red}</head><body><h1>SLOW-READY</h1></body></html>',
+    'tab.html': f'<!doctype html><html><head><meta charset="utf-8"></head><body style="{plain}"><h1>BG-TAB</h1><p>The quick brown fox jumps over the lazy dog 0123456789.</p><p style="text-shadow:0 2px 6px rgba(0,0,0,.6)">Shadowed line for the snapshot check.</p></body></html>',
+    'slowtab.html': f'<!doctype html><html><head><meta charset="utf-8">{stall}{red}</head><body><h1>SLOW-TAB-READY</h1></body></html>',
+    'modal.html': f'<!doctype html><html><head><meta charset="utf-8"></head><body style="{plain}"><h2>BG-MODAL</h2></body></html>',
+    'glass.html': '<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:transparent}.box{position:absolute;left:50px;top:50px;width:200px;height:100px;border-radius:12px;background:#e67e22;color:#000;font:24px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style></head><body><div class="box">GLASS</div></body></html>',
+    'sidebar.html': '<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#1f6feb;color:#fff;font:16px system-ui,sans-serif}</style></head><body><div style="padding:12px">BG-SIDEBAR</div></body></html>',
+}
+for name, html in pages.items():
+    (root / name).write_text(html + '\n')
+toggle = lambda panel: {'kind': 'togglePanel', 'panel': panel}
+(root / 'package.json').write_text(json.dumps({
+    'name': 'bg-ext', 'version': '0.1.0',
+    'muxy': {
+        'description': 'Pages for page background tests',
+        'permissions': ['panels:write', 'tabs:write'],
+        'panels': [
+            {'id': 'plain', 'title': 'BG Plain', 'entry': 'plain.html', 'position': 'right', 'mode': 'pinned'},
+            {'id': 'slow', 'title': 'BG Slow', 'entry': 'slow.html', 'position': 'right', 'mode': 'pinned'},
+            {'id': 'glass', 'entry': 'glass.html', 'mode': 'detached', 'chrome': 'none', 'transparent': True,
+             'frame': {'x': 200, 'y': 150, 'width': 300, 'height': 200}},
+        ],
+        'tabTypes': [
+            {'id': 'plaintab', 'title': 'BG Tab', 'entry': 'tab.html'},
+            {'id': 'slowtab', 'title': 'BG Slow Tab', 'entry': 'slowtab.html'},
+        ],
+        'sidebar': {'id': 'main', 'title': 'BG Sidebar', 'entry': 'sidebar.html'},
+        'commands': [
+            {'id': 'plain', 'title': 'BG Test: Plain Panel', 'action': toggle('plain')},
+            {'id': 'slow', 'title': 'BG Test: Slow Panel', 'action': toggle('slow')},
+            {'id': 'glass', 'title': 'BG Test: Glass Panel', 'action': toggle('glass')},
+            {'id': 'tab', 'title': 'BG Test: Plain Tab', 'action': {'kind': 'openTab', 'tabType': 'plaintab'}},
+            {'id': 'slowtab', 'title': 'BG Test: Slow Tab', 'action': {'kind': 'openTab', 'tabType': 'slowtab'}},
+            {'id': 'modal', 'title': 'BG Test: Modal', 'action': {'kind': 'openModal', 'entry': 'modal.html',
+             'width': 420, 'height': 200, 'dismissOnOutsideClick': True}},
+        ],
+    },
+}, indent=2))
+print('background fixture ready: ~/e2e/bg-ext')
+PY
+}
+
+cmd_extension_art_fixture() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  [ -z "$(app_pid)" ] || die "quit the app before installing the extension art fixture"
+  python3 - <<'PY'
+import json, os, struct, zlib
+from pathlib import Path
+
+def png(path, width, height, rgb):
+    row = b'\x00' + bytes(rgb) * width
+    data = zlib.compress(row * height, 9)
+    def chunk(kind, body):
+        return struct.pack('>I', len(body)) + kind + body + struct.pack('>I', zlib.crc32(kind + body) & 0xffffffff)
+    path.write_bytes(b'\x89PNG\r\n\x1a\n'
+        + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+        + chunk(b'IDAT', data) + chunk(b'IEND', b''))
+
+art = Path(os.environ['MUXY_DIR']) / 'extensions' / 'art-demo'
+(art / 'screenshots').mkdir(parents=True, exist_ok=True)
+(art / 'icon.svg').write_text(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="14" fill="#f97316"/>'
+    '<circle cx="32" cy="32" r="16" fill="#ffffff"/></svg>')
+png(art / 'screenshots' / 'one.png', 1600, 1000, (20, 184, 166))
+png(art / 'screenshots' / 'two.png', 1600, 1000, (139, 92, 246))
+(art / 'package.json').write_text(json.dumps({
+    'name': 'art-demo', 'version': '1.2.3',
+    'muxy': {
+        'description': 'Shows its own icon and screenshots',
+        'settings': [{'key': 'greeting', 'title': 'Greeting', 'type': 'string', 'defaultValue': 'hi'}],
+        'marketplace': {
+            'author': 'Art Studio',
+            'categories': ['productivity', 'developer-tools'],
+            'homepage': 'https://example.com/art',
+            'repository': 'https://github.com/example/art-demo',
+            'icon': 'icon.svg',
+            'screenshots': ['screenshots/one.png', 'screenshots/two.png'],
+        },
+    },
+}, indent=2))
+print('extension art fixture ready: art-demo 1.2.3 as if from the store, with an orange icon and teal and purple screenshots; launch the app')
+PY
+}
+
+cmd_security_fixture() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  python3 - <<'PY'
+import json
+from pathlib import Path
+root = Path.home() / 'e2e' / 'sec-ext'
+root.mkdir(parents=True, exist_ok=True)
+manifest = {
+    'description': 'Security hardening checks',
+    'permissions': ['tabs:write'],
+    'tabTypes': [{'id': 'view', 'title': 'Sec View', 'entry': 'view.html'}],
+    'commands': [{'id': 'open', 'title': 'Sec Test: Open Tab', 'action': {'kind': 'openTab', 'tabType': 'view'}}],
+    'topbarItems': [{'id': 'sec', 'icon': {'svg': 'icon.svg'}, 'command': 'open', 'tooltip': 'Sec Test'}],
+}
+(root / 'package.json').write_text(json.dumps({'name': 'sec-ext', 'version': '0.1.0', 'muxy': manifest}, indent=2))
+# Two squares, top-left and bottom-right, drawn through <use> references.
+(root / 'icon.svg').write_text(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+    '<defs><rect id="r" width="6" height="6" fill="currentColor"/></defs>'
+    '<use href="#r" x="1" y="1"/><use href="#r" x="9" y="9"/></svg>')
+# A red circle that claims to be 5000 px square.
+(root / 'tab-icon.svg').write_text(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="5000" height="5000" viewBox="0 0 16 16">'
+    '<circle cx="8" cy="8" r="7" fill="#e02020"/></svg>')
+# A bundled image: a green bar.
+(root / 'logo.svg').write_text(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="40">'
+    '<rect width="160" height="40" rx="6" fill="#1a9e3a"/></svg>')
+page = """<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin: 0; padding: 24px; background: #fff6d6; color: #222; font: 16px system-ui, sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 12px; }
+  p { margin: 8px 0; }
+  input { font-size: 16px; padding: 6px; width: 260px; }
+</style></head>
+<body>
+<h1>SEC-PAGE</h1>
+<img id="logo" src="logo.svg" width="160" height="40" alt="logo">
+<p id="script">script: pending</p>
+<p id="fetch">fetch: pending</p>
+<p><input id="t" placeholder="type here"></p>
+<p id="echo">typed: (nothing)</p>
+<script>
+  const status = document.getElementById('script');
+  status.textContent = 'script: ran-' + (40 + 2);
+  const t = document.getElementById('t');
+  t.addEventListener('input', () => { document.getElementById('echo').textContent = 'typed: ' + t.value; });
+  fetch('http://127.0.0.1:8765/')
+    .then(() => { document.getElementById('fetch').textContent = 'fetch: allowed'; })
+    .catch(() => { document.getElementById('fetch').textContent = 'fetch: blocked'; });
+  if (window.muxy && muxy.tabs) {
+    muxy.tabs.setIcon({ svg: 'tab-icon.svg' })
+      .then(() => { status.textContent += ' icon-set'; })
+      .catch(e => { status.textContent += ' icon-error ' + e; });
+  }
+</script>
+</body></html>
+"""
+(root / 'view.html').write_text(page)
+print('security fixture ready: ~/e2e/sec-ext (load it with muxy extension load)')
+PY
+}
+
+cmd_extension_edit() {
+  local package="$FIXTURES/hello-ext/package.json"
+  case "$1" in
+    broken) printf 'not json\n' > "$package"; echo "hello-ext package.json is now broken" ;;
+    *) python3 - "$package" "$1" <<'PY'
+import json, sys
+path, version = sys.argv[1:3]
+manifest = {
+    'description': 'Says hello',
+    'permissions': ['panels:write', 'notifications:write'],
+    'panels': [{'id': 'hello', 'title': 'Hello', 'entry': 'panel.html'}],
+    'commands': [{'id': 'toggle', 'title': 'Hello: Toggle Panel', 'action': {'kind': 'togglePanel', 'panel': 'hello'}}],
+    'topbarItems': [{'id': 'hello', 'icon': 'sparkles', 'command': 'toggle', 'tooltip': 'Hello'}],
+}
+open(path, 'w').write(json.dumps({'name': 'hello-ext', 'version': version, 'muxy': manifest}, indent=2))
+print('hello-ext is now version ' + version)
+PY
+    ;;
+  esac
+}
+
+cmd_launch_without_muxy() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  [ -z "$(app_pid)" ] || die "quit the app first"
+  rm -f "$HOME/.local/bin/muxy" "$HOME/.local/bin/.muxy-cli-link.json"
+  mkdir -p "$SHARE" "$MUXY_DIR"
+  printf '\n==== launch without muxy %s\n' "$(date)" >> "$APP_LOG"
+  MUXY_E2E_HIDE_CLI=1 nohup "$HOME/.local/bin/muxy-vm-run" >> "$APP_LOG" 2>&1 < /dev/null &
+  local i
+  for i in $(seq 1 60); do
+    sleep 0.5
+    if [ -n "$(app_pid)" ] && muxy server status >/dev/null 2>&1; then
+      sleep 3
+      echo "app running without muxy on its PATH: pid $(app_pid)"
+      return 0
+    fi
+  done
+  die "the app did not start within 30 seconds"
+}
+
+cmd_info() {
+  if [ "$OS" = Darwin ]; then
+    echo "os: macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion)) $(uname -m)"
+  else
+    echo "os: $(. /etc/os-release; echo "$PRETTY_NAME") $(uname -m)"
+    echo "webkitgtk: $(dpkg-query -W -f '${Version}' libwebkit2gtk-4.1-0 2>/dev/null)"
+  fi
+  echo "session: $(session_type)"
+  echo "shell: $SHELL"
+  local binary
+  for binary in muxy-app muxy muxy-server; do
+    echo "$binary: $("$BIN/$binary" --build-info 2>&1)"
+  done
+}
+
+cmd_logs() {
+  echo "### app.log (last 80 lines)"; tail -80 "$APP_LOG" 2>/dev/null
+  echo "### server.log (last 80 lines)"; tail -80 "$MUXY_DIR/server.log" 2>/dev/null
+  local file
+  for file in "$MUXY_DIR"/app-diagnostics-*.log; do
+    [ -f "$file" ] || continue
+    echo "### $(basename "$file") (last 40 lines)"; tail -40 "$file"
+  done
+  echo "### processes"
+  ps -axo pid,etime,comm | grep -E 'muxy|sleep|python3' | grep -v grep
+}
+
+cmd_running() {
+  local matches
+  matches="$(ps -axo pid,command | grep -F -- "$1" | grep -v -e muxy-e2e -e 'grep -F')"
+  [ -n "$matches" ] || { echo "no process matches: $1"; return 1; }
+  echo "$matches"
+}
+
+cmd_config() {
+  local file="$MUXY_DIR/$1"
+  [ -f "$file" ] || die "no $1 in the test profile"
+  cat "$file"
+}
+
+cmd_tui() {
+  if [ $# -eq 0 ]; then
+    MUXY_DIR="$FIXTURES/tui-profile" muxy
+  else
+    MUXY_DIR="$FIXTURES/tui-profile" run_muxy "$@"
+  fi
+}
+
+cmd_tui_primary() {
+  export MUXY_DIR="$FIXTURES/tui-profile"
+  echo $$ > "$FIXTURES/tui-primary.pid"
+  exec muxy
+}
+
+cmd_tui_record() {
+  export MUXY_DIR="$FIXTURES/tui-profile"
+  local command='echo $$ > "$HOME/e2e/tui-primary.pid"; exec muxy'
+  if [ "$OS" = Darwin ]; then
+    script -q -F "$FIXTURES/tui.typescript" sh -c "$command"
+  else
+    script -q -f -c "$command" "$FIXTURES/tui.typescript"
+  fi
+}
+
+cmd_tui_idle() {
+  local before after delta
+  before="$(wc -c < "$FIXTURES/tui.typescript")" || return 1
+  sleep 10
+  after="$(wc -c < "$FIXTURES/tui.typescript")" || return 1
+  delta=$((after - before))
+  echo "idle bytes in 10 seconds: $delta (limit 320); before=$before after=$after"
+  [ "$delta" -le 320 ]
+}
+
+cmd_tui_signal() {
+  local pid parent
+  pid="$(cat "$FIXTURES/tui-primary.pid")" || return 1
+  case "$1" in
+    suspend) kill -TSTP "$pid" ;;
+    resume)
+      parent="$(ps -p "$pid" -o ppid= | tr -d ' ')"
+      case "$(ps -p "$parent" -o comm=)" in
+        *script) kill -CONT "$parent" ;;
+      esac
+      kill -CONT "$pid"
+      ;;
+    *) die "usage: tui-signal suspend|resume" ;;
+  esac
+  sleep 1
+  ps -o pid=,stat=,comm= -p "$pid"
+}
+
+cmd_lines() {
+  local file
+  file="$(expand_home "$1")"
+  [ -f "$file" ] || { echo 0; return; }
+  wc -l < "$file" | tr -d ' '
+}
+
+cmd_git() {
+  local args=() arg directory
+  directory="$(expand_home "$1")"
+  shift
+  for arg in "$@"; do args+=("$(expand_home "$arg")"); done
+  git -C "$directory" "${args[@]}"
+}
+
+cmd_file() {
+  local file
+  file="$(expand_home "$1")"
+  if [ -f "$file" ]; then cat "$file"; else echo "no such file: $1"; fi
+}
+
+cmd_exists() {
+  if [ -e "$(expand_home "$1")" ]; then echo yes; else echo no; fi
+}
+
+# Deletes a folder behind Muxy's back. Only the test's own folders qualify.
+cmd_rm_tree() {
+  local path
+  path="$(expand_home "$1")"
+  case "$path" in
+    "$FIXTURES"/*|"$HOME/.muxy/worktrees"/*) rm -rf "$path" && echo "deleted $path" ;;
+    *) die "rm-tree only deletes inside ~/e2e or ~/.muxy/worktrees" ;;
+  esac
+}
+
+usage() {
+  cat <<'EOF'
+Usage: muxy-e2e <command> [arguments]      (guest side; on the host use: e2e g <vm> <command>)
+
+  reset                  Quit the app, stop the server, wipe the test profile and fixtures, recreate fixtures, launch
+  launch                 Start the app if it isn't running and wait until it is connected
+  quit                   Terminate the app (the server and terminals keep running)
+  stop-all               Stop the app, the server and the fixture web server
+  fixtures               Recreate ~/e2e: alpha (git repo with a layout), beta, gamma (git repo with hooks), site
+  muxy <args>            Run the CLI against the test profile, e.g. muxy session list
+  git <folder> <args>    Run Git in a folder, outside Muxy
+  file <path>            Print a file (says so if it doesn't exist)
+  exists <path>          Print yes or no
+  rm-tree <path>         Delete a folder inside ~/e2e or ~/.muxy/worktrees, outside Muxy
+  screens                Print every live terminal's screen
+  find <text>            Print live terminals whose screen shows <text>; exit 1 if none
+  wait <text> [seconds]  Wait until some live terminal shows <text> (default 15s)
+  gone <text> [seconds]  Wait until no live terminal shows <text>
+  clip-set <text>        Put text on the guest clipboard
+  clip-get               Print the guest clipboard
+  http-start | http-stop Serve ~/e2e/site on http://127.0.0.1:8765/
+  info                   OS, session type and build info
+  logs                   Tails of the app/server logs and the running processes
+  running <text>         Print processes whose command line contains <text>; exit 1 if none
+  config <file>          Print a file from the test profile, e.g. settings.toml or terminal.toml
+  lines <path>           Count the lines of a file (0 if it doesn't exist)
+  app-pid                Print the app's pid (empty if not running)
+  link-launch            Register this build for muxy-beta:// links (a bundle on macOS, a desktop entry on Linux) and start it that way
+  open-link <url>        Open a URL as a browser would (open / xdg-open), e.g. a muxy-beta:// link
+  open-session <id|text> [right|down]  Print muxy session link for that terminal (by id, or the one live terminal showing text) and open it
+  agent-fixture          Install stub agents (claude, codex, kiro-cli) that print how they were started
+  extension-fixture      With the app quit: ~/e2e/hello-ext, ~/e2e/hello-ready, and focus-timer as if from the store
+  extension-edit <v>     Set ~/e2e/hello-ext to version <v>, or break its package.json with "broken"
+  security-fixture       Write ~/e2e/sec-ext: an extension tab with a bundled image, a fetch probe, an input, and SVG icons
+  extension-art-fixture  With the app quit: art-demo as if from the store, with an icon, two screenshots and a setting
+  floating-fixture       Write the desk-pet and sticky-notes sample extensions to ~/e2e
+  exec-fixture           Write ~/e2e/exec-ext, whose palette commands run shell commands and a long alert
+  bg-fixture             Write ~/e2e/bg-ext, whose panels, tabs, modal and sidebar test page backgrounds
+  launch-without-muxy    With the app quit: start it with no muxy on its PATH and no installed link
+EOF
+}
+
+cmd_ime_fixture() {
+  test -f "$SHARE/managed" || die "not a managed guest"
+  if [ "$OS" = Darwin ]; then
+    cat > "$SHARE/select-ime.c" <<'EOF'
+#include <Carbon/Carbon.h>
+#include <stdio.h>
+#include <string.h>
+int main(int argc, char **argv) {
+    const char *target = argc > 1 && strcmp(argv[1], "off") == 0
+        ? "com.apple.keylayout.US" : "com.apple.inputmethod.SCIM.ITABC";
+    CFArrayRef sources = TISCreateInputSourceList(NULL, true);
+    for (CFIndex i = 0; i < CFArrayGetCount(sources); i++) {
+        TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
+        CFStringRef id = TISGetInputSourceProperty(source, kTISPropertyInputSourceID);
+        if (id && CFStringCompare(id, CFSTR("com.apple.inputmethod.SCIM"), 0) == kCFCompareEqualTo) {
+            printf("enable parent: %d\n", (int)TISEnableInputSource(source));
+        }
+    }
+    CFRelease(sources);
+    sources = TISCreateInputSourceList(NULL, true);
+    for (CFIndex i = 0; i < CFArrayGetCount(sources); i++) {
+        TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
+        CFStringRef id = TISGetInputSourceProperty(source, kTISPropertyInputSourceID);
+        char name[256];
+        if (id && CFStringGetCString(id, name, sizeof(name), kCFStringEncodingUTF8)
+                && strcmp(name, target) == 0) {
+            TISEnableInputSource(source);
+            OSStatus status = TISSelectInputSource(source);
+            printf("input source: %s, status: %d\n", name, (int)status);
+            CFRelease(sources);
+            return status != noErr;
+        }
+    }
+    CFRelease(sources);
+    fprintf(stderr, "input source unavailable: %s\n", target);
+    return 1;
+}
+EOF
+    clang "$SHARE/select-ime.c" -framework Carbon -o "$SHARE/select-ime" || return
+    "$SHARE/select-ime" off
+    return
+  fi
+  linux_display_env
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+  if ! dpkg-query -W ibus-libpinyin >/dev/null 2>&1; then
+    sudo -n apt-get -qq update && sudo -n apt-get -qq install -y ibus-libpinyin || return
+  fi
+  gsettings set org.gnome.desktop.input-sources sources "[('xkb', 'us'), ('ibus', 'libpinyin')]"
+  ibus restart
+  sleep 3
+  ibus list-engine | grep libpinyin || return
+  ibus engine xkb:us::eng
+  touch "$SHARE/ime-fixture"
+}
+
+cmd_ime_mode() {
+  test -f "$SHARE/managed" || die "not a managed guest"
+  if [ "$OS" = Darwin ]; then
+    "$SHARE/select-ime" "$1"
+    return
+  fi
+  linux_display_env
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+  if [ "$1" = off ]; then ibus engine xkb:us::eng; else ibus engine libpinyin; fi
+  ibus engine
+}
+
+
+command="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$command" in
+  ime-fixture) cmd_ime_fixture ;;
+  ime-mode) cmd_ime_mode "$1" ;;
+  reset) cmd_reset ;;
+  launch) cmd_launch ;;
+  quit) cmd_quit ;;
+  stop-all) cmd_stop_all ;;
+  fixtures) cmd_fixtures ;;
+  muxy) run_muxy "$@" ;;
+  tui) cmd_tui "$@" ;;
+  tui-primary) cmd_tui_primary ;;
+  tui-record) cmd_tui_record ;;
+  tui-idle) cmd_tui_idle ;;
+  tui-signal) cmd_tui_signal "$@" ;;
+  screens) cmd_screens ;;
+  find) [ $# -ge 1 ] || die "usage: find <text>"; cmd_find "$1" ;;
+  wait) [ $# -ge 1 ] || die "usage: wait <text> [seconds]"; cmd_wait "$@" ;;
+  gone) [ $# -ge 1 ] || die "usage: gone <text> [seconds]"; cmd_gone "$@" ;;
+  floating-fixture) cmd_floating_fixture ;;
+  image-fixture) cmd_image_fixture ;;
+  pixel-fixture) cmd_pixel_fixture ;;
+  clip-set) cmd_clip_set "${1:-}" ;;
+  clip-get) cmd_clip_get ;;
+  http-start) cmd_http_start ;;
+  http-stop) cmd_http_stop ;;
+  dialog-fixture) cmd_dialog_fixture ;;
+  symbol-language-fixture) cmd_symbol_language_fixture ;;
+  agent-fixture) cmd_agent_fixture ;;
+  agent-fixture-remove) rm -f "$HOME/.local/bin/claude" "$HOME/.local/bin/codex" "$HOME/.local/bin/kiro-cli"; echo "stub agents removed" ;;
+  remote-fixture) cmd_remote_fixture ;;
+  extension-fixture) cmd_extension_fixture ;;
+  extension-art-fixture) cmd_extension_art_fixture ;;
+  exec-fixture) cmd_exec_fixture ;;
+  bg-fixture) cmd_bg_fixture ;;
+  extension-edit) [ $# -ge 1 ] || die "usage: extension-edit <version|broken>"; cmd_extension_edit "$1" ;;
+  security-fixture) cmd_security_fixture ;;
+  launch-without-muxy) cmd_launch_without_muxy ;;
+  info) cmd_info ;;
+  logs) cmd_logs ;;
+  running) [ $# -ge 1 ] || die "usage: running <text>"; cmd_running "$1" ;;
+  config) [ $# -ge 1 ] || die "usage: config <file>"; cmd_config "$1" ;;
+  lines) [ $# -ge 1 ] || die "usage: lines <path>"; cmd_lines "$1" ;;
+  git) [ $# -ge 2 ] || die "usage: git <folder> <args>"; cmd_git "$@" ;;
+  file) [ $# -ge 1 ] || die "usage: file <path>"; cmd_file "$1" ;;
+  exists) [ $# -ge 1 ] || die "usage: exists <path>"; cmd_exists "$1" ;;
+  rm-tree) [ $# -ge 1 ] || die "usage: rm-tree <path>"; cmd_rm_tree "$1" ;;
+  app-pid) app_pid || true ;;
+  link-launch) cmd_link_launch ;;
+  open-link) [ $# -ge 1 ] || die "usage: open-link <url>"; cmd_open_link "$1" ;;
+  open-session) [ $# -ge 1 ] || die "usage: open-session <id|text> [right|down]"; cmd_open_session "$@" ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

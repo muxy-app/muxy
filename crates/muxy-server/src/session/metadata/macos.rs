@@ -75,10 +75,9 @@ fn process_arguments(pid: i32) -> Vec<String> {
             newlen: usize,
         ) -> std::ffi::c_int;
     }
-    let mut mib = [1, 49, pid]; // CTL_KERN, KERN_PROCARGS2
+    let mut mib = [1, 49, pid];
     let mut bytes = vec![0u8; 64 * 1024];
     let mut length = bytes.len();
-    // SAFETY: all pointers reference initialized, writable buffers of the supplied lengths.
     if unsafe {
         sysctl(
             mib.as_mut_ptr(),

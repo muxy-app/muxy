@@ -1,6 +1,3 @@
-//! Installed-extension details read from the running app: the settings the
-//! manifest declares, and the extension's recent log lines.
-
 use gpui::prelude::FluentBuilder;
 use gpui::{AppContext, Context, IntoElement, ParentElement, Styled, div};
 use muxy_app_core::extensions::{Extension, SettingKind};
@@ -14,7 +11,6 @@ use serde_json::{Map, Value};
 
 use super::ExtensionsView;
 
-/// What a number field stores: a number, or nothing so the default applies.
 fn number(text: &str) -> Option<Value> {
     let text = text.trim();
     text.parse::<i64>().map(Value::from).ok().or_else(|| {
@@ -37,8 +33,6 @@ fn display(value: &Value) -> String {
 }
 
 impl ExtensionsView {
-    /// Creates the text inputs for the selected extension's string and
-    /// number settings, filled with their current values.
     pub(super) fn sync_setting_inputs(
         &mut self,
         extension: &Extension,
@@ -154,7 +148,6 @@ impl ExtensionsView {
         Some(self.section(&tr!("Settings"), rows))
     }
 
-    /// Recent `[log]`, `[warn]`, `[err]`, and `[muxy]` lines, newest last.
     pub(super) fn logs_section(
         &self,
         extension: &Extension,

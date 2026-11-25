@@ -39,11 +39,9 @@ impl AppModel {
 
 pub(in crate::views) fn handle(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let weak = cx.weak_entity();
-    let active = model.sidebar_resize.is_some();
     div()
         .id("sidebar-resize")
         .debug_selector(|| "sidebar-resize".into())
-        .group("sidebar-resize")
         .absolute()
         .top_0()
         .bottom_0()
@@ -66,6 +64,12 @@ pub(in crate::views) fn handle(model: &AppModel, cx: &mut Context<AppModel>) -> 
                 cx.notify();
             }),
         )
+        .when_some(model.webviews.sidebar.as_ref(), |handle, sidebar| {
+            handle.child(model.webview_grip(
+                Some(sidebar.surface.view.entity_id()),
+                gpui::CursorStyle::ResizeLeftRight,
+            ))
+        })
         .child(
             div()
                 .absolute()
@@ -73,12 +77,10 @@ pub(in crate::views) fn handle(model: &AppModel, cx: &mut Context<AppModel>) -> 
                 .h_full()
                 .w(px(1.0))
                 .bg(model.theme.border)
-                .when(active, |line| line.bg(model.theme.accent))
-                .group_hover("sidebar-resize", |line| line.bg(model.theme.accent)),
+                .when(model.webviews.sidebar.is_some(), |border| {
+                    border.child(model.webview_occlusion())
+                }),
         )
-        .when(model.webviews.sidebar.is_some(), |handle| {
-            handle.child(model.webview_occlusion())
-        })
         .child(
             canvas(
                 |_, _, _| (),

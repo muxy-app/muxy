@@ -22,8 +22,6 @@ impl DragState {
                 if let Some(mouse_down) = mouse_down
                     && event.window(mtm).as_deref() == Some(&*self.window)
                 {
-                    // This starts a nested native event loop, so run before GPUI
-                    // dispatch rather than from inside a borrowed App or Window.
                     self.window.performWindowDragWithEvent(&mouse_down);
                     return true;
                 }
@@ -37,7 +35,6 @@ impl DragState {
     }
 }
 
-/// Enables native window movement only for explicitly claimed background presses.
 #[derive(Debug)]
 pub struct WindowDrag {
     state: Rc<DragState>,
@@ -56,14 +53,12 @@ impl WindowDrag {
         });
         let monitored = state.clone();
         let handler = RcBlock::new(move |event: NonNull<NSEvent>| {
-            // SAFETY: AppKit lends a valid event to this main-thread monitor.
             if monitored.handle(unsafe { event.as_ref() }, mtm) {
                 std::ptr::null_mut()
             } else {
                 event.as_ptr()
             }
         });
-        // SAFETY: The block returns the original event or null to consume it.
         let monitor = unsafe {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(
                 NSEventMask::LeftMouseDown
@@ -76,7 +71,6 @@ impl WindowDrag {
         Some(Self { state, monitor })
     }
 
-    /// Call during a left press on empty titlebar space, after control hit testing.
     pub fn begin(&self) {
         self.cancel();
         let Some(mtm) = MainThreadMarker::new() else {
@@ -98,7 +92,6 @@ impl WindowDrag {
 
 impl Drop for WindowDrag {
     fn drop(&mut self) {
-        // SAFETY: This token was returned by AppKit's monitor registration above.
         unsafe { NSEvent::removeMonitor(&self.monitor) };
     }
 }

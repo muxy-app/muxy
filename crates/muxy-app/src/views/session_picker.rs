@@ -96,10 +96,27 @@ impl AppModel {
         if let Some(Overlay::Sessions(picker)) = &self.overlay {
             self.request_sessions(picker.project, cx);
         }
+        for project in self.adoptable_projects() {
+            self.request_sessions(project, cx);
+            self.adopt_listed(project, cx);
+        }
         self.update_session_picker(cx);
     }
 
-    /// Forgets what `server` listed, which a new connection lists again.
+    fn adopt_listed(&mut self, project: ProjectId, cx: &mut Context<Self>) {
+        let Some(current) = self.sessions_revision(project) else {
+            return;
+        };
+        let Some(listing) = self.existing_sessions.projects.get(&project) else {
+            return;
+        };
+        if listing.pending || listing.revision.is_none_or(|revision| revision < current) {
+            return;
+        }
+        let sessions = listing.entries.clone();
+        self.adopt_sessions(project, &sessions, cx);
+    }
+
     pub(crate) fn forget_server_sessions(&mut self, server: ServerId, cx: &mut Context<Self>) {
         let state = &self.state;
         self.existing_sessions
@@ -145,9 +162,12 @@ impl AppModel {
         listing.pending = false;
         match result {
             Ok(page) => {
-                listing.entries = page.sessions;
                 listing.revision = Some(page.revision);
                 listing.error = None;
+                self.adopt_sessions(project, &page.sessions, cx);
+                if let Some(listing) = self.existing_sessions.projects.get_mut(&project) {
+                    listing.entries = page.sessions;
+                }
             }
             Err(error) => {
                 listing.entries.clear();

@@ -373,7 +373,7 @@ pub struct PickerRow {
     pub detail: Option<SharedString>,
     pub leading: Option<PickerLeading>,
     pub trailing: Option<SharedString>,
-    /// A short label outlined at the row's right edge.
+    pub trailing_icon: Option<Icon>,
     pub badge: Option<SharedString>,
     pub actions: Vec<PickerAction>,
     pub swatches: Vec<Hsla>,
@@ -391,6 +391,7 @@ impl PickerRow {
             detail: None,
             leading: None,
             trailing: None,
+            trailing_icon: None,
             badge: None,
             actions: Vec::new(),
             swatches: Vec::new(),
@@ -830,7 +831,6 @@ impl Picker {
             .update(cx, |input, _| input.set_placeholder(placeholder.into()));
     }
 
-    /// Gives the keyboard back to the search field, after a footer action took it.
     pub fn focus_query(&mut self, cx: &mut Context<Self>) {
         self.focused = false;
         cx.notify();
@@ -1333,6 +1333,21 @@ impl Picker {
                             .child(trailing),
                     );
                 }
+                if let Some(icon) = row.trailing_icon {
+                    content = content.child(
+                        div()
+                            .debug_selector({
+                                let id = row.id.clone();
+                                move || format!("picker-trailing-icon-{id}")
+                            })
+                            .flex_none()
+                            .child(IconGlyph::new(
+                                icon,
+                                self.metrics.icon_sm(),
+                                self.theme.fg_muted,
+                            )),
+                    );
+                }
                 if let Some(badge) = row.badge {
                     content = content.child(
                         div()
@@ -1352,8 +1367,6 @@ impl Picker {
                             .child(badge),
                     );
                 }
-                // The visible action buttons only draw on hover, and hidden elements
-                // can't be pressed, so clients get their own buttons.
                 let mut hidden_actions = Vec::new();
                 if !row.actions.is_empty() {
                     let mut actions = div()
@@ -1636,7 +1649,7 @@ impl Picker {
         .when(action.icon_only || action.shortcut.is_some(), |button| {
             let label = action.shortcut.as_ref().map_or_else(
                 || action.label.clone(),
-                |shortcut| format!("{} ({shortcut})", action.label).into(),
+                |shortcut| crate::shortcuts::with_key(&action.label, shortcut),
             );
             button.tooltip(crate::components::tooltip(label, &self.theme))
         })
@@ -1815,7 +1828,6 @@ impl Render for Picker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.focused {
             self.focused = true;
-            // After this frame, since what had focus already reported it in this one.
             let input = self.input.focus_handle(cx);
             window.defer(cx, move |window, _| window.focus(&input));
         }

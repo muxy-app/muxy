@@ -1,5 +1,3 @@
-//! Network access for paired devices: settings, identity, pairing, and admission.
-
 mod hosts;
 mod identity;
 mod store;
@@ -14,19 +12,21 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use muxy_protocol::transport::tls::TlsIdentity;
 use muxy_protocol::{
     ClientId, DeviceCredential, DeviceId, DeviceKind, ErrorCode, ListenerStatus, MAX_DEVICES,
-    PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer, RemoteAccessSettings,
-    RemoteAccessState, ServerIdentity, Topic, UnreadableFile,
+    PairRequest, Paired, PairedDevice, PairingInvite, PairingOffer, PushStatus,
+    RemoteAccessSettings, RemoteAccessState, ServerIdentity, Topic, UnreadableFile,
 };
 
 use crate::ServerError;
 use crate::notifier::Notifier;
+use crate::push::Credentials;
+pub(crate) use store::PushRecord;
 use store::{Device, Stored};
 
 const PAIRING_SECONDS: u64 = 5 * 60;
+pub(crate) const PUSH_KEPT_SECONDS: u64 = 90 * 24 * 60 * 60;
 const MAX_UNAUTHENTICATED: usize = 16;
 const AUTHENTICATION_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Starts, restarts, or stops the network listener; installed by the executable.
 pub(crate) type ListenerControl =
     dyn Fn(Option<(u16, TlsIdentity)>) -> ListenerStatus + Send + Sync;
 
@@ -39,6 +39,7 @@ pub struct RemoteAccess {
     unauthenticated: Arc<AtomicUsize>,
     notifier: Arc<Notifier>,
     unreadable: Option<UnreadableFile>,
+    closed: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for RemoteAccess {
@@ -62,7 +63,12 @@ struct Offer {
     owner: ClientId,
 }
 
-/// Holds one of the few slots for connections that have not authenticated yet.
+#[derive(Debug, Default)]
+pub(crate) struct PushSwitch {
+    pub(crate) deleted: Vec<Credentials>,
+    pub(crate) resumed: Vec<DeviceId>,
+}
+
 #[derive(Debug)]
 pub struct Admission {
     count: Arc<AtomicUsize>,
@@ -80,8 +86,6 @@ impl RemoteAccess {
         Self::with_store(None, Stored::default(), None)
     }
 
-    /// Opens the saved state; contents this build can't understand are moved
-    /// aside and access starts off.
     pub fn open(path: PathBuf) -> io::Result<Self> {
         let Some(bytes) = store::read(&path)? else {
             return Ok(Self::with_store(Some(path), Stored::default(), None));
@@ -113,10 +117,42 @@ impl RemoteAccess {
             unauthenticated: Arc::default(),
             notifier: Arc::default(),
             unreadable,
+            closed: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
-    /// The saved state that couldn't be read when the server started.
+    pub(crate) fn close(&self) {
+        let _state = self.lock();
+        self.closed.store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_phones(phones: &[DeviceId]) -> Self {
+        let remote = Self::memory();
+        {
+            let mut state = remote.lock();
+            state.stored.settings.enabled = true;
+            state.stored.devices = phones
+                .iter()
+                .map(|id| Device {
+                    id: *id,
+                    name: "Phone".into(),
+                    token_hash: hash(&[7; 32]),
+                    paired_at: 0,
+                    last_seen: None,
+                    kind: DeviceKind::Phone,
+                    push: None,
+                })
+                .collect();
+        }
+        remote
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_accepting(&self, enabled: bool) {
+        self.lock().stored.settings.enabled = enabled;
+    }
+
     pub(crate) fn unreadable(&self) -> Option<&UnreadableFile> {
         self.unreadable.as_ref()
     }
@@ -161,12 +197,27 @@ impl RemoteAccess {
                     last_seen: device.last_seen,
                     connected: connected.contains(&device.id),
                     kind: device.kind,
+                    push: device.push.as_ref().map(|push| {
+                        if state.stored.push_notifications {
+                            push.status
+                        } else {
+                            PushStatus::Disabled
+                        }
+                    }),
                 })
                 .collect(),
+            push_notifications: state.stored.push_notifications,
+            push_kept_until: state
+                .stored
+                .devices
+                .iter()
+                .any(|device| device.push.is_some())
+                .then_some(state.stored.push_off_since)
+                .flatten()
+                .map(|since| since.saturating_add(PUSH_KEPT_SECONDS)),
         }
     }
 
-    /// Applies the saved settings when the server starts.
     pub(crate) fn resume(&self) {
         let listening = {
             let state = self.lock();
@@ -193,16 +244,16 @@ impl RemoteAccess {
         let _write = self.writes.lock().unwrap_or_else(PoisonError::into_inner);
         let listening = {
             let mut state = self.lock();
-            let mut stored = state.stored.clone();
-            stored.settings = settings;
-            if settings.enabled && stored.identity.is_none() {
-                stored.identity = Some(identity::generate()?);
-            }
-            self.save(&stored)?;
+            self.edit_stored(&mut state.stored, |stored| {
+                stored.settings = settings;
+                if settings.enabled && stored.identity.is_none() {
+                    stored.identity = Some(identity::generate()?);
+                }
+                Ok(())
+            })?;
             if !settings.enabled {
                 state.offer = None;
             }
-            state.stored = stored;
             settings
                 .enabled
                 .then(|| state.stored.identity.clone())
@@ -224,8 +275,6 @@ impl RemoteAccess {
         status
     }
 
-    /// Offers a pairing code whose link lists the `given` addresses first,
-    /// for a server that phones reach by another name, such as behind NAT.
     pub(crate) fn start_pairing(
         &self,
         owner: ClientId,
@@ -268,7 +317,6 @@ impl RemoteAccess {
         }
     }
 
-    /// Cancels the pending offer when the connection that created it goes away.
     pub(crate) fn release_pairing(&self, owner: ClientId) {
         let mut state = self.lock();
         if state
@@ -301,20 +349,21 @@ impl RemoteAccess {
         }
         let token: [u8; 32] = random().ok()?;
         let id = DeviceId::new();
-        let mut stored = state.stored.clone();
-        stored.devices.push(Device {
-            id,
-            name: request.name.trim().to_owned(),
-            token_hash: hash(&token),
-            paired_at: now,
-            last_seen: Some(now),
-            kind: store::StoredKind::from(request.kind).into(),
-        });
-        if let Err(error) = self.save(&stored) {
+        if let Err(error) = self.edit_stored(&mut state.stored, |stored| {
+            stored.devices.push(Device {
+                id,
+                name: request.name.trim().to_owned(),
+                token_hash: hash(&token),
+                paired_at: now,
+                last_seen: Some(now),
+                kind: store::StoredKind::from(request.kind).into(),
+                push: None,
+            });
+            Ok(())
+        }) {
             log::error!("pairing not saved: {error}");
             return None;
         }
-        state.stored = stored;
         state.offer = None;
         drop(state);
         self.changed();
@@ -334,7 +383,6 @@ impl RemoteAccess {
         }
     }
 
-    /// The same answer for every failure, and the same work whether or not the device exists.
     pub(crate) fn authenticate(
         &self,
         credential: &DeviceCredential,
@@ -352,12 +400,11 @@ impl RemoteAccess {
         let matched = same(&presented, &expected);
         let index = device.filter(|_| usable && matched)?;
         let kind = state.stored.devices[index].kind;
-        let mut stored = state.stored.clone();
-        stored.devices[index].last_seen = Some(now);
-        if let Err(error) = self.save(&stored) {
+        if let Err(error) = self.edit_stored(&mut state.stored, |stored| {
+            stored.devices[index].last_seen = Some(now);
+            Ok(())
+        }) {
             log::warn!("last seen time not saved: {error}");
-        } else {
-            state.stored = stored;
         }
         drop(state);
         self.changed();
@@ -374,18 +421,144 @@ impl RemoteAccess {
                 .any(|stored| stored.id == device)
     }
 
-    pub(crate) fn revoke(&self, device: DeviceId) -> Result<(), ServerError> {
+    pub(crate) fn revoke(&self, device: DeviceId) -> Result<Option<PushRecord>, ServerError> {
         let mut state = self.lock();
-        let mut stored = state.stored.clone();
-        stored.devices.retain(|stored| stored.id != device);
-        if stored.devices.len() == state.stored.devices.len() {
-            return Ok(());
-        }
-        self.save(&stored)?;
-        state.stored = stored;
+        let Some(index) = state
+            .stored
+            .devices
+            .iter()
+            .position(|stored| stored.id == device)
+        else {
+            return Ok(None);
+        };
+        let removed =
+            self.edit_stored(&mut state.stored, |stored| Ok(stored.devices.remove(index)))?;
         drop(state);
         self.changed();
-        Ok(())
+        Ok(removed.push)
+    }
+
+    pub(crate) fn accepting(&self) -> bool {
+        self.lock().stored.settings.enabled
+    }
+
+    pub(crate) fn push_notifications(&self) -> bool {
+        self.lock().stored.push_notifications
+    }
+
+    pub(crate) fn set_push_notifications(&self, on: bool) -> Result<PushSwitch, ServerError> {
+        let mut state = self.lock();
+        if state.stored.push_notifications == on {
+            return Ok(PushSwitch::default());
+        }
+        let switch = self.edit_stored(&mut state.stored, |stored| {
+            stored.push_notifications = on;
+            stored.push_off_since = (!on).then(now);
+            let mut switch = PushSwitch::default();
+            for device in &mut stored.devices {
+                let Some(push) = &mut device.push else {
+                    continue;
+                };
+                if on {
+                    switch.resumed.push(device.id);
+                } else {
+                    switch.deleted.extend(push.relay.take());
+                    push.status = PushStatus::Pending;
+                }
+            }
+            Ok(switch)
+        })?;
+        drop(state);
+        self.changed();
+        Ok(switch)
+    }
+
+    pub(crate) fn expire_paused_push(&self, now: u64) -> Result<bool, ServerError> {
+        let mut state = self.lock();
+        let expired = !state.stored.push_notifications
+            && state
+                .stored
+                .push_off_since
+                .is_some_and(|since| since.saturating_add(PUSH_KEPT_SECONDS) <= now)
+            && state
+                .stored
+                .devices
+                .iter()
+                .any(|device| device.push.is_some());
+        if !expired {
+            return Ok(false);
+        }
+        self.edit_stored(&mut state.stored, |stored| {
+            for device in &mut stored.devices {
+                device.push = None;
+            }
+            Ok(())
+        })?;
+        drop(state);
+        self.changed();
+        Ok(true)
+    }
+
+    pub(crate) fn knows(&self, device: DeviceId) -> bool {
+        self.lock()
+            .stored
+            .devices
+            .iter()
+            .any(|stored| stored.id == device)
+    }
+
+    pub(crate) fn push_record(&self, device: DeviceId) -> Option<PushRecord> {
+        self.lock()
+            .stored
+            .devices
+            .iter()
+            .find(|stored| stored.id == device)
+            .and_then(|stored| stored.push.clone())
+    }
+
+    pub(crate) fn push_records(&self) -> Vec<(DeviceId, PushRecord)> {
+        self.lock()
+            .stored
+            .devices
+            .iter()
+            .filter_map(|device| device.push.clone().map(|push| (device.id, push)))
+            .collect()
+    }
+
+    pub(crate) fn replace_push(
+        &self,
+        device: DeviceId,
+        expected: Option<&PushRecord>,
+        next: Option<PushRecord>,
+    ) -> Result<bool, ServerError> {
+        let mut state = self.lock();
+        let Some(index) = state
+            .stored
+            .devices
+            .iter()
+            .position(|stored| stored.id == device)
+        else {
+            return Ok(false);
+        };
+        let current = &state.stored.devices[index].push;
+        let registering = next.as_ref().is_some_and(|push| push.relay.is_some());
+        if current.as_ref() != expected || (registering && !state.stored.push_notifications) {
+            return Ok(false);
+        }
+        if *current == next {
+            return Ok(true);
+        }
+        let shown =
+            current.as_ref().map(|push| push.status) != next.as_ref().map(|push| push.status);
+        self.edit_stored(&mut state.stored, |stored| {
+            stored.devices[index].push = next;
+            Ok(())
+        })?;
+        drop(state);
+        if shown {
+            self.changed();
+        }
+        Ok(true)
     }
 
     pub(crate) fn admit(&self) -> Option<Admission> {
@@ -404,16 +577,29 @@ impl RemoteAccess {
         })
     }
 
-    fn save(&self, stored: &Stored) -> Result<(), ServerError> {
-        match &self.store {
-            Some(path) => store::save(path, stored).map_err(|error| {
+    fn edit_stored<T>(
+        &self,
+        current: &mut Stored,
+        change: impl FnOnce(&mut Stored) -> Result<T, ServerError>,
+    ) -> Result<T, ServerError> {
+        let mut stored = current.clone();
+        let result = change(&mut stored)?;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ServerError::new(
+                ErrorCode::PersistenceFailed,
+                "the server is stopping",
+            ));
+        }
+        if let Some(path) = &self.store {
+            store::save(path, &stored).map_err(|error| {
                 ServerError::new(
                     ErrorCode::PersistenceFailed,
                     format!("could not save device access: {error}"),
                 )
-            }),
-            None => Ok(()),
+            })?;
         }
+        *current = stored;
+        Ok(result)
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -447,7 +633,6 @@ fn hash(token: &[u8]) -> [u8; 32] {
     bytes
 }
 
-/// Compares secrets in time independent of where they differ.
 fn same<const N: usize>(left: &[u8; N], right: &[u8; N]) -> bool {
     left.iter()
         .zip(right)

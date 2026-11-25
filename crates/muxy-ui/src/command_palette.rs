@@ -115,7 +115,6 @@ impl<A> Command<A> {
         self
     }
 
-    /// A short label outlined at the row's right edge.
     #[must_use]
     pub fn badge(mut self, label: impl Into<SharedString>) -> Self {
         self.badge = Some(label.into());
@@ -142,9 +141,10 @@ impl<A> Command<A> {
         row.swatches.clone_from(&self.swatches);
         row.current = self.current;
         row.badge.clone_from(&self.badge);
-        row.trailing = match self.target {
-            Target::Action(_) => self.shortcut.clone(),
-            Target::List(_) => Some("›".into()),
+        row.trailing = match (&self.target, &self.shortcut) {
+            (Target::Action(_), shortcut) => shortcut.clone(),
+            (Target::List(_), Some(shortcut)) => Some(format!("{shortcut}  ›").into()),
+            (Target::List(_), None) => Some("›".into()),
         };
         PickerItem::Row(row)
     }

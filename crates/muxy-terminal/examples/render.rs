@@ -104,6 +104,11 @@ fn row_text(row: &Row, cursor: Cursor) -> String {
         let width = usize::from(run.width);
         let all_narrow = run.text.chars().count() == width;
         for ch in run.text.chars() {
+            let ch = if ch.is_control() {
+                char::REPLACEMENT_CHARACTER
+            } else {
+                ch
+            };
             let cell_width = if all_narrow { 1 } else { cell_width(ch) };
             if cell_width == 0 && cells.len() > start {
                 if let Some(cell) = cells.last_mut() {

@@ -124,10 +124,6 @@ impl Cropper {
 const MAX_SIDE: u32 = 8192;
 const MAX_DECODED: u64 = 64 * 1024 * 1024;
 
-/// Reads a logo file of at most 20 MB and returns it at most 1024 pixels on
-/// its longer side. Raster images are decoded within `MAX_SIDE` pixels and
-/// `MAX_DECODED` bytes, and anything the image crate doesn't recognise is
-/// tried as an SVG.
 fn load(path: &Path) -> Result<image::RgbaImage, String> {
     const MAX_FILE: u64 = 20 * 1024 * 1024;
     let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
@@ -138,8 +134,12 @@ fn load(path: &Path) -> Result<image::RgbaImage, String> {
     if bytes.len() as u64 > MAX_FILE {
         return Err(tr!("Choose an image smaller than 20 MB.").to_string());
     }
-    if image::guess_format(&bytes).is_err() {
-        return rasterize_svg(&bytes);
+    decode(&bytes)
+}
+
+pub(crate) fn decode(bytes: &[u8]) -> Result<image::RgbaImage, String> {
+    if image::guess_format(bytes).is_err() {
+        return rasterize_svg(bytes);
     }
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -150,12 +150,20 @@ fn load(path: &Path) -> Result<image::RgbaImage, String> {
     limits.max_alloc = Some(MAX_DECODED);
     reader.limits(limits);
     let mut decoder = reader.into_decoder().map_err(|_| unsupported())?;
+    let (width, height) = decoder.dimensions();
+    if decoder.total_bytes() > MAX_DECODED || u64::from(width) * u64::from(height) > MAX_DECODED / 4
+    {
+        return Err(unsupported());
+    }
     let orientation = decoder.orientation().map_err(|error| error.to_string())?;
     let mut image =
         image::DynamicImage::from_decoder(decoder).map_err(|error| error.to_string())?;
     image.apply_orientation(orientation);
     if image.width() == 0 || image.height() == 0 {
         return Err(tr!("The image is empty.").to_string());
+    }
+    if image.width() <= 1024 && image.height() <= 1024 {
+        return Ok(image.into_rgba8());
     }
     Ok(image.thumbnail(1024, 1024).to_rgba8())
 }
@@ -176,9 +184,6 @@ fn system_fonts() -> Arc<resvg::usvg::fontdb::Database> {
         .clone()
 }
 
-/// Tells whether resvg may decode an image embedded in an SVG logo. resvg
-/// decodes without limits, so a raster image is drawn only when its header
-/// declares a size within the limits `load` applies to other images.
 fn fits_decode_limits(kind: &resvg::usvg::ImageKind) -> bool {
     use resvg::usvg::ImageKind;
     let (ImageKind::JPEG(data)
@@ -204,12 +209,6 @@ fn is_gzip(bytes: &[u8]) -> bool {
     bytes.starts_with(&[0x1f, 0x8b])
 }
 
-/// Draws an SVG at most 1024 pixels on its longer side, like `load` does for
-/// other images. Text is set in the system fonts, which are scanned once, the
-/// first time an SVG asks for a font. Embedded images are drawn when they fit
-/// `fits_decode_limits`, linked images are ignored so a logo can't read other
-/// files, and compressed SVGs, embedded or not, are refused because usvg
-/// inflates them without a limit.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -473,8 +472,6 @@ fn preview(
         .child(corner_mask(radius, background))
 }
 
-// GPUI's content mask clips rectangles. Cover the four corners without
-// decoding or uploading another image as the user drags or zooms.
 fn corner_mask(radius: gpui::Pixels, color: gpui::Hsla) -> impl IntoElement {
     canvas(
         |_, _, _| (),
@@ -710,6 +707,31 @@ fn apply_button(model: &AppModel, cx: &mut Context<AppModel>) -> impl IntoElemen
 #[cfg(test)]
 mod tests {
     use super::{load, rasterize_svg};
+
+    #[test]
+    fn decode_rejects_oversized_pixel_buffers_before_decoding() {
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(4, 4, image::Rgb([255, 0, 0]))
+            .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+            .expect("jpeg fixture");
+        let original = jpeg.into_inner();
+        let frame = original
+            .windows(2)
+            .position(|bytes| bytes == [0xff, 0xc0])
+            .expect("frame header");
+        for (width, height) in [(8192_u16, 8192_u16), (4096, 4097)] {
+            let mut bytes = original.clone();
+            bytes[frame + 5..frame + 7].copy_from_slice(&height.to_be_bytes());
+            bytes[frame + 7..frame + 9].copy_from_slice(&width.to_be_bytes());
+            let dimensions = image::ImageReader::new(std::io::Cursor::new(&bytes))
+                .with_guessed_format()
+                .expect("format")
+                .into_dimensions()
+                .expect("dimensions");
+            assert_eq!(dimensions, (u32::from(width), u32::from(height)));
+            assert_eq!(super::decode(&bytes), Err(super::unsupported()));
+        }
+    }
 
     #[test]
     fn load_draws_svg_bounded_whatever_size_it_declares() {

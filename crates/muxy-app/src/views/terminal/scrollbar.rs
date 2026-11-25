@@ -1,5 +1,3 @@
-//! The terminal's own scrollbar, for panes the system gives none.
-
 use std::time::Instant;
 
 use gpui::{Bounds, Context, Pixels, Task, point, px, size};
@@ -9,25 +7,20 @@ use muxy_ui::scrollbar::{
 
 use super::pane::TerminalPane;
 
-/// The gap between the thumb and the pane's right edge.
 const EDGE_GAP: f32 = 2.0;
 
 #[derive(Debug)]
 pub(crate) struct Scrollbar {
     reveal: ScrollbarRevealState,
-    /// Reveal times count from here.
     epoch: Instant,
     hide: Option<Task<()>>,
-    /// Where a drag holds the thumb, in pixels below its top.
     grab: Option<f32>,
-    /// Where the pane was last drawn.
     track: Option<Bounds<Pixels>>,
 }
 
 struct Geometry {
     track: Bounds<Pixels>,
     thumb: ThumbGeometry,
-    /// The rows the pane can scroll through.
     scrollable: f64,
 }
 
@@ -47,8 +40,6 @@ impl Geometry {
         )
     }
 
-    /// How far above the bottom the view is when the thumb's top sits `origin`
-    /// pixels down the track.
     fn rows_from_bottom(&self, origin: f32) -> f64 {
         let travel = f64::from(f32::from(self.track.size.height)) - self.thumb.length;
         if travel <= 0.0 {
@@ -107,7 +98,6 @@ impl TerminalPane {
         })
     }
 
-    /// The thumb, while the scrollbar shows.
     pub(super) fn scrollbar_thumb(&self, now: Instant) -> Option<Bounds<Pixels>> {
         self.scrollbar
             .shown(now)
@@ -120,7 +110,6 @@ impl TerminalPane {
         self.scrollbar.grab.is_some()
     }
 
-    /// Shows the scrollbar for a moment, as scrolling and pointing at it do.
     pub(super) fn reveal_scrollbar(&mut self, cx: &mut Context<Self>) {
         if self.scrollbar_geometry().is_none() {
             return;
@@ -157,7 +146,6 @@ impl TerminalPane {
         }
     }
 
-    /// Starts dragging the thumb when the press lands on the shown scrollbar.
     pub(super) fn press_scrollbar(
         &mut self,
         position: gpui::Point<Pixels>,
@@ -193,7 +181,6 @@ impl TerminalPane {
         self.scroll_to(geometry.rows_from_bottom(origin), cx);
     }
 
-    /// Ends a drag of the thumb, if one was under way.
     pub(super) fn release_scrollbar(&mut self, cx: &mut Context<Self>) -> bool {
         if self.scrollbar.grab.take().is_none() {
             return false;
@@ -203,12 +190,12 @@ impl TerminalPane {
             .reveal
             .end_drag(now.duration_since(self.scrollbar.epoch));
         self.reveal_scrollbar(cx);
+        self.settle_scroll(cx);
         cx.notify();
         true
     }
 }
 
-/// Whether `position` is over the strip of `track` the thumb moves in.
 fn near_thumb(track: Bounds<Pixels>, position: gpui::Point<Pixels>) -> bool {
     track.contains(&position) && position.x >= track.right() - px(WIDTH * 2.0)
 }

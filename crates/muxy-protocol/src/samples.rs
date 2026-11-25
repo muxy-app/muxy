@@ -1,10 +1,10 @@
 use std::num::NonZeroU64;
 
 use crate::{
-    AttachSnapshot, ChannelId, Color, Cursor, ErrorCode, ErrorReply, ExitReason, HistoryCursor,
-    HistoryPage, InputModes, Message, MetadataEvent, Modes, Modifiers, MouseAction, MouseButton,
-    MouseEvent, ReplyBody, RequestBody, RequestId, Row, Run, ScreenFrame, SearchMatch, SearchPage,
-    SearchSource, ServerPath, SessionId, Size, Style, TerminalColors, V2,
+    AttachSnapshot, ChannelId, Color, Cursor, CursorShape, ErrorCode, ErrorReply, ExitReason,
+    HistoryCursor, HistoryPage, InputModes, Message, MetadataEvent, Modes, Modifiers, MouseAction,
+    MouseButton, MouseEvent, ReplyBody, RequestBody, RequestId, Row, Run, ScreenFrame, SearchMatch,
+    SearchPage, SearchSource, ServerPath, SessionId, Size, Style, TerminalColors, V2,
 };
 
 impl Message {
@@ -56,6 +56,7 @@ impl Message {
                         history: Vec::new(),
                         history_cursor: None,
                         history_total: 0,
+                        history_graphics: None,
                     }),
                     process: None,
                 },
@@ -95,6 +96,8 @@ impl Message {
         samples.extend(input_samples().into_iter().chain(terminal_input_samples()));
         samples.extend(acknowledged_input_samples());
         samples.extend(search_samples(session, channel));
+        samples.extend(image_samples(channel));
+        samples.push(shared_image_sample());
         samples.extend(color_samples());
         samples.extend(settings_samples());
         samples.extend(project_samples());
@@ -102,8 +105,90 @@ impl Message {
         terminal_metadata_samples(&mut samples);
         samples.extend(activity_samples(session));
         samples.extend(remote_samples());
+        samples.extend(push_samples());
         samples
     }
+}
+
+fn push_samples() -> Vec<Message> {
+    let device = crate::DeviceId::from_u128(3);
+    let requests = [
+        RequestBody::RegisterPush(crate::PushToken {
+            platform: crate::PushPlatform::Apns,
+            token: "8f1c".repeat(16),
+            environment: Some(crate::PushEnvironment::Production),
+        }),
+        RequestBody::RegisterPush(crate::PushToken {
+            platform: crate::PushPlatform::Fcm,
+            token: "fcm-token:APA91b_".repeat(4),
+            environment: None,
+        }),
+        RequestBody::UnregisterPush,
+        RequestBody::SetPushNotifications(false),
+        RequestBody::ResetPush(device),
+    ];
+    let replies = [
+        ReplyBody::PushRegistered(crate::PushRegistration {
+            status: crate::PushStatus::Active,
+            key: Some([9; crate::PUSH_KEY_BYTES]),
+        }),
+        ReplyBody::PushRegistered(crate::PushRegistration {
+            status: crate::PushStatus::Disabled,
+            key: None,
+        }),
+        ReplyBody::PushUnregistered,
+        ReplyBody::RemoteAccess(crate::RemoteAccessState {
+            revision: 8,
+            settings: crate::RemoteAccessSettings {
+                enabled: true,
+                port: crate::DEFAULT_REMOTE_PORT,
+            },
+            status: crate::ListenerStatus::Listening,
+            pairing_expires_at: None,
+            devices: vec![crate::PairedDevice {
+                id: device,
+                name: "Phone".into(),
+                paired_at: 100,
+                last_seen: Some(200),
+                connected: false,
+                kind: crate::DeviceKind::Phone,
+                push: Some(crate::PushStatus::Refused),
+            }],
+            push_notifications: true,
+            push_kept_until: None,
+        }),
+        ReplyBody::RemoteAccess(crate::RemoteAccessState {
+            revision: 9,
+            settings: crate::RemoteAccessSettings {
+                enabled: true,
+                port: crate::DEFAULT_REMOTE_PORT,
+            },
+            status: crate::ListenerStatus::Listening,
+            pairing_expires_at: None,
+            devices: vec![crate::PairedDevice {
+                id: device,
+                name: "Phone".into(),
+                paired_at: 100,
+                last_seen: Some(200),
+                connected: false,
+                kind: crate::DeviceKind::Phone,
+                push: Some(crate::PushStatus::Disabled),
+            }],
+            push_notifications: false,
+            push_kept_until: Some(7_776_300),
+        }),
+    ];
+    requests
+        .into_iter()
+        .map(|body| Message::Request {
+            id: RequestId(48),
+            body,
+        })
+        .chain(replies.into_iter().map(|body| Message::Reply {
+            id: RequestId(48),
+            body,
+        }))
+        .collect()
 }
 
 fn remote_samples() -> Vec<Message> {
@@ -159,7 +244,10 @@ fn remote_samples() -> Vec<Message> {
                 last_seen: Some(200),
                 connected: true,
                 kind: crate::DeviceKind::Computer,
+                push: None,
             }],
+            push_notifications: false,
+            push_kept_until: None,
         }),
         ReplyBody::Pairing(crate::PairingOffer {
             invite: crate::PairingInvite {
@@ -221,6 +309,95 @@ fn search_samples(session: SessionId, channel: ChannelId) -> Vec<Message> {
     ]
 }
 
+fn image_samples(channel: ChannelId) -> Vec<Message> {
+    let frame = |key| crate::GraphicFrame { key, gap: 40 };
+    let pixels: std::sync::Arc<[u8]> = vec![0, 255, 0, 255].into();
+    let graphics = crate::Graphics {
+        images: vec![crate::GraphicImage {
+            id: 7,
+            generation: 3,
+            width: 1,
+            height: 1,
+            rgba: pixels.clone(),
+            frames: vec![frame(11), frame(12)],
+            playback: crate::Playback {
+                state: crate::PlaybackState::Running,
+                frame: 1,
+                loops: 0,
+            },
+            shared: None,
+        }],
+        placements: vec![crate::GraphicPlacement {
+            image: 7,
+            id: 0,
+            column: 0,
+            row: 0,
+            offset: [0, 0],
+            size: [8, 16],
+            source: [0, 0, 1, 1],
+            z: 0,
+        }],
+        ..crate::Graphics::default()
+    };
+    vec![
+        Message::Request {
+            id: RequestId(8),
+            body: RequestBody::DeferImages,
+        },
+        Message::Reply {
+            id: RequestId(8),
+            body: ReplyBody::ImagesDeferred,
+        },
+        Message::Request {
+            id: RequestId(10),
+            body: RequestBody::StreamImages,
+        },
+        Message::Reply {
+            id: RequestId(10),
+            body: ReplyBody::ImagesStreamed,
+        },
+        Message::Request {
+            id: RequestId(11),
+            body: RequestBody::ShareImages,
+        },
+        Message::Reply {
+            id: RequestId(11),
+            body: ReplyBody::ImagesShared,
+        },
+        Message::Request {
+            id: RequestId(9),
+            body: RequestBody::ImageFrames {
+                channel,
+                image: 7,
+                keys: vec![11, 12],
+            },
+        },
+        Message::Reply {
+            id: RequestId(9),
+            body: ReplyBody::ImageFrames(vec![crate::ImageFrame {
+                key: 11,
+                width: 1,
+                height: 1,
+                rgba: pixels,
+            }]),
+        },
+        Message::Frame(ScreenFrame {
+            size: Size { cols: 80, rows: 24 },
+            graphics: Some(graphics.clone()),
+            seq: 2,
+            reset: false,
+            rows: Vec::new(),
+            cursor: Cursor {
+                shape: CursorShape::default(),
+                row: 0,
+                col: 0,
+                visible: true,
+            },
+            modes: Modes::default(),
+        }),
+    ]
+}
+
 fn history_samples(mut snapshot: AttachSnapshot) -> Vec<Message> {
     snapshot.history.clone_from(&snapshot.rows);
     snapshot.history_total = 2;
@@ -272,6 +449,7 @@ fn history_samples(mut snapshot: AttachSnapshot) -> Vec<Message> {
                 next: None,
                 total_rows: 2,
                 screen: None,
+                graphics: None,
             }),
         },
         Message::Reply {
@@ -291,7 +469,7 @@ fn color_samples() -> [Message; 4] {
         cursor: [0xc3, 0x70, 0xd3],
         ansi: [[0x12, 0x34, 0x56]; 16],
         palette: std::collections::BTreeMap::from([(196, [0xab, 0xcd, 0xef])]),
-        cursor_style: Some(crate::CursorShape::Bar),
+        cursor_style: Some(CursorShape::Bar),
         cursor_blink: Some(false),
     };
     [
@@ -317,24 +495,81 @@ fn color_samples() -> [Message; 4] {
     ]
 }
 
-fn input_samples() -> [Message; 2] {
-    [
-        Message::Mouse(MouseEvent {
-            action: MouseAction::Press,
-            button: Some(MouseButton::Left),
-            column: 3,
-            row: 1,
-            scroll: None,
-            modifiers: Modifiers {
-                shift: false,
-                alt: true,
-                ctrl: false,
+fn shared_image_sample() -> Message {
+    Message::Frame(ScreenFrame {
+        size: Size {
+            cols: 150,
+            rows: 47,
+        },
+        graphics: Some(crate::Graphics {
+            cell: crate::CellSize {
+                width: 16,
+                height: 34,
             },
+            images: vec![crate::GraphicImage {
+                id: 8,
+                generation: 4,
+                width: 64,
+                height: 34,
+                shared: Some(crate::SharedPixels {
+                    name: "/mx1f-2a".into(),
+                }),
+                ..crate::GraphicImage::default()
+            }],
+            placements: vec![crate::GraphicPlacement {
+                image: 8,
+                id: 0,
+                column: 0,
+                row: 0,
+                offset: [0, 0],
+                size: [64, 34],
+                source: [0, 0, 64, 34],
+                z: 0,
+            }],
+        }),
+        seq: 3,
+        reset: false,
+        rows: Vec::new(),
+        cursor: Cursor {
+            shape: CursorShape::default(),
+            row: 0,
+            col: 0,
+            visible: false,
+        },
+        modes: Modes::default(),
+    })
+}
+
+fn input_samples() -> [Message; 4] {
+    let press = MouseEvent {
+        action: MouseAction::Press,
+        button: Some(MouseButton::Left),
+        column: 3,
+        row: 1,
+        scroll: None,
+        modifiers: Modifiers {
+            shift: false,
+            alt: true,
+            ctrl: false,
+        },
+        pixel: None,
+    };
+    let modes = InputModes {
+        mouse_tracking: true,
+        alternate_scroll: false,
+        focus_events: true,
+        mouse_pixels: false,
+    };
+    [
+        Message::Mouse(press),
+        Message::Metadata(MetadataEvent::InputModes(modes)),
+        Message::Mouse(MouseEvent {
+            pixel: Some([29, 21]),
+            ..press
         }),
         Message::Metadata(MetadataEvent::InputModes(InputModes {
-            mouse_tracking: true,
-            alternate_scroll: false,
-            focus_events: true,
+            mouse_pixels: true,
+            ..modes
         })),
     ]
 }
@@ -431,7 +666,7 @@ fn hello_sample() -> Message {
 
 fn sample_cursor() -> Cursor {
     Cursor {
-        shape: crate::CursorShape::default(),
+        shape: CursorShape::default(),
         row: 0,
         col: 3,
         visible: true,
@@ -479,10 +714,83 @@ fn changed_samples() -> [Message; 2] {
         .map(|(topic, revision)| Message::Changed { topic, revision })
 }
 
+fn project_session_samples(project: crate::ProjectId, directory: ServerPath) -> [Message; 7] {
+    use crate::{ProjectSession, ProjectSessions, SessionInfo, SessionStatus};
+    [
+        Message::Request {
+            id: RequestId(7),
+            body: RequestBody::WatchSessionMetadata,
+        },
+        Message::Reply {
+            id: RequestId(7),
+            body: ReplyBody::SessionMetadataWatched,
+        },
+        Message::Reply {
+            id: RequestId(3),
+            body: ReplyBody::ProjectSessions(ProjectSessions {
+                revision: 1,
+                sessions: vec![ProjectSession {
+                    info: SessionInfo {
+                        id: SessionId::from(NonZeroU64::MIN),
+                        project,
+                        directory: directory.clone(),
+                    },
+                    status: SessionStatus::Live,
+                    owner: Some(crate::SessionClient {
+                        id: crate::ClientId::from_u128(4),
+                        kind: crate::ClientKind::Desktop,
+                    }),
+                    attached: true,
+                    name: None,
+                }],
+                next: None,
+            }),
+        },
+        Message::Request {
+            id: RequestId(5),
+            body: RequestBody::SetSessionName {
+                session: SessionId::from(NonZeroU64::MIN),
+                name: Some("API server".into()),
+                replacing: None,
+            },
+        },
+        Message::Reply {
+            id: RequestId(5),
+            body: ReplyBody::SessionNameSet,
+        },
+        Message::Request {
+            id: RequestId(8),
+            body: RequestBody::SetSessionName {
+                session: SessionId::from(NonZeroU64::MIN),
+                name: None,
+                replacing: Some("API server".into()),
+            },
+        },
+        Message::Reply {
+            id: RequestId(6),
+            body: ReplyBody::ProjectSessions(ProjectSessions {
+                revision: 2,
+                sessions: vec![ProjectSession {
+                    info: SessionInfo {
+                        id: SessionId::from(NonZeroU64::MIN),
+                        project,
+                        directory,
+                    },
+                    status: SessionStatus::Live,
+                    owner: None,
+                    attached: false,
+                    name: Some("API server".into()),
+                }],
+                next: None,
+            }),
+        },
+    ]
+}
+
 fn project_samples() -> Vec<Message> {
     use crate::{
         CatalogPage, OperationId, ProjectDescriptor, ProjectId, ProjectIntent, ProjectMutation,
-        ProjectSession, ProjectSessions, ServerIdentity, SessionInfo, SessionStatus,
+        ServerIdentity,
     };
     let project = ProjectDescriptor {
         id: ProjectId::from_u128(1),
@@ -553,30 +861,11 @@ fn project_samples() -> Vec<Message> {
             body: ReplyBody::ProjectMutated { revision: 1 },
         },
         Message::Reply {
-            id: RequestId(3),
-            body: ReplyBody::ProjectSessions(ProjectSessions {
-                revision: 1,
-                sessions: vec![ProjectSession {
-                    info: SessionInfo {
-                        id: SessionId::from(NonZeroU64::MIN),
-                        project: project.id,
-                        directory: project.directory,
-                    },
-                    status: SessionStatus::Live,
-                    owner: Some(crate::SessionClient {
-                        id: crate::ClientId::from_u128(4),
-                        kind: crate::ClientKind::Desktop,
-                    }),
-                    attached: true,
-                }],
-                next: None,
-            }),
-        },
-        Message::Reply {
             id: RequestId(4),
             body: ReplyBody::CreationCancelled,
         },
     ];
+    samples.extend(project_session_samples(project.id, project.directory));
     samples.extend(changed_samples());
     samples.push(prune_worktree_sample());
     samples
@@ -621,6 +910,17 @@ fn close_samples() -> Vec<Message> {
         Message::Reply {
             id: RequestId(99),
             body: ReplyBody::SessionClosed,
+        },
+        Message::Request {
+            id: RequestId(99),
+            body: RequestBody::MoveSession {
+                session: SessionId::from(NonZeroU64::MIN),
+                project: crate::ProjectId::from_u128(1),
+            },
+        },
+        Message::Reply {
+            id: RequestId(99),
+            body: ReplyBody::SessionMoved,
         },
     ]
 }
@@ -691,7 +991,6 @@ fn git_samples() -> Vec<Message> {
     ]
 }
 
-/// Samples for reviewing and applying AI-drafted commits and pull requests.
 fn git_review_samples() -> Vec<Message> {
     let destination = crate::GitPushDestination {
         remote: "origin".into(),
@@ -857,6 +1156,23 @@ fn files_samples() -> Vec<Message> {
         Message::Reply {
             id: RequestId(9),
             body: ReplyBody::Folders(vec![ServerPath(b"code".to_vec())]),
+        },
+        Message::Request {
+            id: RequestId(11),
+            body: RequestBody::ListEntries(ServerPath(b"/home/dev".to_vec())),
+        },
+        Message::Reply {
+            id: RequestId(11),
+            body: ReplyBody::Entries(vec![
+                crate::PathEntry {
+                    name: ServerPath(b"code".to_vec()),
+                    is_directory: true,
+                },
+                crate::PathEntry {
+                    name: ServerPath(b"notes.txt".to_vec()),
+                    is_directory: false,
+                },
+            ]),
         },
         Message::Request {
             id: RequestId(10),

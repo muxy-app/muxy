@@ -1,6 +1,3 @@
-//! The server a command talks to: this computer's, or the one on another
-//! computer, reached over SSH with `--host`.
-
 use std::error::Error;
 use std::io;
 use std::path::PathBuf;
@@ -13,22 +10,24 @@ const LOCAL_RETRY: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Debug)]
 pub(crate) enum Target {
-    /// The server in the local profile, started from `executable` if needed.
     Local {
         profile: PathBuf,
         executable: PathBuf,
     },
-    /// The server on another computer. The TUI still keeps its layouts in the
-    /// local profile.
-    Ssh { profile: PathBuf, host: SshTarget },
+    Ssh {
+        profile: PathBuf,
+        host: Box<SshTarget>,
+    },
 }
 
 impl Target {
-    /// The server on `host` if one is given, else this computer's.
     pub(crate) fn new(host: Option<SshTarget>) -> io::Result<Self> {
         let profile = muxy_core::dirs::muxy_dir()?;
         Ok(match host {
-            Some(host) => Self::Ssh { profile, host },
+            Some(host) => Self::Ssh {
+                profile,
+                host: Box::new(host),
+            },
             None => Self::Local {
                 profile,
                 executable: muxy_client::local::server_executable()?,
@@ -52,7 +51,6 @@ impl Target {
         }
     }
 
-    /// Names the server in messages.
     pub(crate) fn describe(&self) -> &str {
         match self {
             Self::Local { .. } => "local server",
@@ -60,8 +58,6 @@ impl Target {
         }
     }
 
-    /// Where the TUI keeps its layout for `server`. The local server's stays
-    /// in the profile; each remote server gets a private folder of its own.
     pub(crate) fn layout_directory(&self, server: ServerIdentity) -> PathBuf {
         match self {
             Self::Local { profile, .. } => profile.clone(),
@@ -69,8 +65,6 @@ impl Target {
         }
     }
 
-    /// How long to wait before connecting again after `failures` failed
-    /// attempts in a row.
     pub(crate) fn retry_delay(&self, failures: usize) -> Duration {
         match self {
             Self::Local { .. } => LOCAL_RETRY,
@@ -79,8 +73,6 @@ impl Target {
         }
     }
 
-    /// Adds the other computer's name to the errors that don't say which
-    /// server stopped answering.
     pub(crate) fn explain(&self, error: impl Into<Box<dyn Error>>) -> Box<dyn Error> {
         let error = error.into();
         match (self, error.downcast_ref::<ClientError>()) {
@@ -92,7 +84,6 @@ impl Target {
     }
 }
 
-/// The session this command runs in, when it runs in a terminal of `server`.
 pub(crate) fn hosting_session(server: ServerIdentity) -> Option<SessionId> {
     let inherited: ServerIdentity = std::env::var("MUXY_SERVER_ID").ok()?.parse().ok()?;
     (inherited == server).then_some(())?;

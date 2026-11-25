@@ -1,5 +1,3 @@
-//! The thread that reads each agent's tabs while terminals run it.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Weak;
 use std::time::{Duration, Instant};
@@ -8,16 +6,9 @@ use super::Report;
 use crate::activity::Activity;
 
 const INTERVAL: Duration = Duration::from_millis(1500);
-/// The least time between polls, so a burst of terminal changes costs one.
 const SETTLE: Duration = Duration::from_millis(200);
-/// How long a report's busy sessions last without a successful poll. A
-/// failed poll keeps the last tabs, so they don't blink out, but not work
-/// that may have ended since.
 const STALE: Duration = Duration::from_secs(10);
 
-/// Polls every source while any terminal runs its agent, every `INTERVAL`
-/// or soon after a terminal starts, stops, or switches tabs, until
-/// `activity` is dropped.
 pub(crate) fn poll(activity: &Weak<Activity>) {
     let mut sources = super::sources();
     let mut last_success: HashMap<muxy_protocol::AgentProvider, Instant> = HashMap::new();

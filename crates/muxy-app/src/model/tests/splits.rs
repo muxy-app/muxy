@@ -155,7 +155,12 @@ fn equalize_splits_evens_resized_panes_from_the_shortcut_and_the_terminal_menu(
     view.read_with(cx, |model, _| assert_even_and_saved(model));
 }
 
-fn scroll_first_pane(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<AppModel>) {
+fn scroll_first_pane(
+    model: &mut AppModel,
+    panes: &[PaneId],
+    rows: f32,
+    cx: &mut Context<AppModel>,
+) {
     let scrolled = model.terminal(&panes[0]).expect("terminal").view.clone();
     scrolled.update(cx, |pane, cx| {
         pane.set_viewport(attachment().terminal.grid.size, cx);
@@ -174,7 +179,7 @@ fn scroll_first_pane(model: &mut AppModel, panes: &[PaneId], cx: &mut Context<Ap
             })
             .collect();
         grid.history_total = 10;
-        pane.scroll_rows(4.0, cx);
+        pane.scroll_rows(rows, cx);
     });
 }
 
@@ -191,7 +196,7 @@ fn a_hidden_tab_comes_back_scrolled_where_it_was_left(cx: &mut TestAppContext) {
                 .expect("row")
                 .to_vec()
         };
-        scroll_first_pane(model, &panes, cx);
+        scroll_first_pane(model, &panes, 4.0, cx);
         let left = top_row(model, panes[0], cx);
         assert_eq!(left[0].text, "6");
         model.new_tab(cx);
@@ -206,6 +211,24 @@ fn a_hidden_tab_comes_back_scrolled_where_it_was_left(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_tab_hidden_just_above_the_bottom_comes_back_at_the_bottom(cx: &mut TestAppContext) {
+    let (state, first_tab, panes) = split_state();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        scroll_first_pane(model, &panes, 0.25, cx);
+        let pane = model.terminal(&panes[0]).expect("terminal").view.read(cx);
+        assert!(pane.scroll.view.is_some());
+        model.new_tab(cx);
+        assert!(!model.has_saved_scroll());
+        model.select_tab(first_tab, cx);
+        attach_panes(model, &panes, cx);
+        let pane = model.terminal(&panes[0]).expect("terminal").view.read(cx);
+        assert!(pane.scroll.view.is_none());
+    });
+}
+
+#[gpui::test]
 fn scroll_on_output_notices_output_attached_while_the_tab_was_hidden_again(
     cx: &mut TestAppContext,
 ) {
@@ -213,7 +236,7 @@ fn scroll_on_output_notices_output_attached_while_the_tab_was_hidden_again(
     let (boot, _requests) = stub_boot(state);
     let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
     view.update(cx, |model, cx| {
-        scroll_first_pane(model, &panes, cx);
+        scroll_first_pane(model, &panes, 4.0, cx);
         model.terminal.options.scroll_on_output = true;
         model.new_tab(cx);
         let (_, session) = model.state.pane_session(panes[0]).expect("session");
@@ -294,6 +317,8 @@ fn closing_tab_checks_every_hidden_pane_and_cancel_keeps_all(cx: &mut TestAppCon
     });
 }
 
+const REPORTED: &str = if cfg!(windows) { r"C:\Temp" } else { "/tmp" };
+
 #[gpui::test]
 fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
     cx: &mut TestAppContext,
@@ -301,12 +326,12 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
     for (setting, reported, inherit) in [
         (
             muxy_app_core::settings::NewPaneDirectory::Project,
-            b"/tmp".as_slice(),
+            REPORTED.as_bytes(),
             false,
         ),
         (
             muxy_app_core::settings::NewPaneDirectory::Current,
-            b"/tmp".as_slice(),
+            REPORTED.as_bytes(),
             true,
         ),
         (
@@ -364,7 +389,7 @@ fn split_directory_inherits_only_when_configured_and_falls_back_to_project(
             assert_eq!(
                 directory,
                 if inherit {
-                    PathBuf::from("/tmp")
+                    PathBuf::from(REPORTED)
                 } else {
                     model.state.current_project().directory.clone()
                 }
@@ -444,7 +469,7 @@ fn every_pane_has_a_header_whose_buttons_act_on_that_pane(cx: &mut TestAppContex
             "header",
             "split-right",
             "split-down",
-            "detach",
+            "float",
             "maximize",
             "close",
         ] {
@@ -643,6 +668,108 @@ fn a_pane_header_names_the_shell_while_its_tab_keeps_its_title(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn a_pane_header_shows_its_folder_unless_the_title_already_does(cx: &mut TestAppContext) {
+    use muxy_protocol::MetadataEvent;
+    let (state, _, panes) = split_state();
+    let pane = panes[0];
+    let home = state.home().directory.to_string_lossy().into_owned();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    let report = |event: MetadataEvent, cx: &mut VisualTestContext| {
+        view.update(cx, |model, cx| {
+            let terminal = model.terminal(&pane).expect("terminal").view.clone();
+            terminal.update(cx, |terminal, cx| terminal.metadata(event, cx));
+        });
+        cx.run_until_parked();
+    };
+    let directory = |name: &str, cx: &mut VisualTestContext| {
+        cx.debug_bounds(format!("pane-directory-{pane}-{name}").leak())
+            .is_some()
+    };
+    view.update(cx, |model, cx| attach_panes(model, &panes, cx));
+    report(
+        MetadataEvent::ForegroundProcess {
+            name: "-zsh".into(),
+            is_shell: true,
+        },
+        cx,
+    );
+    report(
+        MetadataEvent::Directory(format!("{home}/muxy/crates").into()),
+        cx,
+    );
+    assert!(
+        cx.debug_bounds(format!("pane-title-{pane}-zsh").leak())
+            .is_some()
+    );
+    let separator = std::path::MAIN_SEPARATOR;
+    assert!(directory(&format!("~{separator}muxy{separator}crates"), cx));
+
+    let titles = [
+        (format!("~{separator}muxy"), "muxy"),
+        (format!("dev@host: ~{separator}api"), "api"),
+    ];
+    for (title, folder) in &titles {
+        let title = title.as_str();
+        report(MetadataEvent::Title(title.into()), cx);
+        report(
+            MetadataEvent::Directory(format!("{home}/{folder}").into()),
+            cx,
+        );
+        assert!(
+            cx.debug_bounds(format!("pane-title-{pane}-{title}").leak())
+                .is_some()
+        );
+        assert!(!directory(&format!("~{separator}{folder}"), cx), "{title}");
+    }
+}
+
+#[gpui::test]
+fn a_narrow_pane_header_cuts_its_folder_before_its_title(cx: &mut TestAppContext) {
+    use muxy_protocol::MetadataEvent;
+    let (state, _, panes) = split_state();
+    let pane = panes[0];
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    view.update(cx, |model, cx| attach_panes(model, &panes, cx));
+    let folder = format!("/srv/{}", "deep/".repeat(40));
+    let folder = folder.trim_end_matches('/').to_owned();
+    for event in [
+        MetadataEvent::ForegroundProcess {
+            name: "a-long-running-program-name".into(),
+            is_shell: false,
+        },
+        MetadataEvent::Directory(folder.clone().into()),
+    ] {
+        view.update(cx, |model, cx| {
+            let terminal = model.terminal(&pane).expect("terminal").view.clone();
+            terminal.update(cx, |terminal, cx| terminal.metadata(event, cx));
+        });
+    }
+    cx.run_until_parked();
+    let title = |cx: &mut VisualTestContext| {
+        cx.debug_bounds(format!("pane-title-{pane}-a-long-running-program-name").leak())
+            .expect("title")
+            .size
+            .width
+    };
+    let directory = |cx: &mut VisualTestContext| {
+        cx.debug_bounds(format!("pane-directory-{pane}-{folder}").leak())
+            .expect("folder")
+            .size
+            .width
+    };
+    let wide = title(cx);
+    let wide_directory = directory(cx);
+    cx.simulate_resize(size(px(700.0), px(800.0)));
+    cx.run_until_parked();
+    assert_eq!(title(cx), wide);
+    assert!(directory(cx) < wide_directory);
+}
+
+#[gpui::test]
 fn with_pane_headers_off_panes_have_no_header_but_stay_dimmed(cx: &mut TestAppContext) {
     let (state, _, panes) = split_state();
     let (mut boot, _requests) = stub_boot(state);
@@ -754,4 +881,172 @@ fn only_terminal_panes_get_a_header(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(shown(cx, "header", terminal));
     assert!(!shown(cx, "header", settings));
+}
+
+fn attach_reporting(
+    model: &mut AppModel,
+    pane: PaneId,
+    reported: &[u8],
+    cx: &mut Context<AppModel>,
+) {
+    let mut data = attachment();
+    data.directory = muxy_protocol::ServerPath(reported.to_vec());
+    model.receive(
+        (
+            ServerId::local(),
+            1,
+            Update::Attached {
+                pane,
+                session: SessionId::new(100).expect("session"),
+                attachment: data,
+                created: false,
+            },
+        ),
+        cx,
+    );
+}
+
+fn absolute(name: &str) -> Vec<u8> {
+    if cfg!(windows) {
+        format!("C:\\{name}").into_bytes()
+    } else {
+        format!("/{name}").into_bytes()
+    }
+}
+
+fn starts_in(model: &AppModel, pane: PaneId) -> Vec<u8> {
+    model
+        .state
+        .clone()
+        .prepare_creation(pane, std::path::Path::new("/fallback"))
+        .0
+}
+
+#[gpui::test]
+fn new_tabs_start_in_the_focused_panes_directory_only_when_configured_and_in_its_project(
+    cx: &mut TestAppContext,
+) {
+    use muxy_app_core::settings::NewPaneDirectory;
+    let other_folder = tempfile::tempdir().expect("folder");
+    let tmp = absolute("tmp");
+    for (setting, reported, inherit) in [
+        (NewPaneDirectory::Project, tmp.as_slice(), false),
+        (NewPaneDirectory::Current, tmp.as_slice(), true),
+        (NewPaneDirectory::Current, b"".as_slice(), false),
+    ] {
+        let mut state = AppState::bootstrap().expect("state");
+        let other = state
+            .add_project(ServerId::local(), other_folder.path().to_owned())
+            .expect("project");
+        state.select_project(state.home().id).expect("home");
+        let anchor = state.open_terminal_tab(state.home().id).expect("tab");
+        let original = state.home().tabs[0].panes[0].id;
+        state
+            .set_pane_session(original, SessionId::new(100))
+            .expect("session");
+        let (mut boot, _requests) = stub_boot(state);
+        boot.settings.panes.new_pane_directory = setting;
+        let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        view.update(cx, |model, cx| {
+            model.servers.local.connection = ConnectionState::Ready;
+            let expected: &[u8] = if inherit { &tmp } else { b"/fallback" };
+
+            attach_reporting(model, original, reported, cx);
+            model.new_tab(cx);
+            let pane = model.active_pane().expect("new tab");
+            assert_ne!(pane, original);
+            assert_eq!(starts_in(model, pane), expected);
+
+            model.select_tab(anchor, cx);
+            attach_reporting(model, original, reported, cx);
+            assert_eq!(model.active_pane(), Some(original));
+            model.new_tab_adjacent(anchor, muxy_app_core::TabSide::Right, cx);
+            let pane = model.active_pane().expect("adjacent tab");
+            assert_eq!(starts_in(model, pane), expected);
+
+            model.select_tab(anchor, cx);
+            attach_reporting(model, original, reported, cx);
+            model.new_tab_in(other, cx);
+            let pane = model.active_pane().expect("other project's tab");
+            assert_eq!(starts_in(model, pane), b"/fallback");
+        });
+    }
+}
+
+#[gpui::test]
+fn a_new_tab_from_a_tab_window_starts_in_that_windows_pane_directory(cx: &mut TestAppContext) {
+    use crate::model::tab_windows::Surface;
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    state.open_terminal_tab(home).expect("tab");
+    let main = state.home().tabs[0].panes[0].id;
+    let detached = state.open_terminal_tab(home).expect("tab");
+    let pane = state.home().tabs[1].panes[0].id;
+    state
+        .set_pane_session(main, SessionId::new(100))
+        .expect("session");
+    state
+        .set_pane_session(pane, SessionId::new(101))
+        .expect("session");
+    let (mut boot, _requests) = stub_boot(state);
+    boot.settings.panes.new_pane_directory = muxy_app_core::settings::NewPaneDirectory::Current;
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| {
+        model.move_tab_to_window(detached, None, None, cx);
+    });
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        model.servers.local.connection = ConnectionState::Ready;
+        for (pane, session, directory) in [
+            (main, 100, absolute("main")),
+            (pane, 101, absolute("detached")),
+        ] {
+            let mut data = attachment();
+            data.directory = muxy_protocol::ServerPath(directory);
+            model.receive(
+                (
+                    ServerId::local(),
+                    1,
+                    Update::Attached {
+                        pane,
+                        session: SessionId::new(session).expect("session"),
+                        attachment: data,
+                        created: false,
+                    },
+                ),
+                cx,
+            );
+        }
+        let id = model.state.tab_windows().next().expect("window").2.id;
+        model.enter_surface(Surface::Tab(id));
+        assert_eq!(model.active_pane(), Some(pane));
+        model.new_tab(cx);
+        let opened = model.state.window().active_pane.expect("new tab");
+        assert_ne!(opened, main);
+        assert_eq!(starts_in(model, opened), absolute("detached"));
+    });
+}
+
+#[gpui::test]
+fn a_pane_header_meets_its_terminal_at_every_interface_size(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::InterfaceSize;
+    for size in [
+        InterfaceSize::Regular,
+        InterfaceSize::Large,
+        InterfaceSize::ExtraLarge,
+        InterfaceSize::Huge,
+    ] {
+        let mut state = AppState::bootstrap().expect("state");
+        state.open_terminal_tab(state.home().id).expect("tab");
+        let pane = state.home().tabs[0].panes[0].id;
+        let (mut boot, _) = stub_boot(state);
+        boot.settings.appearance.interface_size = size;
+        let (_, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        cx.run_until_parked();
+        let header = cx
+            .debug_bounds(format!("pane-header-{pane}").leak())
+            .expect("header");
+        let terminal = cx.debug_bounds("terminal-pane").expect("terminal");
+        assert_eq!(header.bottom(), terminal.top(), "{size:?}");
+    }
 }

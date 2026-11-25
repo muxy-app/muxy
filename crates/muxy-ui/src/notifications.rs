@@ -1,9 +1,9 @@
-//! Native delivery only; notification history and policy belong to callers.
-
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(windows)]
+mod windows;
 
 #[cfg(any(test, feature = "test-support"))]
 use std::sync::{Arc, Mutex, PoisonError};
@@ -13,6 +13,10 @@ use async_channel::Receiver;
 use async_channel::Sender;
 use muxy_core::capability::Capability;
 
+#[cfg(windows)]
+use self::windows::Service;
+#[cfg(windows)]
+pub use self::windows::{ACTIVATION_ARGUMENT, CAPABILITY, identify_process};
 #[cfg(target_os = "linux")]
 pub use linux::CAPABILITY;
 #[cfg(target_os = "linux")]
@@ -22,12 +26,9 @@ pub use macos::CAPABILITY;
 #[cfg(target_os = "macos")]
 use macos::Service;
 
-/// What a notification service reports while it runs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Event {
-    /// The user opened the notification with this identifier.
     Opened(String),
-    /// What the system lets the service do changed.
     Capability(Capability),
 }
 
@@ -43,7 +44,6 @@ enum Backend {
 pub struct Notifications(Backend);
 
 impl Notifications {
-    /// Starts the platform's notification service, and the events it reports.
     pub fn start() -> (Self, Receiver<Event>) {
         match Service::start() {
             Ok((service, events)) => (Self(Backend::Native(service)), events),
@@ -54,14 +54,12 @@ impl Notifications {
         }
     }
 
-    /// A service with no backend, for tests that must not reach the desktop.
     #[cfg(any(test, feature = "test-support"))]
     pub fn absent() -> (Self, Receiver<Event>) {
         let (_, events) = async_channel::bounded(1);
         (Self(Backend::Absent(Capability::Unsupported)), events)
     }
 
-    /// Whether a notification delivered now would reach the user.
     pub fn capability(&self) -> Capability {
         match &self.0 {
             Backend::Native(service) => service.capability(),
@@ -71,16 +69,12 @@ impl Notifications {
         }
     }
 
-    /// Asks the service what the system lets it do now. A change arrives as
-    /// an [`Event::Capability`].
     pub fn refresh(&self) {
         if let Backend::Native(service) = &self.0 {
             service.refresh();
         }
     }
 
-    /// Shows a notification that opens something in the app: an
-    /// [`Event::Opened`] follows when the user opens it.
     pub fn deliver(&self, id: &str, title: &str, body: &str) {
         match &self.0 {
             Backend::Native(service) => service.deliver(id, title, body),
@@ -90,7 +84,6 @@ impl Notifications {
         }
     }
 
-    /// Shows a notification that only informs, with nothing for the user to open.
     pub fn inform(&self, id: &str, title: &str, body: &str) {
         match &self.0 {
             Backend::Native(service) => service.inform(id, title, body),
@@ -136,17 +129,14 @@ impl SimulatedNotifications {
         self.shown.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Identifiers delivered and not yet cleared, in delivery order.
     pub fn visible(&self) -> Vec<String> {
         self.shown().clone()
     }
 
-    /// Acts as the user opening the notification `id`.
     pub fn open(&self, id: &str) {
         let _ = self.events.try_send(Event::Opened(id.to_owned()));
     }
 
-    /// Acts as the system changing what the service may do.
     pub fn report(&self, capability: Capability) {
         let _ = self.events.try_send(Event::Capability(capability));
     }

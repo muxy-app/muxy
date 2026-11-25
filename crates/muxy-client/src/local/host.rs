@@ -1,17 +1,3 @@
-//! Starts the server through a host: a copy of the app that lives as long as
-//! the server.
-//!
-//! macOS holds the process that starts another one responsible for its privacy
-//! permissions, such as Local Network. Once that process exits, macOS stops
-//! honoring them, and terminal commands get "No route to host". The app quits
-//! while its server keeps running, so the app starts a host instead. The host
-//! is responsible for itself and is the app's own executable, so the server
-//! keeps the app's permissions for as long as it runs.
-//!
-//! The host still belongs to the app, so macOS ends it, the server, and every
-//! terminal once the app quits, unless the user allows Muxy under Background
-//! App Activity. The host notes that stop so the app can explain it.
-
 use signal_hook::consts::SIGTERM;
 use signal_hook::iterator::SignalsInfo;
 use signal_hook::iterator::exfiltrator::WithOrigin;
@@ -25,21 +11,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{fs, ptr, thread};
 
-/// The first argument of an app started as a host. The server's arguments
-/// follow.
 pub const FLAG: &str = "--server-host";
 
-/// The macOS process that ends a quit app's processes when the app may not
-/// run in the background.
 const LOGIN_WINDOW: &str =
     "/System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow";
 
-/// The file in the profile that records a stop by [`LOGIN_WINDOW`].
 const BACKGROUND_STOP: &str = "stopped-in-background";
 
-/// Runs the server beside this executable with `arguments` and returns once it
-/// exits. Anyone can start the app with [`FLAG`], so the host never runs a
-/// program named by its caller: that program would get the app's permissions.
 pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     let Ok(executable) = muxy_core::executable::current_path() else {
         return ExitCode::FAILURE;
@@ -66,11 +44,6 @@ pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     }
 }
 
-/// Whether macOS stopped the server after the app quit, because the app may
-/// not run in the background. Forgets that stop, so it is reported once.
-///
-/// loginwindow also ends the server when the user logs out or restarts,
-/// and is replaced then, so only a stop by the one still running counts.
 pub fn take_background_stop(profile: &Path) -> bool {
     let path = profile.join(BACKGROUND_STOP);
     let Ok(sender) = fs::read_to_string(&path) else {
@@ -86,17 +59,12 @@ pub fn take_background_stop(profile: &Path) -> bool {
         .is_some_and(|running| running == sender)
 }
 
-/// The thread that notes a SIGTERM from [`LOGIN_WINDOW`], then ends the host
-/// as that signal would have.
 struct Watcher {
     signaled: Arc<AtomicBool>,
     thread: thread::JoinHandle<()>,
 }
 
 impl Watcher {
-    /// The SIGTERM that stops the host also stops the server, so the server can
-    /// exit while the stop is being noted. Waits for that note; the watcher then
-    /// ends the host.
     fn finish(self) {
         if self.signaled.load(Ordering::Acquire) {
             let _ = self.thread.join();
@@ -124,7 +92,6 @@ fn watch_background_stop() -> io::Result<Watcher> {
     Ok(Watcher { signaled, thread })
 }
 
-/// Notes a stop in `profile` when `sender` runs `expected`.
 fn note_stop_by(expected: &Path, sender: libc::pid_t, profile: &Path) -> io::Result<()> {
     if executable_of(sender).as_deref() != Some(expected) {
         return Ok(());
@@ -133,12 +100,9 @@ fn note_stop_by(expected: &Path, sender: libc::pid_t, profile: &Path) -> io::Res
     fs::write(profile.join(BACKGROUND_STOP), sender)
 }
 
-/// A process's ID and start time, which no later process shares.
 fn identity(process: libc::pid_t) -> Option<String> {
-    // SAFETY: `proc_bsdinfo` is plain data, valid when zeroed.
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = c_int::try_from(size_of_val(&info)).ok()?;
-    // SAFETY: `info` is writable for `size` bytes.
     let read = unsafe {
         libc::proc_pidinfo(
             process,
@@ -159,15 +123,11 @@ fn identity(process: libc::pid_t) -> Option<String> {
 fn executable_of(process: libc::pid_t) -> Option<PathBuf> {
     let mut path = vec![0_u8; usize::try_from(libc::PROC_PIDPATHINFO_MAXSIZE).ok()?];
     let capacity = u32::try_from(path.len()).ok()?;
-    // SAFETY: `path` is writable for `capacity` bytes.
     let length = unsafe { libc::proc_pidpath(process, path.as_mut_ptr().cast(), capacity) };
     path.truncate(usize::try_from(length).ok().filter(|length| *length > 0)?);
     Some(PathBuf::from(OsString::from_vec(path)))
 }
 
-/// The app that can host `server`: this executable, when it runs from an app
-/// bundle and `server` is the one beside it. Without a bundle there is no app
-/// identity to keep.
 pub(super) fn app_for(server: &Path) -> io::Result<Option<PathBuf>> {
     let executable = muxy_core::executable::current_path()?;
     Ok((muxy_core::bundle::containing(&executable).is_some()
@@ -179,8 +139,6 @@ fn server_beside(executable: &Path) -> PathBuf {
     executable.with_file_name("muxy-server")
 }
 
-/// Starts `app` as the host of its server, in its own process group and with
-/// output discarded, like a server started directly.
 pub(super) fn spawn(app: &Path, arguments: &[OsString]) -> io::Result<()> {
     let argv = c_strings(
         [app.as_os_str(), OsStr::new(FLAG)]
@@ -205,7 +163,6 @@ fn spawn_disclaimed(argv: &[CString], environment: &[CString]) -> io::Result<lib
     let flags =
         libc::c_short::try_from(libc::POSIX_SPAWN_SETPGROUP | libc::POSIX_SPAWN_CLOEXEC_DEFAULT)
             .map_err(io::Error::other)?;
-    // SAFETY: `attributes` and `actions` are initialized and outlive the calls.
     unsafe {
         check(libc::posix_spawnattr_setflags(&raw mut attributes.0, flags))?;
         check(libc::posix_spawnattr_setpgroup(&raw mut attributes.0, 0))?;
@@ -216,7 +173,6 @@ fn spawn_disclaimed(argv: &[CString], environment: &[CString]) -> io::Result<lib
         (libc::STDOUT_FILENO, libc::O_WRONLY),
         (libc::STDERR_FILENO, libc::O_WRONLY),
     ] {
-        // SAFETY: `actions` is initialized and the path is a valid C string.
         check(unsafe {
             libc::posix_spawn_file_actions_addopen(
                 &raw mut actions.0,
@@ -230,8 +186,6 @@ fn spawn_disclaimed(argv: &[CString], environment: &[CString]) -> io::Result<lib
     let argv_pointers = pointers(argv);
     let environment_pointers = pointers(environment);
     let mut process = 0;
-    // SAFETY: both pointer arrays are null-terminated and point into strings
-    // that outlive the call.
     check(unsafe {
         libc::posix_spawn(
             &raw mut process,
@@ -245,13 +199,8 @@ fn spawn_disclaimed(argv: &[CString], environment: &[CString]) -> io::Result<lib
     Ok(process)
 }
 
-/// Makes the host responsible for itself. The call is private to macOS, as
-/// Chromium and LLDB also use it, so it is looked up at run time. Without it
-/// the host still starts the server, which then keeps this app process
-/// responsible, as before.
 fn disclaim(attributes: &mut Attributes) -> io::Result<()> {
     type Disclaim = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, c_int) -> c_int;
-    // SAFETY: the name is a valid C string.
     let symbol = unsafe {
         libc::dlsym(
             libc::RTLD_DEFAULT,
@@ -261,15 +210,12 @@ fn disclaim(attributes: &mut Attributes) -> io::Result<()> {
     if symbol.is_null() {
         return Ok(());
     }
-    // SAFETY: the symbol has this signature on every macOS that exports it.
     let disclaim = unsafe { std::mem::transmute::<*mut libc::c_void, Disclaim>(symbol) };
-    // SAFETY: `attributes` is initialized.
     check(unsafe { disclaim(&raw mut attributes.0, 1) })
 }
 
 fn wait(process: libc::pid_t) {
     let mut status = 0;
-    // SAFETY: `process` is this process's child and `status` is writable.
     while unsafe { libc::waitpid(process, &raw mut status, 0) } == -1
         && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted
     {}
@@ -303,7 +249,6 @@ struct Attributes(libc::posix_spawnattr_t);
 impl Attributes {
     fn new() -> io::Result<Self> {
         let mut attributes = ptr::null_mut();
-        // SAFETY: `attributes` is writable.
         check(unsafe { libc::posix_spawnattr_init(&raw mut attributes) })?;
         Ok(Self(attributes))
     }
@@ -311,7 +256,6 @@ impl Attributes {
 
 impl Drop for Attributes {
     fn drop(&mut self) {
-        // SAFETY: initialized in `new` and destroyed once.
         unsafe { libc::posix_spawnattr_destroy(&raw mut self.0) };
     }
 }
@@ -321,7 +265,6 @@ struct FileActions(libc::posix_spawn_file_actions_t);
 impl FileActions {
     fn new() -> io::Result<Self> {
         let mut actions = ptr::null_mut();
-        // SAFETY: `actions` is writable.
         check(unsafe { libc::posix_spawn_file_actions_init(&raw mut actions) })?;
         Ok(Self(actions))
     }
@@ -329,7 +272,6 @@ impl FileActions {
 
 impl Drop for FileActions {
     fn drop(&mut self) {
-        // SAFETY: initialized in `new` and destroyed once.
         unsafe { libc::posix_spawn_file_actions_destroy(&raw mut self.0) };
     }
 }

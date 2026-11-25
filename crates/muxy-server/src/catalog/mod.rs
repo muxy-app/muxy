@@ -41,6 +41,7 @@ struct Membership {
     info: SessionInfo,
     status: SessionStatus,
     ended_at: Option<u64>,
+    name: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -193,6 +194,7 @@ impl State {
                         directory,
                     },
                     ended_at: None,
+                    name: None,
                     status: if archive.contains(id) {
                         SessionStatus::Ended
                     } else {
@@ -240,8 +242,6 @@ impl Catalog {
         let (mut state, unreadable) = match fs::read(&path) {
             Ok(bytes) => match parse(&bytes) {
                 Ok(state) => (state, None),
-                // The legacy import ran when this catalog was first written; only
-                // saved terminals are adopted again.
                 Err(error) => {
                     let state = fresh(LegacyImport::default(), archive)?;
                     (state, Some(crate::unreadable::set_aside(&path, &error)?))
@@ -267,7 +267,6 @@ impl Catalog {
         Ok(catalog)
     }
 
-    /// The saved catalog that couldn't be read when the server started.
     pub(crate) fn unreadable(&self) -> Option<&UnreadableFile> {
         self.unreadable.as_ref()
     }

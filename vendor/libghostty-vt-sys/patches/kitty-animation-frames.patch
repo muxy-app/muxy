@@ -1,0 +1,272 @@
+diff --git a/include/ghostty/vt/kitty_graphics.h b/include/ghostty/vt/kitty_graphics.h
+index 79aad5599..abe7a1a73 100644
+--- a/include/ghostty/vt/kitty_graphics.h
++++ b/include/ghostty/vt/kitty_graphics.h
+@@ -454,6 +454,28 @@ typedef enum GHOSTTY_ENUM_TYPED {
+   GHOSTTY_KITTY_IMAGE_COMPRESSION_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+ } GhosttyKittyImageCompression;
+ 
++/**
++ * Playback state of an animated Kitty graphics image.
++ *
++ * A program sets it with the `s` key of an animation control command
++ * (a=a). Every image starts stopped.
++ *
++ * @ingroup kitty_graphics
++ */
++typedef enum GHOSTTY_ENUM_TYPED {
++  /** Not playing. The displayed frame only changes when the program
++   *  picks another one (s=1). */
++  GHOSTTY_KITTY_ANIMATION_STATE_STOPPED = 0,
++
++  /** Playing, but waiting on the last frame for more frames to arrive
++   *  instead of looping (s=2). */
++  GHOSTTY_KITTY_ANIMATION_STATE_LOADING = 1,
++
++  /** Playing on a loop (s=3). */
++  GHOSTTY_KITTY_ANIMATION_STATE_RUNNING = 2,
++  GHOSTTY_KITTY_ANIMATION_STATE_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
++} GhosttyKittyAnimationState;
++
+ /**
+  * Queryable data kinds for ghostty_kitty_graphics_image_get().
+  *
+@@ -564,9 +586,69 @@ typedef enum GHOSTTY_ENUM_TYPED {
+    */
+   GHOSTTY_KITTY_IMAGE_DATA_GENERATION = 9,
+ 
++  /**
++   * The number of frames the image has, including the root frame (the
++   * image's own pixels). 1 for an image with no animation frames. Read
++   * each frame with ghostty_kitty_graphics_image_frame().
++   *
++   * Output type: uint32_t *
++   */
++  GHOSTTY_KITTY_IMAGE_DATA_FRAME_COUNT = 10,
++
++  /**
++   * Playback state of the image's animation.
++   * GHOSTTY_KITTY_ANIMATION_STATE_STOPPED for an image with no
++   * animation state.
++   *
++   * Output type: GhosttyKittyAnimationState *
++   */
++  GHOSTTY_KITTY_IMAGE_DATA_ANIMATION_STATE = 11,
++
++  /**
++   * The number of the frame currently displayed, which is the frame
++   * GHOSTTY_KITTY_IMAGE_DATA_DATA_PTR returns. Frames are numbered from
++   * 1, the root frame. 1 for an image with no animation state.
++   *
++   * Output type: uint32_t *
++   */
++  GHOSTTY_KITTY_IMAGE_DATA_CURRENT_FRAME = 12,
++
++  /**
++   * The number of loops the animation plays before it stops on its
++   * last frame (0 = loop forever). 0 for an image with no animation
++   * state.
++   *
++   * Output type: uint32_t *
++   */
++  GHOSTTY_KITTY_IMAGE_DATA_LOOPS = 13,
++
+   GHOSTTY_KITTY_IMAGE_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
+ } GhosttyKittyGraphicsImageData;
+ 
++/**
++ * One frame of a Kitty graphics image, filled in by
++ * ghostty_kitty_graphics_image_frame().
++ *
++ * @ingroup kitty_graphics
++ */
++typedef struct {
++  /** Borrowed pointer to the frame's pixels. Valid as long as the
++   *  underlying terminal is not mutated. The pixels are fully decoded
++   *  and uncompressed. The root frame (frame 1) is in the format
++   *  reported by GHOSTTY_KITTY_IMAGE_DATA_FORMAT. Every other frame is
++   *  RGBA. */
++  const uint8_t* data;
++  /** Length of the pixels in bytes. For the root frame this is
++   *  width * height * bytes-per-pixel for the image's format. For
++   *  every other frame it is width * height * 4. */
++  size_t data_len;
++  /** How long the frame is displayed before the next one, in
++   *  milliseconds. A frame with a gap of 0 is skipped during playback.
++   *  The root frame of an image with no animation state has a gap of
++   *  0. */
++  uint32_t gap_ms;
++} GhosttyKittyImageFrame;
++
+ /**
+  * The geometry of a storage placement, filled in by
+  * ghostty_kitty_graphics_placement_render_info().
+@@ -757,6 +839,36 @@ GHOSTTY_API GhosttyResult ghostty_kitty_graphics_image_get_multi(
+     void** values,
+     size_t* out_written);
+ 
++/**
++ * Get one frame of a Kitty graphics image: its pixels and how long it
++ * is displayed.
++ *
++ * The terminal stores every frame of an animated image, not only the
++ * one currently displayed. Use this to read them all, for example to
++ * play the animation somewhere else. Frames are numbered from 1 to
++ * GHOSTTY_KITTY_IMAGE_DATA_FRAME_COUNT. Frame 1 is the root frame,
++ * which is the image's own pixels, so it exists for images with no
++ * animation too.
++ *
++ * This doesn't change the image. The frame that is displayed stays the
++ * one GHOSTTY_KITTY_IMAGE_DATA_CURRENT_FRAME reports.
++ *
++ * @param image The image handle (NULL returns GHOSTTY_INVALID_VALUE)
++ * @param number The frame number, starting at 1
++ * @param[out] out Receives the frame. Only written when the function
++ *             returns GHOSTTY_SUCCESS.
++ * @return GHOSTTY_SUCCESS on success. GHOSTTY_NO_VALUE if the image has
++ *         no frame with that number, if the frame's pixels are pending,
++ *         or if Kitty graphics are disabled at build time.
++ *         GHOSTTY_INVALID_VALUE if `image` or `out` is NULL.
++ *
++ * @ingroup kitty_graphics
++ */
++GHOSTTY_API GhosttyResult ghostty_kitty_graphics_image_frame(
++    GhosttyKittyGraphicsImage image,
++    uint32_t number,
++    GhosttyKittyImageFrame* out);
++
+ /**
+  * Create a new placement iterator instance.
+  *
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 9c1413e51..ed1d9836f 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -400,6 +400,7 @@ comptime {
+             @export(&c.kitty_graphics_image, .{ .name = "ghostty_kitty_graphics_image" });
+             @export(&c.kitty_graphics_image_get, .{ .name = "ghostty_kitty_graphics_image_get" });
+             @export(&c.kitty_graphics_image_get_multi, .{ .name = "ghostty_kitty_graphics_image_get_multi" });
++            @export(&c.kitty_graphics_image_frame, .{ .name = "ghostty_kitty_graphics_image_frame" });
+             @export(&c.kitty_graphics_placement_iterator_new, .{ .name = "ghostty_kitty_graphics_placement_iterator_new" });
+             @export(&c.kitty_graphics_placement_iterator_free, .{ .name = "ghostty_kitty_graphics_placement_iterator_free" });
+             @export(&c.kitty_graphics_placement_iterator_set, .{ .name = "ghostty_kitty_graphics_placement_iterator_set" });
+diff --git a/src/terminal/c/kitty_graphics.zig b/src/terminal/c/kitty_graphics.zig
+index 27eb6fd6d..120963e7e 100644
+--- a/src/terminal/c/kitty_graphics.zig
++++ b/src/terminal/c/kitty_graphics.zig
+@@ -183,6 +183,10 @@ pub const ImageData = enum(c_int) {
+     data_ptr = 7,
+     data_len = 8,
+     generation = 9,
++    frame_count = 10,
++    animation_state = 11,
++    current_frame = 12,
++    loops = 13,
+ 
+     pub fn OutType(comptime self: ImageData) type {
+         return switch (self) {
+@@ -193,10 +197,26 @@ pub const ImageData = enum(c_int) {
+             .data_ptr => [*]const u8,
+             .data_len => usize,
+             .generation => u64,
++            .frame_count, .current_frame, .loops => u32,
++            .animation_state => AnimationState,
+         };
+     }
+ };
+ 
++/// C: GhosttyKittyAnimationState
++pub const AnimationState = enum(c_int) {
++    stopped = 0,
++    loading = 1,
++    running = 2,
++};
++
++/// C: GhosttyKittyImageFrame
++pub const ImageFrame = extern struct {
++    data: ?[*]const u8 = null,
++    data_len: usize = 0,
++    gap_ms: u32 = 0,
++};
++
+ pub fn animation_tick(
+     graphics_: KittyGraphics,
+     now_ms: u64,
+@@ -292,11 +312,45 @@ fn imageGetTyped(
+         .data_ptr => out.* = (image.renderData().bytes() orelse return .no_value).ptr,
+         .data_len => out.* = image.renderData().len(),
+         .generation => out.* = image.generation,
++        // An image has no animation state until an animation command
++        // (a=f, a=a) attaches one. Until then it is a single, stopped
++        // root frame.
++        .frame_count => out.* = if (image.animation) |anim| anim.frameCount() else 1,
++        .animation_state => out.* = if (image.animation) |anim| switch (anim.state) {
++            .stopped => .stopped,
++            .loading => .loading,
++            .running => .running,
++        } else .stopped,
++        .current_frame => out.* = if (image.animation) |anim| anim.current_index + 1 else 1,
++        .loops => out.* = if (image.animation) |anim| anim.max_loops else 0,
+     }
+ 
+     return .success;
+ }
+ 
++pub fn image_frame(
++    image_: ImageHandle,
++    number: u32,
++    out_: ?*ImageFrame,
++) callconv(lib.calling_conv) Result {
++    if (comptime !build_options.kitty_graphics) return .no_value;
++
++    const image = image_ orelse return .invalid_value;
++    const out = out_ orelse return .invalid_value;
++
++    // Null for a frame that doesn't exist (including number 0) and
++    // for one whose pixels are pending, like the data_ptr getter.
++    const data = image.frameData(number) orelse return .no_value;
++    out.* = .{
++        .data = data.ptr,
++        .data_len = data.len,
++        // Frames are numbered from 1, gaps are indexed from 0.
++        .gap_ms = if (image.animation) |anim| anim.gapAt(number - 1) else 0,
++    };
++
++    return .success;
++}
++
+ pub fn placement_iterator_new(
+     alloc_: ?*const CAllocator,
+     out: *PlacementIterator,
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index 581ffbe16..8fd86a5d0 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -17,6 +17,7 @@ pub const kitty_graphics_animation_tick = kitty_graphics.animation_tick;
+ pub const kitty_graphics_image = kitty_graphics.image_get_handle;
+ pub const kitty_graphics_image_get = kitty_graphics.image_get;
+ pub const kitty_graphics_image_get_multi = kitty_graphics.image_get_multi;
++pub const kitty_graphics_image_frame = kitty_graphics.image_frame;
+ pub const kitty_graphics_placement_iterator_new = kitty_graphics.placement_iterator_new;
+ pub const kitty_graphics_placement_iterator_free = kitty_graphics.placement_iterator_free;
+ pub const kitty_graphics_placement_iterator_set = kitty_graphics.placement_iterator_set;
+diff --git a/src/terminal/c/types.zig b/src/terminal/c/types.zig
+index db75bfddf..66c96e22f 100644
+--- a/src/terminal/c/types.zig
++++ b/src/terminal/c/types.zig
+@@ -193,6 +193,7 @@ const type_decls = [_]TypeDecl{
+     .initStruct("GhosttyFormatterTerminalOptions", formatter.TerminalOptions),
+     .initStruct("GhosttyGridRef", grid_ref.CGridRef),
+     .initStruct("GhosttyKittyGraphicsPlacementRenderInfo", kitty_graphics.PlacementRenderInfo),
++    .initStruct("GhosttyKittyImageFrame", kitty_graphics.ImageFrame),
+     .initStruct("GhosttyMimeReader", io.MimeReader),
+     .initStruct("GhosttyMouseEncoderSize", mouse_encode.Size),
+     .initStruct("GhosttyMousePosition", mouse_event.Position),
+@@ -272,6 +273,7 @@ const type_decls = [_]TypeDecl{
+     .initEnum("GhosttyKey", input_key.Key, "GHOSTTY_KEY_"),
+     .initEnum("GhosttyKeyAction", input_key.Action, "GHOSTTY_KEY_ACTION_"),
+     .initEnum("GhosttyKeyEncoderOption", key_encode.Option, "GHOSTTY_KEY_ENCODER_OPT_"),
++    .initEnum("GhosttyKittyAnimationState", kitty_graphics.AnimationState, "GHOSTTY_KITTY_ANIMATION_STATE_"),
+     .initEnum("GhosttyKittyGraphicsData", kitty_graphics.Data, "GHOSTTY_KITTY_GRAPHICS_DATA_"),
+     .initEnum("GhosttyKittyGraphicsImageData", kitty_graphics.ImageData, "GHOSTTY_KITTY_IMAGE_DATA_"),
+     .initEnum("GhosttyKittyGraphicsPlacementData", kitty_graphics.PlacementData, "GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_"),

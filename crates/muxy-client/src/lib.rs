@@ -1,10 +1,3 @@
-//! Shared client connection, handshake, routing, and synchronization.
-//!
-//! This crate translates shared protocol traffic without owning project,
-//! tab, pane, UI, or desktop update policy. Local startup launches an explicit executable.
-//! Servers on other computers are reached through a bridge, `muxy stdio`,
-//! which ssh runs there.
-
 mod typed;
 
 mod async_request;
@@ -31,7 +24,7 @@ pub use attachment::{AttachedTerminal, Attachment};
 pub use backoff::Backoff;
 pub use bridge::Start;
 pub use client::Client;
-pub use error::{ClientError, RemoteReason};
+pub use error::{ClientError, RemoteReason, ServerElsewhere};
 pub use error_tail::ErrorTail;
 pub use events::{ClientEvent, ClipboardWrite, take_attached};
 pub use git::AddedWorktree;

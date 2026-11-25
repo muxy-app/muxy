@@ -23,8 +23,6 @@ use muxy_ui::picker::{
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput};
 use muxy_ui::tr;
 
-/// Replies to what a dismissed Git overlay asked for no longer open
-/// follow-ups such as confirmations.
 fn end_git_interaction(model: &mut AppModel) -> Dismissal {
     model.git.interaction = model.git.interaction.wrapping_add(1);
     Dismissal::Close

@@ -1,13 +1,10 @@
-//! Files in a project's folder. Paths are relative to the folder, and `""` is
-//! the folder itself.
-
 use muxy_client::Client;
 use muxy_protocol::{self as protocol, ProjectId};
 
 use crate::MobileError;
 use crate::records::{server_path, text};
 
-/// One project's folder. Every call talks to the server.
+#[doc = " One project's folder. Every call talks to the server."]
 #[derive(Debug, uniffi::Object)]
 pub struct ProjectFiles {
     client: Client,
@@ -19,7 +16,7 @@ pub struct FileEntry {
     pub name: String,
     pub path: String,
     pub is_directory: bool,
-    /// Git ignores it.
+    #[doc = " Git ignores it."]
     pub is_ignored: bool,
 }
 
@@ -39,7 +36,7 @@ impl ProjectFiles {
 
 #[uniffi::export]
 impl ProjectFiles {
-    /// Folders first, then files, by name. `.git` is left out.
+    #[doc = " Folders first, then files, by name. `.git` is left out."]
     pub fn list(&self, path: String) -> Result<Vec<FileEntry>, MobileError> {
         let entries = self
             .client
@@ -54,8 +51,8 @@ impl ProjectFiles {
             .into())
     }
 
-    /// A UTF-8 text file of up to 5 MiB. Other files fail with `Server`; read
-    /// them with `read_bytes`.
+    #[doc = " A UTF-8 text file of up to 5 MiB. Other files fail with `Server`; read"]
+    #[doc = " them with `read_bytes`."]
     pub fn read_text(&self, path: String) -> Result<String, MobileError> {
         Ok(self
             .client
@@ -63,7 +60,7 @@ impl ProjectFiles {
             .content)
     }
 
-    /// Any file of up to 5 MiB, such as an image.
+    #[doc = " Any file of up to 5 MiB, such as an image."]
     pub fn read_bytes(&self, path: String) -> Result<Vec<u8>, MobileError> {
         Ok(self
             .client
@@ -71,7 +68,7 @@ impl ProjectFiles {
             .bytes)
     }
 
-    /// Creates or replaces the file, whose folder must exist, and returns its path.
+    #[doc = " Creates or replaces the file, whose folder must exist, and returns its path."]
     pub fn write_text(&self, path: String, text: String) -> Result<String, MobileError> {
         let written = self
             .client
@@ -79,7 +76,7 @@ impl ProjectFiles {
         Ok(crate::records::text(&written))
     }
 
-    /// Like `write_text`, for any content of up to 5 MiB.
+    #[doc = " Like `write_text`, for any content of up to 5 MiB."]
     pub fn write_bytes(&self, path: String, bytes: Vec<u8>) -> Result<String, MobileError> {
         let written = self
             .client
@@ -87,8 +84,8 @@ impl ProjectFiles {
         Ok(text(&written))
     }
 
-    /// Returns the folder's path, which gets a number, such as `notes 2`,
-    /// when the name is taken.
+    #[doc = " Returns the folder's path, which gets a number, such as `notes 2`,"]
+    #[doc = " when the name is taken."]
     pub fn create_directory(&self, path: String) -> Result<String, MobileError> {
         let created = self
             .client
@@ -96,8 +93,8 @@ impl ProjectFiles {
         Ok(text(&created))
     }
 
-    /// Renames within the same folder and returns the new path. Fails when
-    /// `name` is taken.
+    #[doc = " Renames within the same folder and returns the new path. Fails when"]
+    #[doc = " `name` is taken."]
     pub fn rename(&self, path: String, name: String) -> Result<String, MobileError> {
         let renamed =
             self.client
@@ -105,8 +102,8 @@ impl ProjectFiles {
         Ok(text(&renamed))
     }
 
-    /// Moves files and folders into the folder `into` and returns their new
-    /// paths in order. A taken name gets a number.
+    #[doc = " Moves files and folders into the folder `into` and returns their new"]
+    #[doc = " paths in order. A taken name gets a number."]
     pub fn move_files(&self, paths: Vec<String>, into: String) -> Result<Vec<String>, MobileError> {
         let moved = self.client.move_files(
             self.project,
@@ -116,15 +113,15 @@ impl ProjectFiles {
         Ok(moved.iter().map(text).collect())
     }
 
-    /// Moves files and folders to the computer's Trash.
+    #[doc = " Moves files and folders to the computer's Trash."]
     pub fn delete_files(&self, paths: Vec<String>) -> Result<(), MobileError> {
         Ok(self
             .client
             .delete_files(self.project, paths.into_iter().map(server_path).collect())?)
     }
 
-    /// Sends `FilesChanged` for this project until `unwatch`. A connection
-    /// watches up to 32 projects.
+    #[doc = " Sends `FilesChanged` for this project until `unwatch`. A connection"]
+    #[doc = " watches up to 32 projects."]
     pub fn watch(&self) -> Result<(), MobileError> {
         Ok(self.client.watch_files(self.project)?)
     }

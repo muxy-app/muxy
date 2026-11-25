@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use muxy_protocol::{ProjectDescriptor, ServerPath};
 
@@ -7,7 +7,7 @@ use crate::{AppError, AppState, Project, ServerId, WindowState};
 
 impl AppState {
     pub fn bootstrap() -> Result<Self, AppError> {
-        let home = new_home(home_directory()?)?;
+        let home = new_home(&home_directory()?)?;
         let window = WindowState {
             active_pane: None,
             focus_history: Vec::new(),
@@ -15,7 +15,7 @@ impl AppState {
             selected_tab: HashMap::new(),
             bounds: None,
             workspace: None,
-            remote_servers: false,
+            floats_hidden: false,
         };
         Ok(Self {
             servers: BTreeMap::new(),
@@ -29,11 +29,10 @@ impl AppState {
             removed_projects: Vec::new(),
             window,
             set_aside: None,
+            session_moves: Vec::new(),
         })
     }
 
-    /// The local Home goes first, in the OS home directory. A remote server's
-    /// Home comes from its catalog and goes first among its projects.
     pub(crate) fn ensure_home(&mut self) -> Result<(), AppError> {
         let directory = home_directory()?;
         let index = self
@@ -54,7 +53,7 @@ impl AppState {
             home.directory = directory;
             self.projects.insert(0, home);
         } else {
-            self.projects.insert(0, new_home(directory)?);
+            self.projects.insert(0, new_home(&directory)?);
         }
         let remote_homes: Vec<_> = self
             .projects
@@ -75,10 +74,10 @@ impl AppState {
             self.projects
                 .iter()
                 .find(|candidate| candidate.id == *project)
-                .is_some_and(|project| project.tabs.iter().any(|candidate| candidate.id == *tab))
+                .is_some_and(|project| project.listed_tabs().any(|candidate| candidate.id == *tab))
         });
         for project in &self.projects {
-            if let Some(tab) = project.tabs.first() {
+            if let Some(tab) = project.listed_tabs().next() {
                 self.window.selected_tab.entry(project.id).or_insert(tab.id);
             }
         }
@@ -93,8 +92,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Moves the Home at `index` in front of its server's other projects, and
-    /// the local Home in front of all. A Home already there stays put.
     pub(crate) fn place_home(&mut self, index: usize) {
         let server = self.projects[index].server_id;
         let first = if server.is_local() {
@@ -113,12 +110,12 @@ impl AppState {
 }
 
 fn home_directory() -> Result<PathBuf, AppError> {
-    std::env::home_dir()
-        .filter(|path| !path.as_os_str().is_empty())
-        .ok_or(AppError::HomeDirectoryUnavailable)
+    let home = muxy_core::paths::home_dir().map_err(|_| AppError::HomeDirectoryUnavailable)?;
+    crate::catalog::checked_server_path(&home)?;
+    Ok(home)
 }
 
-fn new_home(directory: PathBuf) -> Result<Project, AppError> {
+fn new_home(directory: &Path) -> Result<Project, AppError> {
     let home = ProjectDescriptor::home(ServerPath::from(directory));
     Project::from_descriptor(ServerId::local(), &home)
 }

@@ -1,6 +1,3 @@
-//! The sidebar's Devices section: other computers' servers with their state,
-//! and the popover, form, password prompt, and list that manage them.
-
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
@@ -22,12 +19,10 @@ use muxy_ui::tr;
 
 use super::command_palette::Handler;
 use super::overlays::{Dismissal, Mark, Overlay, OverlayView, Placement};
-use crate::model::{AppModel, ConnectionTest, DeviceForm, RemoteServer, ServerStatus};
+use crate::model::{AppModel, ConnectionTest, RemoteServer, ServerFields, ServerStatus};
 
-/// The Add or Edit form for one remote server.
 pub(crate) struct ServerForm {
-    /// `None` adds a server.
-    device: Option<ServerId>,
+    server: Option<ServerId>,
     name: Entity<TextInput>,
     group: Entity<TextInput>,
     host: Entity<TextInput>,
@@ -73,9 +68,9 @@ impl ServerForm {
         muxy_ui::form::advance_focus(&fields, backwards, window);
     }
 
-    fn submitted(&self, cx: &gpui::App) -> DeviceForm {
+    fn submitted(&self, cx: &gpui::App) -> ServerFields {
         let text = |input: &Entity<TextInput>| input.read(cx).text().to_owned();
-        DeviceForm {
+        ServerFields {
             name: text(&self.name),
             host: text(&self.host),
             ssh_command: self.custom_command.then(|| text(&self.command)),
@@ -93,7 +88,6 @@ impl ServerForm {
     }
 }
 
-/// Asks for a server's password before connecting to it.
 pub(crate) struct PasswordPrompt {
     server: ServerId,
     input: Entity<TextInput>,
@@ -130,18 +124,15 @@ pub(crate) fn dot(color: Hsla, model: &AppModel) -> gpui::Div {
         .bg(color)
 }
 
-/// How much a server not connected asks for attention: a failure most, then
-/// one on its way, then one simply offline.
 fn attention(server: &RemoteServer) -> usize {
     match server.status {
         ServerStatus::Connected => 0,
-        ServerStatus::Disconnected if server.error.is_none() => 1,
-        ServerStatus::Connecting | ServerStatus::Restarting | ServerStatus::Stopping => 2,
-        ServerStatus::Disconnected => 3,
+        ServerStatus::Disconnected if server.error.is_none() => 0,
+        ServerStatus::Connecting | ServerStatus::Restarting | ServerStatus::Stopping => 1,
+        ServerStatus::Disconnected => 2,
     }
 }
 
-/// The Devices button's name, with what isn't connected.
 fn section_label(servers: &[RemoteServer]) -> String {
     let offline = servers
         .iter()
@@ -156,7 +147,7 @@ fn section_label(servers: &[RemoteServer]) -> String {
             )
         })
         .count();
-    let mut label = tr!("Devices").to_string();
+    let mut label = tr!("Servers").to_string();
     if offline > 0 {
         label = format!("{label} · {}", tr!("%lld offline", offline));
     }
@@ -166,8 +157,6 @@ fn section_label(servers: &[RemoteServer]) -> String {
     label
 }
 
-/// The bottom of the sidebar, level with the status bar: the remote servers,
-/// which open their popover above it.
 pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let theme = &model.theme;
     let anchor = model.remote_anchor.clone();
@@ -204,7 +193,6 @@ pub(crate) fn section(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElemen
         .into_any_element()
 }
 
-/// One server in the popover: its state, then why it failed or how to fix it.
 fn server_row(server: &RemoteServer, model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
     let m = model.metrics;
     let theme = &model.theme;
@@ -303,7 +291,6 @@ fn server_row(server: &RemoteServer, model: &AppModel, cx: &mut Context<AppModel
         }))
 }
 
-/// Edit…, shown in place of the status while the row is hovered.
 fn edit_button(
     id: ServerId,
     name: &str,
@@ -343,7 +330,6 @@ fn edit_button(
         .into_any_element()
 }
 
-/// A group's heading in the popover; right-click it for the group's menu.
 fn group_heading(group: Option<&str>, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let m = model.metrics;
     let name = group.map(str::to_owned);
@@ -378,7 +364,6 @@ fn group_heading(group: Option<&str>, model: &AppModel, cx: &mut Context<AppMode
         .into_any_element()
 }
 
-/// The popover above the sidebar's Remote section.
 pub(crate) struct RemotePopover;
 
 impl OverlayView for RemotePopover {
@@ -401,7 +386,6 @@ impl OverlayView for RemotePopover {
     }
 }
 
-/// The popover above the section, which has the keyboard.
 fn popover(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
     list(model, window, cx)
         .key_context("Menu")
@@ -412,8 +396,6 @@ fn popover(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> Any
         .into_any_element()
 }
 
-/// The popover's servers by group, then Add and Manage. It also shows under
-/// a menu opened from it.
 pub(crate) fn list(
     model: &AppModel,
     window: &Window,
@@ -451,13 +433,13 @@ pub(crate) fn list(
         .id("remote-servers-popover")
         .role(Role::Group)
         .accessibility_id("remote-servers-popover")
-        .aria_label(tr!("Devices"))
+        .aria_label(tr!("Servers"))
         .debug_selector(|| "remote-servers-popover".into())
         .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .w(width)
         .max_h((window.viewport_size().height - m.status_bar_height() - px(16.0)).max(px(0.0)))
         .overflow_y_scroll()
-        .child(muxy_ui::popover::header(theme, m).child(tr!("Devices")))
+        .child(muxy_ui::popover::header(theme, m).child(tr!("Servers")))
         .when(servers.is_empty(), |list| {
             list.child(
                 div()
@@ -475,7 +457,7 @@ pub(crate) fn list(
                 div()
                     .id("remote-servers-rows")
                     .role(Role::Tree)
-                    .aria_label(tr!("Devices"))
+                    .aria_label(tr!("Servers"))
                     .flex()
                     .flex_none()
                     .flex_col()
@@ -504,20 +486,19 @@ pub(crate) fn list(
             action(
                 "remote-manage-servers",
                 Icon::Settings,
-                tr!("Manage Devices…"),
+                tr!("Manage Servers…"),
             )
             .on_click(cx.listener(|model, _, window, cx| {
-                model.show_devices_settings(window, cx);
+                model.show_servers_settings(window, cx);
             })),
         )
 }
 
-/// "Devices…" in the command palette: Add Server…, Pair with Link…, Copy My
-/// Pair Link, Manage Devices…, then each server.
 pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handler> {
     let _ = model;
     let model = cx.weak_entity();
-    Command::list("remote_servers", tr!("Devices…"), move |cx| {
+    let title = super::workspace::commands::title(muxy_core::shortcuts::ShortcutId::ShowServers);
+    Command::list(super::workspace::commands::SERVERS_PAGE, title, move |cx| {
         let mut servers = Registry::default();
         let add: Handler = Rc::new(|model, _, cx| model.open_server_form(None, cx));
         servers.register(
@@ -533,10 +514,10 @@ pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handl
             Command::new("remote-copy-pair-link", tr!("Copy My Pair Link"), copy)
                 .keywords("Copy My Pair Link Pairing Code Computer Phone"),
         );
-        let manage: Handler = Rc::new(AppModel::show_devices_settings);
+        let manage: Handler = Rc::new(AppModel::show_servers_settings);
         servers.register(
-            Command::new("remote-manage-servers", tr!("Manage Devices…"), manage)
-                .keywords("Manage Devices Servers Pairing"),
+            Command::new("remote-manage-servers", tr!("Manage Servers…"), manage)
+                .keywords("Manage Servers Clients Pairing"),
         );
         let Some(model) = model.upgrade() else {
             return servers;
@@ -546,10 +527,11 @@ pub(crate) fn command(model: &AppModel, cx: &Context<AppModel>) -> Command<Handl
         }
         servers
     })
-    .keywords("Devices Remote Servers Pairing")
+    .keywords(super::workspace::commands::search_words(
+        muxy_core::shortcuts::ShortcutId::ShowServers,
+    ))
 }
 
-/// One server's page: what can be done with it now.
 #[allow(
     clippy::too_many_lines,
     reason = "One palette page of a server's actions"
@@ -714,7 +696,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// One server's actions in the command palette.
     pub(crate) fn open_remote_servers(
         &mut self,
         server: ServerId,
@@ -734,21 +715,19 @@ impl AppModel {
         self.show_palette(registry, Some(&format!("remote-{server}")), window, cx);
     }
 
-    /// Opens the form that adds a server over SSH, or edits `device` in
-    /// the form for how it is reached.
-    pub(crate) fn open_server_form(&mut self, device: Option<ServerId>, cx: &mut Context<Self>) {
-        let entry = device.and_then(|id| self.settings.server(id).cloned());
+    pub(crate) fn open_server_form(&mut self, server: Option<ServerId>, cx: &mut Context<Self>) {
+        let entry = server.and_then(|id| self.settings.server(id).cloned());
         if entry.as_ref().is_some_and(|entry| entry.paired.is_some()) {
-            self.open_pair_form(device, cx);
+            self.open_pair_form(server, cx);
         } else {
-            self.open_ssh_form(device, entry.as_ref(), cx);
+            self.open_ssh_form(server, entry.as_ref(), cx);
         }
     }
 
     #[allow(clippy::too_many_lines, reason = "Creates all of the form's inputs")]
     fn open_ssh_form(
         &mut self,
-        device: Option<ServerId>,
+        server: Option<ServerId>,
         entry: Option<&muxy_app_core::settings::ServerEntry>,
         cx: &mut Context<Self>,
     ) {
@@ -850,7 +829,7 @@ impl AppModel {
         self.overlay_subscription = None;
         self.open_overlay(
             Overlay::ServerForm(Box::new(ServerForm {
-                device,
+                server,
                 name,
                 group,
                 host,
@@ -872,7 +851,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// An edit clears the last error and the last Test Connection.
     fn server_form_changed(&mut self, input: &Entity<TextInput>, cx: &mut Context<Self>) {
         let Some(Overlay::ServerForm(form)) = &mut self.overlay else {
             return;
@@ -956,11 +934,11 @@ impl AppModel {
         if form.identity_task.is_some() {
             return;
         }
-        let (device, submitted) = (form.device, form.submitted(cx));
+        let (server, submitted) = (form.server, form.submitted(cx));
         if self.server_form_installing(&submitted) {
             return;
         }
-        match self.save_remote_server(device, &submitted, cx) {
+        match self.save_remote_server(server, &submitted, cx) {
             Ok(_) if matches!(self.overlay, Some(Overlay::ServerForm(_))) => {
                 self.dismiss_overlay(cx);
             }
@@ -979,19 +957,19 @@ impl AppModel {
             if form.identity_task.is_some() {
                 return;
             }
-            let (device, submitted) = (form.device, form.submitted(cx));
+            let (server, submitted) = (form.server, form.submitted(cx));
             if self.server_form_installing(&submitted) {
                 return;
             }
-            self.test_remote_server(device, &submitted, cx);
+            self.test_remote_server(server, &submitted, cx);
             cx.notify();
         }
     }
 
     fn trust_server_form(&mut self, cx: &mut Context<Self>) {
         if let Some(Overlay::ServerForm(form)) = &self.overlay {
-            let (device, submitted) = (form.device, form.submitted(cx));
-            self.trust_test_server(device, &submitted, cx);
+            let (server, submitted) = (form.server, form.submitted(cx));
+            self.trust_test_server(server, &submitted, cx);
             cx.notify();
         }
     }
@@ -1022,7 +1000,7 @@ impl AppModel {
         }
     }
 
-    fn server_form_installing(&self, form: &DeviceForm) -> bool {
+    fn server_form_installing(&self, form: &ServerFields) -> bool {
         form.destination().ok().is_some_and(|destination| {
             self.server_probe(&destination) == Some(&ConnectionTest::Installing)
         })
@@ -1035,7 +1013,7 @@ impl AppModel {
         if self.quitting() {
             return;
         }
-        let (device, submitted, host) = (form.device, form.submitted(cx), form.host.clone());
+        let (server, submitted, host) = (form.server, form.submitted(cx), form.host.clone());
         let Ok(destination) = submitted.destination() else {
             return;
         };
@@ -1058,7 +1036,7 @@ impl AppModel {
                     if form.host == host && form.submitted(cx) == submitted);
                 if current {
                     match response {
-                        Ok(true) => model.install_test_server(device, &submitted, source, cx),
+                        Ok(true) => model.install_test_server(server, &submitted, source, cx),
                         Ok(false) => {}
                         Err(error) => {
                             if let Some(Overlay::ServerForm(form)) = &mut model.overlay {
@@ -1072,7 +1050,6 @@ impl AppModel {
         );
     }
 
-    /// A file panel at `~/.ssh` that shows hidden files, for a key file.
     fn choose_server_identity(&mut self, cx: &mut Context<Self>) {
         let (sender, receiver) = async_channel::bounded(1);
         let directory = std::env::home_dir().unwrap_or_default().join(".ssh");
@@ -1128,7 +1105,6 @@ impl AppModel {
         cx.notify();
     }
 
-    /// Asks for `server`'s password; connecting goes on once it is typed.
     pub(crate) fn ask_password(&mut self, server: ServerId, cx: &mut Context<Self>) {
         if !self.accepts_prompts() {
             return;
@@ -1179,7 +1155,6 @@ pub(super) fn field(label: &str, input: AnyElement, model: &AppModel) -> gpui::D
     super::git::form_field(label, input, model)
 }
 
-/// The card of a server dialog, found in tests by `id`.
 pub(super) fn modal(
     model: &AppModel,
     window: &Window,
@@ -1204,7 +1179,6 @@ pub(super) fn title(text: &str, model: &AppModel) -> gpui::Div {
         .child(text.to_owned())
 }
 
-/// Whether testing the connection ended in something the user must act on.
 fn is_problem(probe: Option<&ConnectionTest>) -> bool {
     matches!(
         probe,
@@ -1318,7 +1292,7 @@ pub(crate) fn render_form(
         theme,
     );
     let text = |id: &str, input: &Entity<TextInput>| controls::text_field(style, id, input, None);
-    let heading = if form.device.is_some() {
+    let heading = if form.server.is_some() {
         tr!("Edit Remote Server")
     } else {
         tr!("Add Remote Server")
@@ -1453,7 +1427,6 @@ fn connection_fields(form: &ServerForm, model: &AppModel, cx: &mut Context<AppMo
         })
 }
 
-/// User, port, key file, and password login.
 fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpui::Div {
     let m = model.metrics;
     let theme = &model.theme;
@@ -1536,7 +1509,6 @@ fn login(form: &ServerForm, model: &AppModel, cx: &mut Context<AppModel>) -> gpu
         })
 }
 
-/// Test Connection, Cancel, and Save.
 fn form_actions(
     testable: bool,
     savable: bool,
@@ -1596,7 +1568,6 @@ impl OverlayView for PasswordPrompt {
         Placement::Modal
     }
 
-    /// Without a password, the connection it was asked for is dropped.
     fn on_dismiss(&self, model: &mut AppModel, _: &mut Context<AppModel>) -> Dismissal {
         model.pending_remote = None;
         Dismissal::Close

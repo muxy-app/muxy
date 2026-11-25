@@ -1,9 +1,16 @@
-//! What a page may do, whichever engine shows it.
-
-/// The scheme an extension's pages and their assets are served from.
 pub(super) const SCHEME: &str = "muxy-ext";
-/// The name pages post their requests to.
 pub(super) const HANDLER: &str = "muxy";
+
+pub(super) const CONTENT_SECURITY_POLICY: &str = "default-src 'self' muxy-ext: data: blob:; \
+     script-src 'self' muxy-ext: data: blob: 'unsafe-inline' 'unsafe-eval'; \
+     style-src 'self' muxy-ext: data: blob: 'unsafe-inline'";
+
+const CLICK_EVIDENCE: std::time::Duration = std::time::Duration::from_secs(2);
+
+pub(super) fn take_click(last: &std::cell::Cell<Option<std::time::Instant>>) -> bool {
+    last.take()
+        .is_some_and(|clicked| clicked.elapsed() <= CLICK_EVIDENCE)
+}
 
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const MAX_PENDING_REPLIES: usize = 128;
@@ -16,29 +23,22 @@ pub(super) const QUEUE_FULL: &str = "webview request queue full";
 pub(super) const DOCUMENT_RETIRED: &str = "document retired";
 pub(super) const INVALID_RESPONSE: &str = "invalid host response";
 
-/// Whether a URL with this scheme and host is one of `owner`'s own pages.
 pub(super) fn owns(scheme: &str, host: &str, owner: &str) -> bool {
     scheme == SCHEME && host == owner
 }
 
-/// Whether a frame may go to a URL with this scheme and host: the
-/// extension's own pages, and blank documents.
 pub(super) fn may_navigate(scheme: &str, host: &str, owner: &str) -> bool {
     owns(scheme, host, owner) || scheme == "about"
 }
 
-/// Whether a request of `bytes` of JSON may join `pending` unanswered ones.
 pub(super) fn admits_message(bytes: usize, pending: usize) -> bool {
     bytes <= MAX_MESSAGE_BYTES && pending < MAX_PENDING_REPLIES
 }
 
-/// Whether another asset may load beside `pending` unfinished ones.
 pub(super) fn admits_asset(pending: usize) -> bool {
     pending < MAX_PENDING_ASSETS
 }
 
-/// The scheme and host of `url`, read literally. A user, password or port
-/// stays part of the host, so such a URL matches no owner.
 #[cfg(any(target_os = "linux", test))]
 pub(super) fn origin(url: &str) -> Option<(&str, &str)> {
     let (scheme, rest) = url.split_once(':')?;
@@ -49,8 +49,6 @@ pub(super) fn origin(url: &str) -> Option<(&str, &str)> {
     Some((scheme, host))
 }
 
-/// The path of `url` without its query or fragment, percent-decoded.
-/// `None` when the decoded bytes are not UTF-8.
 #[cfg(any(target_os = "linux", test))]
 pub(super) fn path(url: &str) -> Option<String> {
     let rest = url.split_once("://")?.1;
@@ -73,6 +71,34 @@ pub(super) fn path(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_click_moves_focus_once_and_only_while_recent() {
+        use std::cell::Cell;
+        use std::time::{Duration, Instant};
+        let last = Cell::new(None);
+        assert!(!take_click(&last));
+        last.set(Some(Instant::now()));
+        assert!(take_click(&last));
+        assert!(!take_click(&last));
+        last.set(Instant::now().checked_sub(Duration::from_secs(5)));
+        assert!(!take_click(&last));
+    }
+
+    #[test]
+    fn the_content_policy_names_no_remote_source() {
+        let policy = CONTENT_SECURITY_POLICY;
+        assert!(policy.starts_with("default-src 'self' muxy-ext: data: blob:;"));
+        for directive in policy.split(';') {
+            let sources = directive.split_whitespace().skip(1);
+            for source in sources {
+                assert!(
+                    source.starts_with('\'') || ["muxy-ext:", "data:", "blob:"].contains(&source),
+                    "{source} reaches the network",
+                );
+            }
+        }
+    }
 
     #[test]
     fn only_the_owners_own_pages_and_blank_documents_are_reachable() {

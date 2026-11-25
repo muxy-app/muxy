@@ -39,7 +39,6 @@ const BROWSER_READS: [&str; 16] = [
     "browser.snapshot",
 ];
 
-/// The manifest permission a bridge verb needs, following main's verb table.
 pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
     Some(match verb {
         "files.list" | "files.read" | "files.stat" => "files:read",
@@ -52,16 +51,30 @@ pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
         "exec" | "execAsync" | "exec.start" | "exec.cancel" => "commands:exec",
         "runScript" => "commands:run-script",
         "tabs.list" => "tabs:read",
-        "tabs.switch" | "tabs.new" | "tabs.next" | "tabs.previous" | "tabs.open" | "tabs.split"
-        | "tabs.setTitle" | "tabs.setIcon" => "tabs:write",
+        v if v.starts_with("tabs.") => "tabs:write",
         "panes.list" | "panes.readScreen" => "panes:read",
-        "panes.send" | "panes.sendKeys" | "panes.close" | "panes.rename" => "panes:write",
-        "projects.list" | "workspaces.list" => "projects:read",
+        v if v.starts_with("panes.") => "panes:write",
+        "projects.list" | "projects.removed" | "workspaces.list" => "projects:read",
         "projects.delete" => "projects:delete",
+        "projects.apps" | "projects.openIn" | "projects.reveal" | "app.openExternal" => {
+            "system:open"
+        }
         v if v.starts_with("projects.") || v.starts_with("workspaces.") => "projects:write",
         "worktrees.list" => "worktrees:read",
         "worktrees.switch" | "worktrees.refresh" => "worktrees:write",
         "agents.list" => "agents:read",
+        "agents.focus" => "agents:write",
+        "ui.state" | "app.info" => return None,
+        v if v.starts_with("ui.") => "ui:write",
+        "commands.list" => "commands:read",
+        v if v.starts_with("commands.") => "commands:run",
+        v if v.starts_with("composer.") => "composer:write",
+        "layouts.list" => "layouts:read",
+        "layouts.apply" => "layouts:write",
+        "preferences.get" | "preferences.themes" => "preferences:read",
+        "preferences.set" => "preferences:write",
+        "clipboard.readText" => "clipboard:read",
+        "clipboard.writeText" => "clipboard:write",
         "browser.wait" if waits_on_a_function(args) => "browser:write",
         v if BROWSER_READS.contains(&v) => "browser:read",
         v if v.starts_with("browser.") => "browser:write",
@@ -76,6 +89,7 @@ pub fn required_permission(verb: &str, args: &Value) -> Option<&'static str> {
         | "popover.close"
         | "popover.resize"
         | "topbar.set"
+        | "rail.set"
         | "statusbar.set"
         | "modal.openWebview"
         | "modal.submitWebview"
@@ -96,10 +110,10 @@ fn waits_on_a_function(args: &Value) -> bool {
         .any(|function| function.as_str().is_some_and(|text| !text.is_empty()))
 }
 
-/// Events that also need a read permission before an extension may subscribe.
 pub fn event_permission(event: &str) -> Option<&'static str> {
     match event {
         "agent.status" => Some("agents:read"),
+        "preferences.changed" => Some("preferences:read"),
         "file.changed" => Some("files:read"),
         "projects.changed" => Some("projects:read"),
         "worktree.headChanged" => Some("worktrees:read"),
@@ -107,7 +121,6 @@ pub fn event_permission(event: &str) -> Option<&'static str> {
     }
 }
 
-/// Actions that ask the user at runtime even when the manifest grants them.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Gate {
     Exec,
@@ -120,10 +133,11 @@ pub enum Gate {
     FilesWrite,
     HttpFetch,
     ProjectsDelete,
+    ClipboardRead,
 }
 
 impl Gate {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::Exec,
         Self::PanesSend,
         Self::PanesSendKeys,
@@ -134,6 +148,7 @@ impl Gate {
         Self::FilesWrite,
         Self::HttpFetch,
         Self::ProjectsDelete,
+        Self::ClipboardRead,
     ];
 
     fn parse(name: &str) -> Option<Self> {
@@ -152,10 +167,10 @@ impl Gate {
             Self::FilesWrite => "files.write",
             Self::HttpFetch => "http.fetch",
             Self::ProjectsDelete => "projects.delete",
+            Self::ClipboardRead => "clipboard.read",
         }
     }
 
-    /// Plural description used by "Block all … from this extension".
     pub fn kind(self) -> &'static str {
         match self {
             Self::Exec => "shell commands",
@@ -168,6 +183,7 @@ impl Gate {
             Self::FilesWrite => "file changes",
             Self::HttpFetch => "network requests",
             Self::ProjectsDelete => "project deletions",
+            Self::ClipboardRead => "clipboard reads",
         }
     }
 
@@ -183,12 +199,11 @@ impl Gate {
             Self::FilesWrite => "wants to modify workspace files",
             Self::HttpFetch => "wants to make a network request",
             Self::ProjectsDelete => "wants to delete a project",
+            Self::ClipboardRead => "wants to read the clipboard",
         }
     }
 }
 
-/// One consent question: the gated action, the rule a "remember" choice saves,
-/// and what the prompt shows.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Request {
     pub gate: Gate,
@@ -209,8 +224,6 @@ impl Request {
         }
     }
 
-    /// Consent for a bridge call, when the verb is gated. `location` is the
-    /// repository or project directory the call acts on.
     pub fn for_call(owner: &str, verb: &str, args: &Value, location: &str) -> Option<Self> {
         let text = |field: &str| args[field].as_str().unwrap_or("").to_owned();
         match verb {
@@ -229,6 +242,18 @@ impl Request {
                     vec![format!("pane: {pane}")],
                 ))
             }
+            "composer.submit" | "composer.insert" => Some(Self::new(
+                Gate::PanesSend,
+                ANY.into(),
+                format!("{} the composer's draft", &verb["composer.".len()..]),
+                vec!["target: the composer's terminals".into()],
+            )),
+            "clipboard.readText" => Some(Self::new(
+                Gate::ClipboardRead,
+                ANY.into(),
+                "read the clipboard".into(),
+                Vec::new(),
+            )),
             "tabs.open" => Self::tab(owner, args),
             "files.write" | "files.mkdir" | "files.rename" | "files.move" | "files.delete" => {
                 let operation = &verb["files.".len()..];
@@ -333,6 +358,18 @@ impl Request {
         )
     }
 
+    pub fn custom_command(name: &str, command: &str) -> Self {
+        Self::new(
+            Gate::TabsRunCommand,
+            format!("command:{command}"),
+            command.into(),
+            vec![
+                format!("custom command: {name}"),
+                format!("command: {command}"),
+            ],
+        )
+    }
+
     pub fn project_delete(name: &str, path: &str) -> Self {
         Self::new(
             Gate::ProjectsDelete,
@@ -342,18 +379,16 @@ impl Request {
         )
     }
 
-    /// What a remembered choice will apply to, for the prompt's footer.
     pub fn scope(&self) -> String {
         scope(&self.pattern)
     }
 
-    /// The rule a remembered choice saves.
     pub fn rule(&self, choice: Choice) -> Option<Rule> {
         let (pattern, consent) = match choice {
             Choice::AllowAndRemember => (self.pattern.as_str(), Consent::Allow),
             Choice::DenyAndRemember => (self.pattern.as_str(), Consent::Deny),
             Choice::Block => (ANY, Consent::Blocked),
-            Choice::Allow | Choice::Cancel => return None,
+            Choice::Allow | Choice::Cancel | Choice::Trust => return None,
         };
         Some(Rule {
             gate: self.gate,
@@ -371,7 +406,6 @@ fn scope(pattern: &str) -> String {
     }
 }
 
-/// A remembered consent rule of one extension.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rule {
     pub gate: Gate,
@@ -380,12 +414,10 @@ pub struct Rule {
 }
 
 impl Rule {
-    /// How the audit log names the rule.
     pub fn id(&self) -> String {
         format!("{}:{}", self.gate.name(), self.pattern)
     }
 
-    /// What the rule applies to.
     pub fn scope(&self) -> String {
         scope(&self.pattern)
     }
@@ -399,7 +431,6 @@ pub enum Consent {
     Ask,
 }
 
-/// What the user picked in a consent prompt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Choice {
     AllowAndRemember,
@@ -407,15 +438,21 @@ pub enum Choice {
     Cancel,
     DenyAndRemember,
     Block,
+    Trust,
 }
 
 impl Choice {
     pub fn allows(self) -> bool {
-        matches!(self, Self::AllowAndRemember | Self::Allow)
+        matches!(self, Self::AllowAndRemember | Self::Allow | Self::Trust)
+    }
+
+    pub fn remembers(self) -> bool {
+        !matches!(self, Self::Allow | Self::Cancel)
     }
 }
 
-/// Remembered consent rules, keyed `owner:gate:pattern`.
+pub const TRUSTED: &str = "trusted";
+
 #[derive(Clone, Debug)]
 pub struct Grants {
     path: PathBuf,
@@ -426,7 +463,10 @@ fn key(owner: &str, gate: Gate, pattern: &str) -> String {
     format!("{owner}:{}:{pattern}", gate.name())
 }
 
-/// Rewrites keys saved before gated verbs were grouped (`files:files.write`).
+fn trust_key(owner: &str) -> String {
+    format!("{owner}:{TRUSTED}")
+}
+
 fn migrate(key: String) -> String {
     match key.split_once(':') {
         Some((owner, verb)) if !verb.contains(':') => {
@@ -459,8 +499,6 @@ impl Grants {
         })
     }
 
-    /// The rule that decides `request`. A specific rule wins over the
-    /// gate-wide one, as on main.
     pub fn rule(&self, owner: &str, request: &Request) -> Option<Rule> {
         [request.pattern.as_str(), ANY]
             .into_iter()
@@ -475,11 +513,27 @@ impl Grants {
     }
 
     pub fn decision(&self, owner: &str, request: &Request) -> Consent {
+        if self.trusted(owner) {
+            return Consent::Allow;
+        }
         self.rule(owner, request)
             .map_or(Consent::Ask, |rule| rule.consent)
     }
 
-    /// An extension's remembered rules.
+    pub fn trusted(&self, owner: &str) -> bool {
+        self.rules.get(&trust_key(owner)) == Some(&Consent::Allow)
+    }
+
+    pub fn set_trusted(&mut self, owner: &str, trusted: bool) -> Result<(), String> {
+        self.update(|rules| {
+            if trusted {
+                rules.insert(trust_key(owner), Consent::Allow);
+            } else {
+                rules.remove(&trust_key(owner));
+            }
+        })
+    }
+
     pub fn rules(&self, owner: &str) -> Vec<Rule> {
         let prefix = format!("{owner}:");
         self.rules
@@ -496,38 +550,41 @@ impl Grants {
     }
 
     pub fn remove(&mut self, owner: &str, rule: &Rule) -> Result<(), String> {
-        let mut rules = self.rules.clone();
-        rules.remove(&key(owner, rule.gate, &rule.pattern));
-        self.save(rules)
+        self.update(|rules| {
+            rules.remove(&key(owner, rule.gate, &rule.pattern));
+        })
     }
 
-    /// Saves the rule a remembered choice makes. Blocking replaces every
-    /// other rule of that gate.
     pub fn remember(
         &mut self,
         owner: &str,
         request: &Request,
         choice: Choice,
     ) -> Result<(), String> {
+        if choice == Choice::Trust {
+            return self.set_trusted(owner, true);
+        }
         let Some(rule) = request.rule(choice) else {
             return Ok(());
         };
-        let mut rules = self.rules.clone();
-        if rule.consent == Consent::Blocked {
-            let prefix = key(owner, rule.gate, "");
-            rules.retain(|key, _| !key.starts_with(&prefix));
-        }
-        rules.insert(key(owner, rule.gate, &rule.pattern), rule.consent);
-        self.save(rules)
+        self.update(|rules| {
+            if rule.consent == Consent::Blocked {
+                let prefix = key(owner, rule.gate, "");
+                rules.retain(|key, _| !key.starts_with(&prefix));
+            }
+            rules.insert(key(owner, rule.gate, &rule.pattern), rule.consent);
+        })
     }
 
     pub fn clear(&mut self, owner: &str) -> Result<(), String> {
-        let mut rules = self.rules.clone();
-        rules.retain(|key, _| !key.starts_with(&format!("{owner}:")));
-        self.save(rules)
+        self.update(|rules| {
+            rules.retain(|key, _| !key.starts_with(&format!("{owner}:")));
+        })
     }
 
-    fn save(&mut self, rules: BTreeMap<String, Consent>) -> Result<(), String> {
+    fn update(&mut self, edit: impl FnOnce(&mut BTreeMap<String, Consent>)) -> Result<(), String> {
+        let mut rules = self.rules.clone();
+        edit(&mut rules);
         super::storage::write(&self.path, &serde_json::json!(rules))?;
         self.rules = rules;
         Ok(())

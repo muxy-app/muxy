@@ -1,7 +1,7 @@
-use std::os::unix::net::UnixStream;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
+use muxy_protocol::transport::LocalStream;
 use muxy_protocol::wire::{Decoder, Encoder};
 use muxy_protocol::{
     AttachSnapshot, CONTROL, ChannelId, Cursor, Message, Modes, ReplyBody, RequestBody, RequestId,
@@ -15,8 +15,8 @@ const SIZE: Size = Size { cols: 10, rows: 2 };
 const CHANNEL: ChannelId = ChannelId(1);
 
 struct Server {
-    decoder: Decoder<UnixStream>,
-    encoder: Encoder<UnixStream>,
+    decoder: Decoder<LocalStream>,
+    encoder: Encoder<LocalStream>,
 }
 
 impl Server {
@@ -98,6 +98,7 @@ fn snapshot() -> AttachSnapshot {
         history: Vec::new(),
         history_cursor: None,
         history_total: 0,
+        history_graphics: None,
     }
 }
 
@@ -173,4 +174,52 @@ fn a_reply_after_the_caller_gave_up_still_announces_the_terminal() {
         Ok(ClientEvent::Attached { tag: 9, .. })
     ));
     assert!(client.is_connected());
+}
+
+#[test]
+fn moving_a_session_names_its_new_project_and_expects_its_reply() {
+    let fake = crate::fake::Fake::start();
+    let session = SessionId::from(std::num::NonZeroU64::MIN);
+    let project = muxy_protocol::ProjectId::from_u128(2);
+    let (request, moved) = fake.answer(ReplyBody::SessionMoved, |client| {
+        client.move_session(session, project)
+    });
+    assert_eq!(request, RequestBody::MoveSession { session, project });
+    assert!(moved.is_ok());
+    let (_, unexpected) = fake.answer(ReplyBody::SessionClosed, |client| {
+        client.move_session(session, project)
+    });
+    assert!(matches!(unexpected, Err(ClientError::UnexpectedReply(_))));
+}
+
+#[test]
+fn push_requests_carry_the_token_and_expect_their_replies() {
+    use muxy_protocol::{PushEnvironment, PushPlatform, PushRegistration, PushStatus, PushToken};
+
+    let fake = crate::fake::Fake::start();
+    let token = PushToken {
+        platform: PushPlatform::Apns,
+        token: "ab".repeat(32),
+        environment: Some(PushEnvironment::Sandbox),
+    };
+    let registration = PushRegistration {
+        status: PushStatus::Active,
+        key: Some([4; 32]),
+    };
+    let (request, registered) = fake
+        .answer(ReplyBody::PushRegistered(registration.clone()), |client| {
+            client.register_push(token.clone())
+        });
+    assert_eq!(request, RequestBody::RegisterPush(token));
+    assert_eq!(registered.ok(), Some(registration));
+    let (request, unregistered) = fake.answer(ReplyBody::PushUnregistered, Client::unregister_push);
+    assert_eq!(request, RequestBody::UnregisterPush);
+    assert!(unregistered.is_ok());
+    let invalid = fake.client.register_push(PushToken {
+        platform: PushPlatform::Fcm,
+        token: "short".into(),
+        environment: None,
+    });
+    assert!(matches!(invalid, Err(ClientError::Invalid(_))));
+    assert!(fake.answered().is_empty());
 }

@@ -10,7 +10,6 @@ from pathlib import Path
 from release import build_number
 
 CHANNEL = "beta-2.x"
-# Feeds published before BETA_VERSION numbering hold 2.0.0-beta-N and are always older.
 LEGACY_VERSION = re.compile(r"2\.0\.0-beta-[1-9][0-9]*")
 
 

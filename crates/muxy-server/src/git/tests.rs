@@ -7,6 +7,7 @@
 use super::*;
 use crate::connection::Connection;
 use muxy_protocol::{Message, OperationId, ProjectDescriptor, ProjectIntent, ProjectMutation};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -18,12 +19,10 @@ pub(super) struct Repository {
 }
 
 impl Repository {
-    /// A committed repository that ignores `target/`, with an `origin` that
-    /// can't be reached.
     pub(super) fn new() -> Self {
         let path = std::env::temp_dir().join(format!("muxy-git-{}", OperationId::new()));
         std::fs::create_dir(&path).unwrap();
-        let path = path.canonicalize().unwrap();
+        let path = muxy_core::files::canonicalize(&path).unwrap();
         std::fs::write(path.join(".gitignore"), "target/\n").unwrap();
         for args in [
             &["init", "--quiet", "--initial-branch=main"][..],
@@ -53,7 +52,7 @@ impl Repository {
                 mutation: ProjectMutation::Create(ProjectDescriptor {
                     id: project,
                     home: false,
-                    directory: ServerPath::from(&path),
+                    directory: server_path(&path).unwrap(),
                     name: "Test".into(),
                     icon: None,
                     logo: None,
@@ -75,6 +74,47 @@ impl Drop for Repository {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.path);
     }
+}
+
+#[test]
+fn repository_locks_are_shared_by_key_until_the_last_caller_leaves() {
+    let git = Git::default();
+    let barrier = std::sync::Barrier::new(4);
+    let locks = std::thread::scope(|scope| {
+        let callers: Vec<_> = (0..4)
+            .map(|_| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    git.locks.get(PathBuf::from("repository"))
+                })
+            })
+            .collect();
+        callers
+            .into_iter()
+            .map(|caller| caller.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    let other = git.locks.get(PathBuf::from("other"));
+    let writer = locks[0].write().unwrap();
+    for lock in &locks {
+        assert!(lock.try_read().is_err());
+        assert!(lock.try_write().is_err());
+    }
+    assert!(other.try_write().is_ok());
+    drop(writer);
+    let reader = locks[0].read().unwrap();
+    assert!(locks[1].try_read().is_ok());
+    assert!(locks[1].try_write().is_err());
+    drop(reader);
+    let released = Arc::downgrade(&locks[0]);
+    drop(locks);
+    assert!(released.upgrade().is_none());
+    assert!(
+        git.locks
+            .get(PathBuf::from("repository"))
+            .try_write()
+            .is_ok()
+    );
 }
 
 #[test]
@@ -116,6 +156,7 @@ fn every_subscriber_shares_one_watch_until_the_last_leaves() {
     assert_eq!(registry.git.watches.watching(), 0);
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failed_remote_lookup_waits_before_asking_again() {
     let mut repository = Repository::new();
@@ -161,6 +202,7 @@ fn a_failed_remote_lookup_waits_before_asking_again() {
     assert!(asked() > first);
 }
 
+#[cfg(unix)]
 #[test]
 fn output_past_the_limit_fails_unless_it_may_be_cut_short() {
     let flood = || {
@@ -175,13 +217,14 @@ fn output_past_the_limit_fails_unless_it_may_be_cut_short() {
     assert_eq!((kept, truncated), (vec![0; 10], true));
 }
 
+#[cfg(unix)]
 #[test]
 fn a_failing_hook_reports_the_hook_not_git() {
     let repository = Repository::new();
     let project = ProjectDescriptor {
         id: ProjectId::new(),
         home: false,
-        directory: ServerPath::from(&repository.path),
+        directory: server_path(&repository.path).unwrap(),
         name: "Test".into(),
         icon: None,
         logo: None,
