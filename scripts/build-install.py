@@ -87,7 +87,7 @@ def signing_identity(requested):
     return matches[0]
 
 
-def package_app(directory, binaries, version, identity):
+def package_app(directory, binaries, version, identity, arch):
     app = directory / "Muxy Beta.app"
     contents = app / "Contents"
     executables = contents / "MacOS"
@@ -96,7 +96,7 @@ def package_app(directory, binaries, version, identity):
     resources.mkdir()
     for name in (*BINARIES, "muxy-app"):
         shutil.copy2(binaries / name, executables / name)
-    from release import build_number, bundle_info
+    from release import build_dock_tile, build_number, bundle_info
     if version == "2.0.0-beta-0":
         info = bundle_info("2.0.0-beta.1", "1")
         info.update(CFBundleVersion="0", MuxyVersion=version,
@@ -104,6 +104,7 @@ def package_app(directory, binaries, version, identity):
     else:
         info = bundle_info(version, build_number(version))
     (contents / "Info.plist").write_bytes(plistlib.dumps(info))
+    dock_tile = build_dock_tile(info["CFBundleIdentifier"], app, arch)
     (contents / "PkgInfo").write_bytes(b"APPL????")
     (resources / "LICENSE").write_bytes(b"\n".join((ROOT / path).read_bytes() for path in (
         "LICENSE", "NOTICE", "crates/muxy-server/src/detection/THIRD_PARTY.md",
@@ -120,6 +121,7 @@ def package_app(directory, binaries, version, identity):
     sign = ("codesign", "--force", "--sign", identity, "--options", "runtime", "--timestamp")
     for name in BINARIES:
         run(*sign, executables / name)
+    run(*sign, dock_tile)
     entitlements = ("--entitlements", ROOT / "packaging/macos/Muxy.entitlements")
     run(*sign, *entitlements, executables / "muxy-app")
     run(*sign, *entitlements, app)
@@ -233,7 +235,8 @@ def main():
     builds.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix=target + "-", dir=builds))
     if system == "Darwin":
-        artifact = package_app(directory, binaries, metadata[0]["version"], identity)
+        arch = "arm64" if target.startswith("aarch64") else "x86_64"
+        artifact = package_app(directory, binaries, metadata[0]["version"], identity, arch)
         if not args.build_only:
             if args.keychain_profile:
                 env["NOTARY_KEYCHAIN_PROFILE"] = args.keychain_profile

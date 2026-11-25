@@ -1169,3 +1169,21 @@ fn reloading_keeps_a_cli_change_and_an_unsaved_field_of_the_same_section(cx: &mu
         assert_eq!(saved.window, model.settings.window);
     });
 }
+
+#[gpui::test]
+fn app_icon_choice_and_reset_to_default_survive_a_reload(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::Appearance;
+
+    let (boot, _) = stub_boot(AppState::bootstrap().expect("state"));
+    let path = boot.state_path.with_file_name("settings.toml");
+    let (model, cx) = settings_tab(boot, cx);
+    model.update(cx, |model, cx| {
+        model.change_preference(Change::AppIcon("/icons/muxy.png".into()), cx);
+        let saved = Appearance::load(&path).expect("saved appearance");
+        assert_eq!(saved.app_icon, "/icons/muxy.png");
+        model.change_preference(Change::AppIcon(String::new()), cx);
+        let saved = Appearance::load(&path).expect("saved appearance");
+        assert_eq!(saved.app_icon, "");
+        assert_eq!(model.appearance.app_icon, "");
+    });
+}

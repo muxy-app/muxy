@@ -89,6 +89,7 @@ done
 
 python3 "$ROOT/scripts/release.py" plist "$VERSION" "$APP/Contents/Info.plist" ${BUILD_NUMBER:+--build "$BUILD_NUMBER"}
 plutil -lint "$APP/Contents/Info.plist"
+DOCK_TILE="$(python3 "$ROOT/scripts/release.py" dock-tile "$VERSION" "$APP" --arch "$ARCH")"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 cat "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/crates/muxy-server/src/detection/THIRD_PARTY.md" \
     "$ROOT/crates/muxy-server/src/detection/LICENSE-herdr" > "$APP/Contents/Resources/LICENSE"
@@ -117,6 +118,7 @@ for BINARY in muxy muxy-server muxy-app; do
         codesign "${SIGN_ARGS[@]}" "$APP/Contents/MacOS/$BINARY"
     fi
 done
+codesign "${SIGN_ARGS[@]}" "$DOCK_TILE"
 codesign "${SIGN_ARGS[@]}" --entitlements "$ROOT/packaging/macos/Muxy.entitlements" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 for BINARY in muxy muxy-server; do
