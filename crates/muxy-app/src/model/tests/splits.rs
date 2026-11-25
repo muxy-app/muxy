@@ -1025,3 +1025,27 @@ fn a_new_tab_from_a_tab_window_starts_in_that_windows_pane_directory(cx: &mut Te
         assert_eq!(starts_in(model, opened), absolute("detached"));
     });
 }
+
+#[gpui::test]
+fn a_pane_header_meets_its_terminal_at_every_interface_size(cx: &mut TestAppContext) {
+    use muxy_app_core::settings::InterfaceSize;
+    for size in [
+        InterfaceSize::Regular,
+        InterfaceSize::Large,
+        InterfaceSize::ExtraLarge,
+        InterfaceSize::Huge,
+    ] {
+        let mut state = AppState::bootstrap().expect("state");
+        state.open_terminal_tab(state.home().id).expect("tab");
+        let pane = state.home().tabs[0].panes[0].id;
+        let (mut boot, _) = stub_boot(state);
+        boot.settings.appearance.interface_size = size;
+        let (_, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+        cx.run_until_parked();
+        let header = cx
+            .debug_bounds(format!("pane-header-{pane}").leak())
+            .expect("header");
+        let terminal = cx.debug_bounds("terminal-pane").expect("terminal");
+        assert_eq!(header.bottom(), terminal.top(), "{size:?}");
+    }
+}
