@@ -6,7 +6,7 @@ use std::time::SystemTime;
 use muxy_protocol::AgentProvider;
 use serde_json::Value;
 
-use super::{Session, normalized, valid_id};
+use super::{Session, normalize_title, normalized, valid_id};
 
 const PREFIX_BYTES: u64 = 1024 * 1024;
 const TAIL_BYTES: u64 = 64 * 1024;
@@ -20,6 +20,8 @@ struct Metadata {
     id: Option<String>,
     directory: Option<PathBuf>,
     title: Option<String>,
+    automatic_title: Option<String>,
+    summary: Option<String>,
     prompt: Option<String>,
     child: bool,
 }
@@ -82,6 +84,8 @@ pub(super) fn read(
         provider,
         title: metadata
             .title
+            .or(metadata.automatic_title)
+            .or(metadata.summary)
             .or(metadata.prompt)
             .unwrap_or_else(|| id.clone()),
         id,
@@ -117,8 +121,12 @@ impl Metadata {
                 }
                 if kind == "custom-title" {
                     self.title = text(&value["customTitle"]);
-                } else if kind == "summary" && self.title.is_none() {
-                    self.title = text(&value["summary"]);
+                } else if kind == "ai-title" {
+                    if let Some(title) = text(&value["aiTitle"]) {
+                        self.automatic_title = Some(title);
+                    }
+                } else if kind == "summary" && self.summary.is_none() {
+                    self.summary = text(&value["summary"]);
                 } else if !tail && kind == "user" && value["isMeta"] != true {
                     self.prompt(&value["message"]["content"]);
                 }
@@ -175,12 +183,7 @@ impl Metadata {
 
 fn text(value: &Value) -> Option<String> {
     if let Some(value) = value.as_str() {
-        let title: String = value
-            .chars()
-            .take(240)
-            .map(|c| if c.is_control() { ' ' } else { c })
-            .collect();
-        return (!title.trim().is_empty()).then(|| title.trim().to_owned());
+        return normalize_title(value);
     }
     value.as_array()?.iter().find_map(|part| {
         matches!(part["type"].as_str(), Some("text" | "input_text"))

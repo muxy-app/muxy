@@ -1,3 +1,5 @@
+mod codex_index;
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,6 +8,7 @@ use std::time::SystemTime;
 use muxy_protocol::AgentProvider;
 
 use super::{Session, normalized, parse};
+use codex_index::CodexIndex;
 
 const MAX_ENTRIES: usize = 20_000;
 const PROVIDER_READ_BYTES: u64 = 8 * 1024 * 1024;
@@ -72,6 +75,7 @@ struct Cached {
 #[derive(Debug, Default)]
 pub struct Catalog {
     files: HashMap<PathBuf, Cached>,
+    codex_index: CodexIndex,
 }
 
 impl Catalog {
@@ -80,6 +84,8 @@ impl Catalog {
         let mut listing = Listing::default();
         let mut seen = HashSet::new();
         for (provider, root, depth) in &roots.sources {
+            let first_session = listing.sessions.len();
+            let mut pending = false;
             let mut read_budget = PROVIDER_READ_BYTES;
             let mut paths = Vec::new();
             let mut budget = MAX_ENTRIES;
@@ -103,7 +109,7 @@ impl Catalog {
                         && cached.length == length
                 });
                 if cached.is_none() && read_budget < parse::read_limit(length) {
-                    listing.pending = true;
+                    pending = true;
                 } else if cached.is_none() {
                     match parse::read(&path, *provider, modified, &mut read_budget) {
                         Ok(session) => {
@@ -135,6 +141,17 @@ impl Catalog {
                     listing.sessions.push(session.clone());
                 }
             }
+            if *provider == AgentProvider::Codex && !pending {
+                match self.codex_index.apply(
+                    root,
+                    &mut listing.sessions[first_session..],
+                    read_budget,
+                ) {
+                    Ok(more) => pending = more,
+                    Err(error) => listing.warnings.push((*provider, error.to_string())),
+                }
+            }
+            listing.pending |= pending;
         }
         self.files.retain(|path, _| seen.contains(path));
         listing.sessions.sort_by(|a, b| {

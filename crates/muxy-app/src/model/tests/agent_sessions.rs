@@ -100,6 +100,21 @@ fn resume_is_transactional_and_uses_the_selected_project(cx: &mut TestAppContext
         model.resume_agent_session(&session, cx);
         assert_eq!(model.state.current_project().tabs.len(), tabs + 1);
         let pane = model.active_pane().expect("pane");
+        model
+            .state
+            .set_pane_title(pane, "Resumed conversation")
+            .expect("title");
+        let tab = model.active_tab().expect("resumed tab");
+        let title = |model: &AppModel| model.tab(tab).expect("tab").title(Some(pane)).to_owned();
+        assert_eq!(title(model), "Resumed conversation");
+        assert!(model.edit_tab(|state| state.set_tab_title(tab, Some("My tab".into())), cx));
+        model
+            .state
+            .set_pane_title(pane, "New terminal title")
+            .expect("title");
+        assert_eq!(title(model), "My tab");
+        model.reset_active_tab_title(cx);
+        assert_eq!(title(model), "New terminal title");
         assert_eq!(
             model.state.startup_command(pane),
             Some("codex resume session-123")
