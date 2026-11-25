@@ -153,7 +153,6 @@ fn refresh_handles_appends_partial_records_renames_and_deletions() -> Result {
 }
 
 #[test]
-// guards: Codex index appends and replacements refresh names in bounded batches without transcript changes.
 fn codex_names_refresh_without_transcript_changes() -> Result {
     let home = tempfile::tempdir()?;
     fixture(
