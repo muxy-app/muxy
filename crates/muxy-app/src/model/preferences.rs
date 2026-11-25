@@ -399,10 +399,14 @@ impl AppModel {
             .collect()
     }
 
-    pub(crate) fn flush_preferences(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn flush_preferences(&mut self, cx: &mut Context<Self>) -> bool {
+        let mut ok = true;
         for change in self.take_pending_preferences(cx) {
-            self.change_preference(change, cx);
+            if !self.apply_change_preference(change, cx) {
+                ok = false;
+            }
         }
+        ok
     }
 
     pub(super) fn preferences_before_quit(&mut self, cx: &mut Context<Self>) -> bool {
@@ -461,15 +465,14 @@ impl AppModel {
     }
 
     pub(crate) fn change_preference(&mut self, change: Change, cx: &mut Context<Self>) {
+        self.apply_change_preference(change, cx);
+    }
+
+    fn apply_change_preference(&mut self, change: Change, cx: &mut Context<Self>) -> bool {
         if self.quitting != Quitting::Idle {
-            return;
+            return false;
         }
-        if let Change::Field(id, prompt) = &change
-            && let Some(action) = crate::views::settings::prompt_action(id)
-        {
-            self.set_ai_prompt(action, prompt, cx);
-            return;
-        }
+        let mut saved = true;
         let id = change_id(&change).to_owned();
         if matches!(
             &change,
@@ -481,16 +484,19 @@ impl AppModel {
                     .retain(|pending| change_id(pending) != id);
                 self.server_preferences.pending.push_back(change);
             } else if let Err(error) = self.write_server_preference(change, cx) {
+                saved = false;
                 self.preference_result(&id, Some(&error.to_string()), cx);
             }
         } else {
             let theme_change = matches!(change, Change::Theme(..));
             let target_change = matches!(change, Change::ProjectTarget(_));
             let file_change = matches!(change, Change::FileRule { .. });
+            let ai_change = matches!(&change, Change::Field(id, _) if is_ai_prompt_field(id));
             let result = self.apply_preference(change, cx);
             let error = result.err().map(|error| error.to_string());
             self.preference_result(&id, error.as_deref(), cx);
             if let Some(error) = error {
+                saved = false;
                 if theme_change {
                     self.fail(tr!("Could not save theme: %@", &error).to_string(), cx);
                 } else if file_change {
@@ -500,11 +506,17 @@ impl AppModel {
                         tr!("Could not save the default app: %@", &error).to_string(),
                         cx,
                     );
+                } else if ai_change {
+                    self.fail(
+                        tr!("Could not save AI settings: %@", &error).to_string(),
+                        cx,
+                    );
                 }
             }
         }
         self.sync_preferences(cx);
         cx.notify();
+        saved
     }
 
     #[allow(
@@ -852,6 +864,31 @@ impl AppModel {
                     settings.panes = panes;
                     settings.save_panes(&path)?;
                 }
+            }
+            Change::Field(id, value) if is_ai_prompt_field(id) => {
+                let (key, value) = if let Some(action) = crate::views::settings::prompt_action(id) {
+                    let prompt = value.trim();
+                    (
+                        action.key(),
+                        Some(prompt).filter(|prompt| {
+                            !prompt.is_empty() && *prompt != action.default_prompt()
+                        }),
+                    )
+                } else if id == crate::prompt::PROMPT_INSTRUCTIONS {
+                    let prompt = value.trim();
+                    (
+                        id,
+                        Some(prompt).filter(|prompt| {
+                            !prompt.is_empty() && *prompt != crate::prompt::DEFAULT_INSTRUCTIONS
+                        }),
+                    )
+                } else {
+                    let text = value.trim();
+                    (id, Some(text).filter(|text| !text.is_empty()))
+                };
+                self.settings.ai =
+                    muxy_app_core::settings::Settings::save_ai_entry(&path, "prompts", key, value)?;
+                return Ok(());
             }
             _ => return Err(tr!("Unknown app setting").to_string().into()),
         }
@@ -1395,6 +1432,12 @@ impl AppModel {
         }
         self.sync_preferences(cx);
     }
+}
+
+fn is_ai_prompt_field(id: &str) -> bool {
+    crate::views::settings::prompt_action(id).is_some()
+        || id == crate::prompt::PROMPT_MODEL
+        || id == crate::prompt::PROMPT_INSTRUCTIONS
 }
 
 fn terminal_field(id: &str) -> bool {

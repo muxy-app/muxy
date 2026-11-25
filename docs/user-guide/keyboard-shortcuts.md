@@ -92,6 +92,7 @@ tabs.
 | Action | Shortcut |
 | --- | --- |
 | Toggle composer | `Cmd+I` |
+| Enhance prompt | `Cmd+Opt+E` |
 | Send / send without Return | `Cmd+Return` / `Cmd+Shift+Return` |
 
 ## Commands without a shortcut

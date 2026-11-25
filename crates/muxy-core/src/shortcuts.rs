@@ -219,6 +219,7 @@ pub enum ShortcutId {
     ComposerSubmit,
     ComposerInsert,
     ComposerClose,
+    EnhancePrompt,
     NewBrowserTab,
     BrowserFocusAddress,
     BrowserReload,
@@ -1422,6 +1423,12 @@ pub const ALL: &[Shortcut] = &[
         keys: &["escape"],
         contexts: &[Some("Composer && !Picker")],
         key_contexts: &[&[Some("Composer && !Picker")]],
+    },
+    Shortcut {
+        id: "enhance_prompt",
+        keys: platform_keys!(&["cmd-alt-e"], &["ctrl-alt-e"]),
+        contexts: &[Some("WorkspaceTabs"), Some("Composer")],
+        key_contexts: &[&[Some("WorkspaceTabs"), Some("Composer")]],
     },
     Shortcut {
         id: "new_browser_tab",

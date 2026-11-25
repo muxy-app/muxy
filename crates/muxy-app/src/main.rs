@@ -22,6 +22,7 @@ mod opener;
 mod picker;
 mod profiler;
 mod project_icon;
+mod prompt;
 mod proxy;
 mod remote_install;
 mod repository_actions;
@@ -116,13 +117,14 @@ use muxy_ui::tr;
 use views::titlebar::initial_traffic_lights;
 use views::workspace::{
     AddProject, CheckForUpdates, ClosePane, CloseTab, DecreaseFontSize, EndAllSessionsAndQuit,
-    EqualizeSplits, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft, FocusPaneRight,
-    FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool, Minimize,
-    NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree, NextProject, NextPrompt,
-    NextTab, OpenSettings, PreviousProject, PreviousPrompt, PreviousTab, Quit, SelectCommandOutput,
-    SelectProject, SelectTab, ShowAll, SplitDown, SplitRight, SwitchWorktree, ToggleAgentSessions,
-    ToggleAgentsPanel, ToggleCommandPalette, ToggleComposer, ToggleFloatingTerminals,
-    ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleZoomPane, Zoom, bind_keys,
+    EnhancePrompt, EqualizeSplits, Find, FindNext, FindPrevious, FocusPaneDown, FocusPaneLeft,
+    FocusPaneRight, FocusPaneUp, HideApp, HideOthers, IncreaseFontSize, InstallCommandLineTool,
+    Minimize, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject, NewWorktree, NextProject,
+    NextPrompt, NextTab, OpenSettings, PreviousProject, PreviousPrompt, PreviousTab, Quit,
+    SelectCommandOutput, SelectProject, SelectTab, ShowAll, SplitDown, SplitRight, SwitchWorktree,
+    ToggleAgentSessions, ToggleAgentsPanel, ToggleCommandPalette, ToggleComposer,
+    ToggleFloatingTerminals, ToggleFullScreen, ToggleSidebar, ToggleThemePicker, ToggleZoomPane,
+    Zoom, bind_keys,
 };
 
 #[cfg(windows)]
@@ -399,6 +401,7 @@ fn menus() -> Vec<Menu> {
         menu_item(ToggleCommandPalette),
         MenuItem::separator(),
         menu_item(ToggleComposer),
+        menu_item(EnhancePrompt),
         MenuItem::separator(),
         menu_item(ToggleSidebar),
         menu_item(ToggleAgentsPanel),

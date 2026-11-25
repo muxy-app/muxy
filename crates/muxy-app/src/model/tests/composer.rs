@@ -409,3 +409,431 @@ fn a_pinned_composer_leaves_room_for_the_workspace_in_a_small_window(cx: &mut Te
         });
     });
 }
+
+#[gpui::test]
+fn enhancing_an_empty_or_whitespace_composer_stops_before_calling_a_cli(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    view.update(cx, |model, cx| {
+        model.enhance_prompt(cx);
+        assert!(model.composer.enhancing.is_none());
+        assert!(
+            model
+                .notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("empty"))
+        );
+        model.notice = None;
+    });
+    cx.simulate_input("   \n\t  ");
+    view.update(cx, |model, cx| {
+        model.enhance_prompt(cx);
+        assert!(model.composer.enhancing.is_none());
+        assert!(
+            model
+                .notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("empty"))
+        );
+    });
+}
+
+#[gpui::test]
+fn enhancing_reports_provider_and_model_errors_as_error_toasts_and_leaves_the_draft(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx, _requests) = attached_composer(cx);
+    cx.simulate_input("fix the login bug");
+    view.update(cx, |model, cx| {
+        assert!(model.ai.installed.is_empty());
+        model.enhance_prompt(cx);
+        assert!(model.composer.enhancing.is_none());
+        assert!(model.notice.is_none());
+        assert!(
+            model
+                .visible_error()
+                .is_some_and(|error| error.contains("installed"))
+        );
+
+        model.ai.installed = vec![crate::ai::provider("claude").expect("claude")];
+        model
+            .settings
+            .ai
+            .providers
+            .insert(crate::prompt::PROMPT_PROVIDER.into(), "codex".into());
+        model.enhance_prompt(cx);
+        assert!(model.composer.enhancing.is_none());
+        assert!(
+            model
+                .visible_error()
+                .is_some_and(|error| error.contains("Codex"))
+        );
+
+        model
+            .settings
+            .ai
+            .providers
+            .insert(crate::prompt::PROMPT_PROVIDER.into(), "nope".into());
+        model.enhance_prompt(cx);
+        assert!(model.composer.enhancing.is_none());
+        assert!(
+            model
+                .visible_error()
+                .is_some_and(|error| error.contains("nope"))
+        );
+
+        model.ai.installed = vec![crate::ai::provider("xal").expect("xal")];
+        model
+            .settings
+            .ai
+            .providers
+            .insert(crate::prompt::PROMPT_PROVIDER.into(), "xal".into());
+        model
+            .settings
+            .ai
+            .prompts
+            .insert(crate::prompt::PROMPT_MODEL.into(), "big".into());
+        model.enhance_prompt(cx);
+        assert!(model.composer.enhancing.is_none());
+        assert!(
+            model
+                .visible_error()
+                .is_some_and(|error| error.contains("no confirmed model flag"))
+        );
+
+        model.dismiss_problem(cx);
+        assert!(model.visible_error().is_none());
+        model.enhance_prompt(cx);
+        assert!(
+            model
+                .visible_error()
+                .is_some_and(|error| error.contains("no confirmed model flag"))
+        );
+    });
+    assert_eq!(composer_text(&view, cx), "fix the login bug");
+}
+
+#[gpui::test]
+fn enhancing_rejects_a_second_request_while_one_is_running(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    cx.simulate_input("fix the login bug");
+    view.update(cx, |model, cx| {
+        let key = model.composer_key();
+        let (id, _) = model.start_prompt_enhancement(&key, cx);
+        model.enhance_prompt(cx);
+        assert_eq!(
+            model.composer.enhancing.as_ref().map(|active| active.id),
+            Some(id)
+        );
+        assert!(
+            model
+                .notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("already being rewritten"))
+        );
+    });
+}
+
+#[gpui::test]
+fn finishing_prompt_enhancement_previews_then_appends_or_discards_and_keeps_edits(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx, _requests) = attached_composer(cx);
+    let attachment = if cfg!(windows) {
+        r"C:\tmp\example.rs"
+    } else {
+        "/tmp/example.rs"
+    };
+    cx.simulate_input("fix bug");
+    let key = view.update(cx, |model, cx| {
+        let composer = model.composer.view.clone().expect("composer");
+        composer.update(cx, |_, cx| {
+            cx.emit(crate::views::composer::ComposerEvent::Files(vec![
+                PathBuf::from(attachment),
+            ]));
+        });
+        model.composer_key()
+    });
+    cx.run_until_parked();
+
+    let id = view.update(cx, |model, cx| model.start_prompt_enhancement(&key, cx).0);
+    cx.simulate_input(" now");
+    view.update(cx, |model, cx| {
+        model.finish_prompt_enhancement(id, &key, "fix bug", Ok("rewritten".into()), cx);
+        assert!(model.composer.enhancing.is_none());
+        assert!(model.composer.enhancement_previews.is_empty());
+        assert!(
+            model
+                .notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("changed"))
+        );
+    });
+    assert_eq!(composer_text(&view, cx), "fix bug now");
+
+    view.update(cx, |model, cx| {
+        let id = model.start_prompt_enhancement(&key, cx).0;
+        model.finish_prompt_enhancement(id, &key, "fix bug now", Ok("  \n\t ".into()), cx);
+        assert!(model.composer.enhancement_previews.is_empty());
+        assert!(
+            model
+                .visible_error()
+                .is_some_and(|error| error.contains("empty"))
+        );
+    });
+    assert_eq!(composer_text(&view, cx), "fix bug now");
+
+    view.update(cx, |model, cx| {
+        let id = model.start_prompt_enhancement(&key, cx).0;
+        model.finish_prompt_enhancement(
+            id,
+            &key,
+            "fix bug now",
+            Ok("  Fix the login bug cleanly.\n".into()),
+            cx,
+        );
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert_eq!(composer.draft.text, "fix bug now");
+        assert_eq!(
+            composer
+                .enhanced_preview
+                .as_ref()
+                .map(|(_, text)| text.as_str()),
+            Some("Fix the login bug cleanly.")
+        );
+        model.dismiss_prompt_enhancement_for(&key, cx);
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert_eq!(composer.draft.text, "fix bug now");
+        assert!(composer.enhanced_preview.is_none());
+
+        let id = model.start_prompt_enhancement(&key, cx).0;
+        model.finish_prompt_enhancement(
+            id,
+            &key,
+            "fix bug now",
+            Ok("  Fix the login bug cleanly.\n".into()),
+            cx,
+        );
+        model.apply_prompt_enhancement(&key, true, cx);
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert_eq!(
+            composer.draft.text,
+            "fix bug now\n\nFix the login bug cleanly."
+        );
+        assert_eq!(
+            composer.input.read(cx).text(),
+            "fix bug now\n\nFix the login bug cleanly."
+        );
+        assert!(composer.enhanced_preview.is_none());
+        assert_eq!(composer.draft.file_attachments, vec![attachment.to_owned()]);
+    });
+}
+
+#[gpui::test]
+fn finishing_prompt_enhancement_while_closed_restores_preview_on_reopen_and_replaces(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx, _requests) = attached_composer(cx);
+    let attachment = if cfg!(windows) {
+        r"C:\tmp\example.rs"
+    } else {
+        "/tmp/example.rs"
+    };
+    cx.simulate_input("fix bug");
+    let key = view.update(cx, |model, cx| {
+        let composer = model.composer.view.clone().expect("composer");
+        composer.update(cx, |_, cx| {
+            cx.emit(crate::views::composer::ComposerEvent::Files(vec![
+                PathBuf::from(attachment),
+            ]));
+        });
+        model.composer_key()
+    });
+    cx.run_until_parked();
+
+    view.update(cx, |model, cx| {
+        model.settings.composer.clear_on_close = false;
+        model.close_composer(cx);
+        assert!(model.composer.view.is_none());
+        let id = model.start_prompt_enhancement(&key, cx).0;
+        model.finish_prompt_enhancement(
+            id,
+            &key,
+            "fix bug",
+            Ok("  Final rewritten prompt\n".into()),
+            cx,
+        );
+        assert_eq!(model.composer_text(cx), "fix bug");
+        assert!(
+            model
+                .notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("ready"))
+        );
+    });
+    view.update_in(cx, |model, window, cx| {
+        model.toggle_composer(window, cx);
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert_eq!(
+            composer
+                .enhanced_preview
+                .as_ref()
+                .map(|(_, text)| text.as_str()),
+            Some("Final rewritten prompt")
+        );
+        model.apply_prompt_enhancement(&key, false, cx);
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert_eq!(composer.draft.text, "Final rewritten prompt");
+        assert!(composer.enhanced_preview.is_none());
+        assert_eq!(composer.draft.file_attachments, vec![attachment.to_owned()]);
+    });
+}
+
+#[gpui::test]
+fn replacing_with_an_enhanced_prompt_preserves_pasted_image_attachments(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    let mut png = Vec::new();
+    image::RgbaImage::new(1, 1)
+        .write_to(&mut io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("png");
+    cx.simulate_input("fix layout ");
+    view.update(cx, |model, cx| {
+        let composer = model.composer.view.clone().expect("composer");
+        composer.update(cx, |_, cx| {
+            cx.emit(crate::views::composer::ComposerEvent::Image(png));
+        });
+    });
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        let key = model.composer_key();
+        let original = model.composer_text(cx);
+        assert!(original.contains("[Image 1]"));
+        let id = model.start_prompt_enhancement(&key, cx).0;
+        model.finish_prompt_enhancement(
+            id,
+            &key,
+            &original,
+            Ok("Fix the layout issue cleanly.".into()),
+            cx,
+        );
+        model.apply_prompt_enhancement(&key, false, cx);
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert_eq!(composer.draft.image_attachments.len(), 1);
+        assert!(
+            composer
+                .draft
+                .text
+                .contains("Fix the layout issue cleanly.")
+        );
+        assert!(composer.draft.text.contains("[Image 1]"));
+    });
+}
+
+#[gpui::test]
+fn submitting_the_composer_cancels_only_its_own_in_flight_prompt_enhancement(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx, requests) = attached_composer(cx);
+    cx.simulate_input("ship it");
+    let other_key =
+        muxy_app_core::composer::DraftId::for_project(ServerId::local(), ProjectId::new());
+    let (other_id, other_cancellation) = view.update(cx, |model, cx| {
+        model.start_prompt_enhancement(&other_key, cx)
+    });
+    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-enter"
+    } else {
+        "ctrl-enter"
+    });
+    cx.run_until_parked();
+    let (_, completion) = delivery(&requests);
+    view.update(cx, |model, _| {
+        assert!(!other_cancellation.is_cancelled());
+        assert_eq!(
+            model.composer.enhancing.as_ref().map(|active| active.id),
+            Some(other_id)
+        );
+    });
+    completion.try_send(Ok(())).expect("ack");
+    cx.run_until_parked();
+
+    cx.simulate_input("ship again");
+    let (id, cancellation, key) = view.update(cx, |model, cx| {
+        model.composer.enhancing = None;
+        let key = model.composer_key();
+        let (id, cancellation) = model.start_prompt_enhancement(&key, cx);
+        (id, cancellation, key)
+    });
+    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-enter"
+    } else {
+        "ctrl-enter"
+    });
+    cx.run_until_parked();
+    let (_, completion) = delivery(&requests);
+    view.update(cx, |model, cx| {
+        assert!(cancellation.is_cancelled());
+        assert!(model.composer.enhancing.is_none());
+        model.finish_prompt_enhancement(id, &key, "ship again", Ok("late rewrite".into()), cx);
+        assert!(model.composer.enhancement_previews.is_empty());
+        assert!(
+            model
+                .composer
+                .view
+                .as_ref()
+                .expect("composer")
+                .read(cx)
+                .enhanced_preview
+                .is_none()
+        );
+    });
+    assert_eq!(composer_text(&view, cx), "ship again");
+    completion.try_send(Ok(())).expect("ack");
+    cx.run_until_parked();
+    assert_eq!(composer_text(&view, cx), "");
+}
+
+#[gpui::test]
+fn editing_the_draft_while_a_preview_is_open_dismisses_the_stale_preview(cx: &mut TestAppContext) {
+    let (view, cx, _requests) = attached_composer(cx);
+    cx.simulate_input("fix login");
+    let other_key =
+        muxy_app_core::composer::DraftId::for_project(ServerId::local(), ProjectId::new());
+    view.update(cx, |model, cx| {
+        let key = model.composer_key();
+        let id = model.start_prompt_enhancement(&key, cx).0;
+        model.finish_prompt_enhancement(
+            id,
+            &key,
+            "fix login",
+            Ok("Fix the login bug cleanly.".into()),
+            cx,
+        );
+        let other_id = model.start_prompt_enhancement(&other_key, cx).0;
+        model.finish_prompt_enhancement(
+            other_id,
+            &other_key,
+            "",
+            Ok("Other project rewrite.".into()),
+            cx,
+        );
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert_eq!(
+            composer
+                .enhanced_preview
+                .as_ref()
+                .map(|(_, text)| text.as_str()),
+            Some("Fix the login bug cleanly.")
+        );
+        assert!(model.composer.enhancement_previews.contains_key(&other_key));
+    });
+    cx.simulate_input(" and signup");
+    cx.run_until_parked();
+    view.update(cx, |model, cx| {
+        let key = model.composer_key();
+        let composer = model.composer.view.as_ref().expect("composer").read(cx);
+        assert!(composer.enhanced_preview.is_none());
+        assert!(!model.composer.enhancement_previews.contains_key(&key));
+        assert!(model.composer.enhancement_previews.contains_key(&other_key));
+        assert_eq!(composer.draft.text, "fix login and signup");
+    });
+}

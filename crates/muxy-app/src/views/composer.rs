@@ -6,7 +6,7 @@ use gpui::{
     Subscription, Window, actions, px,
 };
 use muxy_app_core::{
-    composer::ComposerDraft,
+    composer::{ComposerDraft, DraftId},
     settings::{ComposerPosition, ComposerSettings},
 };
 use muxy_ui::{
@@ -31,6 +31,9 @@ pub(crate) enum ComposerEvent {
     Image(Vec<u8>),
     Close,
     Menu,
+    Enhance,
+    AcceptEnhancement { key: DraftId, append: bool },
+    DismissEnhancement(DraftId),
     Preferences(ComposerSettings),
 }
 
@@ -42,6 +45,8 @@ pub(crate) struct Composer {
     pub(crate) settings: ComposerSettings,
     pub(crate) error: Option<String>,
     pub(crate) sending: bool,
+    pub(crate) enhancing: bool,
+    pub(crate) enhanced_preview: Option<(DraftId, String)>,
     theme: Theme,
     metrics: Metrics,
     resize: PanelResizeState,
@@ -116,6 +121,8 @@ impl Composer {
             settings,
             error: None,
             sending: false,
+            enhancing: false,
+            enhanced_preview: None,
             theme,
             metrics,
             resize: PanelResizeState::default(),
@@ -225,6 +232,7 @@ impl Composer {
     }
 
     pub(crate) fn set_draft(&mut self, draft: ComposerDraft, cx: &mut Context<Self>) {
+        self.enhanced_preview = None;
         self.input
             .update(cx, |input, cx| input.set_text(draft.text.clone(), cx));
         self.draft = draft;

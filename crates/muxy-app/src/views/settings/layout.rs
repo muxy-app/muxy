@@ -22,7 +22,11 @@ impl Category {
             ],
             Self::Composer => &[tr_key!("Behavior"), tr_key!("Text")],
             Self::Browser => &[tr_key!("General"), tr_key!("Browsing"), tr_key!("Profiles")],
-            Self::Ai => &[tr_key!("Commit"), tr_key!("Create Pull Request")],
+            Self::Ai => &[
+                tr_key!("Commit"),
+                tr_key!("Create Pull Request"),
+                tr_key!("Prompt Enhancer"),
+            ],
             Self::General => &[
                 tr_key!("Closing terminals"),
                 tr_key!("Files"),

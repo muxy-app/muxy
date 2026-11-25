@@ -246,7 +246,10 @@ impl SettingsTab {
             }
             super::PickerKind::Terminal(id) => self.open_terminal_picker(id, request, window, cx),
             super::PickerKind::AiProvider(action) => {
-                self.open_provider_picker(action, request, window, cx);
+                self.open_provider_picker(Some(action), request, window, cx);
+            }
+            super::PickerKind::PromptProvider => {
+                self.open_provider_picker(None, request, window, cx);
             }
             super::PickerKind::ExtensionSidebar => self.open_sidebar_picker(request, window, cx),
             super::PickerKind::FileOpener => self.open_file_opener_picker(request, window, cx),
@@ -499,42 +502,85 @@ impl SettingsTab {
 
     fn open_provider_picker(
         &mut self,
-        action: crate::repository_actions::Action,
+        action: Option<crate::repository_actions::Action>,
         request: PickerRequest,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        #[cfg(not(test))]
+        let _ = self.model.update(cx, AppModel::refresh_ai_installed);
         let view = self.view.read(cx);
         let installed = view.snapshot.ai_installed.clone();
+        let key = action.map_or(
+            crate::prompt::PROMPT_PROVIDER,
+            crate::repository_actions::Action::key,
+        );
+        let current = view
+            .snapshot
+            .settings
+            .ai
+            .providers
+            .get(key)
+            .map(|id| id.trim().to_owned())
+            .unwrap_or_default();
         let (theme, metrics) = (view.theme.clone(), view.metrics);
+        let picker_id = if action.is_some() {
+            "ai-provider"
+        } else {
+            "prompt-provider"
+        };
         let picker = cx.new(|cx| {
             Picker::new(
-                PickerConfig::popover("ai-provider", tr!("Search providers…")),
+                PickerConfig::popover(picker_id, tr!("Search providers…")),
                 theme,
                 metrics,
                 cx,
             )
         });
-        let items = std::iter::once(PickerItem::Row(PickerRow::new("", tr!("Auto"))))
+        let mut auto = PickerRow::new("", tr!("Auto"));
+        auto.current = current.is_empty();
+        let mut items: Vec<_> = std::iter::once(PickerItem::Row(auto))
             .chain(crate::ai::PROVIDERS.iter().map(|provider| {
                 let title = if installed.contains(&provider.id) {
                     SharedString::from(provider.name)
                 } else {
                     tr!("%@ · Not installed", provider.name)
                 };
-                PickerItem::Row(PickerRow::new(provider.id, title))
+                let mut row = PickerRow::new(provider.id, title);
+                row.current = provider.id == current;
+                PickerItem::Row(row)
             }))
             .collect();
-        picker.update(cx, |picker, cx| picker.set_items(items, cx));
+        if !current.is_empty() && crate::ai::provider(&current).is_none() {
+            let mut row = PickerRow::new(current.clone(), tr!("%@ · Unsupported", &current));
+            row.current = true;
+            items.push(PickerItem::Row(row).disabled(true));
+        }
+        picker.update(cx, |picker, cx| picker.set_items(items.clone(), cx));
         self.overlay_subscription = Some(cx.subscribe_in(
             &picker,
             window,
-            move |root, _, event, window, cx| match event {
+            move |root, picker, event, window, cx| match event {
+                PickerEvent::QueryChanged { query, .. } => {
+                    let query = query.to_lowercase();
+                    let filtered = items
+                        .iter()
+                        .filter(|item| {
+                            matches!(item, PickerItem::Row(row) if query.split_whitespace().all(|word| {
+                                row.title.to_lowercase().contains(word)
+                                    || row.id.to_lowercase().contains(word)
+                            }))
+                        })
+                        .cloned()
+                        .collect();
+                    picker.update(cx, |picker, cx| picker.set_items(filtered, cx));
+                }
                 PickerEvent::Confirmed(selection) => {
                     let id = selection.id.to_string();
-                    let _ = root
-                        .model
-                        .update(cx, |model, cx| model.set_ai_provider(action, &id, cx));
+                    let _ = root.model.update(cx, |model, cx| match action {
+                        Some(action) => model.set_ai_provider(action, &id, cx),
+                        None => model.set_prompt_provider(&id, cx),
+                    });
                     root.dismiss_overlay(window, cx);
                 }
                 PickerEvent::Dismissed => root.dismiss_overlay(window, cx),

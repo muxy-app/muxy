@@ -9,6 +9,7 @@ the project. Handy for AI agents.
 | Action | Default shortcut |
 | --- | --- |
 | Open or close | `Cmd+I` |
+| Enhance prompt | `Cmd+Opt+E` |
 | Send and press Return | `Cmd+Return` |
 | Send without Return | `Cmd+Shift+Return` |
 | Close | `Esc` |
@@ -22,6 +23,13 @@ the project. Handy for AI agents.
 - A failed send keeps the draft. Some terminals may already have received it,
   so check before retrying.
 - Each project keeps its own draft, saved across restarts.
+- The sparkles button (or `Cmd+Opt+E`) rewrites the draft with the AI CLI
+  chosen in **Settings → AI → Prompt Enhancer** and shows a preview so you can
+  choose **Replace**, **Append Below**, or **Discard**. Auto uses the first
+  installed CLI, an empty model uses that CLI's default, and **Prompt
+  instructions** starts with a built-in default you can edit or reset with
+  **Restore Default**. If the draft changes while the rewrite is running, Muxy
+  keeps what you wrote. An empty draft is left alone.
 
 ## Files and images
 

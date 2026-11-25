@@ -13,23 +13,23 @@ use super::{
     BrowserInspect, BrowserOpenExternally, BrowserReload, BrowserZoomIn, BrowserZoomOut,
     BrowserZoomReset, CheckForUpdates, ClearScreen, CloseOtherTabs, ClosePane, CloseTab,
     CloseTabsToTheLeft, CloseTabsToTheRight, CopyProjectPath, CreateExtension, DecreaseFontSize,
-    DetachTerminal, DockFloatingTerminal, EndAllSessionsAndQuit, EqualizeSplits, ExistingTerminals,
-    Find, FindNext, FindPrevious, FloatPane, FocusNextPane, FocusPaneDown, FocusPaneLeft,
-    FocusPaneRight, FocusPaneUp, FocusPreviousPane, HideApp, HideOthers, IncreaseFontSize,
-    InsertPath, InstallCommandLineTool, ManageExtensions, Minimize, MovePaneToNewTab,
-    MovePaneToNewWindow, MoveTabLeft, MoveTabRight, MoveTabToMainWindow, MoveTabToNewWindow,
-    NavigateBack, NavigateForward, NewBrowserTab, NewHomeTab, NewTab, NewTabInProject,
-    NewTabToTheLeft, NewTabToTheRight, NewWorkspace, NewWorktree, NextProject, NextPrompt, NextTab,
-    OpenAbout, OpenConfiguration, OpenKeyboardShortcuts, OpenProjectInDefaultApp, OpenSettings,
-    PreviousProject, PreviousPrompt, PreviousTab, Quit, ReloadConfiguration, RemoveProject,
-    RenameProject, RenameTab, ResetFontSize, ResetTabTitle, ResizePaneDown, ResizePaneLeft,
-    ResizePaneRight, ResizePaneUp, RevealProject, ScrollToBottom, ScrollToTop, SelectAllInTerminal,
-    SelectCommandOutput, ShowAll, ShowFloatingTerminalInAllProjects,
-    ShowFloatingTerminalInItsProject, ShowServers, ShowTip, ShowWelcomeTour, SplitDown, SplitRight,
-    SwitchProject, SwitchWorkspace, SwitchWorktree, ToggleAgentSessions, ToggleAgentsPanel,
-    ToggleCommandPalette, ToggleComposer, ToggleFloatingTerminals, ToggleFullScreen,
-    ToggleProjectFocus, ToggleSidebar, ToggleStatusBar, ToggleTabPin, ToggleThemePicker,
-    ToggleWorktrees, ToggleZoomPane, Zoom,
+    DetachTerminal, DockFloatingTerminal, EndAllSessionsAndQuit, EnhancePrompt, EqualizeSplits,
+    ExistingTerminals, Find, FindNext, FindPrevious, FloatPane, FocusNextPane, FocusPaneDown,
+    FocusPaneLeft, FocusPaneRight, FocusPaneUp, FocusPreviousPane, HideApp, HideOthers,
+    IncreaseFontSize, InsertPath, InstallCommandLineTool, ManageExtensions, Minimize,
+    MovePaneToNewTab, MovePaneToNewWindow, MoveTabLeft, MoveTabRight, MoveTabToMainWindow,
+    MoveTabToNewWindow, NavigateBack, NavigateForward, NewBrowserTab, NewHomeTab, NewTab,
+    NewTabInProject, NewTabToTheLeft, NewTabToTheRight, NewWorkspace, NewWorktree, NextProject,
+    NextPrompt, NextTab, OpenAbout, OpenConfiguration, OpenKeyboardShortcuts,
+    OpenProjectInDefaultApp, OpenSettings, PreviousProject, PreviousPrompt, PreviousTab, Quit,
+    ReloadConfiguration, RemoveProject, RenameProject, RenameTab, ResetFontSize, ResetTabTitle,
+    ResizePaneDown, ResizePaneLeft, ResizePaneRight, ResizePaneUp, RevealProject, ScrollToBottom,
+    ScrollToTop, SelectAllInTerminal, SelectCommandOutput, ShowAll,
+    ShowFloatingTerminalInAllProjects, ShowFloatingTerminalInItsProject, ShowServers, ShowTip,
+    ShowWelcomeTour, SplitDown, SplitRight, SwitchProject, SwitchWorkspace, SwitchWorktree,
+    ToggleAgentSessions, ToggleAgentsPanel, ToggleCommandPalette, ToggleComposer,
+    ToggleFloatingTerminals, ToggleFullScreen, ToggleProjectFocus, ToggleSidebar, ToggleStatusBar,
+    ToggleTabPin, ToggleThemePicker, ToggleWorktrees, ToggleZoomPane, Zoom,
 };
 use crate::model::AppModel;
 use crate::model::browsers::BrowserAction;
@@ -246,6 +246,14 @@ static COMMANDS: &[CommandDef] = &[
     )
     .run(|model, window, cx| {
         model.toggle_composer(window, cx);
+    }),
+    row::<EnhancePrompt>(
+        ShortcutId::EnhancePrompt,
+        Label::Key(tr_key!("Enhance Prompt")),
+    )
+    .keywords("rewrite composer draft")
+    .run(|model, _, cx| {
+        model.enhance_prompt(cx);
     }),
     row::<NewTab>(ShortcutId::NewTab, Label::Key(tr_key!("New Tab")))
         .available(project_present)

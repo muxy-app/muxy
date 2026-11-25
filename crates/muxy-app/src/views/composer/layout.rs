@@ -9,6 +9,7 @@ use muxy_app_core::settings::{ComposerPosition, ComposerPresentation};
 use muxy_ui::{
     accessibility,
     components::{ButtonInteraction, SymbolGlyph},
+    controls::{self, Style},
     l10n::{tr_key, translate},
     panel::{PanelAction, PanelChrome, PanelControl, PanelFrame, PanelStyle},
     tr,
@@ -32,6 +33,15 @@ enum Control {
     Metadata,
     Toolbar,
     Dismiss,
+}
+
+#[derive(Clone, Copy)]
+struct GlyphButton {
+    id: &'static str,
+    symbol: &'static str,
+    label: &'static str,
+    control: Control,
+    enabled: bool,
 }
 
 impl Composer {
@@ -59,20 +69,27 @@ impl Composer {
 
     fn glyph_button(
         &self,
-        id: &'static str,
-        symbol: &'static str,
-        label: &'static str,
-        control: Control,
+        button: GlyphButton,
         action: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let GlyphButton {
+            id,
+            symbol,
+            label,
+            control,
+            enabled,
+        } = button;
         let m = self.metrics;
         let theme = self.theme.clone();
-        let (box_size, glyph_size, color) = match control {
+        let (box_size, glyph_size, mut color) = match control {
             Control::Metadata => (m.control_small(), m.font_caption(), theme.fg_dim),
             Control::Toolbar => (m.control_large(), m.font_footnote(), theme.fg_muted),
             Control::Dismiss => (m.font_micro(), m.font_micro(), theme.fg_dim),
         };
+        if !enabled {
+            color = theme.fg_dim;
+        }
         div()
             .id(id)
             .group(id)
@@ -80,6 +97,7 @@ impl Composer {
             .role(Role::Button)
             .accessibility_id(id)
             .aria_label(translate(label))
+            .aria_disabled(!enabled)
             .flex()
             .flex_none()
             .items_center()
@@ -104,7 +122,11 @@ impl Composer {
                 },
                 &theme,
             ))
-            .button_interaction(cx.listener(move |view, _, window, cx| action(view, window, cx)))
+            .when(enabled, |button| {
+                button.button_interaction(
+                    cx.listener(move |view, _, window, cx| action(view, window, cx)),
+                )
+            })
             .into_any_element()
     }
 
@@ -258,18 +280,21 @@ impl Composer {
             )
             .child(div().flex_1())
             .child(self.glyph_button(
-                "composer-expand",
-                if self.settings.expanded {
-                    "arrow.down.right.and.arrow.up.left"
-                } else {
-                    "arrow.up.left.and.arrow.down.right"
+                GlyphButton {
+                    id: "composer-expand",
+                    symbol: if self.settings.expanded {
+                        "arrow.down.right.and.arrow.up.left"
+                    } else {
+                        "arrow.up.left.and.arrow.down.right"
+                    },
+                    label: if self.settings.expanded {
+                        tr_key!("Collapse Composer")
+                    } else {
+                        tr_key!("Expand Composer")
+                    },
+                    control: Control::Metadata,
+                    enabled: true,
                 },
-                if self.settings.expanded {
-                    tr_key!("Collapse Composer")
-                } else {
-                    tr_key!("Expand Composer")
-                },
-                Control::Metadata,
                 |view, _, cx| {
                     view.settings.expanded = !view.settings.expanded;
                     view.preferences(cx);
@@ -277,14 +302,157 @@ impl Composer {
                 cx,
             ))
             .child(self.glyph_button(
-                "composer-close",
-                "xmark",
-                tr_key!("Close Composer"),
-                Control::Metadata,
+                GlyphButton {
+                    id: "composer-close",
+                    symbol: "xmark",
+                    label: tr_key!("Close Composer"),
+                    control: Control::Metadata,
+                    enabled: true,
+                },
                 |_, _, cx| cx.emit(ComposerEvent::Close),
                 cx,
             ))
             .into_any_element()
+    }
+
+    fn enhancing_status(&self) -> AnyElement {
+        let m = self.metrics;
+        div()
+            .id("composer-enhancing-status")
+            .debug_selector(|| "composer-enhancing-status".into())
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(m.spacing3())
+            .px(m.spacing4())
+            .py(m.spacing3())
+            .rounded(m.radius_md())
+            .bg(self.theme.surface)
+            .border_1()
+            .border_color(self.theme.border)
+            .text_size(m.font_caption())
+            .text_color(self.theme.fg_muted)
+            .child(SymbolGlyph::new(
+                "sparkles",
+                m.font_caption(),
+                self.theme.accent,
+            ))
+            .child(tr!("Rewriting prompt…"))
+            .into_any_element()
+    }
+
+    fn enhancement_preview_actions(
+        &self,
+        key: &muxy_app_core::composer::DraftId,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let m = self.metrics;
+        let append_key = key.clone();
+        let replace_key = key.clone();
+        let style = Style {
+            theme: &self.theme,
+            metrics: &self.metrics,
+        };
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_end()
+            .gap(m.spacing3())
+            .child(controls::button(
+                style,
+                "composer-enhance-append",
+                controls::Button::secondary(&tr!("Append Below")),
+                cx.listener(move |_, _, _, cx| {
+                    cx.emit(ComposerEvent::AcceptEnhancement {
+                        key: append_key.clone(),
+                        append: true,
+                    });
+                }),
+            ))
+            .child(controls::button(
+                style,
+                "composer-enhance-replace",
+                controls::Button::primary(&tr!("Replace")),
+                cx.listener(move |_, _, _, cx| {
+                    cx.emit(ComposerEvent::AcceptEnhancement {
+                        key: replace_key.clone(),
+                        append: false,
+                    });
+                }),
+            ))
+            .into_any_element()
+    }
+
+    fn enhancement_preview(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.enhancing {
+            return Some(self.enhancing_status());
+        }
+        let m = self.metrics;
+        let (key, preview) = self.enhanced_preview.as_ref()?;
+        let discard_key = key.clone();
+        Some(
+            div()
+                .id("composer-enhance-preview")
+                .debug_selector(|| "composer-enhance-preview".into())
+                .flex()
+                .flex_col()
+                .flex_shrink()
+                .min_h_0()
+                .overflow_hidden()
+                .gap(m.spacing3())
+                .p(m.spacing4())
+                .rounded(m.radius_md())
+                .bg(self.theme.surface)
+                .border_1()
+                .border_color(self.theme.accent.opacity(0.45))
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(m.spacing2())
+                        .child(SymbolGlyph::new(
+                            "sparkles",
+                            m.font_caption(),
+                            self.theme.accent,
+                        ))
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(m.font_caption())
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(self.theme.fg_muted)
+                                .child(tr!("Enhanced Prompt")),
+                        )
+                        .child(self.glyph_button(
+                            GlyphButton {
+                                id: "composer-enhance-discard",
+                                symbol: "xmark",
+                                label: tr_key!("Discard"),
+                                control: Control::Dismiss,
+                                enabled: true,
+                            },
+                            move |_, _, cx| {
+                                cx.emit(ComposerEvent::DismissEnhancement(discard_key.clone()));
+                            },
+                            cx,
+                        )),
+                )
+                .child(
+                    div()
+                        .id("composer-enhance-preview-text")
+                        .flex_1()
+                        .min_h_0()
+                        .max_h(m.scaled(160.0))
+                        .overflow_y_scroll()
+                        .text_size(m.font_body())
+                        .text_color(self.theme.fg)
+                        .child(preview.clone()),
+                )
+                .child(self.enhancement_preview_actions(key, cx))
+                .into_any_element(),
+        )
     }
 
     fn error_row(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -315,10 +483,13 @@ impl Composer {
             )
             .child(div().min_w_0().flex_1().truncate().child(error.clone()))
             .child(self.glyph_button(
-                "composer-dismiss-error",
-                "xmark",
-                tr_key!("Dismiss Error"),
-                Control::Dismiss,
+                GlyphButton {
+                    id: "composer-dismiss-error",
+                    symbol: "xmark",
+                    label: tr_key!("Dismiss Error"),
+                    control: Control::Dismiss,
+                    enabled: true,
+                },
                 |view, _, cx| {
                     view.error = None;
                     cx.notify();
@@ -394,19 +565,36 @@ impl Composer {
             .gap(m.spacing2())
             .pt(m.spacing4())
             .child(self.glyph_button(
-                "composer-attach",
-                "plus",
-                tr_key!("Attach File"),
-                Control::Toolbar,
+                GlyphButton {
+                    id: "composer-attach",
+                    symbol: "plus",
+                    label: tr_key!("Attach File"),
+                    control: Control::Toolbar,
+                    enabled: true,
+                },
                 |_, _, cx| cx.emit(ComposerEvent::Attach),
                 cx,
             ))
             .child(self.glyph_button(
-                "composer-more",
-                "ellipsis",
-                tr_key!("More Composer Actions"),
-                Control::Toolbar,
+                GlyphButton {
+                    id: "composer-more",
+                    symbol: "ellipsis",
+                    label: tr_key!("More Composer Actions"),
+                    control: Control::Toolbar,
+                    enabled: true,
+                },
                 |_, _, cx| cx.emit(ComposerEvent::Menu),
+                cx,
+            ))
+            .child(self.glyph_button(
+                GlyphButton {
+                    id: "composer-enhance",
+                    symbol: "sparkles",
+                    label: tr_key!("Enhance Prompt"),
+                    control: Control::Toolbar,
+                    enabled: !self.enhancing && !self.sending,
+                },
+                |_, _, cx| cx.emit(ComposerEvent::Enhance),
                 cx,
             ))
             .child(
@@ -494,11 +682,20 @@ impl Composer {
                             .flex_col()
                             .flex_1()
                             .min_w_0()
-                            .min_h_0()
+                            .min_h(m.scaled(48.0))
                             .px(m.spacing1())
                             .py(m.spacing6())
                             .child(self.input.clone()),
                     )
+                    .children(self.enhancement_preview(cx).map(|preview| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_shrink()
+                            .min_h_0()
+                            .pt(m.spacing2())
+                            .child(preview)
+                    }))
                     .children(
                         self.error_row(cx)
                             .map(|error| div().pt(m.spacing2()).child(error)),

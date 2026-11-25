@@ -14,6 +14,8 @@ use crate::views::overlays::Overlay;
 
 pub(crate) struct Runtime {
     pub(crate) installed: Vec<Provider>,
+    #[cfg(not(test))]
+    installed_generation: u64,
     pub(crate) confirmation: Option<PendingConfirmation>,
     runs: HashMap<ProjectId, Run>,
     next: u64,
@@ -46,6 +48,8 @@ impl Default for Runtime {
             } else {
                 Provider::installed()
             },
+            #[cfg(not(test))]
+            installed_generation: 0,
             confirmation: None,
             runs: HashMap::new(),
             next: 0,
@@ -63,6 +67,7 @@ pub(crate) enum Availability {
 impl Runtime {
     #[cfg(not(test))]
     pub(crate) fn refresh_installed(&mut self) {
+        self.installed_generation = self.installed_generation.wrapping_add(1);
         self.installed = Provider::installed();
     }
 
@@ -137,13 +142,25 @@ impl Runtime {
 
 impl AppModel {
     #[cfg(not(test))]
-    pub(crate) fn discover_ai_providers(cx: &mut Context<Self>) {
+    pub(crate) fn refresh_ai_installed(&mut self, cx: &mut Context<Self>) {
+        self.ai.refresh_installed();
+        self.sync_preferences(cx);
+    }
+
+    #[cfg(not(test))]
+    pub(crate) fn discover_ai_providers(&self, cx: &mut Context<Self>) {
+        let generation = self.ai.installed_generation;
         cx.spawn(async move |this, cx| {
             let installed = crate::ai::run(|| Ok(Provider::discover())).await;
             if let Ok(installed) = installed {
                 let _ = this.update(cx, |model, cx| {
-                    if model.ai.installed != installed {
+                    let previous = model.ai.installed.clone();
+                    if model.ai.installed_generation == generation {
                         model.ai.installed = installed;
+                    } else {
+                        model.ai.refresh_installed();
+                    }
+                    if model.ai.installed != previous {
                         model.sync_preferences(cx);
                         cx.notify();
                     }
@@ -159,30 +176,35 @@ impl AppModel {
         }
         self.save_ai_entry(
             "providers",
-            action,
+            action.key(),
             Some(id).filter(|id| !id.is_empty()),
             cx,
         );
     }
 
-    pub(crate) fn set_ai_prompt(&mut self, action: Action, prompt: &str, cx: &mut Context<Self>) {
-        let prompt = prompt.trim();
-        let value =
-            Some(prompt).filter(|prompt| !prompt.is_empty() && *prompt != action.default_prompt());
-        self.save_ai_entry("prompts", action, value, cx);
+    pub(crate) fn set_prompt_provider(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !id.is_empty() && crate::ai::provider(id).is_none() {
+            return;
+        }
+        self.save_ai_entry(
+            "providers",
+            crate::prompt::PROMPT_PROVIDER,
+            Some(id).filter(|id| !id.is_empty()),
+            cx,
+        );
     }
 
     fn save_ai_entry(
         &mut self,
         table: &str,
-        action: Action,
+        key: &str,
         value: Option<&str>,
         cx: &mut Context<Self>,
     ) {
         match muxy_app_core::settings::Settings::save_ai_entry(
             &self.path.with_file_name("settings.toml"),
             table,
-            action.key(),
+            key,
             value,
         ) {
             Ok(saved) => self.settings.ai = saved,
