@@ -1348,8 +1348,11 @@ impl TerminalPane {
         let column = if nearest { x.round() } else { x.floor() }
             .clamp(0.0, f32::from(grid.size.cols)) as u16;
         let remainder = self.scroll.pixel_remainder(f32::from(cell.height));
-        let y = (position.y - bounds.origin.y - px(remainder) - cell.height * self.slide.sampled())
-            / cell.height;
+        let slide = self.slide.sampled();
+        let y = (position.y - bounds.origin.y - px(remainder) - cell.height * slide) / cell.height;
+        if slide > 0.0 && y < 0.0 && position.y >= bounds.origin.y {
+            return None;
+        }
         let height = self.viewport.unwrap_or(grid.size).rows;
         let last = height.saturating_sub(1) + u16::from(remainder < 0.0);
         let visible = y.floor().clamp(0.0, f32::from(last)) as usize;
