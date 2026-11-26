@@ -17,6 +17,11 @@ impl Glide {
         self.typed = Some(now);
     }
 
+    pub(crate) fn jump(&mut self) {
+        self.target = None;
+        self.started = None;
+    }
+
     pub(crate) fn sample(
         &mut self,
         target: Option<(u16, u16)>,

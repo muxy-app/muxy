@@ -482,6 +482,9 @@ impl TerminalPane {
         }
         let output_changed = !frame.rows.is_empty() || terminal.grid.cursor != frame.cursor;
         let growth = self.slide.take_growth(terminal.grid.history_total);
+        if growth.is_some() || frame.reset {
+            self.glide.jump();
+        }
         let before = (growth.is_some()
             && following
             && !frame.reset
@@ -3373,5 +3376,46 @@ mod tests {
         });
         cx.run_until_parked();
         assert!(opened.borrow().is_empty());
+    }
+
+    #[gpui::test]
+    fn the_cursor_jumps_when_output_scrolls_its_line_away(cx: &mut TestAppContext) {
+        fn move_cursor(
+            pane: &mut TerminalPane,
+            seq: u64,
+            col: u16,
+            now: std::time::Instant,
+            cx: &mut Context<TerminalPane>,
+        ) -> bool {
+            let grid = pane.grid.as_ref().unwrap();
+            let frame = ScreenFrame {
+                size: grid.size,
+                graphics: None,
+                seq,
+                reset: false,
+                rows: Vec::new(),
+                cursor: Cursor { col, ..grid.cursor },
+                modes: Modes::default(),
+            };
+            pane.apply(&frame, cx);
+            pane.sample_cursor(now)
+        }
+        let pane = cx.new(|cx| {
+            TerminalPane::new(
+                Palette::new(true),
+                muxy_app_core::settings::TerminalSettings::default(),
+                cx,
+            )
+        });
+        pane.update(cx, |pane, cx| {
+            prepare_mouse(pane);
+            pane.focused = true;
+            let now = std::time::Instant::now();
+            pane.sample_cursor(now);
+            pane.glide.typed(now);
+            assert!(move_cursor(pane, 1, 8, now, cx));
+            pane.metadata(MetadataEvent::History { total_rows: 2 }, cx);
+            assert!(!move_cursor(pane, 2, 2, now, cx));
+        });
     }
 }
