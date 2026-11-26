@@ -472,6 +472,7 @@ PY
   fi
   grep -q 'MUXY_SHELL_INTEGRATION_DIR/muxy.bash' "$HOME/.bashrc" 2>/dev/null && { echo "already enabled"; return; }
   cat >> "$HOME/.bashrc" <<'BASHRC'
+
 if [[ ${MUXY_SHELL_INTEGRATION:-0} == 1 ]]; then
     source "$MUXY_SHELL_INTEGRATION_DIR/muxy.bash"
 fi

@@ -2361,7 +2361,7 @@ impl AppModel {
         }
         let resume_from = session
             .is_none()
-            .then(|| self.state.take_resume_source(pane))
+            .then(|| self.state.resume_source(pane))
             .flatten();
         self.send(
             server,

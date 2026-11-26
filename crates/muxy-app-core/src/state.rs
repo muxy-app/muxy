@@ -828,8 +828,8 @@ impl AppState {
         Ok(id)
     }
 
-    pub fn take_resume_source(&mut self, pane: PaneId) -> Option<SessionId> {
-        self.resume_sources.remove(&pane)
+    pub fn resume_source(&self, pane: PaneId) -> Option<SessionId> {
+        self.resume_sources.get(&pane).copied()
     }
 
     pub fn starts_outside_project(&self, pane: PaneId) -> bool {
@@ -1130,6 +1130,9 @@ impl AppState {
         match &mut self.pane_mut(pane)?.content {
             PaneContent::Terminal { session: current } => {
                 *current = session;
+                if session.is_some() {
+                    self.resume_sources.remove(&pane);
+                }
                 Ok(())
             }
             PaneContent::Settings

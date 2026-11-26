@@ -233,3 +233,27 @@ fn programs_are_not_resumed_when_resume_is_off_or_they_are_not_allowed() -> Test
     }
     Ok(())
 }
+
+#[test]
+fn a_shell_that_fails_to_start_keeps_the_record_for_the_next_try() -> TestResult {
+    let Some(profile) = Profile::new("sh")? else {
+        return Ok(());
+    };
+    let registry = profile.open()?;
+    let old = SessionId::new(77).ok_or("zero id")?;
+    let record = crate::resume::Record {
+        argv: vec!["sh".into()],
+        cwd: None,
+    };
+    registry.resumes.save(old, Some(&record));
+    *registry
+        .settings
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = ServerSettings {
+        default_shell: Some(profile.root.join("missing-shell")),
+        ..profile.settings()
+    };
+    assert!(profile.start(&registry, Some(old)).is_err());
+    assert!(profile.record(old).exists());
+    Ok(())
+}

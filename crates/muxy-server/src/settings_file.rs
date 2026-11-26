@@ -111,8 +111,23 @@ pub(crate) fn save(path: &Path, settings: &ServerSettings) -> io::Result<()> {
         programs: settings.resume_allowlist.clone(),
     })
     .map_err(io::Error::other)?;
-    muxy_core::fs::write_atomic(&resume_path(path), resume.as_bytes(), 0o600)?;
-    Ok(muxy_core::fs::write_atomic(path, source.as_bytes(), 0o600)?)
+    let sidecar = resume_path(path);
+    let previous = match fs::read(&sidecar) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    muxy_core::fs::write_atomic(&sidecar, resume.as_bytes(), 0o600)?;
+    if let Err(error) = muxy_core::fs::write_atomic(path, source.as_bytes(), 0o600) {
+        let _ = match previous {
+            Some(bytes) => {
+                muxy_core::fs::write_atomic(&sidecar, &bytes, 0o600).map_err(io::Error::other)
+            }
+            None => fs::remove_file(&sidecar),
+        };
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -155,6 +170,32 @@ mod tests {
             without?.resume_allowlist,
             ServerSettings::default().resume_allowlist
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_failed_settings_write_leaves_the_resume_settings_as_they_were() -> io::Result<()> {
+        let directory = std::env::temp_dir().join(format!(
+            "muxy-settings-{}",
+            muxy_protocol::OperationId::new()
+        ));
+        fs::create_dir_all(directory.join("server.toml"))?;
+        let path = directory.join("server.toml");
+        fs::write(
+            resume_path(&path),
+            "enabled = true\nprograms = [\"claude\"]\n",
+        )?;
+        let failed = save(
+            &path,
+            &ServerSettings {
+                resume_programs: false,
+                ..ServerSettings::default()
+            },
+        );
+        let kept = fs::read_to_string(resume_path(&path))?;
+        fs::remove_dir_all(&directory)?;
+        assert!(failed.is_err());
+        assert_eq!(kept, "enabled = true\nprograms = [\"claude\"]\n");
         Ok(())
     }
 }

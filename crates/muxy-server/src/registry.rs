@@ -409,11 +409,26 @@ impl Registry {
     }
 
     pub fn write_settings(&self, settings: ServerSettings) -> Result<(), ServerError> {
-        settings.validate()?;
+        self.update_settings(|_| settings)
+    }
+
+    pub fn write_settings_document(
+        &self,
+        document: muxy_protocol::ServerSettingsDoc,
+    ) -> Result<(), ServerError> {
+        self.update_settings(|current| current.with_document(document))
+    }
+
+    fn update_settings(
+        &self,
+        change: impl FnOnce(&ServerSettings) -> ServerSettings,
+    ) -> Result<(), ServerError> {
         let _write = self
             .settings_write
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        let settings = change(&self.settings());
+        settings.validate()?;
         (self.persist.0)(&settings).map_err(|error| {
             ServerError::new(
                 ErrorCode::BadRequest,
@@ -501,11 +516,7 @@ impl Registry {
         }
         let settings = self.settings();
         let budget = usize::try_from(settings.history_budget_bytes).unwrap_or(usize::MAX);
-        let resume_from = launch.resume_from.filter(|from| {
-            let state = lock(&self.sessions);
-            !state.sessions.contains_key(from) && !state.starting.contains(from)
-        });
-        let record = crate::resume::launch(&self.resumes, resume_from, &settings);
+        let (resume_from, record) = self.take_resume(launch.resume_from, &settings);
         let token = (cfg!(unix) && settings.resume_programs)
             .then(crate::resume::token)
             .flatten();
@@ -521,6 +532,11 @@ impl Registry {
                 record: record.as_ref(),
             },
         )
+        .inspect_err(|_| {
+            if let (Some(from), Some(record)) = (resume_from, &record) {
+                self.resumes.save(from, Some(record));
+            }
+        })
         .and_then(|shell| {
             let resume =
                 crate::resume::Tracker::new(id, self.resumes.clone(), token, shell.pty.child_pid());
@@ -569,6 +585,18 @@ impl Registry {
         log::info!("session created: {}", id.get());
         self.attach_creator(id, requester);
         Ok(info)
+    }
+
+    fn take_resume(
+        &self,
+        from: Option<SessionId>,
+        settings: &ServerSettings,
+    ) -> (Option<SessionId>, Option<crate::resume::Record>) {
+        let from = from.filter(|from| {
+            let state = lock(&self.sessions);
+            !state.sessions.contains_key(from) && !state.starting.contains(from)
+        });
+        (from, crate::resume::launch(&self.resumes, from, settings))
     }
 
     fn session_exit(&self, id: SessionId) -> impl FnOnce(muxy_protocol::ExitReason) + use<> {

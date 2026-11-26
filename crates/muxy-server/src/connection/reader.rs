@@ -374,7 +374,7 @@ fn ordered_request(
             ReplyBody::ServerSettings(registry.settings().document())
         }
         RequestBody::WriteServerSettings(settings) => {
-            registry.write_settings(registry.settings().with_document(settings))?;
+            registry.write_settings_document(settings)?;
             ReplyBody::ServerSettingsWritten
         }
         RequestBody::StopServerIfIdle if !registry.stop_if_idle() => ReplyBody::ServerBusy,
