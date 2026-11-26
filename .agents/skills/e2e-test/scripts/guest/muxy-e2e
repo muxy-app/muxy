@@ -1093,8 +1093,6 @@ print('security fixture ready: ~/e2e/sec-ext (load it with muxy extension load)'
 PY
 }
 
-# An extension tab like an editor: a large text area and a link, and a page that calls the
-# extension API every 60 ms, so the app redraws while the pointer rests on the page.
 cmd_cursor_fixture() {
   test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
   python3 - <<'PY'
@@ -1419,7 +1417,6 @@ cmd_ime_mode() {
 }
 
 
-# Samples the cursor macOS shows on screen, so flicker that a screenshot can't show is counted.
 cmd_cursor_probe() {
   [ "$OS" = Darwin ] || die "cursor-probe is macOS only"
   local seconds="${1:-6}" source="$SHARE/cursor-probe.swift" binary="$SHARE/cursor-probe"

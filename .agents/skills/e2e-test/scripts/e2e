@@ -465,14 +465,13 @@ cmd_move() {
   sleep 1.5
 }
 
-# macOS: holds the pointer at x,y, wiggles it around there, then holds it still, while the guest
-# samples the cursor on screen. Prints the samples per phase and the final cursor.
 cmd_cursor_check() {
   local vm="$1" x="$2" y="$3" scale px py out i
   [ "$(platform_of "$vm")" = macos ] || die "cursor-check is macOS only"
   log_action "$vm" "cursor-check $x $y"
   scale="$(display_scale "$vm")"
   px="$(to_points "$x" "$scale")"; py="$(to_points "$y" "$scale")"
+  guest "$vm" cursor-probe 0 >/dev/null || die "cursor-probe failed in $vm"
   control "$vm" move "$px" "$py" >/dev/null || die "move failed in $vm"
   sleep 1
   out="$(mktemp)"
@@ -491,8 +490,12 @@ cmd_cursor_check() {
   control "$vm" move "$px" "$py" >/dev/null || die "move failed in $vm"
   wait "$probe"
   local status=$?
-  cat "$out"; rm -f "$out"
+  cat "$out"
+  local unsampled=0
+  grep -q '^CURSOR moving: changes=0 none$' "$out" && unsampled=1
+  rm -f "$out"
   [ "$status" -eq 0 ] || die "cursor-probe failed in $vm"
+  [ "$unsampled" -eq 0 ] || die "cursor-probe took no samples while the pointer moved in $vm"
 }
 
 cmd_drag() {
