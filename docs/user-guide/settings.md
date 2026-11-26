@@ -73,7 +73,7 @@ Use **Settings → Terminal** for:
   the theme's color; leave it empty to use the theme.
 - Copy on select, clearing selection when typing or copying, mouse reporting,
   separate trackpad and mouse wheel speeds, and scrolling to live output.
-- **Smooth output scrolling** (on by default): new output slides the view up
+- **Smooth output scrolling** (off by default): new output slides the view up
   instead of jumping. Full-screen programs, AI agents, and bursts of more than
   half a screen still jump.
 - Whether both, neither, left, or right Option keys act as Alt.

@@ -120,7 +120,7 @@ impl Default for TerminalOptions {
             scroll_discrete: 1.0,
             scroll_on_keystroke: true,
             scroll_on_output: false,
-            output_scroll_animation: true,
+            output_scroll_animation: false,
             padding_x: [2.0; 2],
             padding_y: [2.0; 2],
             padding_balance: false,
