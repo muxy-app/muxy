@@ -19,6 +19,8 @@ pub(crate) enum Question {
     TerminalReset,
     ServerControl(ServerId, bool),
     RevokeDevice(DeviceId),
+    EnablePush,
+    AddMarketplace(String),
     PausePush,
     ResetPush(DeviceId),
     ForgetServers(Vec<ServerId>),

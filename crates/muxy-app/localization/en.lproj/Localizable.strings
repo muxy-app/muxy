@@ -20,6 +20,8 @@
 "%@ has no confirmed model flag. Clear the model to use its default." = "%@ has no confirmed model flag. Clear the model to use its default.";
 "%@ installs" = "%@ installs";
 "%@ is a folder. Only files can be sent to %@." = "%@ is a folder. Only files can be sent to %@.";
+"%@ is already added." = "%@ is already added.";
+"%@ is already installed from %@. Uninstall it before installing it from %@." = "%@ is already installed from %@. Uninstall it before installing it from %@.";
 "%@ is already published by %@. Your pull request would change their extension." = "%@ is already published by %@. Your pull request would change their extension.";
 "%@ is also bound to %@" = "%@ is also bound to %@";
 "%@ is also bound to %@: %@" = "%@ is also bound to %@: %@";
@@ -137,10 +139,12 @@
 "Active pane" = "Active pane";
 "Active sidebar" = "Active sidebar";
 "Active system-wide" = "Active system-wide";
+"Add %@?" = "Add %@?";
 "Add Binding" = "Add Binding";
 "Add Command" = "Add Command";
 "Add Font…" = "Add Font…";
 "Add Map" = "Add Map";
+"Add Marketplace" = "Add Marketplace";
 "Add Profile" = "Add Profile";
 "Add Project" = "Add Project";
 "Add Project…" = "Add Project…";
@@ -159,9 +163,12 @@
 "Add a project and the extensions most people start with." = "Add a project and the extensions most people start with.";
 "Add at least one marketplace.screenshots entry (PNG, 16:10 or 16:9)." = "Add at least one marketplace.screenshots entry (PNG, 16:10 or 16:9).";
 "Add space between terminal lines using pixels or a percentage, such as 10%%." = "Add space between terminal lines using pixels or a percentage, such as 10%%.";
+"Add the %@ marketplace again to get updates for this extension." = "Add the %@ marketplace again to get updates for this extension.";
+"Add the %@ marketplace before installing from it." = "Add the %@ marketplace before installing from it.";
 "Add the essentials" = "Add the essentials";
 "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"" = "Add ~/.local/bin to your PATH. For this shell, run:\nexport PATH=\"$HOME/.local/bin:$PATH\"";
 "Added %lld projects and %lld workspaces from Muxy 1.x. Projects, tabs, and workspaces you already had are unchanged." = "Added %lld projects and %lld workspaces from Muxy 1.x. Projects, tabs, and workspaces you already had are unchanged.";
+"Adding…" = "Adding…";
 "Additional Prompt" = "Additional Prompt";
 "Additional instructions" = "Additional instructions";
 "Additional prompt" = "Additional prompt";
@@ -365,6 +372,8 @@
 "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it." = "Browse extensions in Settings → Extensions. Each one lists the permissions it requests and runs only after you enable it.";
 "Browse extensions to add tools to Muxy, or load an unpacked extension folder." = "Browse extensions to add tools to Muxy, or load an unpacked extension folder.";
 "Browse language extensions…" = "Browse language extensions…";
+"Browse lists extensions from these GitHub repositories. Muxy reviews only the official marketplace. Extensions from others can ask for any permission they list, so add only repositories you trust." = "Browse lists extensions from these GitHub repositories. Muxy reviews only the official marketplace. Extensions from others can ask for any permission they list, so add only repositories you trust.";
+"Browse will also list the extensions published in the GitHub repository %@. Muxy doesn't review them, and each one can ask for the permissions it lists. Install only from people you trust." = "Browse will also list the extensions published in the GitHub repository %@. Muxy doesn't review them, and each one can ask for the permissions it lists. Install only from people you trust.";
 "Browser" = "Browser";
 "Browser Profile" = "Browser Profile";
 "Browser Profile: %@" = "Browser Profile: %@";
@@ -692,6 +701,7 @@
 "Couldn't create pull request" = "Couldn't create pull request";
 "Couldn't create worktree" = "Couldn't create worktree";
 "Couldn't install the muxy command: %@" = "Couldn't install the muxy command: %@";
+"Couldn't load %@. Showing the other marketplaces." = "Couldn't load %@. Showing the other marketplaces.";
 "Couldn't merge PR #%lld" = "Couldn't merge PR #%lld";
 "Couldn't remove worktree" = "Couldn't remove worktree";
 "Couldn't start %@" = "Couldn't start %@";
@@ -821,6 +831,7 @@
 "Enhance Prompt" = "Enhance Prompt";
 "Enhanced Prompt" = "Enhanced Prompt";
 "Enhanced prompt is ready in Composer." = "Enhanced prompt is ready in Composer.";
+"Enter a GitHub repository like owner/repo, such as muxy-app/extensions." = "Enter a GitHub repository like owner/repo, such as muxy-app/extensions.";
 "Enter a branch name." = "Enter a branch name.";
 "Enter a commit message of up to 10,000 characters" = "Enter a commit message of up to 10,000 characters";
 "Enter a file pattern, such as *.md or Dockerfile." = "Enter a file pattern, such as *.md or Dockerfile.";
@@ -955,6 +966,8 @@
 "Git" = "Git";
 "Git Changes: %@" = "Git Changes: %@";
 "Git ignores %@, so the store wouldn't get it. Remove the ignore rule and publish again." = "Git ignores %@, so the store wouldn't get it. Remove the ignore rule and publish again.";
+"GitHub is limiting requests. Pictures load again in a few minutes." = "GitHub is limiting requests. Pictures load again in a few minutes.";
+"GitHub is not answering right now. Try again in a few minutes." = "GitHub is not answering right now. Try again in a few minutes.";
 "Give a branch its own worktree." = "Give a branch its own worktree.";
 "Global X11 shortcuts cannot cover a Wayland desktop." = "Global X11 shortcuts cannot cover a Wayland desktop.";
 "Global folder: %@" = "Global folder: %@";
@@ -1184,6 +1197,8 @@
 "Manage servers clients remote ssh pairing paired mobile phones computers port qr" = "Manage servers clients remote ssh pairing paired mobile phones computers port qr";
 "Manual Order" = "Manual Order";
 "Mark each agent with the color of the project it runs in." = "Mark each agent with the color of the project it runs in.";
+"Marketplace repository" = "Marketplace repository";
+"Marketplaces" = "Marketplaces";
 "Maximize" = "Maximize";
 "Maximize Pane" = "Maximize Pane";
 "Menu" = "Menu";
@@ -1368,13 +1383,12 @@
 "Notifications refused" = "Notifications refused";
 "OK" = "OK";
 "Off" = "Off";
-"Off. Nothing is sent to muxy.app, and phones can't turn notifications on for this computer." = "Off. Nothing is sent to muxy.app, and phones can't turn notifications on for this computer.";
 "Off. Nothing is sent to muxy.app. Paused phones resume when you turn this on, for %lld more days." = "Off. Nothing is sent to muxy.app. Paused phones resume when you turn this on, for %lld more days.";
+"Off. Nothing is sent to muxy.app. Turn this on so paired phones can hear when an agent needs attention or finishes, through the Muxy relay, which sees only encrypted content." = "Off. Nothing is sent to muxy.app. Turn this on so paired phones can hear when an agent needs attention or finishes, through the Muxy relay, which sees only encrypted content.";
 "Official" = "Official";
 "Older sessions" = "Older sessions";
 "On" = "On";
 "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN." = "On the other computer, open Settings → Servers, turn on Allow clients, and copy its pairing link. Both computers must reach each other on the network or through a VPN.";
-"Once a day, tells muxy.app the app version, operating system, and processor type, so we can count active installs per version. Nothing identifies you or this computer. Starting Muxy with DO_NOT_TRACK=1 also turns it off." = "Once a day, tells muxy.app the app version, operating system, and processor type, so we can count active installs per version. Nothing identifies you or this computer. Starting Muxy with DO_NOT_TRACK=1 also turns it off.";
 "One terminal, any client" = "One terminal, any client";
 "Only hidden files. Type . to list them." = "Only hidden files. Type . to list them.";
 "Open" = "Open";
@@ -1441,6 +1455,7 @@
 "Paired" = "Paired";
 "Paired phones stop getting notifications, and muxy.app forgets them. This computer keeps their registrations for 90 days, so turning this back on resumes them without reconnecting." = "Paired phones stop getting notifications, and muxy.app forgets them. This computer keeps their registrations for 90 days, so turning this back on resumes them without reconnecting.";
 "Paired phones that turn on notifications in the Muxy app hear when an agent needs attention or finishes. They go through the muxy.app relay, which sees only encrypted content." = "Paired phones that turn on notifications in the Muxy app hear when an agent needs attention or finishes. They go through the muxy.app relay, which sees only encrypted content.";
+"Paired phones that turn on notifications in the Muxy app hear when an agent needs attention or finishes. This computer encrypts each notification with a key only it and the phone have, then sends it through the Muxy relay at muxy.app to Apple or Google. The relay can't read it: it sees only that a notification was sent, and stores each phone's push token encrypted. Terminal output, prompts, and code are never sent." = "Paired phones that turn on notifications in the Muxy app hear when an agent needs attention or finishes. This computer encrypts each notification with a key only it and the phone have, then sends it through the Muxy relay at muxy.app to Apple or Google. The relay can't read it: it sees only that a notification was sent, and stores each phone's push token encrypted. Terminal output, prompts, and code are never sent.";
 "Paired with %@" = "Paired with %@";
 "Paired with the other computer." = "Paired with the other computer.";
 "Pairing Link" = "Pairing Link";
@@ -1510,7 +1525,6 @@
 "Previous Tab" = "Previous Tab";
 "Previous match" = "Previous match";
 "Previous screenshot" = "Previous screenshot";
-"Privacy" = "Privacy";
 "Productivity" = "Productivity";
 "Profile name" = "Profile name";
 "Profiles" = "Profiles";
@@ -1795,7 +1809,6 @@
 "Send CSI sequence" = "Send CSI sequence";
 "Send Escape sequence" = "Send Escape sequence";
 "Send Without Enter" = "Send Without Enter";
-"Send an anonymous daily ping" = "Send an anonymous daily ping";
 "Send it" = "Send it";
 "Send it where it's needed" = "Send it where it's needed";
 "Send mouse events to terminal programs that request them. Hold Shift to select text instead." = "Send mouse events to terminal programs that request them. Hold Shift to select text instead.";
@@ -2095,6 +2108,7 @@
 "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it." = "This computer's server is from an older Muxy and starts terminals without the proxy. Restart the server to update it.";
 "This desktop has no file chooser service. Install xdg-desktop-portal and its backend for your desktop." = "This desktop has no file chooser service. Install xdg-desktop-portal and its backend for your desktop.";
 "This extension is up to date." = "This extension is up to date.";
+"This extension isn't in the marketplace." = "This extension isn't in the marketplace.";
 "This folder's path has characters that can't be typed into a terminal safely. Rename it and try again." = "This folder's path has characters that can't be typed into a terminal safely. Rename it and try again.";
 "This is not a released version" = "This is not a released version";
 "This link has expired or was already used. Copy a new one from the other computer." = "This link has expired or was already used. Copy a new one from the other computer.";
@@ -2117,6 +2131,7 @@
 "This turns on Allow clients. A paired phone gets full terminal access; revoke it anytime in Settings → Servers." = "This turns on Allow clients. A paired phone gets full terminal access; revoke it anytime in Settings → Servers.";
 "This update requires a server restart" = "This update requires a server restart";
 "This version is already what the store has. Nothing to publish." = "This version is already what the store has. Nothing to publish.";
+"This version of Muxy can't read the marketplace. Update Muxy and try again." = "This version of Muxy can't read the marketplace. Update Muxy and try again.";
 "Timer" = "Timer";
 "Tips turned off" = "Tips turned off";
 "To pair a phone or another computer, open Settings → Servers, turn on Allow clients, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair." = "To pair a phone or another computer, open Settings → Servers, turn on Allow clients, and click Show Pairing Code, or run muxy mobile enable and then muxy mobile pair.";
@@ -2141,6 +2156,8 @@
 "Try a different name or clear your search." = "Try a different name or clear your search.";
 "Try a different search to find extensions." = "Try a different search to find extensions.";
 "Try another category or a different search." = "Try another category or a different search.";
+"Turn On" = "Turn On";
+"Turn On Push Notifications?" = "Turn On Push Notifications?";
 "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours." = "Turn off Muxy's built-in terminal keys, such as Command-K to clear the screen, and keep only yours.";
 "Turn on Allow clients in Settings → Servers to copy a pairing link." = "Turn on Allow clients in Settings → Servers to copy a pairing link.";
 "Type" = "Type";
@@ -2376,6 +2393,7 @@
 "focus previous pane" = "focus previous pane";
 "form next control" = "form next control";
 "form previous control" = "form previous control";
+"from %@" = "from %@";
 "hide app" = "hide app";
 "hide others" = "hide others";
 "host, address, or ~/.ssh/config alias" = "host, address, or ~/.ssh/config alias";
@@ -2385,8 +2403,6 @@
 "invalid archive checksum" = "invalid archive checksum";
 "invalid archive path" = "invalid archive path";
 "invalid archive size" = "invalid archive size";
-"invalid marketplace URL" = "invalid marketplace URL";
-"invalid marketplace details" = "invalid marketplace details";
 "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, allow Muxy to run in the background in Login Items settings." = "macOS ended your terminals when Muxy quit, because Muxy isn't allowed to run in the background. To keep them running, allow Muxy to run in the background in Login Items settings.";
 "macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings." = "macOS ends terminals when Muxy quits unless Muxy may run in the background. Allow it in Login Items settings.";
 "manage extensions" = "manage extensions";
@@ -2426,6 +2442,7 @@
 "open project in default app" = "open project in default app";
 "open settings" = "open settings";
 "optional" = "optional";
+"owner/repo" = "owner/repo";
 "package.json can't be read: %@" = "package.json can't be read: %@";
 "package.json must hold an object." = "package.json must hold an object.";
 "package.json needs a scripts.build that produces dist/ with package.json inside." = "package.json needs a scripts.build that produces dist/ with package.json inside.";

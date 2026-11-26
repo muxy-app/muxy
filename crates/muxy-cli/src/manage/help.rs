@@ -84,8 +84,9 @@ Pairing codes list the server's own addresses. --address puts a DNS name or
 IPv4 address first, for a server that phones reach by another name, such as a
 cloud server's public name. Repeat it for more, up to 8 addresses in all.
 
-Push notifications reach a paired phone that turned them on in the Muxy app,
-through the muxy.app relay, which sees only encrypted content. Turning them off
+Push notifications are off on a new computer until `muxy mobile push on`.
+Then they reach a paired phone that turned them on in the Muxy app, through
+the Muxy relay at muxy.app, which sees only encrypted content. Turning them off
 pauses every phone: muxy.app forgets them at once, and this computer keeps
 their registrations for 90 days, so turning them on again resumes those phones
 without reconnecting. Reset gives one phone a new key the next time it

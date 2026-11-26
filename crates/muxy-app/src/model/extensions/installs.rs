@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gpui::{AsyncApp, Context, Task, WeakEntity};
-use muxy_app_core::extensions::Extension;
+use muxy_app_core::extensions::{Extension, Marketplace, Registry};
 use muxy_ui::tr;
 
 use super::AppModel;
@@ -59,6 +59,27 @@ impl AppModel {
         let directory = registry.directory();
         let installed = registry.extensions.get(&name).cloned();
         let enabled = registry.enabled(&name).is_some();
+        let installed_from = registry.source(&name);
+        let refused = if !registry.has_marketplace(&details.source) {
+            Some(tr!(
+                "Add the %@ marketplace before installing from it.",
+                details.source.to_string()
+            ))
+        } else if installed.is_some() && installed_from != details.source {
+            Some(tr!(
+                "%@ is already installed from %@. Uninstall it before installing it from %@.",
+                &name,
+                installed_from.to_string(),
+                details.source.to_string()
+            ))
+        } else {
+            None
+        };
+        if let Some(error) = refused {
+            self.begin_install(ActiveInstall::Install { name }, tr!("Checking…").into(), cx);
+            self.finish_install(None, Some(error.into()), cx);
+            return true;
+        }
         let (job, status) = if installed.is_some() {
             let status = tr!("Updating %@…", &name);
             (ActiveInstall::Update { name: name.clone() }, status)
@@ -78,11 +99,16 @@ impl AppModel {
     }
 
     pub(crate) fn update_all_extensions(&mut self, cx: &mut Context<Self>) -> bool {
+        let sources = updatable_sources(&self.extensions.registry);
+        let lookup = sources.clone();
         self.update_all_extensions_with(
-            marketplace::versions,
-            |extension, directory| {
-                let details = marketplace::detail(&extension.name)?;
-                if marketplace::available_update(extension, &details).is_none() {
+            move |names| marketplace::versions(&sourced(names, &lookup)),
+            move |extension, directory| {
+                let source = sources.get(&extension.name).ok_or_else(|| {
+                    tr!("The extension changed. Check for updates and try again.").to_string()
+                })?;
+                let details = marketplace::detail_from(source, &extension.name)?;
+                if marketplace::available_update(extension, source, &details).is_none() {
                     return Err(
                         tr!("The extension changed. Check for updates and try again.").into(),
                     );
@@ -109,7 +135,7 @@ impl AppModel {
         let installed: Vec<_> = registry
             .extensions
             .values()
-            .filter(|extension| !registry.is_unpacked(&extension.name))
+            .filter(|extension| updatable(registry, &extension.name))
             .cloned()
             .collect();
         if installed.is_empty() {
@@ -189,6 +215,58 @@ impl AppModel {
         true
     }
 
+    pub(crate) fn add_extension_marketplace(
+        &mut self,
+        marketplace: Marketplace,
+        window: gpui::AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<bool, String>> {
+        if self.extensions.registry.has_marketplace(&marketplace) {
+            let error = tr!("%@ is already added.", marketplace.to_string()).to_string();
+            return Task::ready(Err(error));
+        }
+        let (reply, answer) = async_channel::bounded(1);
+        let shown = marketplace.to_string();
+        self.ask_once(
+            crate::model::dialogs::Question::AddMarketplace(shown.clone()),
+            window,
+            async move |parent, cx| {
+                crate::views::confirm::prompt_add_marketplace(parent, &shown, cx).await
+            },
+            move |model, response, cx| match response {
+                Ok(true) => {
+                    let task = model.change_extensions(
+                        move |state| state.registry.add_marketplace(marketplace),
+                        cx,
+                    );
+                    cx.spawn(async move |_, _| {
+                        let _ = reply.send(task.await.map(|()| true)).await;
+                    })
+                    .detach();
+                }
+                Ok(false) => {
+                    let _ = reply.try_send(Ok(false));
+                }
+                Err(error) => {
+                    let _ = reply.try_send(Err(error));
+                }
+            },
+            cx,
+        );
+        cx.spawn(async move |_, _| answer.recv().await.unwrap_or(Ok(false)))
+    }
+
+    pub(crate) fn remove_extension_marketplace(
+        &mut self,
+        marketplace: Marketplace,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), String>> {
+        self.change_extensions(
+            move |state| state.registry.remove_marketplace(&marketplace),
+            cx,
+        )
+    }
+
     fn begin_install(&mut self, job: ActiveInstall, status: String, cx: &mut Context<Self>) {
         let installs = &mut self.extensions.installs;
         installs.active = Some(job);
@@ -263,13 +341,27 @@ async fn download_and_apply(
     cx: &mut AsyncApp,
 ) -> Result<(), String> {
     let name = details.name.clone();
+    let source = details.source.clone();
     let staging = directory.clone();
     let stage = io::network(move || download(&details, &staging)).await?;
     let task = if let Some(installed) = installed {
         model.update(cx, |model, cx| model.update_extension(installed, stage, cx))
     } else {
-        io::run(move || marketplace::install(&stage, &directory, &name)).await?;
-        model.update(cx, AppModel::refresh_installed_extensions_task)
+        let installing = name.clone();
+        io::run(move || marketplace::install(&stage, &directory, &installing)).await?;
+        model.update(cx, |model, cx| {
+            model.change_extensions(
+                move |state| {
+                    let recorded = state.registry.set_source(&name, &source);
+                    if recorded.is_err() {
+                        let _ = std::fs::remove_dir_all(state.registry.directory().join(&name));
+                    }
+                    state.registry.reload();
+                    recorded
+                },
+                cx,
+            )
+        })
     };
     task.map_err(|error| error.to_string())?.await
 }
@@ -314,4 +406,27 @@ impl BatchResult {
         }
         message
     }
+}
+
+pub(super) fn updatable(registry: &Registry, name: &str) -> bool {
+    !registry.is_unpacked(name) && registry.has_marketplace(&registry.source(name))
+}
+
+pub(super) fn updatable_sources(registry: &Registry) -> BTreeMap<String, Marketplace> {
+    registry
+        .extensions
+        .keys()
+        .filter(|name| updatable(registry, name))
+        .map(|name| (name.clone(), registry.source(name)))
+        .collect()
+}
+
+pub(super) fn sourced(
+    names: &[String],
+    sources: &BTreeMap<String, Marketplace>,
+) -> Vec<(String, Marketplace)> {
+    names
+        .iter()
+        .filter_map(|name| Some((name.clone(), sources.get(name)?.clone())))
+        .collect()
 }

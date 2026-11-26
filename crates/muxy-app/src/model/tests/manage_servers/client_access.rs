@@ -253,7 +253,19 @@ fn pausing_phones_that_get_notifications_asks_first_and_says_what_is_kept(cx: &m
         model.set_push_notifications(true, window.window_handle(), cx);
     });
     cx.run_until_parked();
-    assert!(!cx.has_pending_prompt(), "turning push on never asks");
+    assert!(
+        cx.has_pending_prompt(),
+        "turning push on explains the relay first"
+    );
+    cx.simulate_prompt_answer("Cancel");
+    cx.run_until_parked();
+    assert!(work(&requests).is_empty(), "cancelling keeps push off");
+    view.update_in(cx, |model, window, cx| {
+        model.set_push_notifications(true, window.window_handle(), cx);
+    });
+    cx.run_until_parked();
+    cx.simulate_prompt_answer("Turn On");
+    cx.run_until_parked();
     assert!(
         work(&requests)
             .iter()

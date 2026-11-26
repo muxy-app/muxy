@@ -37,7 +37,6 @@ pub(crate) enum Change {
     RememberProjectsWithoutTabs(bool),
     SidebarServers(bool),
     ConfirmProcess(bool),
-    UsagePing(bool),
     CloseBehavior(muxy_app_core::settings::CloseBehavior),
     Terminal(&'static str, String),
     TerminalEdit(TerminalEdit),
@@ -710,10 +709,6 @@ impl AppModel {
             Change::CloseBehavior(value) => {
                 settings.window.close_behavior = value;
                 settings.save_window(&path)?;
-            }
-            Change::UsagePing(value) => {
-                settings.privacy.usage_ping = value;
-                settings.save_privacy(&path)?;
             }
             Change::FileRule { previous, rule } => {
                 let rule = muxy_app_core::opener::FileRule {
@@ -1492,7 +1487,6 @@ fn change_id(change: &Change) -> &str {
         Change::RememberProjectsWithoutTabs(_) => "remember-projects-without-tabs",
         Change::SidebarServers(_) => "sidebar-servers",
         Change::ConfirmProcess(_) => "confirm-process",
-        Change::UsagePing(_) => "usage-ping",
         Change::CloseBehavior(_) => "close-behavior",
         Change::FileRule { .. } | Change::RemoveFileRule(_) | Change::MoveFileRule(..) => {
             "file-rules"

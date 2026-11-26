@@ -182,8 +182,8 @@ fn a_computer_keeps_its_kind_and_unknown_kinds_pair_as_phones() -> Result<(), Se
 fn nothing_is_saved_once_access_is_closed() -> Result<(), ServerError> {
     let remote = enabled()?;
     remote.close();
-    assert!(remote.set_push_notifications(false).is_err());
-    assert!(remote.push_notifications());
+    assert!(remote.set_push_notifications(true).is_err());
+    assert!(!remote.push_notifications());
     Ok(())
 }
 
@@ -322,6 +322,7 @@ fn failed_device_saves_keep_authorization_and_the_previous_last_seen()
 fn failed_push_saves_keep_registration_secrets_and_retention()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut remote = enabled()?;
+    remote.set_push_notifications(true)?;
     let secret = offer(&remote, ClientId::new());
     let paired = remote
         .pair(&request(secret), server())

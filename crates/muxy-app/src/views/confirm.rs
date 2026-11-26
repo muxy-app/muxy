@@ -140,6 +140,27 @@ pub(crate) async fn prompt_revoke(
     server_prompt(parent, &title, &tr!("Revoke"), &message, cx).await
 }
 
+pub(crate) async fn prompt_add_marketplace(
+    parent: &Parent,
+    repository: &str,
+    cx: &mut AsyncApp,
+) -> Result<bool, String> {
+    let title = tr!("Add %@?", repository);
+    let message = tr!(
+        "Browse will also list the extensions published in the GitHub repository %@. Muxy doesn't review them, and each one can ask for the permissions it lists. Install only from people you trust.",
+        repository
+    );
+    server_prompt(parent, &title, &tr!("Add Marketplace"), &message, cx).await
+}
+
+pub(crate) async fn prompt_enable_push(parent: &Parent, cx: &mut AsyncApp) -> Result<bool, String> {
+    let title = tr!("Turn On Push Notifications?");
+    let message = tr!(
+        "Paired phones that turn on notifications in the Muxy app hear when an agent needs attention or finishes. This computer encrypts each notification with a key only it and the phone have, then sends it through the Muxy relay at muxy.app to Apple or Google. The relay can't read it: it sees only that a notification was sent, and stores each phone's push token encrypted. Terminal output, prompts, and code are never sent."
+    );
+    server_prompt(parent, &title, &tr!("Turn On"), &message, cx).await
+}
+
 pub(crate) async fn prompt_pause_push(parent: &Parent, cx: &mut AsyncApp) -> Result<bool, String> {
     let title = tr!("Pause Push Notifications?");
     let message = tr!(

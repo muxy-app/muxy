@@ -71,6 +71,10 @@ const FILES: &[(&str, &str)] = &[
         include_str!("../../../../docs/extensions/manifest.md"),
     ),
     (
+        "references/marketplaces.md",
+        include_str!("../../../../docs/extensions/marketplaces.md"),
+    ),
+    (
         "references/overview.md",
         include_str!("../../../../docs/extensions/overview.md"),
     ),

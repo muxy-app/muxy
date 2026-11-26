@@ -830,11 +830,13 @@ phone, and the phone never talks to `muxy.app`.
 - Only paired connections can register. Over SSH,
   `supportsPushNotifications()` is `false` and `registerPush` fails with
   `Server`.
-- A server can pause notifications for every phone, with
-  `muxy mobile push off` or the desktop's **Push notifications** setting.
-  Then `registerPush` answers `disabled`. The server keeps each phone's token
-  and key for 90 days, and turning notifications back on resumes those phones
-  with the same keys, without them reconnecting.
+- Notifications are off on a server until its user turns them on, with
+  `muxy mobile push on` or the desktop's **Push notifications** setting, and
+  they can turn them off again with `muxy mobile push off`. While they're off,
+  `registerPush` answers `disabled`: tell the user to turn them on on the
+  computer. A phone that registered while they were on keeps its token and
+  key on the server for 90 days after they're turned off, and turning them
+  back on in that time resumes it with the same key, without reconnecting.
 - The computer can also reset one phone with `muxy mobile push reset`. It
   forgets that phone's key, and the next `registerPush` returns a new one.
 - The contract the server, the relay, and the apps share is
@@ -844,7 +846,11 @@ phone, and the phone never talks to `muxy.app`.
 ### Registering
 
 Call `registerPush` on every connect while notifications are on in the app,
-and again whenever the OS gives a new token. Skip it when
+and again whenever the OS gives a new token. A `disabled` reply to a phone that
+never registered leaves nothing on the server, so offer a retry: the first call
+after the computer turns notifications on returns a key with `active`,
+`pending`, or `refused`. A phone that registered before the computer turned
+them off keeps its registration and key for 90 days. Skip it when
 `supportsPushNotifications()` is `false`. It can take up to 20 seconds,
 because the server checks the token with the relay first, so call it on the
 connection's queue after everything the user is waiting for.
@@ -860,7 +866,7 @@ connection's queue after everything the user is waiting for.
 | `active` | The relay accepted the token | Keep `key` |
 | `pending` | The server couldn't reach the relay yet and keeps trying | Keep `key`; it already works |
 | `refused` | Apple or Google rejected the token | Keep `key`, get a fresh token, and check the APNs environment |
-| `disabled` | Notifications are paused on this server | Keep the stored key: it works again if the server turns them back on. There is no key in the reply |
+| `disabled` | Notifications are off on this server | Tell the user to turn them on on the computer. Keep any stored key: it works again if the server turns them back on. There is no key in the reply |
 | `other` | A newer server's status | Keep `key` if there is one |
 
 - Store `key` with the server's credential, replacing the one kept before. It

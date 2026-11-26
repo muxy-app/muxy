@@ -994,3 +994,122 @@ fn localizations_that_share_a_bundle_and_language_read_it_once() {
     let extension = Extension::load(root.path()).unwrap();
     assert_eq!(extension.manifest.localizations.len(), 40);
 }
+
+#[test]
+fn marketplaces_are_plain_github_repositories() {
+    for (input, expected) in [
+        ("owner/repo", "owner/repo"),
+        ("  Owner/My.Repo_1-x  ", "owner/my.repo_1-x"),
+        ("https://github.com/Owner/Repo", "owner/repo"),
+        ("https://github.com/owner/repo.git", "owner/repo"),
+        ("github.com/owner/repo/", "owner/repo"),
+        ("Owner/Repo.GIT", "owner/repo"),
+    ] {
+        assert_eq!(
+            Marketplace::parse(input).unwrap().as_str(),
+            expected,
+            "{input}"
+        );
+    }
+    for input in [
+        "",
+        "owner",
+        "a/../b",
+        "a/b/c",
+        "../b",
+        "a/..",
+        "a/.",
+        "a%2Fb/c",
+        "owner/re%2epo",
+        "-owner/repo",
+        "owner-/repo",
+        "own_er/repo",
+        "owner/re po",
+        "https://example.com/owner/repo",
+        "http://github.com/owner/repo",
+        "https://github.com/owner/repo/releases",
+        &format!("{}/repo", "a".repeat(40)),
+        &format!("owner/{}", "a".repeat(101)),
+        "123456789012345678é/repo",
+        "éé",
+        "owner/repo.git.git",
+    ] {
+        assert!(Marketplace::parse(input).is_err(), "{input}");
+    }
+    let stored = Marketplace::parse("Someone/Extensions.Git").unwrap();
+    assert_eq!(Marketplace::parse(stored.as_str()).unwrap(), stored);
+    let official = Marketplace::parse("Muxy-App/Extensions").unwrap();
+    assert!(official.is_official());
+    assert_eq!(official, Marketplace::official());
+}
+
+#[test]
+fn installed_sources_persist_and_default_to_the_official_marketplace() {
+    let profile = tempfile::tempdir().unwrap();
+    let mut registry = Registry::load(profile.path());
+    package(&registry.directory().join("files"), "files");
+    package(&registry.directory().join("theirs"), "theirs");
+    registry.reload();
+    let added = Marketplace::parse("someone/extensions").unwrap();
+    assert!(registry.source("files").is_official());
+    registry.add_marketplace(added.clone()).unwrap();
+    registry.set_source("theirs", &added).unwrap();
+
+    let mut restored = Registry::load(profile.path());
+    assert!(restored.source("files").is_official());
+    assert_eq!(restored.source("theirs"), added);
+    assert_eq!(
+        restored.marketplaces(),
+        [Marketplace::official(), added.clone()]
+    );
+
+    assert!(restored.add_marketplace(added.clone()).is_err());
+    assert!(restored.add_marketplace(Marketplace::official()).is_err());
+    assert!(
+        restored
+            .remove_marketplace(&Marketplace::official())
+            .is_err()
+    );
+    restored.remove_marketplace(&added).unwrap();
+    let restored = Registry::load(profile.path());
+    assert!(!restored.has_marketplace(&added));
+    assert!(restored.extensions.contains_key("theirs"));
+    assert_eq!(restored.source("theirs"), added);
+}
+
+#[test]
+fn removing_an_extension_forgets_its_marketplace() {
+    let profile = tempfile::tempdir().unwrap();
+    let mut registry = Registry::load(profile.path());
+    package(&registry.directory().join("theirs"), "theirs");
+    registry.reload();
+    let added = Marketplace::parse("someone/extensions").unwrap();
+    registry.set_source("theirs", &added).unwrap();
+    registry.remove("theirs").unwrap();
+    package(&registry.directory().join("theirs"), "theirs");
+    let restored = Registry::load(profile.path());
+    assert!(restored.source("theirs").is_official());
+}
+
+#[test]
+fn a_hand_edited_sources_file_keeps_its_valid_entries() {
+    let profile = tempfile::tempdir().unwrap();
+    fs::write(
+        profile.path().join("extension-sources.json"),
+        json!({
+            "marketplaces": ["someone/extensions", 7, "a/../b", "muxy-app/extensions", "SOMEONE/extensions"],
+            "installed": {"theirs": "someone/extensions", "bad": "a/b/c", "typed": 3}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let registry = Registry::load(profile.path());
+    let added = Marketplace::parse("someone/extensions").unwrap();
+    assert_eq!(
+        registry.marketplaces(),
+        [Marketplace::official(), added.clone()]
+    );
+    assert_eq!(registry.source("theirs"), added);
+    assert!(registry.source("bad").is_official());
+    assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+}

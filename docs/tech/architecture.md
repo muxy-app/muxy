@@ -144,7 +144,10 @@ flowchart LR
   sensitive actions. Their scripts run in JavaScriptCore on their own threads.
 - File, Git, and process work goes through the server. Extension web requests
   run in the app and can't reach the local machine or private networks.
-- Marketplace packages are verified before they are installed.
+- The marketplace is the `muxy-app/extensions` repository on GitHub. The app
+  reads `index.json` from its `index` branch and downloads packages and
+  pictures only from that repository's releases. A package must match the
+  index's size, SHA-256, name, version, and permissions before it is installed.
 - Language packs are resource-only bundles. The app reads their catalogs, checks
   that each translation keeps its key's placeholders, and runs nothing from them.
 

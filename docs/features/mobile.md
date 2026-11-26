@@ -46,7 +46,7 @@ muxy mobile pair
 | See status and phones | **Clients** in **Settings → Servers** | `muxy mobile` |
 | Revoke a phone | **Revoke** next to it | `muxy mobile revoke <id>` |
 | Turn access off | **Allow clients** off | `muxy mobile disable` |
-| Pause or resume push notifications | **Push notifications** | `muxy mobile push off\|on` |
+| Turn push notifications on or off | **Push notifications** | `muxy mobile push on\|off` |
 | Reset a phone's notifications | **Reset Notifications** next to it | `muxy mobile push reset <id>` |
 
 Revoking a phone, or turning access off, disconnects it at once.
@@ -57,15 +57,20 @@ A paired phone can get a notification when an agent needs your attention or
 finishes working while you're away from the Muxy app. Tapping it opens that
 terminal.
 
-- Turn them on in the Muxy app, for each computer it is paired with.
+- They're off until you turn them on, on both sides. A computer that already
+  had them on before this change keeps that setting.
+  - On the computer, with **Push notifications** under **Settings → Servers →
+    Clients**, shown while **Allow clients** is on, or `muxy mobile push on`.
+    Muxy explains how the relay works and asks before turning them on.
+  - In the Muxy app, for each computer it is paired with. A phone that asks
+    while the computer has them off is told they're off there, and registers
+    when it next connects after you turn them on.
 - The server waits about 20 seconds. If you look at the terminal on any device
   in that time, or the Muxy app is open and connected, nothing is sent.
 - Notifications go through `muxy.app`, which forwards them to Apple or Google.
   Their content is encrypted for your phone; the relay sees only that there is
   a notification.
-- They're on by default for every computer. Pause them for all phones with
-  **Push notifications** under **Settings → Servers → Clients**, shown while
-  **Allow clients** is on, or
+- Turn them off again for all phones with **Push notifications** or
   `muxy mobile push off`:
   - Nothing more is sent to `muxy.app`, which forgets the phones at once.
   - This computer keeps each phone's registration for 90 days. Turning

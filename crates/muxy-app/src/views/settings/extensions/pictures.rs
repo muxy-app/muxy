@@ -8,10 +8,7 @@ use muxy_app_core::extensions::Extension;
 use muxy_ui::components::SymbolGlyph;
 
 use super::ExtensionsView;
-use crate::extensions::{
-    marketplace,
-    pictures::{self, Size, Source},
-};
+use crate::extensions::pictures::{self, Size, Source};
 
 pub(super) const MAX_SCREENSHOTS: usize = 6;
 
@@ -28,11 +25,13 @@ pub(super) struct Art {
 }
 
 impl Art {
-    pub(super) fn marketplace(name: &str, screenshots: usize) -> Self {
+    pub(super) fn marketplace(icon: Option<&String>, screenshots: &[String]) -> Self {
         Self {
-            icon: marketplace::icon_url(name).map(Source::Marketplace),
-            screenshots: (0..screenshots.min(MAX_SCREENSHOTS))
-                .filter_map(|index| marketplace::screenshot_url(name, index))
+            icon: icon.cloned().map(Source::Marketplace),
+            screenshots: screenshots
+                .iter()
+                .take(MAX_SCREENSHOTS)
+                .cloned()
                 .map(Source::Marketplace)
                 .collect(),
         }

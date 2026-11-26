@@ -28,13 +28,14 @@ use crate::{
         extensions::{ActiveInstall, FinishedInstall, UpdateCheck},
     },
 };
-use muxy_app_core::extensions::{Consent, Extension, Rule};
+use muxy_app_core::extensions::{Consent, Extension, Marketplace, Rule};
 use muxy_ui::l10n::{tr_key, translate};
 use muxy_ui::tr;
 
 mod cards;
 mod configuration;
 mod detail;
+mod marketplaces;
 mod pictures;
 #[cfg(test)]
 mod tests;
@@ -60,6 +61,8 @@ enum Mutation {
     RemoveRule,
     Trust,
     Untrust,
+    AddMarketplace,
+    RemoveMarketplace,
 }
 
 impl From<&ActiveInstall> for Mutation {
@@ -87,6 +90,8 @@ impl Mutation {
             Self::RemoveRule => "extension-rule-remove",
             Self::Trust => "extension-trust",
             Self::Untrust => "extension-untrust",
+            Self::AddMarketplace => "extension-marketplace-add",
+            Self::RemoveMarketplace => "extension-marketplace-remove",
         }
     }
 
@@ -102,8 +107,9 @@ impl Mutation {
             Self::Reload => tr_key!("Reloading…"),
             Self::Publish => tr_key!("Publishing…"),
             Self::ResetPermissions => tr_key!("Clearing…"),
-            Self::RemoveRule => tr_key!("Removing…"),
+            Self::RemoveRule | Self::RemoveMarketplace => tr_key!("Removing…"),
             Self::Trust | Self::Untrust => tr_key!("Saving…"),
+            Self::AddMarketplace => tr_key!("Adding…"),
         }
     }
 }
@@ -121,6 +127,9 @@ pub(crate) struct ExtensionsView {
     metrics: Metrics,
     tab: Tab,
     search: Entity<TextInput>,
+    marketplace_input: Entity<TextInput>,
+    sources: Vec<Marketplace>,
+    unavailable: Vec<Marketplace>,
     items: Vec<MarketplaceItem>,
     page: u32,
     has_next: bool,
@@ -172,10 +181,19 @@ impl ExtensionsView {
                 cx.notify();
             }
         });
+        let marketplace_input = cx.new(|cx| {
+            let mut input = TextInput::new(InputStyle::field(&theme, &metrics), cx)
+                .with_placeholder_key(tr_key!("owner/repo"))
+                .with_accessibility_id("extension-marketplace-input");
+            input.set_accessible_name(tr!("Marketplace repository").to_string());
+            input
+        });
+        let sources = vec![Marketplace::official()];
         let mut subscriptions = vec![changes];
         if let Some(model) = model.upgrade() {
             subscriptions.push(cx.observe(&model, |view, _, cx| {
                 view.take_finished_install(cx);
+                view.sync_marketplaces(cx);
                 cx.notify();
             }));
         }
@@ -190,6 +208,9 @@ impl ExtensionsView {
             metrics,
             tab: Tab::Installed,
             search,
+            marketplace_input,
+            sources,
+            unavailable: Vec::new(),
             items: Vec::new(),
             page: 1,
             has_next: false,
@@ -228,7 +249,10 @@ impl ExtensionsView {
         self.theme = theme;
         self.metrics = metrics;
         let style = InputStyle::field(&self.theme, &self.metrics);
-        for input in std::iter::once(&self.search).chain(self.setting_inputs.values()) {
+        for input in [&self.search, &self.marketplace_input]
+            .into_iter()
+            .chain(self.setting_inputs.values())
+        {
             input.update(cx, |input, cx| input.set_style(style, cx));
         }
         cx.notify();
@@ -274,6 +298,7 @@ impl ExtensionsView {
         let query = self.query.clone();
         let category = self.category;
         let sort = self.sort;
+        let sources = self.marketplaces(cx);
         self.loading = Some(if reset {
             Loading::Search
         } else {
@@ -291,7 +316,7 @@ impl ExtensionsView {
                 return;
             }
             let result = crate::extensions::io::network(move || {
-                marketplace::list(&query, page, category, sort)
+                marketplace::list(&sources, &query, page, category, sort)
             })
             .await;
             let _ = view.update(cx, |view, cx| {
@@ -303,6 +328,7 @@ impl ExtensionsView {
                     Ok(listing) => {
                         view.has_next = listing.has_next;
                         view.page = page;
+                        view.unavailable = listing.unavailable;
                         view.items.extend(listing.items);
                     }
                     Err(error) => view.error = Some(error),
@@ -314,7 +340,14 @@ impl ExtensionsView {
         cx.notify();
     }
 
-    fn details(&mut self, name: String, cx: &mut Context<Self>) {
+    fn installed_from(&self, name: &str, cx: &gpui::App) -> Marketplace {
+        self.model
+            .upgrade()
+            .map(|model| model.read(cx).extensions.registry.source(name))
+            .unwrap_or_default()
+    }
+
+    fn details(&mut self, source: Marketplace, name: String, cx: &mut Context<Self>) {
         if self.busy(cx) {
             return;
         }
@@ -323,7 +356,9 @@ impl ExtensionsView {
         self.loading = Some(Loading::Details(name.clone()));
         self.error = None;
         cx.spawn(async move |view, cx| {
-            let result = crate::extensions::io::network(move || marketplace::detail(&name)).await;
+            let result =
+                crate::extensions::io::network(move || marketplace::detail_from(&source, &name))
+                    .await;
             let _ = view.update(cx, |view, cx| {
                 if view.revision != revision {
                     return;
@@ -331,10 +366,11 @@ impl ExtensionsView {
                 view.loading = None;
                 match result {
                     Ok(mut details) => {
-                        details.about.official |= view
-                            .items
-                            .iter()
-                            .any(|item| item.name == details.name && item.about.official);
+                        details.about.official |= view.items.iter().any(|item| {
+                            item.name == details.name
+                                && item.source == details.source
+                                && item.about.official
+                        });
                         view.open_details(details, cx);
                     }
                     Err(error) => view.error = Some(error),
@@ -422,6 +458,7 @@ impl ExtensionsView {
         self.completed = None;
         self.install_status = None;
         self.error = None;
+        marketplace::refresh();
         let _ = self.model.update(cx, AppModel::check_extension_updates);
         cx.notify();
     }
@@ -480,7 +517,10 @@ impl ExtensionsView {
                 .registry
                 .extensions
                 .get(name)
-                .map(ExtensionDetails::from)
+                .map(|extension| ExtensionDetails {
+                    source: model.read(cx).extensions.registry.source(name),
+                    ..ExtensionDetails::from(extension)
+                })
         });
         let Some(details) = details else {
             return false;

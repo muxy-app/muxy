@@ -42,25 +42,13 @@ impl std::fmt::Debug for PushRecord {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct Stored {
     pub(super) settings: RemoteAccessSettings,
     pub(super) identity: Option<TlsIdentity>,
     pub(super) devices: Vec<Device>,
     pub(super) push_notifications: bool,
     pub(super) push_off_since: Option<u64>,
-}
-
-impl Default for Stored {
-    fn default() -> Self {
-        Self {
-            settings: RemoteAccessSettings::default(),
-            identity: None,
-            devices: Vec::new(),
-            push_notifications: true,
-            push_off_since: None,
-        }
-    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -70,14 +58,10 @@ struct Document {
     certificate: Option<String>,
     private_key: Option<String>,
     devices: Vec<DocumentDevice>,
-    #[serde(default = "on")]
+    #[serde(default)]
     push_notifications: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     push_off_since: Option<u64>,
-}
-
-fn on() -> bool {
-    true
 }
 
 #[derive(Deserialize, Serialize)]
@@ -393,6 +377,7 @@ mod tests {
         let path = directory.join("remote.json");
         let stored = Stored {
             devices: vec![phone(Some(push_record()))],
+            push_notifications: true,
             ..Stored::default()
         };
         save(&path, &stored)?;
@@ -479,7 +464,7 @@ mod tests {
         let loaded = load(&path)?;
         assert_eq!(loaded.devices[0].kind, DeviceKind::Phone);
         assert_eq!(loaded.devices[0].push, None);
-        assert!(loaded.push_notifications);
+        assert!(!loaded.push_notifications);
         fs::remove_dir_all(directory)
     }
 }

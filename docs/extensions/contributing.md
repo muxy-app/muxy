@@ -77,7 +77,9 @@ permission.
 ## 4. Open a pull request
 
 Commit your source, not `dist/`, push to your fork, and open a pull request
-against `muxy-app/extensions`. Once merged, the extension is published.
+against `muxy-app/extensions`. Once merged, the extension is published as a
+GitHub Release tagged `name@version`, and the marketplace lists it from the
+repository's `index` branch.
 
 A published `name@version` never changes. Bump `version` to ship an update;
 users install updates from **Settings → Extensions**.
