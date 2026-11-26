@@ -11,6 +11,7 @@ use serde::de::{DeserializeOwned, Error as _};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
+mod cache;
 mod version;
 pub(crate) use version::{is_update, is_valid as is_valid_version};
 
@@ -24,13 +25,11 @@ const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;
 const MAX_EXPANDED: u64 = 512 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
 const PER_PAGE: usize = 24;
-const FRESH: Duration = Duration::from_secs(300);
 
 type Result<T> = std::result::Result<T, String>;
 
-type Cached = (Instant, Arc<[Listing]>);
-
-static CACHE: Mutex<BTreeMap<Marketplace, Cached>> = Mutex::new(BTreeMap::new());
+static INDEXES: Mutex<cache::Indexes<Arc<[Listing]>>> = Mutex::new(cache::Indexes::new());
+static PICTURES_PAUSED: Mutex<Option<Instant>> = Mutex::new(None);
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub(crate) struct MarketplaceItem {
@@ -267,24 +266,69 @@ fn bytes(response: reqwest::blocking::Response, limit: u64) -> Result<Vec<u8>> {
 }
 
 fn index(source: &Marketplace) -> Result<Arc<[Listing]>> {
-    if let Some((fetched, listings)) = CACHE
+    let directory = cache::directory();
+    INDEXES.lock().unwrap_or_else(PoisonError::into_inner).load(
+        source,
+        Instant::now(),
+        directory.as_deref(),
+        |body| parse_index(body, source).map(Into::into),
+        |etag| fetch_index(source, etag),
+    )
+}
+
+pub(crate) fn refresh() {
+    INDEXES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .get(source)
-        && fetched.elapsed() < FRESH
-    {
-        return Ok(Arc::clone(listings));
+        .expire();
+}
+
+fn fetch_index(
+    source: &Marketplace,
+    etag: Option<&str>,
+) -> std::result::Result<cache::Fetched, cache::Failure> {
+    let mut request = client()
+        .map_err(cache::Failure::new)?
+        .get(source.index_url());
+    if let Some(etag) = etag {
+        request = request.header(reqwest::header::IF_NONE_MATCH, etag);
     }
-    let response = client()?
-        .get(source.index_url())
+    let response = request
         .send()
-        .map_err(|error| error.to_string())?;
-    let listings: Arc<[Listing]> = parse_index(&bytes(response, MAX_INDEX)?, source)?.into();
-    CACHE
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(source.clone(), (Instant::now(), Arc::clone(&listings)));
-    Ok(listings)
+        .map_err(|error| cache::Failure::new(error.to_string()))?;
+    let status = response.status();
+    if status == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(cache::Fetched::NotModified);
+    }
+    if limited(status) || status.is_server_error() {
+        return Err(cache::Failure {
+            message: tr!("GitHub is not answering right now. Try again in a few minutes.").into(),
+            retry_after: retry_after(&response),
+        });
+    }
+    let etag = response
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let body = bytes(response, MAX_INDEX).map_err(cache::Failure::new)?;
+    Ok(cache::Fetched::Modified { body, etag })
+}
+
+fn limited(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::TOO_MANY_REQUESTS || status == reqwest::StatusCode::FORBIDDEN
+}
+
+fn retry_after(response: &reqwest::blocking::Response) -> Option<Duration> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+        .map(Duration::from_secs)
 }
 
 fn gather<T>(
@@ -450,13 +494,37 @@ pub(crate) fn picture(url: &str, limit: u64) -> Result<Vec<u8>> {
     if release_source(&url).is_none() {
         return Err(tr!("untrusted marketplace picture URL").into());
     }
-    bytes(
-        client()?
-            .get(url)
-            .send()
-            .map_err(|error| error.to_string())?,
-        limit,
-    )
+    let directory = cache::directory();
+    if let Some(bytes) = directory
+        .as_deref()
+        .and_then(|directory| cache::read_picture(directory, url.as_str(), limit))
+    {
+        return Ok(bytes);
+    }
+    let paused = tr!("GitHub is limiting requests. Pictures load again in a few minutes.");
+    if PICTURES_PAUSED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_some_and(|until| Instant::now() < until)
+    {
+        return Err(paused.into());
+    }
+    let response = client()?
+        .get(url.clone())
+        .send()
+        .map_err(|error| error.to_string())?;
+    if limited(response.status()) {
+        *PICTURES_PAUSED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) =
+            Some(Instant::now() + cache::retry_delay(retry_after(&response)));
+        return Err(paused.into());
+    }
+    let bytes = bytes(response, limit)?;
+    if let Some(directory) = directory {
+        cache::write_picture(&directory, url.as_str(), &bytes);
+    }
+    Ok(bytes)
 }
 
 fn secure(url: &reqwest::Url) -> bool {

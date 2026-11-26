@@ -966,6 +966,8 @@
 "Git" = "Git";
 "Git Changes: %@" = "Git Changes: %@";
 "Git ignores %@, so the store wouldn't get it. Remove the ignore rule and publish again." = "Git ignores %@, so the store wouldn't get it. Remove the ignore rule and publish again.";
+"GitHub is limiting requests. Pictures load again in a few minutes." = "GitHub is limiting requests. Pictures load again in a few minutes.";
+"GitHub is not answering right now. Try again in a few minutes." = "GitHub is not answering right now. Try again in a few minutes.";
 "Give a branch its own worktree." = "Give a branch its own worktree.";
 "Global X11 shortcuts cannot cover a Wayland desktop." = "Global X11 shortcuts cannot cover a Wayland desktop.";
 "Global folder: %@" = "Global folder: %@";

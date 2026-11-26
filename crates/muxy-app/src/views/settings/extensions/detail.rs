@@ -813,7 +813,10 @@ impl ExtensionsView {
                 actions.child(self.button(
                     "extension-check-update",
                     tr_key!("Check for updates"),
-                    move |view, _, cx| view.details(checked.clone(), owner.clone(), cx),
+                    move |view, _, cx| {
+                        marketplace::refresh();
+                        view.details(checked.clone(), owner.clone(), cx);
+                    },
                     cx,
                 ))
             })

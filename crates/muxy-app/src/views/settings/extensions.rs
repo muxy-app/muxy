@@ -458,6 +458,7 @@ impl ExtensionsView {
         self.completed = None;
         self.install_status = None;
         self.error = None;
+        marketplace::refresh();
         let _ = self.model.update(cx, AppModel::check_extension_updates);
         cx.notify();
     }
