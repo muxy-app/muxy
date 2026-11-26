@@ -105,7 +105,10 @@ fn a_dragged_tab_trades_places_only_past_its_neighbors_middle(cx: &mut TestAppCo
         point(second.center().x + px(4.0), second.center().y),
         true,
     );
-    assert_eq!(view.read_with(cx, |model, _| listed(model)), [b, a]);
+    view.read_with(cx, |model, _| {
+        assert_eq!(listed(model), [b, a]);
+        assert_eq!(model.move_drag.marked(), Some(second));
+    });
     for x in [
         second.left() - px(4.0),
         second.left() + px(4.0),
