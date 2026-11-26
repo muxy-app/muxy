@@ -1150,6 +1150,22 @@ fn inset(bounds: Bounds<Pixels>, by: Pixels) -> Bounds<Pixels> {
     bounds.inset(by)
 }
 
+enum Side {
+    Start(Pixels),
+    End(Pixels),
+}
+
+fn side(pointer: Pixels, extent: Pixels, viewport: Pixels) -> Side {
+    let offset = px(CHIP_OFFSET);
+    if pointer + offset + extent <= viewport {
+        Side::Start(pointer + offset)
+    } else if pointer - offset >= extent {
+        Side::End(viewport - pointer + offset)
+    } else {
+        Side::Start((viewport - extent).max(px(0.0)))
+    }
+}
+
 fn chip(
     gesture: &Gesture,
     position: Point<Pixels>,
@@ -1158,10 +1174,9 @@ fn chip(
     model: &AppModel,
     cx: &App,
 ) -> AnyElement {
-    let offset = px(CHIP_OFFSET);
     let reach = size(px(ghost::WIDTH), model.metrics.control_large());
-    let flip_x = position.x + offset + reach.width > viewport.width;
-    let flip_y = position.y + offset + reach.height > viewport.height;
+    let across = side(position.x, reach.width, viewport.width);
+    let down = side(position.y, reach.height, viewport.height);
     let occlusions = model.webviews.occlusions.clone();
     let body = div()
         .relative()
@@ -1184,17 +1199,13 @@ fn chip(
             )
         });
     let placed = div().absolute().flex().flex_col();
-    let placed = if flip_x {
-        placed
-            .items_end()
-            .right(viewport.width - position.x + offset)
-    } else {
-        placed.left(position.x + offset)
+    let placed = match across {
+        Side::Start(left) => placed.left(left),
+        Side::End(right) => placed.items_end().right(right),
     };
-    let placed = if flip_y {
-        placed.bottom(viewport.height - position.y + offset)
-    } else {
-        placed.top(position.y + offset)
+    let placed = match down {
+        Side::Start(top) => placed.top(top),
+        Side::End(bottom) => placed.bottom(bottom),
     };
     placed
         .child(body.with_animation(

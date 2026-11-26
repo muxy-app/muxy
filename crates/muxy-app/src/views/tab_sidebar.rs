@@ -362,12 +362,17 @@ fn project_group(
                             .flex()
                             .flex_col()
                             .relative()
-                            .top(model.tab_drag.slides.offset(tab.id))
+                            .top(
+                                model
+                                    .tab_drag
+                                    .slides
+                                    .offset(tab.id, muxy_app_core::Axis::Vertical),
+                            )
                             .child(tab_row(project.id, tab, number, model, cx)),
                     )
                 }))
                 .on_children_prepainted(move |bounds, window, _| {
-                    slides.animate(window);
+                    slides.measure(muxy_app_core::Axis::Vertical, &measured, &bounds, window);
                     let clip = window.content_mask().bounds;
                     let mut targets = targets.borrow_mut();
                     targets.retain(|(id, _)| !measured.contains(id));

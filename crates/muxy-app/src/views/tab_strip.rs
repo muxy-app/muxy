@@ -184,7 +184,12 @@ fn tab_cells(
                 .child(
                     div()
                         .relative()
-                        .left(model.tab_drag.slides.offset(tab.id))
+                        .left(
+                            model
+                                .tab_drag
+                                .slides
+                                .offset(tab.id, muxy_app_core::Axis::Horizontal),
+                        )
                         .h_full()
                         .child(tab_cell(tab, index, width, shortcuts, model, cx)),
                 )

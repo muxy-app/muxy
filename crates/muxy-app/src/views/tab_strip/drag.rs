@@ -22,60 +22,95 @@ pub(crate) struct TabDragState {
 
 const SLIDE: Duration = Duration::from_millis(160);
 
+#[derive(Default)]
+struct Lane {
+    moving: HashMap<TabId, (Pixels, Instant)>,
+    layout: HashMap<TabId, Pixels>,
+}
+
+#[derive(Default)]
+struct Lanes {
+    horizontal: Lane,
+    vertical: Lane,
+}
+
+impl Lanes {
+    fn lane(&mut self, axis: Axis) -> &mut Lane {
+        match axis {
+            Axis::Horizontal => &mut self.horizontal,
+            Axis::Vertical => &mut self.vertical,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
-pub(crate) struct Slides(Rc<RefCell<HashMap<TabId, (Pixels, Instant)>>>);
+pub(crate) struct Slides(Rc<RefCell<Lanes>>);
 
 impl Slides {
-    pub(crate) fn offset(&self, tab: TabId) -> Pixels {
+    pub(crate) fn offset(&self, tab: TabId, axis: Axis) -> Pixels {
         self.0
-            .borrow()
+            .borrow_mut()
+            .lane(axis)
+            .moving
             .get(&tab)
             .map_or(px(0.0), |(from, since)| sliding(*from, *since))
     }
 
-    pub(crate) fn animate(&self, window: &Window) {
-        let mut slides = self.0.borrow_mut();
-        slides.retain(|_, (_, since)| since.elapsed() < SLIDE);
-        if !slides.is_empty() {
-            window.request_animation_frame();
+    pub(crate) fn measure(
+        &self,
+        axis: Axis,
+        tabs: &[TabId],
+        bounds: &[Bounds<Pixels>],
+        window: &Window,
+    ) {
+        let mut lanes = self.0.borrow_mut();
+        let lane = lanes.lane(axis);
+        for (tab, bounds) in tabs.iter().zip(bounds) {
+            let start = match axis {
+                Axis::Horizontal => bounds.left(),
+                Axis::Vertical => bounds.top(),
+            };
+            lane.layout.insert(*tab, start);
+        }
+        for axis in [Axis::Horizontal, Axis::Vertical] {
+            let lane = lanes.lane(axis);
+            lane.moving.retain(|_, (_, since)| since.elapsed() < SLIDE);
+            if !lane.moving.is_empty() {
+                window.request_animation_frame();
+            }
         }
     }
 
-    fn shift(&self, before: &[(TabId, Bounds<Pixels>)], order: &[TabId], axis: Axis) {
-        let start = |bounds: &Bounds<Pixels>| match axis {
-            Axis::Horizontal => bounds.left(),
-            Axis::Vertical => bounds.top(),
-        };
-        let mut slots: Vec<_> = order
+    fn shift(&self, order: &[TabId], axis: Axis) {
+        let mut lanes = self.0.borrow_mut();
+        let lane = lanes.lane(axis);
+        let starts: Vec<_> = order
             .iter()
-            .filter_map(|tab| before.iter().find(|(id, _)| id == tab))
-            .map(|(_, bounds)| start(bounds))
+            .filter_map(|tab| lane.layout.get(tab).copied())
             .collect();
-        if slots.len() != order.len() {
+        if starts.len() != order.len() {
             return;
         }
+        let mut slots = starts.clone();
         slots.sort_by(|a, b| f32::from(*a).total_cmp(&f32::from(*b)));
         let now = Instant::now();
-        let mut slides = self.0.borrow_mut();
-        for (tab, slot) in order.iter().zip(slots) {
-            let Some((_, bounds)) = before.iter().find(|(id, _)| id == tab) else {
-                continue;
-            };
-            let shown = start(bounds)
-                + slides
+        for ((tab, start), slot) in order.iter().zip(starts).zip(slots) {
+            let shown = start
+                + lane
+                    .moving
                     .get(tab)
                     .map_or(px(0.0), |(from, since)| sliding(*from, *since));
             let from = shown - slot;
             if f32::from(from).abs() >= 0.5 {
-                slides.insert(*tab, (from, now));
+                lane.moving.insert(*tab, (from, now));
             } else {
-                slides.remove(tab);
+                lane.moving.remove(tab);
             }
         }
     }
 
     pub(crate) fn clear(&self) {
-        self.0.borrow_mut().clear();
+        *self.0.borrow_mut() = Lanes::default();
     }
 }
 
@@ -339,7 +374,7 @@ fn half(bounds: Bounds<Pixels>, edge: Direction) -> Bounds<Pixels> {
 
 pub(super) fn measure_tabs(cells: Div, ids: Vec<TabId>, targets: TabBounds, slides: Slides) -> Div {
     cells.on_children_prepainted(move |bounds, window, _| {
-        slides.animate(window);
+        slides.measure(Axis::Horizontal, &ids, &bounds, window);
         let clip = window.content_mask().bounds;
         let mut targets = targets.borrow_mut();
         targets.retain(|(id, _)| !ids.contains(id));
@@ -446,7 +481,7 @@ fn move_pointer(
             Source::Strip => project.group_tabs(tab),
             Source::Sidebar => model.sidebar_tabs(project).map(|tab| tab.id).collect(),
         };
-        model.tab_drag.slides.shift(&snapshot, &order, axis);
+        model.tab_drag.slides.shift(&order, axis);
     }
 }
 
