@@ -3130,8 +3130,14 @@ impl AppModel {
             }
             ClientEvent::RemoteAccessChanged { .. } if local => self.remote_access_changed(cx),
             ClientEvent::Frame { channel, frame } => {
-                let seq = match self.attached_view(server, channel, cx) {
-                    Some(pane) => pane.update(cx, |pane, cx| pane.apply(&frame, cx)),
+                let seq = match self.attached_pane(server, channel, cx) {
+                    Some((id, pane)) => {
+                        let agent_running = self.pane_agent(id).is_some();
+                        pane.update(cx, |pane, cx| {
+                            pane.agent_running = agent_running;
+                            pane.apply(&frame, cx)
+                        })
+                    }
                     None => self
                         .servers
                         .get(server)
@@ -3182,6 +3188,17 @@ impl AppModel {
         }
     }
 
+    fn attached_pane(
+        &self,
+        server: ServerId,
+        channel: muxy_protocol::ChannelId,
+        cx: &gpui::App,
+    ) -> Option<(PaneId, Entity<TerminalPane>)> {
+        self.grids
+            .iter()
+            .find(|(_, pane)| pane.view.read(cx).attachment() == Some((server, channel)))
+            .map(|(id, pane)| (*id, pane.view.clone()))
+    }
     fn attached_view(
         &self,
         server: ServerId,

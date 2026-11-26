@@ -96,6 +96,7 @@ mod views {
         pub(crate) mod scroll;
         pub(crate) mod scrollbar;
         pub(crate) mod selection;
+        pub(crate) mod slide;
     }
     pub(crate) mod webview;
     pub(crate) mod workspace;

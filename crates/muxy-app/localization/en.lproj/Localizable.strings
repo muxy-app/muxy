@@ -1888,6 +1888,8 @@
 "Size" = "Size";
 "Skip Tour" = "Skip Tour";
 "Skip whenever you like. You can replay it from the command palette." = "Skip whenever you like. You can replay it from the command palette.";
+"Slide new output into view instead of jumping." = "Slide new output into view instead of jumping.";
+"Smooth output scrolling" = "Smooth output scrolling";
 "Some history exceeds the scan limit." = "Some history exceeds the scan limit.";
 "Sort Projects" = "Sort Projects";
 "Sort extensions" = "Sort extensions";

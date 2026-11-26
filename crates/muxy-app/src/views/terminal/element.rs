@@ -121,10 +121,15 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                     }
                 });
             });
-            view.update(cx, |pane, cx| {
+            let now = cx.background_executor().now();
+            let slide = view.update(cx, |pane, cx| {
                 pane.scrollbar.place(bounds);
                 pane.sync_cursor_blink(window, cx);
+                pane.sample_slide(now)
             });
+            if slide > 0.0 {
+                window.request_animation_frame();
+            }
             let mut painting = prepare(
                 view.read(cx),
                 frame.content.origin,
@@ -154,7 +159,8 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                             + point(
                                 px(0.0),
                                 cell.height * f32::from(offset)
-                                    + px(pane.scroll.pixel_remainder(f32::from(cell.height))),
+                                    + px(pane.scroll.pixel_remainder(f32::from(cell.height)))
+                                    + cell.height * slide,
                             );
                         let graphics = grid.graphics.clone();
                         let live = pane
@@ -352,7 +358,8 @@ fn prepare(
     let height = view.viewport().map_or(grid.size.rows, |size| size.rows);
     let start = view.visible_start(grid);
     let remainder = view.scroll.pixel_remainder(f32::from(cell.height));
-    let origin = origin + point(px(0.0), px(remainder));
+    let slide = view.slide.sampled();
+    let origin = origin + point(px(0.0), px(remainder) + cell.height * slide);
     let metrics = window.text_system().shape_line(
         "M".into(),
         font_size,
@@ -370,8 +377,24 @@ fn prepare(
         window,
     };
     let count = usize::from(height) + usize::from(remainder < 0.0);
+    let ghosts: Vec<&[Run]> = if slide > 0.0 {
+        view.slide.ghosts().collect()
+    } else {
+        Vec::new()
+    };
     let mut rows = view.rows.borrow_mut();
-    rows.begin(&renderer, count);
+    rows.begin(&renderer, count + ghosts.len());
+    let mut position = origin;
+    for (above, runs) in ghosts.iter().enumerate() {
+        position.y -= cell.height;
+        painting.rows.push(rows.prepare(
+            count + above,
+            runs,
+            position,
+            painting_thickens,
+            &mut renderer,
+        ));
+    }
     for index in 0..count {
         let Some(runs) = grid.content_row(start + index) else {
             continue;
