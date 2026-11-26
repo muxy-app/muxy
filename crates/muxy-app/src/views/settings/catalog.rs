@@ -1012,6 +1012,24 @@ pub(super) const SETTINGS: &[Setting] = &[
         category: Category::Servers,
         section: tr_key!("Sessions"),
     },
+    Setting {
+        id: "resume-programs",
+        label: tr_key!("Resume programs after a restart"),
+        description: tr_key!(
+            "Start Claude Code and programs that report how to resume again after the server restarts. Needs shell integration in zsh or Bash."
+        ),
+        category: Category::Servers,
+        section: tr_key!("Sessions"),
+    },
+    Setting {
+        id: "resume-allowlist",
+        label: tr_key!("Programs to resume"),
+        description: tr_key!(
+            "Program names that may resume, separated by commas. Others start a plain shell."
+        ),
+        category: Category::Servers,
+        section: tr_key!("Sessions"),
+    },
 ];
 
 pub(super) fn control_label(id: &str) -> Option<&'static str> {

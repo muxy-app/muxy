@@ -41,7 +41,7 @@ fn parse_stat(stat: &[u8]) -> Option<(u32, String)> {
     Some((group, name))
 }
 
-pub(super) fn agent_provider(group: u32) -> Option<muxy_protocol::AgentProvider> {
+pub(super) fn agent_provider(group: u32) -> Option<(muxy_protocol::AgentProvider, u32)> {
     use std::io::Read;
     let mut pids: Vec<u32> = fs::read_dir("/proc")
         .ok()?
@@ -68,6 +68,7 @@ pub(super) fn agent_provider(group: u32) -> Option<muxy_protocol::AgentProvider>
                 .map(|b| String::from_utf8_lossy(b).into_owned())
                 .collect::<Vec<_>>();
             crate::detection::identify_member(&name, &args, pid == group)
+                .map(|provider| (provider, pid))
         })
 }
 

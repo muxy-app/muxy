@@ -40,6 +40,8 @@ fn unix_and_windows_absolute_paths_validate_on_every_build() {
             default_shell: Some(path(value)),
             history_budget_bytes: 0,
             shell_integration: false,
+            resume_programs: None,
+            resume_allowlist: None,
         };
         assert_eq!(settings.validate(), Ok(()), "{value}");
         assert_eq!(

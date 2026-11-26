@@ -55,6 +55,11 @@ Server settings apply to everyone using that server. Change them in
 | Default shell | `default_shell` | `$SHELL`, else `/bin/zsh` on macOS and `/bin/sh` on Linux |
 | History budget per session | `history_budget_bytes` | `16777216` (16 MiB) |
 | Shell integration | `shell_integration` | `true` |
+| Resume programs after a restart | `enabled` in `program-resume.toml` | `true` |
+| Programs to resume | `programs` in `program-resume.toml` | `claude`, `codex`, `copilot`, `cursor-agent`, `droid`, `nvim`, `omp`, `opencode`, `xal` |
+
+The resume settings live in `program-resume.toml` beside `server.toml`, so older
+servers can still read `server.toml`. Backups don't include them yet.
 
 Shells start as login shells. Changes apply to new terminals. A new history
 budget applies to saved history after the server restarts.
@@ -81,6 +86,39 @@ installed UTF-8 locale for the system language and region, or else `C.UTF-8` or
 `en_US.UTF-8`, so non-ASCII text displays correctly. If none of these is
 installed, it leaves them unset.
 
+## Program resume
+
+When the server stops or restarts, a program that was running in a terminal
+can start again in the new shell of that pane, in the folder it was in. This is
+how Claude Code survives a server restart.
+
+- **Programs that report it.** Any program can say how to resume itself with
+  the [program resume protocol](https://www.superlogical.com/rex/docs/build/program-resume)
+  (OSC 7577). While resume is on, Muxy gives each new terminal on macOS and
+  Linux a fresh `OSC7577_TOKEN` and accepts only reports signed with it, so output from `cat`, logs, or SSH can't create one.
+  Reports must come from a process of the same user on that terminal, dated
+  within 60 seconds.
+- **Claude Code.** Claude Code doesn't report it yet, so Muxy reads the session
+  Claude writes for its process and resumes it with `claude --resume ID`, once
+  that conversation is saved, which happens after its first message. A Claude
+  with nothing sent yet comes back as a plain shell. A program that reports
+  for itself takes precedence.
+- **What survives.** Only a program running when the server stopped. A
+  program that exits, a terminal you close, and a saved session that's
+  discarded or expires each drop the record. Each record runs at most once,
+  and a failed resume isn't retried.
+- **Where it runs.** zsh and Bash with [shell integration](#shell-integration)
+  run it at the first prompt, after your startup files, with its arguments
+  passed exactly as reported, never as shell text. When it exits you're back
+  in that shell. Fish, PowerShell, Windows, a missing folder, a server running
+  as root, and the terminal UI, which closes ended panes, start a plain shell.
+- **Which programs.** Only names on the allowlist resume. Turn it off with
+  **Resume programs after a restart**, or
+  `muxy settings set resume-programs false`.
+
+Programs that don't take part see only an extra environment variable, and
+their panes behave as before.
+
 ## Files
 
 Everything lives in one profile folder:
@@ -93,9 +131,10 @@ Everything lives in one profile folder:
 | File | What it holds |
 | --- | --- |
 | `server.toml` | Server settings |
+| `program-resume.toml` | [Program resume](#program-resume) settings |
 | `server.log` | Server log |
 | `server.sock` | The socket apps connect to |
-| `sessions/` | Projects, sessions, and saved terminal output |
+| `sessions/` | Projects, sessions, saved terminal output, and the programs to resume |
 | `remote.json` | Mobile access settings, paired phones, and their push notification registrations |
 | `settings.toml`, `terminal.toml`, `themes/` | Desktop app settings, see [Settings](../user-guide/settings.md) |
 | `tui-state.json` | Terminal UI layouts |

@@ -30,6 +30,7 @@ fn run() -> Result<ExitStatus, Box<dyn Error>> {
         args: args.collect(),
         cwd: env::current_dir()?,
         env: Vec::new(),
+        remove: Vec::new(),
         size: PtySize { cols: 80, rows: 24 },
     };
 

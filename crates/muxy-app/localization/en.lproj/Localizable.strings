@@ -1140,6 +1140,7 @@
 "List agents under a heading naming their project." = "List agents under a heading naming their project.";
 "List each agent and open its pane, or each project and worktree running agents and open it." = "List each agent and open its pane, or each project and worktree running agents and open it.";
 "List other computers' servers and their projects under this computer's. When off, the sidebar shows only this computer's projects; the Servers button still manages the others." = "List other computers' servers and their projects under this computer's. When off, the sidebar shows only this computer's projects; the Servers button still manages the others.";
+"List program names, such as claude or nvim, separated by commas" = "List program names, such as claude or nvim, separated by commas";
 "List the current worktree first, then the most recently used. Off, the project comes first, then its worktrees." = "List the current worktree first, then the most recently used. Off, the project comes first, then its worktrees.";
 "Listening on port %lld" = "Listening on port %lld";
 "Little to set up" = "Little to set up";
@@ -1517,6 +1518,8 @@
 "Profile name" = "Profile name";
 "Profiles" = "Profiles";
 "Profiles keep cookies and logins apart. New tabs use the default profile." = "Profiles keep cookies and logins apart. New tabs use the default profile.";
+"Program names that may resume, separated by commas. Others start a plain shell." = "Program names that may resume, separated by commas. Others start a plain shell.";
+"Programs to resume" = "Programs to resume";
 "Project" = "Project";
 "Project %lld" = "Project %lld";
 "Project Focused" = "Project Focused";
@@ -1691,6 +1694,7 @@
 "Restore on next launch" = "Restore on next launch";
 "Restore settings and %lld saved projects with their layouts on the next launch. Existing projects are kept; matching projects receive the saved layouts. A recovery copy is saved in the profile’s Backups folder. Restart the server from Settings to apply restored server settings." = "Restore settings and %lld saved projects with their layouts on the next launch. Existing projects are kept; matching projects receive the saved layouts. A recovery copy is saved in the profile’s Backups folder. Restart the server from Settings to apply restored server settings.";
 "Resume in a new terminal" = "Resume in a new terminal";
+"Resume programs after a restart" = "Resume programs after a restart";
 "Retained terminal history, from 0 to 65536 MiB. Saved-history changes take effect at the next server start." = "Retained terminal history, from 0 to 65536 MiB. Saved-history changes take effect at the next server start.";
 "Retry Pull Request Status" = "Retry Pull Request Status";
 "Retry app update" = "Retry app update";
@@ -1920,6 +1924,7 @@
 "Staged and unstaged" = "Staged and unstaged";
 "Star" = "Star";
 "Star Fill" = "Star Fill";
+"Start Claude Code and programs that report how to resume again after the server restarts. Needs shell integration in zsh or Bash." = "Start Claude Code and programs that report how to resume again after the server restarts. Needs shell integration in zsh or Bash.";
 "Start Tour" = "Start Tour";
 "Start new tabs and splits in the focused pane's working directory instead of the project folder." = "Start new tabs and splits in the focused pane's working directory instead of the project folder.";
 "Starting" = "Starting";

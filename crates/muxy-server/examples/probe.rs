@@ -102,6 +102,7 @@ fn probe(path: &Path) -> Result {
             size: SIZE,
             environment: std::collections::BTreeMap::new(),
             colors: None,
+            resume_from: None,
         },
     )? {
         ReplyBody::SessionCreated(info) => info,

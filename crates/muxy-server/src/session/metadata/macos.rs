@@ -49,14 +49,16 @@ impl PIDInfo for VnodePathInfo {
     }
 }
 
-pub(super) fn agent_provider(group: u32) -> Option<muxy_protocol::AgentProvider> {
+pub(super) fn agent_provider(group: u32) -> Option<(muxy_protocol::AgentProvider, u32)> {
     let mut pids = processes::pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group }).ok()?;
     pids.sort_unstable();
     pids.into_iter().take(128).find_map(|pid| {
         let leader = pid == group;
+        let member = pid;
         let pid = i32::try_from(pid).ok()?;
         let name = proc_pid::name(pid).ok()?;
         crate::detection::identify_member(&name, &process_arguments(pid), leader)
+            .map(|provider| (provider, member))
     })
 }
 
@@ -129,7 +131,7 @@ mod tests {
     fn agent_of_group_running_claude(
         label: &str,
         args: &[String],
-    ) -> Option<muxy_protocol::AgentProvider> {
+    ) -> Option<(muxy_protocol::AgentProvider, u32)> {
         use std::os::unix::fs::PermissionsExt;
         use std::os::unix::process::CommandExt;
 
@@ -166,7 +168,7 @@ mod tests {
     #[test]
     fn a_one_shot_agent_a_program_started_is_not_the_terminals_agent() {
         assert_eq!(
-            agent_of_group_running_claude("session", &[]),
+            agent_of_group_running_claude("session", &[]).map(|(provider, _)| provider),
             Some(muxy_protocol::AgentProvider::Claude)
         );
         assert_eq!(

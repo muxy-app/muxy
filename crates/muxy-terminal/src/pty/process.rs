@@ -59,6 +59,7 @@ pub struct SpawnRequest {
     pub args: Vec<OsString>,
     pub cwd: PathBuf,
     pub env: Vec<(OsString, OsString)>,
+    pub remove: Vec<OsString>,
     pub size: PtySize,
 }
 
@@ -114,6 +115,9 @@ impl Pty {
         let mut command = CommandBuilder::new(request.program);
         command.args(request.args);
         command.cwd(request.cwd);
+        for name in request.remove {
+            command.env_remove(name);
+        }
         for (key, value) in request.env {
             command.env(key, value);
         }

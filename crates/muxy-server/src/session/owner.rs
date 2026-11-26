@@ -117,6 +117,7 @@ struct Owner {
     synchronized_since: Option<Instant>,
     output_state: OutputState,
     archive: Archive,
+    resume: crate::resume::Tracker,
     next_checkpoint: Option<Instant>,
     next_metadata: Instant,
 }
@@ -132,6 +133,7 @@ pub(crate) fn start(
     history_budget_bytes: usize,
     archive: Archive,
     colors: Option<TerminalColors>,
+    resume: crate::resume::Tracker,
     activity: std::sync::Arc<crate::activity::Activity>,
     notifier: std::sync::Arc<crate::notifier::Notifier>,
     on_exit: impl FnOnce(ExitReason) + Send + 'static,
@@ -213,6 +215,7 @@ pub(crate) fn start(
                 synchronized_since: None,
                 output_state: OutputState::Open,
                 archive,
+                resume,
                 next_checkpoint: Some(Instant::now() + CHECKPOINT),
                 next_metadata: Instant::now(),
             };
@@ -271,6 +274,7 @@ impl Owner {
         });
         self.drain_output();
         self.update_metadata();
+        self.resume.ended(reason);
         self.activity.remove(self.info.id);
         self.checkpoint(Some(reason));
         for attachment in self.attachments.values_mut() {
@@ -442,6 +446,9 @@ impl Owner {
     fn feed(&mut self, bytes: &[u8]) -> Result<(), Fault> {
         self.detection_dirty = true;
         self.terminal.feed(bytes);
+        for report in self.terminal.take_resume_reports() {
+            self.resume.report(&report, metadata::process_folder);
+        }
         if self.terminal.program_reports() != self.program_reports {
             self.program_reports = self.terminal.program_reports();
             self.program_group = metadata::foreground_group(&self.shell);
@@ -771,6 +778,12 @@ impl Owner {
             }
         }
         let events = self.metadata.update(&self.shell, terminal);
+        self.resume.refresh();
+        if self.metadata.agent == Some(muxy_protocol::AgentProvider::Claude)
+            && let Some(pid) = self.metadata.agent_pid
+        {
+            self.resume.claude(pid);
+        }
         if events.iter().any(|event| {
             matches!(
                 event,

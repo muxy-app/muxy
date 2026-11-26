@@ -7,6 +7,7 @@ mod platform;
 mod process;
 mod references;
 mod registry;
+mod resume;
 mod search;
 mod session;
 mod settings;

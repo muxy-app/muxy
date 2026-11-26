@@ -241,9 +241,14 @@ impl Client {
             size,
             std::collections::BTreeMap::new(),
             None,
+            None,
         )
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Each argument is one optional part of the create request"
+    )]
     pub fn create_project_session_with_environment(
         &self,
         project: muxy_protocol::ProjectId,
@@ -252,6 +257,7 @@ impl Client {
         size: Size,
         environment: std::collections::BTreeMap<String, String>,
         colors: Option<TerminalColors>,
+        resume_from: Option<SessionId>,
     ) -> Result<SessionInfo, ClientError> {
         let directory = ServerPath::from(directory);
         match self.request(RequestBody::CreateSession {
@@ -261,6 +267,7 @@ impl Client {
             size,
             environment,
             colors,
+            resume_from,
         })? {
             ReplyBody::SessionCreated(info) => Ok(info),
             other => Err(ClientError::UnexpectedReply(Box::new(other))),

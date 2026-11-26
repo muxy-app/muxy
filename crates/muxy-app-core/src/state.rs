@@ -24,6 +24,8 @@ pub struct AppState {
     pub(crate) starting_proxies: BTreeMap<PaneId, bool>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) startup_commands: BTreeMap<PaneId, String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) resume_sources: BTreeMap<PaneId, SessionId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) quick_terminal: Option<Pane>,
     pub(crate) version: u32,
@@ -49,6 +51,8 @@ struct StoredState {
     starting_proxies: BTreeMap<PaneId, bool>,
     #[serde(default)]
     startup_commands: BTreeMap<PaneId, String>,
+    #[serde(default)]
+    resume_sources: BTreeMap<PaneId, SessionId>,
     #[serde(default)]
     quick_terminal: Option<Pane>,
     version: u32,
@@ -106,6 +110,7 @@ impl TryFrom<StoredState> for AppState {
             starting_directories: stored.starting_directories,
             starting_proxies: stored.starting_proxies,
             startup_commands: stored.startup_commands,
+            resume_sources: stored.resume_sources,
             quick_terminal: stored.quick_terminal,
             version: VERSION,
             projects: stored.projects,
@@ -457,6 +462,7 @@ impl AppState {
         let mut sessions = Vec::new();
         for pane in project.tabs.into_iter().flat_map(|tab| tab.panes) {
             self.startup_commands.remove(&pane.id);
+            self.resume_sources.remove(&pane.id);
             self.starting_directories.remove(&pane.id);
             self.starting_proxies.remove(&pane.id);
             if let PaneContent::Terminal {
@@ -804,9 +810,16 @@ impl AppState {
             .cloned();
         let proxy = self.pane(pane).map(|pane| pane.proxy);
         let command = self.startup_commands.get(&pane).cloned();
+        let resume = self
+            .pane_session(pane)
+            .map(|(_, session)| session)
+            .or_else(|| self.resume_sources.get(&pane).copied());
         let id = self.restart_terminal(pane)?;
         if let Some(command) = command {
             self.startup_commands.insert(id, command);
+        }
+        if let Some(session) = resume {
+            self.resume_sources.insert(id, session);
         }
         if let Some(directory) = directory {
             self.starting_directories.insert(id, directory);
@@ -815,6 +828,10 @@ impl AppState {
             self.starting_proxies.insert(id, proxy);
         }
         Ok(id)
+    }
+
+    pub fn resume_source(&self, pane: PaneId) -> Option<SessionId> {
+        self.resume_sources.get(&pane).copied()
     }
 
     pub fn starts_outside_project(&self, pane: PaneId) -> bool {
@@ -1115,6 +1132,9 @@ impl AppState {
         match &mut self.pane_mut(pane)?.content {
             PaneContent::Terminal { session: current } => {
                 *current = session;
+                if session.is_some() {
+                    self.resume_sources.remove(&pane);
+                }
                 Ok(())
             }
             PaneContent::Settings

@@ -10,6 +10,7 @@ use libghostty_vt::style::{PaletteIndex, RgbColor, StyleColor, Underline as Engi
 use libghostty_vt::terminal::{
     ClipboardLocation, ClipboardWriteError, ColorScheme, CompressionMode, Mode, Point,
     PointCoordinate, PointSpace, ScrollViewport, SemanticPromptKind, Terminal as Engine,
+    UnknownSequence,
 };
 use libghostty_vt::{key, mouse};
 
@@ -67,6 +68,7 @@ impl TerminalSnapshot {
             Rc::default(),
             Events::default(),
             Rc::default(),
+            Rc::default(),
         )?;
         terminal.cell = self.cell;
         terminal.graphics_cache.stills_only();
@@ -84,6 +86,33 @@ impl TerminalSnapshot {
     }
 }
 
+const MAX_RESUME_REPORT: usize = 4096;
+const MAX_PENDING_RESUME_REPORTS: usize = 16;
+
+fn capture_resume_reports(
+    engine: &mut Engine<'static, 'static>,
+) -> Result<Rc<RefCell<Vec<Vec<u8>>>>, libghostty_vt::Error> {
+    let resume_reports = Rc::new(RefCell::new(Vec::new()));
+    let reports = Rc::clone(&resume_reports);
+    engine
+        .set_unknown_max_bytes(MAX_RESUME_REPORT)?
+        .on_unknown_sequence(move |_, sequence| {
+            if let UnknownSequence::Osc {
+                content,
+                truncated: false,
+                ..
+            } = sequence
+                && let Some(body) = content.strip_prefix(b"7577;")
+            {
+                let mut reports = reports.borrow_mut();
+                if reports.len() < MAX_PENDING_RESUME_REPORTS {
+                    reports.push(body.to_vec());
+                }
+            }
+        })?;
+    Ok(resume_reports)
+}
+
 #[derive(Debug)]
 pub struct Terminal {
     engine: Engine<'static, 'static>,
@@ -93,6 +122,7 @@ pub struct Terminal {
     pty_output: Rc<RefCell<Vec<u8>>>,
     events: Events,
     progress: Rc<RefCell<crate::progress::Progress>>,
+    resume_reports: Rc<RefCell<Vec<Vec<u8>>>>,
     row_hashes: Vec<Option<u64>>,
     links: Vec<crate::links::CachedRow>,
     text: String,
@@ -137,6 +167,7 @@ impl Terminal {
         let directory = Rc::clone(&events.directory);
         let clipboard_write = Rc::clone(&events.clipboard_write);
         let bell = Rc::clone(&events.bell);
+        let resume_reports = capture_resume_reports(&mut engine).map_err(create)?;
         engine
             .on_title_changed(move |_| title.set(true))
             .map_err(create)?;
@@ -206,7 +237,7 @@ impl Terminal {
                     .map(|background| background.map_or(ColorScheme::Dark, color_scheme))
             })
             .map_err(create)?;
-        Self::wrap(engine, size, pty_output, events, progress)
+        Self::wrap(engine, size, pty_output, events, progress, resume_reports)
     }
 
     fn wrap(
@@ -215,6 +246,7 @@ impl Terminal {
         pty_output: Rc<RefCell<Vec<u8>>>,
         events: Events,
         progress: Rc<RefCell<crate::progress::Progress>>,
+        resume_reports: Rc<RefCell<Vec<Vec<u8>>>>,
     ) -> Result<Self, TerminalError> {
         let create = |error| TerminalError::wrap(TerminalStep::Create, error);
         let color_scheme_reporting = engine.mode(Mode::COLOR_SCHEME_REPORT).unwrap_or(false);
@@ -226,6 +258,7 @@ impl Terminal {
             pty_output,
             events,
             progress,
+            resume_reports,
             row_hashes: Vec::new(),
             links: Vec::new(),
             text: String::new(),
@@ -401,6 +434,10 @@ impl Terminal {
 
     pub fn program_reports(&self) -> u64 {
         self.progress.borrow().program_reports()
+    }
+
+    pub fn take_resume_reports(&mut self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut *self.resume_reports.borrow_mut())
     }
 
     pub fn end_program_status(&mut self) {

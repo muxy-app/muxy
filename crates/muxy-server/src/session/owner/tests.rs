@@ -33,6 +33,7 @@ impl Fixture {
             args: Vec::new(),
             cwd: directory,
             env: Vec::new(),
+            remove: Vec::new(),
             size: size.into(),
         })?;
         let (events, receiver) = mpsc::channel();
@@ -86,6 +87,12 @@ impl Fixture {
             synchronized_since: None,
             output_state: OutputState::Open,
             archive: Archive::memory(1024 * 1024),
+            resume: crate::resume::Tracker::new(
+                SessionId::from(std::num::NonZeroU64::MIN),
+                crate::resume::Store::default(),
+                None,
+                0,
+            ),
             next_checkpoint: None,
             next_metadata: Instant::now() + Duration::from_secs(10),
         };

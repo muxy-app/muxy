@@ -276,6 +276,8 @@ fn settings_server_control_stays_on_this_computer_while_a_remote_project_is_open
             default_shell: None,
             history_budget_bytes: 0,
             shell_integration: true,
+            resume_programs: None,
+            resume_allowlist: None,
         };
         model.receive_server_settings(Ok(loaded), cx);
         model.select_project(api, cx);

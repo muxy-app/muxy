@@ -126,6 +126,7 @@ fn attach_work(tag: u64, pane: PaneId) -> Work {
         size: Size { cols: 80, rows: 24 },
         environment: BTreeMap::new(),
         colors: None,
+        resume_from: None,
     }
 }
 

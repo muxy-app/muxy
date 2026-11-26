@@ -374,7 +374,7 @@ fn ordered_request(
             ReplyBody::ServerSettings(registry.settings().document())
         }
         RequestBody::WriteServerSettings(settings) => {
-            registry.write_settings(settings.into())?;
+            registry.write_settings_document(settings)?;
             ReplyBody::ServerSettingsWritten
         }
         RequestBody::StopServerIfIdle if !registry.stop_if_idle() => ReplyBody::ServerBusy,
@@ -526,6 +526,7 @@ fn ordered_request(
             size,
             environment,
             colors,
+            resume_from,
         } => {
             let info = registry.create_launched(
                 project,
@@ -535,6 +536,7 @@ fn ordered_request(
                 crate::registry::Launch {
                     colors: colors.clone().or_else(|| connection.colors()),
                     environment,
+                    resume_from,
                 },
                 Some(connection),
             )?;

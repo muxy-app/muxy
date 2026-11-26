@@ -200,6 +200,15 @@ are bounded to the start and end of transcripts; unusually large metadata,
 older formats, custom storage locations, and titles in separate databases may
 not be found. Sessions are sorted by transcript modification time.
 
+## After a server restart
+
+A Claude Code session that was running when the server stopped starts again in
+its pane with `claude --resume ID`, in the folder it was in, once it has at
+least one message. A Claude you hadn't sent anything to comes back as a plain
+shell. Other agents come
+back the same way once they report how to resume (OSC 7577). See
+[Program resume](server.md#program-resume) for the settings and limits.
+
 ## Agents Focused sidebar
 
 Choose **Agents Focused** from the sidebar layout menu to list only the tabs

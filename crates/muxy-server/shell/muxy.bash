@@ -6,6 +6,14 @@ _muxy_in_prompt=0
 _muxy_debug_checked=0
 _muxy_prompt=''
 _muxy_user_prompt=''
+_muxy_resume=()
+if [[ -n ${MUXY_RESUME_ARGV+x} && ${MUXY_RESUME_PARENT-} == "$PPID" ]]; then
+    while IFS= read -r _muxy_line; do
+        _muxy_resume+=("$_muxy_line")
+    done <<< "$MUXY_RESUME_ARGV"
+    unset _muxy_line
+fi
+unset MUXY_RESUME_ARGV MUXY_RESUME_PARENT
 
 _muxy_directory() {
     local LC_ALL=C encoded='' char hex i
@@ -35,6 +43,14 @@ _muxy_prompt_end() {
     [[ $PS1 != "$_muxy_prompt" ]] && _muxy_user_prompt=$PS1
     _muxy_prompt=$'\[\e]133;A\a\]'"$_muxy_user_prompt"$'\[\e]133;B\a\]'
     PS1=$_muxy_prompt
+    if (( ${#_muxy_resume[@]} )); then
+        local resume=("${_muxy_resume[@]}")
+        _muxy_resume=()
+        printf '\e]133;C\a'
+        command "${resume[@]}"
+        _muxy_status=$?
+        printf '\e]133;D;%d\a' "$_muxy_status"
+    fi
     _muxy_in_prompt=0
     return "$_muxy_status"
 }
