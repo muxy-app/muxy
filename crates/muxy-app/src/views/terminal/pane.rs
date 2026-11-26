@@ -21,6 +21,7 @@ use super::{
     scroll::{HistoryRequest, Scroll, output_changed},
     scrollbar::Scrollbar,
     selection::{Point, SelectedRow, Selection},
+    slide::Slide,
 };
 
 pub(crate) enum PaneEvent {
@@ -129,6 +130,8 @@ pub(crate) struct TerminalPane {
     pub(crate) open_context: Option<muxy_app_core::opener::OpenContext>,
     pub(crate) link_hover: super::links::Hover,
     pub(crate) scroll: Scroll,
+    pub(crate) slide: Slide,
+    pub(crate) agent_running: bool,
     pub(crate) find: Option<find::Find>,
     pub(crate) find_refresh: Option<Task<()>>,
     pub(crate) insert_path: Option<super::insert_path::InsertPath>,
@@ -269,6 +272,8 @@ impl TerminalPane {
             open_context: None,
             link_hover: super::links::Hover::default(),
             scroll: Scroll::default(),
+            slide: Slide::default(),
+            agent_running: false,
             find: None,
             insert_path: None,
             find_refresh: None,
@@ -366,6 +371,7 @@ impl TerminalPane {
         self.detach();
         self.reset_input();
         self.scroll.reset();
+        self.slide = Slide::default();
         self.saved_history = None;
         self.state = state;
         if state == PaneState::Disconnected {
@@ -391,6 +397,7 @@ impl TerminalPane {
         };
         self.reset_input();
         self.scroll.reset();
+        self.slide = Slide::default();
         self.saved_history = None;
         self.grid = Some(Screen::Detached(RunGrid::from_saved(screen)));
         self.prepare_saved_history(cx);
@@ -416,6 +423,7 @@ impl TerminalPane {
             None
         };
         self.saved_history = None;
+        self.slide = Slide::default();
         self.sent_cell_size = None;
         self.server_input = attachment.server_input;
         self.state = PaneState::Live;
@@ -456,9 +464,11 @@ impl TerminalPane {
     pub(crate) fn apply(&mut self, frame: &ScreenFrame, cx: &mut Context<Self>) -> Option<u64> {
         let _span = crate::profiler::span(crate::profiler::Metric::FrameApply);
         crate::profiler::count(crate::profiler::Metric::FrameRows, frame.rows.len());
+        let slides = self.slides();
         let Some(Screen::Attached(_, terminal)) = &mut self.grid else {
             return None;
         };
+        let following = self.scroll.view.is_none();
         if frame.reset {
             self.scroll.reset();
             self.saved_history = None;
@@ -467,7 +477,25 @@ impl TerminalPane {
             self.cursor_blink.reset();
         }
         let output_changed = !frame.rows.is_empty() || terminal.grid.cursor != frame.cursor;
+        let growth = self.slide.take_growth(terminal.grid.history_total);
+        let before = (growth.is_some()
+            && following
+            && !frame.reset
+            && frame.size == terminal.grid.size
+            && slides)
+            .then(|| terminal.grid.rows.clone());
         let seq = terminal.apply(frame);
+        match (before, growth) {
+            (Some(before), Some(growth)) => self.slide.observe(
+                &before,
+                &terminal.grid.rows,
+                growth,
+                cx.background_executor().now(),
+            ),
+            (None, Some(_)) => self.slide.clear(),
+            _ if frame.reset => self.slide.clear(),
+            _ => {}
+        }
         self.session_size = Some(frame.size);
         let shown: Vec<_> = std::iter::once(&terminal.grid.graphics)
             .chain(self.scroll.view.as_ref().map(|view| &view.graphics))
@@ -929,6 +957,7 @@ impl TerminalPane {
                     grid.history_total = total_rows;
                     grid.history_fresh = false;
                 }
+                self.slide.history_changed();
                 cx.notify();
                 return;
             }
@@ -996,6 +1025,7 @@ impl TerminalPane {
     fn resize_session(&mut self, size: Size, cx: &mut Context<Self>) {
         self.session_size = Some(size);
         self.scroll.reset();
+        self.slide.clear();
         self.saved_history = None;
         if let Some(grid) = &mut self.grid {
             grid.resize(size);
@@ -1014,6 +1044,20 @@ impl TerminalPane {
         {
             self.resize_session(viewport, cx);
         }
+    }
+
+    fn slides(&self) -> bool {
+        self.terminal.options.output_scroll_animation
+            && !self.agent_running
+            && !self.input_modes.mouse_tracking
+    }
+
+    pub(crate) fn sample_slide(&mut self, now: std::time::Instant) -> f32 {
+        if !self.slides() {
+            self.slide.clear();
+        }
+        let following = self.scroll.view.is_none() && self.state == PaneState::Live;
+        self.slide.sample(following.then_some(now))
     }
 
     pub(crate) fn displayed_grid(&self) -> Option<&RunGrid> {
@@ -1304,7 +1348,8 @@ impl TerminalPane {
         let column = if nearest { x.round() } else { x.floor() }
             .clamp(0.0, f32::from(grid.size.cols)) as u16;
         let remainder = self.scroll.pixel_remainder(f32::from(cell.height));
-        let y = (position.y - bounds.origin.y - px(remainder)) / cell.height;
+        let y = (position.y - bounds.origin.y - px(remainder) - cell.height * self.slide.sampled())
+            / cell.height;
         let height = self.viewport.unwrap_or(grid.size).rows;
         let last = height.saturating_sub(1) + u16::from(remainder < 0.0);
         let visible = y.floor().clamp(0.0, f32::from(last)) as usize;

@@ -896,6 +896,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Scrolling"),
     },
     Setting {
+        id: "output-scroll-animation",
+        label: tr_key!("Smooth output scrolling"),
+        description: tr_key!("Slide new output into view instead of jumping."),
+        category: Category::Terminal,
+        section: tr_key!("Scrolling"),
+    },
+    Setting {
         id: "mouse-reporting",
         label: tr_key!("Allow programs to use the mouse"),
         description: tr_key!(
