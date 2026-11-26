@@ -454,7 +454,7 @@ fn move_pointer(
     };
     let over_self = own.is_some_and(|own| own.contains(&position));
     if holding || over_self || drop.is_some() {
-        let local = drop.map(|(_, bounds)| bounds);
+        let local = drop.map(|(_, bounds)| bounds).or(own);
         model.hold_move(Moving::Tab(tab), window, position, local, cx);
     } else {
         model.track_move(Moving::Tab(tab), window, position, cx);
