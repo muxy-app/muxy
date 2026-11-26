@@ -10,6 +10,7 @@ use gpui::{
     AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
     IntoElement, Render, Subscription,
 };
+use muxy_app_core::extension_link::ExtensionLink;
 use muxy_app_core::session_link::SessionLink;
 use muxy_app_core::{ProjectStatus, ServerId, settings::Keymap};
 use muxy_core::shortcuts::{ShortcutId, ShortcutSettings};
@@ -1175,6 +1176,11 @@ impl AppModel {
                             urls.iter().rev().find_map(|url| SessionLink::parse(url))
                         {
                             model.open_session_link(link, cx);
+                        }
+                        if let Some(link) =
+                            urls.iter().rev().find_map(|url| ExtensionLink::parse(url))
+                        {
+                            model.open_extension_link(link.name, cx);
                         }
                         model
                             .pending_folders

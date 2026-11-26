@@ -6,6 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use muxy_app_core::extension_link::ExtensionLink;
 use muxy_app_core::session_link::SessionLink;
 use muxy_protocol::ServerPath;
 use muxy_protocol::transport::{LocalListener, LocalStream};
@@ -44,7 +45,7 @@ pub(crate) fn claim(
 #[cfg(any(target_os = "linux", windows))]
 fn asked(argument: OsString) -> Option<Asked> {
     if let Some(text) = argument.to_str() {
-        if SessionLink::parse(text).is_some() {
+        if app_link(text) {
             return Some(Asked::Link(text.to_owned()));
         }
         if let Ok(url) = reqwest::Url::parse(text)
@@ -156,7 +157,7 @@ fn receive(mut stream: LocalStream, opened: &Opened) -> io::Result<()> {
         .split(|byte| *byte == 0)
         .filter(|entry| !entry.is_empty())
         .filter_map(|entry| match std::str::from_utf8(entry) {
-            Ok(text) if SessionLink::parse(text).is_some() => Some(Asked::Link(text.to_owned())),
+            Ok(text) if app_link(text) => Some(Asked::Link(text.to_owned())),
             _ => ServerPath(entry.to_vec())
                 .to_path_buf()
                 .ok()
@@ -166,6 +167,10 @@ fn receive(mut stream: LocalStream, opened: &Opened) -> io::Result<()> {
     let closing = |_| io::Error::other("the app is closing");
     opened.try_send(urls(&asked)).map_err(closing)?;
     stream.write_all(&[DONE])
+}
+
+fn app_link(text: &str) -> bool {
+    SessionLink::parse(text).is_some() || ExtensionLink::parse(text).is_some()
 }
 
 fn urls(asked: &[Asked]) -> Vec<String> {
@@ -191,11 +196,19 @@ mod tests {
         .to_link()
     }
 
+    fn store_link() -> String {
+        format!(
+            "{}://extensions/install/git-status",
+            muxy_core::release::Channel::current().url_scheme()
+        )
+    }
+
     #[test]
     fn launch_arguments_open_links_file_urls_and_folders() {
         let folder = crate::test_support::directory();
         let url = reqwest::Url::from_directory_path(&folder).expect("file URL");
         assert_eq!(asked(link(7).into()), Some(Asked::Link(link(7))));
+        assert_eq!(asked(store_link().into()), Some(Asked::Link(store_link())));
         assert_eq!(
             asked(url.to_string().into()),
             Some(Asked::Folder(folder.clone()))
@@ -219,7 +232,11 @@ mod tests {
             .expect("first launch")
             .expect("first launch keeps running");
         let (unused, _) = async_channel::unbounded();
-        let asked = [Asked::Link(link(7)), Asked::Folder(folder.clone())];
+        let asked = [
+            Asked::Link(link(7)),
+            Asked::Link(store_link()),
+            Asked::Folder(folder.clone()),
+        ];
         assert!(
             claim_in(&profile, &asked, &unused, ANSWER)
                 .expect("hand over")
@@ -229,6 +246,7 @@ mod tests {
             urls.recv_blocking().expect("opened"),
             [
                 link(7),
+                store_link(),
                 reqwest::Url::from_file_path(&folder)
                     .expect("file URL")
                     .to_string()

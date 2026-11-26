@@ -5,6 +5,7 @@ use muxy_ui::tr;
 
 use super::{AppModel, Overlay, Quitting};
 use crate::boot::Work;
+use crate::views::settings::extensions::ExtensionsView;
 use crate::views::settings::tab::SettingsTab;
 use crate::views::settings::{SettingsView, Snapshot};
 
@@ -168,6 +169,36 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn open_extension_link(&self, name: String, cx: &mut Context<Self>) {
+        let window = self.window;
+        let model = cx.weak_entity();
+        cx.defer(move |cx| {
+            let extensions = window.update(cx, |_, window, cx| {
+                model
+                    .update(cx, |model, cx| model.show_extensions_page(window, cx))
+                    .ok()
+                    .flatten()
+            });
+            if let Ok(Some(extensions)) = extensions {
+                extensions.update(cx, |view, cx| view.open_listing(name, cx));
+            }
+        });
+    }
+
+    fn show_extensions_page(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<ExtensionsView>> {
+        if !self.show_settings(window, cx) {
+            return None;
+        }
+        self.settings_tab.as_ref()?.view.update(cx, |view, cx| {
+            view.show_extensions(cx);
+            view.extensions.clone()
+        })
+    }
+
     pub(crate) fn show_about_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.show_settings(window, cx) {
             return;
@@ -279,7 +310,7 @@ impl AppModel {
         self.refresh_theme(cx);
         let model = cx.weak_entity();
         let extensions = cx.new(|cx| {
-            crate::views::settings::extensions::ExtensionsView::new(
+            ExtensionsView::new(
                 model,
                 self.theme.clone(),
                 crate::views::settings::content_metrics(self.metrics),
