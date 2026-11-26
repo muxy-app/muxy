@@ -545,16 +545,23 @@ impl AppModel {
         else {
             return (None, position, number.is_none());
         };
+        let inside = |window: &Window| {
+            muxy_ui::screen::local(window, cursor).map(|local| {
+                let inside = Bounds::new(Point::default(), window.viewport_size()).contains(&local);
+                (local, inside)
+            })
+        };
         let local = if id == here {
-            muxy_ui::screen::local(window, cursor)
+            inside(window)
         } else {
             handle
-                .update(cx, |_, window, _| muxy_ui::screen::local(window, cursor))
+                .update(cx, |_, window, _| inside(window))
                 .ok()
                 .flatten()
         };
         match local {
-            Some(local) => (Some(id), local, false),
+            Some((local, true)) => (Some(id), local, false),
+            Some((_, false)) => (None, position, true),
             None => (None, position, false),
         }
     }
