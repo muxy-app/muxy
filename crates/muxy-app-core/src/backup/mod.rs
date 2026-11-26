@@ -68,6 +68,8 @@ impl ServerSettings {
                 .map(muxy_protocol::ServerPath::from),
             history_budget_bytes: self.history_budget_bytes,
             shell_integration: self.shell_integration,
+            resume_programs: None,
+            resume_allowlist: None,
         }
     }
 }

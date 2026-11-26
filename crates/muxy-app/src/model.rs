@@ -2359,6 +2359,10 @@ impl AppModel {
         if self.pending.insert(pane, server).is_some() {
             return;
         }
+        let resume_from = session
+            .is_none()
+            .then(|| self.state.take_resume_source(pane))
+            .flatten();
         self.send(
             server,
             Work::Attach {
@@ -2370,6 +2374,7 @@ impl AppModel {
                 size,
                 environment,
                 colors,
+                resume_from,
             },
             cx,
         );

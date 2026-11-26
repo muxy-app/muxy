@@ -60,6 +60,32 @@ pub(super) fn rows(pane: &SettingsView, cx: &mut Context<SettingsView>) -> Vec<A
                 ),
             ));
         }
+        if let Some(resume) = server.resume_programs {
+            if pane.matches(
+                Category::Servers,
+                tr_key!("Resume programs after a restart"),
+            ) {
+                rows.push(pane.row(
+                    "resume-programs",
+                    tr_key!("Resume programs after a restart"),
+                    pane.toggle(
+                        "resume-programs",
+                        resume,
+                        Change::ResumePrograms(!resume),
+                        cx,
+                    ),
+                ));
+            }
+            if server.resume_allowlist.is_some()
+                && pane.matches(Category::Servers, tr_key!("Programs to resume"))
+            {
+                rows.push(pane.row(
+                    "resume-allowlist",
+                    tr_key!("Programs to resume"),
+                    pane.field_with_width("resume-allowlist", 520.0),
+                ));
+            }
+        }
     } else if pane.matches(Category::Servers, tr_key!("Loading settings")) {
         let note = tr!("Loading this computer's server settings…");
         rows.push(pane.note(&note, false).into_any_element());

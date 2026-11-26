@@ -245,6 +245,7 @@ impl AppState {
             .retain(|pane| !panes.contains(pane));
         self.startup_commands
             .retain(|pane, _| !panes.contains(pane));
+        self.resume_sources.retain(|pane, _| !panes.contains(pane));
         self.starting_directories
             .retain(|pane, _| !panes.contains(pane));
         self.starting_proxies

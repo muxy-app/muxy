@@ -89,6 +89,7 @@ impl AppState {
     }
     pub(crate) fn cancel_pending_creation(&mut self, pane: PaneId) {
         self.startup_commands.remove(&pane);
+        self.resume_sources.remove(&pane);
         self.starting_proxies.remove(&pane);
         if self.starting_directories.remove(&pane).is_some()
             && self.pane_mut(pane).is_ok_and(|pane| {
@@ -319,6 +320,7 @@ impl AppState {
             .collect();
         self.window.focus_history.retain(|id| panes.contains(id));
         self.startup_commands.retain(|id, _| panes.contains(id));
+        self.resume_sources.retain(|id, _| panes.contains(id));
         let quick_terminal = self.quick_terminal.as_ref().map(|pane| pane.id);
         let still_here = |id: &PaneId| panes.contains(id) || quick_terminal == Some(*id);
         self.starting_directories.retain(|id, _| still_here(id));

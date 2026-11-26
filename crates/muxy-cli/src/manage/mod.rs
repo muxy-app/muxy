@@ -192,6 +192,23 @@ fn set_setting(client: &Client, key: &str, value: &str) -> Result {
         }
         "history-budget-bytes" => settings.history_budget_bytes = value.parse()?,
         "shell-integration" => settings.shell_integration = value.parse()?,
+        "resume-programs" | "resume-allowlist" if settings.resume_programs.is_none() => {
+            return Err("this server can't resume programs".into());
+        }
+        "resume-programs" => settings.resume_programs = Some(value.parse()?),
+        "resume-allowlist" => {
+            let mut programs: Vec<String> = Vec::new();
+            for program in value
+                .split([',', ' ', '\n'])
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                if !programs.iter().any(|known| known == program) {
+                    programs.push(program.to_owned());
+                }
+            }
+            settings.resume_allowlist = Some(programs);
+        }
         _ => return Err("unknown server setting; run muxy settings --help".into()),
     }
     settings
@@ -208,8 +225,16 @@ fn settings(client: &Client, output: &Output) -> Result {
             "default_shell": settings.default_shell.as_ref().map(path_text),
             "history_budget_bytes": settings.history_budget_bytes,
             "shell_integration": settings.shell_integration,
+            "resume_programs": settings.resume_programs,
+            "resume_allowlist": settings.resume_allowlist,
         }),
-        &["default_shell", "history_budget_bytes", "shell_integration"],
+        &[
+            "default_shell",
+            "history_budget_bytes",
+            "shell_integration",
+            "resume_programs",
+            "resume_allowlist",
+        ],
     )
 }
 

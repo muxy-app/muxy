@@ -32,6 +32,7 @@ struct State {
 pub(crate) struct Launch {
     pub(crate) colors: Option<TerminalColors>,
     pub(crate) environment: BTreeMap<String, String>,
+    pub(crate) resume_from: Option<SessionId>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,6 +58,7 @@ pub struct Registry {
     sessions: Sessions,
     completed: Arc<Condvar>,
     archive: Archive,
+    resumes: crate::resume::Store,
     pub(crate) remote: crate::RemoteAccess,
     pub(crate) push: crate::push::Push,
 }
@@ -75,6 +77,7 @@ impl Registry {
             uploads: crate::uploads::Uploads::system(),
             notifier,
             archive: Archive::memory(settings.history_budget_bytes),
+            resumes: crate::resume::Store::default(),
             settings: Mutex::new(settings),
             settings_write: Mutex::new(()),
             persist: crate::settings::Persistence(Box::new(|_| Ok(()))),
@@ -102,6 +105,7 @@ impl Registry {
         legacy: crate::LegacyImport,
     ) -> io::Result<Self> {
         let archive = Archive::open(directory, settings.history_budget_bytes)?;
+        let resumes = crate::resume::Store::open(directory)?;
         let registry = Self::new(settings, events);
         let notifier = &registry.notifier;
         let registry = Self {
@@ -116,6 +120,7 @@ impl Registry {
                 Arc::clone(notifier),
             )?),
             archive,
+            resumes,
             ..registry
         };
         registry.resume_git();
@@ -123,6 +128,9 @@ impl Registry {
         if let Err(error) = registry.prune_expired_sessions() {
             log::error!("session retention cleanup failed: {error}");
         }
+        registry
+            .resumes
+            .retain(|session| registry.archive.contains(session));
         Ok(registry)
     }
 
@@ -493,6 +501,14 @@ impl Registry {
         }
         let settings = self.settings();
         let budget = usize::try_from(settings.history_budget_bytes).unwrap_or(usize::MAX);
+        let resume_from = launch.resume_from.filter(|from| {
+            let state = lock(&self.sessions);
+            !state.sessions.contains_key(from) && !state.starting.contains(from)
+        });
+        let record = crate::resume::launch(&self.resumes, resume_from, &settings);
+        let token = (cfg!(unix) && settings.resume_programs)
+            .then(crate::resume::token)
+            .flatten();
         let handle = spawn_shell(
             &settings,
             self.shell_integration.as_ref(),
@@ -500,8 +516,14 @@ impl Registry {
             size.into(),
             (self.catalog.identity(), id),
             &launch.environment,
+            &crate::spawn::Resume {
+                token: token.as_deref(),
+                record: record.as_ref(),
+            },
         )
         .and_then(|shell| {
+            let resume =
+                crate::resume::Tracker::new(id, self.resumes.clone(), token, shell.pty.child_pid());
             session::start(
                 info.clone(),
                 shell,
@@ -509,6 +531,7 @@ impl Registry {
                 budget,
                 self.archive.clone(),
                 launch.colors,
+                resume,
                 Arc::clone(&self.activity),
                 Arc::clone(&self.notifier),
                 self.session_exit(id),
@@ -775,6 +798,7 @@ impl Registry {
                 continue;
             }
             drop(state);
+            self.resumes.save(id, None);
             if let Err(error) = self
                 .archive
                 .discard(id)
@@ -801,6 +825,7 @@ impl Registry {
             let _ = handle.send(session::SessionCommand::End);
             self.wait_ended(id)?;
         }
+        self.resumes.save(id, None);
         self.archive
             .discard(id)
             .map_err(|error| saved_content_error(&error))?;
@@ -897,6 +922,10 @@ fn saved_content_error(error: &io::Error) -> ServerError {
 #[cfg(test)]
 #[path = "registry/recovery.rs"]
 mod recovery;
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+#[path = "registry/resume.rs"]
+mod resume_tests;
 
 fn session_directory(directory: &Path) -> Result<(PathBuf, ServerPath), ServerError> {
     let path = valid_directory(directory)?;

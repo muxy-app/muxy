@@ -381,6 +381,7 @@ pub(crate) enum Work {
         size: Size,
         environment: BTreeMap<String, String>,
         colors: Option<TerminalColors>,
+        resume_from: Option<SessionId>,
     },
     References(Vec<SessionId>),
     Discard(SessionId, muxy_protocol::OperationId),
@@ -1228,6 +1229,7 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
             size,
             environment,
             colors,
+            resume_from,
         } => {
             return attach(
                 client,
@@ -1240,6 +1242,7 @@ fn perform(work: Work, client: &Client, target: &Target) -> Option<Update> {
                     directory,
                     environment,
                     colors,
+                    resume_from,
                 },
             );
         }
@@ -1493,6 +1496,7 @@ struct Launch {
     directory: PathBuf,
     environment: BTreeMap<String, String>,
     colors: Option<TerminalColors>,
+    resume_from: Option<SessionId>,
 }
 
 fn attach(
@@ -1513,6 +1517,7 @@ fn attach(
                     size,
                     launch.environment,
                     launch.colors,
+                    launch.resume_from,
                 )
                 .map(|info| info.id)
         },

@@ -417,7 +417,7 @@ fn invalid_queued_server_fields_do_not_stall_later_changes_or_allow_early_connec
     let (view, cx) = settings_tab(boot, cx);
     view.update(cx, |model, cx| {
         model.servers.local.connection = ConnectionState::Ready;
-        let settings = muxy_protocol::ServerSettingsDoc { default_shell: None, history_budget_bytes: 1024 * 1024, shell_integration: true };
+        let settings = muxy_protocol::ServerSettingsDoc { default_shell: None, history_budget_bytes: 1024 * 1024, shell_integration: true, resume_programs: Some(true), resume_allowlist: Some(vec!["claude".into()]) };
         model.server_preferences.document = Some(settings.clone());
         model.server_preferences.busy = true;
         model.change_preference(Change::Field("history-budget", "invalid".into()), cx);

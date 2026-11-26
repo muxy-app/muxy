@@ -597,6 +597,8 @@ fn settings_samples() -> Vec<Message> {
         default_shell: Some(ServerPath(b"/bin/bash".to_vec())),
         history_budget_bytes: 16 * 1024 * 1024,
         shell_integration: true,
+        resume_programs: Some(true),
+        resume_allowlist: Some(vec!["claude".into(), "nvim".into()]),
     };
     let mut messages = vec![Message::ServerRestarting];
     for body in [
@@ -656,6 +658,7 @@ fn create_session_sample(directory: ServerPath, size: Size) -> Message {
                 background: [0xf0, 0xf0, 0xf5],
                 ..TerminalColors::default()
             }),
+            resume_from: SessionId::new(9),
         },
     }
 }

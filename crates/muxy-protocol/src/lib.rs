@@ -18,7 +18,8 @@ mod validate;
 mod version;
 
 pub use control::{
-    ErrorCode, ErrorReply, ReplyBody, RequestBody, ServerSettingsDoc, TerminalColors,
+    ErrorCode, ErrorReply, MAX_RESUME_ALLOWLIST, ReplyBody, RequestBody, ServerSettingsDoc,
+    TerminalColors, valid_program_name,
 };
 pub use ids::{CONTROL, ChannelId, RequestId, SessionId};
 pub use message::{ChannelKind, CoalesceKey, Message, Topic};

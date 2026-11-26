@@ -42,7 +42,7 @@ impl Foreground {
         self.is_shell
     }
 
-    pub(super) fn agent(&self) -> Option<AgentProvider> {
+    pub(super) fn agent(&self) -> Option<(AgentProvider, Option<u32>)> {
         let mut family = vec![self.group];
         for process in &self.processes {
             if family.contains(&process.parent) && !family.contains(&process.pid) {
@@ -61,6 +61,7 @@ impl Foreground {
                     process.pid == self.group,
                 )
             })
+            .map(|provider| (provider, None))
     }
 
     #[allow(

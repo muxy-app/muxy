@@ -21,6 +21,12 @@ pub(crate) struct Shell {
     pub(crate) job: crate::platform::windows::Job,
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct Resume<'a> {
+    pub(crate) token: Option<&'a str>,
+    pub(crate) record: Option<&'a crate::resume::Record>,
+}
+
 pub(crate) fn spawn_shell(
     settings: &ServerSettings,
     integration: Option<&crate::ShellIntegration>,
@@ -28,6 +34,7 @@ pub(crate) fn spawn_shell(
     size: PtySize,
     identity: (muxy_protocol::ServerIdentity, muxy_protocol::SessionId),
     extra: &BTreeMap<String, String>,
+    resume: &Resume<'_>,
 ) -> Result<Shell, ServerError> {
     if !directory.is_dir() {
         return Err(ServerError::new(
@@ -41,6 +48,7 @@ pub(crate) fn spawn_shell(
         program,
         cwd: directory.to_path_buf(),
         env: environment(identity, extra),
+        remove: Vec::new(),
         size,
     };
     request.env.retain(|(name, _)| !same_name(name, "SHELL"));
@@ -51,6 +59,11 @@ pub(crate) fn spawn_shell(
     if let Some(integration) = integration {
         integration.configure(&mut request, settings.shell_integration);
     }
+    apply_resume(
+        &mut request,
+        resume,
+        settings.shell_integration && integration.is_some(),
+    );
     let pty = Pty::spawn(request).map_err(ServerError::spawn_failed)?;
     #[cfg(windows)]
     {
@@ -74,6 +87,50 @@ pub(crate) fn spawn_shell(
     }
     #[cfg(unix)]
     Ok(Shell { pty })
+}
+
+fn apply_resume(request: &mut SpawnRequest, resume: &Resume<'_>, integrated: bool) {
+    let variables = [
+        crate::resume::TOKEN_VARIABLE,
+        crate::resume::ARGV_VARIABLE,
+        crate::resume::PARENT_VARIABLE,
+    ];
+    request
+        .env
+        .retain(|(name, _)| !variables.iter().any(|variable| same_name(name, variable)));
+    request
+        .remove
+        .extend(variables.iter().map(|variable| OsString::from(*variable)));
+    if let Some(token) = resume.token {
+        request
+            .env
+            .push((crate::resume::TOKEN_VARIABLE.into(), token.into()));
+    }
+    let Some(record) = resume
+        .record
+        .filter(|_| integrated && resumes_in(&request.program))
+    else {
+        return;
+    };
+    request.env.push((
+        crate::resume::ARGV_VARIABLE.into(),
+        record.argv.join("\n").into(),
+    ));
+    request.env.push((
+        crate::resume::PARENT_VARIABLE.into(),
+        std::process::id().to_string().into(),
+    ));
+    if let Some(cwd) = &record.cwd {
+        request.cwd.clone_from(cwd);
+    }
+}
+
+fn resumes_in(shell: &Path) -> bool {
+    cfg!(unix)
+        && shell
+            .file_name()
+            .and_then(OsStr::to_str)
+            .is_some_and(|name| matches!(name, "zsh" | "bash"))
 }
 
 fn shell_arguments(program: &Path) -> Vec<OsString> {
@@ -267,6 +324,74 @@ mod tests {
             .rev()
             .find(|(key, _)| key == name)
             .map(|(_, value)| value)
+    }
+
+    #[test]
+    fn inherited_resume_variables_never_reach_a_new_shell() {
+        let record = crate::resume::Record {
+            argv: vec!["claude".into(), "--resume".into(), "a b".into()],
+            cwd: Some(PathBuf::from("/srv/project")),
+        };
+        let request = |program: &str| SpawnRequest {
+            program: PathBuf::from(program),
+            args: Vec::new(),
+            cwd: PathBuf::from("/tmp"),
+            env: pairs(&[
+                ("OSC7577_TOKEN", "outer-terminal-token"),
+                ("MUXY_RESUME_ARGV", "rm"),
+                ("MUXY_RESUME_PARENT", "1"),
+            ]),
+            remove: Vec::new(),
+            size: PtySize { cols: 80, rows: 24 },
+        };
+        let mut plain = request("/bin/zsh");
+        apply_resume(&mut plain, &Resume::default(), true);
+        assert!(plain.env.is_empty());
+        assert_eq!(
+            plain.remove,
+            ["OSC7577_TOKEN", "MUXY_RESUME_ARGV", "MUXY_RESUME_PARENT"]
+        );
+
+        let mut resumed = request("/bin/zsh");
+        apply_resume(
+            &mut resumed,
+            &Resume {
+                token: Some("fresh"),
+                record: Some(&record),
+            },
+            true,
+        );
+        assert_eq!(value(&resumed.env, "OSC7577_TOKEN"), Some("fresh"));
+        assert_eq!(
+            value(&resumed.env, "MUXY_RESUME_ARGV"),
+            cfg!(unix).then_some("claude\n--resume\na b")
+        );
+        assert_eq!(
+            resumed
+                .env
+                .iter()
+                .filter(|(key, _)| key == "OSC7577_TOKEN")
+                .count(),
+            1
+        );
+        assert_eq!(
+            resumed.cwd,
+            PathBuf::from(if cfg!(unix) { "/srv/project" } else { "/tmp" })
+        );
+
+        for (program, integrated) in [("/usr/bin/fish", true), ("/bin/zsh", false)] {
+            let mut other = request(program);
+            apply_resume(
+                &mut other,
+                &Resume {
+                    token: None,
+                    record: Some(&record),
+                },
+                integrated,
+            );
+            assert!(other.env.is_empty(), "{program}");
+            assert_eq!(other.cwd, PathBuf::from("/tmp"));
+        }
     }
 
     #[test]

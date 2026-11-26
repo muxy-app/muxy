@@ -109,6 +109,8 @@ fn a_terminal_renewed_after_its_server_stopped_keeps_its_place_folder_and_proxy(
         vec![renewed, right]
     );
     assert_eq!(restored.pane_session(renewed), None);
+    assert_eq!(restored.take_resume_source(renewed), SessionId::new(7));
+    assert_eq!(restored.take_resume_source(renewed), None);
     assert_eq!(restored.window().active_pane, Some(renewed));
     assert_eq!(restored.starting_proxy(renewed), Some(true));
     assert_eq!(
@@ -119,6 +121,9 @@ fn a_terminal_renewed_after_its_server_stopped_keeps_its_place_folder_and_proxy(
     assert!(restored.remember_directory(right, &folder));
     restored.set_startup_command(right, "pi --continue")?;
     let gone = restored.renew_ended_terminal(right, |_| false)?;
+    let retried = restored.renew_ended_terminal(gone, |_| false)?;
+    assert_eq!(restored.take_resume_source(retried), SessionId::new(8));
+    let gone = retried;
     assert_eq!(restored.starting_proxy(gone), Some(false));
     assert_eq!(restored.startup_command(gone), Some("pi --continue"));
     assert_eq!(restored.startup_command(right), None);

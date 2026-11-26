@@ -203,6 +203,7 @@ mod encoding_tests {
             args: vec!["-NoLogo".into()],
             cwd: directory.clone(),
             env: Vec::new(),
+            remove: Vec::new(),
             size: muxy_terminal::pty::PtySize { cols: 80, rows: 24 },
         };
         let mut enabled = request("C:/Program Files/PowerShell/7/PWSH.EXE");

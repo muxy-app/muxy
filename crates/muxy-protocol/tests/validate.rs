@@ -59,6 +59,7 @@ fn every_request_with_a_size_validates_it() {
                 size,
                 environment: std::collections::BTreeMap::new(),
                 colors: None,
+                resume_from: None,
             },
             RequestBody::Attach {
                 session: session_id(),
@@ -87,6 +88,7 @@ fn new_sessions_refuse_environment_a_process_cannot_hold() {
                 .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
                 .collect(),
             colors: None,
+            resume_from: None,
         })
         .validate()
     };

@@ -397,6 +397,88 @@ STUB
   echo "stub agents installed: claude, codex, kiro-cli"
 }
 
+cmd_resume_fixture() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  local folder="$FIXTURES/resume"
+  mkdir -p "$folder" "$HOME/.local/bin"
+  cat > "$folder/report" <<'REPORT'
+#!/bin/sh
+b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+argv=""
+for argument in "$@"; do argv="${argv:+$argv,}$(b64 "$argument")"; done
+body="pid=$$:time=$(date +%s):argv=$argv:cwd=$(b64 "$(pwd)")"
+mac=$(printf '%s:%s' "$body" "${OSC7577_TOKEN-}" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64)
+printf '\033]7577;%s:mac=%s\033\\' "$body" "$mac"
+if [ -n "${OSC7577_TOKEN-}" ]; then echo "REPORTED-$((40+2)) token=yes"; else echo "REPORTED-$((40+2)) token=no"; fi
+exec sleep 600
+REPORT
+  cat > "$folder/forge" <<'FORGE'
+#!/bin/sh
+b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+body="pid=$$:time=$(date +%s):argv=$(b64 "$HOME/e2e/resume/hello"),$(b64 forged)"
+mac=$(printf '%s:%s' "$body" "not-the-terminal-token-0000" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64)
+printf '\033]7577;%s:mac=%s\033\\' "$body" "$mac"
+echo "FORGED-$((40+2))"
+exec sleep 600
+FORGE
+  cat > "$folder/hello" <<'HELLO'
+#!/bin/sh
+echo "RESUMED-$((40+2))"
+for argument in "$@"; do echo "RESUMED-ARG [$argument]"; done
+echo "RESUMED-CWD $(pwd)"
+exec sleep 600
+HELLO
+  cat > "$HOME/.local/bin/claude" <<'CLAUDE'
+#!/bin/sh
+id="stub$$"
+[ "${1-}" = --resume ] && [ -n "${2-}" ] && id="$2"
+mkdir -p "$HOME/.claude/sessions"
+printf '{"pid":%s,"sessionId":"%s","cwd":"%s","kind":"interactive"}\n' "$$" "$id" "$(pwd)" > "$HOME/.claude/sessions/$$.json"
+echo "AGENT-STUB name=claude"
+echo "AGENT-ARGS $*"
+echo "AGENT-CWD $(pwd)"
+project="$HOME/.claude/projects/$(printf '%s' "$(pwd)" | tr -c 'A-Za-z0-9' '-')"
+while IFS= read -r line; do
+  mkdir -p "$project"
+  printf '{"message":"%s"}\n' "$line" >> "$project/$id.jsonl"
+  echo "AGENT-SAVED-$((40+2)) $id"
+done
+sleep 600
+CLAUDE
+  chmod +x "$folder/report" "$folder/forge" "$folder/hello" "$HOME/.local/bin/claude"
+  echo "resume fixture installed: ~/e2e/resume/{report,forge,hello}, stub claude"
+}
+
+cmd_bash_integration() {
+  [ "$OS" = Linux ] || die "bash-integration is for Linux guests"
+  if [ "${1:-}" = off ]; then
+    python3 - "$HOME/.bashrc" <<'PY'
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines(keepends=True) if path.exists() else []
+kept, skip = [], 0
+for line in lines:
+    if line.startswith('if [[ ${MUXY_SHELL_INTEGRATION:-0} == 1 ]]; then'):
+        skip = 3
+    if skip:
+        skip -= 1
+        continue
+    kept.append(line)
+path.write_text(''.join(kept))
+PY
+    echo "bash integration disabled in ~/.bashrc"
+    return
+  fi
+  grep -q 'MUXY_SHELL_INTEGRATION_DIR/muxy.bash' "$HOME/.bashrc" 2>/dev/null && { echo "already enabled"; return; }
+  cat >> "$HOME/.bashrc" <<'BASHRC'
+if [[ ${MUXY_SHELL_INTEGRATION:-0} == 1 ]]; then
+    source "$MUXY_SHELL_INTEGRATION_DIR/muxy.bash"
+fi
+BASHRC
+  echo "bash integration enabled in ~/.bashrc"
+}
+
 # A second server profile in this guest, listed in settings as the remote
 # server "devbox" through a custom SSH command, with project beta.
 cmd_remote_fixture() {
@@ -1208,6 +1290,8 @@ Usage: muxy-e2e <command> [arguments]      (guest side; on the host use: e2e g <
   open-link <url>        Open a URL as a browser would (open / xdg-open), e.g. a muxy-beta:// link
   open-session <id|text> [right|down]  Print muxy session link for that terminal (by id, or the one live terminal showing text) and open it
   agent-fixture          Install stub agents (claude, codex, kiro-cli) that print how they were started
+  resume-fixture         Write ~/e2e/resume/{report,forge,hello} and a stub claude that records its session like Claude Code
+  bash-integration [off] Linux: add (or with off, remove) Muxy's opt-in Bash integration in ~/.bashrc
   extension-fixture      With the app quit: ~/e2e/hello-ext, ~/e2e/hello-ready, and focus-timer as if from the store
   extension-edit <v>     Set ~/e2e/hello-ext to version <v>, or break its package.json with "broken"
   security-fixture       Write ~/e2e/sec-ext: an extension tab with a bundled image, a fetch probe, an input, and SVG icons
@@ -1317,6 +1401,8 @@ case "$command" in
   dialog-fixture) cmd_dialog_fixture ;;
   symbol-language-fixture) cmd_symbol_language_fixture ;;
   agent-fixture) cmd_agent_fixture ;;
+  resume-fixture) cmd_resume_fixture ;;
+  bash-integration) cmd_bash_integration "$@" ;;
   agent-fixture-remove) rm -f "$HOME/.local/bin/claude" "$HOME/.local/bin/codex" "$HOME/.local/bin/kiro-cli"; echo "stub agents removed" ;;
   remote-fixture) cmd_remote_fixture ;;
   extension-fixture) cmd_extension_fixture ;;

@@ -21,6 +21,7 @@ pub(super) struct Metadata {
     pub(super) directory: ServerPath,
     pub(super) process: Option<ForegroundProcess>,
     pub(super) agent: Option<muxy_protocol::AgentProvider>,
+    pub(super) agent_pid: Option<u32>,
     pub(super) shell_foreground: bool,
     next_agent: std::time::Instant,
     agent_group: Option<u32>,
@@ -61,14 +62,26 @@ impl Foreground {
             })
     }
 
-    fn agent(&self) -> Option<muxy_protocol::AgentProvider> {
-        agent_provider(self.group)
+    fn agent(&self) -> Option<(muxy_protocol::AgentProvider, Option<u32>)> {
+        agent_provider(self.group).map(|(provider, pid)| (provider, Some(pid)))
     }
 
     fn directory(&self) -> Option<ServerPath> {
         self.member
             .as_ref()
             .and_then(|(pid, _)| process_directory(*pid))
+    }
+}
+
+pub(super) fn process_folder(pid: u32) -> Option<std::path::PathBuf> {
+    #[cfg(unix)]
+    {
+        process_directory(i32::try_from(pid).ok()?).map(Into::into)
+    }
+    #[cfg(windows)]
+    {
+        let _ = pid;
+        None
     }
 }
 
@@ -90,6 +103,7 @@ impl Metadata {
             directory,
             process: None,
             agent: None,
+            agent_pid: None,
             shell_foreground: false,
             next_agent: std::time::Instant::now(),
             agent_group: None,
@@ -110,11 +124,13 @@ impl Metadata {
         if self.next_agent <= std::time::Instant::now() || self.agent_group != group {
             self.next_agent = std::time::Instant::now() + std::time::Duration::from_millis(500);
             self.agent_group = group;
-            self.agent = if self.shell_foreground {
+            let agent = if self.shell_foreground {
                 None
             } else {
                 foreground.as_ref().and_then(Foreground::agent)
             };
+            self.agent = agent.map(|(provider, _)| provider);
+            self.agent_pid = agent.and_then(|(_, pid)| pid);
         }
         if let Some(foreground) = foreground {
             let process = ForegroundProcess {

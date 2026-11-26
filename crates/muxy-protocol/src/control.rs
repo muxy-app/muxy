@@ -50,6 +50,10 @@ pub enum RequestBody {
         #[cbor(default)]
         #[serde(default)]
         colors: Option<TerminalColors>,
+        #[n(6)]
+        #[cbor(default)]
+        #[serde(default)]
+        resume_from: Option<SessionId>,
     },
     #[n(6)]
     EndSession(#[n(0)] SessionId),
@@ -403,11 +407,38 @@ pub struct ServerSettingsDoc {
     pub history_budget_bytes: u64,
     #[n(2)]
     pub shell_integration: bool,
+    #[n(3)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub resume_programs: Option<bool>,
+    #[n(4)]
+    #[cbor(default)]
+    #[serde(default)]
+    pub resume_allowlist: Option<Vec<String>>,
+}
+
+pub const MAX_RESUME_ALLOWLIST: usize = 64;
+
+pub fn valid_program_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && name != "."
+        && name != ".."
+        && !name.starts_with('-')
+        && !name
+            .chars()
+            .any(|character| character == '/' || character == '\\' || character.is_control())
 }
 
 impl ServerSettingsDoc {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         if self.history_budget_bytes > 64 * 1024 * 1024 * 1024 {
+            return Err(ErrorCode::BadRequest);
+        }
+        if let Some(programs) = &self.resume_allowlist
+            && (programs.len() > MAX_RESUME_ALLOWLIST
+                || !programs.iter().all(|program| valid_program_name(program)))
+        {
             return Err(ErrorCode::BadRequest);
         }
         self.default_shell

@@ -12,4 +12,6 @@ mod mouse;
 mod program_status;
 mod progress;
 mod prompts;
+mod pty_env;
+mod resume_reports;
 mod screen;

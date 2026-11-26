@@ -415,6 +415,9 @@ impl SettingsView {
             .map_or_else(String::new, |path| {
                 String::from_utf8_lossy(&path.0).into_owned()
             });
+        let resume = server
+            .and_then(|server| server.resume_allowlist.as_ref())
+            .map_or_else(String::new, |programs| programs.join(", "));
         let budget = server.map_or_else(String::new, |server| {
             (server.history_budget_bytes / (1024 * 1024)).to_string()
         });
@@ -432,6 +435,7 @@ impl SettingsView {
             ("height", settings.window.default_size[1].to_string()),
             ("default-shell", shell),
             ("history-budget", budget),
+            ("resume-allowlist", resume),
             ("browser-home-page", settings.browser.home_page.clone()),
         ]
         .into_iter()
@@ -807,6 +811,10 @@ impl SettingsView {
     }
 
     fn field(&self, id: &'static str) -> AnyElement {
+        self.field_with_width(id, 210.0)
+    }
+
+    fn field_with_width(&self, id: &'static str, width: f32) -> AnyElement {
         let selector = format!("settings-field-{id}");
         div()
             .flex()
@@ -816,7 +824,7 @@ impl SettingsView {
                 self.style(),
                 id,
                 &self.fields[id],
-                (!self.compact).then_some(210.0),
+                (!self.compact).then_some(width),
             ))
             .into_any_element()
     }
@@ -861,6 +869,7 @@ fn field_ids() -> impl Iterator<Item = (&'static str, bool)> {
         "height",
         "default-shell",
         "history-budget",
+        "resume-allowlist",
         "browser-home-page",
         "browser-profile-name",
     ]

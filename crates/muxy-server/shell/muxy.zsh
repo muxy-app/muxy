@@ -1,6 +1,16 @@
 [[ -o interactive && ${MUXY_SHELL_INTEGRATION-} == 1 ]] || return
 (( ${+_muxy_installed} )) && return
 typeset -g _muxy_installed=1 _muxy_running=0 _muxy_prompt='' _muxy_user_prompt=''
+typeset -ga _muxy_resume=()
+if [[ -n ${MUXY_RESUME_ARGV+x} && ${MUXY_RESUME_PARENT-} == $PPID ]]; then
+    () {
+        local line
+        while IFS= read -r line; do
+            _muxy_resume+=("$line")
+        done <<< "$MUXY_RESUME_ARGV"
+    }
+fi
+unset MUXY_RESUME_ARGV MUXY_RESUME_PARENT
 
 _muxy_directory() {
     emulate -L zsh
@@ -53,6 +63,14 @@ _muxy_install() {
         done
     done
     _muxy_precmd
+    if (( ${#_muxy_resume} )); then
+        local -a resume
+        resume=("${_muxy_resume[@]}")
+        _muxy_resume=()
+        _muxy_preexec
+        command "${resume[@]}"
+        _muxy_precmd
+    fi
     return "$result"
 }
 precmd_functions+=(_muxy_install)

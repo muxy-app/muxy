@@ -58,6 +58,7 @@ pub(crate) enum Change {
     RemoveCommand(String),
     Unassign(String),
     ShellIntegration(bool),
+    ResumePrograms(bool),
     Browser(BrowserChange),
 }
 
@@ -476,7 +477,9 @@ impl AppModel {
         let id = change_id(&change).to_owned();
         if matches!(
             &change,
-            Change::ShellIntegration(_) | Change::Field("default-shell" | "history-budget", _)
+            Change::ShellIntegration(_)
+                | Change::ResumePrograms(_)
+                | Change::Field("default-shell" | "history-budget" | "resume-allowlist", _)
         ) {
             if self.server_preferences.busy {
                 self.server_preferences
@@ -1301,6 +1304,10 @@ impl AppModel {
         let id = change_id(&change).to_owned();
         match change {
             Change::ShellIntegration(value) => settings.shell_integration = value,
+            Change::ResumePrograms(value) => settings.resume_programs = Some(value),
+            Change::Field("resume-allowlist", value) => {
+                settings.resume_allowlist = Some(resume_programs(&value));
+            }
             Change::Field("default-shell", value) => {
                 settings.default_shell =
                     (!value.is_empty()).then(|| muxy_protocol::ServerPath::from(value));
@@ -1314,8 +1321,12 @@ impl AppModel {
             _ => return Err(tr!("Unknown server setting").to_string().into()),
         }
         settings.validate().map_err(|_| {
-            tr!("Use an absolute shell path and a history budget between 0 and 65536 MiB")
-                .to_string()
+            if id == "resume-allowlist" {
+                tr!("List program names, such as claude or nvim, separated by commas").to_string()
+            } else {
+                tr!("Use an absolute shell path and a history budget between 0 and 65536 MiB")
+                    .to_string()
+            }
         })?;
         self.server_preferences.busy =
             self.send(ServerId::local(), Work::WriteServerSettings(settings), cx);
@@ -1503,6 +1514,7 @@ fn change_id(change: &Change) -> &str {
         },
         Change::Binding(id, _) | Change::Unassign(id) => id,
         Change::ShellIntegration(_) => "shell-integration",
+        Change::ResumePrograms(_) => "resume-programs",
         Change::Browser(change) => match change {
             BrowserChange::Enabled(_) => "browser-enabled",
             BrowserChange::TerminalLinks(_) => "browser-terminal-links",
@@ -1548,4 +1560,14 @@ fn quick_number(
         _ => next.blur = value.min(255) as u8,
     }
     next
+}
+
+pub(crate) fn resume_programs(value: &str) -> Vec<String> {
+    let mut programs: Vec<String> = Vec::new();
+    for program in value.split([',', ' ', '\n']).map(str::trim) {
+        if !program.is_empty() && !programs.iter().any(|known| known == program) {
+            programs.push(program.to_owned());
+        }
+    }
+    programs
 }

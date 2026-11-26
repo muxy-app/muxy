@@ -147,12 +147,12 @@ pub(super) const COMMANDS: &[(&str, &str, &str)] = &[
     (
         "settings get",
         "[--json]",
-        "Read server settings: default_shell, history_budget_bytes and shell_integration.",
+        "Read server settings: default_shell, history_budget_bytes, shell_integration, resume_programs and resume_allowlist.",
     ),
     (
         "settings set",
         "<key> <value> [--json]",
-        "Set default-shell (absolute path or default), history-budget-bytes (integer), or shell-integration (true/false).",
+        "Set default-shell (absolute path or default), history-budget-bytes (integer), shell-integration (true/false), resume-programs (true/false), or resume-allowlist (comma-separated program names).",
     ),
     (
         "activity list",

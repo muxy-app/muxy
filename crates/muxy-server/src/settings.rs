@@ -4,11 +4,25 @@ use muxy_protocol::ErrorCode;
 
 const DEFAULT_HISTORY_BUDGET_BYTES: u64 = 16 * 1024 * 1024;
 
+const DEFAULT_RESUME_ALLOWLIST: [&str; 9] = [
+    "claude",
+    "codex",
+    "copilot",
+    "cursor-agent",
+    "droid",
+    "nvim",
+    "omp",
+    "opencode",
+    "xal",
+];
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ServerSettings {
     pub default_shell: Option<PathBuf>,
     pub shell_integration: bool,
     pub history_budget_bytes: u64,
+    pub resume_programs: bool,
+    pub resume_allowlist: Vec<String>,
 }
 
 impl Default for ServerSettings {
@@ -17,6 +31,8 @@ impl Default for ServerSettings {
             default_shell: None,
             shell_integration: true,
             history_budget_bytes: DEFAULT_HISTORY_BUDGET_BYTES,
+            resume_programs: true,
+            resume_allowlist: DEFAULT_RESUME_ALLOWLIST.map(String::from).to_vec(),
         }
     }
 }
@@ -30,7 +46,27 @@ impl ServerSettings {
                 .map(muxy_protocol::ServerPath::from),
             history_budget_bytes: self.history_budget_bytes,
             shell_integration: self.shell_integration,
+            resume_programs: cfg!(unix).then_some(self.resume_programs),
+            resume_allowlist: cfg!(unix).then(|| self.resume_allowlist.clone()),
         }
+    }
+
+    #[must_use]
+    pub fn with_document(&self, document: muxy_protocol::ServerSettingsDoc) -> Self {
+        Self {
+            default_shell: document.default_shell.map(Into::into),
+            history_budget_bytes: document.history_budget_bytes,
+            shell_integration: document.shell_integration,
+            resume_programs: document.resume_programs.unwrap_or(self.resume_programs),
+            resume_allowlist: document
+                .resume_allowlist
+                .unwrap_or_else(|| self.resume_allowlist.clone()),
+        }
+    }
+
+    pub(crate) fn allows_resume(&self, program: &str) -> bool {
+        let name = program.rsplit('/').next().unwrap_or(program);
+        self.resume_programs && self.resume_allowlist.iter().any(|allowed| allowed == name)
     }
 
     pub fn validate(&self) -> Result<(), crate::ServerError> {
@@ -82,16 +118,6 @@ fn runnable(shell: &Path) -> Result<bool, crate::ServerError> {
     }
 }
 
-impl From<muxy_protocol::ServerSettingsDoc> for ServerSettings {
-    fn from(document: muxy_protocol::ServerSettingsDoc) -> Self {
-        Self {
-            default_shell: document.default_shell.map(Into::into),
-            history_budget_bytes: document.history_budget_bytes,
-            shell_integration: document.shell_integration,
-        }
-    }
-}
-
 type PersistSettings = dyn Fn(&ServerSettings) -> std::io::Result<()> + Send + Sync;
 
 pub(crate) struct Persistence(pub(crate) Box<PersistSettings>);
@@ -99,5 +125,37 @@ pub(crate) struct Persistence(pub(crate) Box<PersistSettings>);
 impl std::fmt::Debug for Persistence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Persistence").finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_older_apps_settings_write_keeps_the_resume_settings() {
+        let current = ServerSettings {
+            resume_programs: false,
+            resume_allowlist: vec!["nvim".into()],
+            ..ServerSettings::default()
+        };
+        let older = muxy_protocol::ServerSettingsDoc {
+            shell_integration: false,
+            resume_programs: None,
+            resume_allowlist: None,
+            ..current.document()
+        };
+        let written = current.with_document(older);
+        assert!(!written.shell_integration);
+        assert!(!written.resume_programs);
+        assert_eq!(written.resume_allowlist, ["nvim"]);
+        let newer = muxy_protocol::ServerSettingsDoc {
+            resume_programs: Some(true),
+            resume_allowlist: Some(vec!["claude".into()]),
+            ..current.document()
+        };
+        let written = current.with_document(newer);
+        assert!(written.allows_resume("/usr/local/bin/claude"));
+        assert!(!written.allows_resume("nvim"));
     }
 }
