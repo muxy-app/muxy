@@ -12,7 +12,7 @@ Muxy is open source, so you can check everything described here in the code.
 - No account, no sign-up, no email required.
 - No advertising, no third-party analytics or tracking SDKs, and no data sold or shared.
 - No usage pings or telemetry. Nothing is sent to `muxy.app` unless you turn on push notifications.
-- Push notifications are off until you turn them on, on both the computer and the phone. When they're on, they go through our relay at `muxy.app`, which cannot read them.
+- Push notifications are off until you turn them on, on both the computer and the phone. A computer that already had them on before this policy keeps that setting. When they're on, they go through our relay at `muxy.app`, which cannot read them.
 - Extensions are browsed and downloaded from GitHub, not from `muxy.app`.
 - Your terminals, prompts, code, and files never leave the computers and phones you connect.
 
@@ -21,14 +21,14 @@ Muxy is open source, so you can check everything described here in the code.
 ### Connections the desktop app makes
 
 - **Update checks.** The app reads the latest release information from GitHub (`github.com/muxy-app/muxy`) and downloads updates from there. GitHub's own privacy policy applies to those requests.
-- **Extensions.** Browsing extensions reads the catalog from GitHub (`raw.githubusercontent.com/muxy-app/extensions`), and installing one downloads it from that repository's releases on GitHub. GitHub counts each download, and that count is shown as the extension's public download count. Marketplaces you add are read the same way, from the GitHub repositories you add. GitHub's own privacy policy applies to those requests. Nothing about extensions is sent to `muxy.app`.
+- **Extensions.** Browsing extensions reads the catalog from GitHub (`raw.githubusercontent.com/muxy-app/extensions`), and installing one downloads it from that repository's releases on GitHub. The download count shown for an extension comes from its marketplace's index; the official marketplace fills it from GitHub's count of release downloads. Marketplaces you add are read the same way, from the GitHub repositories you add. GitHub's own privacy policy applies to those requests. Nothing about extensions is sent to `muxy.app`.
 - **Things you open yourself.** Web pages, searches, Git remotes, SSH hosts, and AI agents you run in Muxy connect wherever you point them. Muxy doesn't add anything to those connections.
 
 ## Push notifications
 
 Push notifications let a paired phone know when an agent on your computer needs your attention or finishes working while you're away from the Muxy app.
 
-They are off until you turn them on, on both sides: on the computer with **Push notifications** under **Settings → Servers → Clients** or `muxy mobile push on`, and in the Muxy app for each computer. Muxy explains how the relay works before turning them on. Until then, nothing is sent to `muxy.app`.
+On a new computer they are off until you turn them on, on both sides: on the computer with **Push notifications** under **Settings → Servers → Clients** or `muxy mobile push on`, and in the Muxy app for each computer. Muxy explains how the relay works before turning them on. Until then, nothing is sent to `muxy.app`. A computer that had them on before this policy keeps them on; check **Push notifications** to see.
 
 ### How a notification travels
 
@@ -58,7 +58,7 @@ Registrations no one has used for 90 days are deleted, and ones Apple or Google 
 You can turn them off on either side:
 
 - **On the phone.** Notifications are off until you allow them. Turn them off for a computer in the Muxy app, or for the whole app in your phone's system settings. Turning them off for a computer deletes its registration at the relay.
-- **On the computer.** Notifications are off until you turn them on. Turn them off again for every phone with **Push notifications** under **Settings → Servers → Clients**, or with `muxy mobile push off`. The relay forgets every phone at once, and nothing more is sent to `muxy.app`. Your computer keeps each phone's push token and key locally for up to 90 days, so turning notifications back on resumes them without pairing again. After that, it forgets them.
+- **On the computer.** Notifications are off on a new computer until you turn them on; a computer that already had them on keeps that setting. Turn them off again for every phone with **Push notifications** under **Settings → Servers → Clients**, or with `muxy mobile push off`. The relay forgets every phone at once, and nothing more is sent to `muxy.app`. Your computer keeps each phone's push token and key locally for up to 90 days, so turning notifications back on resumes them without pairing again. After that, it forgets them.
 - **For one phone.** **Reset Notifications** next to the phone, or `muxy mobile push reset <id>`, gives it a new key without unpairing it. Revoking the phone (**Revoke**, or `muxy mobile revoke <id>`) deletes its registration.
 
 Phones connected over SSH don't get push notifications.

@@ -57,7 +57,8 @@ A paired phone can get a notification when an agent needs your attention or
 finishes working while you're away from the Muxy app. Tapping it opens that
 terminal.
 
-- They're off until you turn them on, on both sides:
+- They're off until you turn them on, on both sides. A computer that already
+  had them on before this change keeps that setting.
   - On the computer, with **Push notifications** under **Settings → Servers →
     Clients**, shown while **Allow clients** is on, or `muxy mobile push on`.
     Muxy explains how the relay works and asks before turning them on.

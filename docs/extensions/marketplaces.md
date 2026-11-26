@@ -27,9 +27,10 @@ marketplace out of **Browse**.
   updates until you add it again.
 - If a marketplace can't be loaded, **Browse** says so and shows the others.
 
-Muxy keeps the list in `extension-sources.json` in the
-[profile folder](../features/server.md#files), along with which marketplace
-each installed extension came from.
+Muxy keeps the list in `extension-sources.json` in its profile folder, along
+with which marketplace each installed extension came from. Backups leave it
+out, so a restore never changes where an installed extension updates from;
+add your marketplaces again after restoring.
 
 ## Host a marketplace
 
@@ -99,7 +100,9 @@ for five minutes, and accepts up to 16 MB.
   entry.
 - `description`, `author` (a string or an object with `name`), `homepage`,
   `repository`, `categories`, `downloads`, and `published_at` are optional.
-  `downloads` sorts **Popular** and `published_at` sorts **Recent**.
+  `downloads` sorts **Popular** and `published_at` sorts **Recent**. Write
+  `published_at` in UTC as `YYYY-MM-DDTHH:MM:SSZ`, since **Recent** compares
+  it as text.
 - `official` is ignored for every marketplace but the official one.
 
 ### Where files may come from

@@ -267,13 +267,20 @@ fn bytes(response: reqwest::blocking::Response, limit: u64) -> Result<Vec<u8>> {
 
 fn index(source: &Marketplace) -> Result<Arc<[Listing]>> {
     let directory = cache::directory();
-    INDEXES.lock().unwrap_or_else(PoisonError::into_inner).load(
-        source,
-        Instant::now(),
-        directory.as_deref(),
-        |body| parse_index(body, source).map(Into::into),
-        |etag| fetch_index(source, etag),
-    )
+    let parse = |body: &[u8]| parse_index(body, source).map(Into::into);
+    let lookup = INDEXES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .lookup(source, Instant::now(), directory.as_deref(), parse);
+    let etag = match lookup {
+        cache::Lookup::Ready(listings) => return Ok(listings),
+        cache::Lookup::Fetch { etag } => etag,
+    };
+    let fetched = fetch_index(source, etag.as_deref());
+    INDEXES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .settle(source, Instant::now(), directory.as_deref(), parse, fetched)
 }
 
 pub(crate) fn refresh() {
@@ -556,11 +563,10 @@ fn owns(source: &Marketplace, url: &str) -> bool {
 }
 
 fn asset_redirect(url: &reqwest::Url) -> bool {
-    release_source(url).is_some()
-        || (secure(url)
-            && url
-                .host_str()
-                .is_some_and(|host| ASSET_HOSTS.contains(&host)))
+    secure(url)
+        && url
+            .host_str()
+            .is_some_and(|host| ASSET_HOSTS.contains(&host))
 }
 
 pub(crate) fn available_update<'a>(
@@ -1066,6 +1072,9 @@ mod tests {
             "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1"
         ));
         assert!(!redirect("http://release-assets.githubusercontent.com/a"));
+        assert!(!redirect(
+            "https://github.com/someone/else/releases/download/git%402.1.0/git-2.1.0.zip"
+        ));
         assert!(!redirect(
             "https://raw.githubusercontent.com/muxy-app/extensions/main/a"
         ));

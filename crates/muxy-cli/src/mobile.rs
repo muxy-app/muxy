@@ -46,11 +46,11 @@ pub(crate) fn run(command: Mobile, client: &Client) -> Result {
             Err("this server can't send push notifications; update Muxy on it".into())
         }
         Mobile::Push { on } => {
+            if on && !client.read_remote_access()?.push_notifications {
+                writeln!(io::stdout(), "{RELAY}\n")?;
+            }
             let state = client.set_push_notifications(on)?;
             writeln!(io::stdout(), "{}", switched(&state, now()))?;
-            if state.push_notifications {
-                writeln!(io::stdout(), "\n{RELAY}")?;
-            }
             Ok(())
         }
         Mobile::ResetPush { device } => reset_push(client, &device),

@@ -25,13 +25,18 @@ impl Marketplace {
             "https://www.github.com/",
             "github.com/",
         ] {
-            if text.len() >= prefix.len() && text[..prefix.len()].eq_ignore_ascii_case(prefix) {
+            if let Some(head) = text.get(..prefix.len())
+                && head.eq_ignore_ascii_case(prefix)
+            {
                 text = &text[prefix.len()..];
                 break;
             }
         }
         let text = text.strip_suffix('/').unwrap_or(text);
-        let text = text.strip_suffix(".git").unwrap_or(text);
+        let text = match text.len().checked_sub(4).and_then(|at| text.get(at..)) {
+            Some(suffix) if suffix.eq_ignore_ascii_case(".git") => &text[..text.len() - 4],
+            _ => text,
+        };
         let mut parts = text.split('/');
         let (Some(owner), Some(repo), None) = (parts.next(), parts.next(), parts.next()) else {
             return Err(format!(
@@ -103,6 +108,7 @@ fn valid_repo(repo: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
         && repo != "."
         && repo != ".."
+        && !repo.to_ascii_lowercase().ends_with(".git")
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -116,14 +122,17 @@ impl<'de> Deserialize<'de> for Sources {
         #[derive(Deserialize, Default)]
         #[serde(default)]
         struct Raw {
-            marketplaces: Vec<String>,
-            installed: BTreeMap<String, String>,
+            marketplaces: serde_json::Value,
+            installed: serde_json::Value,
         }
         let raw = Raw::deserialize(deserializer)?;
         let mut marketplaces: Vec<Marketplace> = Vec::new();
         for marketplace in raw
             .marketplaces
-            .iter()
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
             .filter_map(|text| Marketplace::parse(text).ok())
         {
             if !marketplace.is_official() && !marketplaces.contains(&marketplace) {
@@ -132,8 +141,12 @@ impl<'de> Deserialize<'de> for Sources {
         }
         let installed = raw
             .installed
+            .as_object()
             .into_iter()
-            .filter_map(|(name, text)| Some((name, Marketplace::parse(&text).ok()?)))
+            .flatten()
+            .filter_map(|(name, text)| {
+                Some((name.clone(), Marketplace::parse(text.as_str()?).ok()?))
+            })
             .filter(|(_, marketplace)| !marketplace.is_official())
             .collect();
         Ok(Self {

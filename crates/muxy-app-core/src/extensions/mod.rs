@@ -324,7 +324,12 @@ impl Registry {
             self.errors
                 .retain(|error| !error.starts_with(&prefix) && !error.starts_with(&duplicate));
         } else {
-            std::fs::remove_dir_all(self.directory().join(id)).map_err(|e| e.to_string())?;
+            match std::fs::remove_dir_all(self.directory().join(id)) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.to_string()),
+            }
+            self.extensions.remove(id);
             self.set_source(id, &Marketplace::official())?;
         }
         self.extensions.remove(id);

@@ -1003,6 +1003,7 @@ fn marketplaces_are_plain_github_repositories() {
         ("https://github.com/Owner/Repo", "owner/repo"),
         ("https://github.com/owner/repo.git", "owner/repo"),
         ("github.com/owner/repo/", "owner/repo"),
+        ("Owner/Repo.GIT", "owner/repo"),
     ] {
         assert_eq!(
             Marketplace::parse(input).unwrap().as_str(),
@@ -1029,9 +1030,14 @@ fn marketplaces_are_plain_github_repositories() {
         "https://github.com/owner/repo/releases",
         &format!("{}/repo", "a".repeat(40)),
         &format!("owner/{}", "a".repeat(101)),
+        "123456789012345678é/repo",
+        "éé",
+        "owner/repo.git.git",
     ] {
         assert!(Marketplace::parse(input).is_err(), "{input}");
     }
+    let stored = Marketplace::parse("Someone/Extensions.Git").unwrap();
+    assert_eq!(Marketplace::parse(stored.as_str()).unwrap(), stored);
     let official = Marketplace::parse("Muxy-App/Extensions").unwrap();
     assert!(official.is_official());
     assert_eq!(official, Marketplace::official());
@@ -1091,8 +1097,8 @@ fn a_hand_edited_sources_file_keeps_its_valid_entries() {
     fs::write(
         profile.path().join("extension-sources.json"),
         json!({
-            "marketplaces": ["someone/extensions", "a/../b", "muxy-app/extensions", "SOMEONE/extensions"],
-            "installed": {"theirs": "someone/extensions", "bad": "a/b/c"}
+            "marketplaces": ["someone/extensions", 7, "a/../b", "muxy-app/extensions", "SOMEONE/extensions"],
+            "installed": {"theirs": "someone/extensions", "bad": "a/b/c", "typed": 3}
         })
         .to_string(),
     )

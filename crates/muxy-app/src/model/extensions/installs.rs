@@ -353,6 +353,9 @@ async fn download_and_apply(
             model.change_extensions(
                 move |state| {
                     let recorded = state.registry.set_source(&name, &source);
+                    if recorded.is_err() {
+                        let _ = std::fs::remove_dir_all(state.registry.directory().join(&name));
+                    }
                     state.registry.reload();
                     recorded
                 },

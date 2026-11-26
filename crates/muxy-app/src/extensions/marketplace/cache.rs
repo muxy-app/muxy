@@ -52,6 +52,7 @@ impl<T: Clone> Indexes<T> {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn load(
         &mut self,
         source: &Marketplace,
@@ -60,6 +61,22 @@ impl<T: Clone> Indexes<T> {
         parse: impl Fn(&[u8]) -> Result<T, String>,
         fetch: impl FnOnce(Option<&str>) -> Result<Fetched, Failure>,
     ) -> Result<T, String> {
+        match self.lookup(source, now, directory, &parse) {
+            Lookup::Ready(value) => Ok(value),
+            Lookup::Fetch { etag } => {
+                let fetched = fetch(etag.as_deref());
+                self.settle(source, now, directory, &parse, fetched)
+            }
+        }
+    }
+
+    pub(super) fn lookup(
+        &mut self,
+        source: &Marketplace,
+        now: Instant,
+        directory: Option<&Path>,
+        parse: impl Fn(&[u8]) -> Result<T, String>,
+    ) -> Lookup<T> {
         if !self.entries.contains_key(source)
             && let Some((body, etag)) =
                 directory.and_then(|directory| read_index(directory, source))
@@ -75,24 +92,35 @@ impl<T: Clone> Indexes<T> {
                 },
             );
         }
-        if let Some(entry) = self.entries.get(source)
-            && (entry
-                .checked
-                .is_some_and(|checked| now.saturating_duration_since(checked) < FRESH)
-                || entry.retry_at.is_some_and(|retry_at| now < retry_at))
-        {
-            return Ok(entry.value.clone());
+        match self.entries.get(source) {
+            Some(entry)
+                if entry
+                    .checked
+                    .is_some_and(|checked| now.saturating_duration_since(checked) < FRESH)
+                    || entry.retry_at.is_some_and(|retry_at| now < retry_at) =>
+            {
+                Lookup::Ready(entry.value.clone())
+            }
+            entry => Lookup::Fetch {
+                etag: entry.and_then(|entry| entry.etag.clone()),
+            },
         }
-        let etag = self
-            .entries
-            .get(source)
-            .and_then(|entry| entry.etag.clone());
-        match fetch(etag.as_deref()) {
+    }
+
+    pub(super) fn settle(
+        &mut self,
+        source: &Marketplace,
+        finished: Instant,
+        directory: Option<&Path>,
+        parse: impl Fn(&[u8]) -> Result<T, String>,
+        fetched: Result<Fetched, Failure>,
+    ) -> Result<T, String> {
+        match fetched {
             Ok(Fetched::NotModified) => {
                 let Some(entry) = self.entries.get_mut(source) else {
                     return Err("The marketplace answered without an index.".into());
                 };
-                entry.checked = Some(now);
+                entry.checked = Some(finished);
                 entry.retry_at = None;
                 Ok(entry.value.clone())
             }
@@ -106,7 +134,7 @@ impl<T: Clone> Indexes<T> {
                     Entry {
                         value: value.clone(),
                         etag,
-                        checked: Some(now),
+                        checked: Some(finished),
                         retry_at: None,
                     },
                 );
@@ -116,11 +144,16 @@ impl<T: Clone> Indexes<T> {
                 let Some(entry) = self.entries.get_mut(source) else {
                     return Err(failure.message);
                 };
-                entry.retry_at = Some(now + retry_delay(failure.retry_after));
+                entry.retry_at = Some(finished + retry_delay(failure.retry_after));
                 Ok(entry.value.clone())
             }
         }
     }
+}
+
+pub(super) enum Lookup<T> {
+    Ready(T),
+    Fetch { etag: Option<String> },
 }
 
 pub(super) fn retry_delay(retry_after: Option<Duration>) -> Duration {
@@ -334,6 +367,35 @@ mod tests {
         );
         assert_eq!(after.unwrap(), "two");
         assert_eq!(retry_delay(Some(Duration::from_secs(86_400))), MAX_RETRY);
+    }
+
+    #[test]
+    fn retry_after_counts_from_when_the_slow_request_finished() {
+        let mut indexes = Indexes::new();
+        let start = Instant::now();
+        indexes
+            .load(&source(), start, None, parse, |_| modified("one", "\"a\""))
+            .unwrap();
+        let asked = start + FRESH;
+        assert!(matches!(
+            indexes.lookup(&source(), asked, None, parse),
+            Lookup::Fetch { .. }
+        ));
+        let finished = asked + Duration::from_secs(90);
+        let limited = Failure {
+            message: "429".into(),
+            retry_after: Some(Duration::from_secs(120)),
+        };
+        assert_eq!(
+            indexes
+                .settle(&source(), finished, None, parse, Err(limited))
+                .unwrap(),
+            "one"
+        );
+        assert!(matches!(
+            indexes.lookup(&source(), finished + Duration::from_secs(119), None, parse),
+            Lookup::Ready(_)
+        ));
     }
 
     #[test]
