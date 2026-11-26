@@ -65,6 +65,7 @@ pub(super) fn header(
     let actions = actions(pane, tab, model);
     let count = u16::try_from(actions.len()).unwrap_or(u16::MAX);
     let edges = model.header_edges(id, tab);
+    let lone = edges.carries.is_some() && tab.panes.len() == 1;
     let shown = m.spacing4()
         + m.spacing4()
         + edges.trailing
@@ -120,6 +121,7 @@ pub(super) fn header(
                 }
             }),
         )
+        .on_mouse_down(MouseButton::Right, open_menu(id, cx))
         .when(edges.carries.is_some(), |header| {
             header.on_click(cx.listener(|_, event: &gpui::ClickEvent, window, _| {
                 if event.click_count() == 2 {
@@ -127,7 +129,7 @@ pub(super) fn header(
                 }
             }))
         })
-        .child(handle(pane, tab, bell, foreground, model, cx))
+        .child(handle(pane, tab, bell, lone, foreground, model, cx))
         .child(
             div()
                 .debug_selector(move || format!("pane-header-actions-{id}"))
@@ -153,10 +155,30 @@ pub(super) fn header(
         .into_any_element()
 }
 
+fn open_menu(
+    id: PaneId,
+    cx: &Context<AppModel>,
+) -> impl Fn(&gpui::MouseDownEvent, &mut Window, &mut App) + 'static {
+    cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {
+        cx.stop_propagation();
+        model.focus_pane(id, cx);
+        model.focus_active(window, cx);
+        if let Some(pane) = model.terminal(&id) {
+            let position = event.position;
+            pane.view.update(cx, |_, cx| {
+                cx.emit(super::super::terminal::pane::PaneEvent::ContextMenu(
+                    position,
+                ));
+            });
+        }
+    })
+}
+
 fn handle(
     pane: &Pane,
     tab: &Tab,
     bell: bool,
+    moves_window: bool,
     foreground: Hsla,
     model: &AppModel,
     cx: &Context<AppModel>,
@@ -187,12 +209,14 @@ fn handle(
             handle
                 .cursor(CursorStyle::OpenHand)
                 .hover(move |style| style.bg(hover))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |model, event, window, cx| {
-                        model.begin_pane_handle_drag(id, event, window, cx);
-                    }),
-                )
+                .when(!moves_window, |handle| {
+                    handle.on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |model, event, window, cx| {
+                            model.begin_pane_handle_drag(id, event, window, cx);
+                        }),
+                    )
+                })
         })
         .child(
             div()

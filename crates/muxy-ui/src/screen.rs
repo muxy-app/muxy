@@ -47,6 +47,10 @@ pub fn set_ignores_mouse(window: &Window, ignores: bool) {
     backend::set_ignores_mouse(window, ignores);
 }
 
+pub fn make_bare(window: &Window) {
+    backend::make_bare(window);
+}
+
 pub fn can_place_windows() -> bool {
     backend::CAN_PLACE_WINDOWS
 }

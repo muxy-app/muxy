@@ -1,11 +1,13 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, Bounds, Context, DispatchPhase, Div, IntoElement, MouseButton, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, Styled, Window, canvas, point, size,
+    MouseUpEvent, Pixels, Point, Styled, Window, canvas, point, px, size,
 };
-use muxy_app_core::{Direction, Project, ProjectId, ProjectStatus, TabId};
+use muxy_app_core::{Axis, Direction, Project, ProjectId, ProjectStatus, TabId};
 
 use crate::model::AppModel;
 use crate::views::move_drag::Moving;
@@ -15,6 +17,106 @@ pub(crate) struct TabDragState {
     gesture: Option<TabDrag>,
     pub(crate) cells: TabBounds,
     pub(crate) strips: TabBounds,
+    pub(crate) slides: Slides,
+}
+
+const SLIDE: Duration = Duration::from_millis(160);
+
+#[derive(Default)]
+struct Lane {
+    moving: HashMap<TabId, (Pixels, Instant)>,
+    layout: HashMap<TabId, Pixels>,
+}
+
+#[derive(Default)]
+struct Lanes {
+    horizontal: Lane,
+    vertical: Lane,
+}
+
+impl Lanes {
+    fn lane(&mut self, axis: Axis) -> &mut Lane {
+        match axis {
+            Axis::Horizontal => &mut self.horizontal,
+            Axis::Vertical => &mut self.vertical,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct Slides(Rc<RefCell<Lanes>>);
+
+impl Slides {
+    pub(crate) fn offset(&self, tab: TabId, axis: Axis) -> Pixels {
+        self.0
+            .borrow_mut()
+            .lane(axis)
+            .moving
+            .get(&tab)
+            .map_or(px(0.0), |(from, since)| sliding(*from, *since))
+    }
+
+    pub(crate) fn measure(
+        &self,
+        axis: Axis,
+        tabs: &[TabId],
+        bounds: &[Bounds<Pixels>],
+        window: &Window,
+    ) {
+        let mut lanes = self.0.borrow_mut();
+        let lane = lanes.lane(axis);
+        for (tab, bounds) in tabs.iter().zip(bounds) {
+            let start = match axis {
+                Axis::Horizontal => bounds.left(),
+                Axis::Vertical => bounds.top(),
+            };
+            lane.layout.insert(*tab, start);
+        }
+        for axis in [Axis::Horizontal, Axis::Vertical] {
+            let lane = lanes.lane(axis);
+            lane.moving.retain(|_, (_, since)| since.elapsed() < SLIDE);
+            if !lane.moving.is_empty() {
+                window.request_animation_frame();
+            }
+        }
+    }
+
+    fn shift(&self, order: &[TabId], axis: Axis) {
+        let mut lanes = self.0.borrow_mut();
+        let lane = lanes.lane(axis);
+        let starts: Vec<_> = order
+            .iter()
+            .filter_map(|tab| lane.layout.get(tab).copied())
+            .collect();
+        if starts.len() != order.len() {
+            return;
+        }
+        let mut slots = starts.clone();
+        slots.sort_by(|a, b| f32::from(*a).total_cmp(&f32::from(*b)));
+        let now = Instant::now();
+        for ((tab, start), slot) in order.iter().zip(starts).zip(slots) {
+            let shown = start
+                + lane
+                    .moving
+                    .get(tab)
+                    .map_or(px(0.0), |(from, since)| sliding(*from, *since));
+            let from = shown - slot;
+            if f32::from(from).abs() >= 0.5 {
+                lane.moving.insert(*tab, (from, now));
+            } else {
+                lane.moving.remove(tab);
+            }
+        }
+    }
+
+    pub(crate) fn clear(&self) {
+        *self.0.borrow_mut() = Lanes::default();
+    }
+}
+
+fn sliding(from: Pixels, since: Instant) -> Pixels {
+    let t = (since.elapsed().as_secs_f32() / SLIDE.as_secs_f32()).clamp(0.0, 1.0);
+    from * (1.0 - t).powi(3)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -67,6 +169,13 @@ impl TabDragState {
         self.gesture.is_some()
     }
 
+    pub(crate) fn lifted(&self) -> Option<TabId> {
+        self.gesture
+            .as_ref()
+            .filter(|drag| drag.active)
+            .map(|drag| drag.tab)
+    }
+
     fn is_from(&self, source: Source) -> bool {
         self.gesture
             .as_ref()
@@ -74,6 +183,7 @@ impl TabDragState {
     }
 
     pub(crate) fn end(&mut self) -> bool {
+        self.slides.clear();
         self.gesture.take().is_some_and(|drag| drag.active)
     }
 
@@ -93,6 +203,7 @@ impl TabDragState {
         self.gesture.as_ref().is_some_and(|drag| drag.active)
     }
 
+    #[cfg(test)]
     pub(crate) fn preview(&self) -> Option<Bounds<Pixels>> {
         self.gesture
             .as_ref()
@@ -261,8 +372,9 @@ fn half(bounds: Bounds<Pixels>, edge: Direction) -> Bounds<Pixels> {
     }
 }
 
-pub(super) fn measure_tabs(cells: Div, ids: Vec<TabId>, targets: TabBounds) -> Div {
+pub(super) fn measure_tabs(cells: Div, ids: Vec<TabId>, targets: TabBounds, slides: Slides) -> Div {
     cells.on_children_prepainted(move |bounds, window, _| {
+        slides.measure(Axis::Horizontal, &ids, &bounds, window);
         let clip = window.content_mask().bounds;
         let mut targets = targets.borrow_mut();
         targets.retain(|(id, _)| !ids.contains(id));
@@ -272,6 +384,20 @@ pub(super) fn measure_tabs(cells: Div, ids: Vec<TabId>, targets: TabBounds) -> D
                 .map(|(id, bounds)| (*id, bounds.intersect(&clip))),
         );
     })
+}
+
+fn crossed(
+    position: Point<Pixels>,
+    own: Bounds<Pixels>,
+    other: Bounds<Pixels>,
+    axis: Axis,
+) -> bool {
+    match axis {
+        Axis::Horizontal if other.left() >= own.left() => position.x >= other.center().x,
+        Axis::Horizontal => position.x <= other.center().x,
+        Axis::Vertical if other.top() >= own.top() => position.y >= other.center().y,
+        Axis::Vertical => position.y <= other.center().y,
+    }
 }
 
 fn move_pointer(
@@ -300,24 +426,39 @@ fn move_pointer(
         cx.notify();
     }
     let (tab, source, last_target, previous) = (drag.tab, drag.source, drag.last_target, drag.drop);
+    let axis = match source {
+        Source::Strip => Axis::Horizontal,
+        Source::Sidebar => Axis::Vertical,
+    };
     let project = model.state.current_project();
-    let hovered = bounds.borrow().iter().find_map(|(id, bounds)| {
+    let snapshot = bounds.borrow().clone();
+    let own = snapshot
+        .iter()
+        .find(|(id, _)| *id == tab)
+        .map(|(_, bounds)| *bounds);
+    let hovered = snapshot.iter().find_map(|(id, bounds)| {
         (*id != tab
             && bounds.contains(&position)
             && project.tabs.iter().any(|candidate| candidate.id == *id))
-        .then_some(*id)
+        .then_some((*id, *bounds))
     });
-    let (target, drop) = match hovered {
-        Some(target) if source == Source::Sidebar || project.group_tabs(tab).contains(&target) => {
-            (Some(target), None)
+    let (target, drop, holding) = match hovered {
+        Some((target, other))
+            if source == Source::Sidebar || project.group_tabs(tab).contains(&target) =>
+        {
+            let reached = own.is_none_or(|own| crossed(position, own, other, axis));
+            (reached.then_some(target), None, true)
         }
-        Some(target) => (None, model.join_group(tab, target, Some(target))),
-        None => (None, model.tab_drop_at(tab, position)),
+        Some((target, _)) => (None, model.join_group(tab, target, Some(target)), false),
+        None => (None, model.tab_drop_at(tab, position), false),
     };
-    if target.is_none() && drop.is_none() {
-        model.track_move(Moving::Tab(tab), window, position, cx);
+    let over_self = own.is_some_and(|own| own.contains(&position));
+    if holding || over_self || drop.is_some() {
+        let landing = target.and(hovered.map(|(_, bounds)| bounds));
+        let local = drop.map(|(_, bounds)| bounds).or(landing).or(own);
+        model.hold_move(Moving::Tab(tab), window, position, local, cx);
     } else {
-        model.clear_move_target(cx);
+        model.track_move(Moving::Tab(tab), window, position, cx);
     }
     if let Some(drag) = &mut model.tab_drag.gesture {
         drag.last_target = target;
@@ -336,6 +477,12 @@ fn move_pointer(
         } else {
             model.move_tab(tab, target, cx);
         }
+        let project = model.state.current_project();
+        let order: Vec<_> = match source {
+            Source::Strip => project.group_tabs(tab),
+            Source::Sidebar => model.sidebar_tabs(project).map(|tab| tab.id).collect(),
+        };
+        model.tab_drag.slides.shift(&order, axis);
     }
 }
 

@@ -24,7 +24,9 @@ quit the app, and every app shows the same screen and history.
   `~/Projects/muxy`, unless the title already shows it. The focused pane, or
   the one under the pointer, shows buttons there to split it right or down,
   float it, maximize it, or close it.
-  Drag a pane by its title to move it, as with `Cmd`-drag.
+  Drag a pane by its title to move it, as with `Cmd`-drag. In a tab window
+  with a single pane, the title moves the window instead. Right-click the
+  header for the same menu as the terminal.
   A terminal's header takes the background a full-screen app paints its screen
   in, so it blends with the app. Turn headers off with **Settings → Appearance
   → Show pane headers**.

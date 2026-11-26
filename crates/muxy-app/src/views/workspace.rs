@@ -427,6 +427,7 @@ impl AppModel {
             cx.notify();
         }
         self.validate_layout_drag(cx);
+        self.settle_move(cx);
         self.sync_tab_sidebar(cx);
         let here = window.window_handle().window_id();
         self.layout_drag.geometry.clear(here);
@@ -552,8 +553,7 @@ impl AppModel {
             .child(super::floating::layer(self, floats, window, cx))
             .children(sidebar::island(self, window, cx))
             .child(super::splits::drag::track_pointer(cx))
-            .child(super::splits::drag::overlay(self, window))
-            .child(super::move_drag::overlay(self, window))
+            .child(super::move_drag::overlay(self, window, cx))
             .child(self.floating_composer(window, cx))
             .children(super::tips::toast(self, window, cx))
             .children(super::banners::render(self, window, cx))

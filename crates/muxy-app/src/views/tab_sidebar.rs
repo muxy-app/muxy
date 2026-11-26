@@ -347,6 +347,7 @@ fn project_group(
     if expanded && !missing {
         let tabs: Vec<_> = model.sidebar_tabs(project).collect();
         let measured: Vec<_> = tabs.iter().map(|tab| tab.id).collect();
+        let slides = model.tab_drag.slides.clone();
         group = group.child(
             div()
                 .flex()
@@ -356,9 +357,22 @@ fn project_group(
                         .iter()
                         .position(|id| *id == tab.id)
                         .filter(|index| *index < 9);
-                    tab_row(project.id, tab, number, model, cx)
+                    div().flex().flex_col().child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .relative()
+                            .top(
+                                model
+                                    .tab_drag
+                                    .slides
+                                    .offset(tab.id, muxy_app_core::Axis::Vertical),
+                            )
+                            .child(tab_row(project.id, tab, number, model, cx)),
+                    )
                 }))
                 .on_children_prepainted(move |bounds, window, _| {
+                    slides.measure(muxy_app_core::Axis::Vertical, &measured, &bounds, window);
                     let clip = window.content_mask().bounds;
                     let mut targets = targets.borrow_mut();
                     targets.retain(|(id, _)| !measured.contains(id));
@@ -720,6 +734,7 @@ fn tab_row(
         .when_some(color, |row, color| {
             row.bg(color.opacity(if active { 0.18 } else { 0.04 }))
         })
+        .when(model.tab_drag.lifted() == Some(id), |row| row.opacity(0.4))
         .when(!model.tab_drag.is_active(), |row| {
             row.hover(|style| style.bg(hover))
         })

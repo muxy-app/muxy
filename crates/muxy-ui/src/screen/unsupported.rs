@@ -29,3 +29,5 @@ pub(super) fn keep_on_screen(_window: &Window) {}
 pub(super) fn set_window_alpha(_window: &Window, _alpha: f32) {}
 
 pub(super) fn set_ignores_mouse(_window: &Window, _ignores: bool) {}
+
+pub(super) fn make_bare(_window: &Window) {}

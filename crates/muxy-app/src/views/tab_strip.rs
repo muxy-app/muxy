@@ -181,7 +181,18 @@ fn tab_cells(
                 .relative()
                 .flex_none()
                 .h_full()
-                .child(tab_cell(tab, index, width, shortcuts, model, cx))
+                .child(
+                    div()
+                        .relative()
+                        .left(
+                            model
+                                .tab_drag
+                                .slides
+                                .offset(tab.id, muxy_app_core::Axis::Horizontal),
+                        )
+                        .h_full()
+                        .child(tab_cell(tab, index, width, shortcuts, model, cx)),
+                )
                 .child(move_drag::zone(
                     &model.move_drag.zones,
                     move_drag::Owner::Strip,
@@ -197,6 +208,7 @@ fn tab_cells(
         cells,
         tabs.iter().map(|tab| tab.id).collect(),
         model.tab_drag.cells.clone(),
+        model.tab_drag.slides.clone(),
     )
 }
 
@@ -425,6 +437,7 @@ fn tab_cell(
     let close = close_control(id, show_close, shows_title, group.clone(), model, cx);
     let foreground = if active { theme.fg } else { theme.fg_muted };
     let status = super::tab_activity::tab_status(tab, model);
+    let lifted = model.tab_drag.lifted() == Some(id);
     div()
         .id(group.clone())
         .role(Role::Tab)
@@ -471,6 +484,7 @@ fn tab_cell(
                     cell.hover(|style| style.bg(color.opacity(if active { 0.18 } else { 0.08 })))
                 })
         })
+        .when(lifted, |cell| cell.opacity(0.4))
         .on_mouse_down(
             MouseButton::Right,
             cx.listener(move |model, event: &gpui::MouseDownEvent, window, cx| {

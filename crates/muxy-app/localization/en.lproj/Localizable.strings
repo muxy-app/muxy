@@ -1228,7 +1228,6 @@
 "Move Tab to Main Window" = "Move Tab to Main Window";
 "Move Tab to New Window" = "Move Tab to New Window";
 "Move Up" = "Move Up";
-"Move tab here" = "Move tab here";
 "Move to Bottom" = "Move to Bottom";
 "Move to Group" = "Move to Group";
 "Move to Group…" = "Move to Group…";
@@ -1295,7 +1294,6 @@
 "New permissions: %@. After updating, review the permissions and enable the extension again." = "New permissions: %@. After updating, review the permissions and enable the extension again.";
 "New tab" = "New tab";
 "New terminals on this computer, Muxy's own downloads, and SSH to remote servers use the proxy. Terminals already running keep their settings." = "New terminals on this computer, Muxy's own downloads, and SSH to remote servers use the proxy. Terminals already running keep their settings.";
-"New window" = "New window";
 "Next Project" = "Next Project";
 "Next Prompt" = "Next Prompt";
 "Next Tab" = "Next Tab";
@@ -1379,7 +1377,6 @@
 "Once a day, tells muxy.app the app version, operating system, and processor type, so we can count active installs per version. Nothing identifies you or this computer. Starting Muxy with DO_NOT_TRACK=1 also turns it off." = "Once a day, tells muxy.app the app version, operating system, and processor type, so we can count active installs per version. Nothing identifies you or this computer. Starting Muxy with DO_NOT_TRACK=1 also turns it off.";
 "One terminal, any client" = "One terminal, any client";
 "Only hidden files. Type . to list them." = "Only hidden files. Type . to list them.";
-"Only within this computer" = "Only within this computer";
 "Open" = "Open";
 "Open %@ with…" = "Open %@ with…";
 "Open Browser Tab" = "Open Browser Tab";
@@ -1703,7 +1700,6 @@
 "Return every setting on this page, including key bindings, to its default." = "Return every setting on this page, including key bindings, to its default.";
 "Return to live output when sending a keystroke." = "Return to live output when sending a keystroke.";
 "Return to live output whenever the terminal receives new text." = "Return to live output whenever the terminal receives new text.";
-"Return to tabs" = "Return to tabs";
 "Reveal Project in Finder" = "Reveal Project in Finder";
 "Reveal audit log" = "Reveal audit log";
 "Reveal in Finder" = "Reveal in Finder";
@@ -1903,7 +1899,6 @@
 "Split Down" = "Split Down";
 "Split Right" = "Split Right";
 "Split down" = "Split down";
-"Split here" = "Split here";
 "Split right" = "Split right";
 "Square Grid 2x2" = "Square Grid 2x2";
 "Square Grid 2x2 Fill" = "Square Grid 2x2 Fill";

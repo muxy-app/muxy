@@ -4,12 +4,15 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AnyWindowHandle, Bounds, Context, CursorStyle, DispatchPhase, Hsla, IntoElement,
-    MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, SharedString, Size,
-    Styled, Window, WindowHandle, WindowId, canvas, div, point, px, size,
+    AnimationExt as _, AnyElement, AnyWindowHandle, App, Bounds, Context, CursorStyle,
+    DispatchPhase, Hsla, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement,
+    Pixels, Point, SharedString, Size, Styled, Window, WindowHandle, WindowId, canvas, div, point,
+    px, size,
 };
 use muxy_app_core::{Axis, PaneDrop, PaneId, ProjectId, TabId, TabPlace, TabWindowId};
+use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
 use muxy_ui::tr;
 
@@ -177,18 +180,19 @@ struct Indicator {
 }
 
 const GLIDE: Duration = Duration::from_millis(140);
+const FADE: Duration = Duration::from_millis(120);
 const CHIP_OFFSET: f32 = 14.0;
+const CARRY_LANDING_ALPHA: f32 = 0.45;
 
 struct Gesture {
     moving: Moving,
     source: ProjectId,
-    label: SharedString,
-    icon: Icon,
     grab: Point<Pixels>,
     size: Size<Pixels>,
     target: Option<Target>,
     indicator: Option<Indicator>,
     glide: Option<(Bounds<Pixels>, Instant)>,
+    appeared: Instant,
     pointer: Option<(WindowId, Point<Pixels>)>,
 }
 
@@ -217,6 +221,24 @@ impl MoveDragState {
     pub(crate) fn target(&self) -> Option<Target> {
         self.gesture.as_ref().and_then(|gesture| gesture.target)
     }
+
+    #[cfg(test)]
+    pub(crate) fn lifted(&self) -> Option<Moving> {
+        self.gesture.as_ref().map(|gesture| gesture.moving)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn marked(&self) -> Option<Bounds<Pixels>> {
+        self.gesture
+            .as_ref()
+            .and_then(|gesture| gesture.indicator)
+            .map(|indicator| indicator.bounds)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pointer(&self) -> Option<(WindowId, Point<Pixels>)> {
+        self.gesture.as_ref().and_then(|gesture| gesture.pointer)
+    }
 }
 
 impl AppModel {
@@ -227,16 +249,8 @@ impl AppModel {
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self
-            .move_drag
-            .gesture
-            .as_ref()
-            .is_none_or(|gesture| gesture.moving != moving)
-        {
-            let Some(gesture) = self.start_gesture(moving, window) else {
-                return false;
-            };
-            self.move_drag.gesture = Some(gesture);
+        if !self.lift(moving, window) {
+            return false;
         }
         let (over, local, outside) = self.locate(moving, window, position, cx);
         let found = match over {
@@ -244,50 +258,140 @@ impl AppModel {
             None if outside && self.can_open_window(moving) => Some((Target::NewWindow, None)),
             None => None,
         };
-        let pointer = over.map(|over| (over, local));
-        let Some(gesture) = &mut self.move_drag.gesture else {
-            return false;
+        let pointer = match over {
+            Some(over) => Some((over, local)),
+            None if !can_place_windows() && !matches!(moving, Moving::Window(_)) => {
+                let viewport = window.viewport_size();
+                Some((
+                    window.window_handle().window_id(),
+                    point(
+                        position.x.clamp(px(0.0), viewport.width),
+                        position.y.clamp(px(0.0), viewport.height),
+                    ),
+                ))
+            }
+            None => None,
         };
         let (target, indicator) = found.map_or((None, None), |(target, indicator)| {
             (Some(target), indicator)
         });
+        let indicator = match (target, over) {
+            (None, Some(over)) => self.home_marker(moving, over),
+            _ => indicator,
+        };
+        self.show_gesture(target, indicator, pointer, cx);
+        let ghost = outside && target == Some(Target::NewWindow);
+        self.place_ghost(ghost, cx);
+        target.is_some_and(|target| target != Target::Refused)
+    }
+
+    pub(crate) fn hold_move(
+        &mut self,
+        moving: Moving,
+        window: &Window,
+        position: Point<Pixels>,
+        local: Option<Bounds<Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.lift(moving, window) {
+            return;
+        }
+        let here = window.window_handle().window_id();
+        let indicator = local
+            .map(|bounds| Indicator {
+                window: here,
+                bounds,
+                mark: Mark::Area,
+            })
+            .or_else(|| self.home_marker(moving, here));
+        self.show_gesture(None, indicator, Some((here, position)), cx);
+        self.place_ghost(false, cx);
+    }
+
+    fn home_marker(&self, moving: Moving, window: WindowId) -> Option<Indicator> {
+        let bounds = match moving {
+            Moving::Pane(pane) => {
+                let tab = self.state.pane_tab(pane)?;
+                let placement = self
+                    .layout_drag
+                    .geometry
+                    .placement(tab)
+                    .filter(|placement| placement.window == window)?;
+                crate::views::splits::drag::pane_bounds(&self.tab(tab)?.layout, placement, pane)?
+            }
+            Moving::Tab(tab) if window == self.window.window_id() => self
+                .tab_drag
+                .cells
+                .borrow()
+                .iter()
+                .find(|(id, _)| *id == tab)
+                .map(|(_, bounds)| *bounds)
+                .filter(|bounds| bounds.size.width > px(0.0))?,
+            Moving::Tab(_) | Moving::Window(_) => return None,
+        };
+        Some(Indicator {
+            window,
+            bounds,
+            mark: Mark::Area,
+        })
+    }
+
+    fn lift(&mut self, moving: Moving, window: &Window) -> bool {
+        if self
+            .move_drag
+            .gesture
+            .as_ref()
+            .is_some_and(|gesture| gesture.moving == moving)
+        {
+            return true;
+        }
+        let Some(gesture) = self.start_gesture(moving, window) else {
+            return false;
+        };
+        self.move_drag.gesture = Some(gesture);
+        true
+    }
+
+    fn show_gesture(
+        &mut self,
+        target: Option<Target>,
+        indicator: Option<Indicator>,
+        pointer: Option<(WindowId, Point<Pixels>)>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(gesture) = &mut self.move_drag.gesture else {
+            return;
+        };
         let changed = gesture.target != target
             || gesture.indicator != indicator
             || gesture.pointer != pointer;
         if gesture.indicator != indicator {
-            gesture.glide = gesture
+            let from = gesture
                 .indicator
                 .zip(indicator)
                 .filter(|(from, to)| from.window == to.window && from.mark == to.mark)
-                .map(|(from, _)| {
-                    (
-                        current_bounds(from.bounds, gesture.glide, gesture.indicator),
-                        Instant::now(),
-                    )
-                });
+                .map(|(from, _)| current_bounds(from.bounds, gesture.glide, gesture.indicator));
+            gesture.glide = from.map(|from| (from, Instant::now()));
+            if from.is_none() {
+                gesture.appeared = Instant::now();
+            }
             gesture.indicator = indicator;
         }
         gesture.target = target;
         gesture.pointer = pointer;
-        let ghost = outside && target == Some(Target::NewWindow);
-        self.place_ghost(ghost, cx);
         if changed {
             cx.notify();
         }
-        target.is_some_and(|target| target != Target::Refused)
     }
 
-    pub(crate) fn clear_move_target(&mut self, cx: &mut Context<Self>) {
-        if let Some(gesture) = &mut self.move_drag.gesture
-            && (gesture.target.is_some() || gesture.pointer.is_some())
+    pub(crate) fn settle_move(&mut self, cx: &mut Context<Self>) {
+        if self.move_drag.gesture.is_some()
+            && !self.tab_drag.is_active()
+            && !self.layout_drag.active()
+            && !self.move_drag.carrying()
         {
-            gesture.target = None;
-            gesture.indicator = None;
-            gesture.glide = None;
-            gesture.pointer = None;
-            cx.notify();
+            self.cancel_move(cx);
         }
-        self.place_ghost(false, cx);
     }
 
     pub(crate) fn finish_move(&mut self, cx: &mut Context<Self>) -> bool {
@@ -310,6 +414,12 @@ impl AppModel {
                 self.return_tab_window(window, Some(place), cx);
             }
             (Some(Target::Pane(drop)), Moving::Pane(pane)) => self.move_pane_into(pane, drop, cx),
+            (Some(Target::Pane(drop)), Moving::Window(window)) => {
+                let Some(pane) = self.window_pane(window) else {
+                    return false;
+                };
+                self.move_pane_into(pane, drop, cx);
+            }
             (Some(Target::NewWindow), Moving::Tab(tab)) => {
                 self.move_tab_to_window(tab, grab, bounds, cx);
             }
@@ -357,24 +467,14 @@ impl AppModel {
             .iter()
             .find(|project| project.tabs.iter().any(|candidate| candidate.id == tab))?;
         let descriptor = self.tab(tab)?;
-        let (label, icon) = match moving {
-            Moving::Pane(pane) => {
-                let pane = descriptor
-                    .panes
-                    .iter()
-                    .find(|candidate| candidate.id == pane)?;
-                (pane.title.clone(), pane_icon(&pane.content))
-            }
-            Moving::Tab(_) | Moving::Window(_) => (
-                descriptor
-                    .title(self.state.shown_pane(descriptor))
-                    .to_owned(),
-                descriptor
-                    .panes
-                    .first()
-                    .map_or(Icon::Terminal, |pane| pane_icon(&pane.content)),
-            ),
-        };
+        if let Moving::Pane(pane) = moving
+            && !descriptor
+                .panes
+                .iter()
+                .any(|candidate| candidate.id == pane)
+        {
+            return None;
+        }
         let area = self
             .layout_drag
             .geometry
@@ -392,8 +492,6 @@ impl AppModel {
         Some(Gesture {
             moving,
             source: source.id,
-            label: label.into(),
-            icon,
             grab: point(
                 px(CHIP_OFFSET.min(f32::from(size.width) / 2.0)),
                 self.metrics.title_bar_height() / 2.0,
@@ -402,8 +500,17 @@ impl AppModel {
             target: None,
             indicator: None,
             glide: None,
+            appeared: Instant::now(),
             pointer: None,
         })
+    }
+
+    fn window_pane(&self, id: TabWindowId) -> Option<PaneId> {
+        let tab = self.tab(self.window_tab(id)?)?;
+        match tab.panes.as_slice() {
+            [pane] => Some(pane.id),
+            _ => None,
+        }
     }
 
     fn locate(
@@ -438,16 +545,23 @@ impl AppModel {
         else {
             return (None, position, number.is_none());
         };
+        let inside = |window: &Window| {
+            muxy_ui::screen::local(window, cursor).map(|local| {
+                let inside = Bounds::new(Point::default(), window.viewport_size()).contains(&local);
+                (local, inside)
+            })
+        };
         let local = if id == here {
-            muxy_ui::screen::local(window, cursor)
+            inside(window)
         } else {
             handle
-                .update(cx, |_, window, _| muxy_ui::screen::local(window, cursor))
+                .update(cx, |_, window, _| inside(window))
                 .ok()
                 .flatten()
         };
         match local {
-            Some(local) => (Some(id), local, false),
+            Some((local, true)) => (Some(id), local, false),
+            Some((_, false)) => (None, position, true),
             None => (None, position, false),
         }
     }
@@ -503,8 +617,10 @@ impl AppModel {
                 }),
             ));
         }
-        let Moving::Pane(pane) = moving else {
-            return None;
+        let pane = match moving {
+            Moving::Pane(pane) => pane,
+            Moving::Window(id) => self.window_pane(id)?,
+            Moving::Tab(_) => return None,
         };
         let placement = self.layout_drag.geometry.at(window, position)?;
         if self.state.pane_tab(pane) == Some(placement.tab) {
@@ -610,20 +726,25 @@ impl AppModel {
 
     fn place_ghost(&mut self, shown: bool, cx: &mut Context<Self>) {
         let cursor = cursor().filter(|_| can_place_windows());
-        let gesture = self.move_drag.gesture.as_ref();
-        match (shown, cursor, gesture, self.move_drag.ghost) {
-            (true, Some(cursor), Some(_), Some(handle)) => {
+        let gesture = self
+            .move_drag
+            .gesture
+            .as_ref()
+            .filter(|gesture| !matches!(gesture.moving, Moving::Window(_)));
+        match (cursor, gesture, self.move_drag.ghost) {
+            (Some(cursor), Some(_), Some(handle)) => {
                 cx.defer(move |cx| {
                     let _ = handle.update(cx, |_, window, _| {
                         muxy_ui::screen::move_window_to(window, cursor, ghost::GRAB);
+                        muxy_ui::screen::set_window_alpha(window, if shown { 1.0 } else { 0.0 });
                     });
                 });
             }
-            (true, Some(_), Some(gesture), None) if !self.move_drag.ghost_opening => {
+            (Some(_), Some(gesture), None) if shown && !self.move_drag.ghost_opening => {
                 self.move_drag.ghost_opening = true;
                 let chip = ghost::Chip {
-                    label: gesture.label.clone(),
-                    icon: gesture.icon,
+                    model: cx.weak_entity(),
+                    moving: gesture.moving,
                     theme: self.theme.clone(),
                     metrics: self.metrics,
                 };
@@ -635,6 +756,8 @@ impl AppModel {
                         match opened {
                             Some(handle) if model.move_drag.gesture.is_some() => {
                                 model.move_drag.ghost = Some(handle);
+                                let shown = model.move_drag.target() == Some(Target::NewWindow);
+                                model.place_ghost(shown, cx);
                             }
                             Some(handle) => ghost::close(handle, cx),
                             None => {}
@@ -642,7 +765,7 @@ impl AppModel {
                     });
                 });
             }
-            (false, ..) | (_, None, ..) | (_, _, None, _) => {
+            (None, ..) | (_, None, _) => {
                 if let Some(handle) = self.move_drag.ghost.take() {
                     ghost::close(handle, cx);
                 }
@@ -695,7 +818,7 @@ impl AppModel {
             muxy_ui::screen::move_window_to(window, cursor, grab);
         }
         let landing = self.track_move(Moving::Window(id), window, position, cx);
-        muxy_ui::screen::set_window_alpha(window, if landing { 0.55 } else { 1.0 });
+        muxy_ui::screen::set_window_alpha(window, if landing { CARRY_LANDING_ALPHA } else { 1.0 });
     }
 
     fn end_carry(&mut self, id: TabWindowId, window: &mut Window, cx: &mut Context<Self>) {
@@ -773,6 +896,64 @@ fn line(bounds: Bounds<Pixels>, axis: Axis, end: bool) -> Bounds<Pixels> {
     }
 }
 
+pub(super) fn label(moving: Moving, model: &AppModel, cx: &App) -> SharedString {
+    let tab = match moving {
+        Moving::Pane(id) => {
+            let Some(pane) = model.state.pane(id) else {
+                return SharedString::default();
+            };
+            return model
+                .terminal(&id)
+                .and_then(|terminal| terminal.view.read(cx).header_title())
+                .unwrap_or_else(|| model.pane_title(pane, cx).to_owned())
+                .into();
+        }
+        Moving::Tab(tab) => Some(tab),
+        Moving::Window(id) => model.window_tab(id),
+    };
+    tab.and_then(|tab| model.tab(tab))
+        .map(|tab| SharedString::from(model.webview_title(tab, cx).to_owned()))
+        .unwrap_or_default()
+}
+
+pub(super) fn glyph(moving: Moving, model: &AppModel, cx: &App) -> AnyElement {
+    let size = model.metrics.icon_md();
+    let color = model.theme.fg_muted;
+    let fallback = |pane: Option<&muxy_app_core::Pane>| {
+        IconGlyph::new(
+            pane.map_or(Icon::Terminal, |pane| pane_icon(&pane.content)),
+            size,
+            color,
+        )
+        .into_any_element()
+    };
+    match moving {
+        Moving::Pane(id) => {
+            let Some(pane) = model.state.pane(id) else {
+                return fallback(None);
+            };
+            model.page_glyph(pane, size, color, cx).unwrap_or_else(|| {
+                super::tab_activity::pane_glyph(pane, model, size, fallback(Some(pane)))
+            })
+        }
+        Moving::Tab(_) | Moving::Window(_) => {
+            let tab = match moving {
+                Moving::Window(id) => model.window_tab(id),
+                Moving::Tab(tab) => Some(tab),
+                Moving::Pane(_) => None,
+            };
+            let Some(tab) = tab.and_then(|tab| model.tab(tab)) else {
+                return fallback(None);
+            };
+            let shown = tab.displayed_pane(model.state.shown_pane(tab));
+            let base = model
+                .webview_glyph(tab, size, color, cx)
+                .unwrap_or_else(|| fallback(shown));
+            super::tab_activity::glyph(tab, model, size, base)
+        }
+    }
+}
+
 fn pane_icon(content: &muxy_app_core::PaneContent) -> Icon {
     match content {
         muxy_app_core::PaneContent::Terminal { .. } => Icon::Terminal,
@@ -784,10 +965,14 @@ fn pane_icon(content: &muxy_app_core::PaneContent) -> Icon {
     }
 }
 
-fn progress(since: Instant) -> f32 {
-    let elapsed = since.elapsed().as_secs_f32() / GLIDE.as_secs_f32();
+fn eased(since: Instant, duration: Duration) -> f32 {
+    let elapsed = since.elapsed().as_secs_f32() / duration.as_secs_f32();
     let t = elapsed.clamp(0.0, 1.0);
     1.0 - (1.0 - t).powi(3)
+}
+
+fn progress(since: Instant) -> f32 {
+    eased(since, GLIDE)
 }
 
 fn lerp(from: Bounds<Pixels>, to: Bounds<Pixels>, t: f32) -> Bounds<Pixels> {
@@ -810,7 +995,24 @@ fn current_bounds(
     glide.map_or(to, |(from, since)| lerp(from, to, progress(since)))
 }
 
-pub(crate) fn overlay(model: &AppModel, window: &Window) -> AnyElement {
+fn lifted_pane(model: &AppModel, gesture: &Gesture, here: WindowId) -> Option<Bounds<Pixels>> {
+    let Moving::Pane(pane) = gesture.moving else {
+        return None;
+    };
+    let tab = model.state.pane_tab(pane)?;
+    let placement = model
+        .layout_drag
+        .geometry
+        .placement(tab)
+        .filter(|placement| placement.window == here)?;
+    let layout = &model.tab(tab)?.layout;
+    if layout.leaves().len() < 2 {
+        return Some(placement.bounds);
+    }
+    crate::views::splits::drag::pane_bounds(layout, placement, pane)
+}
+
+pub(crate) fn overlay(model: &AppModel, window: &Window, cx: &App) -> AnyElement {
     let here = window.window_handle().window_id();
     let Some(gesture) = &model.move_drag.gesture else {
         return div().into_any_element();
@@ -819,35 +1021,60 @@ pub(crate) fn overlay(model: &AppModel, window: &Window) -> AnyElement {
         .indicator
         .filter(|indicator| indicator.window == here);
     let glide = gesture.glide;
+    let appeared = gesture.appeared;
     let theme = &model.theme;
     let accent = theme.accent;
     let refused = theme.danger;
+    let scrim = theme.fg.opacity(0.05);
+    let outline = theme.fg_muted.opacity(0.8);
+    let lifted = gesture
+        .pointer
+        .and_then(|_| lifted_pane(model, gesture, here));
     let occlusions = model.webviews.occlusions.clone();
     let main = here == model.window.window_id();
-    let painted = indicator.map(|indicator| {
-        canvas(
-            move |_, _, _| {
-                if main {
-                    occlusions
-                        .borrow_mut()
-                        .push((None, indicator.bounds.dilate(px(2.0)).into()));
-                }
-            },
-            move |_, (), window, _| {
-                let bounds = current_bounds(indicator.bounds, glide, Some(indicator));
-                if glide.is_some_and(|(_, since)| since.elapsed() < GLIDE) {
-                    window.request_animation_frame();
-                }
-                paint_indicator(bounds, indicator.mark, accent, refused, window);
-            },
-        )
-        .absolute()
-        .size_full()
-    });
+    let painted = canvas(
+        move |_, _, _| {
+            if main && let Some(indicator) = indicator {
+                occlusions
+                    .borrow_mut()
+                    .push((None, indicator.bounds.dilate(px(2.0)).into()));
+            }
+        },
+        move |_, (), window, _| {
+            if let Some(bounds) = lifted {
+                window.paint_quad(gpui::fill(bounds, scrim));
+                window.paint_quad(
+                    gpui::outline(bounds.inset(px(3.0)), outline, gpui::BorderStyle::Dashed)
+                        .border_widths(px(1.5))
+                        .corner_radii(px(6.0)),
+                );
+            }
+            let Some(indicator) = indicator else {
+                return;
+            };
+            let bounds = current_bounds(indicator.bounds, glide, Some(indicator));
+            let fading = appeared.elapsed() < FADE;
+            if fading || glide.is_some_and(|(_, since)| since.elapsed() < GLIDE) {
+                window.request_animation_frame();
+            }
+            let strength = eased(appeared, FADE);
+            paint_indicator(
+                bounds,
+                indicator.mark,
+                accent.opacity(strength),
+                refused.opacity(strength),
+                window,
+            );
+        },
+    )
+    .absolute()
+    .size_full();
+    let viewport = window.viewport_size();
     let chip = gesture
         .pointer
         .filter(|(window, _)| *window == here)
-        .map(|(_, position)| chip(gesture, position, model));
+        .filter(|_| !matches!(gesture.moving, Moving::Window(_)))
+        .map(|(_, position)| chip(gesture, position, viewport, main, model, cx));
     let cursor = if gesture.target == Some(Target::Refused) {
         CursorStyle::OperationNotAllowed
     } else {
@@ -856,7 +1083,7 @@ pub(crate) fn overlay(model: &AppModel, window: &Window) -> AnyElement {
     div()
         .absolute()
         .inset_0()
-        .children(painted)
+        .child(painted)
         .children(chip)
         .child(
             canvas(
@@ -878,15 +1105,15 @@ fn paint_indicator(
 ) {
     match mark {
         Mark::Area | Mark::Project => {
-            let radius = if mark == Mark::Project {
-                px(6.0)
+            let (bounds, radius) = if mark == Mark::Project {
+                (bounds, px(6.0))
             } else {
-                px(2.0)
+                (inset(bounds, px(4.0)), px(8.0))
             };
-            window.paint_quad(gpui::fill(bounds, accent.opacity(0.18)).corner_radii(radius));
+            window.paint_quad(gpui::fill(bounds, accent.opacity(0.16)).corner_radii(radius));
             window.paint_quad(
-                gpui::outline(bounds, accent.opacity(0.85), gpui::BorderStyle::Solid)
-                    .border_widths(px(2.0))
+                gpui::outline(bounds, accent.opacity(0.9), gpui::BorderStyle::Solid)
+                    .border_widths(px(1.5))
                     .corner_radii(radius),
             );
         }
@@ -904,41 +1131,87 @@ fn paint_indicator(
             }
         }
         Mark::Refused => {
-            window.paint_quad(gpui::fill(bounds, refused.opacity(0.10)).corner_radii(px(4.0)));
+            let bounds = inset(bounds, px(2.0));
+            window.paint_quad(gpui::fill(bounds, refused.opacity(0.10)).corner_radii(px(6.0)));
             window.paint_quad(
                 gpui::outline(bounds, refused.opacity(0.7), gpui::BorderStyle::Dashed)
-                    .border_widths(px(2.0))
-                    .corner_radii(px(4.0)),
+                    .border_widths(px(1.5))
+                    .corner_radii(px(6.0)),
             );
         }
     }
 }
 
-fn chip(gesture: &Gesture, position: Point<Pixels>, model: &AppModel) -> AnyElement {
-    let caption = match gesture.target {
-        Some(Target::Refused) => Some((tr!("Only within this computer"), model.theme.danger)),
-        Some(Target::Place(_)) => Some((
-            match gesture.moving {
-                Moving::Window(_) => tr!("Return to tabs"),
-                Moving::Tab(_) => tr!("Move tab here"),
-                Moving::Pane(_) => tr!("New tab"),
-            },
-            model.theme.accent,
-        )),
-        Some(Target::Pane(_)) => Some((tr!("Split here"), model.theme.accent)),
-        Some(Target::NewWindow) => Some((tr!("New window"), model.theme.accent)),
-        None => None,
-    };
-    div()
-        .absolute()
-        .left(position.x + px(CHIP_OFFSET))
-        .top(position.y + px(CHIP_OFFSET))
+fn inset(bounds: Bounds<Pixels>, by: Pixels) -> Bounds<Pixels> {
+    let by = by
+        .min(bounds.size.width / 4.0)
+        .min(bounds.size.height / 4.0)
+        .max(px(0.0));
+    bounds.inset(by)
+}
+
+enum Side {
+    Start(Pixels),
+    End(Pixels),
+}
+
+fn side(pointer: Pixels, extent: Pixels, viewport: Pixels) -> Side {
+    let offset = px(CHIP_OFFSET);
+    if pointer + offset + extent <= viewport {
+        Side::Start(pointer + offset)
+    } else if pointer - offset >= extent {
+        Side::End(viewport - pointer + offset)
+    } else {
+        Side::Start((viewport - extent).max(px(0.0)))
+    }
+}
+
+fn chip(
+    gesture: &Gesture,
+    position: Point<Pixels>,
+    viewport: Size<Pixels>,
+    main: bool,
+    model: &AppModel,
+    cx: &App,
+) -> AnyElement {
+    let reach = size(px(ghost::WIDTH), model.metrics.control_large());
+    let across = side(position.x, reach.width, viewport.width);
+    let down = side(position.y, reach.height, viewport.height);
+    let occlusions = model.webviews.occlusions.clone();
+    let body = div()
+        .relative()
         .child(ghost::chip_body(
-            &gesture.label,
-            gesture.icon,
-            caption,
+            label(gesture.moving, model, cx),
+            glyph(gesture.moving, model, cx),
             &model.theme,
             model.metrics,
+        ))
+        .when(main, |body| {
+            body.child(
+                canvas(
+                    move |bounds, _, _| {
+                        occlusions.borrow_mut().push((None, bounds.into()));
+                    },
+                    |_, (), _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            )
+        });
+    let placed = div().absolute().flex().flex_col();
+    let placed = match across {
+        Side::Start(left) => placed.left(left),
+        Side::End(right) => placed.items_end().right(right),
+    };
+    let placed = match down {
+        Side::Start(top) => placed.top(top),
+        Side::End(bottom) => placed.bottom(bottom),
+    };
+    placed
+        .child(body.with_animation(
+            "move-drag-chip",
+            gpui::Animation::new(FADE),
+            Styled::opacity,
         ))
         .into_any_element()
 }
