@@ -846,10 +846,11 @@ phone, and the phone never talks to `muxy.app`.
 ### Registering
 
 Call `registerPush` on every connect while notifications are on in the app,
-and again whenever the OS gives a new token. After a `disabled` reply the
-server holds no registration for the phone, so offer a retry: the first call
-after the computer turns notifications on returns `active` or `pending` with a
-key. Skip it when
+and again whenever the OS gives a new token. A `disabled` reply to a phone that
+never registered leaves nothing on the server, so offer a retry: the first call
+after the computer turns notifications on returns a key with `active`,
+`pending`, or `refused`. A phone that registered before the computer turned
+them off keeps its registration and key for 90 days. Skip it when
 `supportsPushNotifications()` is `false`. It can take up to 20 seconds,
 because the server checks the token with the relay first, so call it on the
 connection's queue after everything the user is waiting for.
