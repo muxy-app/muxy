@@ -120,13 +120,12 @@ impl AppModel {
                     .child(body),
             )
             .child(splits::drag::track_pointer(cx))
-            .child(splits::drag::overlay(self, window))
             .children(
                 bare.then(|| window_controls(id, self, window, cx))
                     .flatten(),
             )
             .child(move_drag::track_carry(id, cx))
-            .child(move_drag::overlay(self, window))
+            .child(move_drag::overlay(self, window, cx))
             .when(menu, |content| {
                 content.child(titlebar::overlay(overlays::layer(self, window, cx), window))
             });
@@ -146,6 +145,8 @@ impl AppModel {
         #[cfg(target_os = "linux")]
         self.tab_windows
             .set_controls(id, titlebar::linux::controls_width(window, self.metrics));
+        self.validate_layout_drag(cx);
+        self.settle_move(cx);
         self.layout_drag.geometry.clear(here);
         self.move_drag.zones.note_window(window);
         window.set_traffic_light_position(titlebar::traffic_light_position(

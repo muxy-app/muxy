@@ -116,15 +116,20 @@ to do that refuse the move.
 - Drag a pane by its header, or with Command held, into another tab's splits,
   onto the tab bar or a sidebar row as a new tab, onto a project, or out of the
   app into a window of its own.
-- While dragging, a chip follows the pointer, the drop place is outlined or
-  marked between tabs, and a place on another computer shows as refused.
+- From the first move, a chip with the tab or pane's name follows the pointer,
+  also outside the app on macOS. The dragged tab or pane fades in place, the
+  drop place is outlined or marked between tabs and glides as the pointer
+  moves, and a place on another computer shows as refused.
+- Tabs slide aside as a dragged tab passes the middle of its neighbor.
 - A tab in its own window has the system's window controls and leaves the main
   window's tabs. Drag its titlebar over the main window to put it back, or use
   **Move to Main Window**. Closing the window closes the tab. Tab windows reopen
   where they were after a restart.
 - The pane header of a tab window is its titlebar: it holds the window's
-  controls and moves the window. A tab window shows a titlebar of its own only
-  when no pane header runs along its top.
+  controls and moves the window. With a single pane, its title moves the window
+  too, and dropping the window on another tab's splits docks its pane there. A
+  tab window shows a titlebar of its own only when no pane header runs along
+  its top.
 - The tab menu offers **Move to New Window** and **Move to Project**; the pane
   menu adds **Move to New Tab** and, in a tab window, **Move to Main Window**.
   The command palette has **Move Tab to New Window**, **Move Pane to New Tab**,

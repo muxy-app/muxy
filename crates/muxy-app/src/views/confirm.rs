@@ -43,7 +43,7 @@ impl AppModel {
             (TITLE, MESSAGE, tr_key!("Close"))
         };
         self.ask_dialog(
-            self.window,
+            self.window_for_tab(tab),
             async move |parent, cx| prompt(parent, title, message, action, cx).await,
             move |model, response, cx| model.finish_close_confirmation(tab, response, cx),
             cx,

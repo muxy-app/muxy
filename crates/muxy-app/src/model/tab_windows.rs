@@ -214,6 +214,13 @@ impl AppModel {
         }
     }
 
+    pub(crate) fn window_for_tab(&self, tab: TabId) -> gpui::AnyWindowHandle {
+        self.tab(tab)
+            .and_then(|tab| tab.window.as_ref())
+            .and_then(|window| self.tab_windows.handle(window.id))
+            .map_or(self.window, Into::into)
+    }
+
     pub(crate) fn window_for_pane(&self, pane: PaneId) -> gpui::AnyWindowHandle {
         self.state
             .pane_window(pane)

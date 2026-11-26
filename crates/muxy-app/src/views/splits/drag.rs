@@ -352,38 +352,51 @@ impl AppModel {
             self.track_move(Moving::Pane(pane), window, position, cx);
             return;
         }
-        self.clear_move_target(cx);
         let Some(drag) = &mut self.layout_drag.pane else {
             return;
         };
+        let pane = drag.pane;
         let target = target_at(&drag.layout, bounds, scale, position);
-        if let Some(preview) = &self.layout_drag.preview {
-            if target.as_ref() == Some(&preview.intent.target) {
-                drag.hover = position;
-                return;
-            }
-            if target.is_some() && (position - drag.hover).magnitude() <= 4.0 {
-                return;
-            }
-        }
-        drag.hover = position;
-        let preview = target.and_then(|target| {
-            let result = target.apply(&drag.layout, drag.pane)?;
-            if result == drag.layout {
-                return None;
-            }
-            let (_, bounds) = pane_rects(&result, bounds, scale)
-                .into_iter()
-                .find(|(pane, _)| *pane == drag.pane)?;
-            Some(Preview {
-                intent: DropIntent {
-                    source: drag.pane,
-                    target,
-                },
-                bounds,
-            })
+        let held = self.layout_drag.preview.as_ref().is_some_and(|preview| {
+            target.as_ref() == Some(&preview.intent.target)
+                || (target.is_some() && (position - drag.hover).magnitude() <= 4.0)
         });
-        self.set_drop_preview(preview, cx);
+        if held {
+            if target.as_ref()
+                == self
+                    .layout_drag
+                    .preview
+                    .as_ref()
+                    .map(|preview| &preview.intent.target)
+            {
+                drag.hover = position;
+            }
+        } else {
+            drag.hover = position;
+            let preview = target.and_then(|target| {
+                let result = target.apply(&drag.layout, drag.pane)?;
+                if result == drag.layout {
+                    return None;
+                }
+                let (_, bounds) = pane_rects(&result, bounds, scale)
+                    .into_iter()
+                    .find(|(pane, _)| *pane == drag.pane)?;
+                Some(Preview {
+                    intent: DropIntent {
+                        source: drag.pane,
+                        target,
+                    },
+                    bounds,
+                })
+            });
+            self.set_drop_preview(preview, cx);
+        }
+        let local = self
+            .layout_drag
+            .preview
+            .as_ref()
+            .map(|preview| preview.bounds);
+        self.hold_move(Moving::Pane(pane), window, position, local, cx);
     }
 
     fn release_pane_drag(
@@ -488,53 +501,6 @@ pub(crate) fn track_pointer(cx: &Context<AppModel>) -> AnyElement {
                     model.release_pane_drag(event, window, cx);
                 });
             });
-        },
-    )
-    .absolute()
-    .size_full()
-    .into_any_element()
-}
-
-pub(crate) fn overlay(model: &AppModel, window: &Window) -> AnyElement {
-    let here = window.window_handle().window_id();
-    let main = here == model.window.window_id();
-    let pane_preview = model
-        .layout_drag
-        .preview
-        .as_ref()
-        .map(|preview| preview.bounds);
-    let expected = model
-        .layout_drag
-        .pane
-        .as_ref()
-        .filter(|drag| drag.window == here)
-        .map(|drag| (drag.tab, drag.geometry));
-    let geometry = model.layout_drag.geometry.clone();
-    let tab_preview = model.tab_drag.preview().filter(|_| main);
-    let preview = move || {
-        expected
-            .filter(|(tab, expected)| geometry.get(*tab) == Some(*expected))
-            .and(pane_preview)
-            .or(tab_preview)
-    };
-    let painted = preview.clone();
-    let accent = model.theme.accent;
-    let fill = accent.opacity(0.18);
-    let occlusions = model.webviews.occlusions.clone();
-    canvas(
-        move |_, _, _| {
-            if let Some(bounds) = preview().filter(|_| main) {
-                occlusions.borrow_mut().push((None, bounds.into()));
-            }
-        },
-        move |_, (), window, _| {
-            if let Some(bounds) = painted() {
-                window.paint_quad(gpui::fill(bounds, fill));
-                window.paint_quad(
-                    gpui::outline(bounds, accent.opacity(0.8), gpui::BorderStyle::Solid)
-                        .border_widths(px(2.0)),
-                );
-            }
         },
     )
     .absolute()

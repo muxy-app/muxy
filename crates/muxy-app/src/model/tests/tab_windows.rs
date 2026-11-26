@@ -447,3 +447,47 @@ fn a_move_whose_answer_timed_out_is_sent_again_once(cx: &mut TestAppContext) {
         );
     });
 }
+
+#[gpui::test]
+fn a_lone_panes_title_moves_its_window_and_a_split_panes_title_moves_the_pane(
+    cx: &mut TestAppContext,
+) {
+    let mut state = AppState::bootstrap().expect("state");
+    let home = state.home().id;
+    state.open_terminal_tab(home).expect("tab");
+    let b = state.open_terminal_tab(home).expect("tab");
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    view.update(cx, |model, cx| model.move_tab_to_window(b, None, None, cx));
+    cx.run_until_parked();
+    let (id, pane) = view.read_with(cx, |model, _| {
+        let id = model.state.tab_windows().next().expect("window").2.id;
+        (id, model.tab(b).expect("tab").panes[0].id)
+    });
+    let handle = view.read_with(cx, |model, _| model.tab_windows.handle(id).expect("handle"));
+    let mut window = VisualTestContext::from_window(handle.into(), cx);
+    window.run_until_parked();
+    let title = window
+        .debug_bounds(format!("pane-handle-{pane}").leak())
+        .expect("title");
+    press(&mut window, title.center(), false);
+    view.read_with(&window, |model, _| assert!(!model.layout_drag_pending()));
+    release(&mut window, title.center());
+
+    view.update(&mut window, |model, cx| {
+        model.enter_surface(Surface::Tab(id));
+        model.focus_pane(pane, cx);
+        model.split_pane(Direction::Right, cx);
+    });
+    window.run_until_parked();
+    let title = window
+        .debug_bounds(format!("pane-handle-{pane}").leak())
+        .expect("title");
+    press(&mut window, title.center(), false);
+    view.read_with(&window, |model, _| assert!(model.layout_drag_pending()));
+    release(&mut window, title.center());
+    view.read_with(&window, |model, _| {
+        assert!(!model.layout_drag_pending());
+        assert_eq!(model.tab(b).expect("tab").panes.len(), 2);
+    });
+}

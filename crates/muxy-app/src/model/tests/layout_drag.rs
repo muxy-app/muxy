@@ -3,6 +3,7 @@ use gpui::{Bounds, MouseButton, Point, point};
 use muxy_app_core::Direction;
 
 mod docking;
+mod feedback;
 
 fn state() -> (AppState, [TabId; 2], [PaneId; 4]) {
     let mut state = AppState::bootstrap().expect("state");

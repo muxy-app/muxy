@@ -1,6 +1,6 @@
 use gpui::{Pixels, Point, Window};
 use objc2::MainThreadMarker;
-use objc2_app_kit::{NSApplication, NSEvent, NSScreen, NSWindow};
+use objc2_app_kit::{NSApplication, NSColor, NSEvent, NSScreen, NSWindow, NSWindowStyleMask};
 use objc2_foundation::NSPoint;
 
 use super::{ScreenPoint, flip, shifted, unflip, within};
@@ -106,5 +106,14 @@ pub(super) fn set_window_alpha(window: &Window, alpha: f32) {
 pub(super) fn set_ignores_mouse(window: &Window, ignores: bool) {
     if let Ok(window) = ns_window(window) {
         window.setIgnoresMouseEvents(ignores);
+    }
+}
+
+pub(super) fn make_bare(window: &Window) {
+    if let Ok(window) = ns_window(window) {
+        window.setStyleMask(window.styleMask() & !NSWindowStyleMask::Titled);
+        window.setHasShadow(false);
+        window.setOpaque(false);
+        window.setBackgroundColor(Some(&NSColor::clearColor()));
     }
 }
