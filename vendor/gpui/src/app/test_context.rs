@@ -290,6 +290,11 @@ impl TestAppContext {
         self.test_platform.pending_prompt()
     }
 
+    #[cfg(test)]
+    pub(crate) fn active_cursor(&self) -> crate::CursorStyle {
+        self.test_platform.active_cursor()
+    }
+
     pub fn opened_url(&self) -> Option<String> {
         self.test_platform.opened_url.borrow().clone()
     }
