@@ -373,7 +373,12 @@ impl ExtensionsView {
                         });
                         view.open_details(details, cx);
                     }
-                    Err(error) => view.error = Some(error),
+                    Err(error) => {
+                        if view.tab == Tab::Marketplace && view.items.is_empty() {
+                            view.fetch(true, cx);
+                        }
+                        view.error = Some(error);
+                    }
                 }
                 cx.notify();
             });
@@ -1043,6 +1048,34 @@ impl ExtensionsView {
             theme: &self.theme,
             metrics: &self.metrics,
         }
+    }
+
+    pub(crate) fn open_listing(&mut self, name: String, cx: &mut Context<Self>) {
+        if self.mutating(cx) {
+            return;
+        }
+        let source = self.installed_from(&name, cx);
+        self.tab = Tab::Marketplace;
+        self.category = None;
+        self.query.clear();
+        self.search.update(cx, |search, cx| search.set_text("", cx));
+        self.items.clear();
+        self.page = 1;
+        self.has_next = false;
+        self.selected = None;
+        self.completed = None;
+        self.install_status = None;
+        self.loading = None;
+        self.details(source, name, cx);
+    }
+
+    fn close_details(&mut self, cx: &mut Context<Self>) {
+        self.selected = None;
+        self.error = None;
+        if self.tab == Tab::Marketplace && self.items.is_empty() {
+            self.fetch(true, cx);
+        }
+        cx.notify();
     }
 
     pub(crate) fn browse_languages(&mut self, cx: &mut Context<Self>) {

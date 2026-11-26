@@ -557,7 +557,7 @@ pub struct Extension {
     pub manifest: Manifest,
 }
 
-fn identifier(value: &str) -> bool {
+pub(crate) fn identifier(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && !value.starts_with('.')

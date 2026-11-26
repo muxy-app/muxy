@@ -283,6 +283,21 @@ fn index(source: &Marketplace) -> Result<Arc<[Listing]>> {
         .settle(source, Instant::now(), directory.as_deref(), parse, fetched)
 }
 
+#[cfg(test)]
+pub(crate) fn serve_index(source: &Marketplace, body: &[u8]) -> Result<()> {
+    let parse = |body: &[u8]| parse_index(body, source).map(Into::into);
+    INDEXES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .load(source, Instant::now(), None, parse, |_| {
+            Ok(cache::Fetched::Modified {
+                body: body.to_vec(),
+                etag: None,
+            })
+        })
+        .map(drop)
+}
+
 pub(crate) fn refresh() {
     INDEXES
         .lock()

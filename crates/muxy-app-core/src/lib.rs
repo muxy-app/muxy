@@ -5,6 +5,7 @@ pub mod browser;
 pub mod closing;
 pub mod composer;
 mod error;
+pub mod extension_link;
 pub mod extensions;
 mod groups;
 mod home;

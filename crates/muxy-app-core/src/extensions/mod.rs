@@ -8,6 +8,7 @@ mod storage;
 pub mod api;
 pub mod workspace;
 pub use audit::{AUDIT_LOG, AuditEntry, AuditLog, timestamp};
+pub(crate) use manifest::identifier;
 pub use manifest::{
     Action, BarItem, Command, Extension, FileOpener, HomeView, Icon, Listing, Localization,
     Manifest, PERMISSIONS, Panel, PanelControl, PanelMode, PanelPosition, Popover, RemoteMethod,

@@ -128,11 +128,7 @@ impl ExtensionsView {
                     self.button(
                         "extension-back",
                         tr_key!("Extensions"),
-                        |view, _, cx| {
-                            view.selected = None;
-                            view.error = None;
-                            cx.notify();
-                        },
+                        |view, _, cx| view.close_details(cx),
                         cx,
                     )
                     .aria_label(tr!("Back to Extensions"))

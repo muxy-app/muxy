@@ -749,3 +749,57 @@ fn a_listing_shows_at_most_six_screenshots() {
     let art = super::pictures::Art::marketplace(None, &screenshots);
     assert_eq!(art.screenshots.len(), super::pictures::MAX_SCREENSHOTS);
 }
+
+#[gpui::test]
+fn a_store_link_opens_the_extension_page_and_back_lists_the_marketplace(cx: &mut TestAppContext) {
+    let source = muxy_app_core::extensions::Marketplace::parse("store-link/extensions").unwrap();
+    let release = "https://github.com/store-link/extensions/releases/download/linked%401.0.0";
+    let index = serde_json::json!({"schema": 1, "extensions": [{
+        "name": "linked",
+        "description": "Opened from the store",
+        "version": "1.0.0",
+        "permissions": [],
+        "author": {"name": "Saeed"},
+        "sha256": "a".repeat(64),
+        "size": 100,
+        "download_url": format!("{release}/linked-1.0.0.zip"),
+    }]});
+    crate::extensions::marketplace::serve_index(&source, index.to_string().as_bytes())
+        .expect("index");
+    let (model, cx) = open_model(&["linked"], cx);
+    model.update(cx, |model, _| {
+        model
+            .extensions
+            .registry
+            .set_source("linked", &source)
+            .expect("source");
+    });
+    let (links, opened) = async_channel::unbounded();
+    model.update(cx, |_, cx| AppModel::open_urls_from(opened, cx));
+    let scheme = muxy_core::release::Channel::current().url_scheme();
+    links
+        .try_send(vec![format!("{scheme}://extensions/install/linked")])
+        .expect("send");
+    let view = |cx: &mut VisualTestContext| {
+        model.read_with(cx, |model, cx| {
+            let settings = model.settings_tab.as_ref()?.view.read(cx);
+            (settings.category == crate::views::settings::Category::Extensions)
+                .then(|| settings.extensions.clone())
+                .flatten()
+        })
+    };
+    pump_until(cx, |cx| {
+        view(cx).is_some_and(|view| {
+            view.read_with(cx, |view, _| {
+                view.selected.as_ref().map(|details| details.name.as_str()) == Some("linked")
+            })
+        })
+    });
+    let view = view(cx).expect("the extensions page");
+    view.update(cx, |view, cx| {
+        assert!(view.tab == Tab::Marketplace);
+        view.close_details(cx);
+        assert!(view.selected.is_none());
+        assert_eq!(view.loading, Some(super::Loading::Search));
+    });
+}
