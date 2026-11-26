@@ -1093,6 +1093,53 @@ print('security fixture ready: ~/e2e/sec-ext (load it with muxy extension load)'
 PY
 }
 
+# An extension tab like an editor: a large text area and a link, and a page that calls the
+# extension API every 60 ms, so the app redraws while the pointer rests on the page.
+cmd_cursor_fixture() {
+  test -f "$SHARE/managed" || die "not a prepared Muxy test guest"
+  python3 - <<'PY'
+import json
+from pathlib import Path
+root = Path.home() / 'e2e' / 'cursor-ext'
+root.mkdir(parents=True, exist_ok=True)
+manifest = {
+    'description': 'Cursor checks',
+    'permissions': ['tabs:read', 'tabs:write'],
+    'tabTypes': [{'id': 'view', 'title': 'Cursor View', 'entry': 'view.html'}],
+    'commands': [{'id': 'open', 'title': 'Cursor Test: Open Tab', 'action': {'kind': 'openTab', 'tabType': 'view'}}],
+}
+(root / 'package.json').write_text(json.dumps({'name': 'cursor-ext', 'version': '0.1.0', 'muxy': manifest}, indent=2))
+page = """<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin: 0; padding: 24px; background: #eef6ff; color: #222; font: 16px system-ui, sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 12px; }
+  textarea { width: 600px; height: 300px; font: 15px ui-monospace, monospace; }
+  a { font-size: 20px; }
+</style></head>
+<body>
+<h1>CURSOR-PAGE</h1>
+<p id="calls">calls: 0</p>
+<textarea id="editor">fn main() {
+    println!("hello");
+}</textarea>
+<p><a href="#" id="link">A link to hover</a></p>
+<script>
+  let calls = 0;
+  const counter = document.getElementById('calls');
+  setInterval(() => {
+    if (window.muxy && muxy.tabs) {
+      muxy.tabs.list().then(() => { calls += 1; counter.textContent = 'calls: ' + calls; });
+    }
+  }, 60);
+</script>
+</body></html>
+"""
+(root / 'view.html').write_text(page)
+print('cursor fixture ready: ~/e2e/cursor-ext (load it with muxy extension load)')
+PY
+}
+
 cmd_extension_edit() {
   local package="$FIXTURES/hello-ext/package.json"
   case "$1" in
@@ -1372,11 +1419,78 @@ cmd_ime_mode() {
 }
 
 
+# Samples the cursor macOS shows on screen, so flicker that a screenshot can't show is counted.
+cmd_cursor_probe() {
+  [ "$OS" = Darwin ] || die "cursor-probe is macOS only"
+  local seconds="${1:-6}" source="$SHARE/cursor-probe.swift" binary="$SHARE/cursor-probe"
+  mkdir -p "$SHARE"
+  if [ ! -x "$binary" ]; then
+    cat > "$source" <<'SWIFT'
+import AppKit
+import CryptoKit
+
+_ = NSApplication.shared
+
+func key(_ cursor: NSCursor) -> String {
+    let data = cursor.image.tiffRepresentation ?? Data()
+    return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+}
+func shape(_ cursor: NSCursor) -> String {
+    "\(Int(cursor.hotSpot.x)),\(Int(cursor.hotSpot.y)) \(Int(cursor.image.size.width))x\(Int(cursor.image.size.height))"
+}
+let known: [(String, NSCursor)] = [
+    ("Arrow", .arrow), ("IBeam", .iBeam), ("PointingHand", .pointingHand),
+    ("ResizeLeftRight", .resizeLeftRight), ("ResizeUpDown", .resizeUpDown),
+    ("OpenHand", .openHand), ("ClosedHand", .closedHand), ("Crosshair", .crosshair),
+]
+var byKey: [String: String] = [:]
+var byShape: [String: String] = [:]
+for (name, cursor) in known {
+    byKey[key(cursor)] = name
+    if byShape[shape(cursor)] == nil { byShape[shape(cursor)] = name }
+}
+func classify(_ cursor: NSCursor?) -> String {
+    guard let cursor else { return "None" }
+    return byKey[key(cursor)] ?? byShape[shape(cursor)] ?? "Other(\(shape(cursor)))"
+}
+let seconds = Double(CommandLine.arguments.dropFirst().first ?? "6") ?? 6
+let start = Date()
+var last = ""
+var lastLocation = NSEvent.mouseLocation
+var lastMove = Date.distantPast
+var counts: [String: [String: Int]] = ["moving": [:], "still": [:]]
+var changes: [String: Int] = ["moving": 0, "still": 0]
+while Date().timeIntervalSince(start) < seconds {
+    let now = Date()
+    let location = NSEvent.mouseLocation
+    if location != lastLocation { lastMove = now; lastLocation = location }
+    let phase = now.timeIntervalSince(lastMove) < 0.2 ? "moving" : "still"
+    let name = classify(NSCursor.currentSystem)
+    counts[phase, default: [:]][name, default: 0] += 1
+    if name != last {
+        if !last.isEmpty { changes[phase, default: 0] += 1 }
+        print(String(format: "t=%5.0fms %@ %@ at %.0f,%.0f", now.timeIntervalSince(start) * 1000, phase, name, location.x, location.y))
+        last = name
+    }
+    usleep(5000)
+}
+for phase in ["moving", "still"] {
+    let seen = (counts[phase] ?? [:]).sorted { $0.value > $1.value }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+    print("CURSOR \(phase): changes=\(changes[phase] ?? 0) \(seen.isEmpty ? "none" : seen)")
+}
+print("CURSOR final=\(last)")
+SWIFT
+    swiftc -O -o "$binary" "$source" >&2 || die "could not build the cursor probe"
+  fi
+  "$binary" "$seconds"
+}
+
 command="${1:-help}"
 [ $# -gt 0 ] && shift
 case "$command" in
   ime-fixture) cmd_ime_fixture ;;
   ime-mode) cmd_ime_mode "$1" ;;
+  cursor-probe) cmd_cursor_probe "$@" ;;
   reset) cmd_reset ;;
   launch) cmd_launch ;;
   quit) cmd_quit ;;
@@ -1412,6 +1526,7 @@ case "$command" in
   bg-fixture) cmd_bg_fixture ;;
   extension-edit) [ $# -ge 1 ] || die "usage: extension-edit <version|broken>"; cmd_extension_edit "$1" ;;
   security-fixture) cmd_security_fixture ;;
+  cursor-fixture) cmd_cursor_fixture ;;
   launch-without-muxy) cmd_launch_without_muxy ;;
   info) cmd_info ;;
   logs) cmd_logs ;;
