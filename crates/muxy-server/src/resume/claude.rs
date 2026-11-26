@@ -74,7 +74,7 @@ fn has_transcript(configuration: &Path, cwd: Option<&Path>, id: &str) -> bool {
         .any(|entry| entry.path().join(&name).is_file())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
