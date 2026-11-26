@@ -464,6 +464,7 @@ impl TerminalPane {
     pub(crate) fn apply(&mut self, frame: &ScreenFrame, cx: &mut Context<Self>) -> Option<u64> {
         let _span = crate::profiler::span(crate::profiler::Metric::FrameApply);
         crate::profiler::count(crate::profiler::Metric::FrameRows, frame.rows.len());
+        let slides = self.slides();
         let Some(Screen::Attached(_, terminal)) = &mut self.grid else {
             return None;
         };
@@ -481,9 +482,7 @@ impl TerminalPane {
             && following
             && !frame.reset
             && frame.size == terminal.grid.size
-            && self.terminal.options.output_scroll_animation
-            && !self.agent_running
-            && !self.input_modes.mouse_tracking)
+            && slides)
             .then(|| terminal.grid.rows.clone());
         let seq = terminal.apply(frame);
         match (before, growth) {
@@ -1047,7 +1046,16 @@ impl TerminalPane {
         }
     }
 
+    fn slides(&self) -> bool {
+        self.terminal.options.output_scroll_animation
+            && !self.agent_running
+            && !self.input_modes.mouse_tracking
+    }
+
     pub(crate) fn sample_slide(&mut self, now: std::time::Instant) -> f32 {
+        if !self.slides() {
+            self.slide.clear();
+        }
         let following = self.scroll.view.is_none() && self.state == PaneState::Live;
         self.slide.sample(following.then_some(now))
     }
@@ -1340,7 +1348,8 @@ impl TerminalPane {
         let column = if nearest { x.round() } else { x.floor() }
             .clamp(0.0, f32::from(grid.size.cols)) as u16;
         let remainder = self.scroll.pixel_remainder(f32::from(cell.height));
-        let y = (position.y - bounds.origin.y - px(remainder)) / cell.height;
+        let y = (position.y - bounds.origin.y - px(remainder) - cell.height * self.slide.sampled())
+            / cell.height;
         let height = self.viewport.unwrap_or(grid.size).rows;
         let last = height.saturating_sub(1) + u16::from(remainder < 0.0);
         let visible = y.floor().clamp(0.0, f32::from(last)) as usize;

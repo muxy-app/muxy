@@ -105,7 +105,7 @@ impl Slide {
         }
         self.from = (remaining + rows as f32).min(MAX_LAG);
         self.started = Some(now);
-        for row in scrolled.iter().rev() {
+        for row in scrolled {
             self.ghosts.push_front(row.clone());
         }
         self.ghosts.truncate(MAX_GHOSTS);
@@ -239,6 +239,18 @@ mod tests {
         assert_eq!(slide.rows(start), MAX_LAG);
         assert_eq!(slide.sample(Some(start + DURATION)), 0.0);
         assert_eq!(slide.ghosts().count(), 0);
+    }
+
+    #[test]
+    fn a_multi_row_scroll_keeps_the_newest_row_next_to_the_grid() {
+        let start = Instant::now();
+        let mut slide = Slide::default();
+        let before = screen(&["a", "b", "c", "d", "e", "f"]);
+        let after = screen(&["c", "d", "e", "f", "g", "h"]);
+        slide.observe(&before, &after, Growth::Rows(2), start);
+        assert_eq!(slide.sample(Some(start)), 2.0);
+        let ghosts: Vec<String> = slide.ghosts().map(|runs| runs[0].text.clone()).collect();
+        assert_eq!(ghosts, ["b", "a"]);
     }
 
     #[test]
