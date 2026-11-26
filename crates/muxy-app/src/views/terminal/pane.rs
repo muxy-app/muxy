@@ -17,7 +17,9 @@ use muxy_ui::tr;
 use super::{
     clipboard,
     colors::Palette,
-    element, find, input,
+    element, find,
+    glide::Glide,
+    input,
     scroll::{HistoryRequest, Scroll, output_changed},
     scrollbar::Scrollbar,
     selection::{Point, SelectedRow, Selection},
@@ -132,6 +134,7 @@ pub(crate) struct TerminalPane {
     pub(crate) scroll: Scroll,
     pub(crate) slide: Slide,
     pub(crate) agent_running: bool,
+    pub(crate) glide: Glide,
     pub(crate) find: Option<find::Find>,
     pub(crate) find_refresh: Option<Task<()>>,
     pub(crate) insert_path: Option<super::insert_path::InsertPath>,
@@ -274,6 +277,7 @@ impl TerminalPane {
             scroll: Scroll::default(),
             slide: Slide::default(),
             agent_running: false,
+            glide: Glide::default(),
             find: None,
             insert_path: None,
             find_refresh: None,
@@ -1060,6 +1064,24 @@ impl TerminalPane {
         self.slide.sample(following.then_some(now))
     }
 
+    pub(crate) fn sample_cursor(&mut self, now: std::time::Instant) -> bool {
+        let height = self.viewport().map(|size| size.rows);
+        let target = self
+            .grid
+            .as_ref()
+            .filter(|_| self.scroll.view.is_none() && self.focused)
+            .and_then(|grid| {
+                let cursor = grid.cursor;
+                (cursor.visible
+                    && cursor.col < grid.size.cols
+                    && cursor.row < height.unwrap_or(grid.size.rows))
+                .then_some((cursor.row, cursor.col))
+            });
+        self.glide
+            .sample(target, self.terminal.options.cursor_animation, now);
+        self.glide.moving(now)
+    }
+
     pub(crate) fn displayed_grid(&self) -> Option<&RunGrid> {
         self.scroll.view.as_ref().or(self.grid.as_deref())
     }
@@ -1786,6 +1808,7 @@ impl TerminalPane {
             self.clear_selection();
         }
         self.restart_cursor_blink(cx);
+        self.glide.typed(cx.background_executor().now());
         if redraw {
             cx.notify();
         }

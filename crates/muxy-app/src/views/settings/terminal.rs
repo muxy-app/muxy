@@ -458,6 +458,7 @@ pub(super) fn rows(
             "scroll-on-keystroke" => Some(options.scroll_on_keystroke),
             "scroll-on-output" => Some(options.scroll_on_output),
             "output-scroll-animation" => Some(options.output_scroll_animation),
+            "cursor-animation" => Some(options.cursor_animation),
             "mouse-reporting" => Some(options.mouse_reporting),
             "keybind-clear-defaults" => Some(terminal.keybindings.clear_defaults),
             _ => None,

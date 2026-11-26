@@ -836,6 +836,13 @@ pub(super) const SETTINGS: &[Setting] = &[
         section: tr_key!("Cursor"),
     },
     Setting {
+        id: "cursor-animation",
+        label: tr_key!("Smooth cursor movement"),
+        description: tr_key!("Glide the cursor along the line as you type or move it."),
+        category: Category::Terminal,
+        section: tr_key!("Cursor"),
+    },
+    Setting {
         id: "copy-on-select",
         label: tr_key!("Copy on select"),
         description: tr_key!(

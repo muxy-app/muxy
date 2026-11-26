@@ -325,6 +325,7 @@ impl TerminalSettings {
             "scroll-on-keystroke" => next.options.scroll_on_keystroke = flag()?,
             "scroll-on-output" => next.options.scroll_on_output = flag()?,
             "output-scroll-animation" => next.options.output_scroll_animation = flag()?,
+            "cursor-animation" => next.options.cursor_animation = flag()?,
             "scroll-precision" => next.options.scroll_precision = number()?,
             "scroll-discrete" => next.options.scroll_discrete = number()?,
             "macos-option-as-alt" => next.macos_option_as_alt = value.parse()?,

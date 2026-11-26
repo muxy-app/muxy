@@ -122,12 +122,12 @@ pub(crate) fn terminal(view: Entity<TerminalPane>, palette: &Palette) -> impl In
                 });
             });
             let now = cx.background_executor().now();
-            let slide = view.update(cx, |pane, cx| {
+            let (slide, gliding) = view.update(cx, |pane, cx| {
                 pane.scrollbar.place(bounds);
                 pane.sync_cursor_blink(window, cx);
-                pane.sample_slide(now)
+                (pane.sample_slide(now), pane.sample_cursor(now))
             });
-            if slide > 0.0 {
+            if slide > 0.0 || gliding {
                 window.request_animation_frame();
             }
             let mut painting = prepare(
@@ -480,7 +480,7 @@ fn prepare(
         painting.cursor = Some(Bounds::new(
             origin
                 + point(
-                    cell.width * f32::from(grid.cursor.col),
+                    cell.width * view.glide.column_at(grid.cursor.row, grid.cursor.col),
                     cell.height * f32::from(grid.cursor.row),
                 ),
             cell,

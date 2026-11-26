@@ -76,6 +76,8 @@ Use **Settings → Terminal** for:
 - **Smooth output scrolling** (off by default): new output slides the view up
   instead of jumping. Full-screen programs, AI agents, and bursts of more than
   half a screen still jump.
+- **Smooth cursor movement** (on by default): the cursor glides along the line
+  as you type or move it; moves programs make on their own still jump.
 - Whether both, neither, left, or right Option keys act as Alt.
 - Whether new tabs and panes start in the focused pane's working directory
   (**Keep working directory**, off by default) or in the project folder.

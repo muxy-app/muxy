@@ -956,6 +956,7 @@
 "Git Changes: %@" = "Git Changes: %@";
 "Git ignores %@, so the store wouldn't get it. Remove the ignore rule and publish again." = "Git ignores %@, so the store wouldn't get it. Remove the ignore rule and publish again.";
 "Give a branch its own worktree." = "Give a branch its own worktree.";
+"Glide the cursor along the line as you type or move it." = "Glide the cursor along the line as you type or move it.";
 "Global X11 shortcuts cannot cover a Wayland desktop." = "Global X11 shortcuts cannot cover a Wayland desktop.";
 "Global folder: %@" = "Global folder: %@";
 "Global template: %@" = "Global template: %@";
@@ -1893,6 +1894,7 @@
 "Skip Tour" = "Skip Tour";
 "Skip whenever you like. You can replay it from the command palette." = "Skip whenever you like. You can replay it from the command palette.";
 "Slide new output into view instead of jumping." = "Slide new output into view instead of jumping.";
+"Smooth cursor movement" = "Smooth cursor movement";
 "Smooth output scrolling" = "Smooth output scrolling";
 "Some history exceeds the scan limit." = "Some history exceeds the scan limit.";
 "Sort Projects" = "Sort Projects";
