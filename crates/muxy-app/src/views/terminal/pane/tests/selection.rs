@@ -67,3 +67,56 @@ fn double_click_and_drag_use_current_word_characters(cx: &mut TestAppContext) {
         });
     });
 }
+
+#[gpui::test]
+fn clicks_on_rows_sliding_out_of_view_select_nothing(cx: &mut TestAppContext) {
+    let (pane, cx) = cx.add_window_view(|_, cx| {
+        TerminalPane::new(
+            Palette::new(true),
+            muxy_app_core::settings::TerminalSettings::default(),
+            cx,
+        )
+    });
+    cx.update(|window, cx| {
+        pane.update(cx, |pane, cx| {
+            prepare_mouse(pane);
+            let screen = |lines: &[&str]| -> Vec<Vec<Run>> {
+                lines.iter().map(|text| row(0, text).runs).collect()
+            };
+            let now = std::time::Instant::now();
+            pane.slide.observe(
+                &screen(&["old", "alpha beta", "second row", "prompt"]),
+                &screen(&["alpha beta", "second row", "prompt", "next"]),
+                crate::views::terminal::slide::Growth::Rows(1),
+                now,
+            );
+            assert!((pane.slide.sample(Some(now)) - 1.0).abs() < f32::EPSILON);
+            for (y, expected) in [
+                (5.0, None),
+                (25.0, Some("alpha beta")),
+                (45.0, Some("second row")),
+            ] {
+                pane.mouse_down(
+                    &gpui::MouseDownEvent {
+                        position: point(px(25.0), px(y)),
+                        click_count: 3,
+                        ..gpui::MouseDownEvent::default()
+                    },
+                    window,
+                    cx,
+                );
+                assert_eq!(
+                    pane.selection
+                        .map(|selection| selection.text(pane.displayed_grid().unwrap()))
+                        .as_deref(),
+                    expected
+                );
+            }
+            assert_eq!(
+                pane.point_at(point(px(25.0), px(-5.0)), false)
+                    .map(|point| point.row),
+                Some(0)
+            );
+        });
+    });
+}
