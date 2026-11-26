@@ -23,10 +23,11 @@ fn a_dragged_pane_shows_its_chip_and_drop_place_from_its_first_move(cx: &mut Tes
     let nudged = handle.center() + point(px(12.0), px(0.0));
     pointer(cx, nudged, true);
     let main = view.read_with(cx, |model, _| model.window.window_id());
+    let home = pane_bounds(&view, c, cx);
     view.read_with(cx, |model, _| {
         assert_eq!(model.move_drag.lifted(), Some(Moving::Pane(c)));
         assert_eq!(model.move_drag.pointer(), Some((main, nudged)));
-        assert_eq!(model.move_drag.marked(), None);
+        assert_eq!(model.move_drag.marked(), Some(home));
     });
     let bounds = view.read_with(cx, |model, _| {
         model.layout_drag.geometry.get(tab).expect("geometry").0
@@ -125,5 +126,50 @@ fn a_dragged_tab_trades_places_only_past_its_neighbors_middle(cx: &mut TestAppCo
         assert!(!model.layout_drag_pending());
         assert_eq!(model.move_drag.lifted(), None);
         assert_eq!(store::load(&model.path).expect("saved"), model.state);
+    });
+}
+
+#[gpui::test]
+fn every_spot_inside_the_tab_marks_where_a_dragged_pane_would_land(cx: &mut TestAppContext) {
+    let mut state = AppState::bootstrap().expect("state");
+    let tab = state.open_terminal_tab(state.home().id).expect("tab");
+    let left = state.window().active_pane.expect("pane");
+    let right = state.split_pane(left, Direction::Right).expect("split");
+    for (index, pane) in [left, right].iter().enumerate() {
+        state
+            .set_pane_session(*pane, SessionId::new(300 + index as u64))
+            .expect("session");
+    }
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.simulate_resize(size(px(1001.0), px(701.0)));
+    cx.run_until_parked();
+    let bounds = view.read_with(cx, |model, _| {
+        model.layout_drag.geometry.get(tab).expect("geometry").0
+    });
+    let home = pane_bounds(&view, right, cx);
+    let handle = cx
+        .debug_bounds(format!("pane-handle-{right}").leak())
+        .expect("handle");
+    press(cx, handle.center(), false);
+    pointer(cx, handle.center() + point(px(12.0), px(0.0)), true);
+    let y = bounds.center().y;
+    let mut x = bounds.left() + px(2.0);
+    while x < bounds.right() - px(2.0) {
+        pointer(cx, point(x, y), true);
+        view.read_with(cx, |model, _| {
+            let marked = model.move_drag.marked();
+            assert!(marked.is_some(), "nothing marked at {x:?}");
+            if model.layout_drag.preview.is_none() {
+                assert_eq!(marked, Some(home), "the pane stays put at {x:?}");
+            }
+        });
+        x += px(25.0);
+    }
+    let before = view.read_with(cx, |model, _| model.state.clone());
+    release(cx, point(home.center().x, y));
+    view.read_with(cx, |model, _| {
+        assert_eq!(model.state, before);
+        assert!(!model.layout_drag_pending());
     });
 }

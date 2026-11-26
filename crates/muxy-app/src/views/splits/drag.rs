@@ -395,7 +395,14 @@ impl AppModel {
             .layout_drag
             .preview
             .as_ref()
-            .map(|preview| preview.bounds);
+            .map(|preview| preview.bounds)
+            .or_else(|| {
+                let drag = self.layout_drag.pane.as_ref()?;
+                pane_rects(&drag.layout, bounds, scale)
+                    .into_iter()
+                    .find(|(pane, _)| *pane == drag.pane)
+                    .map(|(_, bounds)| bounds)
+            });
         self.hold_move(Moving::Pane(pane), window, position, local, cx);
     }
 

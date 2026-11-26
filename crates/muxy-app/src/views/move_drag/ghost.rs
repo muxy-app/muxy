@@ -19,7 +19,6 @@ pub(super) const WIDTH: f32 = 260.0;
 pub(super) struct Chip {
     pub(super) model: WeakEntity<AppModel>,
     pub(super) moving: super::Moving,
-    pub(super) label: SharedString,
     pub(super) theme: Theme,
     pub(super) metrics: Metrics,
 }
@@ -31,15 +30,24 @@ pub(super) struct Ghost {
 impl Render for Ghost {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let chip = &self.chip;
-        let glyph = chip.model.upgrade().map_or_else(
+        let (label, glyph) = chip.model.upgrade().map_or_else(
             || {
-                IconGlyph::new(Icon::Terminal, chip.metrics.icon_md(), chip.theme.fg_muted)
-                    .into_any_element()
+                (
+                    SharedString::default(),
+                    IconGlyph::new(Icon::Terminal, chip.metrics.icon_md(), chip.theme.fg_muted)
+                        .into_any_element(),
+                )
             },
-            |model| super::glyph(chip.moving, model.read(cx), cx),
+            |model| {
+                let model = model.read(cx);
+                (
+                    super::label(chip.moving, model, cx),
+                    super::glyph(chip.moving, model, cx),
+                )
+            },
         );
         div().flex().items_start().p(px(PAD)).child(chip_body(
-            &chip.label,
+            label,
             glyph,
             &chip.theme,
             chip.metrics,
@@ -82,7 +90,7 @@ pub(super) fn close(handle: WindowHandle<Ghost>, cx: &mut App) {
 }
 
 pub(super) fn chip_body(
-    label: &SharedString,
+    label: SharedString,
     glyph: AnyElement,
     theme: &Theme,
     metrics: Metrics,
@@ -107,7 +115,7 @@ pub(super) fn chip_body(
                 .min_w(px(0.0))
                 .truncate()
                 .font_weight(FontWeight::MEDIUM)
-                .child(label.clone()),
+                .child(label),
         )
         .into_any_element()
 }

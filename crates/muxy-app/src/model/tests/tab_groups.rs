@@ -115,3 +115,25 @@ fn dragging_a_tab_to_an_edge_opens_it_beside_the_previous_tab(cx: &mut TestAppCo
     assert!(left.right() <= right.left());
     assert!(cx.debug_bounds("group-divider-[]").is_some());
 }
+
+#[gpui::test]
+fn a_tab_dragged_over_the_middle_of_the_content_splits_toward_the_nearest_edge(
+    cx: &mut TestAppContext,
+) {
+    let (state, [a, b, c]) = state();
+    let (view, cx) = open(state, cx);
+    let bounds = content(&view, a, cx);
+    let target = point(
+        bounds.center().x + bounds.size.width * 0.1,
+        bounds.center().y,
+    );
+    let from = cell(cx, "tab-cell-2");
+    drag(cx, from, target);
+    view.read_with(cx, |model, _| {
+        let preview = model.tab_drag.preview().expect("preview");
+        assert_eq!(preview.left(), bounds.center().x);
+        assert_eq!(model.move_drag.marked(), Some(preview));
+    });
+    release(cx, target);
+    assert_eq!(groups(&view, cx), [vec![a, b], vec![c]]);
+}

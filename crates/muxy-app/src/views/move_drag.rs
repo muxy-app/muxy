@@ -187,7 +187,6 @@ const CARRY_LANDING_ALPHA: f32 = 0.45;
 struct Gesture {
     moving: Moving,
     source: ProjectId,
-    label: SharedString,
     grab: Point<Pixels>,
     size: Size<Pixels>,
     target: Option<Target>,
@@ -276,6 +275,10 @@ impl AppModel {
         let (target, indicator) = found.map_or((None, None), |(target, indicator)| {
             (Some(target), indicator)
         });
+        let indicator = match (target, over) {
+            (None, Some(over)) => self.home_marker(moving, over),
+            _ => indicator,
+        };
         self.show_gesture(target, indicator, pointer, cx);
         let ghost = outside && target == Some(Target::NewWindow);
         self.place_ghost(ghost, cx);
@@ -294,13 +297,43 @@ impl AppModel {
             return;
         }
         let here = window.window_handle().window_id();
-        let indicator = local.map(|bounds| Indicator {
-            window: here,
-            bounds,
-            mark: Mark::Area,
-        });
+        let indicator = local
+            .map(|bounds| Indicator {
+                window: here,
+                bounds,
+                mark: Mark::Area,
+            })
+            .or_else(|| self.home_marker(moving, here));
         self.show_gesture(None, indicator, Some((here, position)), cx);
         self.place_ghost(false, cx);
+    }
+
+    fn home_marker(&self, moving: Moving, window: WindowId) -> Option<Indicator> {
+        let bounds = match moving {
+            Moving::Pane(pane) => {
+                let tab = self.state.pane_tab(pane)?;
+                let placement = self
+                    .layout_drag
+                    .geometry
+                    .placement(tab)
+                    .filter(|placement| placement.window == window)?;
+                crate::views::splits::drag::pane_bounds(&self.tab(tab)?.layout, placement, pane)?
+            }
+            Moving::Tab(tab) if window == self.window.window_id() => self
+                .tab_drag
+                .cells
+                .borrow()
+                .iter()
+                .find(|(id, _)| *id == tab)
+                .map(|(_, bounds)| *bounds)
+                .filter(|bounds| bounds.size.width > px(0.0))?,
+            Moving::Tab(_) | Moving::Window(_) => return None,
+        };
+        Some(Indicator {
+            window,
+            bounds,
+            mark: Mark::Area,
+        })
     }
 
     fn lift(&mut self, moving: Moving, window: &Window) -> bool {
@@ -434,17 +467,14 @@ impl AppModel {
             .iter()
             .find(|project| project.tabs.iter().any(|candidate| candidate.id == tab))?;
         let descriptor = self.tab(tab)?;
-        let label = match moving {
-            Moving::Pane(pane) => descriptor
+        if let Moving::Pane(pane) = moving
+            && !descriptor
                 .panes
                 .iter()
-                .find(|candidate| candidate.id == pane)?
-                .title
-                .clone(),
-            Moving::Tab(_) | Moving::Window(_) => descriptor
-                .title(self.state.shown_pane(descriptor))
-                .to_owned(),
-        };
+                .any(|candidate| candidate.id == pane)
+        {
+            return None;
+        }
         let area = self
             .layout_drag
             .geometry
@@ -462,7 +492,6 @@ impl AppModel {
         Some(Gesture {
             moving,
             source: source.id,
-            label: label.into(),
             grab: point(
                 px(CHIP_OFFSET.min(f32::from(size.width) / 2.0)),
                 self.metrics.title_bar_height() / 2.0,
@@ -709,7 +738,6 @@ impl AppModel {
                 let chip = ghost::Chip {
                     model: cx.weak_entity(),
                     moving: gesture.moving,
-                    label: gesture.label.clone(),
                     theme: self.theme.clone(),
                     metrics: self.metrics,
                 };
@@ -861,6 +889,26 @@ fn line(bounds: Bounds<Pixels>, axis: Axis, end: bool) -> Bounds<Pixels> {
     }
 }
 
+pub(super) fn label(moving: Moving, model: &AppModel, cx: &App) -> SharedString {
+    let tab = match moving {
+        Moving::Pane(id) => {
+            let Some(pane) = model.state.pane(id) else {
+                return SharedString::default();
+            };
+            return model
+                .terminal(&id)
+                .and_then(|terminal| terminal.view.read(cx).header_title())
+                .unwrap_or_else(|| model.pane_title(pane, cx).to_owned())
+                .into();
+        }
+        Moving::Tab(tab) => Some(tab),
+        Moving::Window(id) => model.window_tab(id),
+    };
+    tab.and_then(|tab| model.tab(tab))
+        .map(|tab| SharedString::from(model.webview_title(tab, cx).to_owned()))
+        .unwrap_or_default()
+}
+
 pub(super) fn glyph(moving: Moving, model: &AppModel, cx: &App) -> AnyElement {
     let size = model.metrics.icon_md();
     let color = model.theme.fg_muted;
@@ -970,9 +1018,11 @@ pub(crate) fn overlay(model: &AppModel, window: &Window, cx: &App) -> AnyElement
     let theme = &model.theme;
     let accent = theme.accent;
     let refused = theme.danger;
-    let scrim = theme.bg.opacity(0.6);
-    let outline = theme.fg_muted.opacity(0.5);
-    let lifted = lifted_pane(model, gesture, here);
+    let scrim = theme.fg.opacity(0.05);
+    let outline = theme.fg_muted.opacity(0.8);
+    let lifted = gesture
+        .pointer
+        .and_then(|_| lifted_pane(model, gesture, here));
     let occlusions = model.webviews.occlusions.clone();
     let main = here == model.window.window_id();
     let painted = canvas(
@@ -1109,7 +1159,7 @@ fn chip(
     let body = div()
         .relative()
         .child(ghost::chip_body(
-            &gesture.label,
+            label(gesture.moving, model, cx),
             glyph(gesture.moving, model, cx),
             &model.theme,
             model.metrics,
