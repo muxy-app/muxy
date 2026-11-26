@@ -54,6 +54,8 @@ use util::{ResultExt, measure};
 use uuid::Uuid;
 
 pub(crate) mod a11y;
+#[cfg(test)]
+mod cursor_tests;
 mod prompts;
 
 use self::a11y::{A11y, ROOT_NODE_ID};
@@ -633,15 +635,15 @@ impl Frame {
         }
     }
 
-    pub(crate) fn cursor_style(&self, window: &Window) -> Option<CursorStyle> {
+    pub(crate) fn cursor_style(&self, window: &Window) -> Option<&CursorStyleRequest> {
         self.cursor_styles
             .iter()
             .rev()
             .fold_while(None, |style, request| match request.hitbox_id {
-                None => Done(Some(request.style)),
-                Some(hitbox_id) => Continue(
-                    style.or_else(|| hitbox_id.is_hovered(window).then_some(request.style)),
-                ),
+                None => Done(Some(request)),
+                Some(hitbox_id) => {
+                    Continue(style.or_else(|| hitbox_id.is_hovered(window).then_some(request)))
+                }
             })
             .into_inner()
     }
@@ -722,6 +724,7 @@ pub struct Window {
     default_prevented: bool,
     mouse_position: Point<Pixels>,
     mouse_hit_test: HitTest,
+    child_view_hovered: Cell<bool>,
     modifiers: Modifiers,
     capslock: Capslock,
     scale_factor: f32,
@@ -1225,6 +1228,7 @@ impl Window {
             default_prevented: true,
             mouse_position,
             mouse_hit_test: HitTest::default(),
+            child_view_hovered: Cell::new(false),
             modifiers,
             capslock,
             scale_factor,
@@ -3282,13 +3286,17 @@ impl Window {
     }
 
     fn reset_cursor_style(&self, cx: &mut App) {
-        if self.is_window_hovered() {
-            let style = self
-                .rendered_frame
-                .cursor_style(self)
-                .unwrap_or(CursorStyle::Arrow);
-            cx.platform.set_cursor_style(style);
+        if !self.is_window_hovered() {
+            return;
         }
+        let child_view_hovered = self.platform_window.is_child_view_hovered();
+        self.child_view_hovered.set(child_view_hovered);
+        let request = self.rendered_frame.cursor_style(self);
+        if child_view_hovered && request.is_none_or(|request| request.hitbox_id.is_some()) {
+            return;
+        }
+        cx.platform
+            .set_cursor_style(request.map_or(CursorStyle::Arrow, |request| request.style));
     }
 
     pub fn dispatch_keystroke(&mut self, keystroke: Keystroke, cx: &mut App) -> bool {
@@ -3427,6 +3435,8 @@ impl Window {
         let hit_test = self.rendered_frame.hit_test(self.mouse_position());
         if hit_test != self.mouse_hit_test {
             self.mouse_hit_test = hit_test;
+            self.reset_cursor_style(cx);
+        } else if self.platform_window.is_child_view_hovered() != self.child_view_hovered.get() {
             self.reset_cursor_style(cx);
         }
 

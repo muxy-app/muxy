@@ -29,6 +29,7 @@ pub(crate) struct TestWindowState {
     moved_callback: Option<Box<dyn FnMut()>>,
     input_handler: Option<PlatformInputHandler>,
     is_fullscreen: bool,
+    child_view_hovered: bool,
     #[cfg(test)]
     pub(crate) a11y_tree_updates: Vec<accesskit::TreeUpdate>,
 }
@@ -76,6 +77,7 @@ impl TestWindow {
             moved_callback: None,
             input_handler: None,
             is_fullscreen: false,
+            child_view_hovered: false,
             #[cfg(test)]
             a11y_tree_updates: Vec::new(),
         })))
@@ -91,6 +93,11 @@ impl TestWindow {
         drop(lock);
         callback(size, scale_factor);
         self.0.lock().resize_callback = Some(callback);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn simulate_child_view_hover(&self, hovered: bool) {
+        self.0.lock().child_view_hovered = hovered;
     }
 
     pub(crate) fn simulate_active_status_change(&self, active: bool) {
@@ -201,6 +208,10 @@ impl PlatformWindow for TestWindow {
 
     fn is_hovered(&self) -> bool {
         false
+    }
+
+    fn is_child_view_hovered(&self) -> bool {
+        self.0.lock().child_view_hovered
     }
 
     fn set_title(&mut self, title: &str) {

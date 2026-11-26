@@ -1227,6 +1227,23 @@ impl PlatformWindow for MacWindow {
         false
     }
 
+    fn is_child_view_hovered(&self) -> bool {
+        let (view, window) = {
+            let this = self.0.lock();
+            (this.native_view.as_ptr(), this.native_window)
+        };
+        unsafe {
+            let superview: id = msg_send![view, superview];
+            if superview == nil {
+                return false;
+            }
+            let in_window: NSPoint = msg_send![window, mouseLocationOutsideOfEventStream];
+            let in_superview: NSPoint = msg_send![superview, convertPoint: in_window fromView: nil];
+            let hit: id = msg_send![view, hitTest: in_superview];
+            hit != nil && !ptr::eq(hit as *const Object, view as *const Object)
+        }
+    }
+
     fn set_title(&mut self, title: &str) {
         unsafe {
             let app = NSApplication::sharedApplication(nil);

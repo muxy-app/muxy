@@ -71,6 +71,7 @@ impl HitTestRegions {
 )]
 fn grip_cursor(style: CursorStyle) -> Option<Retained<NSCursor>> {
     match style {
+        CursorStyle::Arrow => Some(NSCursor::arrowCursor()),
         CursorStyle::ResizeLeftRight | CursorStyle::ResizeColumn => {
             Some(NSCursor::resizeLeftRightCursor())
         }
