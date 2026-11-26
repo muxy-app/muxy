@@ -257,8 +257,9 @@ impl AppModel {
             .geometry
             .at(self.window.window_id(), position)
             .filter(|placement| visible.contains(&placement.tab))?;
-        let split = |edge: Direction| {
-            (!siblings.contains(&shown) || siblings.len() > 1).then(|| {
+        match edge_at(position, bounds) {
+            None => self.join_group(tab, shown, None),
+            Some(edge) => (!siblings.contains(&shown) || siblings.len() > 1).then(|| {
                 (
                     TabDrop::Split {
                         beside: shown,
@@ -266,13 +267,7 @@ impl AppModel {
                     },
                     half(bounds, edge),
                 )
-            })
-        };
-        match edge_at(position, bounds, EDGE_ZONE) {
-            Some(edge) => split(edge),
-            None => self
-                .join_group(tab, shown, None)
-                .or_else(|| split(edge_at(position, bounds, 1.0)?)),
+            }),
         }
     }
 
@@ -301,7 +296,7 @@ impl AppModel {
     }
 }
 
-fn edge_at(position: Point<Pixels>, bounds: Bounds<Pixels>, zone: f32) -> Option<Direction> {
+fn edge_at(position: Point<Pixels>, bounds: Bounds<Pixels>) -> Option<Direction> {
     let width = f32::from(bounds.size.width).max(1.0);
     let height = f32::from(bounds.size.height).max(1.0);
     [
@@ -320,7 +315,7 @@ fn edge_at(position: Point<Pixels>, bounds: Bounds<Pixels>, zone: f32) -> Option
         ),
     ]
     .into_iter()
-    .filter(|(_, distance)| *distance < zone)
+    .filter(|(_, distance)| *distance < EDGE_ZONE)
     .min_by(|a, b| a.1.total_cmp(&b.1))
     .map(|(edge, _)| edge)
 }

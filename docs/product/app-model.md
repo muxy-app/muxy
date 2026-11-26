@@ -119,7 +119,8 @@ to do that refuse the move.
 - From the first move, a chip with the tab or pane's name follows the pointer,
   also outside the app on macOS. The dragged tab or pane fades in place, the
   drop place is outlined or marked between tabs and glides as the pointer
-  moves, and a place on another computer shows as refused.
+  moves. Where a drop changes nothing, the tab or pane's own place is
+  outlined, and a place on another computer shows as refused.
 - Tabs slide aside as a dragged tab passes the middle of its neighbor.
 - A tab in its own window has the system's window controls and leaves the main
   window's tabs. Drag its titlebar over the main window to put it back, or use

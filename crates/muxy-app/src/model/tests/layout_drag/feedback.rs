@@ -173,3 +173,33 @@ fn every_spot_inside_the_tab_marks_where_a_dragged_pane_would_land(cx: &mut Test
         assert!(!model.layout_drag_pending());
     });
 }
+
+#[gpui::test]
+fn a_tab_dropped_where_nothing_changes_marks_its_own_place_and_stays(cx: &mut TestAppContext) {
+    let (state, [a, b], _) = state();
+    let (boot, _requests) = stub_boot(state);
+    let (view, cx) = cx.add_window_view(|window, cx| AppModel::new(boot, window, cx));
+    cx.run_until_parked();
+    let home = cx.debug_bounds("tab-cell-1").expect("cell");
+    let content = view.read_with(cx, |model, _| {
+        model.layout_drag.geometry.get(a).expect("geometry").0
+    });
+    press(cx, home.center(), false);
+    pointer(cx, home.center() + point(px(0.0), px(12.0)), true);
+    pointer(cx, content.center(), true);
+    let before = view.read_with(cx, |model, _| {
+        assert_eq!(model.tab_drag.preview(), None);
+        assert_eq!(model.move_drag.marked(), Some(home));
+        model.state.clone()
+    });
+    release(cx, content.center());
+    view.read_with(cx, |model, _| {
+        assert_eq!(listed(model), [a, b]);
+        assert_eq!(
+            model.state.home().groups().is_some(),
+            before.home().groups().is_some()
+        );
+        assert!(model.state.home().groups().is_none());
+        assert!(!model.layout_drag_pending());
+    });
+}
