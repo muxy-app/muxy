@@ -123,6 +123,11 @@ fn a_terminal_renewed_after_its_server_stopped_keeps_its_place_folder_and_proxy(
     let gone = restored.renew_ended_terminal(right, |_| false)?;
     let retried = restored.renew_ended_terminal(gone, |_| false)?;
     assert_eq!(restored.resume_source(retried), SessionId::new(8));
+    let path = std::env::temp_dir().join(format!("muxy-resume-{}.json", ProjectId::new()));
+    store::save(&path, &restored)?;
+    let mut restored = store::load(&path)?;
+    fs::remove_file(path)?;
+    assert_eq!(restored.resume_source(retried), SessionId::new(8));
     restored.set_pane_session(retried, SessionId::new(9))?;
     assert_eq!(restored.resume_source(retried), None);
     let gone = retried;

@@ -24,7 +24,7 @@ pub struct AppState {
     pub(crate) starting_proxies: BTreeMap<PaneId, bool>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) startup_commands: BTreeMap<PaneId, String>,
-    #[serde(skip)]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) resume_sources: BTreeMap<PaneId, SessionId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) quick_terminal: Option<Pane>,
@@ -51,6 +51,8 @@ struct StoredState {
     starting_proxies: BTreeMap<PaneId, bool>,
     #[serde(default)]
     startup_commands: BTreeMap<PaneId, String>,
+    #[serde(default)]
+    resume_sources: BTreeMap<PaneId, SessionId>,
     #[serde(default)]
     quick_terminal: Option<Pane>,
     version: u32,
@@ -108,7 +110,7 @@ impl TryFrom<StoredState> for AppState {
             starting_directories: stored.starting_directories,
             starting_proxies: stored.starting_proxies,
             startup_commands: stored.startup_commands,
-            resume_sources: BTreeMap::new(),
+            resume_sources: stored.resume_sources,
             quick_terminal: stored.quick_terminal,
             version: VERSION,
             projects: stored.projects,
