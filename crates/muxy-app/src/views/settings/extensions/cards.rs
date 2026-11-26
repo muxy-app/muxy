@@ -3,7 +3,7 @@ use gpui::{
     Context, FontWeight, InteractiveElement, ParentElement, Pixels, SharedString,
     StatefulInteractiveElement, Styled, div, px,
 };
-use muxy_app_core::extensions::Extension;
+use muxy_app_core::extensions::{Extension, Marketplace};
 use muxy_app_core::settings::ExtensionsLayout;
 use muxy_ui::{
     accessibility,
@@ -37,7 +37,7 @@ const MAX_COLUMNS: u16 = 4;
 #[derive(Clone)]
 enum Open {
     Installed(Box<ExtensionDetails>),
-    Marketplace(String),
+    Marketplace(Marketplace, String),
 }
 
 pub(super) struct Entry {
@@ -345,8 +345,12 @@ impl ExtensionsView {
                     .contains(&query)
             })
             .map(|(extension, enabled, unpacked)| {
-                let details = ExtensionDetails::from(extension);
+                let mut details = ExtensionDetails::from(extension);
+                details.source = self.installed_from(&extension.name, cx);
                 let mut badges = Vec::new();
+                if !details.source.is_official() && !*unpacked {
+                    badges.push((tr!("from %@", details.source.to_string()), false));
+                }
                 if *unpacked {
                     badges.push((tr!("Unpacked"), false));
                 } else if model
@@ -382,13 +386,14 @@ impl ExtensionsView {
                 if item.about.official {
                     badges.push((tr!("Official"), true));
                 }
+                if !item.source.is_official() {
+                    badges.push((tr!("from %@", item.source.to_string()), false));
+                }
                 if let Some(model) = &model {
                     let model = model.read(cx);
-                    if model
-                        .extensions
-                        .registry
-                        .extensions
-                        .contains_key(&item.name)
+                    let registry = &model.extensions.registry;
+                    if registry.extensions.contains_key(&item.name)
+                        && registry.source(&item.name) == item.source
                     {
                         badges.push(if model.extension_update_version(&item.name).is_some() {
                             (tr!("Update available"), true)
@@ -402,9 +407,12 @@ impl ExtensionsView {
                     version: item.version.clone(),
                     description: item.description.clone(),
                     about: item.about.clone(),
-                    art: Art::marketplace(&item.name, 1),
+                    art: Art::marketplace(
+                        item.icon.as_ref(),
+                        item.screenshots.get(..1).unwrap_or_default(),
+                    ),
                     badges,
-                    open: Open::Marketplace(item.name.clone()),
+                    open: Open::Marketplace(item.source.clone(), item.name.clone()),
                     installed: None,
                 }
             })
@@ -488,7 +496,7 @@ impl ExtensionsView {
                 cx,
             )));
         }
-        body
+        body.child(self.marketplaces_section(cx))
     }
 
     fn entries(&self, entries: Vec<Entry>, cx: &Context<Self>) -> gpui::Div {
@@ -530,7 +538,10 @@ impl ExtensionsView {
     fn entry_shell(&self, entry: &Entry, cx: &Context<Self>) -> gpui::Stateful<gpui::Div> {
         let id = match &entry.open {
             Open::Installed(_) => format!("extension-row-{}", entry.name),
-            Open::Marketplace(_) => format!("extension-card-{}", entry.name),
+            Open::Marketplace(source, _) if !source.is_official() => {
+                format!("extension-card-{source}-{}", entry.name)
+            }
+            Open::Marketplace(..) => format!("extension-card-{}", entry.name),
         };
         let open = entry.open.clone();
         let loading = matches!(&self.loading, Some(Loading::Details(name)) if *name == entry.name);
@@ -560,7 +571,9 @@ impl ExtensionsView {
                 view.install_status = None;
                 match &open {
                     Open::Installed(details) => view.open_details(details.as_ref().clone(), cx),
-                    Open::Marketplace(name) => view.details(name.clone(), cx),
+                    Open::Marketplace(source, name) => {
+                        view.details(source.clone(), name.clone(), cx);
+                    }
                 }
                 cx.notify();
             }))

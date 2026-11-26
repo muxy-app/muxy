@@ -100,6 +100,12 @@ struct Fixture {
 }
 
 fn fixture(phones: usize) -> Fixture {
+    let fixture = switched_off(phones);
+    assert!(fixture.registry.set_push_notifications(true).is_ok());
+    fixture
+}
+
+fn switched_off(phones: usize) -> Fixture {
     let phones: Vec<_> = (0..phones).map(|_| DeviceId::new()).collect();
     let relay = Arc::new(FakeRelay::default());
     let (events, _) = mpsc::channel();
@@ -200,6 +206,19 @@ impl Fixture {
         self.registry.notifier.register(&connection);
         connection
     }
+}
+
+#[test]
+fn a_new_server_sends_nothing_to_the_relay_until_push_is_turned_on() {
+    let fixture = switched_off(1);
+    assert!(!fixture.registry.remote_access_state().push_notifications);
+    let paused = fixture.register(0, apns("ab"));
+    assert_eq!(paused.status, PushStatus::Disabled);
+    assert_eq!(paused.key, None);
+    assert!(fixture.relay.calls().is_empty());
+    assert!(fixture.registry.set_push_notifications(true).is_ok());
+    assert_eq!(fixture.register(0, apns("ab")).status, PushStatus::Active);
+    assert_eq!(fixture.relay.calls(), vec![Call::Register("ab".repeat(32))]);
 }
 
 #[test]

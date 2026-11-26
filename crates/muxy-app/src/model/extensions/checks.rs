@@ -34,7 +34,7 @@ pub(super) struct Checks {
 impl Checks {
     pub(super) fn retain_installed(&mut self, registry: &Registry) {
         self.available.retain(|name, version| {
-            !registry.is_unpacked(name)
+            super::installs::updatable(registry, name)
                 && registry
                     .extensions
                     .get(name)
@@ -82,7 +82,12 @@ impl AppModel {
 
     pub(crate) fn check_extension_updates(&mut self, cx: &mut Context<Self>) {
         #[cfg(not(test))]
-        let resolve = marketplace::versions;
+        let resolve = {
+            let sources = super::installs::updatable_sources(&self.extensions.registry);
+            move |names: &[String]| {
+                marketplace::versions(&super::installs::sourced(names, &sources))
+            }
+        };
         #[cfg(test)]
         let resolve = self
             .extensions
@@ -104,7 +109,7 @@ impl AppModel {
         let names: Vec<_> = registry
             .extensions
             .keys()
-            .filter(|name| !registry.is_unpacked(name))
+            .filter(|name| super::installs::updatable(registry, name))
             .cloned()
             .collect();
         if names.is_empty() {

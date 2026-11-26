@@ -133,21 +133,37 @@ impl AppModel {
         window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        let affected = self.client_access.state.as_ref().is_some_and(|state| {
-            state.push_notifications && state.devices.iter().any(|device| device.push.is_some())
-        });
-        if on || !affected {
+        let Some(state) = self.client_access.state.as_ref() else {
+            self.switch_push_notifications(on, cx);
+            return;
+        };
+        let affected = state.push_notifications
+            && !on
+            && state.devices.iter().any(|device| device.push.is_some());
+        let enabling = on && !state.push_notifications;
+        if !affected && !enabling {
             self.switch_push_notifications(on, cx);
             return;
         }
         let generation = self.servers.local.generation;
+        let question = if on {
+            super::dialogs::Question::EnablePush
+        } else {
+            super::dialogs::Question::PausePush
+        };
         self.ask_once(
-            super::dialogs::Question::PausePush,
+            question,
             window,
-            async move |parent, cx| crate::views::confirm::prompt_pause_push(parent, cx).await,
+            async move |parent, cx| {
+                if on {
+                    crate::views::confirm::prompt_enable_push(parent, cx).await
+                } else {
+                    crate::views::confirm::prompt_pause_push(parent, cx).await
+                }
+            },
             move |model, response, cx| match response {
                 Ok(true) if generation == model.servers.local.generation => {
-                    model.switch_push_notifications(false, cx);
+                    model.switch_push_notifications(on, cx);
                 }
                 Err(error) => model.client_access.error = Some(error),
                 Ok(_) => {}

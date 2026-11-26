@@ -1,4 +1,5 @@
 mod api;
+mod marketplaces;
 mod pages;
 mod project_icons;
 mod rail;

@@ -26,6 +26,7 @@ pub(super) const ROOTS: &[&str] = &[
     "desktop-state.json",
     "extension-enabled.json",
     "extension-folders.json",
+    "extension-sources.json",
     "extension-settings",
     "themes",
 ];

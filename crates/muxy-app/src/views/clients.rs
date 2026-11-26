@@ -169,7 +169,7 @@ pub(crate) fn push_description(state: &RemoteAccessState, now: u64) -> SharedStr
             until.saturating_sub(now).div_ceil(86_400)
         ),
         None => tr!(
-            "Off. Nothing is sent to muxy.app, and phones can't turn notifications on for this computer."
+            "Off. Nothing is sent to muxy.app. Turn this on so paired phones can hear when an agent needs attention or finishes, through the Muxy relay, which sees only encrypted content."
         ),
     }
 }

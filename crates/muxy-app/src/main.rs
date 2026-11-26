@@ -31,7 +31,6 @@ mod server;
 mod test_support;
 mod theme;
 mod updater;
-mod usage_ping;
 mod views {
     pub(crate) mod agent_sessions;
     pub(crate) mod agents_panel;

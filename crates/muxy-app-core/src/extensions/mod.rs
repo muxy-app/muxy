@@ -2,6 +2,7 @@ mod audit;
 mod manifest;
 pub mod panels;
 mod permissions;
+mod sources;
 mod storage;
 
 pub mod api;
@@ -15,10 +16,13 @@ pub use manifest::{
 pub use permissions::{
     Choice, Consent, Gate, Grants, Request, Rule, TRUSTED, event_permission, required_permission,
 };
+pub use sources::{Marketplace, OFFICIAL_MARKETPLACE};
 pub use storage::{Settings, Storage};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+const SOURCES: &str = "extension-sources.json";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Unpacked {
@@ -33,6 +37,7 @@ pub struct Registry {
     preference_errors: Vec<String>,
     enabled: BTreeSet<String>,
     unpacked: BTreeMap<String, PathBuf>,
+    sources: sources::Sources,
     profile: PathBuf,
 }
 
@@ -50,6 +55,7 @@ impl Registry {
         };
         registry.enabled = registry.read_preference("extension-enabled.json");
         registry.unpacked = registry.read_preference("extension-folders.json");
+        registry.sources = registry.read_preference(SOURCES);
         registry.preference_errors = std::mem::take(&mut registry.errors);
         registry.reload();
         registry
@@ -242,6 +248,66 @@ impl Registry {
         Ok(())
     }
 
+    pub fn marketplaces(&self) -> Vec<Marketplace> {
+        std::iter::once(Marketplace::official())
+            .chain(self.sources.marketplaces.iter().cloned())
+            .collect()
+    }
+
+    pub fn has_marketplace(&self, marketplace: &Marketplace) -> bool {
+        marketplace.is_official() || self.sources.marketplaces.contains(marketplace)
+    }
+
+    pub fn add_marketplace(&mut self, marketplace: Marketplace) -> Result<(), String> {
+        if self.has_marketplace(&marketplace) {
+            return Err(format!("{marketplace} is already added"));
+        }
+        let mut sources = self.sources.clone();
+        sources.marketplaces.push(marketplace);
+        self.save_sources(sources)
+    }
+
+    pub fn remove_marketplace(&mut self, marketplace: &Marketplace) -> Result<(), String> {
+        if marketplace.is_official() {
+            return Err("the official marketplace can't be removed".into());
+        }
+        if !self.sources.marketplaces.contains(marketplace) {
+            return Err(format!("{marketplace} is not added"));
+        }
+        let mut sources = self.sources.clone();
+        sources.marketplaces.retain(|added| added != marketplace);
+        self.save_sources(sources)
+    }
+
+    pub fn source(&self, id: &str) -> Marketplace {
+        self.sources.installed.get(id).cloned().unwrap_or_default()
+    }
+
+    pub fn set_source(&mut self, id: &str, marketplace: &Marketplace) -> Result<(), String> {
+        if self.sources.installed.get(id) == Some(marketplace)
+            || (marketplace.is_official() && !self.sources.installed.contains_key(id))
+        {
+            return Ok(());
+        }
+        let mut sources = self.sources.clone();
+        if marketplace.is_official() {
+            sources.installed.remove(id);
+        } else {
+            sources.installed.insert(id.to_owned(), marketplace.clone());
+        }
+        self.save_sources(sources)
+    }
+
+    fn save_sources(&mut self, sources: sources::Sources) -> Result<(), String> {
+        storage::write(
+            &self.profile.join(SOURCES),
+            &serde_json::to_value(&sources).map_err(|error| error.to_string())?,
+        )?;
+        self.sources = sources;
+        self.forget_preference_error(SOURCES);
+        Ok(())
+    }
+
     pub fn remove(&mut self, id: &str) -> Result<(), String> {
         self.set_enabled(id, false)?;
         if let Some(folder) = self.unpacked.get(id).cloned() {
@@ -259,6 +325,7 @@ impl Registry {
                 .retain(|error| !error.starts_with(&prefix) && !error.starts_with(&duplicate));
         } else {
             std::fs::remove_dir_all(self.directory().join(id)).map_err(|e| e.to_string())?;
+            self.set_source(id, &Marketplace::official())?;
         }
         self.extensions.remove(id);
         Ok(())

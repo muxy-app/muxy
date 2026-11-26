@@ -192,3 +192,4 @@ Read the one you need from `references/`, beside this file:
 | `files.md`, `git.md`, `events.md`, `localizations.md` | Files, Git, events, and translations |
 | `agents.md` | Building extensions with an agent, from the user's side |
 | `contributing.md` | Publishing rules, by hand or with Muxy |
+| `marketplaces.md` | Adding marketplaces, and hosting one |

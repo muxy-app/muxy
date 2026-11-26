@@ -528,6 +528,9 @@ fn listing(name: &str, official: bool) -> MarketplaceItem {
         name: name.into(),
         description: String::new(),
         version: Some("2.0.0".into()),
+        icon: None,
+        screenshots: Vec::new(),
+        source: muxy_app_core::extensions::Marketplace::official(),
         about: About {
             official,
             ..About::default()
@@ -740,6 +743,9 @@ fn changing_the_layout_inside_the_settings_tab_saves_it(cx: &mut TestAppContext)
 
 #[test]
 fn a_listing_shows_at_most_six_screenshots() {
-    let art = super::pictures::Art::marketplace("git", 40);
+    let screenshots: Vec<String> = (0..40)
+        .map(|index| format!("https://github.com/muxy-app/extensions/releases/download/git%401.0.0/screenshot-{index}.png"))
+        .collect();
+    let art = super::pictures::Art::marketplace(None, &screenshots);
     assert_eq!(art.screenshots.len(), super::pictures::MAX_SCREENSHOTS);
 }

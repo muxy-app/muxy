@@ -32,7 +32,6 @@ impl Category {
                 tr_key!("Files"),
                 tr_key!("Window size"),
                 tr_key!("Worktrees"),
-                tr_key!("Privacy"),
             ],
             Self::Appearance => &[
                 tr_key!("Language"),

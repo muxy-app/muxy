@@ -41,6 +41,7 @@ for local and remote projects. Web requests run in the desktop app.
 | [Git](git.md) | Repository, branches, pull requests, and worktrees |
 | [Localizations](localizations.md) | Language packs |
 | [Contributing](contributing.md) | Publish to the marketplace |
+| [Marketplaces](marketplaces.md) | Add other marketplaces, or host your own |
 
 ## Where extensions live
 

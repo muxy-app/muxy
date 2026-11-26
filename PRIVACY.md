@@ -1,7 +1,7 @@
 # Privacy Policy
 
 _Effective date: the date this document was first published at its public URL._
-_Last updated: November 14, 2026._
+_Last updated: November 26, 2026._
 
 Muxy is a developer tool made of a desktop app, a server that runs on your own computer (with the `muxy` command), and phone apps for iOS and Android that connect to that computer. This policy describes what data each part handles, what is sent to `muxy.app`, and how to turn it off.
 
@@ -11,47 +11,24 @@ Muxy is open source, so you can check everything described here in the code.
 
 - No account, no sign-up, no email required.
 - No advertising, no third-party analytics or tracking SDKs, and no data sold or shared.
-- The desktop app sends one anonymous ping a day to `muxy.app` with only the app version, operating system, and processor type. It is on by default, and you can turn it off.
-- Push notifications to your phone go through a relay at `muxy.app` that cannot read them. You can turn them off on the phone or on the computer.
+- No usage pings or telemetry. Nothing is sent to `muxy.app` unless you turn on push notifications.
+- Push notifications are off until you turn them on, on both the computer and the phone. When they're on, they go through our relay at `muxy.app`, which cannot read them.
+- Extensions are browsed and downloaded from GitHub, not from `muxy.app`.
 - Your terminals, prompts, code, and files never leave the computers and phones you connect.
 
 ## The desktop app
 
-### Anonymous daily ping
-
-Installed releases of the desktop app send one request a day to `https://muxy.app/api/ping`, so we can count active installs per version. The request contains only:
-
-```json
-{"version": "2.6.0", "os": "macos", "arch": "aarch64"}
-```
-
-There is no install ID, user ID, or account, and nothing about your projects, terminals, or how you use Muxy. The server, the `muxy` command, and the phone apps never send it, and neither do development builds.
-
-Like any web request, the ping comes from your IP address. Here is what `muxy.app` keeps:
-
-- One row per day per sender, holding the version, operating system, processor type, the country Cloudflare derives from the IP address, and the time of the last ping.
-- The IP address is never stored. The row holds a keyed hash of it instead (HMAC-SHA-256 with a secret key), so one computer pinging twice on the same day counts once, and the hash can't be turned back into the address without that key.
-- Rows are deleted after 90 days.
-
-`muxy.app` is served through Cloudflare, which handles the request on our behalf like any other web traffic to the site.
-
-**To turn it off**, use any one of these:
-
-- **Settings → General → Send an anonymous daily ping**
-- `muxy config set privacy.usage_ping false`
-- Start Muxy with the environment variable `DO_NOT_TRACK=1`
-
-Once it's off, nothing more is sent.
-
-### Other connections the desktop app makes
+### Connections the desktop app makes
 
 - **Update checks.** The app reads the latest release information from GitHub (`github.com/muxy-app/muxy`) and downloads updates from there. GitHub's own privacy policy applies to those requests.
-- **Extensions.** Browsing and installing extensions talks to `muxy.app`. Each download adds to the extension's public download count and records the extension, its version, the country, and a keyed hash of the IP address. Those records are deleted after 90 days.
+- **Extensions.** Browsing extensions reads the catalog from GitHub (`raw.githubusercontent.com/muxy-app/extensions`), and installing one downloads it from that repository's releases on GitHub. GitHub counts each download, and that count is shown as the extension's public download count. Marketplaces you add are read the same way, from the GitHub repositories you add. GitHub's own privacy policy applies to those requests. Nothing about extensions is sent to `muxy.app`.
 - **Things you open yourself.** Web pages, searches, Git remotes, SSH hosts, and AI agents you run in Muxy connect wherever you point them. Muxy doesn't add anything to those connections.
 
 ## Push notifications
 
 Push notifications let a paired phone know when an agent on your computer needs your attention or finishes working while you're away from the Muxy app.
+
+They are off until you turn them on, on both sides: on the computer with **Push notifications** under **Settings → Servers → Clients** or `muxy mobile push on`, and in the Muxy app for each computer. Muxy explains how the relay works before turning them on. Until then, nothing is sent to `muxy.app`.
 
 ### How a notification travels
 
@@ -81,7 +58,7 @@ Registrations no one has used for 90 days are deleted, and ones Apple or Google 
 You can turn them off on either side:
 
 - **On the phone.** Notifications are off until you allow them. Turn them off for a computer in the Muxy app, or for the whole app in your phone's system settings. Turning them off for a computer deletes its registration at the relay.
-- **On the computer.** Notifications are allowed by default. Pause them for every phone with **Push notifications** under **Settings → Servers → Clients**, or with `muxy mobile push off`. The relay forgets every phone at once, and nothing more is sent to `muxy.app`. Your computer keeps each phone's push token and key locally for up to 90 days, so turning notifications back on resumes them without pairing again. After that, it forgets them.
+- **On the computer.** Notifications are off until you turn them on. Turn them off again for every phone with **Push notifications** under **Settings → Servers → Clients**, or with `muxy mobile push off`. The relay forgets every phone at once, and nothing more is sent to `muxy.app`. Your computer keeps each phone's push token and key locally for up to 90 days, so turning notifications back on resumes them without pairing again. After that, it forgets them.
 - **For one phone.** **Reset Notifications** next to the phone, or `muxy mobile push reset <id>`, gives it a new key without unpairing it. Revoking the phone (**Revoke**, or `muxy mobile revoke <id>`) deletes its registration.
 
 Phones connected over SSH don't get push notifications.
@@ -122,7 +99,7 @@ The phone app itself never contacts `muxy.app` or any third-party server, apart 
 - No personal information, account, or email address.
 - No contacts, photos, location, or microphone data.
 - No terminal output, prompts, code, or file contents.
-- No usage analytics beyond the anonymous daily ping, and no crash reports.
+- No usage analytics, pings, or crash reports.
 - No advertising identifiers.
 - No data sold or shared with third parties.
 

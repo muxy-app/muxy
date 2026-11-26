@@ -346,8 +346,10 @@ fn details(name: &str) -> Result<ExtensionDetails, String> {
         download_url: None,
         size: None,
         sha256: None,
+        icon: None,
+        screenshots: Vec::new(),
+        source: muxy_app_core::extensions::Marketplace::official(),
         about: crate::extensions::marketplace::About::default(),
-        screenshots: 0,
     })
 }
 

@@ -62,6 +62,7 @@ fn shown<'a>(
         return Cow::Borrowed(details);
     };
     let mut shown = ExtensionDetails::from(extension);
+    shown.source = details.source.clone();
     shown.about.downloads = details.about.downloads;
     shown.about.official = details.about.official;
     Cow::Owned(shown)
@@ -69,17 +70,20 @@ fn shown<'a>(
 
 impl ExtensionsView {
     fn local<'a>(
+        &self,
         details: &ExtensionDetails,
         installed: &'a [(Extension, bool, bool)],
+        cx: &gpui::App,
     ) -> Option<&'a (Extension, bool, bool)> {
-        installed
-            .iter()
-            .find(|(extension, _, _)| extension.name == details.name)
+        installed.iter().find(|(extension, _, unpacked)| {
+            extension.name == details.name
+                && (*unpacked || self.installed_from(&extension.name, cx) == details.source)
+        })
     }
 
     fn art(&self, details: &ExtensionDetails, local: Option<&(Extension, bool, bool)>) -> Art {
         local.map_or_else(
-            || Art::marketplace(&details.name, details.screenshots),
+            || Art::marketplace(details.icon.as_ref(), &details.screenshots),
             |(extension, _, _)| self.pictures.installed(extension),
         )
     }
@@ -112,7 +116,7 @@ impl ExtensionsView {
         installed: &[(Extension, bool, bool)],
         cx: &Context<Self>,
     ) -> gpui::Div {
-        let local = Self::local(details, installed);
+        let local = self.local(details, installed, cx);
         let shown = shown(details, local);
         let art = self.art(details, local);
         div()
@@ -163,6 +167,9 @@ impl ExtensionsView {
         let mut badges: Vec<(SharedString, bool)> = Vec::new();
         if details.about.official {
             badges.push((tr!("Official"), true));
+        }
+        if !details.source.is_official() && !local.is_some_and(|(_, _, unpacked)| *unpacked) {
+            badges.push((tr!("from %@", details.source.to_string()), false));
         }
         if let Some((_, enabled, unpacked)) = local {
             badges.push(if *enabled {
@@ -344,7 +351,7 @@ impl ExtensionsView {
         installed: &[(Extension, bool, bool)],
         cx: &Context<Self>,
     ) -> Vec<(Option<Section>, AnyElement)> {
-        let local = Self::local(details, installed);
+        let local = self.local(details, installed, cx);
         let shown = shown(details, local);
         let art = self.art(details, local);
         let mut children = vec![(
@@ -789,18 +796,27 @@ impl ExtensionsView {
         details: &ExtensionDetails,
         cx: &Context<Self>,
     ) -> gpui::Div {
-        let available = marketplace::available_update(extension, details);
+        let source = self.installed_from(&extension.name, cx);
+        let removed = !self
+            .model
+            .upgrade()
+            .is_some_and(|model| model.read(cx).extensions.registry.has_marketplace(&source));
+        let available =
+            marketplace::available_update(extension, &source, details).filter(|_| !removed);
         let owner = extension.name.clone();
+        let checked = source.clone();
         let actions = div()
             .flex()
             .flex_wrap()
             .gap(self.metrics.spacing4())
-            .child(self.button(
-                "extension-check-update",
-                tr_key!("Check for updates"),
-                move |view, _, cx| view.details(owner.clone(), cx),
-                cx,
-            ))
+            .when(!removed, |actions| {
+                actions.child(self.button(
+                    "extension-check-update",
+                    tr_key!("Check for updates"),
+                    move |view, _, cx| view.details(checked.clone(), owner.clone(), cx),
+                    cx,
+                ))
+            })
             .when(available.is_some(), |actions| {
                 actions.child(self.button(
                     "extension-update",
@@ -809,7 +825,12 @@ impl ExtensionsView {
                     cx,
                 ))
             });
-        let message = if let Some(version) = available {
+        let message = if removed {
+            tr!(
+                "Add the %@ marketplace again to get updates for this extension.",
+                source.to_string()
+            )
+        } else if let Some(version) = available {
             tr!("Version %@ is available.", version)
         } else if self.completed == Some(Mutation::Update) {
             tr!("Extension updated.")

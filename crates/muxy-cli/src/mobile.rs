@@ -48,11 +48,20 @@ pub(crate) fn run(command: Mobile, client: &Client) -> Result {
         Mobile::Push { on } => {
             let state = client.set_push_notifications(on)?;
             writeln!(io::stdout(), "{}", switched(&state, now()))?;
+            if state.push_notifications {
+                writeln!(io::stdout(), "\n{RELAY}")?;
+            }
             Ok(())
         }
         Mobile::ResetPush { device } => reset_push(client, &device),
     }
 }
+
+const RELAY: &str = "How it works: this computer encrypts each notification with a key only it \
+and the phone have, then sends it through the Muxy relay at muxy.app to Apple or Google. \
+The relay can't read it: it sees only that a notification was sent, and stores each \
+phone's push token encrypted. Terminal output, prompts, and code are never sent. \
+`muxy mobile push off` stops it.";
 
 fn switched(state: &RemoteAccessState, now: u64) -> String {
     let phones = state
