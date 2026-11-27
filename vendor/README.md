@@ -73,3 +73,8 @@ Muxy relies on these changes:
 - Place an IME composition caret from the Wayland preedit cursor and the X11
   preedit caret, counted in UTF-16 units of the composing text, and anchor the
   candidate window to that caret.
+- Hand keys a Windows IME has claimed (`VK_PROCESSKEY`) only to the IME, never
+  to the app, as upstream Zed does since
+  [#41259](https://github.com/zed-industries/zed/pull/41259). IMEs that compose
+  in their own window, such as Sogou, never report marked text, so a terminal
+  would otherwise take their Space, Enter or Backspace.
