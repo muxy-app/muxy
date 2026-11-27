@@ -356,6 +356,10 @@ impl WindowsWindowInner {
     }
 
     fn handle_keydown_msg(&self, handle: HWND, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
+        if VIRTUAL_KEY(wparam.loword()) == VK_PROCESSKEY {
+            translate_message(handle, wparam, lparam);
+            return Some(0);
+        }
         let mut lock = self.state.borrow_mut();
         let Some(input) = handle_key_event(handle, wparam, lparam, &mut lock, |keystroke| {
             PlatformInput::KeyDown(KeyDownEvent {
@@ -1277,12 +1281,8 @@ where
                 capslock,
             }))
         }
+        VK_PROCESSKEY => None,
         vkey => {
-            let vkey = if vkey == VK_PROCESSKEY {
-                VIRTUAL_KEY(unsafe { ImmGetVirtualKey(handle) } as u16)
-            } else {
-                vkey
-            };
             let keystroke = parse_normal_key(vkey, lparam, modifiers)?;
             Some(f(keystroke))
         }
