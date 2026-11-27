@@ -8,8 +8,8 @@ use muxy_core::worker::WorkerPool;
 
 use muxy_protocol::wire::{Decoder, WireError};
 use muxy_protocol::{
-    CONTROL, ChannelId, ErrorCode, HistoryCursor, Message, ReplyBody, RequestBody, RequestId,
-    SearchSource, SessionId, Size,
+    CONTROL, ChannelId, ClientKind, ErrorCode, HistoryCursor, Message, ReplyBody, RequestBody,
+    RequestId, SearchSource, SessionId, Size, TerminalColors,
 };
 
 use crate::archive::SearchCache;
@@ -349,7 +349,7 @@ impl Requests {
     clippy::too_many_lines,
     reason = "Keep request dispatch exhaustive in one place"
 )]
-fn ordered_request(
+pub(super) fn ordered_request(
     body: RequestBody,
     id: RequestId,
     registry: &Registry,
@@ -534,7 +534,7 @@ fn ordered_request(
                 directory.as_path(),
                 size,
                 crate::registry::Launch {
-                    colors: colors.clone().or_else(|| connection.colors()),
+                    colors: launch_colors(registry, connection, colors.as_ref()),
                     environment,
                     resume_from,
                 },
@@ -610,6 +610,29 @@ fn ordered_request(
             ),
         },
     }))
+}
+
+fn launch_colors(
+    registry: &Registry,
+    connection: &Connection,
+    requested: Option<&TerminalColors>,
+) -> Option<TerminalColors> {
+    requested
+        .cloned()
+        .or_else(|| connection.colors())
+        .or_else(|| {
+            (connection.client().kind == ClientKind::Cli)
+                .then(|| {
+                    registry
+                        .notifier
+                        .connections()
+                        .iter()
+                        .rev()
+                        .filter(|other| other.client().kind == ClientKind::Desktop)
+                        .find_map(|other| other.colors())
+                })
+                .flatten()
+        })
 }
 
 fn project_request(

@@ -496,3 +496,88 @@ fn a_metadata_watcher_hears_titles_of_sessions_it_does_not_show()
     std::fs::remove_dir_all(&directory)?;
     Ok(())
 }
+
+#[cfg(unix)]
+#[test]
+fn a_session_the_cli_creates_answers_color_queries_with_the_desktop_colors()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicU32;
+    use std::time::{Duration, Instant};
+
+    use muxy_protocol::{ClientKind, RequestBody, RequestId, TerminalColors};
+
+    let directory = std::env::temp_dir().join(format!("muxy-colors-{}", std::process::id()));
+    std::fs::create_dir_all(&directory)?;
+    let reply = directory.join("reply");
+    let shell = directory.join("shell");
+    std::fs::write(
+        &shell,
+        format!(
+            "#!/bin/sh\nstty raw -echo\nprintf '\\033]11;?\\033\\\\'\nexec cat > '{}'\n",
+            reply.display()
+        ),
+    )?;
+    std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o700))?;
+    let (sender, _requests) = mpsc::channel();
+    let registry = Registry::new(
+        ServerSettings {
+            default_shell: Some(shell),
+            shell_integration: false,
+            ..ServerSettings::default()
+        },
+        sender,
+    );
+    let request = |connection: &Arc<Connection>, body| {
+        super::reader::ordered_request(
+            body,
+            RequestId(1),
+            &registry,
+            connection,
+            &Mutex::default(),
+            &AtomicU32::default(),
+        )
+    };
+    let connect = |kind| {
+        let connection = Arc::new(Connection::new(Arc::clone(&registry.notifier)));
+        connection.identify(kind);
+        registry.notifier.register(&connection);
+        connection
+    };
+    let desktop = connect(ClientKind::Desktop);
+    request(
+        &desktop,
+        RequestBody::SetTerminalColors(TerminalColors {
+            background: [0x12, 0x34, 0x56],
+            ..TerminalColors::default()
+        }),
+    )?;
+    let cli = connect(ClientKind::Cli);
+    request(
+        &cli,
+        RequestBody::CreateSession {
+            project: registry.home_project(),
+            operation: muxy_protocol::OperationId::new(),
+            directory: muxy_protocol::ServerPath::from(crate::test_support::folder().as_path()),
+            size: muxy_protocol::Size { cols: 80, rows: 24 },
+            environment: std::collections::BTreeMap::new(),
+            colors: None,
+            resume_from: None,
+        },
+    )?;
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let answer = loop {
+        let answer = std::fs::read_to_string(&reply).unwrap_or_default();
+        if answer.contains('\\') || Instant::now() > deadline {
+            break answer;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    registry.shutdown();
+    registry.wait_stopped();
+    let _ = std::fs::remove_dir_all(&directory);
+    assert!(answer.contains("rgb:1212/3434/5656"), "{answer:?}");
+    Ok(())
+}
