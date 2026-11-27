@@ -508,8 +508,9 @@ fn a_session_the_cli_creates_answers_color_queries_with_the_desktop_colors()
 
     use muxy_protocol::{ClientKind, RequestBody, RequestId, TerminalColors};
 
-    let directory = std::env::temp_dir().join(format!("muxy-colors-{}", std::process::id()));
-    std::fs::create_dir_all(&directory)?;
+    let directory =
+        std::env::temp_dir().join(format!("muxy-colors-{}", muxy_protocol::ProjectId::new()));
+    std::fs::create_dir(&directory)?;
     let reply = directory.join("reply");
     let shell = directory.join("shell");
     std::fs::write(

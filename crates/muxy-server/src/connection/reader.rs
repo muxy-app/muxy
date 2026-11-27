@@ -628,7 +628,9 @@ fn launch_colors(
                         .connections()
                         .iter()
                         .rev()
-                        .filter(|other| other.client().kind == ClientKind::Desktop)
+                        .filter(|other| {
+                            !other.is_closed() && other.client().kind == ClientKind::Desktop
+                        })
                         .find_map(|other| other.colors())
                 })
                 .flatten()
